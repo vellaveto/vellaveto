@@ -349,6 +349,9 @@ class VellavetoCheckpoint:
         graph = graph.compile(checkpointer=checkpoint)
     """
 
+    # SECURITY (FIND-SDK-017): Maximum thread_id length to prevent abuse
+    _MAX_THREAD_ID_LEN = 256
+
     def __init__(
         self,
         client: VellavetoClient,
@@ -356,7 +359,7 @@ class VellavetoCheckpoint:
     ):
         self.client = client
         self.base = base_checkpoint
-        self._sessions: Dict[str, str] = {}
+        # SECURITY (FIND-SDK-016): Removed unused _sessions dict (dead code)
 
     def get(self, config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Get checkpoint state."""
@@ -364,6 +367,13 @@ class VellavetoCheckpoint:
         if state:
             # Inject session ID if not present
             thread_id = config.get("configurable", {}).get("thread_id", "default")
+            # SECURITY (FIND-SDK-017): Validate thread_id to prevent injection
+            if not isinstance(thread_id, str):
+                thread_id = str(thread_id)
+            # Sanitize: only allow alphanumeric, dash, underscore, dot
+            import re
+            if not re.match(r"^[a-zA-Z0-9_.\-]{1,256}$", thread_id):
+                thread_id = "invalid"
             if "vellaveto_session_id" not in state:
                 state["vellaveto_session_id"] = f"langgraph-{thread_id}"
         return state

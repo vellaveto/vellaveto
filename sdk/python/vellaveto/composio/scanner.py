@@ -39,12 +39,16 @@ _INVISIBLE_CHARS = re.compile(
     r"[\u200b\u200c\u200d\u00ad\ufeff\u200e\u200f\u2060\u2061\u2062\u2063\u2064]"
 )
 
-# Maximum string length to scan (64 KB — injection payloads are not hidden
-# deep in megabytes of data)
-_MAX_SCAN_STRING_LEN = 65536
+# SECURITY (FIND-COMPOSIO-006): Maximum string length to apply regex scanning
+# (1 MB).  Strings exceeding this are truncated for injection scanning only.
+_MAX_SCAN_STRING_LEN = 1_048_576
 
 # Maximum findings before stopping scan (prevents resource exhaustion)
+# SECURITY (FIND-COMPOSIO-005): Capped at 100.
 _MAX_FINDINGS = 100
+
+# SECURITY (FIND-COMPOSIO-010): Maximum total nodes walked to prevent CPU exhaustion
+_MAX_TOTAL_NODES = 100_000
 
 # ReDoS detection: reject patterns with nested quantifiers like (a+)+ or (a*)*
 _NESTED_QUANTIFIER_RE = re.compile(r"[+*]\)?[+*{]")
@@ -129,7 +133,12 @@ class ResponseScanner:
             ``ResponseScanResult`` with any findings.
         """
         result = ResponseScanResult()
-        self._walk(response_data, "", 0, result)
+        # SECURITY (FIND-COMPOSIO-008): Track visited object ids to prevent
+        # infinite loops from circular references.
+        visited: set = set()
+        # SECURITY (FIND-COMPOSIO-010): Count total nodes to bound CPU work.
+        node_count = [0]
+        self._walk(response_data, "", 0, result, visited, node_count)
         if result.findings:
             result.blocked = True
         return result
@@ -142,7 +151,14 @@ class ResponseScanner:
         path: str,
         depth: int,
         result: ResponseScanResult,
+        visited: set,
+        node_count: list,
     ) -> None:
+        # SECURITY (FIND-COMPOSIO-010): Bail if total work limit exceeded
+        node_count[0] += 1
+        if node_count[0] > _MAX_TOTAL_NODES:
+            result.truncated = True
+            return
         if depth >= self._scan_depth:
             return
         if len(result.findings) >= _MAX_FINDINGS:
@@ -151,21 +167,56 @@ class ResponseScanner:
 
         if isinstance(value, str):
             self._scan_string(value, path, result)
+        elif isinstance(value, bytes):
+            # SECURITY (FIND-COMPOSIO-009): Decode bytes to string for scanning
+            try:
+                self._scan_string(value.decode("utf-8", errors="replace"), path, result)
+            except Exception:
+                pass  # Skip non-decodable bytes
         elif isinstance(value, dict):
-            for k, v in value.items():
-                if len(result.findings) >= _MAX_FINDINGS:
-                    result.truncated = True
-                    return
-                k_safe = str(k).replace(".", "\\.") if isinstance(k, str) and "." in k else str(k)
-                child_path = f"{path}.{k_safe}" if path else k_safe
-                self._walk(v, child_path, depth + 1, result)
+            # SECURITY (FIND-COMPOSIO-008): Circular reference protection
+            obj_id = id(value)
+            if obj_id in visited:
+                return
+            visited.add(obj_id)
+            try:
+                for k, v in value.items():
+                    if len(result.findings) >= _MAX_FINDINGS:
+                        result.truncated = True
+                        return
+                    if node_count[0] > _MAX_TOTAL_NODES:
+                        result.truncated = True
+                        return
+                    # SECURITY (FIND-COMPOSIO-011): Guard against non-string dict keys
+                    if not isinstance(k, str):
+                        k_safe = str(k)
+                    elif "." in k:
+                        # SECURITY (FIND-COMPOSIO-012): Escape dots in field path keys
+                        k_safe = k.replace(".", "\\.")
+                    else:
+                        k_safe = k
+                    child_path = f"{path}.{k_safe}" if path else k_safe
+                    self._walk(v, child_path, depth + 1, result, visited, node_count)
+            finally:
+                visited.discard(obj_id)
         elif isinstance(value, (list, tuple)):
-            for i, item in enumerate(value):
-                if len(result.findings) >= _MAX_FINDINGS:
-                    result.truncated = True
-                    return
-                child_path = f"{path}[{i}]"
-                self._walk(item, child_path, depth + 1, result)
+            # SECURITY (FIND-COMPOSIO-008): Circular reference protection
+            obj_id = id(value)
+            if obj_id in visited:
+                return
+            visited.add(obj_id)
+            try:
+                for i, item in enumerate(value):
+                    if len(result.findings) >= _MAX_FINDINGS:
+                        result.truncated = True
+                        return
+                    if node_count[0] > _MAX_TOTAL_NODES:
+                        result.truncated = True
+                        return
+                    child_path = f"{path}[{i}]"
+                    self._walk(item, child_path, depth + 1, result, visited, node_count)
+            finally:
+                visited.discard(obj_id)
 
     def _scan_string(
         self,
@@ -209,6 +260,23 @@ class ResponseScanner:
 
     @staticmethod
     def _truncate(value: str, max_len: int = 60) -> str:
+        """Truncate value for snippet display.
+
+        SECURITY (FIND-COMPOSIO-010): Snippets may appear in logs or error
+        responses.  To prevent secret leakage, we only show the first
+        ``max_len`` characters and replace common secret prefixes with
+        a generic marker.
+        """
         if len(value) <= max_len:
-            return value
-        return value[:max_len - 3] + "..."
+            excerpt = value
+        else:
+            excerpt = value[:max_len - 3] + "..."
+        # Extra safety: mask anything that looks like a secret prefix
+        # (e.g., "sk-...", "ghp_...", "AKIA...") in the snippet
+        import re
+        excerpt = re.sub(
+            r"(sk-|ghp_|gho_|ghs_|ghr_|AKIA|AIza|xox[bpras]-|eyJ)\S{4,}",
+            r"\1[MASKED]",
+            excerpt,
+        )
+        return excerpt

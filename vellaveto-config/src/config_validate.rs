@@ -67,6 +67,28 @@ impl PolicyConfig {
                 MAX_DISABLED_INJECTION_PATTERNS
             ));
         }
+        // SECURITY (FIND-R46-011): Validate per-string length of injection.disabled_patterns.
+        // Unbounded patterns can cause excessive memory usage during matching.
+        for (i, pattern) in self.injection.disabled_patterns.iter().enumerate() {
+            if pattern.len() > MAX_INJECTION_PATTERN_LEN {
+                return Err(format!(
+                    "injection.disabled_patterns[{}] exceeds max length ({} > {})",
+                    i,
+                    pattern.len(),
+                    MAX_INJECTION_PATTERN_LEN
+                ));
+            }
+        }
+        // SECURITY (FIND-R46-012): Reject empty strings in injection.extra_patterns.
+        // Empty patterns match everything, which would cause excessive false positives.
+        for (i, pattern) in self.injection.extra_patterns.iter().enumerate() {
+            if pattern.is_empty() {
+                return Err(format!(
+                    "injection.extra_patterns[{}] must not be empty",
+                    i
+                ));
+            }
+        }
         // FIND-002: Validate DLP extra_patterns compile as valid regex at config load time.
         // This ensures fail-closed behavior: invalid patterns are rejected upfront rather
         // than silently skipped at runtime.
@@ -392,6 +414,13 @@ impl PolicyConfig {
                 "audit_export.batch_size must be <= 10000, got {}",
                 self.audit_export.batch_size
             ));
+        }
+        // SECURITY (FIND-R46-015): Reject zero batch_size which would cause
+        // infinite loops or no-op exports.
+        if self.audit_export.batch_size == 0 {
+            return Err(
+                "audit_export.batch_size must be > 0".to_string()
+            );
         }
 
         // Validate behavioral detection config
@@ -875,13 +904,19 @@ impl PolicyConfig {
             .into());
         }
         let content = std::fs::read_to_string(path)?;
+        // SECURITY (FIND-R46-014): Reject unknown file extensions instead of silently
+        // falling back to TOML. Silent fallback can mask misconfiguration — e.g., a
+        // YAML file being parsed as TOML without error but producing wrong results.
         let config = if path.ends_with(".toml") {
             Self::from_toml(&content)?
         } else if path.ends_with(".json") {
             Self::from_json(&content)?
         } else {
-            Self::from_toml(&content)
-                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?
+            return Err(format!(
+                "Config file '{}' has unsupported extension. \
+                 Supported extensions: .toml, .json",
+                path
+            ).into());
         };
         config
             .validate()

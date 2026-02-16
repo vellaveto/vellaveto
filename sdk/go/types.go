@@ -1,6 +1,8 @@
 // Package vellaveto provides a Go client for the Vellaveto MCP Tool Firewall API.
 package vellaveto
 
+import "fmt"
+
 // Verdict represents a policy evaluation outcome.
 type Verdict string
 
@@ -32,6 +34,40 @@ type Action struct {
 	TargetPaths   []string               `json:"target_paths,omitempty"`
 	TargetDomains []string               `json:"target_domains,omitempty"`
 	ResolvedIPs   []string               `json:"resolved_ips,omitempty"`
+}
+
+// maxActionToolLength is the maximum allowed length for the Tool field.
+const maxActionToolLength = 256
+
+// maxActionFunctionLength is the maximum allowed length for the Function field.
+const maxActionFunctionLength = 256
+
+// maxActionTargetEntries is the maximum number of entries in target lists.
+const maxActionTargetEntries = 100
+
+// Validate checks that the Action fields are within safe bounds.
+// SECURITY (FIND-R46-GO-007): Client-side input validation prevents sending
+// obviously invalid or oversized payloads to the server.
+func (a *Action) Validate() error {
+	if a.Tool == "" {
+		return fmt.Errorf("vellaveto: action.Tool must not be empty")
+	}
+	if len(a.Tool) > maxActionToolLength {
+		return fmt.Errorf("vellaveto: action.Tool exceeds max length %d", maxActionToolLength)
+	}
+	if len(a.Function) > maxActionFunctionLength {
+		return fmt.Errorf("vellaveto: action.Function exceeds max length %d", maxActionFunctionLength)
+	}
+	if len(a.TargetPaths) > maxActionTargetEntries {
+		return fmt.Errorf("vellaveto: action.TargetPaths has %d entries, max %d", len(a.TargetPaths), maxActionTargetEntries)
+	}
+	if len(a.TargetDomains) > maxActionTargetEntries {
+		return fmt.Errorf("vellaveto: action.TargetDomains has %d entries, max %d", len(a.TargetDomains), maxActionTargetEntries)
+	}
+	if len(a.ResolvedIPs) > maxActionTargetEntries {
+		return fmt.Errorf("vellaveto: action.ResolvedIPs has %d entries, max %d", len(a.ResolvedIPs), maxActionTargetEntries)
+	}
+	return nil
 }
 
 // EvaluationContext provides session and identity context for policy evaluation.

@@ -183,67 +183,108 @@ class VellavetoClient:
         json_data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
-        """Make an HTTP request to the Vellaveto API."""
+        """Make an HTTP request to the Vellaveto API.
+
+        SECURITY (FIND-SDK-014): Retries transient failures (connection errors,
+        502/503/504) up to ``max_retries`` times with exponential backoff
+        (0.5s, 1s, 2s, ...).  Non-transient errors are raised immediately.
+        """
         url = urljoin(self.url + "/", path.lstrip("/"))
 
-        try:
-            if self._use_httpx:
-                response = self._client.request(
-                    method=method,
-                    url=url,
-                    json=json_data,
-                    params=params,
-                    headers=self._headers(),
-                )
-                response.raise_for_status()
-                # SECURITY (FIND-SDK-003): Enforce response size limit to prevent OOM
-                content_length = response.headers.get("content-length")
-                if content_length is not None and int(content_length) > _MAX_RESPONSE_BYTES:
-                    raise VellavetoError(
-                        f"Response too large: {content_length} bytes exceeds "
-                        f"{_MAX_RESPONSE_BYTES} byte limit"
+        last_exc: Optional[Exception] = None
+        for attempt in range(1 + self.max_retries):
+            try:
+                if self._use_httpx:
+                    response = self._client.request(
+                        method=method,
+                        url=url,
+                        json=json_data,
+                        params=params,
+                        headers=self._headers(),
                     )
-                if len(response.content) > _MAX_RESPONSE_BYTES:
-                    raise VellavetoError(
-                        f"Response body too large: {len(response.content)} bytes exceeds "
-                        f"{_MAX_RESPONSE_BYTES} byte limit"
+                    # SECURITY (FIND-SDK-014): Retry on transient HTTP status
+                    if response.status_code in _TRANSIENT_STATUS_CODES:
+                        last_exc = VellavetoError(
+                            f"Transient HTTP {response.status_code}"
+                        )
+                        if attempt < self.max_retries:
+                            time.sleep(0.5 * (2 ** attempt))
+                            continue
+                        # Last attempt — fall through to "all retries exhausted"
+                        break
+                    response.raise_for_status()
+                    # SECURITY (FIND-SDK-003): Enforce response size limit to prevent OOM
+                    content_length = response.headers.get("content-length")
+                    if content_length is not None and int(content_length) > _MAX_RESPONSE_BYTES:
+                        raise VellavetoError(
+                            f"Response too large: {content_length} bytes exceeds "
+                            f"{_MAX_RESPONSE_BYTES} byte limit"
+                        )
+                    if len(response.content) > _MAX_RESPONSE_BYTES:
+                        raise VellavetoError(
+                            f"Response body too large: {len(response.content)} bytes exceeds "
+                            f"{_MAX_RESPONSE_BYTES} byte limit"
+                        )
+                    return response.json()
+                else:
+                    response = self._session.request(
+                        method=method,
+                        url=url,
+                        json=json_data,
+                        params=params,
+                        headers=self._headers(),
+                        timeout=self.timeout,
+                        verify=self.verify_ssl,
                     )
-                return response.json()
-            else:
-                response = self._session.request(
-                    method=method,
-                    url=url,
-                    json=json_data,
-                    params=params,
-                    headers=self._headers(),
-                    timeout=self.timeout,
-                    verify=self.verify_ssl,
-                )
-                response.raise_for_status()
-                # SECURITY (FIND-SDK-003): Enforce response size limit to prevent OOM
-                content_length = response.headers.get("content-length")
-                if content_length is not None and int(content_length) > _MAX_RESPONSE_BYTES:
-                    raise VellavetoError(
-                        f"Response too large: {content_length} bytes exceeds "
-                        f"{_MAX_RESPONSE_BYTES} byte limit"
-                    )
-                if len(response.content) > _MAX_RESPONSE_BYTES:
-                    raise VellavetoError(
-                        f"Response body too large: {len(response.content)} bytes exceeds "
-                        f"{_MAX_RESPONSE_BYTES} byte limit"
-                    )
-                return response.json()
+                    # SECURITY (FIND-SDK-014): Retry on transient HTTP status
+                    if response.status_code in _TRANSIENT_STATUS_CODES:
+                        last_exc = VellavetoError(
+                            f"Transient HTTP {response.status_code}"
+                        )
+                        if attempt < self.max_retries:
+                            time.sleep(0.5 * (2 ** attempt))
+                            continue
+                        # Last attempt — fall through to "all retries exhausted"
+                        break
+                    response.raise_for_status()
+                    # SECURITY (FIND-SDK-003): Enforce response size limit to prevent OOM
+                    content_length = response.headers.get("content-length")
+                    if content_length is not None and int(content_length) > _MAX_RESPONSE_BYTES:
+                        raise VellavetoError(
+                            f"Response too large: {content_length} bytes exceeds "
+                            f"{_MAX_RESPONSE_BYTES} byte limit"
+                        )
+                    if len(response.content) > _MAX_RESPONSE_BYTES:
+                        raise VellavetoError(
+                            f"Response body too large: {len(response.content)} bytes exceeds "
+                            f"{_MAX_RESPONSE_BYTES} byte limit"
+                        )
+                    return response.json()
 
-        except Exception as e:
-            # SECURITY (FIND-SDK-001): Sanitize error messages to prevent API key
-            # leakage. The requests/httpx libraries may include the Authorization
-            # header in exception messages on connection failures.
-            error_msg = str(e)
-            if self.api_key and self.api_key in error_msg:
-                error_msg = error_msg.replace(self.api_key, "[REDACTED]")
-            if "Connection" in str(type(e).__name__):
-                raise ConnectionError(f"Failed to connect to Vellaveto at {url}: {error_msg}")
-            raise VellavetoError(f"Request failed: {error_msg}")
+            except (VellavetoError, PolicyDenied, ApprovalRequired):
+                raise
+            except Exception as e:
+                # SECURITY (FIND-SDK-001): Sanitize error messages to prevent API key
+                # leakage. The requests/httpx libraries may include the Authorization
+                # header in exception messages on connection failures.
+                last_exc = e
+                is_connection = "Connection" in str(type(e).__name__)
+                # SECURITY (FIND-SDK-014): Retry connection errors
+                if is_connection and attempt < self.max_retries:
+                    time.sleep(0.5 * (2 ** attempt))
+                    continue
+                error_msg = str(e)
+                if self.api_key and self.api_key in error_msg:
+                    error_msg = error_msg.replace(self.api_key, "[REDACTED]")
+                if is_connection:
+                    raise ConnectionError(f"Failed to connect to Vellaveto at {url}: {error_msg}")
+                raise VellavetoError(f"Request failed: {error_msg}")
+
+        # All retries exhausted
+        error_msg = str(last_exc) if last_exc else "Unknown error"
+        if self.api_key and self.api_key in error_msg:
+            error_msg = error_msg.replace(self.api_key, "[REDACTED]")
+        raise VellavetoError(f"Request failed after {self.max_retries + 1} attempts: {error_msg}")
 
     def evaluate(
         self,
@@ -275,6 +316,27 @@ class VellavetoClient:
             ApprovalRequired: If action requires approval (when raise_on_deny=True)
             VellavetoError: On API errors
         """
+        # SECURITY (FIND-SDK-020): Validate inputs to prevent abuse
+        if not isinstance(tool, str) or not tool.strip():
+            raise VellavetoError("tool must be a non-empty string")
+        if len(tool) > _MAX_INPUT_STRING_LEN:
+            raise VellavetoError(
+                f"tool name too long: {len(tool)} > {_MAX_INPUT_STRING_LEN}"
+            )
+        if function is not None:
+            if not isinstance(function, str):
+                raise VellavetoError("function must be a string or None")
+            if len(function) > _MAX_INPUT_STRING_LEN:
+                raise VellavetoError(
+                    f"function name too long: {len(function)} > {_MAX_INPUT_STRING_LEN}"
+                )
+        if parameters is not None and not isinstance(parameters, dict):
+            raise VellavetoError("parameters must be a dict or None")
+        if target_paths is not None and not isinstance(target_paths, list):
+            raise VellavetoError("target_paths must be a list or None")
+        if target_domains is not None and not isinstance(target_domains, list):
+            raise VellavetoError("target_domains must be a list or None")
+
         effective_params = parameters or {}
         if self.redactor is not None:
             effective_params = self.redactor.redact(effective_params)

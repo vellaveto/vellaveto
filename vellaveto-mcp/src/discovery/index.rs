@@ -1060,7 +1060,8 @@ mod tests {
 
     #[test]
     fn test_tool_sensitivity_default() {
-        assert_eq!(ToolSensitivity::default(), ToolSensitivity::Low);
+        // SECURITY (FIND-R46-013): Default changed to High (fail-closed).
+        assert_eq!(ToolSensitivity::default(), ToolSensitivity::High);
     }
 
     #[test]

@@ -26,6 +26,11 @@ const MAX_RESULTS_PARAM: usize = 20;
 /// Maximum number of tools returned by the list endpoint.
 const MAX_TOOLS_LIST: usize = 100;
 
+/// SECURITY (FIND-R46-006): Maximum token_budget to prevent excessive computation.
+/// Token budgets above this are unreasonable and could cause DoS through
+/// schema serialization of thousands of tools.
+const MAX_TOKEN_BUDGET: usize = 1_000_000;
+
 /// Maximum length of the server_id query parameter.
 const MAX_SERVER_ID_LENGTH: usize = 256;
 
@@ -100,6 +105,21 @@ pub async fn discovery_search(
         ));
     }
 
+    // SECURITY (FIND-R46-006): Validate token_budget upper bound.
+    if let Some(budget) = body.token_budget {
+        if budget > MAX_TOKEN_BUDGET {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!(
+                        "token_budget {} exceeds max {}",
+                        budget, MAX_TOKEN_BUDGET
+                    ),
+                }),
+            ));
+        }
+    }
+
     // SECURITY (FIND-R46-004): Policy filtering for the discovery API is
     // session-based and happens within the ProxyBridge relay. The REST API
     // returns all tools because it serves administrative/developer use cases.
@@ -117,8 +137,9 @@ pub async fn discovery_search(
         })?;
 
     // Audit log the query
+    // SECURITY (FIND-R46-013): Log audit failures instead of silently discarding.
     if let Some(ref audit) = state.discovery_audit {
-        let _ = audit
+        if let Err(e) = audit
             .log_discovery_event(
                 "query",
                 json!({
@@ -128,7 +149,10 @@ pub async fn discovery_search(
                     "policy_filtered": result.policy_filtered,
                 }),
             )
-            .await;
+            .await
+        {
+            tracing::warn!(error = %e, "Failed to audit-log discovery search query");
+        }
     }
 
     Ok(Json(serde_json::to_value(result).unwrap_or_else(|_| {
@@ -204,15 +228,19 @@ pub async fn discovery_reindex(
     })?;
 
     // Audit log the reindex event
+    // SECURITY (FIND-R46-013): Log audit failures instead of silently discarding.
     if let Some(ref audit) = state.discovery_audit {
-        let _ = audit
+        if let Err(e) = audit
             .log_discovery_event(
                 "reindex",
                 json!({
                     "total_tools": total_tools,
                 }),
             )
-            .await;
+            .await
+        {
+            tracing::warn!(error = %e, "Failed to audit-log discovery reindex");
+        }
     }
 
     Ok(Json(json!({
@@ -398,5 +426,19 @@ mod tests {
         let query: DiscoveryToolsQuery = serde_json::from_str(json).unwrap();
         assert!(query.server_id.is_none());
         assert_eq!(query.sensitivity.as_deref(), Some("low"));
+    }
+
+    // SECURITY (FIND-R46-006): token_budget upper bound
+    #[test]
+    fn test_search_request_deserialize_large_token_budget() {
+        let json = r#"{"query": "test", "token_budget": 999999}"#;
+        let req: DiscoverySearchRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.token_budget, Some(999999));
+        // 999999 < MAX_TOKEN_BUDGET (1_000_000), so valid
+    }
+
+    #[test]
+    fn test_max_token_budget_constant() {
+        assert_eq!(MAX_TOKEN_BUDGET, 1_000_000);
     }
 }

@@ -102,8 +102,54 @@ export class VellavetoClient {
   private readonly extraHeaders: Record<string, string>;
 
   constructor(options: VellavetoClientOptions) {
-    // Strip trailing slash
-    this.baseUrl = options.baseUrl.replace(/\/+$/, "");
+    // SECURITY (FIND-R46-TS-003): Validate baseUrl before use.
+    if (!options.baseUrl || options.baseUrl.trim().length === 0) {
+      throw new VellavetoError("baseUrl must not be empty");
+    }
+
+    const trimmedUrl = options.baseUrl.trim().replace(/\/+$/, "");
+
+    // Must start with http:// or https://
+    if (
+      !trimmedUrl.startsWith("http://") &&
+      !trimmedUrl.startsWith("https://")
+    ) {
+      throw new VellavetoError(
+        "baseUrl must use http:// or https:// scheme"
+      );
+    }
+
+    // Reject credentials in URL (userinfo@host)
+    try {
+      const parsed = new URL(trimmedUrl);
+      if (parsed.username || parsed.password) {
+        throw new VellavetoError(
+          "baseUrl must not contain credentials (userinfo)"
+        );
+      }
+    } catch (e) {
+      if (e instanceof VellavetoError) throw e;
+      throw new VellavetoError(
+        `baseUrl is not a valid URL: ${trimmedUrl}`
+      );
+    }
+
+    // SECURITY (FIND-R46-TS-005): TLS is enforced by the runtime (Node.js/browser).
+    // This SDK does not provide TLS configuration options; the underlying fetch()
+    // implementation handles certificate validation. Warn on non-localhost HTTP.
+    if (trimmedUrl.startsWith("http://")) {
+      const host = new URL(trimmedUrl).hostname;
+      if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[vellaveto] WARNING: baseUrl uses unencrypted HTTP for non-localhost host "${host}". ` +
+            "API keys and policy data will be transmitted in cleartext. " +
+            "Use https:// in production."
+        );
+      }
+    }
+
+    this.baseUrl = trimmedUrl;
     this.apiKey = options.apiKey;
     this.timeout = options.timeout ?? 5000;
     this.extraHeaders = options.headers ?? {};
@@ -122,6 +168,18 @@ export class VellavetoClient {
       headers["Authorization"] = `Bearer ${this.apiKey}`;
     }
     return headers;
+  }
+
+  /**
+   * SECURITY (FIND-R46-TS-004): Strip API key from error messages.
+   * Network errors or fetch rejections may include the Authorization header
+   * value, which would expose the API key in logs or user-facing errors.
+   */
+  private sanitizeErrorMessage(msg: string): string {
+    if (this.apiKey && msg.includes(this.apiKey)) {
+      return msg.split(this.apiKey).join("[REDACTED]");
+    }
+    return msg;
   }
 
   private async request<T>(
@@ -164,7 +222,11 @@ export class VellavetoClient {
           if (e instanceof VellavetoError) throw e;
           errorMsg = response.statusText;
         }
-        throw new VellavetoError(errorMsg, response.status);
+        // SECURITY (FIND-R46-TS-004): Sanitize server error messages.
+        throw new VellavetoError(
+          this.sanitizeErrorMessage(errorMsg),
+          response.status
+        );
       }
 
       // SECURITY (FIND-R46-TS-001): Read body with size limit.
@@ -175,8 +237,12 @@ export class VellavetoClient {
       if (error instanceof Error && error.name === "AbortError") {
         throw new VellavetoError(`Request timed out after ${this.timeout}ms`);
       }
+      // SECURITY (FIND-R46-TS-004): Sanitize error messages to prevent API key leakage.
+      // Network errors may include request details that contain the Authorization header.
+      const rawMsg =
+        error instanceof Error ? error.message : String(error);
       throw new VellavetoError(
-        `Network error: ${error instanceof Error ? error.message : String(error)}`
+        `Network error: ${this.sanitizeErrorMessage(rawMsg)}`
       );
     } finally {
       clearTimeout(timeoutId);

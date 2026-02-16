@@ -21,6 +21,23 @@ const MAX_SCHEMA_NAME_LENGTH: usize = 256;
 /// Maximum length of the schema description field.
 const MAX_SCHEMA_DESCRIPTION_LENGTH: usize = 4096;
 
+/// SECURITY (FIND-R46-005): Maximum JSON nesting depth for schema objects.
+/// Deeply nested schemas can cause stack overflow or excessive processing time.
+const MAX_SCHEMA_DEPTH: usize = 32;
+
+/// SECURITY (FIND-R46-005): Measure JSON value nesting depth.
+fn json_depth(value: &serde_json::Value) -> usize {
+    match value {
+        serde_json::Value::Object(map) => {
+            1 + map.values().map(json_depth).max().unwrap_or(0)
+        }
+        serde_json::Value::Array(arr) => {
+            1 + arr.iter().map(json_depth).max().unwrap_or(0)
+        }
+        _ => 1,
+    }
+}
+
 /// GET /api/projector/models
 ///
 /// List all supported model families in the projector registry.
@@ -179,6 +196,35 @@ pub async fn projector_transform(
         ));
     }
 
+    // SECURITY (FIND-R46-005): Validate JSON nesting depth of input_schema and output_schema
+    // to prevent stack overflow or excessive processing from deeply nested payloads.
+    let input_depth = json_depth(&body.schema.input_schema);
+    if input_depth > MAX_SCHEMA_DEPTH {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "schema.input_schema nesting depth {} exceeds max {}",
+                    input_depth, MAX_SCHEMA_DEPTH
+                ),
+            }),
+        ));
+    }
+    if let Some(ref output) = body.schema.output_schema {
+        let output_depth = json_depth(output);
+        if output_depth > MAX_SCHEMA_DEPTH {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!(
+                        "schema.output_schema nesting depth {} exceeds max {}",
+                        output_depth, MAX_SCHEMA_DEPTH
+                    ),
+                }),
+            ));
+        }
+    }
+
     let family = parse_model_family(&body.model_family);
 
     let projection = registry.get(&family).map_err(|e| {
@@ -247,6 +293,30 @@ mod tests {
         let req: ProjectorTransformRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.schema.name, "test_tool");
         assert_eq!(req.model_family, "claude");
+    }
+
+    #[test]
+    fn test_json_depth_flat() {
+        let v = serde_json::json!({"a": 1, "b": "hello"});
+        assert_eq!(json_depth(&v), 2); // object + scalar
+    }
+
+    #[test]
+    fn test_json_depth_nested() {
+        let v = serde_json::json!({"a": {"b": {"c": 1}}});
+        assert_eq!(json_depth(&v), 4);
+    }
+
+    #[test]
+    fn test_json_depth_array() {
+        let v = serde_json::json!([[[1]]]);
+        assert_eq!(json_depth(&v), 4);
+    }
+
+    #[test]
+    fn test_json_depth_scalar() {
+        assert_eq!(json_depth(&serde_json::json!(42)), 1);
+        assert_eq!(json_depth(&serde_json::json!(null)), 1);
     }
 
     #[test]

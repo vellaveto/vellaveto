@@ -267,3 +267,81 @@ class TestVellavetoState:
         assert "pending_tool_name" in annotations
         assert "pending_tool_input" in annotations
         assert "tool_blocked" in annotations
+
+
+# ── Round 46 P3 Fixes ──────────────────────────────────────────────────
+
+
+class TestVellavetoCheckpointFixes:
+    """Tests for FIND-SDK-016 and FIND-SDK-017."""
+
+    def test_no_sessions_attribute(self):
+        """FIND-SDK-016: _sessions dead code removed."""
+        from vellaveto.langgraph import VellavetoCheckpoint
+
+        client = VellavetoClient()
+        base = MagicMock()
+        base.get.return_value = None
+        cp = VellavetoCheckpoint(client, base)
+        assert not hasattr(cp, "_sessions")
+        client.close()
+
+    def test_thread_id_validation_rejects_injection(self):
+        """FIND-SDK-017: thread_id with special chars should be sanitized."""
+        from vellaveto.langgraph import VellavetoCheckpoint
+
+        client = VellavetoClient()
+        base = MagicMock()
+        base.get.return_value = {"some": "state"}
+        cp = VellavetoCheckpoint(client, base)
+
+        result = cp.get({
+            "configurable": {"thread_id": "../../../etc/passwd"}
+        })
+        assert result["vellaveto_session_id"] == "langgraph-invalid"
+        client.close()
+
+    def test_thread_id_valid_accepted(self):
+        """FIND-SDK-017: Valid thread_id should pass through."""
+        from vellaveto.langgraph import VellavetoCheckpoint
+
+        client = VellavetoClient()
+        base = MagicMock()
+        base.get.return_value = {"some": "state"}
+        cp = VellavetoCheckpoint(client, base)
+
+        result = cp.get({
+            "configurable": {"thread_id": "my-thread-123"}
+        })
+        assert result["vellaveto_session_id"] == "langgraph-my-thread-123"
+        client.close()
+
+    def test_thread_id_too_long_rejected(self):
+        """FIND-SDK-017: Thread IDs longer than 256 chars should be rejected."""
+        from vellaveto.langgraph import VellavetoCheckpoint
+
+        client = VellavetoClient()
+        base = MagicMock()
+        base.get.return_value = {"some": "state"}
+        cp = VellavetoCheckpoint(client, base)
+
+        result = cp.get({
+            "configurable": {"thread_id": "a" * 300}
+        })
+        assert result["vellaveto_session_id"] == "langgraph-invalid"
+        client.close()
+
+    def test_thread_id_non_string_coerced(self):
+        """FIND-SDK-017: Non-string thread_id should be coerced to string."""
+        from vellaveto.langgraph import VellavetoCheckpoint
+
+        client = VellavetoClient()
+        base = MagicMock()
+        base.get.return_value = {"some": "state"}
+        cp = VellavetoCheckpoint(client, base)
+
+        result = cp.get({
+            "configurable": {"thread_id": 42}
+        })
+        assert result["vellaveto_session_id"] == "langgraph-42"
+        client.close()

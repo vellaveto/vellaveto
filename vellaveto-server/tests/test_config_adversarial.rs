@@ -266,8 +266,10 @@ fn load_file_nonexistent_path_is_error() {
     assert!(result.is_err(), "Loading nonexistent file should fail");
 }
 
+// SECURITY (FIND-R46-014): Unknown extension now returns an error instead of
+// silently falling back to TOML. This prevents misconfiguration from going unnoticed.
 #[test]
-fn load_file_unknown_extension_defaults_to_toml() {
+fn load_file_unknown_extension_returns_error() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("config.yaml"); // Not .toml or .json
     std::fs::write(
@@ -282,9 +284,15 @@ policy_type = "Allow"
     )
     .unwrap();
 
-    // Should try TOML parsing for unknown extensions
-    let config = PolicyConfig::load_file(path.to_str().unwrap()).unwrap();
-    assert_eq!(config.policies.len(), 1);
+    // Unknown extension should return an error
+    let result = PolicyConfig::load_file(path.to_str().unwrap());
+    assert!(result.is_err(), "Unknown extension should be rejected");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("unsupported extension"),
+        "Error should mention unsupported extension, got: {}",
+        err
+    );
 }
 
 #[test]

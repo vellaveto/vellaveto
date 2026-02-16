@@ -13,6 +13,13 @@ use crate::leader::LeaderElection;
 use crate::ClusterError;
 
 /// Local leader election: the single instance is always the leader.
+///
+/// SECURITY (FIND-R46-009): Uses `std::sync::Mutex` (not `tokio::sync::Mutex`)
+/// intentionally. The critical section is trivially short (one `Option<String>`
+/// read/write), never awaits, and never performs I/O. `std::sync::Mutex` is
+/// cheaper than `tokio::sync::Mutex` for these non-async, sub-microsecond
+/// operations and avoids the overhead of the async mutex's waker queue.
+/// Mutex poisoning is explicitly handled in all lock sites (see FIND-P27-003).
 pub struct LocalLeaderElection {
     instance_id: String,
     is_leader: AtomicBool,

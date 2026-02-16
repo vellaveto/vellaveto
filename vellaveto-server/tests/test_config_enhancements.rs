@@ -367,8 +367,9 @@ fn load_file_nonexistent_returns_error() {
     assert!(result.is_err());
 }
 
+// SECURITY (FIND-R46-014): Unknown extension now returns an error.
 #[test]
-fn load_file_unknown_extension_tries_toml() {
+fn load_file_unknown_extension_returns_error() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("config.yaml"); // .yaml extension but TOML content
     std::fs::write(
@@ -383,8 +384,14 @@ policy_type = "Allow"
     )
     .unwrap();
 
-    let config = PolicyConfig::load_file(path.to_str().unwrap()).unwrap();
-    assert_eq!(config.policies.len(), 1);
+    let result = PolicyConfig::load_file(path.to_str().unwrap());
+    assert!(result.is_err(), "Unknown extension should be rejected");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("unsupported extension"),
+        "Error should mention unsupported extension, got: {}",
+        err
+    );
 }
 
 // ═════════════════════════════

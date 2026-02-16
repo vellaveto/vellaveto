@@ -97,6 +97,13 @@ def create_before_execute_modifier(
 
     Returns:
         A modifier callable suitable for Composio's modifier system.
+
+    Raises:
+        PolicyDenied: If the policy denies the action, or if the evaluation
+            fails and *fail_closed* is *True*.  **Important:** callers
+            should NOT catch ``PolicyDenied`` — let it propagate so that
+            the tool call is aborted.
+        ApprovalRequired: If the action requires human approval.
     """
     tracker = call_chain_tracker if call_chain_tracker is not None else CallChainTracker()
     tools_lower = {t.lower() for t in tools} if tools else None

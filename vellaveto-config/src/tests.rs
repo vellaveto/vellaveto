@@ -237,8 +237,10 @@ fn test_load_file_invalid_json() {
     assert!(result.is_err());
 }
 
+// SECURITY (FIND-R46-014): Unknown file extension now returns an error instead of
+// silently falling back to TOML parsing. Silent fallback can mask misconfiguration.
 #[test]
-fn test_load_file_unknown_extension_tries_toml() {
+fn test_load_file_unknown_extension_returns_error() {
     let dir = tempfile::TempDir::new().unwrap();
     let path = dir.path().join("policy.conf");
     std::fs::write(
@@ -253,9 +255,11 @@ policy_type = "Allow"
     )
     .unwrap();
 
-    // Unknown extension should fall back to TOML parsing
-    let config = PolicyConfig::load_file(path.to_str().unwrap()).unwrap();
-    assert_eq!(config.policies.len(), 1);
+    // Unknown extension should return an error
+    let result = PolicyConfig::load_file(path.to_str().unwrap());
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("unsupported extension"), "error: {}", err);
 }
 
 #[test]
@@ -1550,6 +1554,45 @@ fn test_validate_rejects_excessive_batch_size() {
     assert!(
         err.contains("batch_size"),
         "Excessive batch_size should be rejected, got: {}",
+        err
+    );
+}
+
+// SECURITY (FIND-R46-015): batch_size=0 should be rejected.
+#[test]
+fn test_validate_rejects_zero_batch_size() {
+    let mut config = minimal_config();
+    config.audit_export.batch_size = 0;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("batch_size") && err.contains("> 0"),
+        "Zero batch_size should be rejected, got: {}",
+        err
+    );
+}
+
+// SECURITY (FIND-R46-011): disabled_patterns per-string length limit.
+#[test]
+fn test_validate_rejects_oversized_disabled_pattern() {
+    let mut config = minimal_config();
+    config.injection.disabled_patterns = vec!["x".repeat(2000)];
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("disabled_patterns") && err.contains("max length"),
+        "Oversized disabled_pattern should be rejected, got: {}",
+        err
+    );
+}
+
+// SECURITY (FIND-R46-012): empty extra_patterns rejection.
+#[test]
+fn test_validate_rejects_empty_extra_pattern() {
+    let mut config = minimal_config();
+    config.injection.extra_patterns = vec!["".to_string()];
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("extra_patterns") && err.contains("empty"),
+        "Empty extra_pattern should be rejected, got: {}",
         err
     );
 }

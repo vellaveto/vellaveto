@@ -251,4 +251,72 @@ describe("VellavetoClient", () => {
       expect.anything()
     );
   });
+
+  // ── FIND-R46-TS-003: baseUrl validation ──────
+
+  test("empty baseUrl throws VellavetoError", () => {
+    expect(() => new VellavetoClient({ baseUrl: "" })).toThrow(VellavetoError);
+    expect(() => new VellavetoClient({ baseUrl: "   " })).toThrow(VellavetoError);
+  });
+
+  test("baseUrl without http/https throws VellavetoError", () => {
+    expect(() => new VellavetoClient({ baseUrl: "ftp://example.com" })).toThrow(
+      "http:// or https://"
+    );
+    expect(() => new VellavetoClient({ baseUrl: "ws://example.com" })).toThrow(
+      "http:// or https://"
+    );
+  });
+
+  test("baseUrl with credentials throws VellavetoError", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "https://user:pass@example.com" })
+    ).toThrow("credentials");
+  });
+
+  test("valid https baseUrl accepted", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "https://api.example.com" })
+    ).not.toThrow();
+  });
+
+  // ── FIND-R46-TS-004: API key not leaked in errors ──
+
+  test("API key not leaked in network error messages", async () => {
+    const secretKey = "sk-super-secret-api-key-12345";
+    const keyClient = new VellavetoClient({
+      baseUrl: "http://localhost:3000",
+      apiKey: secretKey,
+    });
+    // Simulate a network error that includes the API key in its message
+    mockFetch.mockRejectedValueOnce(
+      new Error(`Connection refused: Bearer ${secretKey}`)
+    );
+    try {
+      await keyClient.health();
+      fail("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(VellavetoError);
+      expect((e as VellavetoError).message).not.toContain(secretKey);
+      expect((e as VellavetoError).message).toContain("[REDACTED]");
+    }
+  });
+
+  // ── FIND-R46-TS-005: http:// warning on non-localhost ──
+
+  test("http:// on non-localhost logs warning", () => {
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    new VellavetoClient({ baseUrl: "http://api.example.com" });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("unencrypted HTTP")
+    );
+    warnSpy.mockRestore();
+  });
+
+  test("http:// on localhost does not log warning", () => {
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    new VellavetoClient({ baseUrl: "http://localhost:3000" });
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
 });

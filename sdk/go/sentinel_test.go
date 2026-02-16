@@ -584,6 +584,59 @@ func TestWithHTTPClient(t *testing.T) {
 	}
 }
 
+// SECURITY (FIND-R46-GO-007): Action.Validate() tests
+func TestActionValidate_EmptyTool(t *testing.T) {
+	a := &Action{}
+	err := a.Validate()
+	if err == nil {
+		t.Fatal("Validate() should reject empty Tool")
+	}
+}
+
+func TestActionValidate_ValidAction(t *testing.T) {
+	a := &Action{Tool: "read_file", Function: "read"}
+	err := a.Validate()
+	if err != nil {
+		t.Fatalf("Validate() unexpected error: %v", err)
+	}
+}
+
+func TestActionValidate_ToolTooLong(t *testing.T) {
+	longTool := make([]byte, 300)
+	for i := range longTool {
+		longTool[i] = 'x'
+	}
+	a := &Action{Tool: string(longTool)}
+	err := a.Validate()
+	if err == nil {
+		t.Fatal("Validate() should reject oversized Tool")
+	}
+}
+
+func TestActionValidate_TooManyTargetPaths(t *testing.T) {
+	paths := make([]string, 101)
+	for i := range paths {
+		paths[i] = "/some/path"
+	}
+	a := &Action{Tool: "fs", TargetPaths: paths}
+	err := a.Validate()
+	if err == nil {
+		t.Fatal("Validate() should reject >100 TargetPaths")
+	}
+}
+
+func TestActionValidate_TooManyTargetDomains(t *testing.T) {
+	domains := make([]string, 101)
+	for i := range domains {
+		domains[i] = "example.com"
+	}
+	a := &Action{Tool: "http", TargetDomains: domains}
+	err := a.Validate()
+	if err == nil {
+		t.Fatal("Validate() should reject >100 TargetDomains")
+	}
+}
+
 // SECURITY (FIND-R46-GO-003): Verify query parameters are properly URL-encoded.
 func TestDiscoveryTools_QueryParamEncoding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

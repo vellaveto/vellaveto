@@ -18,6 +18,7 @@ Example:
 """
 
 import logging
+import threading
 from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 
@@ -89,13 +90,17 @@ class VellavetoCallbackHandler(BaseCallbackHandler):
         self.raise_on_deny = raise_on_deny
         self.log_evaluations = log_evaluations
         self._call_chain: List[str] = []
+        # SECURITY (FIND-SDK-015): Thread safety for _call_chain
+        self._chain_lock = threading.Lock()
 
     def _get_context(self) -> EvaluationContext:
         """Build evaluation context from handler state."""
+        with self._chain_lock:
+            chain_copy = self._call_chain.copy()
         return EvaluationContext(
             session_id=self.session_id,
             agent_id=self.agent_id,
-            call_chain=self._call_chain.copy(),
+            call_chain=chain_copy,
         )
 
     def _extract_tool_info(
@@ -180,11 +185,6 @@ class VellavetoCallbackHandler(BaseCallbackHandler):
                 context=self._get_context(),
             )
 
-            # Track in call chain
-            self._call_chain.append(tool_name)
-            if len(self._call_chain) > 20:  # Limit chain length
-                self._call_chain.pop(0)
-
             if self.log_evaluations:
                 logger.info(f"Tool {tool_name} verdict: {result.verdict.value}")
 
@@ -210,6 +210,13 @@ class VellavetoCallbackHandler(BaseCallbackHandler):
                         f"Tool {tool_name} requires approval but proceeding "
                         f"(raise_on_deny=False): {result.reason}"
                     )
+
+            # SECURITY (FIND-SDK-018): Append to call chain AFTER verdict check,
+            # not before — denied/approval-required calls that raise never reach here.
+            with self._chain_lock:
+                self._call_chain.append(tool_name)
+                if len(self._call_chain) > 20:  # Limit chain length
+                    self._call_chain.pop(0)
 
         except (PolicyDenied, ApprovalRequired):
             raise

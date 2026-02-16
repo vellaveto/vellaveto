@@ -602,3 +602,150 @@ class TestZkAuditAsync:
         async with AsyncVellavetoClient() as client:
             result = await client.zk_commitments(from_seq=0, to_seq=50)
             assert result["total"] == 0
+
+
+# ── Round 46 P3 Fixes ──────────────────────────────────────────────────
+
+
+class TestReprRedactsApiKey:
+    """Tests for FIND-SDK-013: __repr__ should redact api_key."""
+
+    def test_repr_redacts_api_key(self):
+        client = VellavetoClient(api_key="super-secret-key-123")
+        r = repr(client)
+        assert "super-secret-key-123" not in r
+        assert "***" in r
+        client.close()
+
+    def test_repr_without_api_key(self):
+        client = VellavetoClient()
+        r = repr(client)
+        assert "VellavetoClient(" in r
+        assert "***" in r
+        client.close()
+
+
+class TestRetryWithBackoff:
+    """Tests for FIND-SDK-014: Retry with backoff on transient failures."""
+
+    def test_retry_on_502(self, httpx_mock):
+        # First response: 502, second: success
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/evaluate",
+            status_code=502,
+        )
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/evaluate",
+            json={"verdict": "allow"},
+        )
+
+        client = VellavetoClient(max_retries=1)
+        result = client.evaluate(tool="test")
+        assert result.verdict == Verdict.ALLOW
+        assert len(httpx_mock.get_requests()) == 2
+        client.close()
+
+    def test_no_retry_on_400(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/evaluate",
+            status_code=400,
+        )
+
+        client = VellavetoClient(max_retries=2)
+        with pytest.raises(VellavetoError):
+            client.evaluate(tool="test")
+        assert len(httpx_mock.get_requests()) == 1
+        client.close()
+
+    def test_max_retries_zero_no_retry(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/evaluate",
+            status_code=503,
+        )
+
+        client = VellavetoClient(max_retries=0)
+        with pytest.raises(VellavetoError):
+            client.evaluate(tool="test")
+        assert len(httpx_mock.get_requests()) == 1
+        client.close()
+
+    def test_all_retries_exhausted(self, httpx_mock):
+        for _ in range(3):
+            httpx_mock.add_response(
+                url="http://localhost:3000/api/evaluate",
+                status_code=503,
+            )
+
+        client = VellavetoClient(max_retries=2)
+        with pytest.raises(VellavetoError, match="after 3 attempts"):
+            client.evaluate(tool="test")
+        assert len(httpx_mock.get_requests()) == 3
+        client.close()
+
+
+class TestEvaluateInputValidation:
+    """Tests for FIND-SDK-020: Input validation on evaluate()."""
+
+    def test_empty_tool_raises(self):
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError, match="non-empty string"):
+            client.evaluate(tool="")
+        client.close()
+
+    def test_whitespace_tool_raises(self):
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError, match="non-empty string"):
+            client.evaluate(tool="   ")
+        client.close()
+
+    def test_tool_too_long_raises(self):
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError, match="too long"):
+            client.evaluate(tool="x" * 2000)
+        client.close()
+
+    def test_function_too_long_raises(self):
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError, match="too long"):
+            client.evaluate(tool="valid", function="f" * 2000)
+        client.close()
+
+    def test_non_string_function_raises(self):
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError, match="function must be a string"):
+            client.evaluate(tool="valid", function=123)  # type: ignore
+        client.close()
+
+    def test_non_dict_parameters_raises(self):
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError, match="parameters must be a dict"):
+            client.evaluate(tool="valid", parameters="not-a-dict")  # type: ignore
+        client.close()
+
+    def test_non_list_target_paths_raises(self):
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError, match="target_paths must be a list"):
+            client.evaluate(tool="valid", target_paths="not-a-list")  # type: ignore
+        client.close()
+
+    def test_non_list_target_domains_raises(self):
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError, match="target_domains must be a list"):
+            client.evaluate(tool="valid", target_domains="not-a-list")  # type: ignore
+        client.close()
+
+    def test_valid_inputs_accepted(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/evaluate",
+            json={"verdict": "allow"},
+        )
+        client = VellavetoClient()
+        result = client.evaluate(
+            tool="filesystem",
+            function="read",
+            parameters={"path": "/tmp"},
+            target_paths=["/tmp"],
+            target_domains=[],
+        )
+        assert result.verdict == Verdict.ALLOW
+        client.close()

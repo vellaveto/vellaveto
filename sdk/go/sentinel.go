@@ -21,6 +21,12 @@ const maxResponseBodySize = 10 * 1024 * 1024 // 10 MB
 const defaultTimeout = 5 * time.Second
 
 // Client is the Vellaveto API client.
+//
+// SECURITY (FIND-R46-GO-006): Thread safety — Client is safe for concurrent use
+// after construction. All fields are read-only after NewClient returns: baseURL,
+// apiKey, and headers are never mutated. httpClient is shared but http.Client is
+// documented as safe for concurrent use. No mutexes are needed because there is
+// no mutable state post-construction.
 type Client struct {
 	baseURL    string
 	apiKey     string

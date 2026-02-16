@@ -302,3 +302,85 @@ class TestVellavetoToolGuard:
         body = json.loads(request.content)
         assert "/tmp/secret.txt" in body["action"]["target_paths"]
         client.close()
+
+
+# ── Round 46 P3 Fixes ──────────────────────────────────────────────────
+
+
+class TestCallChainThreadSafety:
+    """Tests for FIND-SDK-015: _call_chain thread safety."""
+
+    def test_handler_has_chain_lock(self):
+        client = VellavetoClient()
+        from vellaveto.langchain import VellavetoCallbackHandler
+
+        handler = VellavetoCallbackHandler(client=client)
+        assert hasattr(handler, "_chain_lock")
+        import threading
+        assert isinstance(handler._chain_lock, type(threading.Lock()))
+        client.close()
+
+
+class TestCallChainAppendAfterVerdict:
+    """Tests for FIND-SDK-018: on_tool_start appends only after verdict."""
+
+    def test_deny_does_not_append_to_chain(self, httpx_mock):
+        """When raise_on_deny=True and verdict is deny, chain should NOT grow."""
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/evaluate",
+            json={"verdict": "deny", "reason": "Blocked"},
+        )
+        client = VellavetoClient()
+        from vellaveto.langchain import VellavetoCallbackHandler
+
+        handler = VellavetoCallbackHandler(client=client, raise_on_deny=True)
+
+        with pytest.raises(PolicyDenied):
+            handler.on_tool_start(
+                serialized={"name": "bad_tool"},
+                input_str="{}",
+                run_id=uuid4(),
+            )
+
+        assert "bad_tool" not in handler._call_chain
+        client.close()
+
+    def test_allow_appends_to_chain(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/evaluate",
+            json={"verdict": "allow"},
+        )
+        client = VellavetoClient()
+        from vellaveto.langchain import VellavetoCallbackHandler
+
+        handler = VellavetoCallbackHandler(client=client, raise_on_deny=True)
+
+        handler.on_tool_start(
+            serialized={"name": "good_tool"},
+            input_str="{}",
+            run_id=uuid4(),
+        )
+
+        assert "good_tool" in handler._call_chain
+        client.close()
+
+    def test_deny_no_raise_still_appends(self, httpx_mock):
+        """When raise_on_deny=False and denied, chain should still grow (tool proceeds)."""
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/evaluate",
+            json={"verdict": "deny", "reason": "Soft deny"},
+        )
+        client = VellavetoClient()
+        from vellaveto.langchain import VellavetoCallbackHandler
+
+        handler = VellavetoCallbackHandler(client=client, raise_on_deny=False)
+
+        handler.on_tool_start(
+            serialized={"name": "soft_denied_tool"},
+            input_str="{}",
+            run_id=uuid4(),
+        )
+
+        # Tool proceeds (raise_on_deny=False), so chain should include it
+        assert "soft_denied_tool" in handler._call_chain
+        client.close()
