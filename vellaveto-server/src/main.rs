@@ -710,7 +710,7 @@ async fn cmd_serve(
             policies,
             compliance_config: policy_config.compliance.clone(),
         })),
-        audit,
+        audit: audit.clone(),
         config_path: Arc::new(config),
         approvals: approvals.clone(),
         api_key,
@@ -983,6 +983,20 @@ async fn cmd_serve(
 
         // SECURITY (FIND-P27-004): Resolve instance ID once at startup.
         cached_instance_id: Arc::new(policy_config.deployment.effective_instance_id()),
+
+        // Phase 34: Tool Discovery Service
+        discovery_engine: if policy_config.discovery.enabled {
+            Some(Arc::new(vellaveto_mcp::discovery::DiscoveryEngine::new(
+                policy_config.discovery.clone(),
+            )))
+        } else {
+            None
+        },
+        discovery_audit: if policy_config.discovery.enabled {
+            Some(Arc::clone(&audit))
+        } else {
+            None
+        },
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -1480,6 +1494,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         governance: Default::default(),
         deployment: Default::default(),
         streamable_http: Default::default(),
+        discovery: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

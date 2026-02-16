@@ -112,6 +112,8 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
         start_time: std::time::Instant::now(),
         cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
+        discovery_engine: None,
+        discovery_audit: None,
     };
     (state, tmp)
 }

@@ -89,6 +89,8 @@ fn make_test_state(tmp: &TempDir) -> AppState {
         start_time: std::time::Instant::now(),
         cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
+        discovery_engine: None,
+        discovery_audit: None,
     }
 }
 

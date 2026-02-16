@@ -88,6 +88,8 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         start_time: std::time::Instant::now(),
         cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
+        discovery_engine: None,
+        discovery_audit: None,
     };
     (state, tmp)
 }
@@ -459,6 +461,8 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         start_time: std::time::Instant::now(),
         cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
+        discovery_engine: None,
+        discovery_audit: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

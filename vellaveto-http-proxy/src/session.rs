@@ -78,6 +78,22 @@ pub struct SessionState {
     pub risk_score: Option<vellaveto_types::RiskScore>,
     /// Phase 21: Granted ABAC policy IDs for least-agency tracking.
     pub abac_granted_policies: Vec<String>,
+    /// Phase 34: Tools discovered via `vv_discover` with TTL tracking.
+    /// Maps tool_id → session entry with discovery timestamp and TTL.
+    pub discovered_tools: HashMap<String, DiscoveredToolSession>,
+}
+
+/// Per-session tracking of a discovered tool (Phase 34.3).
+#[derive(Debug, Clone)]
+pub struct DiscoveredToolSession {
+    /// The tool's unique identifier (server_id:tool_name).
+    pub tool_id: String,
+    /// When this tool was discovered.
+    pub discovered_at: Instant,
+    /// How long until this discovery expires.
+    pub ttl: Duration,
+    /// Whether the agent has actually called this tool.
+    pub used: bool,
 }
 
 impl SessionState {
@@ -106,6 +122,7 @@ impl SessionState {
             gateway_tools: HashMap::new(),
             risk_score: None,
             abac_granted_policies: Vec::new(),
+            discovered_tools: HashMap::new(),
         }
     }
 

@@ -19,6 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Default off:** `resumability_enabled: false`, `strict_tool_name_validation: false`. WWW-Authenticate header always on (spec-mandated, backward compatible).
 - ~42 new tests across 4 crates. Integration tests in `vellaveto-integration/tests/mcp_2025_11_25_compliance.rs`.
 
+### Fixed (Adversarial Hardening — Round 45: Phase 30 GET /mcp Security Parity)
+- **FIND-R45-001** (P1): Session ownership validation in GET handler — `handle_mcp_get` now binds OAuth claims to session (atomic ownership check), preventing SSE stream hijacking via session fixation.
+- **FIND-R45-002** (P1): Agent identity validation in GET handler — `handle_mcp_get` now calls `validate_agent_identity()` and stores identity in session, matching POST path.
+- **FIND-R45-003** (P2): Call chain validation in GET handler — `handle_mcp_get` now validates `X-Upstream-Agents` header via `validate_call_chain_header()`, preventing malformed headers from bypassing validation.
+- **FIND-R45-004** (P1): Audit logging in GET handler — `handle_mcp_get` now logs `sse_resumption` audit entries with session, event ID presence, and OAuth context.
+- **FIND-R45-005** (P1): Rug-pull detection in GET SSE path — `forward_get_to_upstream` now calls `check_sse_for_rug_pull_and_manifest()`, `register_schemas_from_sse()` matching POST SSE path.
+- **FIND-R45-006** (P2): Output schema validation in GET SSE path — `forward_get_to_upstream` now calls `scan_sse_events_for_output_schema()` and blocks invalid structuredContent.
+- **FIND-R45-008** (P2): Gateway mode GET /mcp rejection — GET handler now returns 501 Not Implemented in gateway mode (backend selection requires tool-based routing, not available for SSE resumption).
+- **FIND-R45-009** (P3): Session touch in GET handler — `handle_mcp_get` now calls `session.touch()` to update activity timestamp and increment `request_count`.
+- **FIND-R45-010** (P3): Last-Event-ID error messages genericized — control char and oversized event ID errors now return "Invalid request" instead of detailed messages.
+- **FIND-R45-011** (P2): DoS via repeated GET connections — mitigated by session touch + request_count tracking (enables rate limiting integration).
+- **FIND-R45-013** (P3): Error message normalization — GET handler now uses JSON-RPC format and generic messages consistent with POST path ("Method not allowed" instead of "GET /mcp not supported (resumability disabled)").
+- **FIND-R45-014** (P3): Request count increment — covered by session.touch() fix (FIND-R45-009).
+- 6 new tests for R45 findings. Error responses normalized to JSON-RPC format.
+
 #### Phase 29 — Cross-Transport Smart Fallback
 - **Transport health tracker** (`vellaveto-http-proxy/src/proxy/transport_health.rs`) — per-transport circuit breaker keyed by `(upstream_id, TransportProtocol)` with Closed/Open/HalfOpen state machine, exponential backoff (2^trip_count, max 32x), RwLock fail-closed semantics. API: `can_use()`, `record_success()`, `record_failure()`, `available_transports()`, `summary()`, `reset()`.
 - **Smart fallback chain** (`vellaveto-http-proxy/src/proxy/smart_fallback.rs`) — ordered transport fallback orchestrator (gRPC → WebSocket → HTTP → stdio). Per-attempt and total timeout budgets, transport-specific dispatch (HTTP POST, WebSocket one-shot via tokio-tungstenite, gRPC HTTP bridge, stdio subprocess). Circuit breaker integration skips Open transports.

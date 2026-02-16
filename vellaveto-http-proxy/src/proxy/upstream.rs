@@ -171,7 +171,12 @@ pub(super) async fn forward_get_to_upstream(
                 return (
                     StatusCode::BAD_GATEWAY,
                     Json(json!({
-                        "error": "Upstream did not return SSE stream"
+                        "jsonrpc": "2.0",
+                        "error": {
+                            "code": -32000,
+                            "message": "Upstream returned unexpected content type"
+                        },
+                        "id": null
                     })),
                 )
                     .into_response();
@@ -185,12 +190,9 @@ pub(super) async fn forward_get_to_upstream(
             .await
             {
                 Ok(sse_bytes) => {
-                    // Injection scanning on SSE events (same as POST path)
+                    // SECURITY: Injection scanning on SSE events (same as POST path)
                     let injection_found = if !state.injection_disabled {
-                        super::inspection::scan_sse_events_for_injection(
-                            &sse_bytes, session_id, state,
-                        )
-                        .await
+                        scan_sse_events_for_injection(&sse_bytes, session_id, state).await
                     } else {
                         false
                     };
@@ -208,12 +210,11 @@ pub(super) async fn forward_get_to_upstream(
                             .into_response();
                     }
 
-                    // DLP scanning
+                    // DLP scanning (same as POST path)
+                    let mut dlp_found = false;
                     if state.response_dlp_enabled {
-                        let dlp_found = super::inspection::scan_sse_events_for_dlp(
-                            &sse_bytes, session_id, state,
-                        )
-                        .await;
+                        dlp_found =
+                            scan_sse_events_for_dlp(&sse_bytes, session_id, state).await;
                         if dlp_found && state.response_dlp_blocking {
                             return (
                                 StatusCode::OK,
@@ -229,6 +230,44 @@ pub(super) async fn forward_get_to_upstream(
                         }
                     }
 
+                    // SECURITY (FIND-R45-006): Register output schemas from SSE
+                    // tools/list responses (same as POST path). Without this,
+                    // schemas returned via GET SSE are never registered.
+                    register_schemas_from_sse(&sse_bytes, state);
+
+                    // SECURITY (FIND-R45-006): Validate structuredContent in SSE
+                    // responses against registered output schemas (same as POST path).
+                    let schema_violation_found =
+                        scan_sse_events_for_output_schema(&sse_bytes, session_id, state).await;
+
+                    // SECURITY (FIND-R45-005): Rug-pull detection and manifest
+                    // verification for GET SSE responses. Without this, a server
+                    // returning tools/list via GET SSE bypasses both checks.
+                    check_sse_for_rug_pull_and_manifest(
+                        &sse_bytes,
+                        session_id,
+                        state,
+                        injection_found,
+                        dlp_found,
+                        schema_violation_found,
+                    )
+                    .await;
+
+                    if schema_violation_found {
+                        return (
+                            StatusCode::OK,
+                            Json(json!({
+                                "jsonrpc": "2.0",
+                                "error": {
+                                    "code": -32001,
+                                    "message": "SSE response blocked: output schema validation failed",
+                                },
+                            })),
+                        )
+                            .into_response();
+                    }
+
+                    // SECURITY (R12-RESP-10): Do NOT copy Mcp-Session-Id from upstream.
                     Response::builder()
                         .status(status)
                         .header("content-type", "text/event-stream")
@@ -241,7 +280,12 @@ pub(super) async fn forward_get_to_upstream(
                     (
                         StatusCode::BAD_GATEWAY,
                         Json(json!({
-                            "error": "Upstream server error"
+                            "jsonrpc": "2.0",
+                            "error": {
+                                "code": -32000,
+                                "message": "Upstream server error"
+                            },
+                            "id": null
                         })),
                     )
                         .into_response()
@@ -253,7 +297,12 @@ pub(super) async fn forward_get_to_upstream(
             (
                 StatusCode::BAD_GATEWAY,
                 Json(json!({
-                    "error": "Failed to connect to upstream server"
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32000,
+                        "message": "Upstream server unavailable"
+                    },
+                    "id": null
                 })),
             )
                 .into_response()

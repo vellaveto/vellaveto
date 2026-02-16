@@ -2776,6 +2776,10 @@ const LAST_EVENT_ID_HEADER: &str = "last-event-id";
 /// and optionally `Last-Event-ID` for resumption.
 ///
 /// Gated behind `streamable_http.resumability_enabled` — returns 405 when disabled.
+///
+/// SECURITY (R45): Full security peer to `handle_mcp_post` — includes session
+/// ownership binding, agent identity validation, call chain validation, audit
+/// logging, and gateway mode rejection (no tool-based routing for SSE resumption).
 pub async fn handle_mcp_get(
     State(state): State<ProxyState>,
     OriginalUri(original_uri): OriginalUri,
@@ -2783,11 +2787,12 @@ pub async fn handle_mcp_get(
     headers: HeaderMap,
 ) -> Response {
     // Gate: resumability must be enabled
+    // SECURITY (FIND-R45-013): Generic error message — do not leak config details.
     if !state.streamable_http.resumability_enabled {
         return (
             StatusCode::METHOD_NOT_ALLOWED,
             Json(json!({
-                "error": "GET /mcp not supported (resumability disabled)"
+                "error": "Method not allowed"
             })),
         )
             .into_response();
@@ -2802,13 +2807,14 @@ pub async fn handle_mcp_get(
         return (
             StatusCode::NOT_ACCEPTABLE,
             Json(json!({
-                "error": "Accept header must include text/event-stream"
+                "error": "Not acceptable"
             })),
         )
             .into_response();
     }
 
-    // MCP 2025-11-25: Validate MCP-Protocol-Version header
+    // MCP 2025-11-25: Validate MCP-Protocol-Version header (same as POST path).
+    // SECURITY (FIND-R45-013): Use JSON-RPC error format consistent with POST.
     if let Some(version_hdr) = headers.get(MCP_PROTOCOL_VERSION_HEADER) {
         match version_hdr.to_str() {
             Ok(version) if SUPPORTED_PROTOCOL_VERSIONS.contains(&version) => {}
@@ -2820,20 +2826,31 @@ pub async fn handle_mcp_get(
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(json!({
-                        "error": format!(
-                            "Unsupported MCP protocol version '{}'. Supported: {}",
-                            version,
-                            SUPPORTED_PROTOCOL_VERSIONS.join(", ")
-                        )
+                        "jsonrpc": "2.0",
+                        "error": {
+                            "code": -32600,
+                            "message": format!(
+                                "Unsupported MCP protocol version '{}'. Supported versions: {}",
+                                version,
+                                SUPPORTED_PROTOCOL_VERSIONS.join(", ")
+                            )
+                        },
+                        "id": null
                     })),
                 )
                     .into_response();
             }
             Err(_) => {
+                tracing::warn!("Invalid UTF-8 in {} header", MCP_PROTOCOL_VERSION_HEADER);
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(json!({
-                        "error": "Invalid MCP-Protocol-Version header encoding"
+                        "jsonrpc": "2.0",
+                        "error": {
+                            "code": -32600,
+                            "message": "Invalid MCP-Protocol-Version header encoding"
+                        },
+                        "id": null
                     })),
                 )
                     .into_response();
@@ -2841,29 +2858,36 @@ pub async fn handle_mcp_get(
         }
     }
 
-    // CSRF / DNS rebinding origin validation
+    // CSRF / DNS rebinding origin validation (same as POST)
     if let Err(response) = validate_origin(&headers, &state.bind_addr, &state.allowed_origins) {
         return response;
     }
 
-    // API key validation
+    // API key validation (same as POST)
     if let Err(response) = validate_api_key(&state, &headers) {
         return response;
     }
 
     let client_session_id = headers.get(MCP_SESSION_ID).and_then(|v| v.to_str().ok());
 
-    // OAuth 2.1 token validation
+    // OAuth 2.1 token validation (FIND-R45-001: extract claims for session binding)
     let from_trusted_proxy = proxy_ctx
         .map(|Extension(ctx)| ctx.from_trusted_proxy)
         .unwrap_or(false);
     let effective_uri =
         build_effective_request_uri(&headers, state.bind_addr, &original_uri, from_trusted_proxy);
-    if let Err(response) =
-        validate_oauth(&state, &headers, "GET", &effective_uri, client_session_id).await
-    {
-        return response;
-    }
+    let oauth_claims =
+        match validate_oauth(&state, &headers, "GET", &effective_uri, client_session_id).await {
+            Ok(claims) => claims,
+            Err(response) => return response,
+        };
+
+    // SECURITY (FIND-R45-002): Agent identity attestation via X-Agent-Identity JWT
+    // (same as POST path). Without this, GET requests bypass identity validation.
+    let agent_identity = match validate_agent_identity(&state, &headers).await {
+        Ok(identity) => identity,
+        Err(response) => return response,
+    };
 
     // Extract and validate Last-Event-ID
     let last_event_id = headers
@@ -2881,26 +2905,156 @@ pub async fn handle_mcp_get(
             return (
                 StatusCode::BAD_REQUEST,
                 Json(json!({
-                    "error": "Last-Event-ID exceeds maximum length"
+                    "error": "Invalid request"
                 })),
             )
                 .into_response();
         }
-        // SECURITY: Reject event IDs with control characters
+        // SECURITY (FIND-R45-010): Reject event IDs with control characters.
+        // Also reject URL-scheme prefixes to prevent SSRF via upstream event ID parsing.
         if event_id.chars().any(|c| c.is_control()) {
             tracing::warn!("SECURITY: Rejecting Last-Event-ID with control characters");
             return (
                 StatusCode::BAD_REQUEST,
                 Json(json!({
-                    "error": "Last-Event-ID contains invalid characters"
+                    "error": "Invalid request"
                 })),
             )
                 .into_response();
         }
     }
 
-    // Session management
+    // Session management (session ID length validated inside get_or_create)
     let session_id = state.sessions.get_or_create(client_session_id);
+
+    // SECURITY (FIND-R45-001): Atomic session ownership check + bind.
+    // Without this, an attacker can hijack another user's SSE stream by
+    // providing their session ID in the GET request.
+    if let Some(ref claims) = oauth_claims {
+        if let Some(mut session) = state.sessions.get_mut(&session_id) {
+            match &session.oauth_subject {
+                Some(owner) if owner != &claims.sub => {
+                    tracing::warn!(
+                        "SECURITY: Session fixation attempt on GET blocked — session {} owned by '{}', request from '{}'",
+                        session_id, owner, claims.sub
+                    );
+                    return (
+                        StatusCode::FORBIDDEN,
+                        Json(json!({
+                            "jsonrpc": "2.0",
+                            "error": {"code": -32001, "message": "Session owned by another user"},
+                            "id": null
+                        })),
+                    )
+                        .into_response();
+                }
+                None => {
+                    session.oauth_subject = Some(claims.sub.clone());
+                    if claims.exp > 0 {
+                        session.token_expires_at = Some(claims.exp);
+                    }
+                }
+                _ => {
+                    // SECURITY (R23-PROXY-6): Use the EARLIEST token expiry
+                    if claims.exp > 0 {
+                        session.token_expires_at = Some(
+                            session
+                                .token_expires_at
+                                .map_or(claims.exp, |existing| existing.min(claims.exp)),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // SECURITY (FIND-R45-002): Store agent identity in session for context-aware evaluation
+    if let Some(ref identity) = agent_identity {
+        if let Some(mut session) = state.sessions.get_mut(&session_id) {
+            session.agent_identity = Some(identity.clone());
+        }
+    }
+
+    // SECURITY (FIND-R45-003): Validate call chain header (same as POST pre-match check).
+    // Without this, malformed X-Upstream-Agents headers pass through on GET.
+    if let Err(reason) = validate_call_chain_header(&headers, &state.limits) {
+        let action = Action::new(
+            "vellaveto",
+            "invalid_call_chain_header",
+            json!({
+                "method": "GET /mcp",
+                "reason": reason,
+            }),
+        );
+        let verdict = Verdict::Deny {
+            reason: format!("Invalid upstream call chain header: {}", reason),
+        };
+        if let Err(e) = state
+            .audit
+            .log_entry(
+                &action,
+                &verdict,
+                build_audit_context(
+                    &session_id,
+                    json!({
+                        "event": "invalid_call_chain_header",
+                        "method": "GET /mcp",
+                        "reason": reason,
+                    }),
+                    &oauth_claims,
+                ),
+            )
+            .await
+        {
+            tracing::warn!("Failed to audit invalid call-chain header on GET: {}", e);
+        }
+        tracing::warn!(reason = %reason, "GET /mcp: Call chain validation failed");
+        return attach_session_header(
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "jsonrpc": "2.0",
+                    "error": {"code": -32600, "message": "Invalid request"},
+                    "id": null
+                })),
+            )
+                .into_response(),
+            &session_id,
+        );
+    }
+
+    // SECURITY (FIND-R45-009 + FIND-R45-014): Touch session to update
+    // activity timestamp and increment request_count. Without this, GET
+    // requests don't extend session lifetime and aren't counted for rate
+    // limiting, enabling DoS via repeated reconnections (FIND-R45-011).
+    if let Some(mut session) = state.sessions.get_mut(&session_id) {
+        session.touch();
+    }
+
+    // SECURITY (FIND-R45-008): Reject GET in gateway mode. SSE resumption
+    // reconnects to a session-scoped stream, but in gateway mode the backend
+    // is determined per-tool-call. Without session-scoped backend tracking,
+    // we cannot route the GET to the correct upstream.
+    if state.gateway.is_some() {
+        tracing::warn!(
+            "GET /mcp not supported in gateway mode — backend selection requires tool routing"
+        );
+        return attach_session_header(
+            (
+                StatusCode::NOT_IMPLEMENTED,
+                Json(json!({
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32000,
+                        "message": "SSE resumability not available in gateway mode"
+                    },
+                    "id": null
+                })),
+            )
+                .into_response(),
+            &session_id,
+        );
+    }
 
     // Phase 28: Extract W3C Trace Context
     let incoming_trace = trace_propagation::extract_trace_context(&headers);
@@ -2923,6 +3077,36 @@ pub async fn handle_mcp_get(
 
     let (up_tp, up_ts) =
         trace_propagation::build_upstream_headers(&vellaveto_trace_ctx, "sse_get");
+
+    // SECURITY (FIND-R45-004): Audit log the SSE resumption request.
+    // Without this, GET /mcp requests leave no audit trail, preventing
+    // forensic analysis and compliance evidence.
+    let sse_action = Action::new(
+        "vellaveto",
+        "sse_resumption",
+        json!({
+            "session": &session_id,
+            "has_last_event_id": last_event_id.is_some(),
+        }),
+    );
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &sse_action,
+            &Verdict::Allow,
+            build_audit_context(
+                &session_id,
+                json!({
+                    "event": "sse_get_request",
+                    "last_event_id_present": last_event_id.is_some(),
+                }),
+                &oauth_claims,
+            ),
+        )
+        .await
+    {
+        tracing::warn!("Failed to audit SSE GET request: {}", e);
+    }
 
     // Forward GET to upstream
     let response = super::upstream::forward_get_to_upstream(
