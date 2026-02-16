@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 30 — MCP 2025-11-25 Spec Adoption
+- **Tool name validation** (`vellaveto-types/src/core.rs`) — `validate_mcp_tool_name()` enforces MCP 2025-11-25 format: 1–64 chars, `[a-zA-Z0-9_\-./]`, no leading/trailing dots/slashes, no consecutive dots (`..`). Re-exported at crate root.
+- **StreamableHttpConfig** (`vellaveto-config/src/mcp_protocol.rs`) — new config struct with `resumability_enabled` (default false), `strict_tool_name_validation` (default false), `max_event_id_length` (default 128, range 1–512), `sse_retry_ms` (optional, range 100–60000). Wired into `PolicyConfig.streamable_http`.
+- **GET /mcp handler** (`vellaveto-http-proxy/src/proxy/handlers.rs`) — `handle_mcp_get()` implements SSE stream initiation/resumption per MCP 2025-11-25. Validates `Accept: text/event-stream`, protocol version, `Last-Event-ID` length and content. Gated behind `resumability_enabled` (returns 405 when disabled).
+- **Last-Event-ID forwarding** (`vellaveto-http-proxy/src/proxy/upstream.rs`) — `forward_get_to_upstream()` for GET requests, `forward_to_upstream_url()` extended with optional `last_event_id` parameter for POST resumption.
+- **OAuth WWW-Authenticate header** (`vellaveto-http-proxy/src/proxy/auth.rs`) — `InsufficientScope` errors now return `WWW-Authenticate: Bearer error="insufficient_scope", scope="<required>"` per RFC 6750 §3.1. Scope string sanitized (no quotes, no control chars). JSON body includes `required_scope` field.
+- **Strict tool name validation in proxy** (`vellaveto-http-proxy/src/proxy/handlers.rs`) — when `strict_tool_name_validation` is true, tool calls with non-spec names rejected with JSON-RPC error -32602.
+- **Default off:** `resumability_enabled: false`, `strict_tool_name_validation: false`. WWW-Authenticate header always on (spec-mandated, backward compatible).
+- ~42 new tests across 4 crates. Integration tests in `vellaveto-integration/tests/mcp_2025_11_25_compliance.rs`.
+
 #### Phase 29 — Cross-Transport Smart Fallback
 - **Transport health tracker** (`vellaveto-http-proxy/src/proxy/transport_health.rs`) — per-transport circuit breaker keyed by `(upstream_id, TransportProtocol)` with Closed/Open/HalfOpen state machine, exponential backoff (2^trip_count, max 32x), RwLock fail-closed semantics. API: `can_use()`, `record_success()`, `record_failure()`, `available_transports()`, `summary()`, `reset()`.
 - **Smart fallback chain** (`vellaveto-http-proxy/src/proxy/smart_fallback.rs`) — ordered transport fallback orchestrator (gRPC → WebSocket → HTTP → stdio). Per-attempt and total timeout budgets, transport-specific dispatch (HTTP POST, WebSocket one-shot via tokio-tungstenite, gRPC HTTP bridge, stdio subprocess). Circuit breaker integration skips Open transports.

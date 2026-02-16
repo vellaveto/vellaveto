@@ -1,8 +1,25 @@
 # MCP 2025-11-25 Compliance Configuration
 #
 # This example demonstrates the new security features introduced in
-# MCP 2025-11-25, including async task policies, resource indicators,
+# MCP 2025-11-25, including Streamable HTTP (SSE resumability, strict
+# tool name validation), async task policies, resource indicators,
 # capability-based routing (CIMD), and step-up authentication.
+
+# ═══════════════════════════════════════════════════════════════════
+# STREAMABLE HTTP CONFIGURATION (Phase 30)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Controls MCP 2025-11-25 Streamable HTTP features:
+# - SSE resumability via GET /mcp with Last-Event-ID
+# - Strict tool name validation per spec format
+# - Event ID length limits for memory safety
+# - SSE retry directive overrides
+
+[streamable_http]
+resumability_enabled = true             # Enable GET /mcp for SSE resumption
+strict_tool_name_validation = false     # Opt-in: reject non-spec tool names
+max_event_id_length = 128               # Max bytes for Last-Event-ID (1-512)
+# sse_retry_ms = 3000                   # Override SSE retry directive (100-60000)
 
 # ═══════════════════════════════════════════════════════════════════
 # ASYNC TASKS CONFIGURATION

@@ -1,10 +1,10 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 33 complete, 44 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 complete, 44 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 5,190 Rust tests + 130 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 5,232 Rust tests + 130 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
 > **CI workflows:** 11
 > **Updated:** 2026-02-16
@@ -151,7 +151,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 33 implemented, tested, and hardened through 44 audit rounds. Details in CHANGELOG.md.
+All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 implemented, tested, and hardened through 44 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
 - **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention
@@ -174,6 +174,7 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - **Shadow AI Detection & Governance (Phase 26):** Passive shadow AI discovery engine (unregistered agents, unapproved tools, unknown MCP servers with bounded tracking — max 1000/500/100), governance API endpoints (shadow-report, unregistered-agents, unapproved-tools, least-agency), `GovernanceConfig` with `require_agent_registration` fail-closed mode, `LeastAgencyTracker` enforcement mode with auto-revocation, governance dashboard section, audit event helpers (`shadow_ai.{unregistered_agent,unapproved_tool,unknown_server}`, `least_agency.{report,auto_revoke}`)
 - **Kubernetes-Native Deployment (Phase 27):** `LeaderElection` trait + `LocalLeaderElection` (always-leader standalone), `ServiceDiscovery` trait + `StaticServiceDiscovery` + `DnsServiceDiscovery` (tokio lookup_host + periodic watch), `DeploymentConfig` with validation (mode/leader-election/service-discovery/instance-id), `GET /api/deployment/info` endpoint, health endpoint extended with `leader_status`/`instance_id`/`discovered_endpoints`, Helm chart StatefulSet with PVC + init container + log-shipping sidecar + headless Service + gRPC/WebSocket support, Chart version 4.0.0, audit event helpers (`leader_election.{acquired,renewed,released,lost,failed}`, `service_discovery.{endpoint_added,endpoint_removed,endpoint_updated,refresh_failed}`)
 - **Cross-Transport Smart Fallback (Phase 29):** `TransportHealthTracker` per-transport circuit breaker (Closed/Open/HalfOpen, exponential backoff, RwLock fail-closed, bounded 10K circuits), `SmartFallbackChain` ordered fallback orchestrator (gRPC → WS → HTTP → stdio with per-attempt/total timeouts, 16MB response body limit), `resolve_transport_priority()` with per-tool glob overrides (iterative DP matching) + client preference + config priorities, `TransportAttempt`/`FallbackNegotiationHistory` audit types, `cross_transport_fallback` config gate (default off), handler integration with `build_transport_targets()`, header allowlist for upstream proxying, stdio command injection prevention (absolute path + no metacharacters), 71 new tests
+- **MCP 2025-11-25 Spec Adoption (Phase 30):** `validate_mcp_tool_name()` in vellaveto-types (1–64 chars, `[a-zA-Z0-9_\-./]`, no `..`), `StreamableHttpConfig` with `resumability_enabled`/`strict_tool_name_validation`/`max_event_id_length`/`sse_retry_ms`, `handle_mcp_get()` for SSE stream initiation/resumption with `Last-Event-ID` forwarding, RFC 6750 §3.1 `WWW-Authenticate` header on `InsufficientScope`, strict tool name validation in proxy (config-gated), ~42 new tests
 - **Docs:** Quickstart guides, security model, benchmarks, 5 policy presets
 
 ---
