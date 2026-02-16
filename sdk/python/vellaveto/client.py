@@ -652,6 +652,33 @@ class VellavetoClient:
         params = {"from": from_seq, "to": to_seq}
         return self._request("GET", "/api/zk-audit/commitments", params=params)
 
+    def soc2_access_review(
+        self,
+        period: str = "30d",
+        format: str = "json",
+        agent_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate a SOC 2 Type II access review report.
+
+        Args:
+            period: Review period duration (e.g. "30d", "7d", "90d")
+            format: Export format ("json" or "html")
+            agent_id: Optional agent ID filter (max 128 chars)
+
+        Returns:
+            Access review report as dictionary (JSON) or raw HTML string
+        """
+        if agent_id is not None:
+            if not isinstance(agent_id, str):
+                raise VellavetoError("agent_id must be a string")
+            if len(agent_id) > 128:
+                raise VellavetoError("agent_id exceeds max length (128)")
+        params: Dict[str, Any] = {"period": period, "format": format}
+        if agent_id is not None:
+            params["agent_id"] = agent_id
+        return self._request("GET", "/api/compliance/soc2/access-review", params=params)
+
     def close(self):
         """Close the client and release resources."""
         if self._use_httpx and hasattr(self, "_client"):
@@ -927,4 +954,23 @@ class AsyncVellavetoClient:
         params = {"from": from_seq, "to": to_seq}
         return await self._request(
             "GET", "/api/zk-audit/commitments", params=params
+        )
+
+    async def soc2_access_review(
+        self,
+        period: str = "30d",
+        format: str = "json",
+        agent_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Generate a SOC 2 Type II access review report (async)."""
+        if agent_id is not None:
+            if not isinstance(agent_id, str):
+                raise VellavetoError("agent_id must be a string")
+            if len(agent_id) > 128:
+                raise VellavetoError("agent_id exceeds max length (128)")
+        params: Dict[str, Any] = {"period": period, "format": format}
+        if agent_id is not None:
+            params["agent_id"] = agent_id
+        return await self._request(
+            "GET", "/api/compliance/soc2/access-review", params=params
         )

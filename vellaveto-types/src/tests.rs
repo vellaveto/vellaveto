@@ -2257,6 +2257,112 @@ fn test_data_governance_record_optional_fields() {
     assert!(!json_str.contains("retention_days"));
 }
 
+// ── Phase 38: SOC 2 Type II Access Review Types ─────────────────────────────
+
+#[test]
+fn test_attestation_status_default() {
+    let status = AttestationStatus::default();
+    assert_eq!(status, AttestationStatus::Pending);
+}
+
+#[test]
+fn test_attestation_status_serde_roundtrip() {
+    let variants = [
+        AttestationStatus::Pending,
+        AttestationStatus::Approved,
+        AttestationStatus::FindingsNoted,
+        AttestationStatus::Rejected,
+    ];
+    for v in &variants {
+        let json_str = serde_json::to_string(v).unwrap();
+        let deserialized: AttestationStatus = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(*v, deserialized);
+    }
+}
+
+#[test]
+fn test_attestation_status_display() {
+    assert_eq!(AttestationStatus::Pending.to_string(), "pending");
+    assert_eq!(AttestationStatus::Approved.to_string(), "approved");
+    assert_eq!(AttestationStatus::FindingsNoted.to_string(), "findings_noted");
+    assert_eq!(AttestationStatus::Rejected.to_string(), "rejected");
+}
+
+#[test]
+fn test_review_schedule_serde_roundtrip() {
+    let variants = [
+        ReviewSchedule::Daily,
+        ReviewSchedule::Weekly,
+        ReviewSchedule::Monthly,
+    ];
+    for v in &variants {
+        let json_str = serde_json::to_string(v).unwrap();
+        let deserialized: ReviewSchedule = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(*v, deserialized);
+    }
+}
+
+#[test]
+fn test_review_schedule_display() {
+    assert_eq!(ReviewSchedule::Daily.to_string(), "daily");
+    assert_eq!(ReviewSchedule::Weekly.to_string(), "weekly");
+    assert_eq!(ReviewSchedule::Monthly.to_string(), "monthly");
+}
+
+#[test]
+fn test_report_export_format_default() {
+    let fmt = ReportExportFormat::default();
+    assert_eq!(fmt, ReportExportFormat::Json);
+}
+
+#[test]
+fn test_access_review_report_serde_roundtrip() {
+    let report = AccessReviewReport {
+        generated_at: "2026-02-16T00:00:00Z".to_string(),
+        organization_name: "Acme Corp".to_string(),
+        period_start: "2026-01-01T00:00:00Z".to_string(),
+        period_end: "2026-02-01T00:00:00Z".to_string(),
+        total_agents: 1,
+        total_evaluations: 42,
+        entries: vec![AccessReviewEntry {
+            agent_id: "agent-1".to_string(),
+            session_ids: vec!["sess-1".to_string()],
+            first_access: "2026-01-02T00:00:00Z".to_string(),
+            last_access: "2026-01-31T00:00:00Z".to_string(),
+            total_evaluations: 42,
+            allow_count: 30,
+            deny_count: 10,
+            require_approval_count: 2,
+            tools_accessed: vec!["read_file".to_string()],
+            functions_called: vec!["execute".to_string()],
+            permissions_granted: 5,
+            permissions_used: 4,
+            usage_ratio: 0.8,
+            unused_permissions: vec!["policy-5".to_string()],
+            agency_recommendation: "Optimal".to_string(),
+        }],
+        cc6_evidence: Cc6Evidence {
+            cc6_1_evidence: "All agent access policy-controlled".to_string(),
+            cc6_2_evidence: "Agent identities validated before access".to_string(),
+            cc6_3_evidence: "Unused permissions tracked".to_string(),
+            optimal_count: 1,
+            review_grants_count: 0,
+            narrow_scope_count: 0,
+            critical_count: 0,
+        },
+        attestation: ReviewerAttestation {
+            reviewer_name: String::new(),
+            reviewer_title: String::new(),
+            reviewed_at: None,
+            notes: String::new(),
+            status: AttestationStatus::Pending,
+        },
+    };
+    let json_str = serde_json::to_string(&report).unwrap();
+    let deserialized: AccessReviewReport = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(report, deserialized);
+}
+
 #[test]
 fn test_verdict_explanation_summary() {
     let trace = EvaluationTrace {

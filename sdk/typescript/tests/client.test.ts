@@ -1,6 +1,9 @@
 import {
   VellavetoClient,
   VellavetoError,
+  PolicyDenied,
+  ApprovalRequired,
+  ParameterRedactor,
   Verdict,
   Action,
   EvaluationResult,
@@ -520,5 +523,411 @@ describe("VellavetoClient", () => {
       "http://localhost:3000/api/zk-audit/commitments?from=1&to=2",
       expect.objectContaining({ method: "GET" })
     );
+  });
+
+  // ── FIND-GAP-012: evaluateOrRaise ──────────────
+
+  test("evaluateOrRaise returns result on allow", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ verdict: "Allow", policy_id: "p1" })
+    );
+    const result = await client.evaluateOrRaise({ tool: "fs", function: "read" });
+    expect(result.verdict).toBe(Verdict.Allow);
+    expect(result.policy_id).toBe("p1");
+  });
+
+  test("evaluateOrRaise throws PolicyDenied on deny", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ verdict: "Deny", reason: "blocked by policy" })
+    );
+    try {
+      await client.evaluateOrRaise({ tool: "bash", function: "exec" });
+      fail("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(PolicyDenied);
+      expect((e as PolicyDenied).reason).toBe("blocked by policy");
+    }
+  });
+
+  test("evaluateOrRaise throws ApprovalRequired on require_approval", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        verdict: "require_approval",
+        reason: "needs human review",
+        approval_id: "appr-789",
+      })
+    );
+    try {
+      await client.evaluateOrRaise({ tool: "deploy" });
+      fail("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ApprovalRequired);
+      expect((e as ApprovalRequired).reason).toBe("needs human review");
+      expect((e as ApprovalRequired).approvalId).toBe("appr-789");
+    }
+  });
+
+  test("evaluateOrRaise throws PolicyDenied on unknown verdict (fail-closed)", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ verdict: "something_unknown" })
+    );
+    try {
+      await client.evaluateOrRaise({ tool: "fs" });
+      fail("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(PolicyDenied);
+    }
+  });
+
+  // ── FIND-GAP-015: Request body structure assertions ──
+
+  test("evaluate sends flattened action fields in request body", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ verdict: "Allow" })
+    );
+    await client.evaluate({
+      tool: "filesystem",
+      function: "read_file",
+      parameters: { path: "/tmp/test.txt" },
+    });
+    const call = mockFetch.mock.calls[0];
+    const body = JSON.parse(call[1].body);
+    // Action fields should be flattened at root level (not nested under "action")
+    expect(body.tool).toBe("filesystem");
+    expect(body.function).toBe("read_file");
+    expect(body.parameters).toEqual({ path: "/tmp/test.txt" });
+    // Should NOT have a nested "action" key
+    expect(body.action).toBeUndefined();
+  });
+
+  test("evaluate sends context when provided", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ verdict: "Allow" })
+    );
+    await client.evaluate(
+      { tool: "fs" },
+      { session_id: "sess-1", agent_id: "agent-1" }
+    );
+    const call = mockFetch.mock.calls[0];
+    const body = JSON.parse(call[1].body);
+    expect(body.context).toEqual({
+      session_id: "sess-1",
+      agent_id: "agent-1",
+    });
+  });
+
+  test("simulate sends action nested under action key", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        verdict: "allow",
+        trace: {},
+        policies_checked: 1,
+        duration_us: 10,
+      })
+    );
+    await client.simulate({ tool: "fs", function: "read" });
+    const call = mockFetch.mock.calls[0];
+    const body = JSON.parse(call[1].body);
+    expect(body.action).toBeDefined();
+    expect(body.action.tool).toBe("fs");
+    expect(body.action.function).toBe("read");
+  });
+
+  test("batchEvaluate sends actions array in body", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        results: [{ action_index: 0, verdict: "allow" }],
+        summary: { total: 1, allowed: 1, denied: 0, errors: 0, duration_us: 5 },
+      })
+    );
+    await client.batchEvaluate([{ tool: "fs" }, { tool: "bash" }]);
+    const call = mockFetch.mock.calls[0];
+    const body = JSON.parse(call[1].body);
+    expect(body.actions).toHaveLength(2);
+    expect(body.actions[0].tool).toBe("fs");
+    expect(body.actions[1].tool).toBe("bash");
+  });
+
+  test("discover sends query, max_results, and token_budget in body", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        tools: [],
+        query: "file reading",
+        total_candidates: 0,
+        policy_filtered: 0,
+      })
+    );
+    await client.discover("file reading", 5, 1000);
+    const call = mockFetch.mock.calls[0];
+    const body = JSON.parse(call[1].body);
+    expect(body.query).toBe("file reading");
+    expect(body.max_results).toBe(5);
+    expect(body.token_budget).toBe(1000);
+  });
+
+  test("projectSchema sends schema and model_family in body", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        projected_schema: {},
+        token_estimate: 100,
+        model_family: "openai",
+      })
+    );
+    await client.projectSchema(
+      { name: "read_file", description: "Reads files", input_schema: {} },
+      "openai"
+    );
+    const call = mockFetch.mock.calls[0];
+    const body = JSON.parse(call[1].body);
+    expect(body.schema).toBeDefined();
+    expect(body.schema.name).toBe("read_file");
+    expect(body.model_family).toBe("openai");
+  });
+
+  test("reloadPolicies sends POST with no body", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ count: 3 }));
+    await client.reloadPolicies();
+    const call = mockFetch.mock.calls[0];
+    expect(call[1].method).toBe("POST");
+    expect(call[0]).toBe("http://localhost:3000/api/policies/reload");
+  });
+
+  test("validateConfig sends config and strict flag in body", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        valid: true,
+        findings: [],
+        summary: { total_policies: 1, errors: 0, warnings: 0, infos: 0, valid: true },
+        policy_count: 1,
+      })
+    );
+    await client.validateConfig("[[policies]]", true);
+    const call = mockFetch.mock.calls[0];
+    const body = JSON.parse(call[1].body);
+    expect(body.config).toBe("[[policies]]");
+    expect(body.strict).toBe(true);
+  });
+
+  test("diffConfigs sends before and after in body", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ added: [], removed: [], modified: [], unchanged: 0 })
+    );
+    await client.diffConfigs("config-a", "config-b");
+    const call = mockFetch.mock.calls[0];
+    const body = JSON.parse(call[1].body);
+    expect(body.before).toBe("config-a");
+    expect(body.after).toBe("config-b");
+  });
+
+});
+
+describe("SOC 2 Access Review (Phase 38)", () => {
+  let client: VellavetoClient;
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    client = new VellavetoClient({
+      baseUrl: "http://localhost:3000",
+      apiKey: "test-key",
+      timeout: 1000,
+    });
+  });
+
+  test("soc2AccessReview sends correct params", async () => {
+    const mockReport = {
+      generated_at: "2026-02-16T00:00:00Z",
+      organization_name: "Acme",
+      total_agents: 2,
+      total_evaluations: 100,
+      entries: [],
+      cc6_evidence: {
+        cc6_1_evidence: "test",
+        cc6_2_evidence: "test",
+        cc6_3_evidence: "test",
+        optimal_count: 1,
+        review_grants_count: 0,
+        narrow_scope_count: 0,
+        critical_count: 0,
+      },
+      attestation: {
+        reviewer_name: "",
+        reviewer_title: "",
+        notes: "",
+        status: "pending",
+      },
+      period_start: "2026-01-01T00:00:00Z",
+      period_end: "2026-02-01T00:00:00Z",
+    };
+    mockFetch.mockResolvedValueOnce(jsonResponse(mockReport));
+    const result = await client.soc2AccessReview("30d", "json");
+    expect(result.total_agents).toBe(2);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:3000/api/compliance/soc2/access-review?period=30d&format=json",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  test("soc2AccessReview rejects agent_id > 128 chars", async () => {
+    await expect(
+      client.soc2AccessReview("30d", "json", "a".repeat(129))
+    ).rejects.toThrow("agent_id exceeds max length");
+  });
+
+});
+
+// ── FIND-GAP-013: ParameterRedactor ──────────────
+
+describe("ParameterRedactor", () => {
+  test("redacts sensitive keys by default", () => {
+    const redactor = new ParameterRedactor();
+    const result = redactor.redact({
+      path: "/tmp/test.txt",
+      api_key: "sk-1234567890abcdefghij",
+      password: "hunter2",
+    });
+    expect(result.path).toBe("/tmp/test.txt");
+    expect(result.api_key).toBe("[REDACTED]");
+    expect(result.password).toBe("[REDACTED]");
+  });
+
+  test("is case-insensitive for key matching", () => {
+    const redactor = new ParameterRedactor();
+    const result = redactor.redact({
+      API_KEY: "secret",
+      Password: "hunter2",
+      TOKEN: "abc",
+    });
+    expect(result.API_KEY).toBe("[REDACTED]");
+    expect(result.Password).toBe("[REDACTED]");
+    expect(result.TOKEN).toBe("[REDACTED]");
+  });
+
+  test("matches suffix keys like x_api_key", () => {
+    const redactor = new ParameterRedactor();
+    const result = redactor.redact({
+      my_api_key: "secret",
+      custom_token: "abc",
+    });
+    expect(result.my_api_key).toBe("[REDACTED]");
+    expect(result.custom_token).toBe("[REDACTED]");
+  });
+
+  test("mode=all redacts all values", () => {
+    const redactor = new ParameterRedactor({ mode: "all" });
+    const result = redactor.redact({
+      path: "/tmp/test.txt",
+      count: 42,
+    });
+    expect(result.path).toBe("[REDACTED]");
+    expect(result.count).toBe("[REDACTED]");
+  });
+
+  test("mode=values scans string values for secret patterns", () => {
+    const redactor = new ParameterRedactor({ mode: "values" });
+    const result = redactor.redact({
+      path: "/tmp/test.txt",
+      config: "sk-abcdefghijklmnopqrstuvwxyz",
+      normal: "hello world",
+    });
+    expect(result.path).toBe("/tmp/test.txt");
+    expect(result.config).toBe("[REDACTED]");
+    expect(result.normal).toBe("hello world");
+  });
+
+  test("handles nested objects", () => {
+    const redactor = new ParameterRedactor();
+    const result = redactor.redact({
+      config: {
+        api_key: "secret",
+        host: "localhost",
+      },
+    });
+    expect((result.config as Record<string, unknown>).api_key).toBe("[REDACTED]");
+    expect((result.config as Record<string, unknown>).host).toBe("localhost");
+  });
+
+  test("handles arrays", () => {
+    const redactor = new ParameterRedactor();
+    const result = redactor.redact({
+      items: [{ password: "secret", name: "test" }],
+    });
+    const items = result.items as Record<string, unknown>[];
+    expect(items[0].password).toBe("[REDACTED]");
+    expect(items[0].name).toBe("test");
+  });
+
+  test("custom placeholder", () => {
+    const redactor = new ParameterRedactor({ placeholder: "***" });
+    const result = redactor.redact({ password: "secret" });
+    expect(result.password).toBe("***");
+  });
+
+  test("custom sensitive keys", () => {
+    const redactor = new ParameterRedactor({
+      sensitiveKeys: new Set(["custom_field"]),
+    });
+    const result = redactor.redact({
+      custom_field: "sensitive",
+      password: "should-not-be-redacted",
+    });
+    expect(result.custom_field).toBe("[REDACTED]");
+    expect(result.password).toBe("should-not-be-redacted");
+  });
+
+  test("extra keys extend defaults", () => {
+    const redactor = new ParameterRedactor({
+      extraKeys: new Set(["my_custom_secret"]),
+    });
+    const result = redactor.redact({
+      my_custom_secret: "value",
+      password: "hunter2",
+      path: "/tmp",
+    });
+    expect(result.my_custom_secret).toBe("[REDACTED]");
+    expect(result.password).toBe("[REDACTED]");
+    expect(result.path).toBe("/tmp");
+  });
+
+  test("invalid mode throws error", () => {
+    expect(() => new ParameterRedactor({ mode: "invalid" as any })).toThrow(
+      "Invalid redaction mode"
+    );
+  });
+
+  test("isSensitiveKey returns correct results", () => {
+    const redactor = new ParameterRedactor();
+    expect(redactor.isSensitiveKey("api_key")).toBe(true);
+    expect(redactor.isSensitiveKey("API_KEY")).toBe(true);
+    expect(redactor.isSensitiveKey("my_api_key")).toBe(true);
+    expect(redactor.isSensitiveKey("path")).toBe(false);
+    expect(redactor.isSensitiveKey("name")).toBe(false);
+  });
+
+  test("isSensitiveValue detects secret patterns", () => {
+    const redactor = new ParameterRedactor();
+    expect(redactor.isSensitiveValue("sk-abcdefghijklmnopqrstuvwxyz")).toBe(true);
+    expect(redactor.isSensitiveValue("ghp_abcdefghijklmnopqrstuvwxyz0123456789ab")).toBe(true);
+    expect(redactor.isSensitiveValue("hello world")).toBe(false);
+    expect(redactor.isSensitiveValue("short")).toBe(false);
+    expect(redactor.isSensitiveValue(42)).toBe(false);
+  });
+
+  test("returns empty/null parameters unchanged", () => {
+    const redactor = new ParameterRedactor();
+    expect(redactor.redact({} as any)).toEqual({});
+    expect(redactor.redact(null as any)).toBeNull();
+  });
+
+  test("handles deeply nested objects with depth limit", () => {
+    const redactor = new ParameterRedactor();
+    // Build a deeply nested object (12 levels)
+    let obj: Record<string, unknown> = { password: "deep-secret" };
+    for (let i = 0; i < 12; i++) {
+      obj = { nested: obj };
+    }
+    const result = redactor.redact(obj);
+    // At depth > 10, all values should be redacted as placeholder
+    // The exact behavior depends on depth counting, but it should not crash
+    expect(result).toBeDefined();
   });
 });

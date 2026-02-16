@@ -6,8 +6,9 @@
 
 use serde::{Deserialize, Serialize};
 pub use vellaveto_types::compliance::{
-    AiActRiskClass, DataClassification, ExplanationVerbosity, ProcessingPurpose,
-    TrustServicesCategory,
+    AccessReviewEntry, AccessReviewReport, AttestationStatus, AiActRiskClass, Cc6Evidence,
+    DataClassification, ExplanationVerbosity, ProcessingPurpose, ReportExportFormat,
+    ReviewSchedule, ReviewerAttestation, TrustServicesCategory,
 };
 
 // ── Validation Constants ──────────────────────────────────────────────────────
@@ -112,6 +113,56 @@ pub struct Soc2Config {
     /// Trust Services Categories to track. Empty = all 9.
     #[serde(default)]
     pub tracked_categories: Vec<TrustServicesCategory>,
+
+    /// Phase 38: SOC 2 Type II access review configuration.
+    #[serde(default)]
+    pub access_review: Soc2AccessReviewConfig,
+}
+
+// ── Phase 38: SOC 2 Type II Access Review Configuration ─────────────────────
+
+/// Maximum number of designated reviewers.
+pub const MAX_ACCESS_REVIEW_REVIEWERS: usize = 50;
+
+/// Maximum period for access review reports in days.
+pub const MAX_ACCESS_REVIEW_PERIOD_DAYS: u32 = 366;
+
+/// Maximum reviewer name length.
+pub const MAX_REVIEWER_NAME_LEN: usize = 256;
+
+/// Configuration for automated SOC 2 Type II access review report generation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Soc2AccessReviewConfig {
+    /// Enable access review report generation.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Automated report generation schedule. None = manual only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<ReviewSchedule>,
+
+    /// Default review period in days (used when no explicit period is provided).
+    #[serde(default = "default_access_review_period_days")]
+    pub default_period_days: u32,
+
+    /// Designated reviewer names for attestation.
+    #[serde(default)]
+    pub reviewers: Vec<String>,
+}
+
+fn default_access_review_period_days() -> u32 {
+    30
+}
+
+impl Default for Soc2AccessReviewConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            schedule: None,
+            default_period_days: default_access_review_period_days(),
+            reviewers: Vec::new(),
+        }
+    }
 }
 
 // ── Data Governance Configuration (Art 10) ────────────────────────────────────
@@ -201,6 +252,37 @@ impl ComplianceConfig {
                 self.soc2.tracked_categories.len(),
                 MAX_SOC2_CATEGORIES,
             ));
+        }
+        // Phase 38: Access review config validation
+        let ar = &self.soc2.access_review;
+        if ar.default_period_days == 0 || ar.default_period_days > MAX_ACCESS_REVIEW_PERIOD_DAYS {
+            return Err(format!(
+                "soc2.access_review.default_period_days must be 1–{}, got {}",
+                MAX_ACCESS_REVIEW_PERIOD_DAYS, ar.default_period_days,
+            ));
+        }
+        if ar.reviewers.len() > MAX_ACCESS_REVIEW_REVIEWERS {
+            return Err(format!(
+                "soc2.access_review.reviewers has {} entries, max is {}",
+                ar.reviewers.len(),
+                MAX_ACCESS_REVIEW_REVIEWERS,
+            ));
+        }
+        for (i, name) in ar.reviewers.iter().enumerate() {
+            if name.len() > MAX_REVIEWER_NAME_LEN {
+                return Err(format!(
+                    "soc2.access_review.reviewers[{}] exceeds max length ({} > {})",
+                    i,
+                    name.len(),
+                    MAX_REVIEWER_NAME_LEN,
+                ));
+            }
+            if name.chars().any(|c| c.is_control()) {
+                return Err(format!(
+                    "soc2.access_review.reviewers[{}] contains control characters",
+                    i,
+                ));
+            }
         }
         Ok(())
     }
@@ -300,6 +382,7 @@ mod tests {
                 period_start: "2026-01-01".into(),
                 period_end: "2026-12-31".into(),
                 tracked_categories: vec![TrustServicesCategory::CC1, TrustServicesCategory::CC6],
+                access_review: Soc2AccessReviewConfig::default(),
             },
             data_governance: DataGovernanceConfig::default(),
         };
@@ -375,5 +458,106 @@ enabled = false
         let config = DataGovernanceConfig::default();
         assert_eq!(config.default_retention_days, 365);
         assert!(config.tool_mappings.is_empty());
+    }
+
+    // ── Phase 38: Access Review Config Tests ────────────────────────────────
+
+    #[test]
+    fn test_access_review_config_defaults() {
+        let config = Soc2AccessReviewConfig::default();
+        assert!(!config.enabled);
+        assert!(config.schedule.is_none());
+        assert_eq!(config.default_period_days, 30);
+        assert!(config.reviewers.is_empty());
+    }
+
+    #[test]
+    fn test_access_review_config_serde_roundtrip() {
+        let config = Soc2AccessReviewConfig {
+            enabled: true,
+            schedule: Some(ReviewSchedule::Weekly),
+            default_period_days: 90,
+            reviewers: vec!["Alice Auditor".to_string(), "Bob Reviewer".to_string()],
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: Soc2AccessReviewConfig = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.enabled);
+        assert_eq!(deserialized.schedule, Some(ReviewSchedule::Weekly));
+        assert_eq!(deserialized.default_period_days, 90);
+        assert_eq!(deserialized.reviewers.len(), 2);
+    }
+
+    #[test]
+    fn test_access_review_toml_parsing() {
+        let toml_str = r#"
+[eu_ai_act]
+enabled = true
+
+[soc2]
+enabled = true
+
+[soc2.access_review]
+enabled = true
+schedule = "daily"
+default_period_days = 7
+reviewers = ["Alice"]
+"#;
+        let config: ComplianceConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.soc2.access_review.enabled);
+        assert_eq!(
+            config.soc2.access_review.schedule,
+            Some(ReviewSchedule::Daily)
+        );
+        assert_eq!(config.soc2.access_review.default_period_days, 7);
+    }
+
+    #[test]
+    fn test_access_review_validation_period_zero() {
+        let mut config = ComplianceConfig::default();
+        config.soc2.access_review.default_period_days = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("default_period_days"));
+    }
+
+    #[test]
+    fn test_access_review_validation_period_too_large() {
+        let mut config = ComplianceConfig::default();
+        config.soc2.access_review.default_period_days = 367;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("default_period_days"));
+    }
+
+    #[test]
+    fn test_access_review_validation_too_many_reviewers() {
+        let mut config = ComplianceConfig::default();
+        config.soc2.access_review.reviewers =
+            (0..51).map(|i| format!("reviewer_{}", i)).collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("reviewers"));
+    }
+
+    #[test]
+    fn test_access_review_validation_reviewer_name_too_long() {
+        let mut config = ComplianceConfig::default();
+        config.soc2.access_review.reviewers = vec!["a".repeat(257)];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("exceeds max length"));
+    }
+
+    #[test]
+    fn test_access_review_validation_reviewer_control_chars() {
+        let mut config = ComplianceConfig::default();
+        config.soc2.access_review.reviewers = vec!["Alice\x00Bob".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control characters"));
+    }
+
+    #[test]
+    fn test_soc2_config_with_access_review_defaults() {
+        let config = ComplianceConfig::default();
+        // access_review should default to disabled
+        assert!(!config.soc2.access_review.enabled);
+        // Overall validation should still pass
+        assert!(config.validate().is_ok());
     }
 }

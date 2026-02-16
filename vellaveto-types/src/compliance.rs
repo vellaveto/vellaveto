@@ -179,3 +179,168 @@ pub struct DataGovernanceRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retention_days: Option<u32>,
 }
+
+// ── Phase 38: SOC 2 Type II Access Review Types ─────────────────────────────
+
+/// Status of a reviewer's attestation on an access review report.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttestationStatus {
+    /// Report has not yet been reviewed.
+    #[default]
+    Pending,
+    /// Reviewer has approved the access review.
+    Approved,
+    /// Reviewer approved with noted findings.
+    FindingsNoted,
+    /// Reviewer has rejected the access review.
+    Rejected,
+}
+
+impl std::fmt::Display for AttestationStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pending => write!(f, "pending"),
+            Self::Approved => write!(f, "approved"),
+            Self::FindingsNoted => write!(f, "findings_noted"),
+            Self::Rejected => write!(f, "rejected"),
+        }
+    }
+}
+
+/// Reviewer attestation on an access review report.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReviewerAttestation {
+    /// Name of the reviewer.
+    pub reviewer_name: String,
+    /// Title/role of the reviewer.
+    pub reviewer_title: String,
+    /// ISO 8601 timestamp when the review was completed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reviewed_at: Option<String>,
+    /// Reviewer notes or observations.
+    #[serde(default)]
+    pub notes: String,
+    /// Attestation status.
+    #[serde(default)]
+    pub status: AttestationStatus,
+}
+
+/// Per-agent access review entry for SOC 2 Type II reporting.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AccessReviewEntry {
+    /// Agent identifier.
+    pub agent_id: String,
+    /// Session IDs observed for this agent during the review period.
+    pub session_ids: Vec<String>,
+    /// ISO 8601 timestamp of first observed access.
+    pub first_access: String,
+    /// ISO 8601 timestamp of last observed access.
+    pub last_access: String,
+    /// Total number of policy evaluations.
+    pub total_evaluations: u64,
+    /// Number of Allow verdicts.
+    pub allow_count: u64,
+    /// Number of Deny verdicts.
+    pub deny_count: u64,
+    /// Number of RequireApproval verdicts.
+    pub require_approval_count: u64,
+    /// Distinct tools accessed.
+    pub tools_accessed: Vec<String>,
+    /// Distinct functions called.
+    pub functions_called: Vec<String>,
+    /// Number of permissions granted (from least-agency data).
+    pub permissions_granted: usize,
+    /// Number of permissions actually used.
+    pub permissions_used: usize,
+    /// Permission usage ratio (0.0–1.0).
+    pub usage_ratio: f64,
+    /// Unused permission IDs.
+    pub unused_permissions: Vec<String>,
+    /// Agency recommendation based on usage ratio.
+    pub agency_recommendation: String,
+}
+
+/// CC6 (Logical and Physical Access Controls) evidence summary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Cc6Evidence {
+    /// CC6.1: Logical access security over protected assets.
+    pub cc6_1_evidence: String,
+    /// CC6.2: Prior to issuing system credentials and granting access.
+    pub cc6_2_evidence: String,
+    /// CC6.3: Based on authorization, access to protected information assets is removed.
+    pub cc6_3_evidence: String,
+    /// Number of agents classified as "Optimal" (>80% usage).
+    pub optimal_count: usize,
+    /// Number of agents classified as "ReviewGrants" (50–80% usage).
+    pub review_grants_count: usize,
+    /// Number of agents classified as "NarrowScope" (20–50% usage).
+    pub narrow_scope_count: usize,
+    /// Number of agents classified as "Critical" (<20% usage).
+    pub critical_count: usize,
+}
+
+/// SOC 2 Type II access review report.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AccessReviewReport {
+    /// ISO 8601 timestamp when the report was generated.
+    pub generated_at: String,
+    /// Organization name for the report header.
+    pub organization_name: String,
+    /// Review period start (ISO 8601).
+    pub period_start: String,
+    /// Review period end (ISO 8601).
+    pub period_end: String,
+    /// Total distinct agents observed.
+    pub total_agents: usize,
+    /// Total policy evaluations during the period.
+    pub total_evaluations: u64,
+    /// Per-agent access review entries.
+    pub entries: Vec<AccessReviewEntry>,
+    /// CC6 evidence summary.
+    pub cc6_evidence: Cc6Evidence,
+    /// Reviewer attestation (empty/pending by default).
+    pub attestation: ReviewerAttestation,
+}
+
+/// Schedule for automated access review report generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewSchedule {
+    /// Generate a report every day.
+    Daily,
+    /// Generate a report every week.
+    Weekly,
+    /// Generate a report every month.
+    Monthly,
+}
+
+impl std::fmt::Display for ReviewSchedule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Daily => write!(f, "daily"),
+            Self::Weekly => write!(f, "weekly"),
+            Self::Monthly => write!(f, "monthly"),
+        }
+    }
+}
+
+/// Export format for access review reports.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportExportFormat {
+    /// JSON format (default).
+    #[default]
+    Json,
+    /// Self-contained HTML format.
+    Html,
+}
+
+impl std::fmt::Display for ReportExportFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json => write!(f, "json"),
+            Self::Html => write!(f, "html"),
+        }
+    }
+}

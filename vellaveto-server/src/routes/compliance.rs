@@ -13,8 +13,10 @@
 
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -41,7 +43,16 @@ impl ReportCache {
 
     /// Return cached value if still valid, otherwise None.
     fn get(&self) -> Option<serde_json::Value> {
-        let guard = self.0.lock().ok()?;
+        let guard = match self.0.lock() {
+            Ok(g) => g,
+            Err(_poisoned) => {
+                // SECURITY (FIND-GAP-008): Log an error when the mutex is poisoned
+                // instead of silently returning no data. Poisoned mutex indicates a
+                // prior panic in a thread that held this lock.
+                tracing::error!("ReportCache mutex poisoned — returning stale/no data");
+                return None;
+            }
+        };
         if let Some(ref cached) = *guard {
             if cached.generated_at.elapsed().as_secs() < COMPLIANCE_CACHE_TTL_SECS {
                 return Some(cached.value.clone());
@@ -52,11 +63,17 @@ impl ReportCache {
 
     /// Store a freshly generated report.
     fn set(&self, value: serde_json::Value) {
-        if let Ok(mut guard) = self.0.lock() {
-            *guard = Some(CachedReport {
-                generated_at: Instant::now(),
-                value,
-            });
+        match self.0.lock() {
+            Ok(mut guard) => {
+                *guard = Some(CachedReport {
+                    generated_at: Instant::now(),
+                    value,
+                });
+            }
+            Err(_poisoned) => {
+                // SECURITY (FIND-GAP-008): Log an error when the mutex is poisoned.
+                tracing::error!("ReportCache mutex poisoned — cannot store report");
+            }
         }
     }
 }
@@ -64,6 +81,11 @@ impl ReportCache {
 static THREAT_COVERAGE_CACHE: ReportCache = ReportCache::new();
 static GAP_ANALYSIS_CACHE: ReportCache = ReportCache::new();
 static ISO42001_CACHE: ReportCache = ReportCache::new();
+/// QUALITY (FIND-GAP-013): Cache for the compliance_status endpoint which
+/// regenerates EU AI Act, SOC 2, NIST RMF, ISO 27090, and ISO 42001 reports
+/// on every request. Keyed by (include_nist, include_iso) but simplified to
+/// a single cache entry since the query param combinations are limited.
+static COMPLIANCE_STATUS_CACHE: ReportCache = ReportCache::new();
 
 // ── Query Parameters ─────────────────────────────────────────────────────────
 
@@ -101,6 +123,15 @@ pub async fn compliance_status(
     State(state): State<AppState>,
     Query(params): Query<ComplianceStatusQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // QUALITY (FIND-GAP-013): Serve from cache if within TTL and params are
+    // default (both include flags true). Non-default queries bypass the cache
+    // since they are less frequent and caching all permutations is overkill.
+    if params.include_nist && params.include_iso {
+        if let Some(cached) = COMPLIANCE_STATUS_CACHE.get() {
+            return Ok(Json(cached));
+        }
+    }
+
     let snapshot = state.policy_state.load();
     let config = &snapshot.compliance_config;
 
@@ -189,6 +220,11 @@ pub async fn compliance_status(
         "compliant_clauses": iso42001_report.compliant_clauses,
         "partial_clauses": iso42001_report.partial_clauses,
     });
+
+    // QUALITY (FIND-GAP-013): Cache default-params response for future requests.
+    if params.include_nist && params.include_iso {
+        COMPLIANCE_STATUS_CACHE.set(response.clone());
+    }
 
     Ok(Json(response))
 }
@@ -430,4 +466,241 @@ pub async fn data_governance_summary(
                 }),
             )
         })
+}
+
+// ── Phase 38: SOC 2 Type II Access Review ───────────────────────────────────
+
+/// Maximum agent_id query parameter length.
+const MAX_AGENT_ID_QUERY_LEN: usize = 128;
+
+/// Maximum period for access review reports in days.
+const MAX_PERIOD_DAYS: u32 = 366;
+
+/// Query parameters for the SOC 2 access review endpoint.
+#[derive(Debug, Deserialize)]
+pub struct AccessReviewQuery {
+    /// Review period duration, e.g. "30d", "7d", "90d". Default from config.
+    #[serde(default)]
+    pub period: Option<String>,
+    /// Export format: "json" (default) or "html".
+    #[serde(default)]
+    pub format: Option<String>,
+    /// Optional agent_id filter.
+    #[serde(default)]
+    pub agent_id: Option<String>,
+}
+
+/// Parse a period string like "30d" into a number of days.
+fn parse_period_days(period: &str) -> Result<u32, String> {
+    let trimmed = period.trim();
+    if trimmed.is_empty() {
+        return Err("Empty period string".to_string());
+    }
+    let (num_str, suffix) = if trimmed.ends_with('d') || trimmed.ends_with('D') {
+        (&trimmed[..trimmed.len() - 1], "d")
+    } else {
+        (trimmed, "")
+    };
+    let _ = suffix; // suffix is always "d" or empty (days only)
+    let days: u32 = num_str
+        .parse()
+        .map_err(|_| format!("Invalid period '{}': must be a number followed by 'd'", period))?;
+    if days == 0 {
+        return Err("Period must be at least 1 day".to_string());
+    }
+    if days > MAX_PERIOD_DAYS {
+        return Err(format!(
+            "Period {} days exceeds maximum of {} days",
+            days, MAX_PERIOD_DAYS
+        ));
+    }
+    Ok(days)
+}
+
+/// `GET /api/compliance/soc2/access-review` — SOC 2 Type II access review report.
+///
+/// Generates an access review report scanning audit entries over a configurable
+/// period, cross-referenced with least-agency data. Supports JSON and HTML output.
+#[tracing::instrument(name = "vellaveto.soc2_access_review", skip(state))]
+pub async fn soc2_access_review(
+    State(state): State<AppState>,
+    Query(params): Query<AccessReviewQuery>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let snapshot = state.policy_state.load();
+    let config = &snapshot.compliance_config;
+
+    // Gate: SOC 2 must be enabled
+    if !config.soc2.enabled {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "SOC 2 compliance is not enabled in configuration".to_string(),
+            }),
+        ));
+    }
+
+    // Gate: access review must be enabled
+    if !config.soc2.access_review.enabled {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "SOC 2 access review is not enabled in configuration".to_string(),
+            }),
+        ));
+    }
+
+    // Parse period
+    let period_days = if let Some(ref p) = params.period {
+        parse_period_days(p).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse { error: e }),
+            )
+        })?
+    } else {
+        config.soc2.access_review.default_period_days
+    };
+
+    // Validate agent_id filter
+    if let Some(ref aid) = params.agent_id {
+        if aid.len() > MAX_AGENT_ID_QUERY_LEN {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!(
+                        "agent_id exceeds max length ({} > {})",
+                        aid.len(),
+                        MAX_AGENT_ID_QUERY_LEN
+                    ),
+                }),
+            ));
+        }
+        if aid.chars().any(|c| c.is_control()) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "agent_id contains control characters".to_string(),
+                }),
+            ));
+        }
+    }
+
+    // Compute period boundaries
+    let now = chrono::Utc::now();
+    let period_end = now.to_rfc3339();
+    let period_start = (now - chrono::Duration::days(i64::from(period_days))).to_rfc3339();
+
+    // Load audit entries
+    let entries = state.audit.load_entries().await.map_err(|e| {
+        tracing::error!("Failed to load audit entries for access review: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Failed to load audit entries".to_string(),
+            }),
+        )
+    })?;
+
+    // Collect least-agency data from tracker (if available)
+    let least_agency_data = collect_least_agency_data(&entries, &period_start, &period_end, &state);
+
+    // Generate report
+    let mut report = vellaveto_audit::access_review::generate_access_review(
+        &entries,
+        &config.soc2.organization_name,
+        &period_start,
+        &period_end,
+        &least_agency_data,
+    );
+
+    // Apply optional agent_id filter
+    if let Some(ref aid) = params.agent_id {
+        report.entries.retain(|e| e.agent_id == *aid);
+        report.total_agents = report.entries.len();
+        report.total_evaluations = report.entries.iter().map(|e| e.total_evaluations).sum();
+    }
+
+    // Log audit event
+    let _ = state
+        .audit
+        .log_access_review_event(
+            "generated",
+            serde_json::json!({
+                "period_days": period_days,
+                "total_agents": report.total_agents,
+                "total_evaluations": report.total_evaluations,
+                "format": params.format.as_deref().unwrap_or("json"),
+            }),
+        )
+        .await;
+
+    // Return in requested format
+    let format = params.format.as_deref().unwrap_or("json");
+    match format {
+        "html" => {
+            let html = vellaveto_audit::access_review::render_html(&report);
+            Ok((
+                StatusCode::OK,
+                [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                html,
+            )
+                .into_response())
+        }
+        _ => {
+            let value = serde_json::to_value(&report).map_err(|e| {
+                tracing::error!("Failed to serialize access review report: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "Failed to generate report".to_string(),
+                    }),
+                )
+            })?;
+            Ok(Json(value).into_response())
+        }
+    }
+}
+
+/// Collect least-agency data for all (agent_id, session_id) pairs observed in
+/// audit entries within the review period.
+fn collect_least_agency_data(
+    entries: &[vellaveto_audit::AuditEntry],
+    period_start: &str,
+    period_end: &str,
+    state: &AppState,
+) -> HashMap<(String, String), vellaveto_types::LeastAgencyReport> {
+    let tracker = match state.least_agency_tracker.as_ref() {
+        Some(t) => t,
+        None => return HashMap::new(),
+    };
+
+    // Collect unique (agent_id, session_id) pairs from period entries
+    let mut pairs = std::collections::HashSet::new();
+    for entry in entries {
+        if entry.action.tool == "vellaveto" {
+            continue;
+        }
+        if entry.timestamp.as_str() < period_start || entry.timestamp.as_str() > period_end {
+            continue;
+        }
+        let agent_id = entry
+            .metadata
+            .get("agent_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&entry.action.tool);
+        let session_id = entry
+            .metadata
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        pairs.insert((agent_id.to_string(), session_id.to_string()));
+    }
+
+    let mut result = HashMap::new();
+    for (agent_id, session_id) in pairs {
+        if let Some(report) = tracker.generate_report(&agent_id, &session_id) {
+            result.insert((agent_id, session_id), report);
+        }
+    }
+    result
 }

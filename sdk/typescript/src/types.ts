@@ -282,3 +282,57 @@ export interface ZkProofsResponse {
   offset: number;
   limit: number;
 }
+
+// ── Phase 38: SOC 2 Type II Access Review Types ─────────────────────────────
+
+/** Reviewer attestation on an access review report. */
+export interface ReviewerAttestation {
+  reviewer_name: string;
+  reviewer_title: string;
+  reviewed_at?: string;
+  notes: string;
+  status: "pending" | "approved" | "findings_noted" | "rejected";
+}
+
+/** Per-agent access review entry. */
+export interface AccessReviewEntry {
+  agent_id: string;
+  session_ids: string[];
+  first_access: string;
+  last_access: string;
+  total_evaluations: number;
+  allow_count: number;
+  deny_count: number;
+  require_approval_count: number;
+  tools_accessed: string[];
+  functions_called: string[];
+  permissions_granted: number;
+  permissions_used: number;
+  usage_ratio: number;
+  unused_permissions: string[];
+  agency_recommendation: string;
+}
+
+/** CC6 evidence summary. */
+export interface Cc6Evidence {
+  cc6_1_evidence: string;
+  cc6_2_evidence: string;
+  cc6_3_evidence: string;
+  optimal_count: number;
+  review_grants_count: number;
+  narrow_scope_count: number;
+  critical_count: number;
+}
+
+/** SOC 2 Type II access review report. */
+export interface AccessReviewReport {
+  generated_at: string;
+  organization_name: string;
+  period_start: string;
+  period_end: string;
+  total_agents: number;
+  total_evaluations: number;
+  entries: AccessReviewEntry[];
+  cc6_evidence: Cc6Evidence;
+  attestation: ReviewerAttestation;
+}

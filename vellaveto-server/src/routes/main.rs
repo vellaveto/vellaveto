@@ -59,6 +59,10 @@ pub fn build_router(state: AppState) -> Router {
             "/api/compliance/soc2/evidence",
             get(super::compliance::soc2_evidence),
         )
+        .route(
+            "/api/compliance/soc2/access-review",
+            get(super::compliance::soc2_access_review),
+        )
         // Threat coverage and gap analysis endpoints (Phase 19.3)
         .route(
             "/api/compliance/threat-coverage",
@@ -1007,6 +1011,23 @@ fn redact_response_action(mut action: Action) -> Action {
     action
 }
 
+/// QUALITY (FIND-GAP-010): Standard error response format.
+///
+/// All API endpoints in the Vellaveto server return errors as JSON objects
+/// with an `error` field containing a human-readable message:
+///
+/// ```json
+/// { "error": "description of what went wrong" }
+/// ```
+///
+/// This convention is used consistently across all route modules (compliance,
+/// governance, discovery, zk_audit, exec_graph, simulator, etc.). The HTTP
+/// status code carries the machine-readable error category (400, 404, 500, etc.).
+///
+/// **Note:** The MCP JSON-RPC proxy layer (`vellaveto-http-proxy`) uses
+/// JSON-RPC error format (`{ "jsonrpc": "2.0", "error": { "code": ..., "message": ... } }`)
+/// for MCP protocol responses, which is a different convention dictated by the
+/// MCP specification. The `ErrorResponse` struct is only for REST API endpoints.
 #[derive(Serialize)]
 pub struct ErrorResponse {
     pub error: String,

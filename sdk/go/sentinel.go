@@ -62,11 +62,29 @@ func WithHeaders(h map[string]string) Option {
 }
 
 // NewClient creates a new Vellaveto API client.
+//
+// SECURITY (FIND-GAP-011): Validates that baseURL is a well-formed URL with
+// http:// or https:// scheme and a non-empty host. Returns an error if invalid.
 // SECURITY (FIND-R46-GO-004): Default HTTP client strips Authorization header
 // on cross-domain redirects to prevent API key leakage.
-func NewClient(baseURL string, opts ...Option) *Client {
+func NewClient(baseURL string, opts ...Option) (*Client, error) {
+	trimmed := strings.TrimRight(baseURL, "/")
+	if trimmed == "" {
+		return nil, fmt.Errorf("vellaveto: baseURL must not be empty")
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("vellaveto: invalid baseURL: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf("vellaveto: baseURL must use http:// or https:// scheme, got %q", parsed.Scheme)
+	}
+	if parsed.Host == "" {
+		return nil, fmt.Errorf("vellaveto: baseURL must have a host")
+	}
+
 	c := &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL: trimmed,
 		httpClient: &http.Client{
 			Timeout: defaultTimeout,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -85,7 +103,7 @@ func NewClient(baseURL string, opts ...Option) *Client {
 	for _, opt := range opts {
 		opt(c)
 	}
-	return c
+	return c, nil
 }
 
 // do executes an HTTP request and returns the response body.
@@ -291,9 +309,22 @@ func (c *Client) ListPolicies(ctx context.Context) ([]PolicySummary, error) {
 	return policies, nil
 }
 
-// ReloadPolicies triggers a policy reload on the server.
-func (c *Client) ReloadPolicies(ctx context.Context) error {
-	return c.doJSON(ctx, http.MethodPost, "/api/policies/reload", nil, nil)
+// ReloadPoliciesResponse is the response from a policy reload operation.
+type ReloadPoliciesResponse struct {
+	Count   int    `json:"count,omitempty"`
+	Status  string `json:"status,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// ReloadPolicies triggers a policy reload on the server and returns the server response.
+// SECURITY (FIND-GAP-016): Captures and returns the server response body so callers
+// can verify the reload was successful and inspect the reloaded policy count.
+func (c *Client) ReloadPolicies(ctx context.Context) (*ReloadPoliciesResponse, error) {
+	var resp ReloadPoliciesResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/api/policies/reload", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 // Simulate evaluates an action with full trace information.
@@ -485,6 +516,33 @@ func (c *Client) ZkCommitments(ctx context.Context, from, to uint64) (*ZkCommitm
 	q.Set("to", fmt.Sprintf("%d", to))
 	path := "/api/zk-audit/commitments?" + q.Encode()
 	var resp ZkCommitmentsResponse
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// Soc2AccessReview generates a SOC 2 Type II access review report.
+// SECURITY (FIND-R46-GO-003): Use url.Values for proper URL encoding of query parameters.
+func (c *Client) Soc2AccessReview(ctx context.Context, period, format, agentID string) (*AccessReviewReport, error) {
+	if len(agentID) > 128 {
+		return nil, &VellavetoError{Message: "agent_id exceeds max length (128)"}
+	}
+	q := url.Values{}
+	if period != "" {
+		q.Set("period", period)
+	}
+	if format != "" {
+		q.Set("format", format)
+	}
+	if agentID != "" {
+		q.Set("agent_id", agentID)
+	}
+	path := "/api/compliance/soc2/access-review"
+	if encoded := q.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var resp AccessReviewReport
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
 	}

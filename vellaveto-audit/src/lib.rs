@@ -29,6 +29,9 @@ pub mod archive;
 #[cfg(feature = "zk-audit")]
 pub mod zk;
 
+// ── Phase 38: SOC 2 Type II Access Review Reports ───────────────────────────
+pub mod access_review;
+
 // ── Pre-existing submodules ──────────────────────────────────────────────────
 pub mod aivss;
 pub mod atlas;

@@ -3,8 +3,10 @@ package vellaveto
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -29,11 +31,48 @@ func testServer(t *testing.T, wantMethod, wantPath string, status int, body inte
 	}))
 }
 
+// testServerWithBodyCheck creates a test server that also captures and validates the request body.
+func testServerWithBodyCheck(t *testing.T, wantMethod, wantPath string, status int, respBody interface{}, bodyCheck func(t *testing.T, body []byte)) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != wantMethod {
+			t.Errorf("method = %s, want %s", r.Method, wantMethod)
+		}
+		if r.URL.Path != wantPath {
+			t.Errorf("path = %s, want %s", r.URL.Path, wantPath)
+		}
+		if bodyCheck != nil {
+			reqBody, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("failed to read request body: %v", err)
+			}
+			bodyCheck(t, reqBody)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		if respBody != nil {
+			if err := json.NewEncoder(w).Encode(respBody); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}))
+}
+
+// mustNewClient creates a new client, failing the test on error.
+func mustNewClient(t *testing.T, baseURL string, opts ...Option) *Client {
+	t.Helper()
+	c, err := NewClient(baseURL, opts...)
+	if err != nil {
+		t.Fatalf("NewClient(%q) error: %v", baseURL, err)
+	}
+	return c
+}
+
 func TestHealth(t *testing.T) {
 	srv := testServer(t, "GET", "/health", 200, HealthResponse{Status: "ok", Version: "3.0.0"})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	resp, err := c.Health(context.Background())
 	if err != nil {
 		t.Fatalf("Health() error: %v", err)
@@ -53,7 +92,7 @@ func TestEvaluate_Allow(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	result, err := c.Evaluate(context.Background(), Action{Tool: "read_file"}, nil, false)
 	if err != nil {
 		t.Fatalf("Evaluate() error: %v", err)
@@ -74,7 +113,7 @@ func TestEvaluate_Deny(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	result, err := c.Evaluate(context.Background(), Action{Tool: "exec"}, nil, false)
 	if err != nil {
 		t.Fatalf("Evaluate() error: %v", err)
@@ -97,7 +136,7 @@ func TestEvaluate_ObjectVerdict(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	result, err := c.Evaluate(context.Background(), Action{Tool: "exec"}, nil, false)
 	if err != nil {
 		t.Fatalf("Evaluate() error: %v", err)
@@ -116,7 +155,7 @@ func TestEvaluate_UnknownVerdict_FailClosed(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	result, err := c.Evaluate(context.Background(), Action{Tool: "x"}, nil, false)
 	if err != nil {
 		t.Fatalf("Evaluate() error: %v", err)
@@ -132,7 +171,7 @@ func TestEvaluateOrError_Allow(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	err := c.EvaluateOrError(context.Background(), Action{Tool: "read"}, nil)
 	if err != nil {
 		t.Fatalf("EvaluateOrError() should be nil for allow, got: %v", err)
@@ -147,7 +186,7 @@ func TestEvaluateOrError_Deny(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	err := c.EvaluateOrError(context.Background(), Action{Tool: "write"}, nil)
 	if err == nil {
 		t.Fatal("EvaluateOrError() should return error for deny")
@@ -172,7 +211,7 @@ func TestEvaluateOrError_RequireApproval(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	err := c.EvaluateOrError(context.Background(), Action{Tool: "deploy"}, nil)
 	if err == nil {
 		t.Fatal("EvaluateOrError() should return error for require_approval")
@@ -197,7 +236,7 @@ func TestListPolicies(t *testing.T) {
 	srv := testServer(t, "GET", "/api/policies", 200, policies)
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	result, err := c.ListPolicies(context.Background())
 	if err != nil {
 		t.Fatalf("ListPolicies() error: %v", err)
@@ -211,13 +250,22 @@ func TestListPolicies(t *testing.T) {
 }
 
 func TestReloadPolicies(t *testing.T) {
-	srv := testServer(t, "POST", "/api/policies/reload", 200, map[string]string{"status": "reloaded"})
+	srv := testServer(t, "POST", "/api/policies/reload", 200, map[string]interface{}{
+		"count":  3,
+		"status": "ok",
+	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
-	err := c.ReloadPolicies(context.Background())
+	c := mustNewClient(t, srv.URL)
+	resp, err := c.ReloadPolicies(context.Background())
 	if err != nil {
 		t.Fatalf("ReloadPolicies() error: %v", err)
+	}
+	if resp.Count != 3 {
+		t.Errorf("Count = %d, want 3", resp.Count)
+	}
+	if resp.Status != "ok" {
+		t.Errorf("Status = %q, want %q", resp.Status, "ok")
 	}
 }
 
@@ -229,7 +277,7 @@ func TestSimulate(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	resp, err := c.Simulate(context.Background(), Action{Tool: "read_file"}, nil)
 	if err != nil {
 		t.Fatalf("Simulate() error: %v", err)
@@ -252,7 +300,7 @@ func TestBatchEvaluate(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	resp, err := c.BatchEvaluate(context.Background(), []Action{
 		{Tool: "read_file"},
 		{Tool: "exec"},
@@ -276,7 +324,7 @@ func TestValidateConfig(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	resp, err := c.ValidateConfig(context.Background(), map[string]interface{}{"policies": []string{}}, false)
 	if err != nil {
 		t.Fatalf("ValidateConfig() error: %v", err)
@@ -295,7 +343,7 @@ func TestDiffConfigs(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	resp, err := c.DiffConfigs(context.Background(), map[string]interface{}{}, map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("DiffConfigs() error: %v", err)
@@ -315,7 +363,7 @@ func TestListPendingApprovals(t *testing.T) {
 	srv := testServer(t, "GET", "/api/approvals/pending", 200, approvals)
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	result, err := c.ListPendingApprovals(context.Background())
 	if err != nil {
 		t.Fatalf("ListPendingApprovals() error: %v", err)
@@ -332,7 +380,7 @@ func TestApproveApproval(t *testing.T) {
 	srv := testServer(t, "POST", "/api/approvals/apr-1/approve", 200, map[string]string{"status": "approved"})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	err := c.ApproveApproval(context.Background(), "apr-1")
 	if err != nil {
 		t.Fatalf("ApproveApproval() error: %v", err)
@@ -343,7 +391,7 @@ func TestDenyApproval(t *testing.T) {
 	srv := testServer(t, "POST", "/api/approvals/apr-1/deny", 200, map[string]string{"status": "denied"})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	err := c.DenyApproval(context.Background(), "apr-1")
 	if err != nil {
 		t.Fatalf("DenyApproval() error: %v", err)
@@ -362,7 +410,7 @@ func TestAPIKey_Header(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, WithAPIKey("test-key-123"))
+	c := mustNewClient(t, srv.URL, WithAPIKey("test-key-123"))
 	_, err := c.Health(context.Background())
 	if err != nil {
 		t.Fatalf("Health() error: %v", err)
@@ -381,7 +429,7 @@ func TestNoAPIKey_NoHeader(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	_, err := c.Health(context.Background())
 	if err != nil {
 		t.Fatalf("Health() error: %v", err)
@@ -399,7 +447,7 @@ func TestCustomHeaders(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, WithHeaders(map[string]string{"X-Custom": "value"}))
+	c := mustNewClient(t, srv.URL, WithHeaders(map[string]string{"X-Custom": "value"}))
 	_, err := c.Health(context.Background())
 	if err != nil {
 		t.Fatalf("Health() error: %v", err)
@@ -410,7 +458,7 @@ func TestHTTPError(t *testing.T) {
 	srv := testServer(t, "GET", "/health", 500, map[string]string{"error": "internal"})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	_, err := c.Health(context.Background())
 	if err == nil {
 		t.Fatal("Health() should return error for 500")
@@ -428,7 +476,7 @@ func TestUnauthorizedError(t *testing.T) {
 	srv := testServer(t, "POST", "/api/evaluate", 401, map[string]string{"error": "unauthorized"})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	_, err := c.Evaluate(context.Background(), Action{Tool: "x"}, nil, false)
 	if err == nil {
 		t.Fatal("Evaluate() should return error for 401")
@@ -449,7 +497,7 @@ func TestTimeout(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, WithTimeout(50*time.Millisecond))
+	c := mustNewClient(t, srv.URL, WithTimeout(50*time.Millisecond))
 	_, err := c.Health(context.Background())
 	if err == nil {
 		t.Fatal("Health() should return error on timeout")
@@ -460,7 +508,7 @@ func TestTrailingSlashRemoved(t *testing.T) {
 	srv := testServer(t, "GET", "/health", 200, HealthResponse{Status: "ok"})
 	defer srv.Close()
 
-	c := NewClient(srv.URL + "/")
+	c := mustNewClient(t, srv.URL + "/")
 	resp, err := c.Health(context.Background())
 	if err != nil {
 		t.Fatalf("Health() error: %v", err)
@@ -494,7 +542,7 @@ func TestEvaluateWithContext(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	_, err := c.Evaluate(context.Background(), Action{Tool: "read"}, &EvaluationContext{
 		SessionID: "sess-1",
 		AgentID:   "agent-1",
@@ -511,13 +559,20 @@ func TestParseVerdict(t *testing.T) {
 	}{
 		{"allow", VerdictAllow},
 		{"Allow", VerdictAllow},
+		{"ALLOW", VerdictAllow},
+		{"aLlOw", VerdictAllow},
 		{"deny", VerdictDeny},
 		{"Deny", VerdictDeny},
+		{"DENY", VerdictDeny},
+		{"dEnY", VerdictDeny},
 		{"require_approval", VerdictRequireApproval},
 		{"RequireApproval", VerdictRequireApproval},
-		{"", VerdictDeny},
-		{"unknown", VerdictDeny},
-		{"ALLOW", VerdictDeny}, // only exact matches
+		{"REQUIRE_APPROVAL", VerdictRequireApproval},
+		{"Require_Approval", VerdictRequireApproval},
+		{"requireapproval", VerdictRequireApproval},
+		{"REQUIREAPPROVAL", VerdictRequireApproval},
+		{"", VerdictDeny},        // fail-closed
+		{"unknown", VerdictDeny}, // fail-closed
 	}
 
 	for _, tt := range tests {
@@ -582,7 +637,7 @@ func TestErrorMessages(t *testing.T) {
 
 func TestWithHTTPClient(t *testing.T) {
 	custom := &http.Client{Timeout: 10 * time.Second}
-	c := NewClient("http://localhost", WithHTTPClient(custom))
+	c := mustNewClient(t, "http://localhost", WithHTTPClient(custom))
 	if c.httpClient != custom {
 		t.Error("httpClient should be the custom client")
 	}
@@ -658,7 +713,7 @@ func TestDiscoveryTools_QueryParamEncoding(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	// These values contain '&' and '=' which must be URL-encoded
 	_, err := c.DiscoveryTools(context.Background(), "server&evil=1", "high&drop=table")
 	if err != nil {
@@ -685,7 +740,7 @@ func TestRedirectStripsAuthOnCrossDomain(t *testing.T) {
 	}))
 	defer origin.Close()
 
-	c := NewClient(origin.URL, WithAPIKey("secret-key"))
+	c := mustNewClient(t, origin.URL, WithAPIKey("secret-key"))
 	resp, err := c.Health(context.Background())
 	if err != nil {
 		t.Fatalf("Health() error: %v", err)
@@ -715,7 +770,7 @@ func TestRedirectPreservesAuthOnSameDomain(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, WithAPIKey("my-key"))
+	c := mustNewClient(t, srv.URL, WithAPIKey("my-key"))
 	_, err := c.Health(context.Background())
 	if err != nil {
 		t.Fatalf("Health() error: %v", err)
@@ -736,7 +791,7 @@ func TestErrorBodyTruncation(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	_, err := c.Health(context.Background())
 	if err == nil {
 		t.Fatal("Health() should return error for 500")
@@ -787,7 +842,7 @@ func TestEvaluate_FlattenedPayload(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	_, err := c.Evaluate(context.Background(), Action{
 		Tool:     "read_file",
 		Function: "read",
@@ -822,7 +877,7 @@ func TestEvaluate_TraceQueryParam(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	_, err := c.Evaluate(context.Background(), Action{Tool: "x"}, nil, true)
 	if err != nil {
 		t.Fatalf("Evaluate() error: %v", err)
@@ -840,7 +895,7 @@ func TestEvaluate_NoTraceQueryParam(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	_, err := c.Evaluate(context.Background(), Action{Tool: "x"}, nil, false)
 	if err != nil {
 		t.Fatalf("Evaluate() error: %v", err)
@@ -863,7 +918,7 @@ func TestZkStatus(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	resp, err := c.ZkStatus(context.Background())
 	if err != nil {
 		t.Fatalf("ZkStatus() error: %v", err)
@@ -893,7 +948,7 @@ func TestZkStatus_Inactive(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	resp, err := c.ZkStatus(context.Background())
 	if err != nil {
 		t.Fatalf("ZkStatus() error: %v", err)
@@ -941,7 +996,7 @@ func TestZkProofs(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	resp, err := c.ZkProofs(context.Background(), 10, 5)
 	if err != nil {
 		t.Fatalf("ZkProofs() error: %v", err)
@@ -988,7 +1043,7 @@ func TestZkVerify(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	resp, err := c.ZkVerify(context.Background(), "batch-1")
 	if err != nil {
 		t.Fatalf("ZkVerify() error: %v", err)
@@ -1021,7 +1076,7 @@ func TestZkVerify_WithError(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	resp, err := c.ZkVerify(context.Background(), "batch-bad")
 	if err != nil {
 		t.Fatalf("ZkVerify() error: %v", err)
@@ -1060,7 +1115,7 @@ func TestZkCommitments(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	resp, err := c.ZkCommitments(context.Background(), 0, 100)
 	if err != nil {
 		t.Fatalf("ZkCommitments() error: %v", err)
@@ -1086,7 +1141,7 @@ func TestZkStatus_HTTPError(t *testing.T) {
 	srv := testServer(t, "GET", "/api/zk-audit/status", 500, map[string]string{"error": "internal"})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	_, err := c.ZkStatus(context.Background())
 	if err == nil {
 		t.Fatal("ZkStatus() should return error for 500")
@@ -1109,7 +1164,7 @@ func TestZkProofs_Empty(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	resp, err := c.ZkProofs(context.Background(), 20, 0)
 	if err != nil {
 		t.Fatalf("ZkProofs() error: %v", err)
@@ -1130,7 +1185,7 @@ func TestZkCommitments_Empty(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := mustNewClient(t, srv.URL)
 	resp, err := c.ZkCommitments(context.Background(), 50, 60)
 	if err != nil {
 		t.Fatalf("ZkCommitments() error: %v", err)
@@ -1140,5 +1195,414 @@ func TestZkCommitments_Empty(t *testing.T) {
 	}
 	if resp.Range != [2]uint64{50, 60} {
 		t.Errorf("Range = %v, want [50, 60]", resp.Range)
+	}
+}
+
+// ── Phase 38: SOC 2 Type II Access Review Tests ─────────────────────────────
+
+func TestSoc2AccessReview(t *testing.T) {
+	srv := testServer(t, "GET", "/api/compliance/soc2/access-review", 200, AccessReviewReport{
+		GeneratedAt:      "2026-02-16T00:00:00Z",
+		OrganizationName: "Acme",
+		PeriodStart:      "2026-01-01T00:00:00Z",
+		PeriodEnd:        "2026-02-01T00:00:00Z",
+		TotalAgents:      2,
+		TotalEvaluations: 100,
+		Entries:          []AccessReviewEntry{},
+		CC6Evidence: Cc6Evidence{
+			CC61Evidence: "test",
+			CC62Evidence: "test",
+			CC63Evidence: "test",
+			OptimalCount: 1,
+		},
+		Attestation: ReviewerAttestation{
+			Status: "pending",
+		},
+	})
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	resp, err := c.Soc2AccessReview(context.Background(), "30d", "json", "")
+	if err != nil {
+		t.Fatalf("Soc2AccessReview() error: %v", err)
+	}
+	if resp.TotalAgents != 2 {
+		t.Errorf("TotalAgents = %d, want 2", resp.TotalAgents)
+	}
+	if resp.TotalEvaluations != 100 {
+		t.Errorf("TotalEvaluations = %d, want 100", resp.TotalEvaluations)
+	}
+	if resp.CC6Evidence.OptimalCount != 1 {
+		t.Errorf("OptimalCount = %d, want 1", resp.CC6Evidence.OptimalCount)
+	}
+}
+
+func TestSoc2AccessReview_AgentIDTooLong(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	longID := ""
+	for i := 0; i < 129; i++ {
+		longID += "a"
+	}
+	_, err := c.Soc2AccessReview(context.Background(), "30d", "json", longID)
+	if err == nil {
+		t.Fatal("expected error for agent_id > 128 chars")
+	}
+	if !strings.Contains(err.Error(), "agent_id exceeds max length") {
+		t.Errorf("error = %q, want 'agent_id exceeds max length'", err.Error())
+	}
+}
+
+func TestSoc2AccessReview_NotFound(t *testing.T) {
+	srv := testServer(t, "GET", "/api/compliance/soc2/access-review", 404, map[string]string{
+		"error": "SOC 2 compliance is not enabled in configuration",
+	})
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	_, err := c.Soc2AccessReview(context.Background(), "30d", "json", "")
+	if err == nil {
+		t.Fatal("expected error for 404 response")
+	}
+}
+
+
+// ── FIND-GAP-011: NewClient URL validation ──────────────────
+
+func TestNewClient_EmptyURL(t *testing.T) {
+	_, err := NewClient("")
+	if err == nil {
+		t.Fatal("expected error for empty URL")
+	}
+	if !strings.Contains(err.Error(), "must not be empty") {
+		t.Errorf("error = %q, want contains 'must not be empty'", err.Error())
+	}
+}
+
+func TestNewClient_NoScheme(t *testing.T) {
+	_, err := NewClient("example.com")
+	if err == nil {
+		t.Fatal("expected error for URL without scheme")
+	}
+	if !strings.Contains(err.Error(), "scheme") {
+		t.Errorf("error = %q, want contains 'scheme'", err.Error())
+	}
+}
+
+func TestNewClient_InvalidScheme(t *testing.T) {
+	_, err := NewClient("ftp://example.com")
+	if err == nil {
+		t.Fatal("expected error for ftp:// scheme")
+	}
+	if !strings.Contains(err.Error(), "http:// or https://") {
+		t.Errorf("error = %q, want contains 'http:// or https://'", err.Error())
+	}
+}
+
+func TestNewClient_NoHost(t *testing.T) {
+	_, err := NewClient("http://")
+	if err == nil {
+		t.Fatal("expected error for URL without host")
+	}
+	if !strings.Contains(err.Error(), "host") {
+		t.Errorf("error = %q, want contains 'host'", err.Error())
+	}
+}
+
+func TestNewClient_ValidHTTP(t *testing.T) {
+	c, err := NewClient("http://localhost:3000")
+	if err != nil {
+		t.Fatalf("NewClient() unexpected error: %v", err)
+	}
+	if c == nil {
+		t.Fatal("client should not be nil")
+	}
+}
+
+func TestNewClient_ValidHTTPS(t *testing.T) {
+	c, err := NewClient("https://api.example.com")
+	if err != nil {
+		t.Fatalf("NewClient() unexpected error: %v", err)
+	}
+	if c == nil {
+		t.Fatal("client should not be nil")
+	}
+}
+
+func TestNewClient_WSScheme(t *testing.T) {
+	_, err := NewClient("ws://example.com")
+	if err == nil {
+		t.Fatal("expected error for ws:// scheme")
+	}
+}
+
+// ── FIND-GAP-010: Discovery and Projector method tests ──────
+
+func TestDiscoverySearch(t *testing.T) {
+	tokenBudget := 1000
+	srv := testServerWithBodyCheck(t, "POST", "/api/discovery/search", 200,
+		DiscoveryResult{
+			Tools: []DiscoveredTool{
+				{
+					Metadata:       ToolMetadata{ToolID: "t1", Name: "read_file", Description: "reads files", ServerID: "s1"},
+					RelevanceScore: 0.95,
+					TTLSecs:        300,
+				},
+			},
+			Query:           "file reading",
+			TotalCandidates: 5,
+			PolicyFiltered:  2,
+		},
+		func(t *testing.T, body []byte) {
+			var req DiscoverRequest
+			if err := json.Unmarshal(body, &req); err != nil {
+				t.Fatalf("failed to unmarshal request body: %v", err)
+			}
+			if req.Query != "file reading" {
+				t.Errorf("Query = %q, want %q", req.Query, "file reading")
+			}
+			if req.MaxResults != 10 {
+				t.Errorf("MaxResults = %d, want 10", req.MaxResults)
+			}
+			if req.TokenBudget == nil || *req.TokenBudget != 1000 {
+				t.Errorf("TokenBudget = %v, want 1000", req.TokenBudget)
+			}
+		},
+	)
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	result, err := c.Discover(context.Background(), "file reading", 10, &tokenBudget)
+	if err != nil {
+		t.Fatalf("Discover() error: %v", err)
+	}
+	if len(result.Tools) != 1 {
+		t.Fatalf("Tools count = %d, want 1", len(result.Tools))
+	}
+	if result.Tools[0].Metadata.Name != "read_file" {
+		t.Errorf("Tool name = %q, want %q", result.Tools[0].Metadata.Name, "read_file")
+	}
+	if result.Query != "file reading" {
+		t.Errorf("Query = %q, want %q", result.Query, "file reading")
+	}
+	if result.TotalCandidates != 5 {
+		t.Errorf("TotalCandidates = %d, want 5", result.TotalCandidates)
+	}
+	if result.PolicyFiltered != 2 {
+		t.Errorf("PolicyFiltered = %d, want 2", result.PolicyFiltered)
+	}
+}
+
+func TestDiscoveryStats(t *testing.T) {
+	srv := testServer(t, "GET", "/api/discovery/index/stats", 200,
+		DiscoveryIndexStats{
+			TotalTools:    42,
+			MaxCapacity:   1000,
+			ConfigEnabled: true,
+		},
+	)
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	stats, err := c.DiscoveryStats(context.Background())
+	if err != nil {
+		t.Fatalf("DiscoveryStats() error: %v", err)
+	}
+	if stats.TotalTools != 42 {
+		t.Errorf("TotalTools = %d, want 42", stats.TotalTools)
+	}
+	if stats.MaxCapacity != 1000 {
+		t.Errorf("MaxCapacity = %d, want 1000", stats.MaxCapacity)
+	}
+	if !stats.ConfigEnabled {
+		t.Error("ConfigEnabled = false, want true")
+	}
+}
+
+func TestDiscoveryReindex(t *testing.T) {
+	srv := testServer(t, "POST", "/api/discovery/reindex", 200,
+		DiscoveryReindexResponse{
+			Status:     "ok",
+			TotalTools: 42,
+		},
+	)
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	resp, err := c.DiscoveryReindex(context.Background())
+	if err != nil {
+		t.Fatalf("DiscoveryReindex() error: %v", err)
+	}
+	if resp.Status != "ok" {
+		t.Errorf("Status = %q, want %q", resp.Status, "ok")
+	}
+	if resp.TotalTools != 42 {
+		t.Errorf("TotalTools = %d, want 42", resp.TotalTools)
+	}
+}
+
+func TestDiscoveryTools(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/discovery/tools" {
+			t.Errorf("path = %s, want /api/discovery/tools", r.URL.Path)
+		}
+		// Verify query parameters
+		if sid := r.URL.Query().Get("server_id"); sid != "srv-1" {
+			t.Errorf("server_id = %q, want %q", sid, "srv-1")
+		}
+		if sens := r.URL.Query().Get("sensitivity"); sens != "high" {
+			t.Errorf("sensitivity = %q, want %q", sens, "high")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		resp := DiscoveryToolsResponse{
+			Tools: []ToolMetadata{
+				{ToolID: "t1", Name: "dangerous_exec", ServerID: "srv-1", Sensitivity: "high"},
+			},
+			Total: 1,
+		}
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Fatal(err)
+		}
+	}))
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	resp, err := c.DiscoveryTools(context.Background(), "srv-1", "high")
+	if err != nil {
+		t.Fatalf("DiscoveryTools() error: %v", err)
+	}
+	if resp.Total != 1 {
+		t.Errorf("Total = %d, want 1", resp.Total)
+	}
+	if len(resp.Tools) != 1 {
+		t.Fatalf("Tools count = %d, want 1", len(resp.Tools))
+	}
+	if resp.Tools[0].Name != "dangerous_exec" {
+		t.Errorf("Tool name = %q, want %q", resp.Tools[0].Name, "dangerous_exec")
+	}
+}
+
+func TestDiscoveryTools_NoFilters(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" {
+			t.Errorf("expected no query params, got %q", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		resp := DiscoveryToolsResponse{Tools: []ToolMetadata{}, Total: 0}
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Fatal(err)
+		}
+	}))
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	resp, err := c.DiscoveryTools(context.Background(), "", "")
+	if err != nil {
+		t.Fatalf("DiscoveryTools() error: %v", err)
+	}
+	if resp.Total != 0 {
+		t.Errorf("Total = %d, want 0", resp.Total)
+	}
+}
+
+func TestProjectorModels(t *testing.T) {
+	srv := testServer(t, "GET", "/api/projector/models", 200,
+		ProjectorModelsResponse{
+			ModelFamilies: []string{"claude", "openai", "deepseek", "qwen", "generic"},
+		},
+	)
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	resp, err := c.ProjectorModels(context.Background())
+	if err != nil {
+		t.Fatalf("ProjectorModels() error: %v", err)
+	}
+	if len(resp.ModelFamilies) != 5 {
+		t.Fatalf("ModelFamilies count = %d, want 5", len(resp.ModelFamilies))
+	}
+	if resp.ModelFamilies[0] != "claude" {
+		t.Errorf("ModelFamilies[0] = %q, want %q", resp.ModelFamilies[0], "claude")
+	}
+}
+
+func TestProjectSchema(t *testing.T) {
+	srv := testServerWithBodyCheck(t, "POST", "/api/projector/transform", 200,
+		ProjectorTransformResponse{
+			ProjectedSchema: map[string]interface{}{"type": "function"},
+			TokenEstimate:   150,
+			ModelFamily:     "openai",
+		},
+		func(t *testing.T, body []byte) {
+			var req ProjectorTransformRequest
+			if err := json.Unmarshal(body, &req); err != nil {
+				t.Fatalf("failed to unmarshal request body: %v", err)
+			}
+			if req.ModelFamily != "openai" {
+				t.Errorf("ModelFamily = %q, want %q", req.ModelFamily, "openai")
+			}
+			if req.Schema.Name != "read_file" {
+				t.Errorf("Schema.Name = %q, want %q", req.Schema.Name, "read_file")
+			}
+		},
+	)
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	schema := CanonicalToolSchema{
+		Name:        "read_file",
+		Description: "Reads a file",
+		InputSchema: map[string]interface{}{"type": "object"},
+	}
+	resp, err := c.ProjectSchema(context.Background(), schema, "openai")
+	if err != nil {
+		t.Fatalf("ProjectSchema() error: %v", err)
+	}
+	if resp.ModelFamily != "openai" {
+		t.Errorf("ModelFamily = %q, want %q", resp.ModelFamily, "openai")
+	}
+	if resp.TokenEstimate != 150 {
+		t.Errorf("TokenEstimate = %d, want 150", resp.TokenEstimate)
+	}
+}
+
+// ── FIND-GAP-016: ReloadPolicies response capture ──────────
+
+func TestReloadPolicies_WithMessage(t *testing.T) {
+	srv := testServer(t, "POST", "/api/policies/reload", 200, map[string]interface{}{
+		"count":   5,
+		"status":  "reloaded",
+		"message": "5 policies loaded from config",
+	})
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	resp, err := c.ReloadPolicies(context.Background())
+	if err != nil {
+		t.Fatalf("ReloadPolicies() error: %v", err)
+	}
+	if resp.Count != 5 {
+		t.Errorf("Count = %d, want 5", resp.Count)
+	}
+	if resp.Status != "reloaded" {
+		t.Errorf("Status = %q, want %q", resp.Status, "reloaded")
+	}
+	if resp.Message != "5 policies loaded from config" {
+		t.Errorf("Message = %q, want %q", resp.Message, "5 policies loaded from config")
+	}
+}
+
+func TestReloadPolicies_HTTPError(t *testing.T) {
+	srv := testServer(t, "POST", "/api/policies/reload", 500, map[string]interface{}{
+		"error": "internal server error",
+	})
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	_, err := c.ReloadPolicies(context.Background())
+	if err == nil {
+		t.Fatal("expected error for 500 response")
 	}
 }

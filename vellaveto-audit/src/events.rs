@@ -455,6 +455,40 @@ impl AuditLogger {
         self.log_entry(&action, &verdict, metadata).await
     }
 
+    // =========================================================================
+    // Access Review Event Logging Helpers (Phase 38)
+    // =========================================================================
+
+    /// Log an access review lifecycle event.
+    ///
+    /// Access review events track report generation, scheduling, export,
+    /// and errors for SOC 2 Type II compliance audit trail visibility.
+    ///
+    /// Event types:
+    /// - `access_review.generated` — report generated (manual or scheduled)
+    /// - `access_review.scheduled` — scheduled report generation triggered
+    /// - `access_review.exported` — report exported in a specific format
+    /// - `access_review.error` — report generation or export error
+    pub async fn log_access_review_event(
+        &self,
+        event_type: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("vellaveto", "access_review", serde_json::json!({}));
+        let verdict = if event_type == "error" {
+            Verdict::Deny {
+                reason: "Access review operation failed".to_string(),
+            }
+        } else {
+            Verdict::Allow
+        };
+        let mut metadata = serde_json::json!({
+            "event": format!("access_review.{}", event_type),
+        });
+        merge_details_safe(&mut metadata, details);
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
     /// Check whether the audit log has a heartbeat gap — a period longer than
     /// `max_gap_secs` between consecutive entries (heartbeat or otherwise).
     ///

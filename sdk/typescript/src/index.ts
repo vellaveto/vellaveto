@@ -22,19 +22,23 @@
  * ```
  */
 
-export { VellavetoClient, VellavetoClientOptions, VellavetoError, PolicyDenied, ApprovalRequired } from "./client";
+export { VellavetoClient, VellavetoClientOptions, VellavetoError, PolicyDenied, ApprovalRequired, ParameterRedactor } from "./client";
 export {
+  AccessReviewEntry,
+  AccessReviewReport,
   Action,
   Approval,
   BatchResponse,
   BatchResult,
   BatchSummary,
+  Cc6Evidence,
   DiffResponse,
   EvaluationContext,
   EvaluationResult,
   HealthResponse,
   PolicyDiff,
   PolicySummary,
+  ReviewerAttestation,
   SimulateOptions,
   SimulateResponse,
   ValidateResponse,

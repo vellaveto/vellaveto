@@ -1,7 +1,10 @@
 // Package vellaveto provides a Go client for the Vellaveto MCP Tool Firewall API.
 package vellaveto
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Verdict represents a policy evaluation outcome.
 type Verdict string
@@ -13,13 +16,16 @@ const (
 )
 
 // ParseVerdict converts a string to a Verdict, defaulting to VerdictDeny (fail-closed).
+// SECURITY (FIND-GAP-014): Uses case-insensitive comparison via strings.EqualFold
+// to handle all case variants (e.g., "ALLOW", "Allow", "allow").
 func ParseVerdict(s string) Verdict {
-	switch s {
-	case "allow", "Allow":
+	lower := strings.ToLower(s)
+	switch lower {
+	case "allow":
 		return VerdictAllow
-	case "deny", "Deny":
+	case "deny":
 		return VerdictDeny
-	case "require_approval", "RequireApproval":
+	case "require_approval", "requireapproval":
 		return VerdictRequireApproval
 	default:
 		return VerdictDeny // fail-closed
@@ -359,4 +365,58 @@ type ZkCommitmentsResponse struct {
 	Commitments []ZkCommitmentEntry `json:"commitments"`
 	Total       int                 `json:"total"`
 	Range       [2]uint64           `json:"range"`
+}
+
+// ── Phase 38: SOC 2 Type II Access Review Types ─────────────────────────────
+
+// ReviewerAttestation represents a reviewer's attestation on an access review report.
+type ReviewerAttestation struct {
+	ReviewerName  string  `json:"reviewer_name"`
+	ReviewerTitle string  `json:"reviewer_title"`
+	ReviewedAt    *string `json:"reviewed_at,omitempty"`
+	Notes         string  `json:"notes"`
+	Status        string  `json:"status"`
+}
+
+// AccessReviewEntry represents a per-agent access review entry.
+type AccessReviewEntry struct {
+	AgentID              string   `json:"agent_id"`
+	SessionIDs           []string `json:"session_ids"`
+	FirstAccess          string   `json:"first_access"`
+	LastAccess           string   `json:"last_access"`
+	TotalEvaluations     uint64   `json:"total_evaluations"`
+	AllowCount           uint64   `json:"allow_count"`
+	DenyCount            uint64   `json:"deny_count"`
+	RequireApprovalCount uint64   `json:"require_approval_count"`
+	ToolsAccessed        []string `json:"tools_accessed"`
+	FunctionsCalled      []string `json:"functions_called"`
+	PermissionsGranted   int      `json:"permissions_granted"`
+	PermissionsUsed      int      `json:"permissions_used"`
+	UsageRatio           float64  `json:"usage_ratio"`
+	UnusedPermissions    []string `json:"unused_permissions"`
+	AgencyRecommendation string   `json:"agency_recommendation"`
+}
+
+// Cc6Evidence represents CC6 (Logical and Physical Access Controls) evidence.
+type Cc6Evidence struct {
+	CC61Evidence      string `json:"cc6_1_evidence"`
+	CC62Evidence      string `json:"cc6_2_evidence"`
+	CC63Evidence      string `json:"cc6_3_evidence"`
+	OptimalCount      int    `json:"optimal_count"`
+	ReviewGrantsCount int    `json:"review_grants_count"`
+	NarrowScopeCount  int    `json:"narrow_scope_count"`
+	CriticalCount     int    `json:"critical_count"`
+}
+
+// AccessReviewReport represents a SOC 2 Type II access review report.
+type AccessReviewReport struct {
+	GeneratedAt      string              `json:"generated_at"`
+	OrganizationName string              `json:"organization_name"`
+	PeriodStart      string              `json:"period_start"`
+	PeriodEnd        string              `json:"period_end"`
+	TotalAgents      int                 `json:"total_agents"`
+	TotalEvaluations uint64              `json:"total_evaluations"`
+	Entries          []AccessReviewEntry `json:"entries"`
+	CC6Evidence      Cc6Evidence         `json:"cc6_evidence"`
+	Attestation      ReviewerAttestation `json:"attestation"`
 }

@@ -851,3 +851,49 @@ class TestEvaluateInputValidation:
         )
         assert result.verdict == Verdict.ALLOW
         client.close()
+
+
+class TestSoc2AccessReview:
+    """Tests for SOC 2 Type II access review methods (Phase 38)."""
+
+    def test_soc2_access_review_default_params(self, httpx_mock):
+        httpx_mock.add_response(
+            url=httpx.URL(
+                "http://localhost:3000/api/compliance/soc2/access-review",
+                params={"period": "30d", "format": "json"},
+            ),
+            json={
+                "generated_at": "2026-02-16T00:00:00Z",
+                "organization_name": "Acme",
+                "total_agents": 2,
+                "total_evaluations": 100,
+            },
+        )
+        client = VellavetoClient()
+        result = client.soc2_access_review()
+        assert result["total_agents"] == 2
+        assert result["total_evaluations"] == 100
+        client.close()
+
+    def test_soc2_access_review_with_agent_filter(self, httpx_mock):
+        httpx_mock.add_response(
+            url=httpx.URL(
+                "http://localhost:3000/api/compliance/soc2/access-review",
+                params={"period": "7d", "format": "json", "agent_id": "agent-1"},
+            ),
+            json={
+                "generated_at": "2026-02-16T00:00:00Z",
+                "total_agents": 1,
+                "entries": [{"agent_id": "agent-1"}],
+            },
+        )
+        client = VellavetoClient()
+        result = client.soc2_access_review(period="7d", agent_id="agent-1")
+        assert result["total_agents"] == 1
+        client.close()
+
+    def test_soc2_access_review_agent_id_too_long(self):
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError, match="agent_id exceeds max length"):
+            client.soc2_access_review(agent_id="a" * 129)
+        client.close()

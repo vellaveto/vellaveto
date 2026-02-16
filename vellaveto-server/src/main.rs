@@ -1142,6 +1142,124 @@ async fn cmd_serve(
         );
     }
 
+    // Spawn periodic SOC 2 access review report generation (Phase 38).
+    {
+        let snapshot = state.policy_state.load();
+        let schedule = snapshot.compliance_config.soc2.access_review.schedule;
+        let ar_enabled = snapshot.compliance_config.soc2.enabled
+            && snapshot.compliance_config.soc2.access_review.enabled;
+        if ar_enabled {
+            if let Some(sched) = schedule {
+                let sched_secs = match sched {
+                    vellaveto_types::compliance::ReviewSchedule::Daily => 86_400u64,
+                    vellaveto_types::compliance::ReviewSchedule::Weekly => 604_800u64,
+                    vellaveto_types::compliance::ReviewSchedule::Monthly => 2_592_000u64,
+                };
+                let ar_audit = state.audit.clone();
+                let ar_policy_state = state.policy_state.clone();
+                let ar_least_agency = state.least_agency_tracker.clone();
+                tokio::spawn(async move {
+                    let mut interval =
+                        tokio::time::interval(std::time::Duration::from_secs(sched_secs));
+                    interval.tick().await; // Skip first immediate tick
+                    loop {
+                        interval.tick().await;
+                        let snap = ar_policy_state.load();
+                        let period_days = snap
+                            .compliance_config
+                            .soc2
+                            .access_review
+                            .default_period_days;
+                        let now = chrono::Utc::now();
+                        let period_end = now.to_rfc3339();
+                        let period_start =
+                            (now - chrono::Duration::days(i64::from(period_days))).to_rfc3339();
+                        match ar_audit.load_entries().await {
+                            Ok(entries) => {
+                                // Collect least-agency data
+                                let la_data = if let Some(ref tracker) = ar_least_agency {
+                                    let mut pairs = std::collections::HashSet::new();
+                                    for entry in &entries {
+                                        if entry.action.tool == "vellaveto" {
+                                            continue;
+                                        }
+                                        if entry.timestamp.as_str() < period_start.as_str()
+                                            || entry.timestamp.as_str() > period_end.as_str()
+                                        {
+                                            continue;
+                                        }
+                                        let aid = entry
+                                            .metadata
+                                            .get("agent_id")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or(&entry.action.tool);
+                                        let sid = entry
+                                            .metadata
+                                            .get("session_id")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("unknown");
+                                        pairs.insert((aid.to_string(), sid.to_string()));
+                                    }
+                                    let mut m = std::collections::HashMap::new();
+                                    for (a, s) in pairs {
+                                        if let Some(r) = tracker.generate_report(&a, &s) {
+                                            m.insert((a, s), r);
+                                        }
+                                    }
+                                    m
+                                } else {
+                                    std::collections::HashMap::new()
+                                };
+                                let report =
+                                    vellaveto_audit::access_review::generate_access_review(
+                                        &entries,
+                                        &snap.compliance_config.soc2.organization_name,
+                                        &period_start,
+                                        &period_end,
+                                        &la_data,
+                                    );
+                                tracing::info!(
+                                    total_agents = report.total_agents,
+                                    total_evaluations = report.total_evaluations,
+                                    "Scheduled access review report generated"
+                                );
+                                let _ = ar_audit
+                                    .log_access_review_event(
+                                        "scheduled",
+                                        serde_json::json!({
+                                            "period_days": period_days,
+                                            "total_agents": report.total_agents,
+                                            "total_evaluations": report.total_evaluations,
+                                        }),
+                                    )
+                                    .await;
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Scheduled access review failed to load entries: {}",
+                                    e
+                                );
+                                let _ = ar_audit
+                                    .log_access_review_event(
+                                        "error",
+                                        serde_json::json!({
+                                            "error": e.to_string(),
+                                        }),
+                                    )
+                                    .await;
+                            }
+                        }
+                    }
+                });
+                tracing::info!(
+                    schedule = ?sched,
+                    interval_secs = sched_secs,
+                    "SOC 2 access review scheduler enabled"
+                );
+            }
+        }
+    }
+
     // Spawn periodic per-IP rate limit bucket cleanup (every 10 minutes)
     if state.rate_limits.per_ip.is_some() {
         let cleanup_limits = state.rate_limits.clone();
