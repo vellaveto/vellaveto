@@ -1011,6 +1011,22 @@ pub async fn handle_mcp_post(
                                     .await
                                 {
                                     Ok(result) => {
+                                        // SECURITY (FIND-R43-013): Block dangerous status codes from smart fallback upstream.
+                                        // 3xx can enable SSRF via redirect, 1xx are informational (incomplete),
+                                        // and 407 (Proxy Authentication Required) leaks proxy topology.
+                                        let safe_status = if (300..400).contains(&result.status)
+                                            || result.status < 200
+                                            || result.status == 407
+                                        {
+                                            tracing::warn!(
+                                                status = result.status,
+                                                "smart fallback upstream returned suspicious status — mapping to 502"
+                                            );
+                                            502
+                                        } else {
+                                            result.status
+                                        };
+
                                         // Record gateway health on success.
                                         if let Some(ref gw) = state.gateway {
                                             if let Some(ref decision) = gateway_decision {
@@ -1035,7 +1051,7 @@ pub async fn handle_mcp_post(
                                                 .await;
                                         }
                                         let response = axum::response::Response::builder()
-                                            .status(result.status)
+                                            .status(safe_status)
                                             .header("content-type", "application/json")
                                             .body(axum::body::Body::from(result.response))
                                             .unwrap_or_else(|_| {
@@ -2566,17 +2582,26 @@ pub(crate) fn build_transport_targets(
                         // Extract host from upstream_url via simple string parsing.
                         let host = extract_host_from_url(&state.upstream_url)
                             .unwrap_or("127.0.0.1");
-                        format!("http://{}:{}", host, grpc_port)
+                        // SECURITY (FIND-R43-029): Wrap IPv6 addresses in brackets
+                        // to produce valid URLs (e.g., "http://[::1]:50051").
+                        if host.contains(':') {
+                            format!("http://[{}]:{}", host, grpc_port)
+                        } else {
+                            format!("http://{}:{}", host, grpc_port)
+                        }
                     } else {
                         continue;
                     }
                 }
                 TransportProtocol::WebSocket => {
-                    // Derive WS URL from HTTP URL: http -> ws, /mcp -> /mcp/ws.
-                    let ws_url = state
-                        .upstream_url
-                        .replace("http://", "ws://")
-                        .replace("https://", "wss://");
+                    // SECURITY (FIND-R43-014): Only replace scheme prefix, not occurrences in path/query.
+                    let ws_url = if state.upstream_url.starts_with("https://") {
+                        format!("wss://{}", &state.upstream_url["https://".len()..])
+                    } else if state.upstream_url.starts_with("http://") {
+                        format!("ws://{}", &state.upstream_url["http://".len()..])
+                    } else {
+                        state.upstream_url.clone()
+                    };
                     if ws_url.ends_with("/mcp") {
                         format!("{}/ws", ws_url)
                     } else {
@@ -2614,9 +2639,14 @@ pub(crate) fn extract_host_from_url(url: &str) -> Option<&str> {
         .unwrap_or(after_scheme);
     // SECURITY (FIND-R42-003): Strip userinfo (user:pass@host) to prevent
     // SSRF via @-smuggling (e.g., "http://safe@evil/path").
+    // SECURITY (FIND-R43-023): Also handle URL-encoded @ (%40) in authority
+    // to prevent bypass of userinfo stripping (e.g., "http://safe%40evil/path").
     let host_port = match authority.rfind('@') {
         Some(i) => &authority[i + 1..],
-        None => authority,
+        None => match authority.rfind("%40") {
+            Some(i) => &authority[i + 3..],
+            None => authority,
+        },
     };
     // Handle IPv6 addresses in brackets (e.g., "[::1]:8080").
     if host_port.starts_with('[') {

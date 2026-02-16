@@ -217,8 +217,11 @@ impl TransportHealthTracker {
         let mut states = match self.states.write() {
             Ok(guard) => guard,
             Err(e) => {
+                // SECURITY (FIND-R43-011): Poisoned lock in record_success is safe to ignore
+                // because not recording a success keeps the circuit in its current (more restrictive) state.
+                // This is effectively fail-closed: Open stays Open, HalfOpen stays HalfOpen.
                 tracing::error!(
-                    "TransportHealthTracker RwLock poisoned in record_success(): {}",
+                    "TransportHealthTracker RwLock poisoned in record_success() — success not recorded (fail-closed by omission): {}",
                     e
                 );
                 return;
@@ -243,15 +246,19 @@ impl TransportHealthTracker {
                 // Already healthy, nothing to do.
             }
             TransportCircuitState::Open => {
-                // Unexpected success while open — treat as recovery start.
-                stats.state = TransportCircuitState::HalfOpen;
-                stats.success_count = 1;
-                stats.half_open_in_flight = false;
-                stats.last_state_change = now_secs();
+                // SECURITY (FIND-R43-004): Stale success while Open — discard.
+                // Open→HalfOpen should only happen via can_use() after open_duration expires.
+                tracing::debug!(
+                    upstream_id = upstream_id,
+                    transport = ?protocol,
+                    "discarding stale success while circuit is Open"
+                );
             }
             TransportCircuitState::HalfOpen => {
                 stats.half_open_in_flight = false; // FIND-R42-010: probe completed.
-                stats.success_count += 1;
+                // SECURITY (FIND-R43-010): Use saturating_add to prevent wrapping arithmetic
+                // panic in debug builds, consistent with failure_count fix (FIND-R42-012).
+                stats.success_count = stats.success_count.saturating_add(1);
                 if stats.success_count >= self.success_threshold {
                     tracing::info!(
                         upstream_id = upstream_id,
@@ -325,6 +332,9 @@ impl TransportHealthTracker {
                     )
                     .increment(1);
                     stats.state = TransportCircuitState::Open;
+                    // SECURITY (FIND-R43-027): Increment trip_count on Closed→Open to enable
+                    // exponential backoff escalation for rapid flapping circuits.
+                    stats.trip_count = stats.trip_count.saturating_add(1);
                     stats.last_state_change = now_secs();
                 }
                 stats.state
@@ -357,8 +367,12 @@ impl TransportHealthTracker {
         }
     }
 
-    /// Return a list of available transports for the given upstream,
-    /// filtering out Open circuits and preserving priority order.
+    /// Returns the subset of `priorities` whose circuits allow a request.
+    ///
+    /// **WARNING**: This method has side effects — it calls `can_use()` which may
+    /// transition Open circuits to HalfOpen and set `half_open_in_flight`. Only call
+    /// this if you intend to actually dispatch requests to the returned transports.
+    // SECURITY (FIND-R43-028): Documented side-effect hazard for callers.
     pub fn available_transports(
         &self,
         upstream_id: &str,
@@ -528,12 +542,13 @@ mod tests {
         let tracker = TransportHealthTracker::new(1, 2, 0); // 0 → clamped to 1s
         let proto = TransportProtocol::Http;
 
-        // Open the circuit.
+        // Open the circuit. Closed→Open sets trip_count=1 (FIND-R43-027),
+        // effective open_duration = 1s * 2^1 = 2s.
         tracker.record_failure("up", proto);
         assert!(tracker.can_use("up", proto).is_err());
 
-        // Wait for open duration to expire (1 second, practically instant in test).
-        std::thread::sleep(std::time::Duration::from_millis(1100));
+        // Wait for effective open duration to expire (2 seconds).
+        std::thread::sleep(std::time::Duration::from_millis(2100));
 
         // Should transition to HalfOpen.
         assert!(tracker.can_use("up", proto).is_ok());
@@ -554,9 +569,10 @@ mod tests {
         let tracker = TransportHealthTracker::new(1, 2, 0); // clamped to 1s
         let proto = TransportProtocol::Grpc;
 
-        // Open the circuit.
+        // Open the circuit. Closed→Open sets trip_count=1 (FIND-R43-027),
+        // effective open_duration = 1s * 2^1 = 2s.
         tracker.record_failure("up", proto);
-        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::thread::sleep(std::time::Duration::from_millis(2100));
 
         // Transition to HalfOpen.
         assert!(tracker.can_use("up", proto).is_ok());
@@ -662,20 +678,21 @@ mod tests {
         let tracker = TransportHealthTracker::new(1, 1, 1);
         let proto = TransportProtocol::Http;
 
-        // First trip: 1s open duration.
+        // First trip: Closed→Open sets trip_count=1 (FIND-R43-027), so
+        // effective open_duration = 1s * 2^1 = 2s.
         tracker.record_failure("up", proto);
-        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::thread::sleep(std::time::Duration::from_millis(2100));
         assert!(tracker.can_use("up", proto).is_ok()); // HalfOpen
 
-        // Fail in HalfOpen → trip_count=1, open_duration=2s.
+        // Fail in HalfOpen → trip_count=2, open_duration = 1s * 2^2 = 4s.
         tracker.record_failure("up", proto);
 
-        // After 1.1s, should still be open (need 2s).
-        std::thread::sleep(std::time::Duration::from_millis(1100));
+        // After 2.1s, should still be open (need 4s).
+        std::thread::sleep(std::time::Duration::from_millis(2100));
         assert!(tracker.can_use("up", proto).is_err());
 
-        // After another 1.1s (total ~2.2s), should transition to HalfOpen.
-        std::thread::sleep(std::time::Duration::from_millis(1100));
+        // After another 2.1s (total ~4.2s), should transition to HalfOpen.
+        std::thread::sleep(std::time::Duration::from_millis(2100));
         assert!(tracker.can_use("up", proto).is_ok());
     }
 
@@ -684,20 +701,22 @@ mod tests {
         let tracker = TransportHealthTracker::new(1, 1, 1);
         let proto = TransportProtocol::Http;
 
-        // Trip once.
+        // Trip once: Closed→Open sets trip_count=1 (FIND-R43-027),
+        // effective open_duration = 1s * 2^1 = 2s.
         tracker.record_failure("up", proto);
-        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::thread::sleep(std::time::Duration::from_millis(2100));
         tracker.can_use("up", proto).ok(); // HalfOpen
-        tracker.record_failure("up", proto); // trip_count=1
+        tracker.record_failure("up", proto); // trip_count=2, open_duration=4s
 
-        // Recover.
-        std::thread::sleep(std::time::Duration::from_millis(2200));
+        // Recover: wait for 4s open duration to expire.
+        std::thread::sleep(std::time::Duration::from_millis(4100));
         tracker.can_use("up", proto).ok(); // HalfOpen
         tracker.record_success("up", proto); // Closed, trip_count=0
 
-        // Next trip should use base duration (1s) again.
+        // Next trip: Closed→Open sets trip_count=1 again (FIND-R43-027),
+        // effective open_duration = 1s * 2^1 = 2s.
         tracker.record_failure("up", proto);
-        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::thread::sleep(std::time::Duration::from_millis(2100));
         assert!(tracker.can_use("up", proto).is_ok()); // Would fail if trip_count wasn't reset.
     }
 
@@ -796,9 +815,10 @@ mod tests {
         let tracker = TransportHealthTracker::new(1, 2, 0); // clamped to 1s
         let proto = TransportProtocol::Http;
 
-        // Open the circuit.
+        // Open the circuit. Closed→Open sets trip_count=1 (FIND-R43-027),
+        // effective open_duration = 1s * 2^1 = 2s.
         tracker.record_failure("up", proto);
-        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::thread::sleep(std::time::Duration::from_millis(2100));
 
         // First probe transitions Open → HalfOpen and sets in_flight.
         assert!(tracker.can_use("up", proto).is_ok());
@@ -817,17 +837,19 @@ mod tests {
         let tracker = TransportHealthTracker::new(1, 2, 0); // clamped to 1s
         let proto = TransportProtocol::Grpc;
 
-        // Open circuit, wait, transition to HalfOpen.
+        // Open circuit: Closed→Open sets trip_count=1 (FIND-R43-027),
+        // effective open_duration = 1s * 2^1 = 2s.
         tracker.record_failure("up", proto);
-        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::thread::sleep(std::time::Duration::from_millis(2100));
         assert!(tracker.can_use("up", proto).is_ok()); // HalfOpen, in_flight=true
 
         // Fail the probe → back to Open, in_flight cleared.
+        // trip_count=2, effective open_duration = 1s * 2^2 = 4s.
         tracker.record_failure("up", proto);
         assert!(tracker.can_use("up", proto).is_err()); // Open again
 
-        // Wait for Open → HalfOpen transition.
-        std::thread::sleep(std::time::Duration::from_millis(2200)); // 2x backoff
+        // Wait for Open → HalfOpen transition (need 4s).
+        std::thread::sleep(std::time::Duration::from_millis(4100));
         // Should be able to probe again.
         assert!(tracker.can_use("up", proto).is_ok());
     }

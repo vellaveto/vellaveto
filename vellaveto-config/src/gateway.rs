@@ -11,6 +11,12 @@ use vellaveto_types::TransportProtocol;
 /// Maximum number of upstream backends in gateway configuration.
 pub const MAX_BACKENDS: usize = 64;
 
+/// Maximum length for a backend ID (FIND-R43-004).
+const MAX_BACKEND_ID_LEN: usize = 128;
+
+/// Maximum length for a single tool_prefix entry (FIND-R43-005).
+const MAX_TOOL_PREFIX_LEN: usize = 256;
+
 fn default_health_check_interval_secs() -> u64 {
     15
 }
@@ -87,10 +93,33 @@ impl GatewayConfig {
 
         // Check for duplicate IDs
         let mut seen_ids = std::collections::HashSet::new();
+        let mut seen_prefixes = std::collections::HashSet::new();
         let mut default_count = 0u32;
         for (i, backend) in self.backends.iter().enumerate() {
             if backend.id.is_empty() {
                 return Err(format!("gateway.backends[{}].id must not be empty", i));
+            }
+            // SECURITY (FIND-R43-004): Validate backend ID length and characters.
+            // Backend IDs are used as HashMap keys, metric labels, and log fields.
+            // Unbounded or non-ASCII IDs can cause log injection or metric cardinality issues.
+            if backend.id.len() > MAX_BACKEND_ID_LEN {
+                return Err(format!(
+                    "gateway.backends[{}].id exceeds max length of {} (got {})",
+                    i,
+                    MAX_BACKEND_ID_LEN,
+                    backend.id.len()
+                ));
+            }
+            if !backend
+                .id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+            {
+                return Err(format!(
+                    "gateway.backends[{}].id contains invalid characters — \
+                     must be ASCII alphanumeric, '-', '_', or '.' (id: '{}')",
+                    i, backend.id
+                ));
             }
             if backend.url.is_empty() {
                 return Err(format!(
@@ -117,6 +146,28 @@ impl GatewayConfig {
                     "gateway.backends has duplicate id '{}'",
                     backend.id
                 ));
+            }
+            // SECURITY (FIND-R43-005): Validate tool_prefixes are bounded, non-empty strings,
+            // and unique across all backends to prevent ambiguous routing.
+            for (pi, prefix) in backend.tool_prefixes.iter().enumerate() {
+                if prefix.is_empty() {
+                    return Err(format!(
+                        "gateway.backends[{}].tool_prefixes[{}] must not be empty (id: '{}')",
+                        i, pi, backend.id
+                    ));
+                }
+                if prefix.len() > MAX_TOOL_PREFIX_LEN {
+                    return Err(format!(
+                        "gateway.backends[{}].tool_prefixes[{}] exceeds max length of {} (id: '{}')",
+                        i, pi, MAX_TOOL_PREFIX_LEN, backend.id
+                    ));
+                }
+                if !seen_prefixes.insert(prefix.clone()) {
+                    return Err(format!(
+                        "gateway.backends has duplicate tool_prefix '{}' (id: '{}')",
+                        prefix, backend.id
+                    ));
+                }
             }
             if backend.tool_prefixes.is_empty() {
                 default_count += 1;

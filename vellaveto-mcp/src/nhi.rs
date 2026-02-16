@@ -195,6 +195,19 @@ impl NhiManager {
             .get_mut(id)
             .ok_or_else(|| NhiError::IdentityNotFound(id.to_string()))?;
 
+        // SECURITY (FIND-R43-007): Revoked and Expired are terminal states.
+        // No transitions out of terminal states are allowed.
+        if matches!(
+            identity.status,
+            NhiIdentityStatus::Revoked | NhiIdentityStatus::Expired
+        ) && new_status != identity.status
+        {
+            return Err(NhiError::InvalidStatusTransition {
+                from: identity.status,
+                to: new_status,
+            });
+        }
+
         let old_status = identity.status;
 
         // Update revocation list BEFORE setting identity status so that
@@ -652,14 +665,7 @@ impl NhiManager {
             return Err(NhiError::Disabled);
         }
 
-        // Check capacity
-        let delegations = self.delegations.read().await;
-        if delegations.len() >= self.config.max_delegations {
-            return Err(NhiError::CapacityExceeded("delegations".to_string()));
-        }
-        drop(delegations);
-
-        // Check both agents exist
+        // Check both agents exist (read lock on identities only).
         let identities = self.identities.read().await;
         if !identities.contains_key(from_agent) {
             return Err(NhiError::IdentityNotFound(from_agent.to_string()));
@@ -668,6 +674,13 @@ impl NhiManager {
             return Err(NhiError::IdentityNotFound(to_agent.to_string()));
         }
         drop(identities);
+
+        // SECURITY (FIND-R43-020): Acquire write lock on delegations first,
+        // then check capacity and insert atomically to close TOCTOU window.
+        let mut delegations = self.delegations.write().await;
+        if delegations.len() >= self.config.max_delegations {
+            return Err(NhiError::CapacityExceeded("delegations".to_string()));
+        }
 
         let now = chrono::Utc::now();
         let expires_at = now + chrono::Duration::seconds(ttl_secs as i64);
@@ -683,7 +696,6 @@ impl NhiManager {
             reason,
         };
 
-        let mut delegations = self.delegations.write().await;
         delegations.insert((from_agent.to_string(), to_agent.to_string()), link.clone());
 
         let mut stats = self.stats.write().await;

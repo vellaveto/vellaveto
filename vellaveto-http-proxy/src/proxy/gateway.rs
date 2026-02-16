@@ -130,9 +130,15 @@ impl GatewayRouter {
     ///
     /// Returns `None` when no healthy backend matches (fail-closed).
     pub fn route(&self, tool_name: &str) -> Option<RoutingDecision> {
-        // Truncate excessively long tool names
+        // SECURITY (FIND-R43-002): Truncate excessively long tool names using
+        // floor_char_boundary to avoid panicking on multi-byte UTF-8 boundaries.
         let tool_name = if tool_name.len() > MAX_TOOL_NAME_LEN {
-            &tool_name[..MAX_TOOL_NAME_LEN]
+            // Find the last valid UTF-8 char boundary at or before MAX_TOOL_NAME_LEN.
+            let mut end = MAX_TOOL_NAME_LEN;
+            while end > 0 && !tool_name.is_char_boundary(end) {
+                end -= 1;
+            }
+            &tool_name[..end]
         } else {
             tool_name
         };
@@ -222,7 +228,8 @@ impl GatewayRouter {
         };
         if let Some(state) = states.get_mut(backend_id) {
             state.consecutive_failures = 0;
-            state.consecutive_successes += 1;
+            // SECURITY (FIND-R43-009): Use saturating_add to prevent integer overflow.
+            state.consecutive_successes = state.consecutive_successes.saturating_add(1);
 
             match state.health {
                 BackendHealth::Unhealthy => {
@@ -262,7 +269,8 @@ impl GatewayRouter {
         };
         if let Some(state) = states.get_mut(backend_id) {
             state.consecutive_successes = 0;
-            state.consecutive_failures += 1;
+            // SECURITY (FIND-R43-009): Use saturating_add to prevent integer overflow.
+            state.consecutive_failures = state.consecutive_failures.saturating_add(1);
 
             if state.consecutive_failures >= self.unhealthy_threshold
                 && state.health != BackendHealth::Unhealthy
@@ -876,5 +884,48 @@ mod tests {
         let json_str = serde_json::to_string(&config).unwrap();
         let deserialized: GatewayConfig = serde_json::from_str(&json_str).unwrap();
         assert_eq!(config, deserialized);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // ADVERSARIAL AUDIT ROUND 43 TESTS
+    // ═══════════════════════════════════════════════════
+
+    /// FIND-R43-002: Tool names with multi-byte UTF-8 chars at the truncation boundary
+    /// must not panic. Before fix, `&tool_name[..256]` would panic if byte 256 fell
+    /// in the middle of a multi-byte character.
+    #[test]
+    fn test_r43_002_route_multibyte_utf8_no_panic() {
+        let config = test_config(vec![default_backend("default", "http://default:8000")]);
+        let router = GatewayRouter::from_config(&config).unwrap();
+
+        // Create a string that is >256 bytes with multi-byte chars.
+        // Each CJK character is 3 bytes in UTF-8. 90 chars = 270 bytes.
+        let multibyte_name: String = std::iter::repeat('\u{4e16}').take(90).collect();
+        assert!(multibyte_name.len() > 256); // 270 bytes > 256
+        assert!(multibyte_name.len() < 1000);
+
+        // Should not panic — uses char-boundary-safe truncation now.
+        let decision = router.route(&multibyte_name);
+        assert_eq!(decision.unwrap().backend_id, "default");
+    }
+
+    /// FIND-R43-002: 4-byte UTF-8 chars (emoji) at boundary.
+    #[test]
+    fn test_r43_002_route_4byte_utf8_at_boundary() {
+        let config = test_config(vec![default_backend("default", "http://default:8000")]);
+        let router = GatewayRouter::from_config(&config).unwrap();
+
+        // 64 emoji (each 4 bytes) = 256 bytes exactly, then add one more to exceed.
+        let mut name: String = std::iter::repeat('\u{1F600}').take(65).collect();
+        assert!(name.len() > 256); // 260 bytes
+        // This should not panic.
+        let decision = router.route(&name);
+        assert!(decision.is_some());
+
+        // Test with exactly 255 ASCII + one 2-byte char to land at byte 256 mid-char.
+        name = "x".repeat(255) + "\u{00E9}"; // e-acute is 2 bytes in UTF-8
+        assert_eq!(name.len(), 257);
+        let decision = router.route(&name);
+        assert!(decision.is_some());
     }
 }

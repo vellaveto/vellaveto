@@ -33,6 +33,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **FIND-R41-014** (Medium): Glob key validation — transport override glob keys validated for max length (256), empty key, and null byte content.
 - 7 new tests for config validation (stdio path, metacharacters, override bounds, glob keys, URL schemes).
 
+### Fixed (Adversarial Hardening — Round 43)
+- **FIND-R43-001** (High): Stdio pipe deadlock — restructured `dispatch_stdio` to read stdout concurrently with `child.wait()` via `tokio::join!`, preventing deadlock on >64KB subprocess output.
+- **FIND-R43-002** (High): Stdio environment inheritance — added `.env_clear()` with minimal safe variables (PATH, HOME, LANG) to prevent secret leakage to subprocess.
+- **FIND-R43-003** (High): Smart fallback bypasses response inspection — documented as known limitation; status code validation added (FIND-R43-013) as immediate mitigation.
+- **FIND-R43-004** (High): Open→HalfOpen bypass via stale success — `record_success` in Open state now discards the signal instead of transitioning, forcing recovery only through `can_use()` after `open_duration_secs`.
+- **FIND-R43-005** (High): Merkle leaf file pruning — `list_rotated_files()` now excludes `.merkle-leaves` and `.rotation-manifest.jsonl` files; `prune_rotated_files()` also deletes companion Merkle leaf files.
+- **FIND-R43-006** (High): Unbounded trust collections — `AgentTrustGraph` now enforces `MAX_REGISTERED_AGENTS=10,000`, `MAX_TRUSTED_AGENTS=1,000`, `MAX_TRUST_EDGES=50,000`, `MAX_TRUST_TARGETS_PER_AGENT=1,000`.
+- **FIND-R43-007** (High): NHI terminal state bypass — `update_status()` now rejects transitions from Revoked/Expired states, enforcing them as terminal.
+- **FIND-R43-008** (Medium): Subprocess orphan — added `.kill_on_drop(true)` to stdio `Command` builder.
+- **FIND-R43-009** (Medium): Gateway counter overflow — `consecutive_successes` and `consecutive_failures` now use `saturating_add(1)`.
+- **FIND-R43-010** (Medium): success_count overflow — replaced `+= 1` with `saturating_add(1)` consistent with failure_count.
+- **FIND-R43-012** (Medium): 5xx recorded as success — smart fallback now calls `record_failure` for status >= 500 and continues to next transport.
+- **FIND-R43-013** (Medium): Dangerous status codes forwarded — smart fallback now maps 3xx, <200, and 407 to 502 Bad Gateway.
+- **FIND-R43-014** (Medium): WebSocket URL replace-all — changed to prefix-only scheme replacement.
+- **FIND-R43-015** (Medium): Edges to non-existent nodes — `add_data_flow()`/`add_delegation()` now validate both endpoints exist in graph.
+- **FIND-R43-016** (Medium): Duplicate edges — edge deduplication before push prevents budget exhaustion.
+- **FIND-R43-017** (Medium): Manifest references pruned files — `verify_across_rotations()` now skips missing files with info log instead of failing.
+- **FIND-R43-018** (Medium): cleanup() never called — `AgentTrustGraph::record_request()` now triggers opportunistic cleanup every 1000 calls.
+- **FIND-R43-019** (Medium): Unicode format char bypass — `validate_field`/`validate_string_field` now reject ZWSP, bidi overrides, BOM, and other invisible Unicode characters.
+- **FIND-R43-020** (Medium): NHI delegation TOCTOU — `create_delegation()` restructured to hold single write lock for capacity check + insert.
+- **FIND-R43-021** (Medium): NHI body fields unvalidated — added validation for `tool_call`, `source_ip`, `new_public_key`, `new_key_algorithm`, `trigger`, `agent_id`.
+- **FIND-R43-022** (Medium): Match-all glob bypass — extended wildcard rejection from exact `"*"` to any pattern consisting entirely of `*` and `?` characters.
+- **FIND-R43-023** (Medium): URL-encoded %40 bypass — `extract_host_from_url` now also strips `%40`-encoded userinfo.
+- **FIND-R43-024** (Medium): Case-sensitive self-delegation — changed to `eq_ignore_ascii_case` comparison.
+- **FIND-R43-026** (Low): WebSocket body mutation — replaced `from_utf8_lossy` with `from_utf8` that returns error on invalid data.
+- **FIND-R43-027** (Low): trip_count not incremented on Closed→Open — added `saturating_add(1)` for backoff escalation on rapid flapping.
+- **FIND-R43-029** (Low): IPv6 gRPC URL — host containing `:` now wrapped in brackets for valid URL.
+- **FIND-R43-030** (Low): Self-loop edges — `add_data_flow()`/`add_delegation()` reject `from == to`.
+- **FIND-R43-031** (Low): escape_dot incomplete — added pipe `|` escaping and null byte stripping.
+- **FIND-R43-032** (Low): Roots vector dedup — guarded push prevents duplicate entries on node overwrites.
+- **FIND-R43-033** (Low): NHI self-delegation — `create_nhi_delegation` now rejects `from_agent == to_agent`.
+- **FIND-R43-034** (Low): DeputyError info leak — error responses now use generic message; details logged server-side.
+- **FIND-R43-035** (Low): Circular detection self-ref — `detect_privilege_escalation` now catches `from_agent == to_agent`.
+- Config agent fixes: `stdio_command` validated when disabled, UTF-8 safe gateway truncation, `restricted_transports` duplicate check, backend ID length/character validation, tool prefix uniqueness/empty/length validation.
+- 18 new config tests + 1 updated rotation test across 3 crates.
+
 ### Fixed (Adversarial Hardening — Round 42)
 - **FIND-R42-002** (High): Transport preference header DoS — `parse_transport_preference` now deduplicates and caps at 4 entries (one per protocol variant), preventing unbounded Vec from malicious `mcp-transport-preference` headers.
 - **FIND-R42-003** (High): URL host parser SSRF — `extract_host_from_url` now strips userinfo (`user:pass@host`) via `rfind('@')` to prevent @-smuggling, and handles IPv6 addresses in brackets (`[::1]:8080`).

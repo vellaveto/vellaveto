@@ -40,8 +40,23 @@ const MAX_ARRAY_LEN: usize = 100;
 /// Maximum number of entries in map fields (metadata).
 const MAX_MAP_LEN: usize = 50;
 
-/// Validate a string field: reject if too long or contains control characters.
-/// SECURITY (FIND-R41-011): Rejects ALL control characters to prevent log injection.
+/// SECURITY (FIND-R43-019): Detect control characters AND Unicode format
+/// characters (ZWSP, bidi overrides, invisible operators, etc.) that can
+/// bypass simple `is_control()` checks.
+fn is_unsafe_char(c: char) -> bool {
+    let cp = c as u32;
+    c.is_control()
+        || (0x200B..=0x200F).contains(&cp) // ZWSP, ZWNJ, ZWJ, LRM, RLM
+        || (0x202A..=0x202E).contains(&cp) // Bidi overrides
+        || (0x2060..=0x2064).contains(&cp) // Word joiner, invisible operators
+        || (0x2066..=0x2069).contains(&cp) // Bidi isolates
+        || cp == 0xFEFF                    // BOM
+        || (0xFFF9..=0xFFFB).contains(&cp) // Interlinear annotation
+}
+
+/// Validate a string field: reject if too long or contains control/format characters.
+/// SECURITY (FIND-R41-011, FIND-R43-019): Rejects ALL control characters AND
+/// Unicode format characters to prevent log injection and bidi attacks.
 fn validate_string_field(
     value: &str,
     field_name: &str,
@@ -54,11 +69,11 @@ fn validate_string_field(
             })),
         ));
     }
-    if value.chars().any(|c| c.is_control()) {
+    if value.chars().any(is_unsafe_char) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({
-                "error": format!("{} contains invalid control characters", field_name)
+                "error": format!("{} contains invalid characters", field_name)
             })),
         ));
     }
@@ -354,8 +369,14 @@ pub async fn check_nhi_behavior(
     };
 
     let tool_call = body["tool_call"].as_str().unwrap_or("unknown");
+    // SECURITY (FIND-R43-021): Validate body fields.
+    validate_string_field(tool_call, "tool_call")?;
     let request_interval = body["request_interval_secs"].as_f64();
     let source_ip = body["source_ip"].as_str();
+    // SECURITY (FIND-R43-021): Validate source_ip if present.
+    if let Some(ip) = source_ip {
+        validate_string_field(ip, "source_ip")?;
+    }
 
     let result = manager
         .check_behavior(&id, tool_call, request_interval, source_ip)
@@ -376,6 +397,10 @@ pub async fn list_nhi_delegations(
     };
 
     let agent_id = params.get("agent_id");
+    // SECURITY (FIND-R43-021): Validate agent_id query parameter if present.
+    if let Some(aid) = &agent_id {
+        validate_string_field(aid, "agent_id")?;
+    }
     let delegations = if let Some(agent) = agent_id {
         manager.list_delegations(agent).await
     } else {
@@ -413,6 +438,14 @@ pub async fn create_nhi_delegation(
         )
     })?;
     validate_string_field(to_agent, "to_agent")?;
+
+    // SECURITY (FIND-R43-033): Reject self-delegation.
+    if from_agent == to_agent {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "from_agent and to_agent must differ"})),
+        ));
+    }
 
     let permissions: Vec<String> = body["permissions"]
         .as_array()
@@ -552,8 +585,16 @@ pub async fn rotate_nhi_credentials(
             Json(json!({"error": "new_public_key required"})),
         )
     })?;
+    // SECURITY (FIND-R43-021): Validate body fields.
+    validate_string_field(new_public_key, "new_public_key")?;
     let new_key_algorithm = body["new_key_algorithm"].as_str();
+    // SECURITY (FIND-R43-021): Validate new_key_algorithm if present.
+    if let Some(alg) = new_key_algorithm {
+        validate_string_field(alg, "new_key_algorithm")?;
+    }
     let trigger = body["trigger"].as_str().unwrap_or("manual");
+    // SECURITY (FIND-R43-021): Validate trigger field.
+    validate_string_field(trigger, "trigger")?;
     let new_ttl_secs = body["new_ttl_secs"].as_u64();
 
     match manager

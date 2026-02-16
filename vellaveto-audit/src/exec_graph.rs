@@ -263,7 +263,8 @@ impl ExecutionGraph {
 
         self.nodes.insert(node_id.clone(), node);
 
-        if is_root {
+        // SECURITY (FIND-R43-032): Deduplicate roots on overwrite to prevent unbounded growth
+        if is_root && !self.roots.contains(&node_id) {
             self.roots.push(node_id);
         }
     }
@@ -284,6 +285,27 @@ impl ExecutionGraph {
 
     /// Add a data flow edge between nodes.
     pub fn add_data_flow(&mut self, from: NodeId, to: NodeId) {
+        // SECURITY (FIND-R43-030): Reject self-loop edges
+        if from == to {
+            tracing::warn!(
+                target: "vellaveto::observability",
+                session_id = %self.session_id,
+                node_id = %from,
+                "Rejecting self-loop edge"
+            );
+            return;
+        }
+        // SECURITY (FIND-R43-015): Reject edges to non-existent nodes
+        if !self.nodes.contains_key(&from) || !self.nodes.contains_key(&to) {
+            tracing::warn!(
+                target: "vellaveto::observability",
+                session_id = %self.session_id,
+                from = %from,
+                to = %to,
+                "Skipping edge — one or both nodes do not exist"
+            );
+            return;
+        }
         if self.edges.len() >= MAX_EDGES_PER_GRAPH {
             tracing::warn!(
                 target: "vellaveto::observability",
@@ -293,16 +315,43 @@ impl ExecutionGraph {
             );
             return;
         }
+        // SECURITY (FIND-R43-016): Deduplicate edges to prevent budget exhaustion
+        let edge_type = EdgeType::DataFlow;
+        let already_exists = self.edges.iter().any(|e| e.from == from && e.to == to && e.edge_type == edge_type);
+        if already_exists {
+            return; // Silently deduplicate
+        }
         self.edges.push(ExecutionEdge {
             from,
             to,
-            edge_type: EdgeType::DataFlow,
+            edge_type,
             timestamp: current_timestamp(),
         });
     }
 
     /// Add a delegation edge between nodes.
     pub fn add_delegation(&mut self, from: NodeId, to: NodeId) {
+        // SECURITY (FIND-R43-030): Reject self-loop edges
+        if from == to {
+            tracing::warn!(
+                target: "vellaveto::observability",
+                session_id = %self.session_id,
+                node_id = %from,
+                "Rejecting self-loop edge"
+            );
+            return;
+        }
+        // SECURITY (FIND-R43-015): Reject edges to non-existent nodes
+        if !self.nodes.contains_key(&from) || !self.nodes.contains_key(&to) {
+            tracing::warn!(
+                target: "vellaveto::observability",
+                session_id = %self.session_id,
+                from = %from,
+                to = %to,
+                "Skipping edge — one or both nodes do not exist"
+            );
+            return;
+        }
         if self.edges.len() >= MAX_EDGES_PER_GRAPH {
             tracing::warn!(
                 target: "vellaveto::observability",
@@ -312,10 +361,16 @@ impl ExecutionGraph {
             );
             return;
         }
+        // SECURITY (FIND-R43-016): Deduplicate edges to prevent budget exhaustion
+        let edge_type = EdgeType::Delegation;
+        let already_exists = self.edges.iter().any(|e| e.from == from && e.to == to && e.edge_type == edge_type);
+        if already_exists {
+            return; // Silently deduplicate
+        }
         self.edges.push(ExecutionEdge {
             from,
             to,
-            edge_type: EdgeType::Delegation,
+            edge_type,
             timestamp: current_timestamp(),
         });
     }
@@ -580,6 +635,7 @@ impl ExecutionGraphStore {
 /// Prevents injection of DOT language constructs via user-controlled node
 /// labels, IDs, and edge endpoints.
 fn escape_dot(s: &str) -> String {
+    // SECURITY (FIND-R43-031): Also escape pipe (DOT record separator) and strip null bytes
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n")
@@ -588,6 +644,8 @@ fn escape_dot(s: &str) -> String {
         .replace('}', "\\}")
         .replace('<', "\\<")
         .replace('>', "\\>")
+        .replace('|', "\\|")
+        .replace('\0', "")
 }
 
 /// Get current Unix timestamp in milliseconds.

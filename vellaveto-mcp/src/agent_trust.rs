@@ -9,6 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
@@ -19,6 +20,18 @@ const MAX_CHAINS_PER_SESSION: usize = 10_000;
 /// Maximum number of tracked sessions in request_chains (FIND-R42-007).
 /// Prevents unbounded memory growth from many unique sessions.
 const MAX_TRACKED_SESSIONS: usize = 10_000;
+
+/// SECURITY (FIND-R43-006): Maximum registered agents in privilege_levels.
+const MAX_REGISTERED_AGENTS: usize = 10_000;
+
+/// SECURITY (FIND-R43-006): Maximum globally trusted agents.
+const MAX_TRUSTED_AGENTS: usize = 1_000;
+
+/// SECURITY (FIND-R43-006): Maximum total trust edge source keys.
+const MAX_TRUST_EDGES: usize = 50_000;
+
+/// SECURITY (FIND-R43-006): Maximum trust targets per source agent.
+const MAX_TRUST_TARGETS_PER_AGENT: usize = 1_000;
 
 /// Privilege level assigned to an agent.
 #[derive(
@@ -109,6 +122,8 @@ pub struct AgentTrustGraph {
     last_activity: RwLock<HashMap<String, Instant>>,
     /// TTL for inactive chains
     chain_ttl: Duration,
+    /// SECURITY (FIND-R43-018): Counter for opportunistic cleanup scheduling.
+    call_count: AtomicU64,
 }
 
 impl AgentTrustGraph {
@@ -127,6 +142,7 @@ impl AgentTrustGraph {
             trusted_agents: RwLock::new(HashSet::new()),
             last_activity: RwLock::new(HashMap::new()),
             chain_ttl,
+            call_count: AtomicU64::new(0),
         }
     }
 
@@ -139,6 +155,15 @@ impl AgentTrustGraph {
                 return;
             }
         };
+        // SECURITY (FIND-R43-006): Bound the number of registered agents.
+        if !levels.contains_key(agent_id) && levels.len() >= MAX_REGISTERED_AGENTS {
+            tracing::warn!(
+                target: "vellaveto::security",
+                limit = MAX_REGISTERED_AGENTS,
+                "Registered agent limit reached — dropping new agent"
+            );
+            return;
+        }
         levels.insert(agent_id.to_string(), level);
 
         let mut activity = match self.last_activity.write() {
@@ -160,10 +185,27 @@ impl AgentTrustGraph {
                 return;
             }
         };
-        edges
-            .entry(from_agent.to_string())
-            .or_default()
-            .insert(to_agent.to_string());
+        // SECURITY (FIND-R43-006): Bound the number of trust edge source keys.
+        if !edges.contains_key(from_agent) && edges.len() >= MAX_TRUST_EDGES {
+            tracing::warn!(
+                target: "vellaveto::security",
+                limit = MAX_TRUST_EDGES,
+                "Trust edge source limit reached — dropping new edge"
+            );
+            return;
+        }
+        let targets = edges.entry(from_agent.to_string()).or_default();
+        // SECURITY (FIND-R43-006): Bound the per-agent trust target set.
+        if !targets.contains(to_agent) && targets.len() >= MAX_TRUST_TARGETS_PER_AGENT {
+            tracing::warn!(
+                target: "vellaveto::security",
+                from_agent = %from_agent,
+                limit = MAX_TRUST_TARGETS_PER_AGENT,
+                "Per-agent trust target limit reached — dropping new target"
+            );
+            return;
+        }
+        targets.insert(to_agent.to_string());
     }
 
     /// Remove a trust relationship.
@@ -189,6 +231,15 @@ impl AgentTrustGraph {
                 return;
             }
         };
+        // SECURITY (FIND-R43-006): Bound the number of globally trusted agents.
+        if !trusted.contains(agent_id) && trusted.len() >= MAX_TRUSTED_AGENTS {
+            tracing::warn!(
+                target: "vellaveto::security",
+                limit = MAX_TRUSTED_AGENTS,
+                "Trusted agent limit reached — dropping new trusted agent"
+            );
+            return;
+        }
         trusted.insert(agent_id.to_string());
     }
 
@@ -290,6 +341,7 @@ impl AgentTrustGraph {
             return;
         }
         session_chains.push(entry);
+        drop(chains);
 
         let mut activity = match self.last_activity.write() {
             Ok(g) => g,
@@ -300,6 +352,12 @@ impl AgentTrustGraph {
         };
         activity.insert(from_agent.to_string(), Instant::now());
         activity.insert(to_agent.to_string(), Instant::now());
+        drop(activity);
+
+        // SECURITY (FIND-R43-018): Opportunistic cleanup every 1000 calls.
+        if self.call_count.fetch_add(1, Ordering::Relaxed).is_multiple_of(1000) {
+            self.cleanup();
+        }
     }
 
     /// Get the request chain for a session.
@@ -383,6 +441,21 @@ impl AgentTrustGraph {
         let mut visited = HashSet::new();
 
         for entry in chain {
+            // SECURITY (FIND-R43-035): Catch self-referential delegation.
+            if entry.from_agent == entry.to_agent {
+                return Some(EscalationAlert {
+                    alert_type: EscalationAlertType::CircularDelegation,
+                    source_agent: entry.from_agent.clone(),
+                    target_agent: Some(entry.to_agent.clone()),
+                    chain: chain.to_vec(),
+                    description: format!(
+                        "Self-referential delegation detected: agent '{}' delegates to itself",
+                        entry.from_agent
+                    ),
+                    severity: 5,
+                });
+            }
+
             // Check for circular delegation
             if visited.contains(&entry.to_agent) {
                 return Some(EscalationAlert {

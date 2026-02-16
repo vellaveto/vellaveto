@@ -28,9 +28,23 @@ const MAX_TOOLS_LEN: usize = 100;
 /// Maximum expiration in seconds (30 days).
 const MAX_EXPIRES_SECS: u64 = 86400 * 30;
 
-/// Validate a string field: reject if too long or contains control characters.
-/// SECURITY (FIND-R41-011): Rejects ALL control characters (including \n, \t)
-/// to prevent log injection in identifier fields.
+/// SECURITY (FIND-R43-019): Detect control characters AND Unicode format
+/// characters (ZWSP, bidi overrides, invisible operators, etc.) that can
+/// bypass simple `is_control()` checks.
+fn is_unsafe_char(c: char) -> bool {
+    let cp = c as u32;
+    c.is_control()
+        || (0x200B..=0x200F).contains(&cp) // ZWSP, ZWNJ, ZWJ, LRM, RLM
+        || (0x202A..=0x202E).contains(&cp) // Bidi overrides
+        || (0x2060..=0x2064).contains(&cp) // Word joiner, invisible operators
+        || (0x2066..=0x2069).contains(&cp) // Bidi isolates
+        || cp == 0xFEFF                    // BOM
+        || (0xFFF9..=0xFFFB).contains(&cp) // Interlinear annotation
+}
+
+/// Validate a string field: reject if too long or contains control/format characters.
+/// SECURITY (FIND-R41-011, FIND-R43-019): Rejects ALL control characters AND
+/// Unicode format characters to prevent log injection and bidi attacks.
 fn validate_field(
     value: &str,
     field_name: &str,
@@ -44,11 +58,11 @@ fn validate_field(
             }),
         ));
     }
-    if value.chars().any(|c| c.is_control()) {
+    if value.chars().any(is_unsafe_char) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("{} contains invalid control characters", field_name),
+                error: format!("{} contains invalid characters", field_name),
             }),
         ));
     }
@@ -109,8 +123,8 @@ pub async fn register_delegation(
     validate_field(&req.from_principal, "from_principal", MAX_FIELD_LEN)?;
     validate_field(&req.to_principal, "to_principal", MAX_FIELD_LEN)?;
 
-    // SECURITY (FIND-R42-018): Reject self-delegation.
-    if req.from_principal == req.to_principal {
+    // SECURITY (FIND-R42-018, FIND-R43-024): Reject self-delegation (case-insensitive).
+    if req.from_principal.eq_ignore_ascii_case(&req.to_principal) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
@@ -152,6 +166,8 @@ pub async fn register_delegation(
     // This allows future API compatibility if expiration is added.
     let _expires = req.expires_secs.map(std::time::Duration::from_secs);
 
+    // SECURITY (FIND-R43-034): Log internal error detail server-side but
+    // return a generic message to prevent config/state leakage.
     deputy
         .register_delegation(
             &req.session_id,
@@ -160,10 +176,11 @@ pub async fn register_delegation(
             &req.allowed_tools,
         )
         .map_err(|e| {
+            tracing::warn!("Deputy delegation failed: {}", e);
             (
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
-                    error: e.to_string(),
+                    error: "Delegation request failed".to_string(),
                 }),
             )
         })?;

@@ -468,16 +468,17 @@ impl AuditLogger {
             let log_dir = self.log_path.parent().unwrap_or(Path::new("."));
             let rotated_path = log_dir.join(rotated_file);
 
-            // Check file exists
+            // SECURITY (FIND-R43-017): Skip entries for files that no longer exist.
+            // This is expected behavior when prune_rotated_files() has been called —
+            // pruned files are removed from disk but their manifest entries remain.
+            // Instead of failing verification, skip and continue with remaining files.
             if !rotated_path.exists() {
-                return Ok(RotationVerification {
-                    valid: false,
-                    files_checked: i,
-                    first_failure: Some(format!(
-                        "Rotated file missing: {}",
-                        rotated_path.display()
-                    )),
-                });
+                tracing::info!(
+                    path = %rotated_path.display(),
+                    "Rotated file referenced in manifest no longer exists (likely pruned) — skipping"
+                );
+                files_checked += 1;
+                continue;
             }
 
             // SECURITY (R38-SUP-1): Check rotated file size before reading
@@ -653,6 +654,12 @@ impl AuditLogger {
                         .unwrap_or_default()
                         .to_string_lossy()
             {
+                // SECURITY (FIND-R43-005): Exclude companion files from rotated file list.
+                // Merkle leaf files and manifest files should never be pruned as rotated logs.
+                if name.ends_with(".merkle-leaves") || name.ends_with(".rotation-manifest.jsonl") {
+                    continue;
+                }
+
                 // Verify it looks like a rotated file (contains a timestamp-like segment)
                 let after_stem = &name[stem.len() + 1..];
                 if after_stem.contains('T') && after_stem.contains('-') {
@@ -698,6 +705,18 @@ impl AuditLogger {
                         path = %path.display(),
                         "Pruned old rotated audit log file (FIND-041-007)"
                     );
+
+                    // SECURITY (FIND-R43-005): Also remove companion merkle-leaves file.
+                    let merkle_path = path.with_extension("merkle-leaves");
+                    if merkle_path.exists() {
+                        if let Err(e) = std::fs::remove_file(&merkle_path) {
+                            tracing::warn!(
+                                path = %merkle_path.display(),
+                                error = %e,
+                                "Failed to remove companion merkle-leaves file during pruning"
+                            );
+                        }
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(

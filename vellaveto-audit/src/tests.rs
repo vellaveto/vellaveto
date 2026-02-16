@@ -2144,8 +2144,10 @@ async fn test_rotation_verification_detects_missing_file() {
     }
 
     let result = logger.verify_across_rotations().await.unwrap();
-    assert!(!result.valid, "Missing file should fail verification");
-    assert!(result.first_failure.unwrap().contains("missing"));
+    // SECURITY (FIND-R43-017): Missing (pruned) files are now skipped gracefully
+    // instead of failing verification, because prune_rotated_files() legitimately
+    // removes old rotated logs while their manifest entries persist.
+    assert!(result.valid, "Missing (pruned) files should be skipped, not fail verification");
 }
 
 #[tokio::test]

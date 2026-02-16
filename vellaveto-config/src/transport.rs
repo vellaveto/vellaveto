@@ -192,6 +192,19 @@ impl TransportConfig {
             }
         }
 
+        // SECURITY (FIND-R43-003): Reject duplicate protocols in restricted_transports.
+        {
+            let mut seen = std::collections::HashSet::new();
+            for proto in &self.restricted_transports {
+                if !seen.insert(proto) {
+                    return Err(format!(
+                        "transport.restricted_transports contains duplicate protocol {:?}",
+                        proto
+                    ));
+                }
+            }
+        }
+
         // Phase 29: Cross-transport fallback validation.
         if self.transport_circuit_breaker_failure_threshold < MIN_CB_FAILURE_THRESHOLD
             || self.transport_circuit_breaker_failure_threshold > MAX_CB_FAILURE_THRESHOLD
@@ -215,14 +228,18 @@ impl TransportConfig {
             ));
         }
 
-        // SECURITY (FIND-R42-009): Reject "*" wildcard when other overrides exist,
-        // because it would shadow all specific patterns (lexicographically "*" < any letter).
-        if self.transport_overrides.len() > 1 && self.transport_overrides.contains_key("*") {
-            return Err(
-                "transport.transport_overrides: \"*\" wildcard cannot coexist with other \
-                 patterns (would shadow all specific overrides due to lexicographic sort order)"
-                    .to_string(),
-            );
+        // SECURITY (FIND-R43-022): Reject match-all patterns (not just "*") when other overrides exist.
+        // Patterns like "**", "*?", "???", etc. consisting entirely of wildcard characters
+        // effectively match everything and would shadow all specific overrides.
+        if self.transport_overrides.len() > 1 {
+            for glob in self.transport_overrides.keys() {
+                if !glob.is_empty() && glob.chars().all(|c| c == '*' || c == '?') {
+                    return Err(format!(
+                        "transport.transport_overrides: match-all wildcard pattern \"{}\" cannot coexist with other patterns",
+                        glob
+                    ));
+                }
+            }
         }
 
         // SECURITY (FIND-R41-009): Bound the number of transport override entries.
@@ -279,6 +296,33 @@ impl TransportConfig {
             }
         }
 
+        // SECURITY (FIND-R43-001): Always validate stdio_command content when
+        // present, even if stdio_fallback_enabled is false. A malicious command
+        // stored in config could be activated later (config reload, flag toggle)
+        // without re-validation. Validate-on-store, not validate-on-use.
+        if let Some(cmd) = &self.stdio_command {
+            let cmd_trimmed = cmd.trim();
+            if !cmd_trimmed.is_empty() {
+                if !cmd_trimmed.starts_with('/') {
+                    return Err(
+                        "transport.stdio_command must be an absolute path (starts with '/')"
+                            .to_string(),
+                    );
+                }
+                const SHELL_METACHARACTERS: &[char] = &[
+                    ';', '|', '&', '$', '`', '(', ')', '>', '<', '!', '{', '}',
+                    '[', ']', '*', '?', '#', '~', '\n', '\r',
+                ];
+                if cmd_trimmed.contains(SHELL_METACHARACTERS) {
+                    return Err(
+                        "transport.stdio_command contains shell metacharacters — \
+                         must be a plain absolute path to an executable"
+                            .to_string(),
+                    );
+                }
+            }
+        }
+
         // stdio_fallback_enabled requires a non-empty stdio_command.
         // SECURITY (FIND-R41-002): Validate the command is an absolute path
         // with no shell metacharacters to prevent command injection.
@@ -298,23 +342,7 @@ impl TransportConfig {
                                 .to_string(),
                         );
                     }
-                    if !cmd_trimmed.starts_with('/') {
-                        return Err(
-                            "transport.stdio_command must be an absolute path (starts with '/')"
-                                .to_string(),
-                        );
-                    }
-                    const SHELL_METACHARACTERS: &[char] = &[
-                        ';', '|', '&', '$', '`', '(', ')', '>', '<', '!', '{', '}',
-                        '[', ']', '*', '?', '#', '~', '\n', '\r',
-                    ];
-                    if cmd_trimmed.contains(SHELL_METACHARACTERS) {
-                        return Err(
-                            "transport.stdio_command contains shell metacharacters — \
-                             must be a plain absolute path to an executable"
-                                .to_string(),
-                        );
-                    }
+                    // Content validation already done above (FIND-R43-001).
                 }
             }
         }

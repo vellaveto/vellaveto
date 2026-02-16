@@ -215,6 +215,32 @@ impl<'a> SmartFallbackChain<'a> {
 
             match result {
                 Ok((response_bytes, status)) => {
+                    // SECURITY (FIND-R43-012): Treat 5xx responses as failures so
+                    // the circuit breaker can open and trigger fallback to the next
+                    // transport. A backend returning 500s must not keep the circuit
+                    // closed.
+                    if status >= 500 {
+                        self.health_tracker.record_failure(&target.upstream_id, target.protocol);
+
+                        metrics::counter!(
+                            "vellaveto_transport_fallback_total",
+                            "transport" => format!("{:?}", target.protocol),
+                            "upstream_id" => target.upstream_id.clone(),
+                            "result" => "server_error",
+                        )
+                        .increment(1);
+
+                        attempts.push(TransportAttempt {
+                            protocol: target.protocol,
+                            endpoint_url: target.url.clone(),
+                            succeeded: false,
+                            duration_ms,
+                            error: Some(format!("server error: HTTP {}", status)),
+                        });
+
+                        continue;
+                    }
+
                     self.health_tracker.record_success(&target.upstream_id, target.protocol);
 
                     metrics::counter!(
@@ -364,8 +390,12 @@ impl<'a> SmartFallbackChain<'a> {
                     .map_err(|e| format!("WebSocket connect error: {}", e))?;
 
             use futures_util::SinkExt;
+            // SECURITY (FIND-R43-026): Reject invalid UTF-8 instead of silently
+            // replacing bytes with U+FFFD, which would mutate the request body.
+            let body_text = String::from_utf8(body.to_vec())
+                .map_err(|_| "WebSocket body contains invalid UTF-8".to_string())?;
             ws.send(Message::Text(
-                String::from_utf8_lossy(&body).into_owned().into(),
+                body_text.into(),
             ))
             .await
             .map_err(|e| format!("WebSocket send error: {}", e))?;
@@ -442,7 +472,16 @@ impl<'a> SmartFallbackChain<'a> {
         use tokio::process::Command;
 
         // SECURITY (FIND-R41-002): Execute command directly, not via sh -c.
+        // SECURITY (FIND-R43-002): Clear inherited environment to prevent leaking
+        // secrets (API keys, tokens, credentials) to the subprocess.
+        // SECURITY (FIND-R43-008): kill_on_drop ensures the child is killed if
+        // the async task is cancelled, preventing orphaned subprocesses.
         let mut child = Command::new(command)
+            .env_clear()
+            .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+            .env("HOME", "/tmp")
+            .env("LANG", "C.UTF-8")
+            .kill_on_drop(true)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -469,17 +508,28 @@ impl<'a> SmartFallbackChain<'a> {
 
         // SECURITY (FIND-R41-006): Use select! so we can kill the child on timeout.
         tokio::select! {
-            status_result = child.wait() => {
+            // SECURITY (FIND-R43-001): Read stdout concurrently with waiting for
+            // process exit to prevent deadlock. If the subprocess writes >64KB to
+            // stdout, the pipe buffer fills and blocks; reading stdout only after
+            // wait() would deadlock. Using tokio::join! ensures both proceed.
+            result = async {
+                let stdout_future = async {
+                    let mut stdout_buf = Vec::new();
+                    let read_result = stdout_handle
+                        .take((MAX_RESPONSE_BODY_BYTES as u64) + 1)
+                        .read_to_end(&mut stdout_buf)
+                        .await
+                        .map_err(|e| format!("stdio stdout read error: {}", e));
+                    read_result.map(|_| stdout_buf)
+                };
+
+                let wait_future = child.wait();
+
+                let (stdout_result, status_result) = tokio::join!(stdout_future, wait_future);
+
+                let stdout_buf = stdout_result?;
                 let status = status_result
                     .map_err(|e| format!("stdio wait error: {}", e))?;
-
-                // Read stdout (bounded by MAX_RESPONSE_BODY_BYTES).
-                let mut stdout_buf = Vec::new();
-                let _ = stdout_handle
-                    .take((MAX_RESPONSE_BODY_BYTES as u64) + 1)
-                    .read_to_end(&mut stdout_buf)
-                    .await
-                    .map_err(|e| format!("stdio stdout read error: {}", e))?;
 
                 if stdout_buf.len() > MAX_RESPONSE_BODY_BYTES {
                     return Err(format!(
@@ -504,6 +554,8 @@ impl<'a> SmartFallbackChain<'a> {
                 }
 
                 Ok((bytes::Bytes::from(stdout_buf), 200u16))
+            } => {
+                result
             }
             _ = tokio::time::sleep(timeout) => {
                 // SECURITY (FIND-R41-006): Kill child on timeout to prevent zombies.

@@ -3872,3 +3872,315 @@ fn test_upstream_priorities_duplicate_rejected() {
     let err = config.validate().unwrap_err();
     assert!(err.contains("duplicate"), "expected duplicate error: {}", err);
 }
+
+// ═══════════════════════════════════════════════════
+// ADVERSARIAL AUDIT ROUND 43 TESTS
+// ═══════════════════════════════════════════════════
+
+/// FIND-R43-001: stdio_command validated even when stdio_fallback_enabled is false.
+/// A malicious command stored in config could be activated later (config reload, flag toggle)
+/// without re-validation.
+#[test]
+fn test_r43_001_stdio_command_validated_when_disabled() {
+    // Shell metacharacters in command should be rejected even with fallback disabled.
+    let config = crate::TransportConfig {
+        stdio_fallback_enabled: false,
+        stdio_command: Some("/usr/bin/cmd; rm -rf /".to_string()),
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("shell metacharacters"),
+        "expected shell metacharacter rejection: {}",
+        err
+    );
+}
+
+/// FIND-R43-001: Relative path rejected even when fallback disabled.
+#[test]
+fn test_r43_001_stdio_command_relative_path_rejected_when_disabled() {
+    let config = crate::TransportConfig {
+        stdio_fallback_enabled: false,
+        stdio_command: Some("relative-path/server".to_string()),
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("absolute path"),
+        "expected absolute path rejection: {}",
+        err
+    );
+}
+
+/// FIND-R43-001: Valid command passes when disabled.
+#[test]
+fn test_r43_001_stdio_command_valid_when_disabled() {
+    let config = crate::TransportConfig {
+        stdio_fallback_enabled: false,
+        stdio_command: Some("/usr/bin/mcp-server".to_string()),
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
+/// FIND-R43-001: Empty stdio_command passes when disabled (not required).
+#[test]
+fn test_r43_001_stdio_command_empty_passes_when_disabled() {
+    let config = crate::TransportConfig {
+        stdio_fallback_enabled: false,
+        stdio_command: Some("  ".to_string()),
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
+/// FIND-R43-001: None stdio_command passes when disabled.
+#[test]
+fn test_r43_001_stdio_command_none_passes_when_disabled() {
+    let config = crate::TransportConfig {
+        stdio_fallback_enabled: false,
+        stdio_command: None,
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
+/// FIND-R43-003: Duplicate protocols in restricted_transports rejected.
+#[test]
+fn test_r43_003_restricted_transports_duplicate_rejected() {
+    let config = crate::TransportConfig {
+        restricted_transports: vec![
+            vellaveto_types::TransportProtocol::Grpc,
+            vellaveto_types::TransportProtocol::WebSocket,
+            vellaveto_types::TransportProtocol::Grpc,
+        ],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("duplicate") && err.contains("restricted_transports"),
+        "expected restricted_transports duplicate error: {}",
+        err
+    );
+}
+
+/// FIND-R43-003: Unique restricted_transports pass validation.
+#[test]
+fn test_r43_003_restricted_transports_unique_pass() {
+    let config = crate::TransportConfig {
+        restricted_transports: vec![
+            vellaveto_types::TransportProtocol::Grpc,
+            vellaveto_types::TransportProtocol::WebSocket,
+        ],
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
+/// FIND-R43-004: Backend ID exceeding max length rejected.
+#[test]
+fn test_r43_004_backend_id_too_long_rejected() {
+    let config = crate::GatewayConfig {
+        enabled: true,
+        backends: vec![crate::BackendConfig {
+            id: "x".repeat(129),
+            url: "http://localhost:8000".to_string(),
+            tool_prefixes: vec![],
+            weight: 100,
+            transport_urls: std::collections::HashMap::new(),
+        }],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("max length"),
+        "expected max length error: {}",
+        err
+    );
+}
+
+/// FIND-R43-004: Backend ID with non-ASCII characters rejected.
+#[test]
+fn test_r43_004_backend_id_non_ascii_rejected() {
+    let config = crate::GatewayConfig {
+        enabled: true,
+        backends: vec![crate::BackendConfig {
+            id: "backend\ninjection".to_string(),
+            url: "http://localhost:8000".to_string(),
+            tool_prefixes: vec![],
+            weight: 100,
+            transport_urls: std::collections::HashMap::new(),
+        }],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("invalid characters"),
+        "expected invalid characters error: {}",
+        err
+    );
+}
+
+/// FIND-R43-004: Backend ID with spaces rejected.
+#[test]
+fn test_r43_004_backend_id_spaces_rejected() {
+    let config = crate::GatewayConfig {
+        enabled: true,
+        backends: vec![crate::BackendConfig {
+            id: "backend one".to_string(),
+            url: "http://localhost:8000".to_string(),
+            tool_prefixes: vec![],
+            weight: 100,
+            transport_urls: std::collections::HashMap::new(),
+        }],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("invalid characters"),
+        "expected invalid characters error: {}",
+        err
+    );
+}
+
+/// FIND-R43-004: Valid backend IDs pass (alphanumeric, hyphen, underscore, dot).
+#[test]
+fn test_r43_004_backend_id_valid_characters_pass() {
+    for id in &["my-backend", "backend_1", "b.prod.us-east", "A1-z2_3.4"] {
+        let config = crate::GatewayConfig {
+            enabled: true,
+            backends: vec![crate::BackendConfig {
+                id: id.to_string(),
+                url: "http://localhost:8000".to_string(),
+                tool_prefixes: vec![],
+                weight: 100,
+                transport_urls: std::collections::HashMap::new(),
+            }],
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok(), "valid ID '{}' should pass", id);
+    }
+}
+
+/// FIND-R43-005: Duplicate tool_prefix across backends rejected.
+#[test]
+fn test_r43_005_duplicate_tool_prefix_across_backends_rejected() {
+    let config = crate::GatewayConfig {
+        enabled: true,
+        backends: vec![
+            crate::BackendConfig {
+                id: "a".to_string(),
+                url: "http://a:8000".to_string(),
+                tool_prefixes: vec!["fs_".to_string()],
+                weight: 100,
+                transport_urls: std::collections::HashMap::new(),
+            },
+            crate::BackendConfig {
+                id: "b".to_string(),
+                url: "http://b:8000".to_string(),
+                tool_prefixes: vec!["fs_".to_string()],
+                weight: 100,
+                transport_urls: std::collections::HashMap::new(),
+            },
+        ],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("duplicate tool_prefix"),
+        "expected duplicate tool_prefix error: {}",
+        err
+    );
+}
+
+/// FIND-R43-005: Duplicate tool_prefix within same backend rejected.
+#[test]
+fn test_r43_005_duplicate_tool_prefix_within_backend_rejected() {
+    let config = crate::GatewayConfig {
+        enabled: true,
+        backends: vec![crate::BackendConfig {
+            id: "a".to_string(),
+            url: "http://a:8000".to_string(),
+            tool_prefixes: vec!["fs_".to_string(), "db_".to_string(), "fs_".to_string()],
+            weight: 100,
+            transport_urls: std::collections::HashMap::new(),
+        }],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("duplicate tool_prefix"),
+        "expected duplicate tool_prefix error: {}",
+        err
+    );
+}
+
+/// FIND-R43-005: Empty tool_prefix string rejected.
+#[test]
+fn test_r43_005_empty_tool_prefix_rejected() {
+    let config = crate::GatewayConfig {
+        enabled: true,
+        backends: vec![crate::BackendConfig {
+            id: "a".to_string(),
+            url: "http://a:8000".to_string(),
+            tool_prefixes: vec!["fs_".to_string(), "".to_string()],
+            weight: 100,
+            transport_urls: std::collections::HashMap::new(),
+        }],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("tool_prefixes") && err.contains("must not be empty"),
+        "expected empty tool_prefix error: {}",
+        err
+    );
+}
+
+/// FIND-R43-005: Too-long tool_prefix rejected.
+#[test]
+fn test_r43_005_tool_prefix_too_long_rejected() {
+    let config = crate::GatewayConfig {
+        enabled: true,
+        backends: vec![crate::BackendConfig {
+            id: "a".to_string(),
+            url: "http://a:8000".to_string(),
+            tool_prefixes: vec!["x".repeat(257)],
+            weight: 100,
+            transport_urls: std::collections::HashMap::new(),
+        }],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("max length"),
+        "expected max length error: {}",
+        err
+    );
+}
+
+/// FIND-R43-005: Unique tool_prefixes across backends pass.
+#[test]
+fn test_r43_005_unique_tool_prefixes_pass() {
+    let config = crate::GatewayConfig {
+        enabled: true,
+        backends: vec![
+            crate::BackendConfig {
+                id: "a".to_string(),
+                url: "http://a:8000".to_string(),
+                tool_prefixes: vec!["fs_".to_string(), "file_".to_string()],
+                weight: 100,
+                transport_urls: std::collections::HashMap::new(),
+            },
+            crate::BackendConfig {
+                id: "b".to_string(),
+                url: "http://b:8000".to_string(),
+                tool_prefixes: vec!["db_".to_string()],
+                weight: 100,
+                transport_urls: std::collections::HashMap::new(),
+            },
+        ],
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
