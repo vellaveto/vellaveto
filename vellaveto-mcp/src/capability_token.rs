@@ -467,6 +467,12 @@ fn glob_match(pattern: &[u8], value: &[u8]) -> bool {
 /// A grant is a subset if its tool/function patterns are equal to or more
 /// specific than the parent's. For simplicity, exact equality or parent
 /// having `*` patterns are accepted.
+///
+/// # Security (FIND-FV46-001, FIND-R46-004, FIND-FV46-002)
+///
+/// - Empty `allowed_paths`/`allowed_domains` in child when parent restricts = escalation
+/// - Path patterns are normalized before comparison to prevent `/../` traversal
+/// - `max_invocations` must be monotonically attenuated (child <= parent)
 fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) -> bool {
     // Tool pattern must match under parent
     if !pattern_matches(&parent_grant.tool_pattern, &new_grant.tool_pattern)
@@ -480,20 +486,43 @@ fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) 
     {
         return false;
     }
-    // If parent has path restrictions, new grant must also be restricted
+    // SECURITY (FIND-FV46-001): If parent has path restrictions, child MUST also
+    // have non-empty path restrictions. An empty child `allowed_paths` means
+    // "unrestricted", which is strictly more permissive than the parent's
+    // restrictions — violating monotonic attenuation.
     if !parent_grant.allowed_paths.is_empty() {
+        if new_grant.allowed_paths.is_empty() {
+            return false; // Child drops parent's path restrictions — escalation
+        }
         for path in &new_grant.allowed_paths {
-            let covered = parent_grant
-                .allowed_paths
-                .iter()
-                .any(|pp| pattern_matches(pp, path));
+            // SECURITY (FIND-R46-004): Normalize path patterns in the child grant
+            // before checking subset containment. Without normalization, a child
+            // with "/safe/../../etc" passes the parent's "/safe/*" pattern match
+            // but at runtime resolves to "/etc".
+            let normalized = match normalize_path_for_grant(path) {
+                Some(n) => n,
+                None => return false, // Fail-closed: malformed path = deny
+            };
+            let covered = parent_grant.allowed_paths.iter().any(|pp| {
+                // Also normalize parent pattern for consistent comparison
+                let parent_normalized = normalize_path_for_grant(pp)
+                    .unwrap_or_default();
+                if parent_normalized.is_empty() {
+                    return false; // Malformed parent pattern — fail-closed
+                }
+                pattern_matches(&parent_normalized, &normalized)
+            });
             if !covered {
                 return false;
             }
         }
     }
-    // If parent has domain restrictions, new grant must also be restricted
+    // SECURITY (FIND-FV46-001): Same check for domains — child must not drop
+    // parent's domain restrictions.
     if !parent_grant.allowed_domains.is_empty() {
+        if new_grant.allowed_domains.is_empty() {
+            return false; // Child drops parent's domain restrictions — escalation
+        }
         for domain in &new_grant.allowed_domains {
             let covered = parent_grant
                 .allowed_domains
@@ -503,6 +532,15 @@ fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) 
                 return false;
             }
         }
+    }
+    // SECURITY (FIND-FV46-002): max_invocations must be monotonically attenuated.
+    // If parent limits invocations (> 0), child must also limit and not exceed.
+    // A value of 0 means "unlimited" — child cannot be unlimited if parent limits.
+    if parent_grant.max_invocations > 0
+        && (new_grant.max_invocations == 0
+            || new_grant.max_invocations > parent_grant.max_invocations)
+    {
+        return false;
     }
     true
 }
@@ -965,5 +1003,226 @@ mod tests {
             issue_capability_token("issuer", "AholderB", test_grants(), 5, &key_hex, 3600).unwrap();
         // Different tokens should have different signatures
         assert_ne!(token1.signature, token2.signature);
+    }
+
+    // SECURITY (FIND-FV46-001): Empty allowed_paths in child when parent restricts
+    // must be rejected — empty means "unrestricted", which escalates privileges.
+    #[test]
+    fn test_attenuation_empty_paths_escalation_rejected() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "*".into(),
+                function_pattern: "*".into(),
+                allowed_paths: vec!["/data/*".into()],
+                allowed_domains: vec![],
+                max_invocations: 0,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        // Child tries to drop path restrictions (empty = unrestricted)
+        let child_grants = vec![CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec![], // Escalation: drops parent's path restriction
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }];
+        let result =
+            attenuate_capability_token(&parent, "agent-b", child_grants, &child_key_hex, 1800);
+        assert!(
+            result.is_err(),
+            "FIND-FV46-001: Child with empty paths when parent restricts must be rejected"
+        );
+    }
+
+    // SECURITY (FIND-FV46-001): Same for domains.
+    #[test]
+    fn test_attenuation_empty_domains_escalation_rejected() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "*".into(),
+                function_pattern: "*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec!["*.example.com".into()],
+                max_invocations: 0,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        let child_grants = vec![CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec![], // Escalation: drops parent's domain restriction
+            max_invocations: 0,
+        }];
+        let result =
+            attenuate_capability_token(&parent, "agent-b", child_grants, &child_key_hex, 1800);
+        assert!(
+            result.is_err(),
+            "FIND-FV46-001: Child with empty domains when parent restricts must be rejected"
+        );
+    }
+
+    // SECURITY (FIND-R46-004): Path traversal via unnormalized paths in child grant.
+    #[test]
+    fn test_attenuation_path_traversal_rejected() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "*".into(),
+                function_pattern: "*".into(),
+                allowed_paths: vec!["/safe/*".into()],
+                allowed_domains: vec![],
+                max_invocations: 0,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        // Child tries path traversal: /safe/../../etc normalizes to above root
+        let child_grants = vec![CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec!["/safe/../../etc".into()],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }];
+        let result =
+            attenuate_capability_token(&parent, "agent-b", child_grants, &child_key_hex, 1800);
+        assert!(
+            result.is_err(),
+            "FIND-R46-004: Path traversal in child grant paths must be rejected"
+        );
+    }
+
+    // SECURITY (FIND-FV46-002): max_invocations must be monotonically attenuated.
+    #[test]
+    fn test_attenuation_max_invocations_escalation_rejected() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "*".into(),
+                function_pattern: "*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 10,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        // Child tries unlimited invocations (0 = unlimited)
+        let child_grants = vec![CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0, // Unlimited — exceeds parent's 10
+        }];
+        let result =
+            attenuate_capability_token(&parent, "agent-b", child_grants, &child_key_hex, 1800);
+        assert!(
+            result.is_err(),
+            "FIND-FV46-002: Child with unlimited invocations when parent limits must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_attenuation_max_invocations_exceeds_parent_rejected() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "*".into(),
+                function_pattern: "*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 10,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        // Child tries more invocations than parent allows
+        let child_grants = vec![CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 20, // Exceeds parent's 10
+        }];
+        let result =
+            attenuate_capability_token(&parent, "agent-b", child_grants, &child_key_hex, 1800);
+        assert!(
+            result.is_err(),
+            "FIND-FV46-002: Child with more invocations than parent must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_attenuation_max_invocations_valid_subset() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "*".into(),
+                function_pattern: "*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 10,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        // Child with fewer invocations is fine
+        let child_grants = vec![CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 5, // Less than parent's 10 — valid
+        }];
+        let result =
+            attenuate_capability_token(&parent, "agent-b", child_grants, &child_key_hex, 1800);
+        assert!(
+            result.is_ok(),
+            "Child with fewer invocations than parent should succeed: {:?}",
+            result.err()
+        );
     }
 }

@@ -46,5 +46,6 @@ pub mod simulator;
 pub mod task_state;
 pub mod projector;
 pub mod tenant;
+pub mod zk_audit;
 
 pub use main::*;

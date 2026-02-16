@@ -454,6 +454,48 @@ impl AuditLogger {
         self.log_entry(&action, &verdict, metadata).await
     }
 
+    // =========================================================================
+    // ZK Audit Event Logging Helpers (Phase 37)
+    // =========================================================================
+
+    /// Log a zero-knowledge audit event.
+    ///
+    /// ZK audit events track commitment creation, batch proving, and proof
+    /// verification for zero-knowledge audit trail observability.
+    ///
+    /// Event types:
+    /// - `zk_audit.commitment_created` — Pedersen commitment computed for an entry
+    /// - `zk_audit.batch_proved` — batch Groth16 proof generated
+    /// - `zk_audit.proof_verified` — batch proof verification completed
+    /// - `zk_audit.scheduler_started` — background batch scheduler started
+    /// - `zk_audit.scheduler_stopped` — background batch scheduler stopped
+    /// - `zk_audit.error` — ZK operation error occurred
+    pub async fn log_zk_event(
+        &self,
+        event_type: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("vellaveto", "zk_audit", serde_json::json!({}));
+        let verdict = if event_type == "error" {
+            Verdict::Deny {
+                reason: "ZK audit operation failed".to_string(),
+            }
+        } else {
+            Verdict::Allow
+        };
+        let mut metadata = serde_json::json!({
+            "event": format!("zk_audit.{}", event_type),
+        });
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            if let serde_json::Value::Object(d) = details {
+                for (k, v) in d {
+                    map.insert(k, v);
+                }
+            }
+        }
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
     /// Check whether the audit log has a heartbeat gap — a period longer than
     /// `max_gap_secs` between consecutive entries (heartbeat or otherwise).
     ///

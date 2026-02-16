@@ -25,6 +25,10 @@ mod verification;
 #[cfg(feature = "archive")]
 pub mod archive;
 
+// ── Phase 37: Zero-Knowledge Audit Trails ────────────────────────────────────
+#[cfg(feature = "zk-audit")]
+pub mod zk;
+
 // ── Pre-existing submodules ──────────────────────────────────────────────────
 pub mod aivss;
 pub mod atlas;

@@ -1016,6 +1016,16 @@ async fn cmd_serve(
         } else {
             None
         },
+
+        // Phase 37: Zero-Knowledge Audit Trails
+        zk_proofs: if policy_config.zk_audit.enabled {
+            tracing::info!("ZK audit enabled (batch_proof={})", policy_config.zk_audit.batch_proof_enabled);
+            Some(Arc::new(std::sync::Mutex::new(Vec::new())))
+        } else {
+            None
+        },
+        zk_audit_enabled: policy_config.zk_audit.enabled,
+        zk_audit_config: policy_config.zk_audit.clone(),
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -1515,6 +1525,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         streamable_http: Default::default(),
         discovery: Default::default(),
         projector: Default::default(),
+        zk_audit: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

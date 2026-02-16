@@ -1413,7 +1413,158 @@ impl ProxyBridge {
                 }
             }
         }
-        // Non-tool-call messages pass through unmodified
+        // SECURITY (FIND-R46-RLY-001): DLP scan passthrough message parameters
+        // before forwarding. MCP is extensible — any unrecognized method could
+        // carry secrets in its parameters, making passthrough a wide-open
+        // exfiltration path without scanning.
+        let params_to_scan = msg.get("params").cloned().unwrap_or(json!({}));
+        let dlp_findings = scan_parameters_for_secrets(&params_to_scan);
+        if !dlp_findings.is_empty() {
+            let method_name = msg
+                .get("method")
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown");
+            let patterns: Vec<String> = dlp_findings
+                .iter()
+                .map(|f| format!("{} at {}", f.pattern_name, f.location))
+                .collect();
+            tracing::warn!(
+                "SECURITY: DLP alert in passthrough '{}': {:?}",
+                method_name,
+                patterns
+            );
+            let action = vellaveto_types::Action::new(
+                "vellaveto",
+                "passthrough_dlp_blocked",
+                json!({
+                    "method": method_name,
+                    "findings": patterns,
+                }),
+            );
+            if let Err(e) = self
+                .audit
+                .log_entry(
+                    &action,
+                    &Verdict::Deny {
+                        reason: format!(
+                            "PassThrough blocked: secrets detected in parameters ({:?})",
+                            patterns
+                        ),
+                    },
+                    json!({
+                        "source": "proxy",
+                        "event": "passthrough_dlp_blocked",
+                        "method": method_name,
+                        "findings": patterns,
+                    }),
+                )
+                .await
+            {
+                tracing::warn!("Failed to audit passthrough DLP finding: {}", e);
+            }
+            // Fail-closed: deny the message. Return generic error to agent
+            // to avoid leaking which DLP patterns matched.
+            if let Some(id) = msg.get("id") {
+                if !id.is_null() {
+                    let response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": "Request blocked: security policy violation",
+                        }
+                    });
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                }
+            }
+            return Ok(());
+        }
+
+        // SECURITY (FIND-R46-RLY-001): Injection scan passthrough messages.
+        // Same rationale — extensible methods must not bypass injection detection.
+        if !self.injection_disabled {
+            let injection_matches: Vec<String> =
+                if let Some(ref scanner) = self.injection_scanner {
+                    scanner
+                        .scan_notification(msg)
+                        .into_iter()
+                        .map(|s| s.to_string())
+                        .collect()
+                } else {
+                    scan_notification_for_injection(msg)
+                        .into_iter()
+                        .map(|s| s.to_string())
+                        .collect()
+                };
+            if !injection_matches.is_empty() {
+                let method_name = msg
+                    .get("method")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("unknown");
+                tracing::warn!(
+                    "SECURITY: Injection detected in passthrough '{}': {:?}",
+                    method_name,
+                    injection_matches
+                );
+                let action = vellaveto_types::Action::new(
+                    "vellaveto",
+                    "passthrough_injection_detected",
+                    json!({
+                        "method": method_name,
+                        "patterns": injection_matches,
+                    }),
+                );
+                let verdict = if self.injection_blocking {
+                    Verdict::Deny {
+                        reason: format!(
+                            "PassThrough blocked: injection detected ({:?})",
+                            injection_matches
+                        ),
+                    }
+                } else {
+                    Verdict::Allow
+                };
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "passthrough_injection_detected",
+                            "method": method_name,
+                            "patterns": injection_matches,
+                            "blocked": self.injection_blocking,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit passthrough injection finding: {}", e);
+                }
+                if self.injection_blocking {
+                    if let Some(id) = msg.get("id") {
+                        if !id.is_null() {
+                            let response = json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "error": {
+                                    "code": -32005,
+                                    "message": "Request blocked: injection detected",
+                                }
+                            });
+                            write_message(agent_writer, &response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                        }
+                    }
+                    return Ok(());
+                }
+            }
+        }
+
+        // Forward the message after security scanning passes
         write_message(child_stdin, msg)
             .await
             .map_err(ProxyError::Framing)
@@ -1430,13 +1581,47 @@ impl ProxyBridge {
             agent: agent_writer,
             child: child_stdin,
         } = io;
-        // C-8.5 / R8-MCP-1: Block ALL server-initiated requests.
+        // C-8.5 / R8-MCP-1: Block server-initiated requests, except for
+        // MCP-specified server→client requests (sampling, elicitation).
         if let Some(method) = msg.get("method").and_then(|m| m.as_str()) {
             // SECURITY (R23-MCP-3): Treat `"id": null` as a notification.
             let is_request = msg.get("id").is_some_and(|v| !v.is_null());
             if is_request {
+                // SECURITY (FIND-R46-RLY-002): Per the MCP specification,
+                // `sampling/createMessage` and `elicitation/create` are
+                // server→client requests: the MCP server asks the client/LLM
+                // to perform sampling or prompt the user. These MUST be
+                // forwarded to the agent (through their respective security
+                // handlers) rather than blocked by the server-side-request
+                // guard. Blocking them renders MCP sampling non-functional.
+                let normalized = crate::extractor::normalize_method(method);
+                match normalized.as_str() {
+                    "sampling/createmessage" => {
+                        let id = msg.get("id").cloned().unwrap_or(Value::Null);
+                        tracing::debug!(
+                            "Server→client sampling/createMessage request (id: {}) — routing to sampling handler",
+                            id
+                        );
+                        return self
+                            .handle_sampling_request(&msg, id, agent_writer)
+                            .await;
+                    }
+                    "elicitation/create" => {
+                        let id = msg.get("id").cloned().unwrap_or(Value::Null);
+                        tracing::debug!(
+                            "Server→client elicitation/create request (id: {}) — routing to elicitation handler",
+                            id
+                        );
+                        return self
+                            .handle_elicitation_request(&msg, id, state, agent_writer)
+                            .await;
+                    }
+                    _ => {}
+                }
+
+                // All other server-initiated requests are blocked.
                 tracing::warn!(
-                    "SECURITY: Server sent request '{}' — blocked (only notifications allowed from server)",
+                    "SECURITY: Server sent request '{}' — blocked (only notifications and sampling/elicitation allowed from server)",
                     method
                 );
                 let action = vellaveto_types::Action::new(

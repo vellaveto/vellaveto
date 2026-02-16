@@ -1486,6 +1486,7 @@ mod tests {
             sequence: 0,
             entry_hash: None,
             prev_hash: None,
+            commitment: None,
         };
 
         let message = exporter.format_rfc5424(&entry);
@@ -1529,6 +1530,7 @@ mod tests {
             sequence: 0,
             entry_hash: None,
             prev_hash: None,
+            commitment: None,
         };
 
         let message = exporter.format_rfc5424(&entry);

@@ -216,14 +216,34 @@ impl AuditLogger {
         tree.generate_proof(index)
     }
 
+    /// Return the current Merkle root hash as a hex string.
+    ///
+    /// Returns `None` if the Merkle tree is not enabled or the tree is empty.
+    /// Use this to obtain a trusted root for `verify_merkle_proof()`.
+    pub fn merkle_root_hex(&self) -> Result<Option<String>, AuditError> {
+        let merkle = match self.merkle_tree.as_ref() {
+            Some(m) => m,
+            None => return Ok(None),
+        };
+        let tree = merkle
+            .lock()
+            .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {}", e)))?;
+        Ok(tree.root_hex())
+    }
+
     /// Verify a Merkle inclusion proof for an audit entry.
     ///
     /// This is a convenience wrapper around `MerkleTree::verify_proof`.
     /// The `entry_hash` should be the SHA-256 hash from the audit entry's
-    /// `entry_hash` field.
+    /// `entry_hash` field. The `trusted_root` must come from the Merkle tree
+    /// state or a signed checkpoint — never from the proof itself.
+    ///
+    /// SECURITY (FIND-R46-MRK-002): Requires an externally-supplied trusted root
+    /// to prevent self-referential proof forgery.
     pub fn verify_merkle_proof(
         entry_hash: &str,
         proof: &crate::merkle::MerkleProof,
+        trusted_root: &str,
     ) -> Result<crate::merkle::MerkleVerification, AuditError> {
         let hash_bytes = hex::decode(entry_hash)
             .map_err(|e| AuditError::Validation(format!("Invalid entry hash hex: {}", e)))?;
@@ -236,6 +256,6 @@ impl AuditLogger {
         let mut leaf_arr = [0u8; 32];
         leaf_arr.copy_from_slice(&hash_bytes);
         let leaf = crate::merkle::hash_leaf(&leaf_arr);
-        crate::merkle::MerkleTree::verify_proof(leaf, proof)
+        crate::merkle::MerkleTree::verify_proof(leaf, proof, trusted_root)
     }
 }

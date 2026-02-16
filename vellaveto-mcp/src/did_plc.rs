@@ -52,7 +52,8 @@ pub fn generate_did_plc(genesis: &DidPlcGenesisOperation) -> Result<DidPlc, DidP
     let suffix = base32_encode_lower(&hash[..15]);
     debug_assert_eq!(suffix.len(), 24);
 
-    Ok(DidPlc::from_parts(suffix))
+    DidPlc::from_parts(suffix)
+        .ok_or_else(|| DidPlcError::InvalidFormat("generated suffix failed validation".to_string()))
 }
 
 /// Convenience: generate a DID:PLC from a single public key.

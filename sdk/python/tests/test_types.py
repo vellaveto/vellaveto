@@ -145,10 +145,11 @@ class TestEvaluationResult:
         assert result.trace is not None
         assert result.trace["matched_rule"] == "allow-read"
 
-    def test_from_dict_invalid_verdict(self):
+    def test_from_dict_invalid_verdict_fails_closed(self):
+        """SECURITY (FIND-SDK-002): Unknown verdicts fail-closed to DENY."""
         data = {"verdict": "invalid_value"}
-        with pytest.raises(ValueError):
-            EvaluationResult.from_dict(data)
+        result = EvaluationResult.from_dict(data)
+        assert result.verdict == Verdict.DENY
 
 
 class TestEvaluationContext:

@@ -222,6 +222,7 @@ mod tests {
             sequence: 0,
             entry_hash: Some("abc123".to_string()),
             prev_hash: None,
+            commitment: None,
         }
     }
 

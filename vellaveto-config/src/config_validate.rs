@@ -836,6 +836,9 @@ impl PolicyConfig {
         // Projector configuration bounds (Phase 35.1)
         self.projector.validate()?;
 
+        // ZK audit configuration bounds (Phase 37)
+        self.zk_audit.validate()?;
+
         Ok(())
     }
 

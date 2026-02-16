@@ -381,6 +381,7 @@ impl AuditLogger {
             sequence,
             entry_hash: None,
             prev_hash: last_hash_guard.clone(),
+            commitment: None,
         };
 
         // Compute hash

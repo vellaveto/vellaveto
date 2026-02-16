@@ -731,6 +731,19 @@ pub struct AppState {
     /// Model projector registry for cross-model tool schema translation.
     /// None when projector is disabled in config.
     pub projector_registry: Option<Arc<vellaveto_mcp::projector::ProjectorRegistry>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 37: Zero-Knowledge Audit Trails
+    // ═══════════════════════════════════════════════════════════════════
+    /// Stored ZK batch proofs (lightweight — does not require ark-* in server).
+    /// None when ZK audit is disabled.
+    pub zk_proofs: Option<Arc<std::sync::Mutex<Vec<vellaveto_types::ZkBatchProof>>>>,
+
+    /// Whether ZK audit features are enabled.
+    pub zk_audit_enabled: bool,
+
+    /// ZK audit configuration for status reporting.
+    pub zk_audit_config: vellaveto_config::ZkAuditConfig,
 }
 
 /// Error type for cluster-dispatched approval operations.
@@ -953,6 +966,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             streamable_http: Default::default(),
             discovery: Default::default(),
             projector: Default::default(),
+            zk_audit: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

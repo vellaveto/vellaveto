@@ -185,12 +185,35 @@ impl AuditLogger {
             .first()
             .and_then(|e| e.prev_hash.clone())
             .unwrap_or_default();
+
+        // SECURITY (FIND-R46-ROT-003): Hash-chain manifest entries.
+        // Compute `previous_hash` as SHA-256(last manifest line) to chain each
+        // entry to its predecessor. This detects deletion, reordering, or
+        // replacement of individual manifest entries.
+        let manifest_path = self.rotation_manifest_path();
+        let previous_hash = match tokio::fs::read_to_string(&manifest_path).await {
+            Ok(content) => {
+                // Find the last non-empty line
+                match content.lines().rev().find(|l| !l.trim().is_empty()) {
+                    Some(last_line) => {
+                        let mut hasher = Sha256::new();
+                        hasher.update(last_line.as_bytes());
+                        hex::encode(hasher.finalize())
+                    }
+                    None => "genesis".to_string(),
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => "genesis".to_string(),
+            Err(e) => return Err(AuditError::Io(e)),
+        };
+
         let mut manifest_entry = serde_json::json!({
             "timestamp": Utc::now().to_rfc3339(),
             "rotated_file": rotated_filename,
             "tail_hash": tail_hash,
             "start_hash": start_hash,
             "entry_count": entry_count,
+            "previous_hash": previous_hash,
         });
         if let Some(signing_key) = &self.signing_key {
             // Sign the canonical JSON of the manifest entry (before adding signature)
@@ -204,7 +227,6 @@ impl AuditLogger {
             manifest_entry["verifying_key"] =
                 serde_json::Value::String(hex::encode(signing_key.verifying_key().as_bytes()));
         }
-        let manifest_path = self.rotation_manifest_path();
         let mut manifest_line =
             serde_json::to_string(&manifest_entry).map_err(AuditError::Serialization)?;
         manifest_line.push('\n');
@@ -283,12 +305,41 @@ impl AuditLogger {
         };
 
         let mut files_checked = 0;
+        // SECURITY (FIND-R46-ROT-003): Track previous manifest line for hash-chain verification.
+        let mut previous_manifest_line: Option<String> = None;
 
         for (i, line) in manifest_content.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
             }
             let entry: serde_json::Value = serde_json::from_str(line)?;
+
+            // SECURITY (FIND-R46-ROT-003): Verify manifest entry hash chain.
+            // Each entry must reference the SHA-256 hash of the previous entry's
+            // serialized line, or "genesis" for the first entry. This detects
+            // deletion, reordering, or replacement of individual entries.
+            let claimed_previous = entry
+                .get("previous_hash")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let expected_previous = match &previous_manifest_line {
+                Some(prev_line) => {
+                    let mut hasher = Sha256::new();
+                    hasher.update(prev_line.as_bytes());
+                    hex::encode(hasher.finalize())
+                }
+                None => "genesis".to_string(),
+            };
+            if claimed_previous != expected_previous {
+                return Ok(RotationVerification {
+                    valid: false,
+                    files_checked: i,
+                    first_failure: Some(format!(
+                        "Manifest entry {} hash chain broken: expected previous_hash {}, got {}",
+                        i, expected_previous, claimed_previous
+                    )),
+                });
+            }
 
             // SECURITY (R9-1): Verify manifest entry signature when present.
             // If a trusted verifying key is configured, ALL manifest entries
@@ -477,6 +528,7 @@ impl AuditLogger {
                     path = %rotated_path.display(),
                     "Rotated file referenced in manifest no longer exists (likely pruned) — skipping"
                 );
+                previous_manifest_line = Some(line.to_string());
                 files_checked += 1;
                 continue;
             }
@@ -572,6 +624,7 @@ impl AuditLogger {
                 }
             }
 
+            previous_manifest_line = Some(line.to_string());
             files_checked += 1;
         }
 

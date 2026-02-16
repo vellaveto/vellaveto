@@ -351,15 +351,15 @@ class TestBeforeExecuteModifier:
         client.close()
 
     def test_unknown_verdict_fails_closed(self, httpx_mock):
-        """Unknown verdict values should fail closed."""
+        """SECURITY (FIND-SDK-002): Unknown verdict values fail-closed to DENY."""
         httpx_mock.add_response(
             url="http://localhost:3000/api/evaluate",
             json={"verdict": "unknown_verdict_xyz"},
         )
         client = VellavetoClient()
         modifier = create_before_execute_modifier(client=client, fail_closed=True)
-        # Unknown verdict causes ValueError during parsing, caught by fail-closed handler
-        with pytest.raises(PolicyDenied, match="Evaluation failed"):
+        # Unknown verdict is now mapped to DENY (fail-closed), which raises PolicyDenied
+        with pytest.raises(PolicyDenied, match="Policy denied"):
             modifier("TOOL", "", {"arguments": {}})
         client.close()
 

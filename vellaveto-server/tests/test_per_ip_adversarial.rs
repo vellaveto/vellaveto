@@ -91,6 +91,9 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     (state, tmp)
 }
@@ -465,6 +468,9 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

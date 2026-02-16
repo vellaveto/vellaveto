@@ -383,6 +383,7 @@ async fn test_fix2_field_separator_prevents_boundary_shift() {
         sequence: 0,
         entry_hash: None,
         prev_hash: None,
+        commitment: None,
     };
 
     let entry_b = AuditEntry {
@@ -394,6 +395,7 @@ async fn test_fix2_field_separator_prevents_boundary_shift() {
         sequence: 0,
         entry_hash: None,
         prev_hash: None,
+        commitment: None,
     };
 
     let hash_a = AuditLogger::compute_entry_hash(&entry_a).unwrap();
@@ -428,6 +430,7 @@ async fn test_canonical_json_produces_deterministic_hashes() {
         sequence: 0,
         entry_hash: None,
         prev_hash: None,
+        commitment: None,
     };
 
     let entry_b = AuditEntry {
@@ -443,6 +446,7 @@ async fn test_canonical_json_produces_deterministic_hashes() {
         sequence: 0,
         entry_hash: None,
         prev_hash: None,
+        commitment: None,
     };
 
     let hash_a = AuditLogger::compute_entry_hash(&entry_a).unwrap();
@@ -2313,6 +2317,7 @@ async fn test_rotation_manifest_path_traversal_rejected() {
             "rotated_file": payload,
             "tail_hash": "fakehash",
             "entry_count": 1,
+            "previous_hash": "genesis",
         });
         let mut manifest_content = serde_json::to_string(&crafted).unwrap();
         manifest_content.push('\n');
@@ -2704,15 +2709,23 @@ async fn test_rotation_manifest_entry_deletion_detected() {
         let tampered = lines[1..].join("\n") + "\n";
         std::fs::write(&manifest_path, tampered).unwrap();
 
+        // SECURITY (FIND-R46-ROT-003): Deletion is now detected via hash chain.
+        // The second entry's previous_hash references the SHA-256 of the deleted
+        // first entry, so it will not match "genesis".
         let result = logger.verify_across_rotations().await.unwrap();
-        if result.valid {
-            // Document that manifest entry deletion is NOT currently detected
-        } else {
-            assert!(
-                result.first_failure.is_some(),
-                "Failed verification should have a failure reason"
-            );
-        }
+        assert!(
+            !result.valid,
+            "Manifest entry deletion must be detected by hash chain verification"
+        );
+        assert!(
+            result
+                .first_failure
+                .as_ref()
+                .unwrap()
+                .contains("hash chain broken"),
+            "Failure should mention hash chain: {:?}",
+            result.first_failure
+        );
     }
 }
 
@@ -2747,13 +2760,84 @@ async fn test_rotation_manifest_entry_reordering_detected() {
         let tampered = lines.join("\n") + "\n";
         std::fs::write(&manifest_path, tampered).unwrap();
 
+        // SECURITY (FIND-R46-ROT-003): Reordering is now detected via hash chain.
+        // The swapped first entry's previous_hash will not be "genesis".
         let result = logger.verify_across_rotations().await.unwrap();
-        if !result.valid {
-            assert!(
-                result.first_failure.is_some(),
-                "Reordering detection should report a failure reason"
-            );
-        }
+        assert!(
+            !result.valid,
+            "Manifest entry reordering must be detected by hash chain verification"
+        );
+        assert!(
+            result
+                .first_failure
+                .as_ref()
+                .unwrap()
+                .contains("hash chain broken"),
+            "Failure should mention hash chain: {:?}",
+            result.first_failure
+        );
+    }
+}
+
+/// FIND-R46-ROT-003: Verify that replacing a single manifest entry is
+/// detected by hash chain verification. An attacker who modifies a field
+/// in one entry (e.g., changing entry_count to hide deleted log entries)
+/// will break the chain because subsequent entries' previous_hash will
+/// no longer match the SHA-256 of the modified line.
+#[tokio::test]
+async fn test_rotation_manifest_entry_replacement_detected() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.log");
+    let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
+
+    for i in 0..20 {
+        let action = Action::new("tool", format!("func_{}", i), json!({}));
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({"i": i}))
+            .await
+            .unwrap();
+    }
+
+    let result = logger.verify_across_rotations().await.unwrap();
+    assert!(
+        result.valid,
+        "Pre-tamper rotation should be valid: {:?}",
+        result.first_failure
+    );
+
+    let manifest_path = dir.path().join("audit.rotation-manifest.jsonl");
+    let content = std::fs::read_to_string(&manifest_path).unwrap();
+    let lines: Vec<&str> = content.lines().collect();
+
+    if lines.len() >= 2 {
+        // Tamper with the first entry by changing its timestamp (a field that is
+        // NOT checked during content validation). This ensures the hash chain is
+        // the detection mechanism, not entry_count or tail_hash validation.
+        let mut entry: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        entry["timestamp"] =
+            serde_json::Value::String("2000-01-01T00:00:00Z".to_string());
+        let tampered_line = serde_json::to_string(&entry).unwrap();
+        let mut new_lines = vec![tampered_line.as_str()];
+        new_lines.extend_from_slice(&lines[1..]);
+        let tampered = new_lines.join("\n") + "\n";
+        std::fs::write(&manifest_path, tampered).unwrap();
+
+        // The second entry's previous_hash was computed over the ORIGINAL first line,
+        // so it will not match SHA-256 of the tampered first line.
+        let result = logger.verify_across_rotations().await.unwrap();
+        assert!(
+            !result.valid,
+            "Manifest entry replacement must be detected by hash chain verification"
+        );
+        assert!(
+            result
+                .first_failure
+                .as_ref()
+                .unwrap()
+                .contains("hash chain broken"),
+            "Failure should mention hash chain: {:?}",
+            result.first_failure
+        );
     }
 }
 
@@ -2868,7 +2952,8 @@ fn test_merkle_proof_roundtrip_single() {
     let leaf = merkle::hash_leaf(b"single");
     tree.append(leaf).unwrap();
     let proof = tree.generate_proof(0).unwrap();
-    let result = merkle::MerkleTree::verify_proof(leaf, &proof).unwrap();
+    let trusted_root = tree.root_hex().unwrap();
+    let result = merkle::MerkleTree::verify_proof(leaf, &proof, &trusted_root).unwrap();
     assert!(
         result.valid,
         "Proof should be valid: {:?}",
@@ -2885,9 +2970,10 @@ fn test_merkle_proof_roundtrip_multiple() {
         tree.append(*leaf).unwrap();
     }
     // Verify proof for each leaf
+    let trusted_root = tree.root_hex().unwrap();
     for (i, leaf) in leaves.iter().enumerate() {
         let proof = tree.generate_proof(i as u64).unwrap();
-        let result = merkle::MerkleTree::verify_proof(*leaf, &proof).unwrap();
+        let result = merkle::MerkleTree::verify_proof(*leaf, &proof, &trusted_root).unwrap();
         assert!(
             result.valid,
             "Proof for leaf {} should be valid: {:?}",
@@ -2905,8 +2991,9 @@ fn test_merkle_proof_tampered_leaf_rejected() {
     tree.append(merkle::hash_leaf(b"other")).unwrap();
     let proof = tree.generate_proof(0).unwrap();
     // Verify with wrong leaf
+    let trusted_root = tree.root_hex().unwrap();
     let wrong_leaf = merkle::hash_leaf(b"tampered");
-    let result = merkle::MerkleTree::verify_proof(wrong_leaf, &proof).unwrap();
+    let result = merkle::MerkleTree::verify_proof(wrong_leaf, &proof, &trusted_root).unwrap();
     assert!(!result.valid);
     assert!(result.failure_reason.unwrap().contains("Root mismatch"));
 }
@@ -2923,7 +3010,8 @@ fn test_merkle_proof_tampered_sibling_rejected() {
     if !proof.siblings.is_empty() {
         proof.siblings[0].hash = hex::encode([0xffu8; 32]);
     }
-    let result = merkle::MerkleTree::verify_proof(leaf, &proof).unwrap();
+    let trusted_root = tree.root_hex().unwrap();
+    let result = merkle::MerkleTree::verify_proof(leaf, &proof, &trusted_root).unwrap();
     assert!(!result.valid);
 }
 
@@ -2933,9 +3021,10 @@ fn test_merkle_proof_tampered_root_rejected() {
     let mut tree = merkle::MerkleTree::new(dir.path().join("leaves"));
     let leaf = merkle::hash_leaf(b"data");
     tree.append(leaf).unwrap();
-    let mut proof = tree.generate_proof(0).unwrap();
-    proof.root_hash = hex::encode([0xaa; 32]);
-    let result = merkle::MerkleTree::verify_proof(leaf, &proof).unwrap();
+    let proof = tree.generate_proof(0).unwrap();
+    // Use an untrusted root — verification must fail even though proof is internally consistent
+    let wrong_root = hex::encode([0xaa; 32]);
+    let result = merkle::MerkleTree::verify_proof(leaf, &proof, &wrong_root).unwrap();
     assert!(!result.valid);
 }
 
@@ -2959,9 +3048,65 @@ fn test_merkle_proof_zero_tree_size() {
         siblings: vec![],
         root_hash: String::new(),
     };
-    let result = merkle::MerkleTree::verify_proof([0u8; 32], &proof).unwrap();
+    let result = merkle::MerkleTree::verify_proof([0u8; 32], &proof, "").unwrap();
     assert!(!result.valid);
     assert!(result.failure_reason.unwrap().contains("zero tree size"));
+}
+
+/// FIND-R46-MRK-002: A forged proof with a self-consistent root_hash
+/// must be rejected when verified against an independently-obtained trusted root.
+/// Before the fix, `verify_proof()` compared the computed root against the proof's
+/// own `root_hash` field, allowing trivially forged proofs to pass.
+#[test]
+fn test_merkle_proof_self_referential_forgery_rejected() {
+    // Build a real tree with 4 leaves
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut tree = merkle::MerkleTree::new(dir.path().join("leaves"));
+    let leaves: Vec<[u8; 32]> = (0..4u8).map(|i| merkle::hash_leaf(&[i])).collect();
+    for leaf in &leaves {
+        tree.append(*leaf).unwrap();
+    }
+    let trusted_root = tree.root_hex().unwrap();
+
+    // Build a DIFFERENT tree with different data (attacker's tree)
+    let dir2 = tempfile::TempDir::new().unwrap();
+    let mut attacker_tree = merkle::MerkleTree::new(dir2.path().join("leaves"));
+    let fake_leaf = merkle::hash_leaf(b"attacker controlled data");
+    attacker_tree.append(fake_leaf).unwrap();
+
+    // Generate a proof from the attacker's tree
+    let forged_proof = attacker_tree.generate_proof(0).unwrap();
+    // The forged_proof.root_hash is self-consistent — it matches the attacker's tree root.
+    // Before the fix, verify_proof(fake_leaf, &forged_proof) would return valid=true
+    // because it compared the computed root against forged_proof.root_hash (itself).
+
+    // With the fix, we verify against the TRUSTED root from the real tree.
+    // The attacker's proof must be rejected.
+    let result =
+        merkle::MerkleTree::verify_proof(fake_leaf, &forged_proof, &trusted_root).unwrap();
+    assert!(
+        !result.valid,
+        "Self-referential forged proof must be rejected when trusted root differs"
+    );
+    assert!(
+        result
+            .failure_reason
+            .as_ref()
+            .unwrap()
+            .contains("Root mismatch"),
+        "Failure reason should indicate root mismatch, got: {}",
+        result.failure_reason.unwrap()
+    );
+
+    // Also verify that the proof passes against its OWN root (attacker's root)
+    // to confirm the forgery is internally self-consistent
+    let attacker_root = attacker_tree.root_hex().unwrap();
+    let self_check =
+        merkle::MerkleTree::verify_proof(fake_leaf, &forged_proof, &attacker_root).unwrap();
+    assert!(
+        self_check.valid,
+        "Forged proof is internally consistent against attacker's own root"
+    );
 }
 
 #[test]
@@ -3131,11 +3276,12 @@ async fn test_merkle_logger_proof_generation_and_verification() {
     let entries = logger.load_entries().await.unwrap();
     assert_eq!(entries.len(), 3);
 
-    // Generate and verify proof for each entry
+    // Generate and verify proof for each entry using trusted root from the logger
+    let trusted_root = logger.merkle_root_hex().unwrap().unwrap();
     for (i, entry) in entries.iter().enumerate() {
         let proof = logger.generate_merkle_proof(i as u64).unwrap();
         let entry_hash = entry.entry_hash.as_ref().unwrap();
-        let result = AuditLogger::verify_merkle_proof(entry_hash, &proof).unwrap();
+        let result = AuditLogger::verify_merkle_proof(entry_hash, &proof, &trusted_root).unwrap();
         assert!(
             result.valid,
             "Proof for entry {} should be valid: {:?}",

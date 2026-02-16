@@ -28,9 +28,26 @@ use std::fmt;
 /// let bad = DidPlc::from_str_validated("did:plc:TOOSHORT");
 /// assert!(bad.is_none());
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+// SECURITY (FIND-R46-001): Custom Deserialize implementation validates the
+// DID:PLC format on deserialization. Previously `#[serde(transparent)]` allowed
+// any arbitrary string to deserialize into a DidPlc, bypassing validation.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct DidPlc(String);
+
+impl<'de> serde::Deserialize<'de> for DidPlc {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        DidPlc::from_str_validated(&s).ok_or_else(|| {
+            serde::de::Error::custom(format!(
+                "invalid DID:PLC format: expected 'did:plc:<24-char-base32-suffix>', got '{}'",
+                if s.len() > 60 { &s[..60] } else { &s }
+            ))
+        })
+    }
+}
 
 impl DidPlc {
     /// The required prefix for all DID:PLC identifiers.
@@ -62,10 +79,22 @@ impl DidPlc {
 
     /// Construct a `DidPlc` from a pre-computed Base32 suffix.
     ///
-    /// The caller is responsible for ensuring the suffix is valid Base32.
-    /// Used internally by the generation code in `vellaveto-mcp`.
-    pub fn from_parts(suffix: String) -> Self {
-        Self(format!("{}{}", Self::PREFIX, suffix))
+    /// Returns `None` if the suffix is not exactly 24 characters of valid
+    /// Base32 (a-z, 2-7).
+    ///
+    /// SECURITY (FIND-R46-002): Previously accepted arbitrary strings without
+    /// validation, bypassing the safety guarantees of the validated newtype.
+    pub fn from_parts(suffix: String) -> Option<Self> {
+        if suffix.len() != Self::SUFFIX_LEN {
+            return None;
+        }
+        if !suffix
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || ('2'..='7').contains(&c))
+        {
+            return None;
+        }
+        Some(Self(format!("{}{}", Self::PREFIX, suffix)))
     }
 
     /// Returns the full DID string (e.g., `did:plc:ewvi7nxsareczkwkx5pz6q6e`).
@@ -194,22 +223,39 @@ mod tests {
     #[test]
     fn test_did_plc_from_parts() {
         let did = DidPlc::from_parts("abcdefghijklmnopqrstuvwx".to_string());
+        assert!(did.is_some());
+        let did = did.unwrap();
         assert_eq!(did.as_str(), "did:plc:abcdefghijklmnopqrstuvwx");
         assert_eq!(did.identifier(), "abcdefghijklmnopqrstuvwx");
     }
 
     #[test]
+    fn test_did_plc_from_parts_invalid_rejected() {
+        // SECURITY (FIND-R46-002): from_parts now validates the suffix
+        assert!(DidPlc::from_parts("INVALID".to_string()).is_none());
+        assert!(DidPlc::from_parts("".to_string()).is_none());
+        assert!(DidPlc::from_parts("890100000000000000000000".to_string()).is_none());
+    }
+
+    #[test]
     fn test_did_plc_display() {
-        let did = DidPlc::from_parts("ewvi7nxsareczkwkx5pz6q6e".to_string());
+        let did = DidPlc::from_parts("ewvi7nxsareczkwkx5pz6q6e".to_string()).unwrap();
         assert_eq!(format!("{}", did), "did:plc:ewvi7nxsareczkwkx5pz6q6e");
     }
 
     #[test]
     fn test_did_plc_serde_roundtrip() {
-        let did = DidPlc::from_parts("ewvi7nxsareczkwkx5pz6q6e".to_string());
+        let did = DidPlc::from_parts("ewvi7nxsareczkwkx5pz6q6e".to_string()).unwrap();
         let json = serde_json::to_string(&did).expect("serialize");
         let deserialized: DidPlc = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(did, deserialized);
+    }
+
+    // SECURITY (FIND-R46-001): Deserialization must validate the DID:PLC format
+    #[test]
+    fn test_did_plc_serde_rejects_invalid() {
+        let result: Result<DidPlc, _> = serde_json::from_str("\"arbitrary-string\"");
+        assert!(result.is_err(), "Invalid DID:PLC must be rejected on deserialization");
     }
 
     #[test]

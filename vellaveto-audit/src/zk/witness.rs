@@ -1,0 +1,116 @@
+//! Witness accumulator for ZK batch proving.
+//!
+//! Collects entry witnesses (hash, prev_hash, blinding factor, commitment)
+//! that are later consumed by the batch prover to generate Groth16 proofs.
+//!
+//! Thread-safe via `std::sync::Mutex` with fail-closed semantics on
+//! lock poisoning (returns `ZkError` instead of panicking).
+
+use curve25519_dalek::ristretto::CompressedRistretto;
+use curve25519_dalek::scalar::Scalar;
+use std::sync::Mutex;
+
+use super::ZkError;
+
+/// A single audit entry witness for batch proving.
+#[derive(Clone)]
+pub struct EntryWitness {
+    /// Monotonic sequence number of the entry.
+    pub sequence: u64,
+    /// SHA-256 hash of the entry contents.
+    pub entry_hash: [u8; 32],
+    /// SHA-256 hash of the previous entry (zero for the first entry).
+    pub prev_hash: [u8; 32],
+    /// Blinding factor used in the Pedersen commitment.
+    pub blinding: Scalar,
+    /// Compressed Ristretto point of the Pedersen commitment.
+    pub commitment: CompressedRistretto,
+}
+
+/// Thread-safe witness accumulator with bounded capacity.
+///
+/// Witnesses are appended as audit entries are logged. The batch prover
+/// periodically drains the store to generate batch proofs.
+pub struct WitnessStore {
+    witnesses: Mutex<Vec<EntryWitness>>,
+    max_capacity: usize,
+}
+
+/// Default maximum witness capacity (100K entries ≈ 12MB).
+const DEFAULT_MAX_WITNESS_CAPACITY: usize = 100_000;
+
+impl WitnessStore {
+    /// Create a new witness store with the default capacity.
+    pub fn new() -> Self {
+        Self {
+            witnesses: Mutex::new(Vec::new()),
+            max_capacity: DEFAULT_MAX_WITNESS_CAPACITY,
+        }
+    }
+
+    /// Create a new witness store with a custom capacity.
+    pub fn with_capacity(max_capacity: usize) -> Self {
+        Self {
+            witnesses: Mutex::new(Vec::new()),
+            max_capacity,
+        }
+    }
+
+    /// Append a witness to the store.
+    ///
+    /// Returns `Err` if the store is at capacity (fail-closed: the caller
+    /// should log a warning but the audit entry is still written).
+    pub fn append(&self, witness: EntryWitness) -> Result<(), ZkError> {
+        let mut guard = self.witnesses.lock().map_err(|e| {
+            ZkError::WitnessStore(format!("Witness store lock poisoned: {}", e))
+        })?;
+
+        if guard.len() >= self.max_capacity {
+            return Err(ZkError::WitnessStore(format!(
+                "Witness store at capacity ({} entries)",
+                self.max_capacity
+            )));
+        }
+
+        guard.push(witness);
+        Ok(())
+    }
+
+    /// Drain up to `count` witnesses from the front of the store.
+    ///
+    /// Returns the drained witnesses in order. If fewer than `count`
+    /// witnesses are available, returns all available witnesses.
+    pub fn drain(&self, count: usize) -> Result<Vec<EntryWitness>, ZkError> {
+        let mut guard = self.witnesses.lock().map_err(|e| {
+            ZkError::WitnessStore(format!("Witness store lock poisoned: {}", e))
+        })?;
+
+        let drain_count = count.min(guard.len());
+        let drained: Vec<EntryWitness> = guard.drain(..drain_count).collect();
+        Ok(drained)
+    }
+
+    /// Return the number of pending witnesses.
+    pub fn len(&self) -> Result<usize, ZkError> {
+        let guard = self.witnesses.lock().map_err(|e| {
+            ZkError::WitnessStore(format!("Witness store lock poisoned: {}", e))
+        })?;
+        Ok(guard.len())
+    }
+
+    /// Return whether the store is empty.
+    pub fn is_empty(&self) -> Result<bool, ZkError> {
+        Ok(self.len()? == 0)
+    }
+
+    /// Return the maximum capacity.
+    pub fn max_capacity(&self) -> usize {
+        self.max_capacity
+    }
+}
+
+impl Default for WitnessStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}

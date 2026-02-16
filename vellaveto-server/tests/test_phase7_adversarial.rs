@@ -90,6 +90,9 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     }
 }
 
@@ -343,6 +346,9 @@ async fn regression_38_prometheus_metrics_rate_limited() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
 
     // First request should succeed

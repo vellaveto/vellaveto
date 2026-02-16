@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use vellaveto_mcp::extractor::{self, MessageType};
-use vellaveto_mcp::inspection::{inspect_for_injection, scan_response_for_secrets};
+use vellaveto_mcp::inspection::{inspect_for_injection, scan_response_for_secrets, scan_text_for_secrets};
 use vellaveto_types::{Action, EvaluationContext, Verdict};
 
 use super::auth::validate_api_key;
@@ -42,8 +42,12 @@ pub struct WebSocketConfig {
     pub max_message_size: usize,
     /// Idle timeout in seconds — close connection after inactivity (default: 300s).
     pub idle_timeout_secs: u64,
-    /// Maximum messages per second per connection (default: 100).
+    /// Maximum messages per second per connection for client-to-upstream (default: 100).
     pub message_rate_limit: u32,
+    /// Maximum messages per second per connection for upstream-to-client (default: 500).
+    /// SECURITY (FIND-R46-WS-003): Rate limits on the upstream→client direction prevent
+    /// a malicious upstream from flooding the client with responses.
+    pub upstream_rate_limit: u32,
 }
 
 impl Default for WebSocketConfig {
@@ -52,6 +56,7 @@ impl Default for WebSocketConfig {
             max_message_size: 1_048_576,
             idle_timeout_secs: 300,
             message_rate_limit: 100,
+            upstream_rate_limit: 500,
         }
     }
 }
@@ -224,6 +229,10 @@ async fn handle_ws_connection(
     let rate_counter = Arc::new(AtomicU64::new(0));
     let rate_window_start = Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
 
+    // SECURITY (FIND-R46-WS-003): Separate rate limiter for upstream→client direction
+    let upstream_rate_counter = Arc::new(AtomicU64::new(0));
+    let upstream_rate_window_start = Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
+
     let idle_timeout = Duration::from_secs(ws_config.idle_timeout_secs);
 
     // Client → Vellaveto → Upstream relay
@@ -253,8 +262,17 @@ async fn handle_ws_connection(
         let state = state.clone();
         let session_id = session_id.clone();
         let client_sink = client_sink.clone();
+        let ws_config = ws_config.clone();
 
-        relay_upstream_to_client(upstream_stream, client_sink, state, session_id)
+        relay_upstream_to_client(
+            upstream_stream,
+            client_sink,
+            state,
+            session_id,
+            ws_config,
+            upstream_rate_counter,
+            upstream_rate_window_start,
+        )
     };
 
     // Run both relay loops with idle timeout
@@ -372,6 +390,85 @@ async fn relay_client_to_upstream(
                         break;
                     }
                 };
+
+                // SECURITY (FIND-R46-WS-001): Injection scanning on client→upstream text frames.
+                // The HTTP proxy scans request bodies for injection; the WebSocket proxy must
+                // do the same to maintain security parity. Fail-closed: if injection is detected
+                // and blocking is enabled, deny the message.
+                if !state.injection_disabled {
+                    let scannable = extract_scannable_text_from_request(&parsed);
+                    if !scannable.is_empty() {
+                        let injection_matches: Vec<String> =
+                            if let Some(ref scanner) = state.injection_scanner {
+                                scanner
+                                    .inspect(&scannable)
+                                    .into_iter()
+                                    .map(|s| s.to_string())
+                                    .collect()
+                            } else {
+                                inspect_for_injection(&scannable)
+                                    .into_iter()
+                                    .map(|s| s.to_string())
+                                    .collect()
+                            };
+
+                        if !injection_matches.is_empty() {
+                            tracing::warn!(
+                                "SECURITY: Injection in WS client request! Session: {}, Patterns: {:?}",
+                                session_id,
+                                injection_matches,
+                            );
+
+                            let verdict = if state.injection_blocking {
+                                Verdict::Deny {
+                                    reason: format!(
+                                        "WS request injection blocked: {:?}",
+                                        injection_matches
+                                    ),
+                                }
+                            } else {
+                                Verdict::Allow
+                            };
+
+                            let action = Action::new(
+                                "vellaveto",
+                                "ws_request_injection",
+                                json!({
+                                    "matched_patterns": injection_matches,
+                                    "session": session_id,
+                                    "transport": "websocket",
+                                    "direction": "client_to_upstream",
+                                }),
+                            );
+                            if let Err(e) = state
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &verdict,
+                                    json!({
+                                        "source": "ws_proxy",
+                                        "event": "ws_request_injection_detected",
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!("Failed to audit WS request injection: {}", e);
+                            }
+
+                            if state.injection_blocking {
+                                let id = parsed.get("id");
+                                let error = make_ws_error_response(
+                                    id,
+                                    -32001,
+                                    "Request blocked: injection detected",
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                                continue;
+                            }
+                        }
+                    }
+                }
 
                 // Classify and evaluate
                 let classified = extractor::classify_message(&parsed);
@@ -635,6 +732,24 @@ async fn relay_client_to_upstream(
 
                         match verdict {
                             Verdict::Allow => {
+                                // SECURITY (FIND-R46-WS-004): Audit log allowed resource reads
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &Verdict::Allow,
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "resource_uri": uri,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!("Failed to audit WS resource read allow: {}", e);
+                                }
+
                                 let forward_text = if state.canonicalize {
                                     serde_json::to_string(&parsed)
                                         .unwrap_or_else(|_| text.to_string())
@@ -915,6 +1030,37 @@ async fn relay_client_to_upstream(
                     MessageType::PassThrough
                     | MessageType::ElicitationRequest { .. }
                     | MessageType::ProgressNotification { .. } => {
+                        // SECURITY (FIND-R46-WS-004): Audit log forwarded passthrough/notification messages
+                        let msg_type = match &classified {
+                            MessageType::ElicitationRequest { .. } => "elicitation_request",
+                            MessageType::ProgressNotification { .. } => "progress_notification",
+                            _ => "passthrough",
+                        };
+                        let action = Action::new(
+                            "vellaveto",
+                            "ws_forward_message",
+                            json!({
+                                "message_type": msg_type,
+                                "session": session_id,
+                                "transport": "websocket",
+                                "direction": "client_to_upstream",
+                            }),
+                        );
+                        if let Err(e) = state
+                            .audit
+                            .log_entry(
+                                &action,
+                                &Verdict::Allow,
+                                json!({
+                                    "source": "ws_proxy",
+                                    "event": "ws_message_forwarded",
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit WS passthrough: {}", e);
+                        }
+
                         // Forward as-is (canonicalized if enabled)
                         let forward_text = if state.canonicalize {
                             serde_json::to_string(&parsed).unwrap_or_else(|_| text.to_string())
@@ -934,12 +1080,40 @@ async fn relay_client_to_upstream(
                     }
                 }
             }
-            Message::Binary(_) => {
+            Message::Binary(_data) => {
                 // SECURITY: Binary frames not allowed for JSON-RPC
                 tracing::warn!(
                     session_id = %session_id,
                     "Binary WebSocket frame rejected (JSON-RPC is text-only)"
                 );
+
+                // SECURITY (FIND-R46-WS-004): Audit log binary frame rejection
+                let action = Action::new(
+                    "vellaveto",
+                    "ws_binary_frame_rejected",
+                    json!({
+                        "session": session_id,
+                        "transport": "websocket",
+                        "direction": "client_to_upstream",
+                    }),
+                );
+                if let Err(e) = state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Deny {
+                            reason: "Binary frames not supported for JSON-RPC".to_string(),
+                        },
+                        json!({
+                            "source": "ws_proxy",
+                            "event": "ws_binary_frame_rejected",
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit WS binary frame rejection: {}", e);
+                }
+
                 let mut sink = client_sink.lock().await;
                 let _ = sink
                     .send(Message::Close(Some(CloseFrame {
@@ -965,6 +1139,7 @@ async fn relay_client_to_upstream(
 }
 
 /// Relay messages from upstream to client with DLP and injection scanning.
+#[allow(clippy::too_many_arguments)]
 async fn relay_upstream_to_client(
     mut upstream_stream: futures_util::stream::SplitStream<
         tokio_tungstenite::WebSocketStream<
@@ -974,6 +1149,9 @@ async fn relay_upstream_to_client(
     client_sink: Arc<Mutex<futures_util::stream::SplitSink<WebSocket, Message>>>,
     state: ProxyState,
     session_id: String,
+    ws_config: WebSocketConfig,
+    upstream_rate_counter: Arc<AtomicU64>,
+    upstream_rate_window_start: Arc<std::sync::Mutex<std::time::Instant>>,
 ) {
     while let Some(msg_result) = upstream_stream.next().await {
         let msg = match msg_result {
@@ -985,6 +1163,57 @@ async fn relay_upstream_to_client(
         };
 
         record_ws_message("upstream_to_client");
+
+        // SECURITY (FIND-R46-WS-003): Rate limiting on upstream→client direction.
+        // A malicious or compromised upstream could flood the client with messages.
+        if !check_rate_limit(
+            &upstream_rate_counter,
+            &upstream_rate_window_start,
+            ws_config.upstream_rate_limit,
+        ) {
+            tracing::warn!(
+                session_id = %session_id,
+                "WebSocket upstream rate limit exceeded ({}/s), dropping message",
+                ws_config.upstream_rate_limit,
+            );
+
+            let action = Action::new(
+                "vellaveto",
+                "ws_upstream_rate_limit",
+                json!({
+                    "session": session_id,
+                    "transport": "websocket",
+                    "direction": "upstream_to_client",
+                    "limit": ws_config.upstream_rate_limit,
+                }),
+            );
+            if let Err(e) = state
+                .audit
+                .log_entry(
+                    &action,
+                    &Verdict::Deny {
+                        reason: "Upstream rate limit exceeded".to_string(),
+                    },
+                    json!({
+                        "source": "ws_proxy",
+                        "event": "ws_upstream_rate_limit_exceeded",
+                    }),
+                )
+                .await
+            {
+                tracing::warn!("Failed to audit WS upstream rate limit: {}", e);
+            }
+
+            metrics::counter!(
+                "vellaveto_ws_upstream_rate_limited_total",
+                "session" => session_id.clone()
+            )
+            .increment(1);
+
+            // Drop the message (don't close the connection — upstream flood should not
+            // disconnect the client, just throttle the flow)
+            continue;
+        }
 
         match msg {
             tokio_tungstenite::tungstenite::Message::Text(text) => {
@@ -1131,6 +1360,43 @@ async fn relay_upstream_to_client(
                         }
                     }
 
+                    // SECURITY (FIND-R46-WS-004): Audit log forwarded upstream→client text messages
+                    {
+                        let msg_type = if json_val.get("result").is_some() {
+                            "response"
+                        } else if json_val.get("error").is_some() {
+                            "error_response"
+                        } else if json_val.get("method").is_some() {
+                            "notification"
+                        } else {
+                            "unknown"
+                        };
+                        let action = Action::new(
+                            "vellaveto",
+                            "ws_forward_upstream_message",
+                            json!({
+                                "message_type": msg_type,
+                                "session": session_id,
+                                "transport": "websocket",
+                                "direction": "upstream_to_client",
+                            }),
+                        );
+                        if let Err(e) = state
+                            .audit
+                            .log_entry(
+                                &action,
+                                &Verdict::Allow,
+                                json!({
+                                    "source": "ws_proxy",
+                                    "event": "ws_upstream_message_forwarded",
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit WS upstream message forward: {}", e);
+                        }
+                    }
+
                     // Canonicalize response if enabled
                     if state.canonicalize {
                         serde_json::to_string(&json_val).unwrap_or_else(|_| text.to_string())
@@ -1148,12 +1414,95 @@ async fn relay_upstream_to_client(
                     break;
                 }
             }
-            tokio_tungstenite::tungstenite::Message::Binary(_) => {
-                // Binary from upstream is unusual for JSON-RPC; forward as text error
+            tokio_tungstenite::tungstenite::Message::Binary(data) => {
+                // SECURITY (FIND-R46-WS-002): DLP scanning on upstream binary frames.
+                // Binary from upstream is unusual for JSON-RPC but must be scanned
+                // before being dropped, to detect and audit secret exfiltration attempts
+                // via binary frames.
                 tracing::warn!(
                     session_id = %session_id,
-                    "Unexpected binary frame from upstream, dropping"
+                    "Unexpected binary frame from upstream ({} bytes), scanning before drop",
+                    data.len(),
                 );
+
+                // DLP scan the binary data as UTF-8 lossy
+                if state.response_dlp_enabled {
+                    let text_repr = String::from_utf8_lossy(&data);
+                    if !text_repr.is_empty() {
+                        let dlp_findings = scan_text_for_secrets(&text_repr, "ws_binary_frame");
+                        if !dlp_findings.is_empty() {
+                            for finding in &dlp_findings {
+                                record_dlp_finding(&finding.pattern_name);
+                            }
+                            let patterns: Vec<String> = dlp_findings
+                                .iter()
+                                .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                                .collect();
+
+                            tracing::warn!(
+                                "SECURITY: Secrets in WS upstream binary frame! Session: {}, Findings: {:?}",
+                                session_id,
+                                patterns,
+                            );
+
+                            let action = Action::new(
+                                "vellaveto",
+                                "ws_binary_dlp_scan",
+                                json!({
+                                    "findings": patterns,
+                                    "session": session_id,
+                                    "transport": "websocket",
+                                    "direction": "upstream_to_client",
+                                    "binary_size": data.len(),
+                                }),
+                            );
+                            if let Err(e) = state
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &Verdict::Deny {
+                                        reason: format!("WS binary frame DLP: {:?}", patterns),
+                                    },
+                                    json!({
+                                        "source": "ws_proxy",
+                                        "event": "ws_binary_dlp_alert",
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!("Failed to audit WS binary DLP: {}", e);
+                            }
+                        }
+                    }
+                }
+
+                // SECURITY (FIND-R46-WS-004): Audit log binary frame drop
+                let action = Action::new(
+                    "vellaveto",
+                    "ws_upstream_binary_dropped",
+                    json!({
+                        "session": session_id,
+                        "transport": "websocket",
+                        "direction": "upstream_to_client",
+                        "binary_size": data.len(),
+                    }),
+                );
+                if let Err(e) = state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Deny {
+                            reason: "Binary frames not supported for JSON-RPC".to_string(),
+                        },
+                        json!({
+                            "source": "ws_proxy",
+                            "event": "ws_upstream_binary_dropped",
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit WS upstream binary drop: {}", e);
+                }
             }
             tokio_tungstenite::tungstenite::Message::Ping(data) => {
                 // Forward ping as pong to upstream (handled by tungstenite)
@@ -1238,6 +1587,65 @@ fn check_rate_limit(
     } else {
         let count = counter.fetch_add(1, Ordering::Relaxed) + 1;
         count <= max_per_sec as u64
+    }
+}
+
+/// Extract scannable text from a JSON-RPC request for injection scanning.
+///
+/// SECURITY (FIND-R46-WS-001): Scans tool call arguments, resource URIs,
+/// and sampling request content for injection payloads in the client→upstream
+/// direction. Matches the HTTP proxy's request-side injection scanning.
+fn extract_scannable_text_from_request(json_val: &Value) -> String {
+    let mut text_parts = Vec::new();
+
+    // Scan tool call arguments
+    if let Some(params) = json_val.get("params") {
+        if let Some(arguments) = params.get("arguments") {
+            // Recursively extract string values from arguments
+            extract_strings_recursive(arguments, &mut text_parts, 0);
+        }
+        // Scan resource URI
+        if let Some(uri) = params.get("uri").and_then(|u| u.as_str()) {
+            text_parts.push(uri.to_string());
+        }
+        // Scan sampling content
+        if let Some(messages) = params.get("messages").and_then(|m| m.as_array()) {
+            for msg in messages {
+                if let Some(content) = msg.get("content") {
+                    if let Some(text) = content.get("text").and_then(|t| t.as_str()) {
+                        text_parts.push(text.to_string());
+                    }
+                }
+            }
+        }
+        // Scan tool name (for injection in tool names)
+        if let Some(name) = params.get("name").and_then(|n| n.as_str()) {
+            text_parts.push(name.to_string());
+        }
+    }
+
+    text_parts.join("\n")
+}
+
+/// Recursively extract string values from a JSON value, with depth bound.
+fn extract_strings_recursive(val: &Value, parts: &mut Vec<String>, depth: usize) {
+    const MAX_DEPTH: usize = 10;
+    if depth > MAX_DEPTH {
+        return;
+    }
+    match val {
+        Value::String(s) => parts.push(s.clone()),
+        Value::Array(arr) => {
+            for item in arr {
+                extract_strings_recursive(item, parts, depth + 1);
+            }
+        }
+        Value::Object(map) => {
+            for (_key, v) in map {
+                extract_strings_recursive(v, parts, depth + 1);
+            }
+        }
+        _ => {}
     }
 }
 

@@ -7,9 +7,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
+
+// maxResponseBodySize limits the maximum response body size to prevent OOM
+// from malicious or misconfigured servers.
+// SECURITY (FIND-R46-GO-001): Without this limit, io.ReadAll on an unbounded
+// response body allows a malicious server to cause OOM.
+const maxResponseBodySize = 10 * 1024 * 1024 // 10 MB
 
 const defaultTimeout = 5 * time.Second
 
@@ -91,9 +98,13 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}) 
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	// SECURITY (FIND-R46-GO-001): Limit response body size to prevent OOM DoS.
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodySize+1))
 	if err != nil {
 		return nil, resp.StatusCode, fmt.Errorf("vellaveto: read response: %w", err)
+	}
+	if int64(len(respBody)) > maxResponseBodySize {
+		return nil, resp.StatusCode, fmt.Errorf("vellaveto: response body exceeds %d byte limit", maxResponseBodySize)
 	}
 
 	return respBody, resp.StatusCode, nil
@@ -298,13 +309,15 @@ func (c *Client) ListPendingApprovals(ctx context.Context) ([]Approval, error) {
 }
 
 // ApproveApproval approves a pending approval by ID.
+// SECURITY (FIND-R46-GO-002): URL-encode the approval ID to prevent path injection.
 func (c *Client) ApproveApproval(ctx context.Context, id string) error {
-	return c.doJSON(ctx, http.MethodPost, "/api/approvals/"+id+"/approve", nil, nil)
+	return c.doJSON(ctx, http.MethodPost, "/api/approvals/"+url.PathEscape(id)+"/approve", nil, nil)
 }
 
 // DenyApproval denies a pending approval by ID.
+// SECURITY (FIND-R46-GO-002): URL-encode the approval ID to prevent path injection.
 func (c *Client) DenyApproval(ctx context.Context, id string) error {
-	return c.doJSON(ctx, http.MethodPost, "/api/approvals/"+id+"/deny", nil, nil)
+	return c.doJSON(ctx, http.MethodPost, "/api/approvals/"+url.PathEscape(id)+"/deny", nil, nil)
 }
 
 // Discover searches the tool discovery index for tools matching a query.

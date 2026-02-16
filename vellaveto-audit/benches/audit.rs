@@ -49,6 +49,7 @@ fn make_test_entry(idx: usize) -> AuditEntry {
         } else {
             None
         },
+        commitment: None,
     }
 }
 

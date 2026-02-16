@@ -411,6 +411,9 @@ mod server_auth {
             discovery_engine: None,
             discovery_audit: None,
             projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
         };
         (state, tmp)
     }
@@ -567,6 +570,9 @@ mod server_auth {
             discovery_engine: None,
             discovery_audit: None,
             projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
         };
         let app = routes::build_router(state);
 
@@ -1190,6 +1196,9 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
 
     let app = routes::build_router(state);
@@ -1312,6 +1321,9 @@ async fn finding_12_approval_creation_failure_denies_request() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
 
     let app = routes::build_router(state);

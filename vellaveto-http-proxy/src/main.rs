@@ -635,6 +635,7 @@ async fn main() -> Result<()> {
             max_message_size: args.ws_max_message_size,
             idle_timeout_secs: args.ws_idle_timeout,
             message_rate_limit: args.ws_message_rate_limit,
+            upstream_rate_limit: 500,
         }),
 
         // Protocol extensions (Phase 17.4) — disabled for now; wired up in

@@ -471,6 +471,25 @@ pub fn build_router(state: AppState) -> Router {
             "/api/projector/transform",
             post(super::projector::projector_transform),
         )
+        // ═══════════════════════════════════════════════════════════════════
+        // Phase 37: Zero-Knowledge Audit Trails
+        // ═══════════════════════════════════════════════════════════════════
+        .route(
+            "/api/zk-audit/status",
+            get(super::zk_audit::zk_audit_status),
+        )
+        .route(
+            "/api/zk-audit/proofs",
+            get(super::zk_audit::zk_audit_proofs),
+        )
+        .route(
+            "/api/zk-audit/verify",
+            post(super::zk_audit::zk_audit_verify),
+        )
+        .route(
+            "/api/zk-audit/commitments",
+            get(super::zk_audit::zk_audit_commitments),
+        )
         // SECURITY (R38-SRV-1): /metrics inside auth — exposes policy count
         // and pending approval count, which are security-sensitive (see R26-SRV-6).
         // SECURITY (R38-SRV-2): /metrics inside rate_limit — prevents scraper DoS.

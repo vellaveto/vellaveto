@@ -19,6 +19,7 @@ pub mod threat;
 pub mod transport;
 pub mod unicode;
 pub mod verification;
+pub mod zk_audit;
 
 #[cfg(test)]
 mod tests;
@@ -45,3 +46,4 @@ pub use task::*;
 pub use threat::*;
 pub use transport::*;
 pub use verification::*;
+pub use zk_audit::*;

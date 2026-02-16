@@ -70,9 +70,17 @@ class EvaluationResult:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "EvaluationResult":
-        """Create from API response dictionary."""
+        """Create from API response dictionary.
+
+        SECURITY (FIND-SDK-002): Unknown verdict strings are mapped to DENY
+        (fail-closed) instead of raising ValueError. A malicious or buggy server
+        returning an unrecognized verdict must not crash the client.
+        """
         verdict_str = data.get("verdict", "deny").lower()
-        verdict = Verdict(verdict_str)
+        try:
+            verdict = Verdict(verdict_str)
+        except ValueError:
+            verdict = Verdict.DENY
 
         return cls(
             verdict=verdict,

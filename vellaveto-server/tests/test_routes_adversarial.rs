@@ -89,6 +89,9 @@ fn make_state() -> (AppState, TempDir) {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     (state, tmp)
 }
@@ -151,6 +154,9 @@ fn make_empty_state() -> (AppState, TempDir) {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     (state, tmp)
 }
@@ -597,6 +603,9 @@ priority = 1
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -726,6 +735,9 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     let app = routes::build_router(state);
 
@@ -976,6 +988,9 @@ async fn test_find004_metrics_require_auth_true_blocks_unauthenticated() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     let app = routes::build_router(state);
 
@@ -1049,6 +1064,9 @@ async fn test_find004_metrics_require_auth_false_allows_unauthenticated() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     let app = routes::build_router(state);
 

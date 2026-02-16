@@ -115,6 +115,9 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     (state, tmp)
 }

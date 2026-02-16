@@ -34,6 +34,17 @@ opentelemetry = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
 opentelemetry-semantic-conventions = { workspace = true, optional = true }
+# Phase 37: Zero-Knowledge Audit Trails (Pedersen commitments)
+curve25519-dalek = { version = "4", optional = true, features = ["rand_core"] }
+# Phase 37.2: Groth16 batch proofs
+ark-groth16 = { version = "0.4", optional = true }
+ark-bn254 = { version = "0.4", optional = true }
+ark-relations = { version = "0.4", optional = true }
+ark-ff = { version = "0.4", optional = true }
+ark-r1cs-std = { version = "0.4", optional = true }
+ark-serialize = { version = "0.4", optional = true }
+ark-std = { version = "0.4", optional = true }
+ark-snark = { version = "0.4", optional = true }
 
 [features]
 default = []
@@ -41,6 +52,7 @@ siem-exporters = ["reqwest", "base64", "hostname"]
 observability-exporters = ["reqwest", "base64", "flate2"]
 archive = ["flate2"]
 otlp-exporter = ["opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp", "opentelemetry-semantic-conventions"]
+zk-audit = ["curve25519-dalek", "ark-groth16", "ark-bn254", "ark-relations", "ark-ff", "ark-r1cs-std", "ark-serialize", "ark-std", "ark-snark"]
 
 [dev-dependencies]
 tempfile = "3.0"

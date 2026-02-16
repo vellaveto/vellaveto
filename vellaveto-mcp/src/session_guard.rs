@@ -75,7 +75,16 @@ pub enum SessionEvent {
     /// Cooldown period elapsed (Locked→Suspicious).
     CooldownElapsed,
     /// Admin unlock (Locked→Active).
-    AdminUnlock,
+    ///
+    /// SECURITY (FIND-R46-007): The `admin_token` field MUST be verified against
+    /// a configured admin credential. Without this, any caller can unlock any
+    /// session, resetting violation counters to zero.
+    AdminUnlock {
+        /// Opaque admin credential token. The session guard verifies this
+        /// against the configured `admin_unlock_token` before allowing the
+        /// transition.
+        admin_token: String,
+    },
     /// Session timeout or explicit end.
     SessionEnd,
 }
@@ -152,6 +161,15 @@ pub struct SessionGuardConfig {
     /// Maximum number of tracked sessions (evict oldest when exceeded).
     #[serde(default = "default_max_sessions")]
     pub max_sessions: usize,
+    /// Admin unlock token. When set, `SessionEvent::AdminUnlock` events are
+    /// only honored if the provided `admin_token` matches this value
+    /// (constant-time comparison). When `None`, admin unlock is disabled
+    /// entirely (fail-closed).
+    ///
+    /// SECURITY (FIND-R46-007): Without this, any caller can unlock any
+    /// session, resetting violation counters to zero.
+    #[serde(default)]
+    pub admin_unlock_token: Option<String>,
 }
 
 fn default_suspicious_threshold() -> u32 {
@@ -178,6 +196,7 @@ impl Default for SessionGuardConfig {
             cooldown_secs: default_cooldown_secs(),
             max_session_duration_secs: default_max_session_duration(),
             max_sessions: default_max_sessions(),
+            admin_unlock_token: None,
         }
     }
 }
@@ -523,19 +542,36 @@ impl SessionGuard {
                     )
                 }
             }
-            // NOTE: AdminUnlock authorization is the caller's responsibility.
-            // The session guard state machine does not enforce admin auth —
-            // callers MUST verify admin credentials before sending this event.
-            (SessionState::Locked, SessionEvent::AdminUnlock) => {
-                // Reset counters on admin unlock to avoid immediate re-lock
-                ctx.anomaly_count = 0;
-                ctx.violation_count = 0;
-                (
-                    SessionState::Active,
-                    TransitionAction::AuditEvent {
-                        event_type: "session_admin_unlocked".to_string(),
-                    },
-                )
+            // SECURITY (FIND-R46-007): AdminUnlock requires a valid admin token.
+            // The token is verified with constant-time comparison to prevent
+            // timing side-channels. If no admin_unlock_token is configured,
+            // admin unlock is disabled entirely (fail-closed).
+            (SessionState::Locked, SessionEvent::AdminUnlock { ref admin_token }) => {
+                let authorized = match &self.config.admin_unlock_token {
+                    Some(expected) => {
+                        use subtle::ConstantTimeEq;
+                        expected.as_bytes().ct_eq(admin_token.as_bytes()).into()
+                    }
+                    None => false, // Fail-closed: no configured token → never authorize
+                };
+                if authorized {
+                    ctx.anomaly_count = 0;
+                    ctx.violation_count = 0;
+                    (
+                        SessionState::Active,
+                        TransitionAction::AuditEvent {
+                            event_type: "session_admin_unlocked".to_string(),
+                        },
+                    )
+                } else {
+                    (
+                        SessionState::Locked,
+                        TransitionAction::DenyAll {
+                            reason: "Admin unlock denied: invalid or missing admin token"
+                                .to_string(),
+                        },
+                    )
+                }
             }
             (SessionState::Locked, SessionEvent::SessionEnd) => (
                 SessionState::Ended,
@@ -869,7 +905,12 @@ mod tests {
 
     #[test]
     fn test_admin_unlock_to_active() {
-        let guard = guard_with_thresholds(1, 1);
+        let guard = SessionGuard::new(SessionGuardConfig {
+            suspicious_threshold: 1,
+            lock_threshold: 1,
+            admin_unlock_token: Some("correct-token".to_string()),
+            ..Default::default()
+        });
 
         guard
             .process_event("s1", SessionEvent::FirstAction)
@@ -883,9 +924,78 @@ mod tests {
         assert_eq!(guard.get_state("s1"), SessionState::Locked);
 
         let result = guard
-            .process_event("s1", SessionEvent::AdminUnlock)
+            .process_event(
+                "s1",
+                SessionEvent::AdminUnlock {
+                    admin_token: "correct-token".to_string(),
+                },
+            )
             .unwrap();
         assert_eq!(result.current, SessionState::Active);
+    }
+
+    // SECURITY (FIND-R46-007): Admin unlock must be rejected with wrong token
+    #[test]
+    fn test_admin_unlock_rejected_with_wrong_token() {
+        let guard = SessionGuard::new(SessionGuardConfig {
+            suspicious_threshold: 1,
+            lock_threshold: 1,
+            admin_unlock_token: Some("correct-token".to_string()),
+            ..Default::default()
+        });
+
+        guard
+            .process_event("s1", SessionEvent::FirstAction)
+            .unwrap();
+        guard
+            .process_event("s1", SessionEvent::RepeatedViolation { count: 2 })
+            .unwrap();
+        guard
+            .process_event("s1", SessionEvent::RepeatedViolation { count: 1 })
+            .unwrap();
+        assert_eq!(guard.get_state("s1"), SessionState::Locked);
+
+        // Wrong token → stays Locked
+        let result = guard
+            .process_event(
+                "s1",
+                SessionEvent::AdminUnlock {
+                    admin_token: "wrong-token".to_string(),
+                },
+            )
+            .unwrap();
+        assert_eq!(result.current, SessionState::Locked);
+        assert!(matches!(result.action, TransitionAction::DenyAll { .. }));
+    }
+
+    // SECURITY (FIND-R46-007): Admin unlock disabled when no token configured
+    #[test]
+    fn test_admin_unlock_rejected_when_no_token_configured() {
+        let guard = guard_with_thresholds(1, 1);
+        // Default config has admin_unlock_token: None
+
+        guard
+            .process_event("s1", SessionEvent::FirstAction)
+            .unwrap();
+        guard
+            .process_event("s1", SessionEvent::RepeatedViolation { count: 2 })
+            .unwrap();
+        guard
+            .process_event("s1", SessionEvent::RepeatedViolation { count: 1 })
+            .unwrap();
+        assert_eq!(guard.get_state("s1"), SessionState::Locked);
+
+        // Any token → stays Locked because no admin_unlock_token configured
+        let result = guard
+            .process_event(
+                "s1",
+                SessionEvent::AdminUnlock {
+                    admin_token: "any-token".to_string(),
+                },
+            )
+            .unwrap();
+        assert_eq!(result.current, SessionState::Locked);
+        assert!(matches!(result.action, TransitionAction::DenyAll { .. }));
     }
 
     #[test]

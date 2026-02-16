@@ -362,13 +362,20 @@ impl MerkleTree {
         Ok(siblings)
     }
 
-    /// Verify a Merkle inclusion proof.
+    /// Verify a Merkle inclusion proof against a trusted root.
     ///
     /// This is a static method — it requires no disk access, only the
-    /// leaf hash and the proof.
+    /// leaf hash, the proof, and a trusted root hash (hex-encoded) obtained
+    /// from the Merkle tree state or a signed checkpoint.
+    ///
+    /// SECURITY (FIND-R46-MRK-002): The `trusted_root` parameter MUST come
+    /// from a trusted source (e.g., the live Merkle tree or a signed checkpoint),
+    /// NOT from the proof itself. Comparing against the proof's own `root_hash`
+    /// would allow an attacker to forge self-consistent proofs.
     pub fn verify_proof(
         leaf_hash: [u8; 32],
         proof: &MerkleProof,
+        trusted_root: &str,
     ) -> Result<MerkleVerification, AuditError> {
         if proof.tree_size == 0 {
             return Ok(MerkleVerification {
@@ -411,8 +418,8 @@ impl MerkleTree {
             };
         }
 
-        let expected_root = hex::encode(current);
-        if expected_root == proof.root_hash {
+        let computed_root = hex::encode(current);
+        if computed_root == trusted_root {
             Ok(MerkleVerification {
                 valid: true,
                 failure_reason: None,
@@ -421,8 +428,8 @@ impl MerkleTree {
             Ok(MerkleVerification {
                 valid: false,
                 failure_reason: Some(format!(
-                    "Root mismatch: computed {} but proof claims {}",
-                    expected_root, proof.root_hash
+                    "Root mismatch: computed {} but trusted root is {}",
+                    computed_root, trusted_root
                 )),
             })
         }

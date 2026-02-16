@@ -35,6 +35,7 @@ pub mod limits;
 pub mod policy_rule;
 pub mod projector;
 pub mod tool_registry;
+pub mod zk_audit;
 
 #[cfg(test)]
 mod tests;
@@ -118,6 +119,7 @@ pub use limits::LimitsConfig;
 pub use policy_rule::PolicyRule;
 pub use projector::ProjectorConfig;
 pub use tool_registry::ToolRegistryConfig;
+pub use zk_audit::ZkAuditConfig;
 pub use transport::TransportConfig;
 
 use serde::{Deserialize, Serialize};
@@ -483,6 +485,15 @@ pub struct PolicyConfig {
     /// (Claude, OpenAI, DeepSeek, Qwen, Generic).
     #[serde(default)]
     pub projector: ProjectorConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 37: ZERO-KNOWLEDGE AUDIT TRAILS
+    // ═══════════════════════════════════════════════════
+    /// Zero-Knowledge audit trail configuration.
+    /// Enables Pedersen commitments and optional Groth16 batch proofs
+    /// for privacy-preserving audit verification.
+    #[serde(default)]
+    pub zk_audit: ZkAuditConfig,
 }
 
 impl PolicyConfig {

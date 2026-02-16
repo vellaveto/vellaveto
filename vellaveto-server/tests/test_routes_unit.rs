@@ -167,6 +167,9 @@ fn test_state() -> (AppState, TempDir) {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     (state, tmp)
 }
@@ -549,6 +552,9 @@ async fn health_not_rate_limited() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
 
     // Rapid /health requests must all succeed despite strict rate limit
@@ -632,6 +638,9 @@ async fn rate_limit_429_includes_retry_after() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -809,6 +818,9 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -934,6 +946,9 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1032,6 +1047,9 @@ async fn per_ip_health_exempt_from_rate_limit() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
 
     // Multiple health checks from same IP should all succeed
@@ -1122,6 +1140,9 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1247,6 +1268,9 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1356,6 +1380,9 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1464,6 +1491,9 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1570,6 +1600,9 @@ async fn per_ip_rate_limit_429_response_body_format() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1687,6 +1720,9 @@ async fn health_returns_degraded_when_cluster_unhealthy() {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
 
     let app = routes::build_router(state);

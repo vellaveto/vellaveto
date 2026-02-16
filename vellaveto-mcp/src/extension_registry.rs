@@ -95,12 +95,51 @@ impl ExtensionRegistry {
             )));
         }
 
-        // Check signature requirement
-        if self.require_signatures && descriptor.signature.is_none() {
-            return Err(ExtensionError::Validation(format!(
-                "Extension '{}' requires a signature but none provided",
-                descriptor.id
-            )));
+        // SECURITY (FIND-R46-EXT-001): Verify extension signatures when required.
+        // Previously, only checked for signature *presence* but never verified it,
+        // allowing any arbitrary signature string to pass.
+        if self.require_signatures {
+            let sig_hex = match &descriptor.signature {
+                Some(s) => s,
+                None => {
+                    return Err(ExtensionError::Validation(format!(
+                        "Extension '{}' requires a signature but none provided",
+                        descriptor.id
+                    )));
+                }
+            };
+            let pub_key_hex = match &descriptor.public_key {
+                Some(k) => k,
+                None => {
+                    return Err(ExtensionError::Validation(format!(
+                        "Extension '{}' requires a public_key for signature verification",
+                        descriptor.id
+                    )));
+                }
+            };
+
+            // Verify the public key is in the trusted keys list
+            if !self.trusted_keys.iter().any(|k| k == pub_key_hex) {
+                return Err(ExtensionError::Validation(format!(
+                    "Extension '{}' signed by untrusted key: {}",
+                    descriptor.id,
+                    if pub_key_hex.len() > 16 {
+                        &pub_key_hex[..16]
+                    } else {
+                        pub_key_hex
+                    }
+                )));
+            }
+
+            // Verify the Ed25519 signature over the canonical descriptor
+            // (with signature and public_key fields set to None)
+            let verify_result = verify_extension_signature(&descriptor, sig_hex, pub_key_hex);
+            if let Err(e) = verify_result {
+                return Err(ExtensionError::Validation(format!(
+                    "Extension '{}' signature verification failed: {}",
+                    descriptor.id, e
+                )));
+            }
         }
 
         // Check max extensions
@@ -275,6 +314,58 @@ impl ExtensionRegistry {
     fn is_blocked(&self, id: &str) -> bool {
         self.blocked_patterns.iter().any(|p| glob_match(p, id))
     }
+}
+
+/// Verify an Ed25519 signature over the canonical extension descriptor.
+///
+/// SECURITY (FIND-R46-EXT-001): The signed content is the canonical JSON of the
+/// descriptor with `signature` and `public_key` fields set to `None`.
+fn verify_extension_signature(
+    descriptor: &ExtensionDescriptor,
+    signature_hex: &str,
+    public_key_hex: &str,
+) -> Result<(), String> {
+    use ed25519_dalek::{Signature, VerifyingKey};
+
+    // Decode the public key
+    let pub_key_bytes = hex::decode(public_key_hex)
+        .map_err(|e| format!("invalid public key hex: {}", e))?;
+    if pub_key_bytes.len() != 32 {
+        return Err(format!(
+            "public key has wrong length: {} (expected 32)",
+            pub_key_bytes.len()
+        ));
+    }
+    let mut pk_arr = [0u8; 32];
+    pk_arr.copy_from_slice(&pub_key_bytes);
+    let verifying_key = VerifyingKey::from_bytes(&pk_arr)
+        .map_err(|e| format!("invalid Ed25519 public key: {}", e))?;
+
+    // Decode the signature
+    let sig_bytes = hex::decode(signature_hex)
+        .map_err(|e| format!("invalid signature hex: {}", e))?;
+    if sig_bytes.len() != 64 {
+        return Err(format!(
+            "signature has wrong length: {} (expected 64)",
+            sig_bytes.len()
+        ));
+    }
+    let mut sig_arr = [0u8; 64];
+    sig_arr.copy_from_slice(&sig_bytes);
+    let signature = Signature::from_bytes(&sig_arr);
+
+    // Build canonical content: descriptor with signature and public_key removed
+    let mut canonical = descriptor.clone();
+    canonical.signature = None;
+    canonical.public_key = None;
+    let canonical_json = serde_json::to_vec(&canonical)
+        .map_err(|e| format!("failed to serialize canonical descriptor: {}", e))?;
+
+    // Verify
+    use ed25519_dalek::Verifier;
+    verifying_key
+        .verify(&canonical_json, &signature)
+        .map_err(|_| "Ed25519 signature verification failed".to_string())
 }
 
 /// Simple glob matching supporting `*` (any characters) and `?` (single character).
@@ -464,6 +555,116 @@ mod tests {
         let handler = TestHandler::new("x-unsigned", vec![]);
         let result = registry.register(Box::new(handler));
         assert!(matches!(result, Err(ExtensionError::Validation(_))));
+    }
+
+    // SECURITY (FIND-R46-EXT-001): Extension signature verification tests
+
+    #[test]
+    fn test_signature_required_but_no_public_key() {
+        let registry = ExtensionRegistry::new(
+            vec![],
+            vec![],
+            true,
+            vec![],
+            ExtensionResourceLimits::default(),
+        );
+        let mut handler = TestHandler::new("x-nokey", vec![]);
+        handler.descriptor.signature = Some("deadbeef".repeat(8));
+        // No public_key → should fail
+        let result = registry.register(Box::new(handler));
+        assert!(matches!(result, Err(ExtensionError::Validation(ref msg)) if msg.contains("public_key")));
+    }
+
+    #[test]
+    fn test_signature_required_untrusted_key() {
+        let registry = ExtensionRegistry::new(
+            vec![],
+            vec![],
+            true,
+            vec!["aaaa".repeat(16)], // trusted key that doesn't match
+            ExtensionResourceLimits::default(),
+        );
+        let mut handler = TestHandler::new("x-untrusted", vec![]);
+        handler.descriptor.signature = Some("deadbeef".repeat(8));
+        handler.descriptor.public_key = Some("bbbb".repeat(16)); // not in trusted list
+        let result = registry.register(Box::new(handler));
+        assert!(matches!(result, Err(ExtensionError::Validation(ref msg)) if msg.contains("untrusted")));
+    }
+
+    #[test]
+    fn test_signature_required_invalid_signature() {
+        use ed25519_dalek::SigningKey;
+        use rand::rngs::OsRng;
+
+        let signing_key = SigningKey::generate(&mut OsRng);
+        let pub_key_hex = hex::encode(signing_key.verifying_key().as_bytes());
+
+        let registry = ExtensionRegistry::new(
+            vec![],
+            vec![],
+            true,
+            vec![pub_key_hex.clone()],
+            ExtensionResourceLimits::default(),
+        );
+        let mut handler = TestHandler::new("x-badsig", vec![]);
+        handler.descriptor.signature = Some("00".repeat(64)); // invalid signature
+        handler.descriptor.public_key = Some(pub_key_hex);
+        let result = registry.register(Box::new(handler));
+        assert!(matches!(result, Err(ExtensionError::Validation(ref msg)) if msg.contains("verification failed")));
+    }
+
+    #[test]
+    fn test_signature_required_valid_signature() {
+        use ed25519_dalek::{Signer, SigningKey};
+        use rand::rngs::OsRng;
+
+        let signing_key = SigningKey::generate(&mut OsRng);
+        let pub_key_hex = hex::encode(signing_key.verifying_key().as_bytes());
+
+        // Build descriptor, sign the canonical form
+        let mut descriptor = ExtensionDescriptor {
+            id: "x-signed".to_string(),
+            name: "Signed Extension".to_string(),
+            version: "1.0.0".to_string(),
+            capabilities: vec![],
+            methods: vec![],
+            signature: None,
+            public_key: None,
+        };
+        let canonical_json = serde_json::to_vec(&descriptor).unwrap();
+        let sig = signing_key.sign(&canonical_json);
+        let sig_hex = hex::encode(sig.to_bytes());
+
+        descriptor.signature = Some(sig_hex);
+        descriptor.public_key = Some(pub_key_hex.clone());
+
+        let registry = ExtensionRegistry::new(
+            vec![],
+            vec![],
+            true,
+            vec![pub_key_hex],
+            ExtensionResourceLimits::default(),
+        );
+
+        struct SignedHandler {
+            descriptor: ExtensionDescriptor,
+        }
+        impl ExtensionHandler for SignedHandler {
+            fn on_load(&self, _: &ExtensionDescriptor) -> Result<(), ExtensionError> {
+                Ok(())
+            }
+            fn on_unload(&self, _: &str) {}
+            fn handle_method(&self, method: &str, _: &Value) -> Result<Value, ExtensionError> {
+                Ok(json!({"handled": method}))
+            }
+            fn descriptor(&self) -> &ExtensionDescriptor {
+                &self.descriptor
+            }
+        }
+
+        let handler = SignedHandler { descriptor };
+        let result = registry.register(Box::new(handler));
+        assert!(result.is_ok(), "Valid signature should be accepted: {:?}", result.err());
     }
 
     // --- glob_match tests ---

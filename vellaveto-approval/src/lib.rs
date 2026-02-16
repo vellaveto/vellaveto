@@ -513,6 +513,10 @@ impl ApprovalStore {
             // SECURITY (R38-SUP-3): Use full Unicode case folding instead of
             // ASCII-only `eq_ignore_ascii_case`. Non-ASCII letters like Turkish
             // İ (U+0130) must case-fold correctly to detect self-denial.
+            // SECURITY (FIND-R46-001): Apply full normalization pipeline matching
+            // approve() — NFKC + Unicode case folding + homoglyph normalization.
+            // Previously deny() was missing the homoglyph step, allowing an attacker
+            // to deny someone else's approval using a Cyrillic/Greek homoglyph.
             let requester_normalized: String = requester_base.nfkc().collect();
             let denier_normalized: String = denier_base.nfkc().collect();
             let req_lower: String = requester_normalized
@@ -523,7 +527,10 @@ impl ApprovalStore {
                 .chars()
                 .flat_map(char::to_lowercase)
                 .collect();
-            if !req_lower.is_empty() && req_lower != "anonymous" && req_lower == den_lower {
+            // Apply homoglyph normalization to catch Cyrillic/Greek/etc spoofing
+            let req_final = normalize_homoglyphs(&req_lower);
+            let den_final = normalize_homoglyphs(&den_lower);
+            if !req_final.is_empty() && req_final != "anonymous" && req_final == den_final {
                 return Err(ApprovalError::Validation(format!(
                     "Self-denial denied: requester '{requester_base}' cannot deny their own request"
                 )));

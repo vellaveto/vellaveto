@@ -708,6 +708,7 @@ mod tests {
             sequence: 1,
             entry_hash: None,
             prev_hash: None,
+            commitment: None,
         }
     }
 

@@ -29,6 +29,11 @@ pub struct AuditEntry {
     pub entry_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prev_hash: Option<String>,
+    /// Pedersen commitment to the entry hash (Phase 37: ZK Audit Trails).
+    /// Present only when the `zk-audit` feature is enabled and commitments
+    /// are configured. Hex-encoded compressed Ristretto point.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commitment: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

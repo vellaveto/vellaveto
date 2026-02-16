@@ -1,0 +1,80 @@
+//! Zero-Knowledge Audit Trail types (Phase 37).
+//!
+//! Defines the public types for Pedersen commitments and ZK batch proofs.
+//! These types are serialized into audit entries and API responses.
+
+use serde::{Deserialize, Serialize};
+
+/// A Pedersen commitment to an audit entry hash.
+///
+/// The commitment binds the entry contents without revealing them:
+/// `C = entry_hash * G + blinding * H`
+///
+/// The `blinding_hint` is the hex-encoded blinding factor, stored
+/// for the commitment holder only (not shared with verifiers).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PedersenCommitment {
+    /// Hex-encoded compressed Ristretto point (64 hex chars = 32 bytes).
+    pub commitment: String,
+    /// Hex-encoded blinding factor (64 hex chars = 32 bytes).
+    /// For the holder only — not shared with external verifiers.
+    pub blinding_hint: String,
+}
+
+/// A batch ZK proof covering a range of audit entries.
+///
+/// Proves that a sequence of audit entries forms a valid hash chain
+/// and that their Pedersen commitments match, without revealing the
+/// entry contents.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZkBatchProof {
+    /// Hex-encoded Groth16 proof bytes.
+    pub proof: String,
+    /// Unique batch identifier (UUID).
+    pub batch_id: String,
+    /// Inclusive range of entry sequence numbers covered by this proof.
+    pub entry_range: (u64, u64),
+    /// Hex-encoded Merkle root at the end of the batch.
+    pub merkle_root: String,
+    /// Hex-encoded prev_hash of the first entry (public input).
+    pub first_prev_hash: String,
+    /// Hex-encoded entry_hash of the last entry (public input).
+    pub final_entry_hash: String,
+    /// ISO 8601 timestamp when the proof was created.
+    pub created_at: String,
+    /// Number of entries in the batch.
+    pub entry_count: usize,
+}
+
+/// Result of verifying a ZK batch proof.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZkVerifyResult {
+    /// Whether the proof is valid.
+    pub valid: bool,
+    /// The batch ID that was verified.
+    pub batch_id: String,
+    /// The entry range that was verified.
+    pub entry_range: (u64, u64),
+    /// ISO 8601 timestamp when verification was performed.
+    pub verified_at: String,
+    /// Error message if verification failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Status of the ZK audit scheduler.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZkSchedulerStatus {
+    /// Whether the batch prover is active.
+    pub active: bool,
+    /// Number of pending witnesses awaiting batch proof.
+    pub pending_witnesses: usize,
+    /// Number of completed batch proofs.
+    pub completed_proofs: usize,
+    /// Sequence number of the last proved entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_proved_sequence: Option<u64>,
+    /// ISO 8601 timestamp of the last batch proof.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_proof_at: Option<String>,
+}

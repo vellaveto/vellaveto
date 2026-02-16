@@ -165,9 +165,15 @@ class VellavetoClient:
                 return response.json()
 
         except Exception as e:
+            # SECURITY (FIND-SDK-001): Sanitize error messages to prevent API key
+            # leakage. The requests/httpx libraries may include the Authorization
+            # header in exception messages on connection failures.
+            error_msg = str(e)
+            if self.api_key and self.api_key in error_msg:
+                error_msg = error_msg.replace(self.api_key, "[REDACTED]")
             if "Connection" in str(type(e).__name__):
-                raise ConnectionError(f"Failed to connect to Vellaveto at {url}: {e}")
-            raise VellavetoError(f"Request failed: {e}")
+                raise ConnectionError(f"Failed to connect to Vellaveto at {url}: {error_msg}")
+            raise VellavetoError(f"Request failed: {error_msg}")
 
     def evaluate(
         self,
@@ -413,6 +419,68 @@ class VellavetoClient:
         }
         return self._request("POST", "/api/projector/transform", json_data=payload)
 
+    # ── ZK Audit (Phase 37) ────────────────────────────────────────
+
+    def zk_status(self) -> Dict[str, Any]:
+        """
+        Get the ZK audit scheduler status.
+
+        Returns:
+            Dictionary with active, pending_witnesses, completed_proofs,
+            last_proved_sequence, and last_proof_at
+        """
+        return self._request("GET", "/api/zk-audit/status")
+
+    def zk_proofs(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """
+        List stored ZK batch proofs with pagination.
+
+        Args:
+            limit: Maximum number of proofs to return (default: 20, max: 100)
+            offset: Offset for pagination (default: 0)
+
+        Returns:
+            Dictionary with proofs list, total count, offset, and limit
+        """
+        params: Dict[str, Any] = {"limit": limit, "offset": offset}
+        return self._request("GET", "/api/zk-audit/proofs", params=params)
+
+    def zk_verify(self, batch_id: str) -> Dict[str, Any]:
+        """
+        Verify a stored ZK batch proof.
+
+        Args:
+            batch_id: The batch identifier to verify
+
+        Returns:
+            Dictionary with valid, batch_id, entry_range, verified_at, and error
+        """
+        return self._request(
+            "POST", "/api/zk-audit/verify", json_data={"batch_id": batch_id}
+        )
+
+    def zk_commitments(
+        self,
+        from_seq: int,
+        to_seq: int,
+    ) -> Dict[str, Any]:
+        """
+        List Pedersen commitments for audit entries in a sequence range.
+
+        Args:
+            from_seq: Start of the entry range (sequence number)
+            to_seq: End of the entry range (sequence number, inclusive)
+
+        Returns:
+            Dictionary with commitments list, total count, and range
+        """
+        params = {"from": from_seq, "to": to_seq}
+        return self._request("GET", "/api/zk-audit/commitments", params=params)
+
     def close(self):
         """Close the client and release resources."""
         if self._use_httpx and hasattr(self, "_client"):
@@ -498,9 +566,13 @@ class AsyncVellavetoClient:
             response.raise_for_status()
             return response.json()
         except Exception as e:
+            # SECURITY (FIND-SDK-001): Sanitize error messages in async client too.
+            error_msg = str(e)
+            if self.api_key and self.api_key in error_msg:
+                error_msg = error_msg.replace(self.api_key, "[REDACTED]")
             if "Connection" in str(type(e).__name__):
-                raise ConnectionError(f"Failed to connect to Vellaveto at {url}: {e}")
-            raise VellavetoError(f"Request failed: {e}")
+                raise ConnectionError(f"Failed to connect to Vellaveto at {url}: {error_msg}")
+            raise VellavetoError(f"Request failed: {error_msg}")
 
     async def evaluate(
         self,
@@ -639,4 +711,36 @@ class AsyncVellavetoClient:
         }
         return await self._request(
             "POST", "/api/projector/transform", json_data=payload
+        )
+
+    # ── ZK Audit (Phase 37) ────────────────────────────────────────
+
+    async def zk_status(self) -> Dict[str, Any]:
+        """Get the ZK audit scheduler status (async)."""
+        return await self._request("GET", "/api/zk-audit/status")
+
+    async def zk_proofs(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """List stored ZK batch proofs with pagination (async)."""
+        params: Dict[str, Any] = {"limit": limit, "offset": offset}
+        return await self._request("GET", "/api/zk-audit/proofs", params=params)
+
+    async def zk_verify(self, batch_id: str) -> Dict[str, Any]:
+        """Verify a stored ZK batch proof (async)."""
+        return await self._request(
+            "POST", "/api/zk-audit/verify", json_data={"batch_id": batch_id}
+        )
+
+    async def zk_commitments(
+        self,
+        from_seq: int,
+        to_seq: int,
+    ) -> Dict[str, Any]:
+        """List Pedersen commitments for entries in a sequence range (async)."""
+        params = {"from": from_seq, "to": to_seq}
+        return await self._request(
+            "GET", "/api/zk-audit/commitments", params=params
         )

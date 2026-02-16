@@ -90,6 +90,9 @@ fn make_state() -> (AppState, TempDir) {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     (state, tmp)
 }
@@ -152,6 +155,9 @@ fn make_empty_state() -> (AppState, TempDir) {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     (state, tmp)
 }
@@ -1262,6 +1268,9 @@ priority = 1
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     let app = routes::build_router(state.clone());
 
@@ -1389,6 +1398,9 @@ fn make_approval_state() -> (AppState, TempDir) {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     (state, tmp)
 }
@@ -1877,6 +1889,9 @@ fn make_authed_state() -> (AppState, TempDir) {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     (state, tmp)
 }
@@ -2389,6 +2404,9 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     (state, tmp)
 }
@@ -3102,6 +3120,9 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         discovery_engine: None,
         discovery_audit: None,
         projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
     };
     (state, tmp)
 }
