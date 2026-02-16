@@ -28,6 +28,6 @@ flate2 = "1.1"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 sha2 = "0.10"
 hex = "0.4"
-rand = "0.8"
+rand = "0.9"
 chrono = { workspace = true }
 base64 = "0.22"
