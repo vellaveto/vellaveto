@@ -2632,11 +2632,18 @@ pub(crate) fn extract_host_from_url(url: &str) -> Option<&str> {
         .find("://")
         .map(|i| &url[i + 3..])
         .unwrap_or(url);
-    // Strip path and query to get authority component.
-    let authority = after_scheme
-        .split('/')
+    // SECURITY (FIND-R44-004): Strip fragment before authority parsing.
+    // Fragments (#...) are not part of the authority per RFC 3986 but
+    // if present they can cause discrepancy between this parser and reqwest.
+    let no_fragment = after_scheme
+        .split('#')
         .next()
         .unwrap_or(after_scheme);
+    // Strip path and query to get authority component.
+    let authority = no_fragment
+        .split('/')
+        .next()
+        .unwrap_or(no_fragment);
     // SECURITY (FIND-R42-003): Strip userinfo (user:pass@host) to prevent
     // SSRF via @-smuggling (e.g., "http://safe@evil/path").
     // SECURITY (FIND-R43-023): Also handle URL-encoded @ (%40) in authority

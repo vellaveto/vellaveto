@@ -12,7 +12,7 @@ pub fn to_markdown(result: &BenchmarkResult) -> String {
     let mut md = String::new();
 
     // Header
-    md.push_str(&format!("# MCPSEC Benchmark Report\n\n"));
+    md.push_str("# MCPSEC Benchmark Report\n\n");
     md.push_str(&format!("**Framework:** {} v{}\n\n", result.framework, result.version));
     md.push_str(&format!("**Gateway:** {}\n\n", result.gateway));
     md.push_str(&format!("**Timestamp:** {}\n\n", result.timestamp));

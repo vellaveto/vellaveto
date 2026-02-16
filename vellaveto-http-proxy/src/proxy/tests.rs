@@ -1979,3 +1979,27 @@ fn test_extract_host_from_url_userinfo_and_ipv6() {
         Some("::1")
     );
 }
+
+// ═══════════════════════════════════════════════════════
+// Adversarial audit tests (FIND-R44-004)
+// ═══════════════════════════════════════════════════════
+
+/// FIND-R44-004: Fragment `#` stripped before authority parsing.
+#[test]
+fn test_extract_host_from_url_fragment_stripped() {
+    // Fragment with @-smuggling: should extract "evil.com" (not "safe.com").
+    assert_eq!(
+        extract_host_from_url("http://evil.com#@safe.com"),
+        Some("evil.com")
+    );
+    // Fragment without @: should extract host correctly.
+    assert_eq!(
+        extract_host_from_url("http://example.com#section1"),
+        Some("example.com")
+    );
+    // Fragment with path: authority is before fragment.
+    assert_eq!(
+        extract_host_from_url("http://host.local:8080/path#frag"),
+        Some("host.local")
+    );
+}

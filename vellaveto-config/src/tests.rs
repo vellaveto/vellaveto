@@ -2845,7 +2845,8 @@ fn test_transport_config_overrides_null_byte_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("null byte"), "got: {}", err);
+    // FIND-R44-007: Now caught by broader ASCII control character check.
+    assert!(err.contains("control characters"), "got: {}", err);
 }
 
 #[test]
@@ -4183,4 +4184,90 @@ fn test_r43_005_unique_tool_prefixes_pass() {
         ..Default::default()
     };
     assert!(config.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════
+// ADVERSARIAL AUDIT ROUND 44 TESTS
+// ═══════════════════════════════════════════════════
+
+/// FIND-R44-005: stdio_command with null byte rejected.
+#[test]
+fn test_stdio_command_null_byte_rejected() {
+    let config = crate::TransportConfig {
+        stdio_command: Some("/usr/bin/safe\0_path".to_string()),
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("null byte"), "got: {}", err);
+}
+
+/// FIND-R44-006: Backend URL with mixed-case scheme accepted.
+#[test]
+fn test_gateway_backend_url_mixed_case_scheme() {
+    let config = crate::GatewayConfig {
+        enabled: true,
+        backends: vec![crate::BackendConfig {
+            id: "test".to_string(),
+            url: "HTTP://localhost:8080/mcp".to_string(),
+            tool_prefixes: vec![],
+            weight: 100,
+            transport_urls: std::collections::HashMap::new(),
+        }],
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok(), "mixed-case HTTP should be accepted");
+}
+
+/// FIND-R44-006: transport_urls with mixed-case WS scheme accepted.
+#[test]
+fn test_gateway_transport_url_mixed_case_ws() {
+    let mut transport_urls = std::collections::HashMap::new();
+    transport_urls.insert(
+        vellaveto_types::TransportProtocol::WebSocket,
+        "WS://localhost:8080/ws".to_string(),
+    );
+    let config = crate::GatewayConfig {
+        enabled: true,
+        backends: vec![crate::BackendConfig {
+            id: "test".to_string(),
+            url: "http://localhost:8080/mcp".to_string(),
+            tool_prefixes: vec![],
+            weight: 100,
+            transport_urls,
+        }],
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok(), "mixed-case WS should be accepted");
+}
+
+/// FIND-R44-007: Glob key with ASCII control characters rejected.
+#[test]
+fn test_transport_overrides_control_chars_rejected() {
+    let mut overrides = std::collections::HashMap::new();
+    overrides.insert(
+        "tool_\x1B[2Jclear".to_string(), // ANSI escape code
+        vec![vellaveto_types::TransportProtocol::Http],
+    );
+    let config = crate::TransportConfig {
+        transport_overrides: overrides,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("control characters"), "got: {}", err);
+}
+
+/// FIND-R44-007: Glob key with DEL (0x7F) rejected.
+#[test]
+fn test_transport_overrides_del_char_rejected() {
+    let mut overrides = std::collections::HashMap::new();
+    overrides.insert(
+        "tool_\x7F".to_string(),
+        vec![vellaveto_types::TransportProtocol::Http],
+    );
+    let config = crate::TransportConfig {
+        transport_overrides: overrides,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("control characters"), "got: {}", err);
 }

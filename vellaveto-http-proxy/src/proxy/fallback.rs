@@ -138,8 +138,13 @@ pub async fn forward_with_fallback(
                         }
                     }
                 }
+                // SECURITY (FIND-R44-003): Oversize responses are deterministic —
+                // retrying yields the same result, wasting bandwidth (11×16MB).
                 if body_too_large {
-                    continue;
+                    return Err(FallbackError::AllFailed {
+                        attempts: attempt + 1,
+                        last_error,
+                    });
                 }
 
                 return Ok(FallbackResult {

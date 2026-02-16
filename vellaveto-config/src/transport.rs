@@ -266,10 +266,13 @@ impl TransportConfig {
                     "transport.transport_overrides contains empty key".to_string(),
                 );
             }
-            if glob.contains('\0') {
+            // SECURITY (FIND-R44-007): Reject all ASCII control characters
+            // (including null bytes). Control chars in glob keys can cause log
+            // injection (ANSI escape codes) and are never valid in tool names.
+            if glob.bytes().any(|b| b < 0x20 || b == 0x7F) {
                 return Err(format!(
-                    "transport.transport_overrides[\"{}\"] contains null byte",
-                    glob
+                    "transport.transport_overrides key contains control characters (key: {:?})",
+                    &glob[..glob.len().min(32)]
                 ));
             }
             if protos.is_empty() {
@@ -303,6 +306,14 @@ impl TransportConfig {
         if let Some(cmd) = &self.stdio_command {
             let cmd_trimmed = cmd.trim();
             if !cmd_trimmed.is_empty() {
+                // SECURITY (FIND-R44-005): Reject null bytes in stdio_command.
+                // Null bytes cause CString truncation in Command::new(),
+                // executing a different path than what validation inspected.
+                if cmd_trimmed.contains('\0') {
+                    return Err(
+                        "transport.stdio_command contains null byte".to_string(),
+                    );
+                }
                 if !cmd_trimmed.starts_with('/') {
                     return Err(
                         "transport.stdio_command must be an absolute path (starts with '/')"

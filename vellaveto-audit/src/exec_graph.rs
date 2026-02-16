@@ -634,18 +634,38 @@ impl ExecutionGraphStore {
 ///
 /// Prevents injection of DOT language constructs via user-controlled node
 /// labels, IDs, and edge endpoints.
+///
+/// SECURITY (FIND-R43-031): Escapes pipe (DOT record separator) and strips null bytes.
+/// SECURITY (FIND-R43-001): Strips Unicode bidirectional override/isolate characters
+/// (U+200E-200F, U+202A-202E, U+2066-2069) that render invisibly but can visually
+/// spoof tool/function names in SVG/PDF graph output.
 fn escape_dot(s: &str) -> String {
-    // SECURITY (FIND-R43-031): Also escape pipe (DOT record separator) and strip null bytes
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('{', "\\{")
-        .replace('}', "\\}")
-        .replace('<', "\\<")
-        .replace('>', "\\>")
-        .replace('|', "\\|")
-        .replace('\0', "")
+    let mut result = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\\' => result.push_str("\\\\"),
+            '"' => result.push_str("\\\""),
+            '\n' => result.push_str("\\n"),
+            '\r' => result.push_str("\\r"),
+            '{' => result.push_str("\\{"),
+            '}' => result.push_str("\\}"),
+            '<' => result.push_str("\\<"),
+            '>' => result.push_str("\\>"),
+            '|' => result.push_str("\\|"),
+            // FIND-R43-031: Strip null bytes — they cause Graphviz to crash/truncate.
+            '\0' => {}
+            // FIND-R43-001: Strip Unicode bidi override/mark/isolate characters.
+            // These render invisibly in SVG/PDF output but alter text direction,
+            // enabling visual spoofing attacks where a malicious tool name appears
+            // as a different name in the rendered execution graph.
+            '\u{200E}' | '\u{200F}'  // LRM, RLM
+            | '\u{202A}' | '\u{202B}' | '\u{202C}' | '\u{202D}' | '\u{202E}'  // LRE, RLE, PDF, LRO, RLO
+            | '\u{2066}' | '\u{2067}' | '\u{2068}' | '\u{2069}'  // LRI, RLI, FSI, PDI
+            => {}
+            other => result.push(other),
+        }
+    }
+    result
 }
 
 /// Get current Unix timestamp in milliseconds.
@@ -929,5 +949,122 @@ mod tests {
         assert_eq!(escape_dot("a\nb"), "a\\nb");
         assert_eq!(escape_dot("{test}"), "\\{test\\}");
         assert_eq!(escape_dot("<html>"), "\\<html\\>");
+    }
+
+    /// FIND-R43-031: escape_dot strips null bytes that crash Graphviz.
+    #[test]
+    fn test_escape_dot_null_byte_stripped() {
+        let result = escape_dot("before\0after");
+        assert_eq!(result, "beforeafter");
+        assert!(!result.contains('\0'));
+    }
+
+    /// FIND-R43-031: escape_dot escapes pipe characters (DOT record separator).
+    #[test]
+    fn test_escape_dot_pipe_escaped() {
+        assert_eq!(escape_dot("field1|field2"), "field1\\|field2");
+        assert_eq!(escape_dot("|"), "\\|");
+    }
+
+    /// FIND-R43-001: escape_dot strips Unicode bidi override characters.
+    #[test]
+    fn test_escape_dot_bidi_override_stripped() {
+        // U+202E RIGHT-TO-LEFT OVERRIDE — can reverse displayed text
+        let input = "normal\u{202E}desrever";
+        let result = escape_dot(input);
+        assert_eq!(result, "normaldesrever");
+        assert!(!result.contains('\u{202E}'));
+
+        // U+200E LEFT-TO-RIGHT MARK
+        let result = escape_dot("a\u{200E}b");
+        assert_eq!(result, "ab");
+
+        // U+200F RIGHT-TO-LEFT MARK
+        let result = escape_dot("a\u{200F}b");
+        assert_eq!(result, "ab");
+
+        // U+202A LEFT-TO-RIGHT EMBEDDING
+        let result = escape_dot("a\u{202A}b");
+        assert_eq!(result, "ab");
+
+        // U+202B RIGHT-TO-LEFT EMBEDDING
+        let result = escape_dot("a\u{202B}b");
+        assert_eq!(result, "ab");
+
+        // U+202C POP DIRECTIONAL FORMATTING
+        let result = escape_dot("a\u{202C}b");
+        assert_eq!(result, "ab");
+
+        // U+202D LEFT-TO-RIGHT OVERRIDE
+        let result = escape_dot("a\u{202D}b");
+        assert_eq!(result, "ab");
+
+        // U+2066 LEFT-TO-RIGHT ISOLATE
+        let result = escape_dot("a\u{2066}b");
+        assert_eq!(result, "ab");
+
+        // U+2067 RIGHT-TO-LEFT ISOLATE
+        let result = escape_dot("a\u{2067}b");
+        assert_eq!(result, "ab");
+
+        // U+2068 FIRST STRONG ISOLATE
+        let result = escape_dot("a\u{2068}b");
+        assert_eq!(result, "ab");
+
+        // U+2069 POP DIRECTIONAL ISOLATE
+        let result = escape_dot("a\u{2069}b");
+        assert_eq!(result, "ab");
+    }
+
+    /// FIND-R43-001: Combined attack — bidi + null + quotes in single input.
+    #[test]
+    fn test_escape_dot_combined_adversarial_input() {
+        // Attacker tries: bidi override to visually swap tool name,
+        // null byte to truncate, and quote to break out of DOT string.
+        let attack = "safe_tool\u{202E}\0\"]; malicious [label=\"pwned";
+        let result = escape_dot(attack);
+        // Bidi stripped, null stripped, quotes escaped
+        assert!(!result.contains('\u{202E}'));
+        assert!(!result.contains('\0'));
+        // Raw unescaped quotes must not appear — only escaped \"
+        // Check there are no unescaped quotes by verifying all " are preceded by \
+        for (i, ch) in result.char_indices() {
+            if ch == '"' {
+                assert!(
+                    i > 0 && result.as_bytes()[i - 1] == b'\\',
+                    "Unescaped quote at position {i} in: {result}"
+                );
+            }
+        }
+        assert_eq!(
+            result,
+            "safe_tool\\\"]; malicious [label=\\\"pwned"
+        );
+    }
+
+    /// FIND-R43-001: DOT output with bidi characters renders without spoofing.
+    #[test]
+    fn test_to_dot_bidi_tool_name_sanitized() {
+        let mut graph = ExecutionGraph::new("session1".to_string());
+
+        // Tool name with bidi RTL override — would visually show reversed text
+        let mut node = ExecutionNode::new(
+            "node1".to_string(),
+            "session1".to_string(),
+            "read_file\u{202E}eteled".to_string(), // visually: "read_filedelete" reversed
+            "execute".to_string(),
+        );
+        node.complete(NodeVerdict::Allow);
+        graph.add_node(node);
+
+        let dot = graph.to_dot();
+        // The bidi char must be stripped from the output
+        assert!(
+            !dot.contains('\u{202E}'),
+            "DOT output must not contain bidi override characters"
+        );
+        // The tool name parts should still be present (without bidi)
+        assert!(dot.contains("read_file"));
+        assert!(dot.contains("eteled"));
     }
 }

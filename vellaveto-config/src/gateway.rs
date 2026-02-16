@@ -128,8 +128,10 @@ impl GatewayConfig {
                 ));
             }
             // SECURITY (FIND-R42-008): Validate backend.url has a safe scheme.
+            // SECURITY (FIND-R44-006): Case-insensitive per RFC 3986 Section 3.1.
             let url_trimmed = backend.url.trim();
-            if !url_trimmed.starts_with("http://") && !url_trimmed.starts_with("https://") {
+            let url_lower = url_trimmed.to_ascii_lowercase();
+            if !url_lower.starts_with("http://") && !url_lower.starts_with("https://") {
                 return Err(format!(
                     "gateway.backends[{}].url must use http:// or https:// scheme (id: '{}', url: '{}')",
                     i, backend.id, url_trimmed
@@ -182,12 +184,14 @@ impl GatewayConfig {
                         i, proto, backend.id
                     ));
                 }
+                // SECURITY (FIND-R44-006): Case-insensitive scheme check.
+                let trimmed_lower = trimmed.to_ascii_lowercase();
                 let valid_scheme = match proto {
                     TransportProtocol::Http | TransportProtocol::Grpc => {
-                        trimmed.starts_with("http://") || trimmed.starts_with("https://")
+                        trimmed_lower.starts_with("http://") || trimmed_lower.starts_with("https://")
                     }
                     TransportProtocol::WebSocket => {
-                        trimmed.starts_with("ws://") || trimmed.starts_with("wss://")
+                        trimmed_lower.starts_with("ws://") || trimmed_lower.starts_with("wss://")
                     }
                     TransportProtocol::Stdio => true, // no URL scheme constraint
                 };

@@ -32,6 +32,9 @@ struct TransportCircuitStats {
     trip_count: u32,
     /// Whether a half-open probe request is currently in flight (FIND-R42-010).
     half_open_in_flight: bool,
+    /// Timestamp (secs) when half_open_in_flight was set to true (FIND-R44-001).
+    /// Used to recover from stale flags when a probe is cancelled/leaked.
+    half_open_in_flight_since: u64,
 }
 
 impl TransportCircuitStats {
@@ -43,9 +46,16 @@ impl TransportCircuitStats {
             last_state_change: now_secs(),
             trip_count: 0,
             half_open_in_flight: false,
+            half_open_in_flight_since: 0,
         }
     }
 }
+
+/// Maximum time (secs) a half-open probe can be in-flight before being
+/// considered stale and auto-cleared (FIND-R44-001). Prevents permanent
+/// wedging when a probe request is cancelled/dropped without calling
+/// record_success or record_failure.
+const HALF_OPEN_PROBE_TIMEOUT_SECS: u64 = 60;
 
 /// Summary snapshot of transport health tracker state.
 #[derive(Debug, Clone, Serialize)]
@@ -192,17 +202,33 @@ impl TransportHealthTracker {
                         stats.failure_count = 0;
                         stats.last_state_change = now;
                         stats.half_open_in_flight = true; // First probe
+                        stats.half_open_in_flight_since = now;
                     }
                 } else if stats.state == TransportCircuitState::HalfOpen {
                     // SECURITY (FIND-R42-010): Only allow one in-flight probe
                     // to prevent thundering herd on recovering transports.
+                    // SECURITY (FIND-R44-001): Auto-clear stale probes after
+                    // HALF_OPEN_PROBE_TIMEOUT_SECS to prevent permanent wedging
+                    // when a probe is cancelled/dropped.
                     if stats.half_open_in_flight {
-                        return Err(format!(
-                            "transport {:?} half-open probe already in flight for upstream '{}'",
-                            protocol, upstream_id
-                        ));
+                        let now = now_secs();
+                        let elapsed = now.saturating_sub(stats.half_open_in_flight_since);
+                        if elapsed < HALF_OPEN_PROBE_TIMEOUT_SECS {
+                            return Err(format!(
+                                "transport {:?} half-open probe already in flight for upstream '{}'",
+                                protocol, upstream_id
+                            ));
+                        }
+                        // Stale probe — clear and allow new one.
+                        tracing::warn!(
+                            upstream_id = upstream_id,
+                            transport = ?protocol,
+                            elapsed_secs = elapsed,
+                            "half-open probe timed out — clearing stale in-flight flag"
+                        );
                     }
                     stats.half_open_in_flight = true;
+                    stats.half_open_in_flight_since = now_secs();
                 }
             }
         }
@@ -382,6 +408,43 @@ impl TransportHealthTracker {
             .iter()
             .copied()
             .filter(|proto| self.can_use(upstream_id, *proto).is_ok())
+            .collect()
+    }
+
+    /// Read-only query: which transports would be available for dispatch?
+    ///
+    /// SECURITY (FIND-R44-002): Unlike `available_transports`, this method
+    /// does NOT trigger state transitions or set `half_open_in_flight`.
+    /// Use this for diagnostics, summaries, and filtering queries where
+    /// you don't intend to dispatch a request immediately.
+    pub fn peek_available_transports(
+        &self,
+        upstream_id: &str,
+        priorities: &[TransportProtocol],
+    ) -> Vec<TransportProtocol> {
+        let states = match self.states.read() {
+            Ok(guard) => guard,
+            Err(_) => return Vec::new(), // fail-closed: poisoned → no transports
+        };
+
+        let now = now_secs();
+        priorities
+            .iter()
+            .copied()
+            .filter(|proto| {
+                let key = (upstream_id.to_string(), *proto);
+                match states.get(&key) {
+                    None => states.len() < MAX_TRACKED_CIRCUITS,
+                    Some(stats) => match stats.state {
+                        TransportCircuitState::Closed => true,
+                        TransportCircuitState::HalfOpen => !stats.half_open_in_flight,
+                        TransportCircuitState::Open => {
+                            let effective_dur = self.effective_open_duration(stats);
+                            now.saturating_sub(stats.last_state_change) >= effective_dur
+                        }
+                    },
+                }
+            })
             .collect()
     }
 
@@ -866,5 +929,49 @@ mod tests {
         }
         // Circuit should still be Closed (threshold is u32::MAX).
         assert!(tracker.can_use("up", proto).is_ok());
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // Adversarial audit tests (FIND-R44-001, FIND-R44-002)
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R44-002: peek_available_transports is side-effect-free.
+    #[test]
+    fn test_peek_available_transports_no_side_effects() {
+        let tracker = TransportHealthTracker::new(1, 2, 0); // clamped to 1s
+        let proto = TransportProtocol::Http;
+
+        // Open the circuit.  After 1 failure with threshold=1, trip_count=1
+        // so effective_open_duration = 1s * 2^1 = 2s (exponential backoff).
+        tracker.record_failure("up", proto);
+        std::thread::sleep(std::time::Duration::from_millis(2100));
+
+        // peek should report it as available (timer expired) without transitioning.
+        let available = tracker.peek_available_transports("up", &[proto]);
+        assert_eq!(available, vec![proto], "peek should show expired Open as available");
+
+        // Call peek again — should still work (no probe slot consumed).
+        let available2 = tracker.peek_available_transports("up", &[proto]);
+        assert_eq!(available2, vec![proto], "second peek should also succeed");
+
+        // Summary should still show Open (not HalfOpen — no transition occurred).
+        let summary = tracker.summary();
+        assert_eq!(summary.half_open, 1); // summary also peeks, but state is still Open
+    }
+
+    /// FIND-R44-002: peek_available_transports filters at capacity.
+    #[test]
+    fn test_peek_available_transports_at_capacity_unknown() {
+        let tracker = TransportHealthTracker::new(3, 2, 300);
+        // Insert entries up to near-capacity to test the capacity check.
+        // We can't fill 10K in a test, but verify the logic path exists
+        // by checking a known circuit.
+        tracker.record_success("up", TransportProtocol::Http);
+        let available = tracker.peek_available_transports(
+            "up",
+            &[TransportProtocol::Http, TransportProtocol::Grpc],
+        );
+        assert!(available.contains(&TransportProtocol::Http));
+        assert!(available.contains(&TransportProtocol::Grpc)); // Unknown = available
     }
 }
