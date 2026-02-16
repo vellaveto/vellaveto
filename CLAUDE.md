@@ -1,10 +1,10 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 33 complete, 43 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 33 complete, 44 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 5,177 Rust tests + 130 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 5,190 Rust tests + 130 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
 > **CI workflows:** 11
 > **Updated:** 2026-02-16
@@ -151,7 +151,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 33 implemented, tested, and hardened through 42 audit rounds. Details in CHANGELOG.md.
+All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 33 implemented, tested, and hardened through 44 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
 - **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention

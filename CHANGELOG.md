@@ -69,6 +69,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config agent fixes: `stdio_command` validated when disabled, UTF-8 safe gateway truncation, `restricted_transports` duplicate check, backend ID length/character validation, tool prefix uniqueness/empty/length validation.
 - 18 new config tests + 1 updated rotation test across 3 crates.
 
+### Fixed (Adversarial Hardening — Round 44)
+- **FIND-R44-001** (P2): Stale `half_open_in_flight` with no timeout recovery — added `half_open_in_flight_since` timestamp field and `HALF_OPEN_PROBE_TIMEOUT_SECS = 60` constant; stale probes auto-cleared in `can_use()`.
+- **FIND-R44-002** (P2): `available_transports()` consumes probe slot as hidden side effect — added `peek_available_transports()` read-only query method using read lock only.
+- **FIND-R44-003** (P2): `forward_with_fallback` retries oversize responses (11x16MB bandwidth amplification) — changed to immediate `Err` on body-too-large instead of `continue`.
+- **FIND-R44-004** (P3): Fragment `#` in URL causes host extraction discrepancy — strip fragment before authority parsing in `extract_host_from_url`.
+- **FIND-R44-005** (P3): `stdio_command` missing null byte validation — reject `\0` in `stdio_command` even when `stdio_fallback_enabled` is false (validate-on-store, not validate-on-use).
+- **FIND-R44-006** (P3): URL scheme validation case-sensitive in `gateway.rs` — `to_ascii_lowercase()` before scheme comparison per RFC 3986 Section 3.1.
+- **FIND-R44-007** (P3): Glob key allows ASCII control characters — reject all control chars (0x00–0x1F, 0x7F) in `transport_overrides` keys to prevent log injection.
+- **FIND-R44-008** (P3): `escape_dot` bidi override stripping — single-pass rewrite with Unicode bidi character removal (U+200E-200F, U+202A-202E, U+2066-2069).
+- 13 new adversarial tests across 3 crates.
+
 ### Fixed (Adversarial Hardening — Round 42)
 - **FIND-R42-002** (High): Transport preference header DoS — `parse_transport_preference` now deduplicates and caps at 4 entries (one per protocol variant), preventing unbounded Vec from malicious `mcp-transport-preference` headers.
 - **FIND-R42-003** (High): URL host parser SSRF — `extract_host_from_url` now strips userinfo (`user:pass@host`) via `rfind('@')` to prevent @-smuggling, and handles IPv6 addresses in brackets (`[::1]:8080`).
