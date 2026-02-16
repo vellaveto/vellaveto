@@ -88,7 +88,7 @@ struct SessionGoalState {
 /// Summary of an action for history tracking.
 /// Fields stored for potential future use in goal-drift analysis.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
+#[allow(dead_code)] // Reserved for future goal-drift analysis feature
 struct ActionSummary {
     tool: String,
     function: String,

@@ -733,7 +733,14 @@ impl PolicyEngine {
         input: &str,
         policy_id: &str,
     ) -> Result<bool, EngineError> {
-        if let Ok(cache) = self.glob_matcher_cache.read() {
+        // SECURITY (FIND-P2-003/FIND-P3-014): Recover from poisoned RwLock instead
+        // of silently skipping the cache. A poisoned lock means a thread panicked
+        // while holding it, but the data is still valid for read access.
+        {
+            let cache = self.glob_matcher_cache.read().unwrap_or_else(|e| {
+                tracing::error!("glob_matcher_cache read lock poisoned: {}", e);
+                e.into_inner()
+            });
             if let Some(matcher) = cache.get(pattern) {
                 return Ok(matcher.is_match(input));
             }
@@ -747,12 +754,15 @@ impl PolicyEngine {
             .compile_matcher();
         let is_match = matcher.is_match(input);
 
-        if let Ok(mut cache) = self.glob_matcher_cache.write() {
-            if cache.len() >= MAX_GLOB_MATCHER_CACHE_ENTRIES {
-                cache.clear();
-            }
-            cache.insert(pattern.to_string(), matcher);
+        // SECURITY (FIND-P2-003/FIND-P3-014): Recover from poisoned write lock.
+        let mut cache = self.glob_matcher_cache.write().unwrap_or_else(|e| {
+            tracing::error!("glob_matcher_cache write lock poisoned: {}", e);
+            e.into_inner()
+        });
+        if cache.len() >= MAX_GLOB_MATCHER_CACHE_ENTRIES {
+            cache.clear();
         }
+        cache.insert(pattern.to_string(), matcher);
 
         Ok(is_match)
     }

@@ -183,7 +183,15 @@ fn cef_escape_ext(s: &str) -> String {
 pub fn to_json_lines(entry: &AuditEntry) -> String {
     match serde_json::to_string(entry) {
         Ok(json) => format!("{json}\n"),
-        Err(_) => String::new(),
+        Err(e) => {
+            // GAP-Q04: Log serialization failures instead of silently returning empty.
+            tracing::warn!(
+                entry_id = %entry.id,
+                error = %e,
+                "Failed to serialize audit entry to JSON Lines"
+            );
+            String::new()
+        }
     }
 }
 

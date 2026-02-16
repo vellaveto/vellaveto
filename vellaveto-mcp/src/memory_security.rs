@@ -648,7 +648,7 @@ impl QuarantineManager {
         }
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for future quarantine inspection API
     fn get(&self, entry_id: &str) -> Option<&QuarantineEntry> {
         self.records.get(entry_id)
     }

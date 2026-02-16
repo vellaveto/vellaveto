@@ -41,6 +41,13 @@ impl fmt::Display for AuthLevel {
 
 impl AuthLevel {
     /// Convert from `u8` to `AuthLevel`, defaulting to `None` for unknown values.
+    ///
+    /// # Security note (FIND-P2-010)
+    ///
+    /// Unknown values (> 4) map to `AuthLevel::None` (lowest level) for
+    /// **fail-closed** behavior. This ensures that corrupted or attacker-
+    /// controlled numeric values never grant elevated authentication status.
+    /// An attacker sending `value = 255` gets `None`, not `HardwareKey`.
     pub fn from_u8(value: u8) -> Self {
         match value {
             0 => AuthLevel::None,
@@ -257,7 +264,14 @@ impl fmt::Display for TrustLevel {
 }
 
 impl TrustLevel {
-    /// Convert from u8, defaulting to Unknown for invalid values.
+    /// Convert from `u8` to `TrustLevel`, defaulting to `Unknown` for invalid values.
+    ///
+    /// # Security note (FIND-P2-011)
+    ///
+    /// Unknown values (> 4) map to `TrustLevel::Unknown` (lowest level) for
+    /// **fail-closed** behavior. This ensures that corrupted or attacker-
+    /// controlled numeric values never grant elevated trust. An attacker
+    /// sending `value = 255` gets `Unknown`, not `Verified`.
     pub fn from_u8(value: u8) -> Self {
         match value {
             0 => TrustLevel::Unknown,
@@ -499,6 +513,11 @@ pub enum ValidationError {
     },
     /// A target path or domain contains a null byte.
     TargetNullByte { field: &'static str, index: usize },
+    /// Serialized parameters exceed the maximum allowed size.
+    ///
+    /// SECURITY (FIND-P3-016): Prevents memory exhaustion from oversized
+    /// parameter payloads being deserialized and evaluated.
+    ParametersTooLarge { size: usize, max: usize },
 }
 
 impl fmt::Display for ValidationError {
@@ -532,6 +551,12 @@ impl fmt::Display for ValidationError {
             }
             ValidationError::TargetNullByte { field, index } => {
                 write!(f, "Target {field}[{index}] contains null byte")
+            }
+            ValidationError::ParametersTooLarge { size, max } => {
+                write!(
+                    f,
+                    "Action parameters too large: {size} bytes (max {max})"
+                )
             }
         }
     }

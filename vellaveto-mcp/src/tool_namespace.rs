@@ -131,7 +131,7 @@ struct NamespaceEntry {
     /// Alternative sources (if multi-source allowed).
     alternative_sources: Vec<ToolSource>,
     /// When this entry was created (for audit/debugging purposes).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Retained for audit trail and future namespace expiry
     created_at: Instant,
     /// Last access time.
     last_accessed: Instant,

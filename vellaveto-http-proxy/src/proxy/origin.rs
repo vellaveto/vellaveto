@@ -125,6 +125,12 @@ pub fn validate_origin(
 }
 
 /// Build a 403 Forbidden response with a JSON-RPC error body for origin rejection.
+///
+/// Returns a JSON-RPC 2.0 error response instead of a plain REST error because
+/// the HTTP proxy speaks the MCP JSON-RPC protocol. Clients expect errors in
+/// the format `{ "jsonrpc": "2.0", "error": { "code": <int>, "message": <string> } }`.
+/// Code `-32001` is a server-defined error in the JSON-RPC reserved range
+/// (`-32000` to `-32099`), used here for origin/CSRF rejections.
 pub fn make_origin_rejection_response(_origin: &str) -> Response {
     (
         StatusCode::FORBIDDEN,

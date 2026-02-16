@@ -134,10 +134,35 @@ pub async fn zk_audit_proofs(
 
     let limit = params.limit.min(MAX_PROOFS_LIST);
     let total = guard.len();
+
+    // QUALITY (FIND-GAP-010): Validate offset does not exceed total to prevent
+    // confusing empty-but-200 responses for wildly out-of-range offsets.
+    if params.offset > total {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "offset {} exceeds total proof count {}",
+                    params.offset, total
+                ),
+            }),
+        ));
+    }
+
     let proofs: Vec<_> = guard.iter().skip(params.offset).take(limit).cloned().collect();
 
+    let proofs_value = serde_json::to_value(&proofs).map_err(|e| {
+        tracing::error!("Failed to serialize ZK proofs list: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Failed to serialize proofs list".to_string(),
+            }),
+        )
+    })?;
+
     Ok(Json(json!({
-        "proofs": serde_json::to_value(&proofs).unwrap_or_else(|_| json!([])),
+        "proofs": proofs_value,
         "total": total,
         "offset": params.offset,
         "limit": limit,
@@ -249,7 +274,7 @@ pub async fn zk_audit_verify(
     };
 
     // Audit log the verification
-    let _ = state
+    if let Err(e) = state
         .audit
         .log_zk_event(
             "proof_verified",
@@ -259,11 +284,21 @@ pub async fn zk_audit_verify(
                 "entry_range": [result.entry_range.0, result.entry_range.1],
             }),
         )
-        .await;
+        .await
+    {
+        tracing::warn!(error = %e, "Failed to audit-log ZK proof verification");
+    }
 
-    Ok(Json(
-        serde_json::to_value(&result).unwrap_or_else(|_| json!({"error": "serialization failed"})),
-    ))
+    let value = serde_json::to_value(&result).map_err(|e| {
+        tracing::error!("Failed to serialize ZK verify result: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Failed to serialize verification result".to_string(),
+            }),
+        )
+    })?;
+    Ok(Json(value))
 }
 
 /// Query parameters for `GET /api/zk-audit/commitments`.

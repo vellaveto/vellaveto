@@ -48,6 +48,22 @@ pub struct UnregisteredAgent {
     pub risk_score: f64,
 }
 
+impl UnregisteredAgent {
+    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    ///
+    /// SECURITY (FIND-P2-007): Non-finite risk_score could bypass threshold
+    /// comparisons (NaN comparisons always return false).
+    pub fn validate_finite(&self) -> Result<(), String> {
+        if !self.risk_score.is_finite() {
+            return Err(format!(
+                "UnregisteredAgent '{}' has non-finite risk_score: {}",
+                self.agent_id, self.risk_score
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// A tool observed in traffic that is not in the approved tools list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnapprovedTool {
@@ -73,4 +89,23 @@ pub struct ShadowAiReport {
     pub unapproved_tools: Vec<UnapprovedTool>,
     pub unknown_servers: Vec<UnknownMcpServer>,
     pub total_risk_score: f64,
+}
+
+impl ShadowAiReport {
+    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    ///
+    /// SECURITY (FIND-P2-007): Non-finite total_risk_score could bypass
+    /// threshold comparisons. Also validates nested UnregisteredAgent scores.
+    pub fn validate_finite(&self) -> Result<(), String> {
+        if !self.total_risk_score.is_finite() {
+            return Err(format!(
+                "ShadowAiReport has non-finite total_risk_score: {}",
+                self.total_risk_score
+            ));
+        }
+        for agent in &self.unregistered_agents {
+            agent.validate_finite()?;
+        }
+        Ok(())
+    }
 }

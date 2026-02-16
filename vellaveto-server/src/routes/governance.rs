@@ -39,7 +39,16 @@ pub async fn shadow_report(
     })?;
 
     let report = discovery.generate_report();
-    Ok(Json(serde_json::to_value(report).unwrap_or_else(|_| json!({"error": "serialization failed"}))))
+    let value = serde_json::to_value(report).map_err(|e| {
+        tracing::error!("Failed to serialize shadow report: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Failed to serialize shadow report".to_string(),
+            }),
+        )
+    })?;
+    Ok(Json(value))
 }
 
 /// GET /api/governance/unregistered-agents

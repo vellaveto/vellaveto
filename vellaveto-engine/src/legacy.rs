@@ -56,6 +56,18 @@ impl PolicyEngine {
             return value.ends_with(suffix);
         }
         if let Some(prefix) = pattern.strip_suffix('*') {
+            // SECURITY (FIND-P2-006): Detect infix wildcards (e.g., "foo*bar") which
+            // are not supported by the legacy matcher. After stripping the trailing `*`,
+            // if the remaining prefix still contains `*`, this is an infix wildcard.
+            // Warn operators so they know the pattern is being treated as a prefix match.
+            if prefix.contains('*') {
+                tracing::warn!(
+                    pattern = %pattern,
+                    "Legacy matcher detected infix wildcard pattern — treating as prefix match \
+                     on '{}'. Use compiled policies (with_policies()) for correct infix support.",
+                    prefix.split('*').next().unwrap_or(prefix)
+                );
+            }
             return value.starts_with(prefix);
         }
         pattern == value

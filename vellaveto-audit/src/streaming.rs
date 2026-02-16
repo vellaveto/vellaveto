@@ -239,6 +239,14 @@ impl SplunkExporter {
             ));
         }
 
+        // SECURITY (GAP-F05): Validate URL scheme to prevent SSRF via exotic schemes.
+        if !config.endpoint.starts_with("http://") && !config.endpoint.starts_with("https://") {
+            return Err(ExportError::Configuration(format!(
+                "Splunk endpoint URL must use http:// or https:// scheme, got: {}",
+                config.endpoint.split(':').next().unwrap_or("(empty)")
+            )));
+        }
+
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.common.timeout_secs))
             .build()
@@ -482,6 +490,14 @@ impl WebhookExporter {
             return Err(ExportError::Configuration(
                 "Webhook endpoint not configured".to_string(),
             ));
+        }
+
+        // SECURITY (GAP-F05): Validate URL scheme to prevent SSRF via exotic schemes.
+        if !config.endpoint.starts_with("http://") && !config.endpoint.starts_with("https://") {
+            return Err(ExportError::Configuration(format!(
+                "Webhook endpoint URL must use http:// or https:// scheme, got: {}",
+                config.endpoint.split(':').next().unwrap_or("(empty)")
+            )));
         }
 
         let client = reqwest::Client::builder()
@@ -760,7 +776,15 @@ impl SiemExporter for DatadogExporter {
         let logs: Vec<DatadogLogEntry> = entries
             .iter()
             .map(|entry| {
-                let message = serde_json::to_string(entry).unwrap_or_default();
+                // GAP-Q04: Log serialization failures instead of silently returning empty.
+                let message = serde_json::to_string(entry).unwrap_or_else(|e| {
+                    tracing::warn!(
+                        entry_id = %entry.id,
+                        error = %e,
+                        "Failed to serialize audit entry for Datadog export"
+                    );
+                    String::new()
+                });
                 DatadogLogEntry {
                     message,
                     service: &self.config.service,
@@ -939,6 +963,14 @@ impl ElasticsearchExporter {
             return Err(ExportError::Configuration(
                 "Elasticsearch endpoint not configured".to_string(),
             ));
+        }
+
+        // SECURITY (GAP-F05): Validate URL scheme to prevent SSRF via exotic schemes.
+        if !config.endpoint.starts_with("http://") && !config.endpoint.starts_with("https://") {
+            return Err(ExportError::Configuration(format!(
+                "Elasticsearch endpoint URL must use http:// or https:// scheme, got: {}",
+                config.endpoint.split(':').next().unwrap_or("(empty)")
+            )));
         }
 
         // Build auth header from config
@@ -1390,8 +1422,16 @@ impl SyslogExporter {
         let sd = self.build_structured_data(entry, verdict_str, reason);
 
         // Build message body
+        // GAP-Q04: Log serialization failures instead of silently returning empty.
         let msg = if self.config.include_json {
-            serde_json::to_string(entry).unwrap_or_default()
+            serde_json::to_string(entry).unwrap_or_else(|e| {
+                tracing::warn!(
+                    entry_id = %entry.id,
+                    error = %e,
+                    "Failed to serialize audit entry for syslog export"
+                );
+                String::new()
+            })
         } else {
             format!(
                 "{} {} {} -> {}",
@@ -1666,6 +1706,48 @@ mod tests {
             common: ExporterConfig::default(),
         };
         let result = WebhookExporter::new(config);
+        assert!(result.is_err());
+    }
+
+    /// GAP-F05: Splunk exporter rejects non-HTTP URL schemes.
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_gap_f05_splunk_rejects_non_http_scheme() {
+        let config = SplunkConfig {
+            endpoint: "ftp://splunk:8088/services/collector".to_string(),
+            token: Some("test-token".to_string()),
+            ..Default::default()
+        };
+        let result = SplunkExporter::new(config);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("http://") || err.contains("https://"));
+    }
+
+    /// GAP-F05: Webhook (streaming) exporter rejects non-HTTP URL schemes.
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_gap_f05_webhook_rejects_non_http_scheme() {
+        let config = WebhookConfig {
+            endpoint: "file:///etc/passwd".to_string(),
+            auth_header: None,
+            auth_header_env: None,
+            headers: Default::default(),
+            common: ExporterConfig::default(),
+        };
+        let result = WebhookExporter::new(config);
+        assert!(result.is_err());
+    }
+
+    /// GAP-F05: Elasticsearch exporter rejects non-HTTP URL schemes.
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_gap_f05_elasticsearch_rejects_non_http_scheme() {
+        let config = ElasticsearchConfig {
+            endpoint: "ftp://elasticsearch:9200".to_string(),
+            ..Default::default()
+        };
+        let result = ElasticsearchExporter::new(config);
         assert!(result.is_err());
     }
 

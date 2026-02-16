@@ -374,14 +374,14 @@ impl PolicyEngine {
                     // This condition is evaluated here for policy matching, but actual enforcement
                     // happens in the MCP proxy layer when handling tasks/* methods.
                     //
-                    // Here we just validate that if max_concurrent is set, we would
-                    // log/trace the policy applicability. The actual task count check
-                    // happens in vellaveto-mcp/src/task_state.rs.
+                    // SECURITY (FIND-P2-005): Log at warn level so operators know this
+                    // condition is a no-op at the engine layer and enforcement happens
+                    // elsewhere. Previously trace-level, which was invisible in production.
                     if *max_concurrent > 0 {
-                        tracing::trace!(
+                        tracing::warn!(
                             policy = %cp.policy.name,
                             max_concurrent = %max_concurrent,
-                            "async_task_policy condition active"
+                            "async_task_policy condition is a no-op in engine — enforcement is in MCP proxy layer"
                         );
                     }
                     // Continue to next condition - actual enforcement is at task creation
@@ -552,13 +552,12 @@ impl PolicyEngine {
                     // in vellaveto-engine/src/circuit_breaker.rs. This condition is evaluated here
                     // for policy matching, but actual enforcement happens at the integration layer.
                     //
-                    // The proxy/server checks CircuitBreakerManager.can_proceed() before evaluation
-                    // and calls record_success/record_failure after the tool call completes.
-                    //
-                    // This condition acts as a marker to indicate circuit breaker applies to this policy.
-                    tracing::trace!(
+                    // SECURITY (FIND-P2-005): Log at warn level so operators know this
+                    // condition is a no-op at the engine layer and enforcement happens
+                    // elsewhere. Previously trace-level, which was invisible in production.
+                    tracing::warn!(
                         policy = %cp.policy.name,
-                        "circuit_breaker condition active"
+                        "circuit_breaker condition is a no-op in engine — enforcement is in CircuitBreakerManager"
                     );
                     // Continue to next condition - enforcement is in the manager
                 }
@@ -606,11 +605,12 @@ impl PolicyEngine {
                     // in vellaveto-mcp/src/shadow_agent.rs. This condition is evaluated here
                     // for policy matching, but actual enforcement happens at the integration layer.
                     //
-                    // The proxy extracts fingerprint from request context and checks against
-                    // known agents before policy evaluation.
-                    tracing::trace!(
+                    // SECURITY (FIND-P2-005): Log at warn level so operators know this
+                    // condition is a no-op at the engine layer and enforcement happens
+                    // elsewhere. Previously trace-level, which was invisible in production.
+                    tracing::warn!(
                         policy = %cp.policy.name,
-                        "shadow_agent_check condition active"
+                        "shadow_agent_check condition is a no-op in engine — enforcement is in ShadowAgentDetector"
                     );
                     // Continue to next condition - enforcement is in the detector
                 }
@@ -624,11 +624,12 @@ impl PolicyEngine {
                     // in vellaveto-mcp/src/schema_poisoning.rs. This condition is evaluated here
                     // for policy matching, but actual enforcement happens at the integration layer.
                     //
-                    // The proxy tracks schema observations and checks for mutations
-                    // when tools are registered or called.
-                    tracing::trace!(
+                    // SECURITY (FIND-P2-005): Log at warn level so operators know this
+                    // condition is a no-op at the engine layer and enforcement happens
+                    // elsewhere. Previously trace-level, which was invisible in production.
+                    tracing::warn!(
                         policy = %cp.policy.name,
-                        "schema_poisoning_check condition active"
+                        "schema_poisoning_check condition is a no-op in engine — enforcement is in SchemaLineageTracker"
                     );
                     // Continue to next condition - enforcement is in the tracker
                 }

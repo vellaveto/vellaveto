@@ -11,6 +11,10 @@ use std::fmt::Write;
 
 use crate::AppState;
 
+/// Maximum number of audit entries displayed on the dashboard.
+/// Prevents excessive rendering time and response size when the audit log is large.
+const MAX_DASHBOARD_AUDIT_ENTRIES: usize = 1_000;
+
 // ═══════════════════════════════════════════════════
 // HTML ESCAPING (XSS prevention)
 // ═══════════════════════════════════════════════════
@@ -206,9 +210,23 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
     let _ = write!(html, r#"<h2>Recent Audit Log</h2>"#);
     match state.audit.load_entries().await {
         Ok(entries) => {
-            if entries.is_empty() {
+            let capped = entries.len() > MAX_DASHBOARD_AUDIT_ENTRIES;
+            let display_entries = if capped {
+                &entries[entries.len() - MAX_DASHBOARD_AUDIT_ENTRIES..]
+            } else {
+                &entries[..]
+            };
+            if display_entries.is_empty() {
                 let _ = write!(html, r#"<p class="muted">No audit entries.</p>"#);
             } else {
+                if capped {
+                    let _ = write!(
+                        html,
+                        r#"<p class="muted">Showing last {} of {} audit entries.</p>"#,
+                        MAX_DASHBOARD_AUDIT_ENTRIES,
+                        entries.len()
+                    );
+                }
                 let _ = write!(
                     html,
                     r#"<table>
@@ -216,7 +234,7 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
 "#
                 );
                 // Show last 30 entries, most recent first
-                for entry in entries.iter().rev().take(30) {
+                for entry in display_entries.iter().rev().take(30) {
                     let time = html_escape(&truncate(&entry.timestamp, 19));
                     let tool = html_escape(&entry.action.tool);
                     let func = html_escape(&entry.action.function);

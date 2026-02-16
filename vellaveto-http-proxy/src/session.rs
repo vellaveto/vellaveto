@@ -83,6 +83,10 @@ pub struct SessionState {
     pub discovered_tools: HashMap<String, DiscoveredToolSession>,
 }
 
+/// Maximum number of discovered tools tracked per session.
+/// Prevents unbounded memory growth from excessive discovery requests.
+const MAX_DISCOVERED_TOOLS_PER_SESSION: usize = 10_000;
+
 /// Per-session tracking of a discovered tool (Phase 34.3).
 #[derive(Debug, Clone)]
 pub struct DiscoveredToolSession {
@@ -136,9 +140,26 @@ impl SessionState {
     /// Record a set of discovered tools with the given TTL.
     ///
     /// Overwrites any existing entry for the same tool_id (re-discovery resets the TTL).
+    /// If the session is at capacity (`MAX_DISCOVERED_TOOLS_PER_SESSION`), expired
+    /// entries are evicted first. If still at capacity, new tools are silently dropped.
     pub fn record_discovered_tools(&mut self, tool_ids: &[String], ttl: Duration) {
         let now = Instant::now();
         for tool_id in tool_ids {
+            // Allow overwrites of existing entries without capacity check
+            if !self.discovered_tools.contains_key(tool_id) {
+                if self.discovered_tools.len() >= MAX_DISCOVERED_TOOLS_PER_SESSION {
+                    // Evict expired entries to make room
+                    self.evict_expired_discoveries();
+                }
+                if self.discovered_tools.len() >= MAX_DISCOVERED_TOOLS_PER_SESSION {
+                    tracing::warn!(
+                        session_id = %self.session_id,
+                        capacity = MAX_DISCOVERED_TOOLS_PER_SESSION,
+                        "Discovered tools capacity reached; dropping new tool"
+                    );
+                    continue;
+                }
+            }
             self.discovered_tools.insert(
                 tool_id.clone(),
                 DiscoveredToolSession {

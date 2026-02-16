@@ -64,6 +64,19 @@ impl Default for WebSocketConfig {
     }
 }
 
+// TODO(output-schema-ws): WebSocket upstream responses currently bypass
+// `OutputSchemaRegistry` validation. The HTTP POST handler validates
+// `structuredContent` against the tool's output schema, but the
+// bidirectional WS relay forwards upstream text frames without inspecting
+// the JSON-RPC result payload. A future phase should:
+//   1. Parse upstream text frames as JSON-RPC responses.
+//   2. If the response corresponds to a `tools/call` request and the tool
+//      has a registered output schema, validate `result.structuredContent`
+//      against the schema.
+//   3. Close the connection (code 1008) if validation fails, or
+//      optionally strip the non-conforming field and forward a sanitized
+//      response (configurable via `ws_config.output_schema_enforcement`).
+
 /// WebSocket close codes per RFC 6455.
 const CLOSE_POLICY_VIOLATION: u16 = 1008;
 const CLOSE_UNSUPPORTED_DATA: u16 = 1003;

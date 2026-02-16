@@ -494,12 +494,18 @@ pub struct MemoryNamespace {
 
 impl MemoryNamespace {
     /// Create a new namespace with the given owner.
+    ///
+    /// FIND-P3-017: Minimized clones — `owner_agent` is cloned once for
+    /// `read_allowed`, once for `write_allowed`, and the original is moved
+    /// into the `owner_agent` field.
     pub fn new(id: String, owner_agent: String, created_at: String) -> Self {
+        let read_allowed = vec![owner_agent.clone()];
+        let write_allowed = vec![owner_agent.clone()];
         Self {
             id,
-            owner_agent: owner_agent.clone(),
-            read_allowed: vec![owner_agent.clone()],
-            write_allowed: vec![owner_agent],
+            owner_agent,
+            read_allowed,
+            write_allowed,
             created_at,
             isolation: NamespaceIsolation::default(),
             is_default: false,

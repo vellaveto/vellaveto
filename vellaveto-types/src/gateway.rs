@@ -41,6 +41,38 @@ pub struct UpstreamBackend {
     pub health: BackendHealth,
 }
 
+impl UpstreamBackend {
+    /// Validate structural invariants of an `UpstreamBackend`.
+    ///
+    /// Checks:
+    /// - `id` is not empty
+    /// - `url` is not empty
+    /// - `url` starts with `http://` or `https://`
+    ///
+    /// SECURITY (FIND-P2-009): Backends with empty URLs could cause panics
+    /// or undefined behavior in HTTP clients. Restricting schemes to HTTP(S)
+    /// prevents SSRF via `file://`, `gopher://`, etc.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id.is_empty() {
+            return Err("UpstreamBackend id must not be empty".to_string());
+        }
+        if self.url.is_empty() {
+            return Err(format!(
+                "UpstreamBackend '{}' url must not be empty",
+                self.id
+            ));
+        }
+        if !self.url.starts_with("http://") && !self.url.starts_with("https://") {
+            return Err(format!(
+                "UpstreamBackend '{}' url must start with http:// or https://, got: {}",
+                self.id,
+                self.url.chars().take(40).collect::<String>()
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Result of a routing decision.
 #[derive(Debug, Clone)]
 pub struct RoutingDecision {

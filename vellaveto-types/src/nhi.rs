@@ -234,6 +234,30 @@ pub struct NhiBehavioralCheckResult {
     pub recommendation: NhiBehavioralRecommendation,
 }
 
+impl NhiBehavioralCheckResult {
+    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    ///
+    /// SECURITY (FIND-P2-007): Non-finite anomaly_score could bypass
+    /// threshold comparisons that determine whether to allow or block.
+    pub fn validate_finite(&self) -> Result<(), String> {
+        if !self.anomaly_score.is_finite() {
+            return Err(format!(
+                "NhiBehavioralCheckResult has non-finite anomaly_score: {}",
+                self.anomaly_score
+            ));
+        }
+        for dev in &self.deviations {
+            if !dev.severity.is_finite() {
+                return Err(format!(
+                    "NhiBehavioralDeviation '{}' has non-finite severity: {}",
+                    dev.deviation_type, dev.severity
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// A specific behavioral deviation from the baseline.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct NhiBehavioralDeviation {

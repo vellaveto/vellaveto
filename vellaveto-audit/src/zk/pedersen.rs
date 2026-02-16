@@ -52,8 +52,18 @@ impl PedersenCommitter {
     ///
     /// Returns `(commitment_point, blinding_factor)` on success.
     ///
-    /// The blinding factor is generated using a CSPRNG and must be stored
-    /// securely by the commitment holder for later opening/verification.
+    /// ## Blinding Factor (GAP-F04)
+    ///
+    /// The blinding factor `r` is generated using `Scalar::random()` backed by
+    /// the OS CSPRNG (`rand::thread_rng()`). It provides information-theoretic
+    /// hiding: without `r`, an observer cannot determine the committed value `m`
+    /// even with unlimited computational power, because every commitment point
+    /// maps to every possible message under some blinding factor.
+    ///
+    /// The blinding factor **must** be stored securely by the commitment holder
+    /// for later opening/verification. Loss of the blinding factor makes the
+    /// commitment unopenable. Disclosure of the blinding factor reveals the
+    /// committed entry hash to anyone who has the commitment point.
     pub fn commit(
         &self,
         entry_hash: &[u8; 32],

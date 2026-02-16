@@ -174,6 +174,15 @@ impl AuditLogger {
     }
 
     /// Generate a summary report from the audit log.
+    ///
+    /// ## Memory Limitations (GAP-F06)
+    ///
+    /// This method loads **all** audit entries into memory via `load_entries()`,
+    /// then returns them as part of the `AuditReport`. For large audit files
+    /// (up to the 100 MB `MAX_AUDIT_LOG_SIZE` limit), this can consume
+    /// significant memory (~2-3x the file size due to deserialized JSON overhead).
+    /// Callers processing large audit files should consider streaming alternatives
+    /// or use log rotation to keep individual files manageable.
     pub async fn generate_report(&self) -> Result<AuditReport, AuditError> {
         let entries = self.load_entries().await?;
 

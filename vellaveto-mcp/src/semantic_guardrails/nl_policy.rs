@@ -262,6 +262,9 @@ pub struct NlPolicyMatch {
 // POLICY COMPILER
 // ═══════════════════════════════════════════════════
 
+/// Maximum number of compiled policies to prevent unbounded growth.
+const MAX_COMPILED_POLICIES: usize = 10_000;
+
 /// Compiler and matcher for natural language policies.
 ///
 /// Compiles policy patterns once and efficiently matches against
@@ -283,7 +286,19 @@ impl NlPolicyCompiler {
     /// Adds a policy to the compiler.
     ///
     /// If a policy with the same ID exists, it will be replaced.
-    pub fn add_policy(&mut self, policy: NlPolicy) {
+    /// Returns `false` if the policy could not be added because the
+    /// compiler is at capacity (`MAX_COMPILED_POLICIES`).
+    pub fn add_policy(&mut self, policy: NlPolicy) -> bool {
+        // If this is a new policy (not a replacement) and we are at capacity, reject.
+        if !self.policies.contains_key(&policy.id) && self.policies.len() >= MAX_COMPILED_POLICIES {
+            tracing::warn!(
+                policy_id = %policy.id,
+                capacity = MAX_COMPILED_POLICIES,
+                "NlPolicyCompiler at capacity; rejecting new policy"
+            );
+            return false;
+        }
+
         // Compile patterns
         let compiled: Vec<CompiledPattern> = policy
             .tool_patterns
@@ -293,6 +308,7 @@ impl NlPolicyCompiler {
 
         self.patterns.insert(policy.id.clone(), compiled);
         self.policies.insert(policy.id.clone(), policy);
+        true
     }
 
     /// Removes a policy by ID.

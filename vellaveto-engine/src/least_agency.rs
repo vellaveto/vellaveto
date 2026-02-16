@@ -70,8 +70,13 @@ impl LeastAgencyTracker {
     /// Register granted policy IDs for an agent session.
     pub fn register_grants(&self, agent_id: &str, session_id: &str, policy_ids: &[String]) {
         let key = Self::session_key(agent_id, session_id);
-        let Ok(mut trackers) = self.trackers.write() else {
-            return;
+        // SECURITY (FIND-P3-012): Log poisoned lock recovery instead of silently returning.
+        let mut trackers = match self.trackers.write() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("LeastAgencyTracker::register_grants write lock poisoned: {}", e);
+                e.into_inner()
+            }
         };
         // Evict oldest if at capacity
         if trackers.len() >= MAX_TRACKED_SESSIONS && !trackers.contains_key(&key) {
@@ -117,8 +122,13 @@ impl LeastAgencyTracker {
         function: &str,
     ) {
         let key = Self::session_key(agent_id, session_id);
-        let Ok(mut trackers) = self.trackers.write() else {
-            return;
+        // SECURITY (FIND-P3-012): Log poisoned lock recovery instead of silently returning.
+        let mut trackers = match self.trackers.write() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("LeastAgencyTracker::record_usage write lock poisoned: {}", e);
+                e.into_inner()
+            }
         };
         if let Some(tracker) = trackers.get_mut(&key) {
             let usage = tracker
@@ -143,8 +153,13 @@ impl LeastAgencyTracker {
     /// Return policy IDs that have been granted but never used.
     pub fn check_unused(&self, agent_id: &str, session_id: &str) -> Vec<String> {
         let key = Self::session_key(agent_id, session_id);
-        let Ok(trackers) = self.trackers.read() else {
-            return Vec::new();
+        // SECURITY (FIND-P3-012): Log poisoned lock recovery instead of silently returning empty.
+        let trackers = match self.trackers.read() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("LeastAgencyTracker::check_unused read lock poisoned: {}", e);
+                e.into_inner()
+            }
         };
         if let Some(tracker) = trackers.get(&key) {
             tracker
@@ -161,8 +176,13 @@ impl LeastAgencyTracker {
     /// Generate a full least-agency compliance report.
     pub fn generate_report(&self, agent_id: &str, session_id: &str) -> Option<LeastAgencyReport> {
         let key = Self::session_key(agent_id, session_id);
-        let Ok(trackers) = self.trackers.read() else {
-            return None;
+        // SECURITY (FIND-P3-012): Log poisoned lock recovery instead of silently returning None.
+        let trackers = match self.trackers.read() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("LeastAgencyTracker::generate_report read lock poisoned: {}", e);
+                e.into_inner()
+            }
         };
         let tracker = trackers.get(&key)?;
 
@@ -174,6 +194,9 @@ impl LeastAgencyTracker {
             .filter(|id| !tracker.used.contains_key(*id))
             .cloned()
             .collect();
+        // FIND-P3-013: When granted == 0, return 1.0 (not 0.0) to avoid division
+        // by zero. An agent with zero grants has no unused permissions, so it is
+        // trivially "optimal" from a least-agency perspective.
         let ratio = if granted > 0 {
             used as f64 / granted as f64
         } else {
@@ -216,8 +239,13 @@ impl LeastAgencyTracker {
         match self.enforcement_mode {
             EnforcementMode::Monitor => {
                 // Read-only path: just identify candidates
-                let Ok(trackers) = self.trackers.read() else {
-                    return Vec::new();
+                // SECURITY (FIND-P3-012): Log poisoned lock recovery.
+                let trackers = match self.trackers.read() {
+                    Ok(guard) => guard,
+                    Err(e) => {
+                        tracing::error!("LeastAgencyTracker::revoke_stale_permissions read lock poisoned: {}", e);
+                        e.into_inner()
+                    }
                 };
                 let Some(tracker) = trackers.get(&key) else {
                     return Vec::new();
@@ -239,8 +267,13 @@ impl LeastAgencyTracker {
             EnforcementMode::Enforce => {
                 // FIND-R44-019: Atomic identify-and-remove under a single write lock
                 // to prevent TOCTOU between checking staleness and revoking.
-                let Ok(mut trackers) = self.trackers.write() else {
-                    return Vec::new();
+                // SECURITY (FIND-P3-012): Log poisoned lock recovery.
+                let mut trackers = match self.trackers.write() {
+                    Ok(guard) => guard,
+                    Err(e) => {
+                        tracing::error!("LeastAgencyTracker::revoke_stale_permissions write lock poisoned: {}", e);
+                        e.into_inner()
+                    }
                 };
                 let Some(tracker) = trackers.get_mut(&key) else {
                     return Vec::new();

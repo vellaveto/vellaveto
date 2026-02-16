@@ -80,9 +80,28 @@ pub struct WebhookExporter {
     client: reqwest::Client,
 }
 
+impl std::fmt::Debug for WebhookExporter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WebhookExporter")
+            .field("endpoint", &self.config.endpoint)
+            .finish_non_exhaustive()
+    }
+}
+
 impl WebhookExporter {
     /// Create a new webhook exporter.
+    ///
+    /// SECURITY (GAP-S04): Validates that the endpoint URL uses http:// or https://
+    /// scheme to prevent SSRF via exotic URL schemes (file://, ftp://, etc.).
     pub fn new(config: WebhookExporterConfig) -> Result<Self, ObservabilityError> {
+        // SECURITY (GAP-S04): Validate URL scheme before creating the client.
+        if !config.endpoint.starts_with("http://") && !config.endpoint.starts_with("https://") {
+            return Err(ObservabilityError::Configuration(format!(
+                "Webhook endpoint URL must use http:// or https:// scheme, got: {}",
+                config.endpoint.split(':').next().unwrap_or("(empty)")
+            )));
+        }
+
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.common.timeout_secs))
             .build()
@@ -358,6 +377,23 @@ mod tests {
         let config = test_config();
         let exporter = WebhookExporter::new(config).unwrap();
         assert_eq!(exporter.name(), "webhook");
+    }
+
+    /// GAP-S04: Webhook exporter rejects non-HTTP URL schemes.
+    #[test]
+    fn test_gap_s04_rejects_non_http_scheme() {
+        let config = WebhookExporterConfig::new("ftp://example.com/webhook");
+        let result = WebhookExporter::new(config);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("http://") || err.contains("https://"));
+    }
+
+    /// GAP-S04: Webhook exporter accepts http:// scheme.
+    #[test]
+    fn test_gap_s04_accepts_http_scheme() {
+        let config = WebhookExporterConfig::new("http://example.com/webhook");
+        assert!(WebhookExporter::new(config).is_ok());
     }
 
     #[test]

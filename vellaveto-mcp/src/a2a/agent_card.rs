@@ -187,6 +187,11 @@ impl AgentCardCache {
     /// and insert without evicting, causing unbounded growth.
     pub fn store(&self, base_url: &str, card: AgentCard) {
         if let Ok(mut cache) = self.cache.write() {
+            // QUALITY (FIND-GAP-009): Evict expired entries first to prevent
+            // unbounded growth from stale cards accumulating over time.
+            let ttl = self.ttl;
+            cache.retain(|_, entry| entry.fetched_at.elapsed() < ttl);
+
             // SEC-009 / FIND-031: Evict oldest entries until under capacity
             if !cache.contains_key(base_url) {
                 while cache.len() >= MAX_CACHE_ENTRIES {

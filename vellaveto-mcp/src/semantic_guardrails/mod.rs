@@ -245,7 +245,10 @@ impl SemanticGuardrailsService {
                     FallbackBehavior::Deny => {
                         return Ok(LlmEvaluation::deny("evaluation timed out"))
                     }
-                    FallbackBehavior::Allow => return Ok(LlmEvaluation::allow()),
+                    FallbackBehavior::Allow => {
+                        tracing::warn!("semantic guardrail falling back to Allow — check configuration");
+                        return Ok(LlmEvaluation::allow());
+                    }
                     FallbackBehavior::PatternMatch => {
                         // Return evaluation indicating fallback needed
                         return Ok(LlmEvaluation {

@@ -529,6 +529,7 @@ impl<E: LlmEvaluator> SemanticGuardrailsEvaluator<E> {
         match self.fallback_on_error {
             FallbackBehavior::Deny => LlmEvaluation::deny(format!("Evaluation failed: {}", error)),
             FallbackBehavior::Allow => {
+                tracing::warn!("semantic guardrail falling back to Allow — check configuration");
                 let mut eval = LlmEvaluation::allow();
                 eval.explanation = Some(format!("Allowed due to fallback (error: {})", error));
                 eval.confidence = 0.0;

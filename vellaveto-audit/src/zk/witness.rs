@@ -31,6 +31,14 @@ pub struct EntryWitness {
 ///
 /// Witnesses are appended as audit entries are logged. The batch prover
 /// periodically drains the store to generate batch proofs.
+///
+/// ## Backpressure (Witness Backpressure)
+///
+/// The store enforces a hard capacity limit (`max_capacity`, default 100K).
+/// When the store is full, `append()` returns `Err(ZkError::WitnessStore)`
+/// instead of growing unboundedly. The caller (audit logger) should log
+/// a warning but must NOT block the audit entry write — ZK witness
+/// accumulation is best-effort and must not compromise audit availability.
 pub struct WitnessStore {
     witnesses: Mutex<Vec<EntryWitness>>,
     max_capacity: usize,

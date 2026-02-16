@@ -332,7 +332,7 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
 }
 
 /// Computes Euclidean distance between two vectors.
-#[allow(dead_code)]
+#[allow(dead_code)] // Alternative distance metric available for future similarity strategies
 fn euclidean_distance(a: &[f32], b: &[f32]) -> f64 {
     if a.len() != b.len() {
         return f64::MAX;

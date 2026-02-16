@@ -84,7 +84,7 @@ pub enum SuggestedAction {
 #[derive(Debug, Clone)]
 struct InjectionPattern {
     /// Pattern name for identification (used in debugging/logging).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Used in debug logging and test diagnostics
     name: &'static str,
     /// Keywords to match (case-insensitive).
     keywords: &'static [&'static str],

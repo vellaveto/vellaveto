@@ -97,12 +97,25 @@ async fn main() -> Result<()> {
     }
 
     // Spawn child MCP server
-    let mut child = Command::new(child_cmd)
-        .args(child_args)
+    // SECURITY (FIND-GAP-011): Clear the environment of the child process to
+    // prevent accidental leakage of secrets (e.g., API keys, tokens) from the
+    // proxy's environment into the child. Only forward minimal required variables.
+    let mut cmd = Command::new(child_cmd);
+    cmd.args(child_args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())
         .kill_on_drop(true)
+        .env_clear();
+
+    // Forward only minimal required environment variables
+    for key in &["PATH", "HOME", "USER", "LANG", "TERM", "TMPDIR", "TZ"] {
+        if let Ok(val) = std::env::var(key) {
+            cmd.env(key, val);
+        }
+    }
+
+    let mut child = cmd
         .spawn()
         .context(format!("Failed to spawn child MCP server: {}", child_cmd))?;
 

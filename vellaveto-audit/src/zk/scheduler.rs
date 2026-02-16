@@ -52,19 +52,55 @@ impl ZkBatchScheduler {
         }
     }
 
+    /// Maximum backoff duration on consecutive failures (GAP-F01).
+    /// Prevents unbounded exponential growth of the backoff timer.
+    const MAX_BACKOFF_SECS: u64 = 300;
+
     /// Run the batch proving loop until shutdown.
     ///
     /// Generates a batch proof every `batch_interval_secs` if there are
     /// pending witnesses. Also generates a final batch on shutdown.
+    ///
+    /// ## Backoff (GAP-F01)
+    ///
+    /// On consecutive proving failures, the scheduler applies exponential backoff
+    /// (doubling the interval up to `MAX_BACKOFF_SECS`). A successful batch resets
+    /// the backoff to the configured interval. This prevents tight-loop retries
+    /// when the prover is consistently failing (e.g., out of memory).
     pub async fn run(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
-        let interval_duration = Duration::from_secs(self.batch_interval_secs);
-        let mut interval = tokio::time::interval(interval_duration);
+        let base_interval = Duration::from_secs(self.batch_interval_secs);
+        let mut current_interval = base_interval;
+        let mut interval = tokio::time::interval(current_interval);
+        let mut consecutive_failures: u32 = 0;
 
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    if let Err(e) = self.try_prove_batch() {
-                        tracing::warn!(error = %e, "Batch proving attempt failed");
+                    match self.try_prove_batch() {
+                        Ok(_) => {
+                            // Reset backoff on success
+                            if consecutive_failures > 0 {
+                                consecutive_failures = 0;
+                                current_interval = base_interval;
+                                interval = tokio::time::interval(current_interval);
+                            }
+                        }
+                        Err(e) => {
+                            // GAP-F01: Exponential backoff on consecutive failures,
+                            // capped at MAX_BACKOFF_SECS to prevent overflow.
+                            consecutive_failures = consecutive_failures.saturating_add(1);
+                            let backoff_secs = self.batch_interval_secs
+                                .saturating_mul(1u64 << consecutive_failures.min(20))
+                                .min(Self::MAX_BACKOFF_SECS);
+                            current_interval = Duration::from_secs(backoff_secs);
+                            interval = tokio::time::interval(current_interval);
+                            tracing::warn!(
+                                error = %e,
+                                consecutive_failures = consecutive_failures,
+                                next_attempt_secs = backoff_secs,
+                                "Batch proving attempt failed, backing off"
+                            );
+                        }
                     }
                 }
                 result = shutdown.changed() => {

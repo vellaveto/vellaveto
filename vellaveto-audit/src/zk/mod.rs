@@ -22,6 +22,13 @@ mod tests;
 use thiserror::Error;
 
 /// Errors from ZK audit operations.
+///
+/// ## Error Handling (GAP-F03)
+///
+/// All ZK errors are propagated to callers — none are silently swallowed.
+/// Lock poisoning on internal `Mutex` types (witness store, proof store) is
+/// converted to the appropriate variant (`WitnessStore`, `Proof`) rather than
+/// panicking, maintaining the fail-closed invariant.
 #[derive(Error, Debug)]
 pub enum ZkError {
     #[error("Commitment error: {0}")]

@@ -173,7 +173,25 @@ pub struct EvaluationCache {
 
 impl EvaluationCache {
     /// Creates a new evaluation cache with the given configuration.
+    ///
+    /// Validates that the configuration is sensible (capacity > 0 when enabled,
+    /// TTL > 0 when enabled). Invalid configurations are logged as warnings and
+    /// the cache falls back to a safe default (disabled or capacity 1).
     pub fn new(config: CacheConfig) -> Self {
+        // Validate configuration and warn on issues
+        if config.enabled {
+            if config.max_size == 0 {
+                tracing::warn!(
+                    "EvaluationCache: max_size is 0 with cache enabled — cache will use fallback capacity 1"
+                );
+            }
+            if config.ttl_secs == 0 {
+                tracing::warn!(
+                    "EvaluationCache: ttl_secs is 0 with cache enabled — put operations will be no-ops"
+                );
+            }
+        }
+
         // Use the configured max_size if valid, otherwise fall back to 1.
         // This avoids expect()/unwrap() per project no-panic policy.
         let size = if config.enabled && config.max_size > 0 {

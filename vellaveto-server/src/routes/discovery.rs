@@ -155,9 +155,16 @@ pub async fn discovery_search(
         }
     }
 
-    Ok(Json(serde_json::to_value(result).unwrap_or_else(|_| {
-        json!({"error": "serialization failed"})
-    })))
+    let value = serde_json::to_value(result).map_err(|e| {
+        tracing::error!("Failed to serialize discovery search result: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Failed to serialize discovery result".to_string(),
+            }),
+        )
+    })?;
+    Ok(Json(value))
 }
 
 /// GET /api/discovery/index/stats
@@ -184,9 +191,16 @@ pub async fn discovery_stats(
         )
     })?;
 
-    Ok(Json(serde_json::to_value(stats).unwrap_or_else(|_| {
-        json!({"error": "serialization failed"})
-    })))
+    let value = serde_json::to_value(stats).map_err(|e| {
+        tracing::error!("Failed to serialize discovery stats: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Failed to serialize discovery stats".to_string(),
+            }),
+        )
+    })?;
+    Ok(Json(value))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -377,8 +391,17 @@ pub async fn discovery_tools(
 
     let total = tools.len();
 
+    let tools_value = serde_json::to_value(&tools).map_err(|e| {
+        tracing::error!("Failed to serialize discovery tools list: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Failed to serialize tools list".to_string(),
+            }),
+        )
+    })?;
     Ok(Json(json!({
-        "tools": serde_json::to_value(&tools).unwrap_or_else(|_| json!([])),
+        "tools": tools_value,
         "total": total,
     })))
 }

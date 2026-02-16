@@ -191,7 +191,14 @@ pub async fn get_graph_stats(
 
     let stats = graph.statistics();
 
-    Ok(Json(
-        serde_json::to_value(&stats).unwrap_or_else(|_| json!({})),
-    ))
+    let value = serde_json::to_value(&stats).map_err(|e| {
+        tracing::error!("Failed to serialize graph stats: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Failed to serialize graph statistics".to_string(),
+            }),
+        )
+    })?;
+    Ok(Json(value))
 }

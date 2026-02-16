@@ -3532,11 +3532,16 @@ fn test_redact_keys_only_depth_64_returns_value_as_is() {
         value = json!({"nested": value});
     }
     let redacted = crate::redaction::redact_keys_only(&value);
-    // SECURITY (GAP-S06): At depth 64, the value is replaced with [REDACTED_DEPTH_EXCEEDED]
+    // SECURITY (GAP-S06): At depth 64, the value is fail-closed to [REDACTED]
+    // instead of being returned unredacted.
     let redacted_str = redacted.to_string();
     assert!(
-        redacted_str.contains("REDACTED_DEPTH_EXCEEDED"),
-        "At depth 64 the value should be replaced with REDACTED_DEPTH_EXCEEDED"
+        redacted_str.contains("[REDACTED]"),
+        "At depth 64 the value should be fail-closed to [REDACTED]"
+    );
+    assert!(
+        !redacted_str.contains("secret123"),
+        "Secret should not appear at max depth"
     );
 }
 
@@ -3544,13 +3549,19 @@ fn test_redact_keys_only_depth_64_returns_value_as_is() {
 fn test_redact_keys_only_depth_65_still_safe() {
     // Build a nested JSON object 65 levels deep (over MAX_REDACTION_DEPTH)
     let mut value = json!({"password": "secret123"});
-    for _ in 0..64 {
+    for _ in 0..65 {
         value = json!({"nested": value});
     }
     // Should not panic — depth limit prevents stack overflow
     let redacted = crate::redaction::redact_keys_only(&value);
-    // The function should return without error
+    // The function should return without error. The outermost object is still
+    // an object (depth 0), but inner levels at depth >= 64 are replaced with [REDACTED].
     assert!(redacted.is_object());
+    let redacted_str = redacted.to_string();
+    assert!(
+        !redacted_str.contains("secret123"),
+        "Secret should not appear beyond max depth"
+    );
 }
 
 #[test]
@@ -3578,11 +3589,16 @@ fn test_redact_keys_and_patterns_depth_64_returns_value_as_is() {
         value = json!({"nested": value});
     }
     let redacted = crate::redaction::redact_keys_and_patterns(&value);
-    // SECURITY (GAP-S06): At depth limit, value is replaced with REDACTED_DEPTH_EXCEEDED
+    // SECURITY (GAP-S06): At depth limit, value is fail-closed to [REDACTED]
+    // instead of being returned unredacted with PII.
     let redacted_str = redacted.to_string();
     assert!(
-        redacted_str.contains("REDACTED_DEPTH_EXCEEDED"),
-        "At depth 64 the value should be replaced with REDACTED_DEPTH_EXCEEDED"
+        redacted_str.contains("[REDACTED]"),
+        "At depth 64 the value should be fail-closed to [REDACTED]"
+    );
+    assert!(
+        !redacted_str.contains("test@example.com"),
+        "PII should not appear at max depth"
     );
 }
 

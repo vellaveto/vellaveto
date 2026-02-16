@@ -569,12 +569,25 @@ fn matches_resource(resource: &CompiledResource, action: &Action) -> bool {
     // Domain check: if patterns specified, at least one domain must match
     // SECURITY (FIND-R46-002): Apply domain normalization (lowercase, trim trailing dots)
     // before matching to prevent bypass via case or trailing dot variations.
+    // SECURITY (FIND-P2-001): Apply full IDNA normalization via normalize_domain_for_match()
+    // to prevent bypass via internationalized domain name variations (e.g., punycode vs
+    // Unicode, homoglyphs). Domains that fail IDNA normalization are rejected (fail-closed).
     if !resource.domain_matchers.is_empty() {
         if action.target_domains.is_empty() {
             return false;
         }
         let any_domain_matches = action.target_domains.iter().any(|domain| {
-            let normalized = domain.to_lowercase().trim_end_matches('.').to_string();
+            let normalized = match crate::domain::normalize_domain_for_match(domain) {
+                Some(cow) => cow.into_owned(),
+                None => {
+                    // SECURITY (FIND-P2-001): Fail-closed — domain cannot be IDNA-normalized.
+                    tracing::warn!(
+                        domain = %domain,
+                        "ABAC resource domain match: domain failed IDNA normalization — fail-closed"
+                    );
+                    return false;
+                }
+            };
             resource.domain_matchers.iter().any(|m| m.matches(&normalized))
         });
         if !any_domain_matches {

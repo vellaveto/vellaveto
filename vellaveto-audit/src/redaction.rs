@@ -78,9 +78,11 @@ pub(crate) fn redact_keys_only(value: &serde_json::Value) -> serde_json::Value {
 }
 
 fn redact_keys_only_inner(value: &serde_json::Value, depth: usize) -> serde_json::Value {
-    // SECURITY (FIND-R46-011): Stop recursion at max depth — return value as-is.
+    // SECURITY (FIND-R46-011, GAP-S06): Stop recursion at max depth. Fail-closed by
+    // redacting the value at max depth instead of returning it unredacted, which could
+    // leak sensitive data in deeply nested structures.
     if depth >= MAX_REDACTION_DEPTH {
-        return value.clone();
+        return serde_json::Value::String(REDACTED.to_string());
     }
     match value {
         serde_json::Value::Object(map) => {
@@ -117,9 +119,10 @@ pub fn redact_keys_and_patterns(value: &serde_json::Value) -> serde_json::Value 
 }
 
 fn redact_keys_and_patterns_inner(value: &serde_json::Value, depth: usize) -> serde_json::Value {
-    // SECURITY (FIND-R46-013): Stop recursion at max depth — return value as-is.
+    // SECURITY (FIND-R46-013, GAP-S06): Stop recursion at max depth. Fail-closed by
+    // redacting the value at max depth instead of returning it unredacted.
     if depth >= MAX_REDACTION_DEPTH {
-        return value.clone();
+        return serde_json::Value::String(REDACTED.to_string());
     }
     match value {
         serde_json::Value::Object(map) => {
@@ -188,9 +191,10 @@ fn redact_keys_and_patterns_with_scanner_inner(
     scanner: &PiiScanner,
     depth: usize,
 ) -> serde_json::Value {
-    // SECURITY (FIND-R46-013): Stop recursion at max depth — return value as-is.
+    // SECURITY (FIND-R46-013, GAP-S06): Stop recursion at max depth. Fail-closed by
+    // redacting the value at max depth instead of returning it unredacted.
     if depth >= MAX_REDACTION_DEPTH {
-        return value.clone();
+        return serde_json::Value::String(REDACTED.to_string());
     }
     match value {
         serde_json::Value::Object(map) => {

@@ -239,9 +239,31 @@ pub struct LeastAgencyReport {
     /// Policy IDs that were never exercised.
     pub unused_permissions: Vec<String>,
     /// Ratio of used to granted permissions (0.0–1.0).
+    ///
+    /// When `granted_permissions == 0`, this is `1.0` (not `0.0`) to avoid
+    /// division by zero and to indicate that no permissions were wasted — an
+    /// agent with zero grants has no unused permissions, so it is trivially
+    /// "optimal" from a least-agency perspective.
     pub usage_ratio: f64,
     /// Recommended action based on usage ratio.
     pub recommendation: AgencyRecommendation,
+}
+
+impl LeastAgencyReport {
+    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    ///
+    /// SECURITY (FIND-P2-007): Non-finite floats can propagate through
+    /// calculations and comparisons unpredictably, potentially bypassing
+    /// threshold checks (e.g., NaN < 0.5 is false, NaN > 0.5 is also false).
+    pub fn validate_finite(&self) -> Result<(), String> {
+        if !self.usage_ratio.is_finite() {
+            return Err(format!(
+                "LeastAgencyReport for agent '{}' session '{}' has non-finite usage_ratio: {}",
+                self.agent_id, self.session_id, self.usage_ratio
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Recommendation for adjusting an agent's permission scope.

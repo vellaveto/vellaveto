@@ -13,7 +13,19 @@ const MAX_TARGET_LEN: usize = 4096;
 /// Maximum number of combined `target_paths` + `target_domains` entries.
 const MAX_TARGETS: usize = 256;
 
+/// Maximum serialized size of `parameters` in bytes (1 MiB).
+///
+/// SECURITY (FIND-P3-016): Prevents memory exhaustion from oversized
+/// parameter payloads. 1 MiB is generous for tool call parameters
+/// while still bounding memory usage per-action.
+const MAX_PARAMETERS_SIZE: usize = 1_048_576;
+
 /// Validate a single name field (tool or function).
+///
+/// This is `pub(crate)` intentionally — external callers should use
+/// [`Action::validated`] or [`Action::validate`] which call this internally.
+/// Keeping it crate-private avoids exposing an internal validation primitive
+/// in the public API surface.
 pub(crate) fn validate_name(value: &str, field: &'static str) -> Result<(), ValidationError> {
     if value.is_empty() {
         return Err(ValidationError::EmptyField { field });
@@ -105,11 +117,23 @@ impl Action {
 
     /// Validate an existing Action's fields.
     ///
-    /// Checks tool/function names, and `target_paths`/`target_domains` for
-    /// null bytes, excessive length, and total count.
+    /// Checks tool/function names, parameters size, and
+    /// `target_paths`/`target_domains` for null bytes, excessive length,
+    /// and total count.
     pub fn validate(&self) -> Result<(), ValidationError> {
         validate_name(&self.tool, "tool")?;
         validate_name(&self.function, "function")?;
+
+        // SECURITY (FIND-P3-016): Bound parameters size to prevent memory exhaustion.
+        // Uses serde_json::to_string() length as a proxy for in-memory size.
+        if let Ok(serialized) = serde_json::to_string(&self.parameters) {
+            if serialized.len() > MAX_PARAMETERS_SIZE {
+                return Err(ValidationError::ParametersTooLarge {
+                    size: serialized.len(),
+                    max: MAX_PARAMETERS_SIZE,
+                });
+            }
+        }
 
         // Check combined target count (R39-ENG-4: include resolved_ips)
         let total_targets =
@@ -264,6 +288,34 @@ pub struct Policy {
     /// Optional network-based access control rules.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_rules: Option<NetworkRules>,
+}
+
+impl Policy {
+    /// Validate structural invariants of a `Policy`.
+    ///
+    /// Checks:
+    /// - `id` is not empty
+    /// - `name` is not empty
+    /// - `priority` is non-negative (>= 0)
+    ///
+    /// SECURITY (FIND-P2-008): Policies with empty IDs could collide in
+    /// lookups; empty names hamper audit legibility; negative priorities
+    /// could invert evaluation ordering expectations.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id.is_empty() {
+            return Err("Policy id must not be empty".to_string());
+        }
+        if self.name.is_empty() {
+            return Err(format!("Policy '{}' name must not be empty", self.id));
+        }
+        if self.priority < 0 {
+            return Err(format!(
+                "Policy '{}' priority must be non-negative, got {}",
+                self.id, self.priority
+            ));
+        }
+        Ok(())
+    }
 }
 
 // ═══════════════════════════════════════════════════

@@ -88,3 +88,19 @@ pub struct DiscoveredTool {
     /// Time-to-live in seconds before this discovery result expires.
     pub ttl_secs: u64,
 }
+
+impl DiscoveredTool {
+    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    ///
+    /// SECURITY (FIND-P2-007): Non-finite relevance_score could cause
+    /// incorrect ranking or bypass score threshold checks.
+    pub fn validate_finite(&self) -> Result<(), String> {
+        if !self.relevance_score.is_finite() {
+            return Err(format!(
+                "DiscoveredTool '{}' has non-finite relevance_score: {}",
+                self.metadata.tool_id, self.relevance_score
+            ));
+        }
+        Ok(())
+    }
+}

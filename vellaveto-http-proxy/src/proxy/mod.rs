@@ -7,7 +7,7 @@
 mod auth;
 pub mod call_chain;
 pub mod discovery;
-#[allow(dead_code)] // Wired into gateway health checker in future phases
+#[allow(dead_code)] // Used by gateway health checker; wired in gateway mode (Phase 20)
 mod fallback;
 pub mod gateway;
 #[cfg(feature = "grpc")]
@@ -273,7 +273,7 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2026-06", "2025-11-25", "2025-06
 /// Header for client transport preference negotiation (MCP June 2026).
 /// Clients may send a comma-separated list of preferred transports.
 /// Used in request handling when transport-preference-aware routing is active.
-#[allow(dead_code)] // Wired into request handlers in Phase 20
+#[allow(dead_code)] // Reserved for transport-preference-aware routing (Phase 20 MCP Gateway)
 const MCP_TRANSPORT_PREFERENCE_HEADER: &str = "mcp-transport-preference";
 
 /// OWASP ASI08: Header for tracking upstream agents in multi-hop MCP scenarios.

@@ -866,11 +866,19 @@ impl PolicyEngine {
                         reason: "max_calls_in_window missing 'max' integer".to_string(),
                     }
                 })?;
-                // SECURITY (R34-ENG-2): Use try_from instead of `as usize` to
-                // avoid silent truncation on 32-bit platforms where u64 > usize::MAX.
-                let window =
-                    usize::try_from(obj.get("window").and_then(|v| v.as_u64()).unwrap_or(0))
-                        .unwrap_or(usize::MAX);
+                // SECURITY (FIND-P2-004, R34-ENG-2): Use try_from instead of `as usize`
+                // and return a compilation error if the value overflows usize, instead
+                // of silently clamping to usize::MAX.
+                let window_raw = obj.get("window").and_then(|v| v.as_u64()).unwrap_or(0);
+                let window = usize::try_from(window_raw).map_err(|_| PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!(
+                        "max_calls_in_window 'window' value {} exceeds platform maximum ({})",
+                        window_raw,
+                        usize::MAX
+                    ),
+                })?;
                 let deny_reason = format!(
                     "Tool '{}' called more than {} times in last {} actions (policy '{}')",
                     tool_pattern,
@@ -999,11 +1007,25 @@ impl PolicyEngine {
             // ═══════════════════════════════════════════════════
             "async_task_policy" => {
                 // MCP 2025-11-25: Async task lifecycle policy
-                let max_concurrent = obj
+                // SECURITY (FIND-P3-015): Return a compilation error if max_concurrent
+                // overflows usize, instead of silently clamping to usize::MAX.
+                let max_concurrent_raw = obj
                     .get("max_concurrent")
                     .and_then(|v| v.as_u64())
-                    .map(|v| usize::try_from(v).unwrap_or(usize::MAX))
                     .unwrap_or(0); // 0 = unlimited
+                let max_concurrent = if max_concurrent_raw == 0 {
+                    0
+                } else {
+                    usize::try_from(max_concurrent_raw).map_err(|_| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "async_task_policy 'max_concurrent' value {} exceeds platform maximum ({})",
+                            max_concurrent_raw,
+                            usize::MAX
+                        ),
+                    })?
+                };
 
                 let max_duration_secs = obj
                     .get("max_duration_secs")

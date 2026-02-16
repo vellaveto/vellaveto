@@ -1024,12 +1024,19 @@ fn redact_response_action(mut action: Action) -> Action {
 /// governance, discovery, zk_audit, exec_graph, simulator, etc.). The HTTP
 /// status code carries the machine-readable error category (400, 404, 500, etc.).
 ///
+/// Standard error response body for Vellaveto REST API endpoints.
+///
+/// Returned as `Json<ErrorResponse>` alongside an HTTP status code (e.g., 400, 404, 500).
+/// The `error` field carries a human-readable description of what went wrong. The HTTP
+/// status code carries the machine-readable error category.
+///
 /// **Note:** The MCP JSON-RPC proxy layer (`vellaveto-http-proxy`) uses
 /// JSON-RPC error format (`{ "jsonrpc": "2.0", "error": { "code": ..., "message": ... } }`)
 /// for MCP protocol responses, which is a different convention dictated by the
 /// MCP specification. The `ErrorResponse` struct is only for REST API endpoints.
 #[derive(Serialize)]
 pub struct ErrorResponse {
+    /// Human-readable error description.
     pub error: String,
 }
 

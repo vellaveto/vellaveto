@@ -372,6 +372,13 @@ impl MerkleTree {
     ///
     /// This handles the general case of non-power-of-2 trees by
     /// building sub-trees from the binary decomposition of n.
+    ///
+    /// ## Edge Cases (GAP-S07)
+    ///
+    /// - **Empty tree** (`n == 0`): returns empty sibling list.
+    /// - **Single leaf** (`n == 1`): returns empty sibling list (the leaf IS the root).
+    /// - **Odd node at level boundary**: promoted without a sibling, so no ProofStep
+    ///   is emitted for that level.
     fn compute_siblings(
         &self,
         leaves: &[[u8; 32]],

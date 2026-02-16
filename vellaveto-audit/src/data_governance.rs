@@ -143,6 +143,13 @@ impl Default for DataGovernanceRegistry {
 }
 
 /// Simple glob matching supporting `*` and `?`.
+///
+/// ## Memory (GAP-S08)
+///
+/// Uses a 2D dynamic programming table of size `O(pattern.len() * text.len())`.
+/// For typical tool names (< 256 chars) and glob patterns (< 64 chars), this is
+/// under 16 KB. Callers should validate that neither `pattern` nor `text` exceeds
+/// reasonable bounds to prevent excessive memory allocation with adversarial inputs.
 fn glob_match(pattern: &str, text: &str) -> bool {
     let p: Vec<char> = pattern.chars().collect();
     let t: Vec<char> = text.chars().collect();
