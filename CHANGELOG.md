@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Phase 38: SOC 2 Type II Access Review Reports
+
+Dynamic report generation for SOC 2 Type II auditors, scanning audit entries and cross-referencing with least-agency data to produce CC6-focused access review reports with reviewer attestation fields.
+
+- **Types** (`vellaveto-types/src/compliance.rs`): `AttestationStatus` (Pending/Approved/FindingsNoted/Rejected), `ReviewerAttestation`, `AccessReviewEntry` (per-agent verdict counts, tools/functions, permission usage ratio, recommendation), `Cc6Evidence` (CC6.1/CC6.2/CC6.3 with agent tier counts), `AccessReviewReport`, `ReviewSchedule` (Daily/Weekly/Monthly), `ReportExportFormat` (Json/Html)
+- **Config** (`vellaveto-config/src/compliance.rs`): `Soc2AccessReviewConfig` with `enabled`, `schedule`, `default_period_days` (1–366), `reviewers` (max 50, 256-char names, no control chars). Added to `Soc2Config` with `#[serde(default)]`
+- **Generator** (`vellaveto-audit/src/access_review.rs`): `generate_access_review()` — period-filtered audit scanning, per-agent aggregation via BTreeMap (deterministic ordering), least-agency cross-reference, CC6 evidence by recommendation tier. Memory-bounded: MAX_ENTRIES=1M, MAX_AGENTS=10K
+- **HTML renderer** (`vellaveto-audit/src/access_review.rs`): `render_html()` — self-contained HTML with embedded CSS, HTML-escaped user data, summary table, per-agent details, attestation section
+- **Server route** (`vellaveto-server/src/routes/compliance.rs`): `GET /api/compliance/soc2/access-review` with query params `period` (e.g. "30d"), `format` ("json"/"html"), `agent_id` (optional filter, max 128 chars). Gates on `soc2.enabled` and `soc2.access_review.enabled`
+- **Scheduled generation** (`vellaveto-server/src/main.rs`): tokio interval task when `schedule` is configured (Daily=86400s, Weekly=604800s, Monthly=2592000s). Errors logged via `access_review.error` event (fail-safe)
+- **Audit events** (`vellaveto-audit/src/events.rs`): `log_access_review_event()` for `access_review.generated`, `access_review.scheduled`, `access_review.exported`, `access_review.error`
+- **Python SDK**: `soc2_access_review(period, format, agent_id)` on both sync and async clients with agent_id validation (max 128 chars)
+- **TypeScript SDK**: `soc2AccessReview(period?, format?, agentId?)` method + `AccessReviewReport`, `AccessReviewEntry`, `Cc6Evidence`, `ReviewerAttestation` interfaces
+- **Go SDK**: `Soc2AccessReview(ctx, period, format, agentID)` method + corresponding types
+
+#### Test Count Updates
+- Rust: 6,055 → 6,099 (+44)
+- Python SDK: 298 (+3 new access review tests)
+- TypeScript SDK: 34 → 64 (+30 new tests)
+- Go SDK: 40 (+3 new access review tests)
+- **Total: 6,501 tests across all languages**
+
 ### Fixed (Adversarial Hardening — Round 47: P0/P1 Deep Fix)
 
 15 findings resolved (3 P0, 12 P1) across 23 files (+1,824/-161 lines).

@@ -1,13 +1,13 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 complete, 47 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 complete, 47 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 6,055 Rust tests + 298 Python SDK tests + 40 Go SDK tests + 34 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 6,099 Rust tests + 298 Python SDK tests + 40 Go SDK tests + 64 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
 > **CI workflows:** 11 (15 jobs)
-> **Updated:** 2026-02-16
+> **Updated:** 2026-02-17
 
 ---
 
@@ -98,8 +98,9 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Compliance registries: EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, gap analysis | `vellaveto-audit/src/{eu_ai_act,soc2,cosai,adversa_top25,iso42001,gap_analysis}.rs` |
 | Data governance registry (Art 10) | `vellaveto-audit/src/data_governance.rs` |
 | ZK audit: Pedersen commitments, witness store, Groth16 circuit, batch prover, scheduler | `vellaveto-audit/src/zk/{mod,pedersen,witness,circuit,prover,scheduler}.rs` |
+| Access review report generator + HTML renderer | `vellaveto-audit/src/access_review.rs` |
 | OTLP exporter, archive | `vellaveto-audit/src/observability/otlp.rs`, `vellaveto-audit/src/archive.rs` |
-| Tests (~404) | `vellaveto-audit/src/tests.rs` |
+| Tests (~421) | `vellaveto-audit/src/tests.rs` |
 | **vellaveto-config** | |
 | Module root + PolicyConfig + validation | `vellaveto-config/src/lib.rs`, `vellaveto-config/src/config_validate.rs` |
 | Detection, enterprise, ETDI, MCP protocol, threat detection | `vellaveto-config/src/*.rs` |
@@ -137,6 +138,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Discovery API routes | `vellaveto-server/src/routes/discovery.rs` |
 | Projector API routes | `vellaveto-server/src/routes/projector.rs` |
 | ZK Audit API routes (status, proofs, verify, commitments) | `vellaveto-server/src/routes/zk_audit.rs` |
+| SOC 2 Access Review route (JSON/HTML) | `vellaveto-server/src/routes/compliance.rs` |
 | Dashboard | `vellaveto-server/src/dashboard.rs` |
 | **Other** | |
 | Stdio proxy | `vellaveto-proxy/src/main.rs` |
@@ -150,10 +152,10 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Proto: MCP gRPC schema | `proto/mcp/v1/mcp.proto` |
 | GitHub Action: policy-check | `.github/actions/policy-check/action.yml` |
 | **SDKs** | |
-| Python SDK: client, langchain, langgraph, composio, redaction (288 tests) | `sdk/python/` |
+| Python SDK: client, langchain, langgraph, composio, redaction (298 tests) | `sdk/python/` |
 | Composio integration: guard, modifiers, extractor, scanner (84 tests) | `sdk/python/vellaveto/composio/` |
-| TypeScript SDK: client + types (34 tests) | `sdk/typescript/` |
-| Go SDK: client + types + errors (33 tests) | `sdk/go/` |
+| TypeScript SDK: client + types (64 tests) | `sdk/typescript/` |
+| Go SDK: client + types + errors (40 tests) | `sdk/go/` |
 | **Formal Verification** | |
 | Shared TLA+ operators (pattern matching, sorting) | `formal/tla/MCPCommon.tla` |
 | Policy engine state machine (S1–S6, L1–L2) | `formal/tla/MCPPolicyEngine.tla` + `.cfg` |
@@ -164,7 +166,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 implemented, tested, and hardened through 46 audit rounds. Details in CHANGELOG.md.
+All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 implemented, tested, and hardened through 47 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
 - **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention
@@ -193,6 +195,7 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - **Tool Discovery (Phase 34):** Pure Rust TF-IDF inverted index (cosine similarity, zero new deps), `DiscoveryEngine` with policy filtering and token budget, session-scoped TTL lifecycle (record/expire/evict), REST API (search/stats/reindex/tools), SDK methods (Python/TypeScript/Go), feature-gated behind `discovery`, ~260 new tests
 - **Model Projector (Phase 35):** `ModelProjection` trait with `ProjectorRegistry`, 5 built-in projections (Claude/OpenAI/DeepSeek/Qwen/Generic), `SchemaCompressor` (5 progressive strategies), `CallRepairer` (type coercion, Levenshtein fuzzy matching, DeepSeek markdown extraction), REST API (models/transform), feature-gated behind `projector`, ~230 new tests
 - **Zero-Knowledge Audit Trails (Phase 37):** Two-tier ZK audit: inline Pedersen commitments (~50µs per entry, `curve25519-dalek` Ristretto) + offline Groth16 batch proofs (`ark-groth16`/`ark-bn254`). `PedersenCommitter` with domain-separated generators, `WitnessStore` with bounded capacity, `AuditChainCircuit` (R1CS for hash-chain + commitment verification), `ZkBatchProver` (setup/prove/verify with key serialization), `ZkBatchScheduler` (async batch loop with size/interval triggers). REST API: `GET /api/zk-audit/status`, `GET /api/zk-audit/proofs`, `POST /api/zk-audit/verify`, `GET /api/zk-audit/commitments`. `ZkAuditConfig` with validation (batch_size 10–10,000). Python SDK methods (sync+async): `zk_status()`, `zk_proofs()`, `zk_verify()`, `zk_commitments()`. Feature-gated behind `zk-audit`, ~190 new tests (Rust + Python)
+- **SOC 2 Type II Access Review Reports (Phase 38):** Dynamic report generation scanning audit entries and cross-referencing with least-agency data. Types: `AttestationStatus`, `ReviewerAttestation`, `AccessReviewEntry`, `Cc6Evidence`, `AccessReviewReport`, `ReviewSchedule`, `ReportExportFormat`. `Soc2AccessReviewConfig` with schedule (Daily/Weekly/Monthly), period bounds (1–366 days), reviewer validation. `generate_access_review()` with memory bounds (1M entries, 10K agents), deterministic BTreeMap ordering, CC6 evidence by recommendation tier. HTML renderer with escaped user data. REST API: `GET /api/compliance/soc2/access-review` (JSON/HTML, period/agent_id filters). Scheduled report generation (tokio interval task). SDK methods: Python (sync+async), TypeScript, Go with input validation. ~75 new tests across Rust + SDKs.
 - **Docs:** Quickstart guides, security model, benchmarks, 5 policy presets
 
 ---
