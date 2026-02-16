@@ -11,9 +11,9 @@
     <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-5%2C159_passing-brightgreen.svg" alt="Tests: 5,159 passing">
+    <img src="https://img.shields.io/badge/tests-5%2C177_passing-brightgreen.svg" alt="Tests: 5,177 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
-    <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-42_rounds%2C_350%2B_findings-informational.svg" alt="Adversarial Testing: 42 rounds, 350+ findings"></a>
+    <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-43_rounds%2C_400%2B_findings-informational.svg" alt="Adversarial Testing: 43 rounds, 400+ findings"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
   </p>
@@ -35,7 +35,7 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>4.0.0-dev</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>5,159+ tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>5,177+ tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
@@ -45,6 +45,8 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 ## Recent Updates (2026-02-15)
 
 - **Phase 29: Cross-Transport Smart Fallback** — Ordered transport fallback chain (gRPC → WebSocket → HTTP → stdio) with per-transport circuit breakers. When an upstream transport fails, the proxy automatically tries the next transport in priority order. Per-tool glob-based transport overrides, client preference header support, and full audit trail of fallback negotiations. Default off (`cross_transport_fallback: false`) for backward compatibility. Fail-closed: all transports failed → deny. 71 new tests.
+- **Phase 28: Distributed Tracing & Observability** — W3C Trace Context (`traceparent`/`tracestate`) propagation across all four transports (HTTP, WebSocket, gRPC, A2A). `TraceContext` parsing, child span generation, and upstream header injection with <200ns overhead. Gateway mode creates per-backend child spans for multi-backend trace correlation. GenAI semantic convention attributes (`gen_ai.agent.id`) on security spans. Vellaveto verdict injected into `tracestate` for cross-service observability. Fail-open for tracing (missing context generates a new trace). `SpanKind::Gateway` for gateway-specific spans. Compatible with Jaeger, Grafana Tempo, Datadog, and any OTLP collector.
+- **Phase 27: Kubernetes-Native Deployment** — `LeaderElection` trait with `LocalLeaderElection` (always-leader standalone mode) for single-instance deployments. `ServiceDiscovery` trait with `StaticServiceDiscovery` (explicit endpoint list) and `DnsServiceDiscovery` (tokio `lookup_host` with periodic refresh). `DeploymentConfig` with mode/leader-election/service-discovery/instance-id validation. `GET /api/deployment/info` endpoint. Health endpoint extended with `leader_status`, `instance_id`, and `discovered_endpoints`. Helm chart v4.0.0 with StatefulSet, PVC for audit persistence, init container, log-shipping sidecar, headless Service, and gRPC/WebSocket port support. Audit event helpers for leader election and service discovery lifecycle events. ~45 new tests.
 - **Phase 26: Shadow AI Detection & Governance Visibility** — Detects unauthorized ("shadow") AI tool usage across the organization, surfaces unregistered tool invocations, enforces governance policies on unsanctioned agents, and provides visibility dashboards for security and compliance teams. Integrates with the existing audit trail and compliance registries for centralized governance reporting.
 - **Phase 25.1/25.2: Audio & Video Metadata Inspection** — Pure-Rust parsers for WAV (RIFF/LIST/INFO), MP3 (ID3v2 with syncsafe integers, 4 text encodings), MP4 (ISO BMFF moov/udta/meta/ilst), and WebM (EBML/Matroska tags). Extracted text feeds into the existing injection detection pipeline. FLAC, OGG, and AVI magic bytes detection. All parsers bounded (max iterations, max aggregate text, max nesting depth). 27 new tests.
 - **Phase 25.6: Stateless Protocol Abstraction** — `RequestContext` trait abstracts session state access for policy evaluation, enabling both stateful (current) and stateless HTTP modes (future MCP June 2026). `StatefulContext` wraps `SessionState` for zero-cost migration. `StatelessContextBlob` defines the signed per-request context format with HMAC-SHA256 verification and 5-minute expiry. 8 new tests.
@@ -81,7 +83,7 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 - **Adversarial Audit Hardening (FIND-055–074)** — Agent card SSRF prevention, bounded JSON traversal, control character rejection, regex pattern length limits, observability exporter bounds, attestation validation, audit log permission warnings.
 - **Adversarial Pentest Round 3 (FIND-077–084)** — Circuit breaker case normalization, HalfOpen state transition fix, exponential backoff enforcement, behavioral absolute ceiling, cold-start EMA cap, deputy re-delegation scope intersection, capability grant path normalization, fullwidth digit NFKC normalization.
 - **RwLock Poisoning Hardening** — All lock acquisition patterns across 12 modules replaced with explicit match blocks and fail-closed defaults.
-- **22 fuzz targets** — Coverage for JSON-RPC framing, path normalization, domain extraction, CIDR parsing, DLP scanning, injection detection, agent card URL/parse, A2A classification, homoglyph normalization, attestation verification, WebSocket frame parsing, gRPC proto conversion.
+- **24 fuzz targets** — Coverage for JSON-RPC framing, path normalization, domain extraction, CIDR parsing, DLP scanning, injection detection, agent card URL/parse, A2A classification, homoglyph normalization, attestation verification, WebSocket frame parsing, gRPC proto conversion.
 - See `CHANGELOG.md` for full release and patch details.
 
 ## 🧪 Post-Quantum Readiness (Research Track)
@@ -782,6 +784,7 @@ Security defaults and guardrails:
 | `GET` | `/api/compliance/threat-coverage` | Yes | Threat coverage across ATLAS, CoSAI, and Adversa TOP 25 |
 | `GET` | `/api/compliance/gap-analysis` | Yes | Cross-framework gap analysis (7 frameworks) |
 | `GET` | `/api/compliance/data-governance` | Yes | Data governance registry (Art 10) with tool classifications |
+| `GET` | `/api/deployment/info` | Yes | Deployment mode, leader status, and discovered endpoints |
 
 All endpoints except `/health`, `/metrics`, and `/api/metrics` require a `Bearer` token matching `VELLAVETO_API_KEY`. Use `--allow-anonymous` to disable authentication for development.
 
@@ -957,16 +960,16 @@ Environment variables override values set in the config file.
 
 ### 🔬 Security Audit
 
-Vellaveto has undergone 37 rounds of adversarial security audit covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
+Vellaveto has undergone 43 rounds of adversarial security audit covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
 
 | Metric | Value |
 |--------|-------|
-| Audit rounds completed | 37 |
+| Audit rounds completed | 43 |
 | Attack classes tested | 31+ |
-| Total findings triaged | 400+ |
-| Findings fixed | 310+ |
-| Critical/HIGH findings fixed | 85+ |
-| Test count post-audit | 4,944+ |
+| Total findings triaged | 450+ |
+| Findings fixed | 380+ |
+| Critical/HIGH findings fixed | 100+ |
+| Test count post-audit | 5,177+ |
 
 Key areas covered: tool poisoning, prompt injection, path traversal, SSRF/domain bypass, session fixation, JSON parsing, memory poisoning, elicitation social engineering, audit log tampering, OAuth/JWT validation, SIEM export injection, rug-pull detection, tool squatting, DLP bypass, SSE transport parity, config reload races, Unicode case-folding, IPv6 transition mechanisms, CEF/SIEM injection, and webhook SSRF.
 
@@ -1092,7 +1095,7 @@ server     proxy     http-proxy   HTTP API, stdio proxy, HTTP reverse proxy
 | `vellaveto-integration` | test-suite | `vellaveto-integration/` | Cross-crate regression, adversarial, and conformance tests | `cargo test -p vellaveto-integration` |
 | `sdk/python` | sdk | `sdk/python/` | Python client + LangChain/LangGraph adapters | `cd sdk/python && pytest` |
 | `helm/vellaveto` | deployment | `helm/vellaveto/` | Kubernetes packaging and values templates | `helm lint helm/vellaveto` |
-| `fuzz` | fuzzing | `fuzz/` | Fuzz targets for parser/protocol/security boundary hardening | `cd fuzz && cargo +nightly fuzz list` |
+| `fuzz` | fuzzing | `fuzz/` | 24 fuzz targets for parser/protocol/security boundary hardening | `cd fuzz && cargo +nightly fuzz list` |
 | `security-testing` | security | `security-testing/` | Pentest harnesses and red-team scenarios | `bash security-testing/run-shannon-pentest.sh` |
 | `policies` | config samples | `policies/` | Example and baseline policy bundles | load with `--config policies/*.toml` |
 | `examples` | examples | `examples/` | Demo configs and workflows | run `vellaveto serve --config examples/*.toml` |

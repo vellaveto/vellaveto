@@ -124,6 +124,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **19 verified properties total** (16 safety + 3 liveness), each mapped to exact source locations in the Rust codebase.
 - First formal model of MCP policy enforcement in any framework (TLA+, Alloy, Lean, Coq) — addresses Gap #1 from `docs/MCP_SECURITY_GAPS.md`.
 
+#### Phase 28 — Distributed Tracing & Observability
+- **W3C Trace Context propagation** (`vellaveto-http-proxy/src/proxy/trace_propagation.rs`) — `extract_trace_context()` parses `traceparent`/`tracestate` headers per W3C Trace Context spec. Generates new trace context when missing (fail-open for observability). `inject_trace_headers()` adds headers to upstream requests.
+- **TraceContext helpers** (`vellaveto-audit/src/observability/mod.rs`) — `TraceContext::parse_traceparent()` with strict validation (version-00, 32-char trace_id, 16-char span_id, hex-only), `child()` for child span generation with random span IDs, `with_vellaveto_verdict()` for injecting verdict into tracestate, `with_parsed_tracestate()`, `ensure_trace_id()`.
+- **SpanKind::Gateway** — new span kind for gateway-specific trace spans in multi-backend routing.
+- **HTTP handler integration** (`vellaveto-http-proxy/src/proxy/handlers.rs`) — incoming trace context extracted from request headers, Vellaveto verdict appended to tracestate, trace headers injected into upstream requests. Gateway mode creates per-backend child spans.
+- **WebSocket trace context** (`vellaveto-http-proxy/src/proxy/websocket/mod.rs`) — trace context extracted from HTTP upgrade request headers and used for correlating all audit entries during the WebSocket session.
+- **gRPC trace propagation** (`vellaveto-http-proxy/src/proxy/grpc/interceptors.rs`) — `extract_grpc_trace_context()` reads `traceparent`/`tracestate` from gRPC metadata, `inject_grpc_trace_context()` adds to outbound metadata. gRPC-to-HTTP fallback generates fresh trace context.
+- **A2A trace context** (`vellaveto-mcp/src/a2a/proxy.rs`) — `extract_a2a_trace_context()` reads trace context from A2A message `metadata.traceparent` field.
+- **GenAI semantic conventions** (`vellaveto-audit/src/observability/otlp.rs`, `vellaveto-server/src/routes/main.rs`) — `gen_ai.agent.id` attribute on security spans for agent identity correlation in observability platforms.
+- **Upstream header injection** (`vellaveto-http-proxy/src/proxy/upstream.rs`) — W3C `traceparent`/`tracestate` headers injected into upstream HTTP requests.
+
+#### Phase 27 — Kubernetes-Native Deployment
+- **Leader election trait** (`vellaveto-cluster/src/leader.rs`) — `LeaderElection` async trait with `acquire()`, `renew()`, `release()`, `is_leader()`, `leader_info()` methods for pluggable leader election backends.
+- **Local leader election** (`vellaveto-cluster/src/leader_local.rs`) — `LocalLeaderElection` implementation (always-leader) for single-instance standalone deployments.
+- **Service discovery trait** (`vellaveto-cluster/src/discovery.rs`) — `ServiceDiscovery` async trait with `discover()`, `watch()`, `register()`, `deregister()` methods for pluggable service discovery backends.
+- **Static service discovery** (`vellaveto-cluster/src/discovery_static.rs`) — `StaticServiceDiscovery` with explicit endpoint list for known topologies.
+- **DNS service discovery** (`vellaveto-cluster/src/discovery_dns.rs`) — `DnsServiceDiscovery` with tokio `lookup_host` resolution and periodic refresh via `watch()`.
+- **Deployment types** (`vellaveto-types/src/deployment.rs`) — `DeploymentMode`, `LeaderElectionConfig`, `ServiceDiscoveryConfig`, `LeaderStatus`, `ServiceEndpoint`, `DeploymentInfo` types.
+- **Deployment config** (`vellaveto-config/src/deployment.rs`) — `DeploymentConfig` with mode, leader election, service discovery, and instance ID settings. Validation: instance_id max length 253, RFC 1123 characters, dot-only rejection.
+- **Deployment API endpoint** (`vellaveto-server/src/routes/deployment.rs`) — `GET /api/deployment/info` returns deployment mode, leader status, and discovered endpoints.
+- **Health endpoint extensions** (`vellaveto-server/src/routes/main.rs`) — `/health` response includes `leader_status`, `instance_id`, and `discovered_endpoints` fields (omitted in standalone mode). FIND-P27-001: uses cached values (never calls `discover()` from `/health`).
+- **Deployment event logging** (`vellaveto-audit/src/events.rs`) — audit event helpers for `leader_election.{acquired,renewed,released,lost,failed}` and `service_discovery.{endpoint_added,endpoint_removed,endpoint_updated,refresh_failed}`.
+- **Server integration** (`vellaveto-server/src/main.rs`, `vellaveto-server/src/lib.rs`) — leader election and service discovery bootstrapped at server startup with `DeploymentConfig` validation.
+- **Helm chart v4.0.0** (`helm/vellaveto/`) — StatefulSet with PVC for audit log persistence, init container for volume permissions, log-shipping sidecar (Fluent Bit), headless Service for DNS-based discovery, gRPC and WebSocket port exposure, configurable deployment mode, and deployment config in ConfigMap.
+- ~45 new tests across `vellaveto-types`, `vellaveto-config`, `vellaveto-audit`, `vellaveto-cluster`, and `vellaveto-server`.
+
 ### Fixed (Adversarial Hardening — Round 1)
 - **P0-1/P0-2**: Moved TLC record definitions to `MC_*.tla` model companion modules (TLC `.cfg` parser cannot handle set-of-record literals).
 - **P0-3**: Removed `SafetyFailClosed` operator that used primed variables in state predicate (invalid for TLC invariant checking).
