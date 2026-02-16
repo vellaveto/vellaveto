@@ -421,3 +421,184 @@ class TestAsyncVellavetoClient:
         monkeypatch.setattr(client_mod, "HAS_HTTPX", False)
         with pytest.raises(ImportError, match="httpx"):
             AsyncVellavetoClient()
+
+
+class TestZkAuditSync:
+    """Tests for VellavetoClient ZK audit methods (Phase 37)."""
+
+    def test_zk_status(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/zk-audit/status",
+            json={
+                "active": True,
+                "pending_witnesses": 5,
+                "completed_proofs": 10,
+                "last_proved_sequence": 42,
+                "last_proof_at": "2026-02-16T00:00:00Z",
+            },
+        )
+        client = VellavetoClient()
+        result = client.zk_status()
+        assert result["active"] is True
+        assert result["completed_proofs"] == 10
+        client.close()
+
+    def test_zk_status_disabled(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/zk-audit/status",
+            json={"active": False, "pending_witnesses": 0, "completed_proofs": 0},
+        )
+        client = VellavetoClient()
+        result = client.zk_status()
+        assert result["active"] is False
+        client.close()
+
+    def test_zk_proofs_default_params(self, httpx_mock):
+        httpx_mock.add_response(
+            url=httpx.URL(
+                "http://localhost:3000/api/zk-audit/proofs",
+                params={"limit": "20", "offset": "0"},
+            ),
+            json={"proofs": [], "total": 0, "offset": 0, "limit": 20},
+        )
+        client = VellavetoClient()
+        result = client.zk_proofs()
+        assert result["total"] == 0
+        assert result["proofs"] == []
+        client.close()
+
+    def test_zk_proofs_custom_params(self, httpx_mock):
+        httpx_mock.add_response(
+            url=httpx.URL(
+                "http://localhost:3000/api/zk-audit/proofs",
+                params={"limit": "50", "offset": "10"},
+            ),
+            json={"proofs": [{"batch_id": "b1"}], "total": 1, "offset": 10, "limit": 50},
+        )
+        client = VellavetoClient()
+        result = client.zk_proofs(limit=50, offset=10)
+        assert result["total"] == 1
+        assert len(result["proofs"]) == 1
+        client.close()
+
+    def test_zk_verify(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/zk-audit/verify",
+            json={
+                "valid": True,
+                "batch_id": "test-batch",
+                "entry_range": [0, 10],
+                "verified_at": "2026-02-16T00:00:00Z",
+            },
+        )
+        client = VellavetoClient()
+        result = client.zk_verify("test-batch")
+        assert result["valid"] is True
+        assert result["batch_id"] == "test-batch"
+        client.close()
+
+    def test_zk_verify_invalid(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/zk-audit/verify",
+            json={
+                "valid": False,
+                "batch_id": "bad-batch",
+                "entry_range": [0, 5],
+                "verified_at": "2026-02-16T00:00:00Z",
+                "error": "Proof verification failed",
+            },
+        )
+        client = VellavetoClient()
+        result = client.zk_verify("bad-batch")
+        assert result["valid"] is False
+        assert result["error"] == "Proof verification failed"
+        client.close()
+
+    def test_zk_commitments(self, httpx_mock):
+        httpx_mock.add_response(
+            url=httpx.URL(
+                "http://localhost:3000/api/zk-audit/commitments",
+                params={"from": "0", "to": "100"},
+            ),
+            json={
+                "commitments": [
+                    {"sequence": 1, "commitment": "abc123", "timestamp": "2026-02-16T00:00:00Z"}
+                ],
+                "total": 1,
+                "range": [0, 100],
+            },
+        )
+        client = VellavetoClient()
+        result = client.zk_commitments(from_seq=0, to_seq=100)
+        assert result["total"] == 1
+        assert len(result["commitments"]) == 1
+        assert result["commitments"][0]["sequence"] == 1
+        client.close()
+
+    def test_zk_commitments_empty_range(self, httpx_mock):
+        httpx_mock.add_response(
+            url=httpx.URL(
+                "http://localhost:3000/api/zk-audit/commitments",
+                params={"from": "50", "to": "50"},
+            ),
+            json={"commitments": [], "total": 0, "range": [50, 50]},
+        )
+        client = VellavetoClient()
+        result = client.zk_commitments(from_seq=50, to_seq=50)
+        assert result["total"] == 0
+        client.close()
+
+
+class TestZkAuditAsync:
+    """Tests for AsyncVellavetoClient ZK audit methods (Phase 37)."""
+
+    @pytest.mark.asyncio
+    async def test_async_zk_status(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/zk-audit/status",
+            json={"active": False, "pending_witnesses": 0, "completed_proofs": 0},
+        )
+        async with AsyncVellavetoClient() as client:
+            result = await client.zk_status()
+            assert result["active"] is False
+
+    @pytest.mark.asyncio
+    async def test_async_zk_proofs(self, httpx_mock):
+        httpx_mock.add_response(
+            url=httpx.URL(
+                "http://localhost:3000/api/zk-audit/proofs",
+                params={"limit": "20", "offset": "0"},
+            ),
+            json={"proofs": [], "total": 0, "offset": 0, "limit": 20},
+        )
+        async with AsyncVellavetoClient() as client:
+            result = await client.zk_proofs()
+            assert result["total"] == 0
+
+    @pytest.mark.asyncio
+    async def test_async_zk_verify(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/zk-audit/verify",
+            json={
+                "valid": True,
+                "batch_id": "async-batch",
+                "entry_range": [0, 5],
+                "verified_at": "2026-02-16T00:00:00Z",
+            },
+        )
+        async with AsyncVellavetoClient() as client:
+            result = await client.zk_verify("async-batch")
+            assert result["valid"] is True
+
+    @pytest.mark.asyncio
+    async def test_async_zk_commitments(self, httpx_mock):
+        httpx_mock.add_response(
+            url=httpx.URL(
+                "http://localhost:3000/api/zk-audit/commitments",
+                params={"from": "0", "to": "50"},
+            ),
+            json={"commitments": [], "total": 0, "range": [0, 50]},
+        )
+        async with AsyncVellavetoClient() as client:
+            result = await client.zk_commitments(from_seq=0, to_seq=50)
+            assert result["total"] == 0

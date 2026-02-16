@@ -149,3 +149,68 @@ class InjectionAlert:
     pattern: str
     location: str
     severity: str = "medium"
+
+
+# ── ZK Audit Types (Phase 37) ───────────────────────────────────
+
+@dataclass
+class ZkBatchProof:
+    """
+    A batch ZK proof covering a range of audit entries.
+
+    Attributes:
+        proof: Hex-encoded Groth16 proof bytes
+        batch_id: Unique batch identifier (UUID)
+        entry_range: Inclusive range of entry sequence numbers (start, end)
+        merkle_root: Hex-encoded Merkle root at batch end
+        first_prev_hash: Hex-encoded prev_hash of first entry (public input)
+        final_entry_hash: Hex-encoded entry_hash of last entry (public input)
+        created_at: ISO 8601 timestamp when proof was created
+        entry_count: Number of entries in the batch
+    """
+    proof: str
+    batch_id: str
+    entry_range: tuple
+    merkle_root: str
+    first_prev_hash: str
+    final_entry_hash: str
+    created_at: str
+    entry_count: int
+
+
+@dataclass
+class ZkVerifyResult:
+    """
+    Result of verifying a ZK batch proof.
+
+    Attributes:
+        valid: Whether the proof is valid
+        batch_id: The batch ID that was verified
+        entry_range: The entry range that was verified (start, end)
+        verified_at: ISO 8601 timestamp when verification was performed
+        error: Error message if verification failed
+    """
+    valid: bool
+    batch_id: str
+    entry_range: tuple
+    verified_at: str
+    error: Optional[str] = None
+
+
+@dataclass
+class ZkSchedulerStatus:
+    """
+    Status of the ZK audit scheduler.
+
+    Attributes:
+        active: Whether the batch prover is active
+        pending_witnesses: Number of pending witnesses awaiting batch proof
+        completed_proofs: Number of completed batch proofs
+        last_proved_sequence: Sequence number of the last proved entry
+        last_proof_at: ISO 8601 timestamp of the last batch proof
+    """
+    active: bool
+    pending_witnesses: int
+    completed_proofs: int
+    last_proved_sequence: Optional[int] = None
+    last_proof_at: Optional[str] = None

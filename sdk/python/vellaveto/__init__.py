@@ -16,7 +16,14 @@ Example:
 
 from vellaveto.client import VellavetoClient, VellavetoError, PolicyDenied, ApprovalRequired
 from vellaveto.redaction import ParameterRedactor
-from vellaveto.types import Verdict, EvaluationResult, Action
+from vellaveto.types import (
+    Verdict,
+    EvaluationResult,
+    Action,
+    ZkBatchProof,
+    ZkVerifyResult,
+    ZkSchedulerStatus,
+)
 
 # Conditional re-export: ComposioGuard is available when vellaveto.composio is importable
 try:
@@ -35,4 +42,7 @@ __all__ = [
     "EvaluationResult",
     "Action",
     "ComposioGuard",
+    "ZkBatchProof",
+    "ZkVerifyResult",
+    "ZkSchedulerStatus",
 ]

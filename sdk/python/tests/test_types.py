@@ -8,6 +8,9 @@ from vellaveto.types import (
     EvaluationResult,
     InjectionAlert,
     Verdict,
+    ZkBatchProof,
+    ZkVerifyResult,
+    ZkSchedulerStatus,
 )
 
 
@@ -238,3 +241,98 @@ class TestInjectionAlert:
     def test_default_severity(self):
         alert = InjectionAlert(pattern="test", location="$.input")
         assert alert.severity == "medium"
+
+
+class TestZkBatchProof:
+    """Tests for the ZkBatchProof dataclass."""
+
+    def test_full_construction(self):
+        proof = ZkBatchProof(
+            proof="deadbeef",
+            batch_id="batch-001",
+            entry_range=(0, 10),
+            merkle_root="aabbccdd",
+            first_prev_hash="0" * 64,
+            final_entry_hash="f" * 64,
+            created_at="2026-02-16T00:00:00Z",
+            entry_count=11,
+        )
+        assert proof.batch_id == "batch-001"
+        assert proof.entry_range == (0, 10)
+        assert proof.entry_count == 11
+
+    def test_entry_range_is_tuple(self):
+        proof = ZkBatchProof(
+            proof="ab",
+            batch_id="b",
+            entry_range=(5, 15),
+            merkle_root="cc",
+            first_prev_hash="00",
+            final_entry_hash="ff",
+            created_at="",
+            entry_count=10,
+        )
+        assert isinstance(proof.entry_range, tuple)
+        assert proof.entry_range[0] == 5
+        assert proof.entry_range[1] == 15
+
+
+class TestZkVerifyResult:
+    """Tests for the ZkVerifyResult dataclass."""
+
+    def test_valid_result(self):
+        result = ZkVerifyResult(
+            valid=True,
+            batch_id="b-123",
+            entry_range=(0, 5),
+            verified_at="2026-02-16T00:00:00Z",
+        )
+        assert result.valid is True
+        assert result.error is None
+
+    def test_invalid_result_with_error(self):
+        result = ZkVerifyResult(
+            valid=False,
+            batch_id="b-456",
+            entry_range=(10, 20),
+            verified_at="2026-02-16T00:00:00Z",
+            error="Proof verification failed",
+        )
+        assert result.valid is False
+        assert result.error == "Proof verification failed"
+
+    def test_default_error_is_none(self):
+        result = ZkVerifyResult(
+            valid=True,
+            batch_id="b",
+            entry_range=(0, 0),
+            verified_at="",
+        )
+        assert result.error is None
+
+
+class TestZkSchedulerStatus:
+    """Tests for the ZkSchedulerStatus dataclass."""
+
+    def test_active_status(self):
+        status = ZkSchedulerStatus(
+            active=True,
+            pending_witnesses=5,
+            completed_proofs=10,
+            last_proved_sequence=42,
+            last_proof_at="2026-02-16T00:00:00Z",
+        )
+        assert status.active is True
+        assert status.pending_witnesses == 5
+        assert status.completed_proofs == 10
+        assert status.last_proved_sequence == 42
+
+    def test_inactive_status_defaults(self):
+        status = ZkSchedulerStatus(
+            active=False,
+            pending_witnesses=0,
+            completed_proofs=0,
+        )
+        assert status.active is False
+        assert status.last_proved_sequence is None
+        assert status.last_proof_at is None
