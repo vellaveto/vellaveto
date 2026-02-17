@@ -107,8 +107,21 @@ pub(super) async fn extract_annotations_from_response(
     );
 
     // Update session state with detection results
+    // SECURITY (FIND-R52-SESSION-001): Use bounded `insert_known_tool` instead of
+    // direct assignment to enforce the MAX_KNOWN_TOOLS capacity limit.
     if let Some(mut s) = sessions.get_mut(session_id) {
-        s.known_tools = result.updated_known.clone();
+        // Clear existing tools first, then re-insert through bounded method.
+        // This ensures the updated set respects capacity limits.
+        s.known_tools.clear();
+        for (name, annotations) in &result.updated_known {
+            if !s.insert_known_tool(name.clone(), annotations.clone()) {
+                tracing::warn!(
+                    session_id = %session_id,
+                    "Known tools capacity reached during rug-pull update; truncating"
+                );
+                break;
+            }
+        }
         for name in result.flagged_tool_names() {
             // SECURITY (FIND-R51-014): Use bounded insertion for flagged tools.
             s.insert_flagged_tool(name.to_string());

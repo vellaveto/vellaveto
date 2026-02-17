@@ -353,7 +353,8 @@ impl AbacConfig {
                     aud.len()
                 ));
             }
-            if aud.bytes().any(|b| b < 0x20 || b == 0x7F) {
+            // SECURITY (FIND-R52-008): Include C1 controls (0x80-0x9F) matching SDK validation.
+            if aud.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
                 return Err(
                     "abac.federation.expected_audience contains control characters".to_string(),
                 );

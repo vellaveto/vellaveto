@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+#### Round 52 Adversarial Audit (8 P1, 18 P2, 11 P3)
+
+- **FIND-R52-001 (P1):** `EvaluationContext.previous_actions` missing control character validation — allows ForbiddenActionSequence bypass via null byte injection (`"read_secret\x00"` does not match compiled `"read_secret"`)
+- **FIND-R52-002 (P1):** `ToolSignature` `derive(Debug)` leaks `signature` and `public_key` fields — custom Debug impl now redacts both
+- **FIND-R52-003 (P1):** WebSocket proxy missing outbound DLP parameter scanning (`scan_parameters_for_secrets`) — security parity with HTTP handler restored
+- **FIND-R52-004 (P1):** WebSocket proxy missing memory poisoning detection (`memory_tracker.check_parameters`) — OWASP ASI06 parity with HTTP handler restored
+- **FIND-R52-005 (P1):** WebSocket sessions never validate OAuth token expiry after upgrade — per-message token expiry check added with close code 1008
+- **FIND-R52-006 (P1):** SessionState bounded fields remain `pub` with bypass in `helpers.rs` — 5 fields changed to `pub(crate)`, read-only accessors added, `helpers.rs` uses bounded `insert_known_tool`
+- **FIND-R52-007 (P1):** Audit sequence counter `Ordering::Relaxed` race with `initialize_chain` — all `entry_count` operations upgraded to `Ordering::SeqCst`
+- **FIND-R52-008 (P1):** Shadow AI discovery `known_servers` lock poisoning fail-open — changed `unwrap_or(false)` to `unwrap_or(true)` for fail-closed
+- **FIND-R52-009 (P2):** `NhiBehavioralDeviation.severity` not range-validated to [0.0, 1.0] + deviations Vec unbounded — added range check and MAX_DEVIATIONS=256
+- **FIND-R52-010 (P2):** `RiskFactor.weight`/`value` not range-validated — added [0.0, 1.0] range checks
+- **FIND-R52-011 (P2):** `RiskScore.factors` Vec unbounded — added MAX_FACTORS=256
+- **FIND-R52-012 (P2):** `StatelessContextBlob.signature` accepts mixed-case hex — now requires lowercase for canonical representation
+- **FIND-R52-013 (P2):** `call_chain` validation misses Unicode format chars (zero-width, bidi overrides, BOM) — extended with `is_unicode_format_char()` check
+- **FIND-R52-014 (P2):** `EvaluationContext.call_counts` key lengths unbounded — added MAX_ACTION_NAME_LEN check per key
+- **FIND-R52-015 (P2):** `StatelessContextBlob` `call_counts` keys and `recent_actions` entries unbounded — added per-entry 256-byte length checks
+- **FIND-R52-016 (P2):** `ToolSignature.validate()` only checks `rekor_entry` — added bounds for all 7 string fields (signature_id 256, signature 512, public_key 512, signed_at 64, expires_at 64, key_fingerprint 256, signer_spiffe_id 2048)
+- **FIND-R52-017 (P2):** C1 control chars (0x80-0x9F) missing from `FederationConfig.expected_audience`, `GovernanceConfig`, and transport config — extended all checks to `(0x7F..=0x9F).contains(&b)`
+- **FIND-R52-018 (P2):** Merkle proof `siblings` count unbounded — added MAX_PROOF_DEPTH=64
+- **FIND-R52-019 (P2):** Archive `compress_rotated_file` reads entire file without size check — added MAX_ARCHIVE_FILE_SIZE=512MB metadata check
+- **FIND-R52-020 (P2):** Access review `usage_ratio` NaN/Infinity in HTML render — added `is_finite()` guard
+- **FIND-R52-021 (P2):** Per-agent `session_ids`/`tools_accessed`/`functions_called` unbounded — added MAX_PER_AGENT_SET_SIZE=10,000
+- **FIND-R52-022 (P2):** A2A `process_response()` unbounded response clone — added MAX_A2A_RESPONSE_SIZE=16MB
+- **FIND-R52-023 (P2):** Missing audit log for allowed (Forward) tool calls and resource reads — added audit entries in Forward branch
+- **FIND-R52-024 (P2):** Relay `handle_passthrough` orphans `pending_requests` on DLP/injection block — added cleanup in block paths
+- **FIND-R52-025 (P2):** Semantic guardrails intent chain has no eviction — replaced silent skip with LRU-style eviction
+- **FIND-R52-026 (P3):** `CapabilityToken` `expires_at` == `issued_at` boundary semantics unclear — documented case-insensitivity design choice
+- Plus 10 additional P3 findings (JIT saturating_add, ISO 8601 month-day, Kahn debug_assert, successor dedup warning, async SSL warning, NhiBehavioralBaseline negatives, is_valid_iso8601_basic unwrap_or style, AccountabilityAttestation/TaskCheckpoint Debug leak, various validate() additions)
+
 #### Round 51 Adversarial Audit (2 P1, 14 P2, 11 P3)
 
 - **FIND-R51-001 (P1):** Float scores (`trust_score`, `risk_score`, `anomaly_score`, `confidence`, `relevance_score`) now range-validated to `[0.0, 1.0]` in all `validate()`/`validate_finite()` methods across 6 types files — negative values could bypass threshold checks in continuous authorization

@@ -310,6 +310,15 @@ impl RiskScore {
                 self.score
             ));
         }
+        // SECURITY (FIND-R52-001): Bound factors collection size.
+        const MAX_FACTORS: usize = 256;
+        if self.factors.len() > MAX_FACTORS {
+            return Err(format!(
+                "RiskScore factors count {} exceeds max {}",
+                self.factors.len(),
+                MAX_FACTORS,
+            ));
+        }
         for factor in &self.factors {
             factor.validate_finite()?;
         }
@@ -318,17 +327,19 @@ impl RiskScore {
 }
 
 impl RiskFactor {
-    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    /// Validate that all f64 fields are finite and in [0.0, 1.0].
     pub fn validate_finite(&self) -> Result<(), String> {
-        if !self.weight.is_finite() {
+        // SECURITY (FIND-R52-003): Range-validate weight and value to prevent
+        // adversarial composite score manipulation via negative factors.
+        if !self.weight.is_finite() || self.weight < 0.0 || self.weight > 1.0 {
             return Err(format!(
-                "RiskFactor '{}' weight is not finite: {}",
+                "RiskFactor '{}' weight must be in [0.0, 1.0], got {}",
                 self.name, self.weight
             ));
         }
-        if !self.value.is_finite() {
+        if !self.value.is_finite() || self.value < 0.0 || self.value > 1.0 {
             return Err(format!(
-                "RiskFactor '{}' value is not finite: {}",
+                "RiskFactor '{}' value must be in [0.0, 1.0], got {}",
                 self.name, self.value
             ));
         }

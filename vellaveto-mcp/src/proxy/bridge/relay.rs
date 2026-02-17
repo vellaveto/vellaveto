@@ -775,6 +775,18 @@ impl ProxyBridge {
             self.evaluate_tool_call(&id, &tool_name, &arguments, ann, Some(&eval_ctx));
         match decision {
             ProxyDecision::Forward => {
+                // SECURITY (FIND-R52-009): Audit allowed tool calls for full observability.
+                // Compliance frameworks (EU AI Act Art 50, SOC 2) require tracking all
+                // decisions, not just denials.
+                let action = extract_action(&tool_name, &arguments);
+                let meta = Self::tool_call_audit_metadata(&tool_name, ann);
+                if let Err(e) = self
+                    .audit
+                    .log_entry(&action, &Verdict::Allow, meta)
+                    .await
+                {
+                    tracing::warn!("Audit log failed for allowed tool call: {}", e);
+                }
                 // Record tool call in registry on Allow
                 if let Some(ref registry) = self.tool_registry {
                     registry.record_call(&tool_name).await;
@@ -945,6 +957,19 @@ impl ProxyBridge {
         let eval_ctx = state.evaluation_context();
         match self.evaluate_resource_read(&id, &uri, Some(&eval_ctx)) {
             ProxyDecision::Forward => {
+                // SECURITY (FIND-R52-009): Audit allowed resource reads for full observability.
+                let action = extract_resource_action(&uri);
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Allow,
+                        json!({"source": "proxy", "resource_uri": uri}),
+                    )
+                    .await
+                {
+                    tracing::warn!("Audit log failed for allowed resource read: {}", e);
+                }
                 // SECURITY (R38-MCP-2): Update call_counts and action_history for ResourceRead.
                 state.record_forwarded_action("resources/read");
                 state.track_pending_request(&id, "resources/read".to_string(), None);
@@ -1667,6 +1692,12 @@ impl ProxyBridge {
             // to avoid leaking which DLP patterns matched.
             if let Some(id) = msg.get("id") {
                 if !id.is_null() {
+                    // SECURITY (FIND-R52-008): Remove orphaned pending_request entry
+                    // to prevent resource leak when DLP scanning blocks the message.
+                    let id_key = id.to_string();
+                    state.pending_requests.remove(&id_key);
+                    state.tools_list_request_ids.remove(&id_key);
+                    state.initialize_request_ids.remove(&id_key);
                     let response = json!({
                         "jsonrpc": "2.0",
                         "id": id,
@@ -1746,6 +1777,12 @@ impl ProxyBridge {
                 if self.injection_blocking {
                     if let Some(id) = msg.get("id") {
                         if !id.is_null() {
+                            // SECURITY (FIND-R52-008): Remove orphaned pending_request entry
+                            // to prevent resource leak when injection scanning blocks the message.
+                            let id_key = id.to_string();
+                            state.pending_requests.remove(&id_key);
+                            state.tools_list_request_ids.remove(&id_key);
+                            state.initialize_request_ids.remove(&id_key);
                             let response = json!({
                                 "jsonrpc": "2.0",
                                 "id": id,

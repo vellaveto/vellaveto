@@ -276,16 +276,33 @@ impl SemanticGuardrailsService {
                 let intent = evaluation.intent.unwrap_or(Intent::Unknown);
                 let mut chains = self.intent_chains.write().await;
 
-                // Guard: skip insertion for new sessions when at capacity.
-                // Intent tracking is defense-in-depth; skipping is fail-safe.
+                // SECURITY (FIND-R52-010): Evict oldest session when at capacity instead
+                // of silently skipping. Previous behavior allowed an attacker to fill
+                // the map with stale sessions, permanently disabling intent tracking.
                 if !chains.contains_key(session_id.as_str()) && chains.len() >= MAX_INTENT_SESSIONS
                 {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        capacity = MAX_INTENT_SESSIONS,
-                        "Intent chain capacity reached; skipping tracking for new session"
-                    );
-                } else {
+                    // Evict the session with the oldest last activity timestamp.
+                    let oldest_key = chains
+                        .iter()
+                        .min_by_key(|(_, chain)| {
+                            chain
+                                .recent(1)
+                                .first()
+                                .map(|r| r.timestamp)
+                                .unwrap_or(0)
+                        })
+                        .map(|(k, _)| k.clone());
+                    if let Some(key) = oldest_key {
+                        chains.remove(&key);
+                        tracing::info!(
+                            evicted_session = %key,
+                            new_session = %session_id,
+                            capacity = MAX_INTENT_SESSIONS,
+                            "Intent chain capacity reached; evicted oldest session"
+                        );
+                    }
+                }
+                {
                     let chain = chains
                         .entry(session_id.clone())
                         .or_insert_with(|| IntentChain::new(self.config.max_chain_size));

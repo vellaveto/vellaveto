@@ -266,7 +266,8 @@ impl TransportConfig {
             // SECURITY (FIND-R44-007): Reject all ASCII control characters
             // (including null bytes). Control chars in glob keys can cause log
             // injection (ANSI escape codes) and are never valid in tool names.
-            if glob.bytes().any(|b| b < 0x20 || b == 0x7F) {
+            // SECURITY (FIND-R52-008): Include C1 controls (0x80-0x9F).
+            if glob.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
                 return Err(format!(
                     "transport.transport_overrides key contains control characters (key: {:?})",
                     &glob[..glob.len().min(32)]

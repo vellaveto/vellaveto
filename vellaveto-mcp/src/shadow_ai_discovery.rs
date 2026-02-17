@@ -226,12 +226,14 @@ impl ShadowAiDiscovery {
         }
 
         // Check if server is known (empty known_servers = all allowed)
+        // SECURITY (FIND-R52-001): Fail-closed on lock poisoning — treat as needing check.
+        // Previously `unwrap_or(false)` caused poisoned lock to skip unknown server tracking.
         if let Some(sid) = server_id {
             let server_check_needed = self
                 .known_servers
                 .read()
                 .map(|r| !r.is_empty() && !r.contains(sid))
-                .unwrap_or(false);
+                .unwrap_or(true);
 
             if server_check_needed && !sid.is_empty() {
                 if let Ok(mut unknown) = self.unknown_servers.write() {

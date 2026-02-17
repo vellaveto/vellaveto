@@ -4225,7 +4225,7 @@ fn test_evaluation_context_validate_call_chain_control_char_agent_id() {
     };
     let err = ctx.validate().unwrap_err();
     assert!(err.contains("call_chain[0].agent_id"));
-    assert!(err.contains("control characters"));
+    assert!(err.contains("control or format characters"));
 }
 
 #[test]
@@ -4243,7 +4243,7 @@ fn test_evaluation_context_validate_call_chain_control_char_tool() {
     };
     let err = ctx.validate().unwrap_err();
     assert!(err.contains("call_chain[0].tool"));
-    assert!(err.contains("control characters"));
+    assert!(err.contains("control or format characters"));
 }
 
 #[test]
@@ -4261,7 +4261,7 @@ fn test_evaluation_context_validate_call_chain_control_char_function() {
     };
     let err = ctx.validate().unwrap_err();
     assert!(err.contains("call_chain[0].function"));
-    assert!(err.contains("control characters"));
+    assert!(err.contains("control or format characters"));
 }
 
 #[test]
@@ -4443,11 +4443,13 @@ fn test_stateless_blob_validate_non_hex_signature_rejected() {
         signature: format!("{}g", "a".repeat(63)),
     };
     let err = blob.validate().unwrap_err();
-    assert!(err.contains("non-hex characters"));
+    assert!(err.contains("lowercase hex"));
 }
 
 #[test]
-fn test_stateless_blob_validate_mixed_case_hex_ok() {
+fn test_stateless_blob_validate_mixed_case_hex_rejected() {
+    // SECURITY (FIND-R52-004): Mixed case hex is now rejected to enforce
+    // canonical representation for consistent comparison.
     let blob = StatelessContextBlob {
         version: 1,
         agent_id: "agent-1".to_string(),
@@ -4457,6 +4459,21 @@ fn test_stateless_blob_validate_mixed_case_hex_ok() {
         risk_score: None,
         issued_at: 1000,
         signature: "aAbBcCdDeEfF0123456789aAbBcCdDeEfF0123456789aAbBcCdDeEfF01234567".to_string(),
+    };
+    assert!(blob.validate().is_err());
+}
+
+#[test]
+fn test_stateless_blob_validate_lowercase_hex_ok() {
+    let blob = StatelessContextBlob {
+        version: 1,
+        agent_id: "agent-1".to_string(),
+        call_counts: HashMap::new(),
+        recent_actions: vec![],
+        call_chain: vec![],
+        risk_score: None,
+        issued_at: 1000,
+        signature: "aabbccddeeff0123456789aabbccddeeff0123456789aabbccddeeff01234567".to_string(),
     };
     assert!(blob.validate().is_ok());
 }

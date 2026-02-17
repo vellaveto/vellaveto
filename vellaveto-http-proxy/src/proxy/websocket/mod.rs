@@ -28,7 +28,8 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use vellaveto_mcp::extractor::{self, MessageType};
 use vellaveto_mcp::inspection::{
-    inspect_for_injection, scan_response_for_secrets, scan_text_for_secrets,
+    inspect_for_injection, scan_parameters_for_secrets, scan_response_for_secrets,
+    scan_text_for_secrets,
 };
 use vellaveto_mcp::output_validation::ValidationResult;
 use vellaveto_types::{Action, EvaluationContext, Verdict};
@@ -381,6 +382,51 @@ async fn relay_client_to_upstream(
 
         record_ws_message("client_to_upstream");
 
+        // SECURITY (FIND-R52-WS-003): Per-message OAuth token expiry check.
+        // After WebSocket upgrade, the HTTP auth middleware no longer runs.
+        // A token that expires mid-connection must be rejected to prevent
+        // indefinite access via a long-lived WebSocket.
+        {
+            let token_expired = state
+                .sessions
+                .get_mut(&session_id)
+                .and_then(|s| {
+                    s.token_expires_at.map(|exp| {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        now >= exp
+                    })
+                })
+                .unwrap_or(false);
+            if token_expired {
+                tracing::warn!(
+                    session_id = %session_id,
+                    "SECURITY: OAuth token expired during WebSocket session, closing"
+                );
+                let error = json!({
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32001,
+                        "message": "Session expired"
+                    },
+                    "id": null
+                });
+                let error_text = serde_json::to_string(&error)
+                    .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Session expired"},"id":null}"#.to_string());
+                let mut sink = client_sink.lock().await;
+                let _ = sink.send(Message::Text(error_text.into())).await;
+                let _ = sink
+                    .send(Message::Close(Some(CloseFrame {
+                        code: CLOSE_POLICY_VIOLATION,
+                        reason: "Token expired".into(),
+                    })))
+                    .await;
+                break;
+            }
+        }
+
         match msg {
             Message::Text(text) => {
                 // Rate limiting
@@ -646,6 +692,127 @@ async fn relay_client_to_upstream(
                             let mut sink = client_sink.lock().await;
                             let _ = sink.send(Message::Text(error.into())).await;
                             continue;
+                        }
+
+                        // SECURITY (FIND-R52-WS-001): DLP scan parameters for secret exfiltration.
+                        // Matches HTTP handler's DLP check to maintain security parity.
+                        {
+                            let dlp_findings = scan_parameters_for_secrets(arguments);
+                            if !dlp_findings.is_empty() && state.injection_blocking {
+                                for finding in &dlp_findings {
+                                    record_dlp_finding(&finding.pattern_name);
+                                }
+                                let patterns: Vec<String> = dlp_findings
+                                    .iter()
+                                    .map(|f| format!("{} at {}", f.pattern_name, f.location))
+                                    .collect();
+                                let audit_reason = format!(
+                                    "DLP: secrets detected in tool parameters: {:?}",
+                                    patterns
+                                );
+                                tracing::warn!(
+                                    "SECURITY: DLP blocking WS tool '{}' in session {}: {}",
+                                    tool_name,
+                                    session_id,
+                                    audit_reason
+                                );
+                                let dlp_action = extractor::extract_action(tool_name, arguments);
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &dlp_action,
+                                        &Verdict::Deny {
+                                            reason: audit_reason,
+                                        },
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "event": "dlp_secret_blocked",
+                                            "tool": tool_name,
+                                            "findings": patterns,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!("Failed to audit WS DLP finding: {}", e);
+                                }
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "Request blocked: security policy violation",
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                                continue;
+                            }
+                        }
+
+                        // SECURITY (FIND-R52-WS-002): Memory poisoning detection.
+                        // Check if tool call parameters contain replayed response data,
+                        // matching the HTTP handler's memory poisoning check.
+                        {
+                            let poisoning_detected = state
+                                .sessions
+                                .get_mut(&session_id)
+                                .and_then(|session| {
+                                    let matches =
+                                        session.memory_tracker.check_parameters(arguments);
+                                    if !matches.is_empty() {
+                                        for m in &matches {
+                                            tracing::warn!(
+                                                "SECURITY: Memory poisoning detected in WS tool '{}' (session {}): \
+                                                 param '{}' contains replayed data (fingerprint: {})",
+                                                tool_name,
+                                                session_id,
+                                                m.param_location,
+                                                m.fingerprint
+                                            );
+                                        }
+                                        Some(matches.len())
+                                    } else {
+                                        None
+                                    }
+                                });
+                            if let Some(match_count) = poisoning_detected {
+                                let poison_action =
+                                    extractor::extract_action(tool_name, arguments);
+                                let deny_reason = format!(
+                                    "Memory poisoning detected: {} replayed data fragment(s) in tool '{}'",
+                                    match_count, tool_name
+                                );
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &poison_action,
+                                        &Verdict::Deny {
+                                            reason: deny_reason,
+                                        },
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "event": "memory_poisoning_detected",
+                                            "matches": match_count,
+                                            "tool": tool_name,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to audit WS memory poisoning: {}",
+                                        e
+                                    );
+                                }
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "Request blocked: security policy violation",
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                                continue;
+                            }
                         }
 
                         // SECURITY (FIND-R46-008): Circuit breaker check.

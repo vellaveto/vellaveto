@@ -25,7 +25,9 @@ pub struct SessionState {
     pub created_at: Instant,
     pub last_activity: Instant,
     pub protocol_version: Option<String>,
-    pub known_tools: HashMap<String, ToolAnnotations>,
+    /// SECURITY (FIND-R52-SESSION-001): Use `pub(crate)` to force callers through
+    /// bounded `insert_known_tool` method. Direct read access within the crate is allowed.
+    pub(crate) known_tools: HashMap<String, ToolAnnotations>,
     pub request_count: u64,
     /// Whether the initial tools/list response has been seen for this session.
     /// Used for rug-pull detection: tool additions after the first list are suspicious.
@@ -35,7 +37,9 @@ pub struct SessionState {
     pub oauth_subject: Option<String>,
     /// Tools flagged by rug-pull detection. Tool calls to these tools are
     /// blocked until the session is cleared or a clean tools/list is received.
-    pub flagged_tools: HashSet<String>,
+    /// SECURITY (FIND-R52-SESSION-001): Use `pub(crate)` to force callers through
+    /// bounded `insert_flagged_tool` method. Direct read access within the crate is allowed.
+    pub(crate) flagged_tools: HashSet<String>,
     /// Pinned tool manifest for this session. Built from the first tools/list
     /// response, used to verify subsequent tools/list responses.
     pub pinned_manifest: Option<ToolManifest>,
@@ -70,14 +74,20 @@ pub struct SessionState {
     pub agent_identity: Option<AgentIdentity>,
     /// Phase 20: Gateway backend session mapping.
     /// Maps backend_id → upstream session_id for session affinity.
-    pub backend_sessions: HashMap<String, String>,
+    /// SECURITY (FIND-R52-SESSION-001): Use `pub(crate)` to force callers through
+    /// bounded `insert_backend_session` method.
+    pub(crate) backend_sessions: HashMap<String, String>,
     /// Phase 20: Tools discovered from each gateway backend.
     /// Maps backend_id → list of tool names for conflict detection.
-    pub gateway_tools: HashMap<String, Vec<String>>,
+    /// SECURITY (FIND-R52-SESSION-001): Use `pub(crate)` to force callers through
+    /// bounded `insert_gateway_tools` method.
+    pub(crate) gateway_tools: HashMap<String, Vec<String>>,
     /// Phase 21: Per-session risk score for continuous authorization.
     pub risk_score: Option<vellaveto_types::RiskScore>,
     /// Phase 21: Granted ABAC policy IDs for least-agency tracking.
-    pub abac_granted_policies: Vec<String>,
+    /// SECURITY (FIND-R52-SESSION-001): Use `pub(crate)` to force callers through
+    /// bounded `insert_granted_policy` method.
+    pub(crate) abac_granted_policies: Vec<String>,
     /// Phase 34: Tools discovered via `vv_discover` with TTL tracking.
     /// Maps tool_id → session entry with discovery timestamp and TTL.
     pub discovered_tools: HashMap<String, DiscoveredToolSession>,
@@ -151,6 +161,37 @@ impl SessionState {
             abac_granted_policies: Vec::new(),
             discovered_tools: HashMap::new(),
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // SECURITY (FIND-R52-SESSION-001): Read-only accessors for bounded fields.
+    // These allow integration tests and external consumers to inspect state
+    // without bypassing the bounded insertion methods.
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Read-only access to known tools.
+    pub fn known_tools(&self) -> &HashMap<String, ToolAnnotations> {
+        &self.known_tools
+    }
+
+    /// Read-only access to flagged tools.
+    pub fn flagged_tools(&self) -> &HashSet<String> {
+        &self.flagged_tools
+    }
+
+    /// Read-only access to backend sessions.
+    pub fn backend_sessions(&self) -> &HashMap<String, String> {
+        &self.backend_sessions
+    }
+
+    /// Read-only access to gateway tools.
+    pub fn gateway_tools(&self) -> &HashMap<String, Vec<String>> {
+        &self.gateway_tools
+    }
+
+    /// Read-only access to ABAC granted policies.
+    pub fn abac_granted_policies(&self) -> &[String] {
+        &self.abac_granted_policies
     }
 
     /// SECURITY (FIND-R51-001): Insert a backend session with capacity bound.

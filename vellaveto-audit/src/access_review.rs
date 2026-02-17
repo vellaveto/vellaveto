@@ -22,6 +22,11 @@ pub const MAX_ENTRIES_PER_REPORT: usize = 1_000_000;
 /// Prevents unbounded per-agent aggregation maps.
 pub const MAX_AGENTS_PER_REPORT: usize = 10_000;
 
+/// Maximum number of per-agent session_ids, tools_accessed, or functions_called.
+/// SECURITY (FIND-R52-AUDIT-015): Prevents unbounded per-agent set growth from
+/// adversarial entries with unique session/tool/function values.
+const MAX_PER_AGENT_SET_SIZE: usize = 10_000;
+
 /// Per-agent accumulator used during report generation.
 struct AgentAccumulator {
     session_ids: BTreeSet<String>,
@@ -122,7 +127,11 @@ pub fn generate_access_review(
             functions_called: BTreeSet::new(),
         });
 
-        acc.session_ids.insert(session_id);
+        // SECURITY (FIND-R52-AUDIT-015): Cap per-agent set sizes to prevent unbounded
+        // memory growth from adversarial entries with unique session/tool/function values.
+        if acc.session_ids.len() < MAX_PER_AGENT_SET_SIZE {
+            acc.session_ids.insert(session_id);
+        }
         acc.total_evaluations += 1;
         total_evaluations += 1;
 
@@ -142,8 +151,11 @@ pub fn generate_access_review(
             _ => acc.deny_count += 1, // Fail-closed: unknown verdicts count as deny
         }
 
-        acc.tools_accessed.insert(entry.action.tool.clone());
-        if !entry.action.function.is_empty() {
+        if acc.tools_accessed.len() < MAX_PER_AGENT_SET_SIZE {
+            acc.tools_accessed.insert(entry.action.tool.clone());
+        }
+        if !entry.action.function.is_empty() && acc.functions_called.len() < MAX_PER_AGENT_SET_SIZE
+        {
             acc.functions_called.insert(entry.action.function.clone());
         }
     }
@@ -378,7 +390,14 @@ pub fn render_html(report: &AccessReviewReport) -> String {
         html.push_str(&format!("<td>{}</td>", entry.deny_count));
         html.push_str(&format!("<td>{}</td>", entry.require_approval_count));
         html.push_str(&format!("<td>{}</td>", entry.tools_accessed.len()));
-        html.push_str(&format!("<td>{:.1}%</td>", entry.usage_ratio * 100.0));
+        // SECURITY (FIND-R52-AUDIT-007): Guard against NaN/Infinity in usage_ratio
+        // which could produce misleading HTML output or XSS-adjacent rendering issues.
+        let safe_ratio = if entry.usage_ratio.is_finite() {
+            entry.usage_ratio
+        } else {
+            0.0
+        };
+        html.push_str(&format!("<td>{:.1}%</td>", safe_ratio * 100.0));
         html.push_str(&format!(
             "<td class=\"{}\">{}</td>",
             rec_class,

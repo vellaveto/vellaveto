@@ -61,6 +61,19 @@ pub struct ArchiveReport {
 pub async fn compress_rotated_file(path: &Path) -> Result<PathBuf, AuditError> {
     use std::io::Write;
 
+    // SECURITY (FIND-R52-AUDIT-008): Check file size before reading to prevent OOM
+    // from adversarially large rotated files. 512 MB is far beyond any legitimate
+    // rotated audit log (default rotation at 100 MB).
+    const MAX_ARCHIVE_FILE_SIZE: u64 = 512 * 1024 * 1024;
+    let metadata = tokio::fs::metadata(path).await.map_err(AuditError::Io)?;
+    if metadata.len() > MAX_ARCHIVE_FILE_SIZE {
+        return Err(AuditError::Validation(format!(
+            "Archive file too large for compression: {} bytes (max {} bytes)",
+            metadata.len(),
+            MAX_ARCHIVE_FILE_SIZE
+        )));
+    }
+
     let content = tokio::fs::read(path).await.map_err(AuditError::Io)?;
     let original_len = content.len();
 

@@ -243,6 +243,9 @@ pub fn verify_capability_token(
     }
 
     // Check holder match
+    // SECURITY (FIND-R52-003): Case-insensitive comparison is intentional to accommodate
+    // identity providers with inconsistent casing (e.g., "Alice" vs "alice"). Callers
+    // that need case-sensitive holder matching should normalize both sides before calling.
     if let Some(expected) = expected_holder {
         if !token.holder.eq_ignore_ascii_case(expected) {
             return Ok(CapabilityVerification {
