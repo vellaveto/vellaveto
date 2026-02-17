@@ -38,7 +38,13 @@ fn is_valid_iso8601_basic(s: &str) -> bool {
     let b = s.as_bytes();
 
     // Structural checks: separators at fixed positions
-    if b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[13] != b':' || b[16] != b':' || b[19] != b'Z' {
+    if b[4] != b'-'
+        || b[7] != b'-'
+        || b[10] != b'T'
+        || b[13] != b':'
+        || b[16] != b':'
+        || b[19] != b'Z'
+    {
         return false;
     }
 
@@ -125,7 +131,10 @@ impl std::fmt::Debug for ToolSignature {
             .field("signed_at", &self.signed_at)
             .field("expires_at", &self.expires_at)
             .field("signer_spiffe_id", &self.signer_spiffe_id)
-            .field("rekor_entry", &self.rekor_entry.as_ref().map(|_| "[PRESENT]"))
+            .field(
+                "rekor_entry",
+                &self.rekor_entry.as_ref().map(|_| "[PRESENT]"),
+            )
             .finish()
     }
 }

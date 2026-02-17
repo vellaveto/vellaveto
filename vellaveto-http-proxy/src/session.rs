@@ -197,9 +197,14 @@ impl SessionState {
     /// SECURITY (FIND-R51-001): Insert a backend session with capacity bound.
     /// Returns `true` if the entry was inserted or already existed, `false` if at capacity.
     #[allow(clippy::map_entry)] // Capacity check requires len() which conflicts with entry() borrow
-    pub fn insert_backend_session(&mut self, backend_id: String, upstream_session_id: String) -> bool {
+    pub fn insert_backend_session(
+        &mut self,
+        backend_id: String,
+        upstream_session_id: String,
+    ) -> bool {
         if self.backend_sessions.contains_key(&backend_id) {
-            self.backend_sessions.insert(backend_id, upstream_session_id);
+            self.backend_sessions
+                .insert(backend_id, upstream_session_id);
             return true;
         }
         if self.backend_sessions.len() >= MAX_BACKEND_SESSIONS {
@@ -210,14 +215,17 @@ impl SessionState {
             );
             return false;
         }
-        self.backend_sessions.insert(backend_id, upstream_session_id);
+        self.backend_sessions
+            .insert(backend_id, upstream_session_id);
         true
     }
 
     /// SECURITY (FIND-R51-001): Insert gateway tools for a backend with capacity bounds.
     /// Returns `true` if inserted, `false` if at capacity.
     pub fn insert_gateway_tools(&mut self, backend_id: String, tools: Vec<String>) -> bool {
-        if !self.gateway_tools.contains_key(&backend_id) && self.gateway_tools.len() >= MAX_GATEWAY_TOOLS {
+        if !self.gateway_tools.contains_key(&backend_id)
+            && self.gateway_tools.len() >= MAX_GATEWAY_TOOLS
+        {
             tracing::warn!(
                 session_id = %self.session_id,
                 capacity = MAX_GATEWAY_TOOLS,

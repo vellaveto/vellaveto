@@ -338,7 +338,10 @@ impl EvaluationContext {
         // SECURITY (FIND-R52-005): Also reject Unicode format characters (category Cf)
         // which include zero-width chars (U+200B-U+200F), bidi overrides (U+202A-U+202E,
         // U+2066-U+2069), and BOM (U+FEFF). These can cause identity confusion in logs.
-        if value.chars().any(|c| c.is_control() || Self::is_unicode_format_char(c)) {
+        if value
+            .chars()
+            .any(|c| c.is_control() || Self::is_unicode_format_char(c))
+        {
             return Err(format!(
                 "EvaluationContext call_chain[{}].{} contains control or format characters",
                 index, field_name,

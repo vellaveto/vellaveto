@@ -780,11 +780,7 @@ impl ProxyBridge {
                 // decisions, not just denials.
                 let action = extract_action(&tool_name, &arguments);
                 let meta = Self::tool_call_audit_metadata(&tool_name, ann);
-                if let Err(e) = self
-                    .audit
-                    .log_entry(&action, &Verdict::Allow, meta)
-                    .await
-                {
+                if let Err(e) = self.audit.log_entry(&action, &Verdict::Allow, meta).await {
                     tracing::warn!("Audit log failed for allowed tool call: {}", e);
                 }
                 // Record tool call in registry on Allow

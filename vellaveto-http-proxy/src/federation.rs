@@ -60,11 +60,7 @@ impl std::fmt::Display for FederationError {
             Self::NoMatchingKey { org_id, kid } => {
                 // SECURITY (FIND-R50-040): Sanitize kid value in error messages
                 // to prevent control character injection in logs.
-                let safe_kid: String = kid
-                    .chars()
-                    .filter(|c| !c.is_control())
-                    .take(128)
-                    .collect();
+                let safe_kid: String = kid.chars().filter(|c| !c.is_control()).take(128).collect();
                 write!(
                     f,
                     "no matching key in JWKS for org {}, kid '{}'",

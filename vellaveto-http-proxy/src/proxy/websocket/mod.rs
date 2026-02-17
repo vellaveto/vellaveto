@@ -775,8 +775,7 @@ async fn relay_client_to_upstream(
                                     }
                                 });
                             if let Some(match_count) = poisoning_detected {
-                                let poison_action =
-                                    extractor::extract_action(tool_name, arguments);
+                                let poison_action = extractor::extract_action(tool_name, arguments);
                                 let deny_reason = format!(
                                     "Memory poisoning detected: {} replayed data fragment(s) in tool '{}'",
                                     match_count, tool_name
@@ -799,10 +798,7 @@ async fn relay_client_to_upstream(
                                     )
                                     .await
                                 {
-                                    tracing::warn!(
-                                        "Failed to audit WS memory poisoning: {}",
-                                        e
-                                    );
+                                    tracing::warn!("Failed to audit WS memory poisoning: {}", e);
                                 }
                                 let error = make_ws_error_response(
                                     Some(id),

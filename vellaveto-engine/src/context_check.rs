@@ -832,7 +832,11 @@ impl PolicyEngine {
                     if *ordered {
                         // Ordered subsequence match over history + current_tool.
                         let mut seq_idx = 0;
-                        for h in history.iter().map(|s| s.as_str()).chain(std::iter::once(current_lower.as_str())) {
+                        for h in history
+                            .iter()
+                            .map(|s| s.as_str())
+                            .chain(std::iter::once(current_lower.as_str()))
+                        {
                             if seq_idx < sequence.len()
                                 && h.eq_ignore_ascii_case(&sequence[seq_idx])
                             {
@@ -855,17 +859,14 @@ impl PolicyEngine {
                             .collect();
                         let mut used = vec![false; effective.len()];
                         let all_present = sequence.iter().all(|required| {
-                            effective
-                                .iter()
-                                .enumerate()
-                                .any(|(i, h)| {
-                                    if !used[i] && h.eq_ignore_ascii_case(required) {
-                                        used[i] = true;
-                                        true
-                                    } else {
-                                        false
-                                    }
-                                })
+                            effective.iter().enumerate().any(|(i, h)| {
+                                if !used[i] && h.eq_ignore_ascii_case(required) {
+                                    used[i] = true;
+                                    true
+                                } else {
+                                    false
+                                }
+                            })
                         });
                         if all_present {
                             return Some(Verdict::Deny {
@@ -897,9 +898,7 @@ impl PolicyEngine {
                         let last_governed = history
                             .iter()
                             .rev()
-                            .find(|h| {
-                                governed_tools.iter().any(|g| h.eq_ignore_ascii_case(g))
-                            })
+                            .find(|h| governed_tools.iter().any(|g| h.eq_ignore_ascii_case(g)))
                             .map(|h| h.to_ascii_lowercase());
 
                         let violation = match last_governed {

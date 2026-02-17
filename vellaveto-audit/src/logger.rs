@@ -377,8 +377,8 @@ impl AuditLogger {
         // Done under the lock to prevent concurrent writes from racing.
         if self.maybe_rotate().await? {
             *last_hash_guard = None; // New file = new hash chain
-            // SECURITY (FIND-R52-AUDIT-002): Use SeqCst for sequence counter to prevent
-            // reordering that could cause duplicate sequence numbers under concurrent access.
+                                     // SECURITY (FIND-R52-AUDIT-002): Use SeqCst for sequence counter to prevent
+                                     // reordering that could cause duplicate sequence numbers under concurrent access.
             self.entry_count.store(0, Ordering::SeqCst); // Reset counter for new file
         }
 
