@@ -105,7 +105,10 @@ impl ToolIndex {
         };
 
         // Acquire write locks — fail-closed on poison
-        let mut entries = self.entries.write().map_err(|_| DiscoveryError::LockPoisoned)?;
+        let mut entries = self
+            .entries
+            .write()
+            .map_err(|_| DiscoveryError::LockPoisoned)?;
         let mut token_idx = self
             .token_index
             .write()
@@ -150,7 +153,10 @@ impl ToolIndex {
     ///
     /// No-op if the tool_id does not exist. Fails closed on lock poison.
     pub fn remove(&self, tool_id: &str) -> Result<(), DiscoveryError> {
-        let mut entries = self.entries.write().map_err(|_| DiscoveryError::LockPoisoned)?;
+        let mut entries = self
+            .entries
+            .write()
+            .map_err(|_| DiscoveryError::LockPoisoned)?;
         let mut token_idx = self
             .token_index
             .write()
@@ -191,7 +197,10 @@ impl ToolIndex {
             return Ok(Vec::new());
         }
 
-        let entries = self.entries.read().map_err(|_| DiscoveryError::LockPoisoned)?;
+        let entries = self
+            .entries
+            .read()
+            .map_err(|_| DiscoveryError::LockPoisoned)?;
         let idf = self.idf.read().map_err(|_| DiscoveryError::LockPoisoned)?;
         let token_idx = self
             .token_index
@@ -267,7 +276,10 @@ impl ToolIndex {
     /// Individual ingests do NOT automatically rebuild IDF for performance —
     /// call this explicitly after bulk operations.
     pub fn rebuild_idf(&self) -> Result<(), DiscoveryError> {
-        let entries = self.entries.read().map_err(|_| DiscoveryError::LockPoisoned)?;
+        let entries = self
+            .entries
+            .read()
+            .map_err(|_| DiscoveryError::LockPoisoned)?;
         let token_idx = self
             .token_index
             .read()
@@ -293,7 +305,10 @@ impl ToolIndex {
 
     /// Return the number of indexed tools.
     pub fn len(&self) -> Result<usize, DiscoveryError> {
-        let entries = self.entries.read().map_err(|_| DiscoveryError::LockPoisoned)?;
+        let entries = self
+            .entries
+            .read()
+            .map_err(|_| DiscoveryError::LockPoisoned)?;
         Ok(entries.len())
     }
 
@@ -304,13 +319,19 @@ impl ToolIndex {
 
     /// Retrieve metadata for a specific tool by ID.
     pub fn get(&self, tool_id: &str) -> Result<Option<ToolMetadata>, DiscoveryError> {
-        let entries = self.entries.read().map_err(|_| DiscoveryError::LockPoisoned)?;
+        let entries = self
+            .entries
+            .read()
+            .map_err(|_| DiscoveryError::LockPoisoned)?;
         Ok(entries.get(tool_id).map(|e| e.metadata.clone()))
     }
 
     /// Return all indexed tool IDs.
     pub fn tool_ids(&self) -> Result<Vec<String>, DiscoveryError> {
-        let entries = self.entries.read().map_err(|_| DiscoveryError::LockPoisoned)?;
+        let entries = self
+            .entries
+            .read()
+            .map_err(|_| DiscoveryError::LockPoisoned)?;
         Ok(entries.keys().cloned().collect())
     }
 }
@@ -441,7 +462,10 @@ mod tests {
     #[test]
     fn test_tokenize_punctuation_splits() {
         let tokens = tokenize("file.read, data-write! network:connect");
-        assert_eq!(tokens, vec!["file", "read", "data", "write", "network", "connect"]);
+        assert_eq!(
+            tokens,
+            vec!["file", "read", "data", "write", "network", "connect"]
+        );
     }
 
     #[test]
@@ -475,7 +499,11 @@ mod tests {
     #[test]
     fn test_ingest_single_tool() {
         let index = ToolIndex::new(100);
-        let tool = make_tool("read_file", "Read a file from the filesystem", &["filesystem"]);
+        let tool = make_tool(
+            "read_file",
+            "Read a file from the filesystem",
+            &["filesystem"],
+        );
         index.ingest(&tool).unwrap();
         assert_eq!(index.len().unwrap(), 1);
     }
@@ -490,7 +518,11 @@ mod tests {
             .ingest(&make_tool("write_file", "Write a file", &["filesystem"]))
             .unwrap();
         index
-            .ingest(&make_tool("http_get", "Make an HTTP GET request", &["network"]))
+            .ingest(&make_tool(
+                "http_get",
+                "Make an HTTP GET request",
+                &["network"],
+            ))
             .unwrap();
         assert_eq!(index.len().unwrap(), 3);
     }
@@ -499,7 +531,11 @@ mod tests {
     fn test_ingest_update_existing() {
         let index = ToolIndex::new(100);
         let tool1 = make_tool("read_file", "Read a file", &["filesystem"]);
-        let tool2 = make_tool("read_file", "Read file contents from disk", &["filesystem", "io"]);
+        let tool2 = make_tool(
+            "read_file",
+            "Read file contents from disk",
+            &["filesystem", "io"],
+        );
 
         index.ingest(&tool1).unwrap();
         assert_eq!(index.len().unwrap(), 1);
@@ -682,7 +718,7 @@ mod tests {
         index.rebuild_idf().unwrap();
 
         let results = index.search("read file contents", 10).unwrap();
-        assert!(results.len() >= 1);
+        assert!(!results.is_empty());
         // read_file should rank higher than write_file for "read file contents"
         if results.len() >= 2 {
             let read_pos = results.iter().position(|r| r.0 == "test_server:read_file");
@@ -771,7 +807,11 @@ mod tests {
 
         let results = index.search("test", 10).unwrap();
         for (_id, score) in &results {
-            assert!(*score >= 0.0 && *score <= 1.0, "Score out of bounds: {}", score);
+            assert!(
+                *score >= 0.0 && *score <= 1.0,
+                "Score out of bounds: {}",
+                score
+            );
         }
     }
 
@@ -879,21 +919,24 @@ mod tests {
         let query: HashMap<&str, f64> = [("hello", 1.0)].into_iter().collect();
         let doc: HashMap<String, f64> = [("hello".to_string(), 1.0)].into_iter().collect();
         let sim = cosine_similarity_tfidf(&query, &doc, &idf);
-        assert!((sim - 1.0).abs() < 0.01, "Identical vectors should have similarity ~1.0");
+        assert!(
+            (sim - 1.0).abs() < 0.01,
+            "Identical vectors should have similarity ~1.0"
+        );
     }
 
     #[test]
     fn test_cosine_similarity_orthogonal() {
-        let idf: HashMap<String, f64> = [
-            ("hello".to_string(), 1.0),
-            ("world".to_string(), 1.0),
-        ]
-        .into_iter()
-        .collect();
+        let idf: HashMap<String, f64> = [("hello".to_string(), 1.0), ("world".to_string(), 1.0)]
+            .into_iter()
+            .collect();
         let query: HashMap<&str, f64> = [("hello", 1.0)].into_iter().collect();
         let doc: HashMap<String, f64> = [("world".to_string(), 1.0)].into_iter().collect();
         let sim = cosine_similarity_tfidf(&query, &doc, &idf);
-        assert!(sim.abs() < 0.01, "Orthogonal vectors should have similarity ~0.0");
+        assert!(
+            sim.abs() < 0.01,
+            "Orthogonal vectors should have similarity ~0.0"
+        );
     }
 
     #[test]
@@ -961,9 +1004,7 @@ mod tests {
         let results = index.search("http request network", 3).unwrap();
         assert!(!results.is_empty());
         // One of the http tools should be top
-        assert!(
-            results[0].0 == "test_server:http_get" || results[0].0 == "test_server:http_post"
-        );
+        assert!(results[0].0 == "test_server:http_get" || results[0].0 == "test_server:http_post");
 
         // Search for database tools
         let results = index.search("sql database query", 3).unwrap();
@@ -1051,7 +1092,11 @@ mod tests {
 
     #[test]
     fn test_tool_sensitivity_serde_roundtrip() {
-        for sensitivity in [ToolSensitivity::Low, ToolSensitivity::Medium, ToolSensitivity::High] {
+        for sensitivity in [
+            ToolSensitivity::Low,
+            ToolSensitivity::Medium,
+            ToolSensitivity::High,
+        ] {
             let json = serde_json::to_string(&sensitivity).unwrap();
             let deserialized: ToolSensitivity = serde_json::from_str(&json).unwrap();
             assert_eq!(sensitivity, deserialized);

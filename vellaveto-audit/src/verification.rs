@@ -1,5 +1,6 @@
 use crate::logger::AuditLogger;
 use crate::types::{AuditEntry, AuditError, AuditReport, ChainVerification};
+use tokio::io::AsyncBufReadExt;
 use vellaveto_types::Verdict;
 
 impl AuditLogger {
@@ -84,6 +85,103 @@ impl AuditLogger {
         }
 
         Ok(entries)
+    }
+
+    /// Load only entries whose sequence is in the inclusive range `[from, to]`.
+    ///
+    /// Unlike `load_entries()`, this method scans the JSONL file line-by-line and
+    /// only materializes matching entries, avoiding full-log materialization in
+    /// memory for range queries.
+    ///
+    /// The method also enforces a cap on successfully parsed entries scanned from
+    /// disk (`max_scanned_entries`) to fail closed on very large logs.
+    pub async fn load_entries_in_sequence_range(
+        &self,
+        from: u64,
+        to: u64,
+        max_scanned_entries: usize,
+    ) -> Result<Vec<AuditEntry>, AuditError> {
+        if from > to {
+            return Err(AuditError::Validation(format!(
+                "from ({from}) must be <= to ({to})"
+            )));
+        }
+
+        match tokio::fs::metadata(&self.log_path).await {
+            Ok(meta) if meta.len() > Self::MAX_AUDIT_LOG_SIZE => {
+                return Err(AuditError::Validation(format!(
+                    "Audit log too large ({} bytes, max {} bytes). Use log rotation.",
+                    meta.len(),
+                    Self::MAX_AUDIT_LOG_SIZE
+                )));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(AuditError::Io(e)),
+            Ok(_) => {}
+        }
+
+        let file = match tokio::fs::File::open(&self.log_path).await {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(AuditError::Io(e)),
+        };
+        let reader = tokio::io::BufReader::new(file);
+        let mut lines = reader.lines();
+
+        let mut matches = Vec::new();
+        let mut scanned_entries = 0usize;
+        let mut skipped = 0usize;
+        let mut line_num = 0usize;
+        while let Some(line) = lines.next_line().await? {
+            line_num += 1;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if line.len() > Self::MAX_AUDIT_LINE_SIZE {
+                skipped += 1;
+                tracing::warn!(
+                    line_num = line_num,
+                    line_len = line.len(),
+                    max_len = Self::MAX_AUDIT_LINE_SIZE,
+                    "Skipping oversized audit line in {:?}",
+                    self.log_path
+                );
+                continue;
+            }
+            match serde_json::from_str::<AuditEntry>(&line) {
+                Ok(entry) => {
+                    scanned_entries += 1;
+                    if scanned_entries > max_scanned_entries {
+                        return Err(AuditError::Validation(
+                            "Audit log exceeds capacity limit. Rotate or archive the audit log."
+                                .to_string(),
+                        ));
+                    }
+                    if entry.sequence >= from && entry.sequence <= to {
+                        matches.push(entry);
+                    }
+                }
+                Err(e) => {
+                    skipped += 1;
+                    tracing::warn!(
+                        "Skipping corrupt audit line {} in {:?}: {}",
+                        line_num,
+                        self.log_path,
+                        e
+                    );
+                }
+            }
+        }
+
+        if skipped > 0 {
+            tracing::warn!(
+                "Skipped {} corrupt line(s) while loading audit log range {:?}",
+                skipped,
+                self.log_path
+            );
+        }
+
+        Ok(matches)
     }
 
     /// Verify the hash chain integrity of the audit log.
@@ -266,5 +364,80 @@ impl AuditLogger {
         leaf_arr.copy_from_slice(&hash_bytes);
         let leaf = crate::merkle::hash_leaf(&leaf_arr);
         crate::merkle::MerkleTree::verify_proof(leaf, proof, trusted_root)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+    use vellaveto_types::Action;
+
+    #[tokio::test]
+    async fn test_load_entries_in_sequence_range_returns_matches_only() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path);
+
+        logger
+            .log_entry(
+                &Action::new("tool", "f0", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry 0");
+        logger
+            .log_entry(
+                &Action::new("tool", "f1", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry 1");
+        logger
+            .log_entry(
+                &Action::new("tool", "f2", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry 2");
+
+        let entries = logger
+            .load_entries_in_sequence_range(1, 1, 100)
+            .await
+            .expect("range load");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].sequence, 1);
+    }
+
+    #[tokio::test]
+    async fn test_load_entries_in_sequence_range_enforces_capacity_limit() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path);
+
+        for idx in 0..3 {
+            logger
+                .log_entry(
+                    &Action::new("tool", format!("f{idx}"), serde_json::json!({})),
+                    &Verdict::Allow,
+                    serde_json::json!({}),
+                )
+                .await
+                .expect("entry");
+        }
+
+        let err = logger
+            .load_entries_in_sequence_range(0, 10, 2)
+            .await
+            .expect_err("capacity must fail");
+        match err {
+            AuditError::Validation(msg) => {
+                assert!(msg.contains("capacity limit"), "unexpected msg: {msg}");
+            }
+            other => panic!("expected validation error, got {other:?}"),
+        }
     }
 }

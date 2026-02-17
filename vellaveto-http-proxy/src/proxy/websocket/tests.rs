@@ -891,7 +891,9 @@ fn test_ws_binary_dlp_scan_detects_secrets_in_utf8_lossy() {
         findings
     );
     assert!(
-        findings.iter().any(|f| f.location.contains("ws_binary_frame")),
+        findings
+            .iter()
+            .any(|f| f.location.contains("ws_binary_frame")),
         "Finding should reference ws_binary_frame location"
     );
 }
@@ -905,10 +907,7 @@ fn test_ws_duplicate_json_key_detected() {
     // find_duplicate_json_key should detect duplicate keys
     let json_with_dup = r#"{"method":"tools/call","method":"evil"}"#;
     let dup = vellaveto_mcp::framing::find_duplicate_json_key(json_with_dup);
-    assert!(
-        dup.is_some(),
-        "Should detect duplicate 'method' key"
-    );
+    assert!(dup.is_some(), "Should detect duplicate 'method' key");
     assert_eq!(dup.as_deref(), Some("method"));
 }
 
@@ -939,10 +938,7 @@ fn test_ws_privilege_escalation_no_chain_no_escalation() {
         &[], // no call chain
         None,
     );
-    assert!(
-        !result.escalation_detected,
-        "No chain means no escalation"
-    );
+    assert!(!result.escalation_detected, "No chain means no escalation");
 }
 
 #[test]
@@ -1115,7 +1111,10 @@ fn test_ws_elicitation_disabled_by_default() {
     let params = json!({"message": "Enter your password"});
     let verdict = vellaveto_mcp::elicitation::inspect_elicitation(&params, &config, 0);
     assert!(
-        matches!(verdict, vellaveto_mcp::elicitation::ElicitationVerdict::Deny { .. }),
+        matches!(
+            verdict,
+            vellaveto_mcp::elicitation::ElicitationVerdict::Deny { .. }
+        ),
         "Elicitation should be denied when disabled (default)"
     );
 }
@@ -1130,7 +1129,10 @@ fn test_ws_elicitation_rate_limit_exceeded() {
     let params = json!({"message": "Enter name"});
     let verdict = vellaveto_mcp::elicitation::inspect_elicitation(&params, &config, 3);
     assert!(
-        matches!(verdict, vellaveto_mcp::elicitation::ElicitationVerdict::Deny { .. }),
+        matches!(
+            verdict,
+            vellaveto_mcp::elicitation::ElicitationVerdict::Deny { .. }
+        ),
         "Should deny when rate limit exceeded"
     );
 }
@@ -1184,7 +1186,7 @@ fn test_ws_tool_registry_none_does_not_block() {
 }
 
 // ==========================================================================
-// FIND-R46-014: Output schema validation placeholder
+// FIND-R46-014: Output schema validation
 // ==========================================================================
 
 #[test]
@@ -1200,9 +1202,106 @@ fn test_ws_structured_content_detected_in_response() {
     });
 
     let text = extract_scannable_text(&response);
+    assert!(text.contains("key"), "structuredContent should be scanned");
+}
+
+#[tokio::test]
+async fn test_ws_output_schema_blocks_invalid_structured_content_with_tracked_tool() {
+    let state = make_test_state();
+    let session_id = state.sessions.get_or_create(None);
+
+    // Register a strict output schema from tools/list.
+    let tools_list_response = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "tools": [{
+                "name": "read_file",
+                "outputSchema": {
+                    "type": "object",
+                    "required": ["status"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "status": {"type": "string"}
+                    }
+                }
+            }]
+        }
+    });
+    let blocked =
+        validate_ws_structured_content_response(&tools_list_response, &state, &session_id, None)
+            .await;
+    assert!(!blocked, "tools/list response should only register schema");
+
+    // Upstream response omits _meta.tool and violates read_file schema.
+    let invalid_response = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+            "structuredContent": {"ok": true},
+            "content": []
+        }
+    });
+    let blocked = validate_ws_structured_content_response(
+        &invalid_response,
+        &state,
+        &session_id,
+        Some("read_file"),
+    )
+    .await;
     assert!(
-        text.contains("key"),
-        "structuredContent should be scanned"
+        blocked,
+        "structuredContent without required status must be blocked"
+    );
+}
+
+#[tokio::test]
+async fn test_ws_output_schema_uses_tracked_tool_when_meta_mismatches() {
+    let state = make_test_state();
+    let session_id = state.sessions.get_or_create(None);
+
+    let tools_list_response = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "tools": [{
+                "name": "read_file",
+                "outputSchema": {
+                    "type": "object",
+                    "required": ["status"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "status": {"type": "string"}
+                    }
+                }
+            }]
+        }
+    });
+    let blocked =
+        validate_ws_structured_content_response(&tools_list_response, &state, &session_id, None)
+            .await;
+    assert!(!blocked);
+
+    // Meta claims a different tool, but tracked tool is authoritative.
+    let mismatched_response = json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "result": {
+            "_meta": {"tool": "wrong_tool"},
+            "structuredContent": {"ok": true},
+            "content": []
+        }
+    });
+    let blocked = validate_ws_structured_content_response(
+        &mismatched_response,
+        &state,
+        &session_id,
+        Some("read_file"),
+    )
+    .await;
+    assert!(
+        blocked,
+        "tracked tool should be used and the schema violation should block"
     );
 }
 

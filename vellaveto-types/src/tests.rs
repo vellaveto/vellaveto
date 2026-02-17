@@ -2284,7 +2284,10 @@ fn test_attestation_status_serde_roundtrip() {
 fn test_attestation_status_display() {
     assert_eq!(AttestationStatus::Pending.to_string(), "pending");
     assert_eq!(AttestationStatus::Approved.to_string(), "approved");
-    assert_eq!(AttestationStatus::FindingsNoted.to_string(), "findings_noted");
+    assert_eq!(
+        AttestationStatus::FindingsNoted.to_string(),
+        "findings_noted"
+    );
     assert_eq!(AttestationStatus::Rejected.to_string(), "rejected");
 }
 
@@ -2658,7 +2661,10 @@ fn test_service_endpoint_empty_labels_skipped() {
         healthy: false,
     };
     let json_str = serde_json::to_string(&ep).unwrap();
-    assert!(!json_str.contains("labels"), "empty labels should be skipped");
+    assert!(
+        !json_str.contains("labels"),
+        "empty labels should be skipped"
+    );
 }
 
 #[test]
@@ -2728,10 +2734,22 @@ fn test_deployment_info_redacted_anonymous_mode() {
         mode: "standalone".to_string(),
     };
     let json_str = serde_json::to_string(&info).unwrap();
-    assert!(!json_str.contains("instance_id"), "instance_id should be omitted when None");
-    assert!(!json_str.contains("leader_status"), "leader_status should be omitted when None");
-    assert!(!json_str.contains("discovered_endpoints"), "discovered_endpoints should be omitted when None");
-    assert!(json_str.contains("uptime_secs"), "uptime_secs should always be present");
+    assert!(
+        !json_str.contains("instance_id"),
+        "instance_id should be omitted when None"
+    );
+    assert!(
+        !json_str.contains("leader_status"),
+        "leader_status should be omitted when None"
+    );
+    assert!(
+        !json_str.contains("discovered_endpoints"),
+        "discovered_endpoints should be omitted when None"
+    );
+    assert!(
+        json_str.contains("uptime_secs"),
+        "uptime_secs should always be present"
+    );
     assert!(json_str.contains("mode"), "mode should always be present");
 
     // Verify deserialization works with missing fields
@@ -2753,7 +2771,8 @@ fn test_deployment_info_redacted_anonymous_mode() {
 fn test_agent_fingerprint_summary_multibyte_utf8_no_panic() {
     // Create a jwt_sub with multi-byte chars that exceeds max_len=20
     // Each CJK character is 3 bytes. 10 chars = 30 bytes > 20 limit.
-    let long_multibyte = "\u{4e16}\u{754c}\u{4f60}\u{597d}\u{6d4b}\u{8bd5}\u{5b57}\u{7b26}\u{4e32}\u{5b57}";
+    let long_multibyte =
+        "\u{4e16}\u{754c}\u{4f60}\u{597d}\u{6d4b}\u{8bd5}\u{5b57}\u{7b26}\u{4e32}\u{5b57}";
     let fp = AgentFingerprint {
         jwt_sub: Some(long_multibyte.to_string()),
         ..Default::default()
@@ -2930,7 +2949,11 @@ fn test_tool_metadata_serde_roundtrip() {
 
 #[test]
 fn test_tool_sensitivity_all_variants_roundtrip() {
-    let variants = [ToolSensitivity::Low, ToolSensitivity::Medium, ToolSensitivity::High];
+    let variants = [
+        ToolSensitivity::Low,
+        ToolSensitivity::Medium,
+        ToolSensitivity::High,
+    ];
     for v in &variants {
         let json_str = serde_json::to_string(v).unwrap();
         let deserialized: ToolSensitivity = serde_json::from_str(&json_str).unwrap();
@@ -3155,7 +3178,10 @@ fn test_model_family_hash_and_eq() {
     map.insert(ModelFamily::OpenAi, "openai");
     map.insert(ModelFamily::Custom("x".to_string()), "custom_x");
     assert_eq!(map.get(&ModelFamily::Claude), Some(&"claude"));
-    assert_eq!(map.get(&ModelFamily::Custom("x".to_string())), Some(&"custom_x"));
+    assert_eq!(
+        map.get(&ModelFamily::Custom("x".to_string())),
+        Some(&"custom_x")
+    );
     assert_eq!(map.get(&ModelFamily::DeepSeek), None);
 }
 
@@ -3171,9 +3197,18 @@ fn test_pedersen_commitment_debug_redacts_blinding_hint() {
         blinding_hint: "secret_blinding_factor".to_string(),
     };
     let debug_output = format!("{:?}", pc);
-    assert!(debug_output.contains("abc123"), "commitment should be visible");
-    assert!(!debug_output.contains("secret_blinding_factor"), "blinding_hint must be redacted");
-    assert!(debug_output.contains("[REDACTED]"), "should show [REDACTED] for blinding_hint");
+    assert!(
+        debug_output.contains("abc123"),
+        "commitment should be visible"
+    );
+    assert!(
+        !debug_output.contains("secret_blinding_factor"),
+        "blinding_hint must be redacted"
+    );
+    assert!(
+        debug_output.contains("[REDACTED]"),
+        "should show [REDACTED] for blinding_hint"
+    );
 }
 
 #[test]
@@ -3183,8 +3218,14 @@ fn test_pedersen_commitment_serialize_omits_blinding_hint() {
         blinding_hint: "secret_blinding_factor".to_string(),
     };
     let json = serde_json::to_string(&pc).expect("serialization should succeed");
-    assert!(!json.contains("blinding_hint"), "blinding_hint must not appear in serialized output");
-    assert!(!json.contains("secret_blinding_factor"), "blinding value must not appear in serialized output");
+    assert!(
+        !json.contains("blinding_hint"),
+        "blinding_hint must not appear in serialized output"
+    );
+    assert!(
+        !json.contains("secret_blinding_factor"),
+        "blinding value must not appear in serialized output"
+    );
 }
 
 #[test]
@@ -3217,8 +3258,14 @@ fn test_capability_token_debug_redacts_signature() {
         issuer_public_key: "pubkey123".to_string(),
     };
     let debug_output = format!("{:?}", token);
-    assert!(!debug_output.contains("deadbeef_secret_sig"), "signature must be redacted in Debug");
-    assert!(debug_output.contains("[REDACTED]"), "should show [REDACTED] for signature");
+    assert!(
+        !debug_output.contains("deadbeef_secret_sig"),
+        "signature must be redacted in Debug"
+    );
+    assert!(
+        debug_output.contains("[REDACTED]"),
+        "should show [REDACTED] for signature"
+    );
     assert!(debug_output.contains("tok-1"), "token_id should be visible");
 }
 
@@ -3355,7 +3402,7 @@ fn test_memory_entry_validate_finite_rejects_nan() {
         "2026-01-01T00:00:00Z".to_string(),
     );
     me.trust_score = f64::NAN;
-    assert!(me.validate_finite().is_err());
+    assert!(me.validate().is_err());
 }
 
 #[test]
@@ -3367,28 +3414,34 @@ fn test_memory_entry_validate_finite_accepts_normal() {
         "hash".to_string(),
         "2026-01-01T00:00:00Z".to_string(),
     );
-    assert!(me.validate_finite().is_ok());
+    assert!(me.validate().is_ok());
 }
 
 #[test]
 fn test_nhi_behavioral_baseline_validate_finite_rejects_nan() {
-    let mut baseline = NhiBehavioralBaseline::default();
-    baseline.avg_request_interval_secs = f64::NAN;
+    let baseline = NhiBehavioralBaseline {
+        avg_request_interval_secs: f64::NAN,
+        ..NhiBehavioralBaseline::default()
+    };
     assert!(baseline.validate_finite().is_err());
 }
 
 #[test]
 fn test_nhi_behavioral_baseline_validate_finite_rejects_infinity_in_map() {
     let mut baseline = NhiBehavioralBaseline::default();
-    baseline.tool_call_patterns.insert("tool".to_string(), f64::INFINITY);
+    baseline
+        .tool_call_patterns
+        .insert("tool".to_string(), f64::INFINITY);
     assert!(baseline.validate_finite().is_err());
 }
 
 #[test]
 fn test_nhi_behavioral_baseline_validate_finite_accepts_normal() {
-    let mut baseline = NhiBehavioralBaseline::default();
-    baseline.avg_request_interval_secs = 5.0;
-    baseline.confidence = 0.9;
+    let baseline = NhiBehavioralBaseline {
+        avg_request_interval_secs: 5.0,
+        confidence: 0.9,
+        ..NhiBehavioralBaseline::default()
+    };
     assert!(baseline.validate_finite().is_ok());
 }
 
@@ -3406,9 +3459,18 @@ fn test_stateless_context_blob_debug_redacts_signature() {
         signature: "hmac_secret_value_here".to_string(),
     };
     let debug_output = format!("{:?}", blob);
-    assert!(!debug_output.contains("hmac_secret_value_here"), "HMAC signature must be redacted");
-    assert!(debug_output.contains("[REDACTED]"), "should show [REDACTED] for signature");
-    assert!(debug_output.contains("agent-1"), "agent_id should be visible");
+    assert!(
+        !debug_output.contains("hmac_secret_value_here"),
+        "HMAC signature must be redacted"
+    );
+    assert!(
+        debug_output.contains("[REDACTED]"),
+        "should show [REDACTED] for signature"
+    );
+    assert!(
+        debug_output.contains("agent-1"),
+        "agent_id should be visible"
+    );
 }
 
 // FIND-R46-011: SecureTask max_nonces capped at 10,000
@@ -3421,7 +3483,11 @@ fn test_secure_task_max_nonces_capped_on_deserialize() {
         "max_nonces": 999999
     }"#;
     let task: SecureTask = serde_json::from_str(json).expect("should deserialize");
-    assert!(task.max_nonces <= 10_000, "max_nonces should be capped at 10,000, got {}", task.max_nonces);
+    assert!(
+        task.max_nonces <= 10_000,
+        "max_nonces should be capped at 10,000, got {}",
+        task.max_nonces
+    );
 }
 
 #[test]
@@ -3444,14 +3510,22 @@ fn test_secure_task_record_nonce_respects_cap() {
         task.record_nonce(format!("nonce-{i}"));
     }
     // Should be capped at MAX_NONCES_CAP (10,000) due to FIFO eviction
-    assert!(task.seen_nonces.len() <= 10_000, "seen_nonces should not exceed 10,000, got {}", task.seen_nonces.len());
+    assert!(
+        task.seen_nonces.len() <= 10_000,
+        "seen_nonces should not exceed 10,000, got {}",
+        task.seen_nonces.len()
+    );
 }
 
 // FIND-R46-012: EnforcementMode defaults to Monitor
 #[test]
 fn test_enforcement_mode_defaults_to_monitor() {
     let mode = EnforcementMode::default();
-    assert_eq!(mode, EnforcementMode::Monitor, "Default must be Monitor for gradual rollout");
+    assert_eq!(
+        mode,
+        EnforcementMode::Monitor,
+        "Default must be Monitor for gradual rollout"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -3579,7 +3653,10 @@ fn test_schema_record_push_version_enforces_max() {
     for i in 1..=15 {
         record.push_version(format!("hash_{i}"));
     }
-    assert_eq!(record.version_history.len(), SchemaRecord::MAX_VERSION_HISTORY);
+    assert_eq!(
+        record.version_history.len(),
+        SchemaRecord::MAX_VERSION_HISTORY
+    );
     // Oldest entries should have been evicted; first entry should be hash_6
     assert_eq!(record.version_history[0], "hash_6");
     assert_eq!(record.version_history[9], "hash_15");
@@ -3703,7 +3780,10 @@ fn test_memory_entry_validate_tainted_with_perfect_trust_rejected() {
     entry.trust_score = 1.0;
     entry.taint_labels = vec![TaintLabel::Untrusted];
     let result = entry.validate();
-    assert!(result.is_err(), "Tainted entry with perfect trust must be rejected");
+    assert!(
+        result.is_err(),
+        "Tainted entry with perfect trust must be rejected"
+    );
     assert!(result.unwrap_err().contains("trust_score"));
 }
 
@@ -3802,7 +3882,10 @@ fn test_memory_entry_new_default_trust_below_one() {
         "hash".to_string(),
         "2026-01-01T00:00:00Z".to_string(),
     );
-    assert!(entry.trust_score < 1.0, "New untrusted entry must have trust < 1.0");
+    assert!(
+        entry.trust_score < 1.0,
+        "New untrusted entry must have trust < 1.0"
+    );
     assert!(entry.validate().is_ok(), "New entry must pass validation");
 }
 
@@ -3841,7 +3924,10 @@ fn test_p1_6_decayed_trust_corrupt_start_timestamp_returns_zero() {
         )
     };
     let decayed = entry.decayed_trust_score(0.01, "2026-02-01T00:00:00Z");
-    assert_eq!(decayed, 0.0, "Corrupt start timestamp must produce 0.0 trust (fail-closed)");
+    assert_eq!(
+        decayed, 0.0,
+        "Corrupt start timestamp must produce 0.0 trust (fail-closed)"
+    );
 }
 
 #[test]
@@ -3854,7 +3940,10 @@ fn test_p1_6_decayed_trust_corrupt_end_timestamp_returns_zero() {
         "2026-01-01T00:00:00Z".to_string(),
     );
     let decayed = entry.decayed_trust_score(0.01, "GARBAGE");
-    assert_eq!(decayed, 0.0, "Corrupt end timestamp must produce 0.0 trust (fail-closed)");
+    assert_eq!(
+        decayed, 0.0,
+        "Corrupt end timestamp must produce 0.0 trust (fail-closed)"
+    );
 }
 
 #[test]
@@ -4099,4 +4188,479 @@ fn test_federation_trust_anchor_default_trust_level() {
     let json = r#"{"org_id":"org-1","display_name":"Test","issuer_pattern":"https://ex.com","identity_mappings":[]}"#;
     let anchor: FederationTrustAnchor = serde_json::from_str(json).unwrap();
     assert_eq!(anchor.trust_level, "limited");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R51-005: EvaluationContext.validate() call_chain entry validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_evaluation_context_validate_call_chain_valid_entries() {
+    let ctx = EvaluationContext {
+        call_chain: vec![CallChainEntry {
+            agent_id: "agent-1".to_string(),
+            tool: "read_file".to_string(),
+            function: "read".to_string(),
+            timestamp: "2026-02-15T10:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        }],
+        ..Default::default()
+    };
+    assert!(ctx.validate().is_ok());
+}
+
+#[test]
+fn test_evaluation_context_validate_call_chain_control_char_agent_id() {
+    let ctx = EvaluationContext {
+        call_chain: vec![CallChainEntry {
+            agent_id: "agent\n1".to_string(),
+            tool: "read_file".to_string(),
+            function: "read".to_string(),
+            timestamp: "2026-02-15T10:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        }],
+        ..Default::default()
+    };
+    let err = ctx.validate().unwrap_err();
+    assert!(err.contains("call_chain[0].agent_id"));
+    assert!(err.contains("control characters"));
+}
+
+#[test]
+fn test_evaluation_context_validate_call_chain_control_char_tool() {
+    let ctx = EvaluationContext {
+        call_chain: vec![CallChainEntry {
+            agent_id: "agent-1".to_string(),
+            tool: "read\x00file".to_string(),
+            function: "read".to_string(),
+            timestamp: "2026-02-15T10:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        }],
+        ..Default::default()
+    };
+    let err = ctx.validate().unwrap_err();
+    assert!(err.contains("call_chain[0].tool"));
+    assert!(err.contains("control characters"));
+}
+
+#[test]
+fn test_evaluation_context_validate_call_chain_control_char_function() {
+    let ctx = EvaluationContext {
+        call_chain: vec![CallChainEntry {
+            agent_id: "agent-1".to_string(),
+            tool: "read_file".to_string(),
+            function: "read\t".to_string(),
+            timestamp: "2026-02-15T10:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        }],
+        ..Default::default()
+    };
+    let err = ctx.validate().unwrap_err();
+    assert!(err.contains("call_chain[0].function"));
+    assert!(err.contains("control characters"));
+}
+
+#[test]
+fn test_evaluation_context_validate_call_chain_control_char_timestamp() {
+    let ctx = EvaluationContext {
+        call_chain: vec![CallChainEntry {
+            agent_id: "agent-1".to_string(),
+            tool: "read_file".to_string(),
+            function: "read".to_string(),
+            timestamp: "2026-02-15\r10:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        }],
+        ..Default::default()
+    };
+    let err = ctx.validate().unwrap_err();
+    assert!(err.contains("call_chain[0].timestamp"));
+    assert!(err.contains("control characters"));
+}
+
+#[test]
+fn test_evaluation_context_validate_call_chain_oversized_agent_id() {
+    let ctx = EvaluationContext {
+        call_chain: vec![CallChainEntry {
+            agent_id: "a".repeat(513),
+            tool: "read_file".to_string(),
+            function: "read".to_string(),
+            timestamp: "2026-02-15T10:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        }],
+        ..Default::default()
+    };
+    let err = ctx.validate().unwrap_err();
+    assert!(err.contains("call_chain[0].agent_id"));
+    assert!(err.contains("exceeds max 512"));
+}
+
+#[test]
+fn test_evaluation_context_validate_call_chain_oversized_timestamp() {
+    let ctx = EvaluationContext {
+        call_chain: vec![CallChainEntry {
+            agent_id: "agent-1".to_string(),
+            tool: "read_file".to_string(),
+            function: "read".to_string(),
+            timestamp: "x".repeat(65),
+            hmac: None,
+            verified: None,
+        }],
+        ..Default::default()
+    };
+    let err = ctx.validate().unwrap_err();
+    assert!(err.contains("call_chain[0].timestamp"));
+    assert!(err.contains("exceeds max 64"));
+}
+
+#[test]
+fn test_evaluation_context_validate_call_chain_max_length_ok() {
+    // 512-char fields should be accepted
+    let ctx = EvaluationContext {
+        call_chain: vec![CallChainEntry {
+            agent_id: "a".repeat(512),
+            tool: "t".repeat(512),
+            function: "f".repeat(512),
+            timestamp: "x".repeat(64),
+            hmac: None,
+            verified: None,
+        }],
+        ..Default::default()
+    };
+    assert!(ctx.validate().is_ok());
+}
+
+#[test]
+fn test_evaluation_context_validate_call_chain_second_entry_invalid() {
+    let ctx = EvaluationContext {
+        call_chain: vec![
+            CallChainEntry {
+                agent_id: "agent-1".to_string(),
+                tool: "read_file".to_string(),
+                function: "read".to_string(),
+                timestamp: "2026-02-15T10:00:00Z".to_string(),
+                hmac: None,
+                verified: None,
+            },
+            CallChainEntry {
+                agent_id: "agent\x1b[31m-injected".to_string(),
+                tool: "tool".to_string(),
+                function: "fn".to_string(),
+                timestamp: "2026-02-15T10:01:00Z".to_string(),
+                hmac: None,
+                verified: None,
+            },
+        ],
+        ..Default::default()
+    };
+    let err = ctx.validate().unwrap_err();
+    assert!(err.contains("call_chain[1].agent_id"));
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R51-007: StatelessContextBlob signature format validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_stateless_blob_validate_valid_signature() {
+    let blob = StatelessContextBlob {
+        version: 1,
+        agent_id: "agent-1".to_string(),
+        call_counts: HashMap::new(),
+        recent_actions: vec![],
+        call_chain: vec![],
+        risk_score: None,
+        issued_at: 1000,
+        signature: "a".repeat(64), // 64 hex chars
+    };
+    assert!(blob.validate().is_ok());
+}
+
+#[test]
+fn test_stateless_blob_validate_empty_signature_rejected() {
+    let blob = StatelessContextBlob {
+        version: 1,
+        agent_id: "agent-1".to_string(),
+        call_counts: HashMap::new(),
+        recent_actions: vec![],
+        call_chain: vec![],
+        risk_score: None,
+        issued_at: 1000,
+        signature: String::new(),
+    };
+    let err = blob.validate().unwrap_err();
+    assert!(err.contains("signature must not be empty"));
+}
+
+#[test]
+fn test_stateless_blob_validate_short_signature_rejected() {
+    let blob = StatelessContextBlob {
+        version: 1,
+        agent_id: "agent-1".to_string(),
+        call_counts: HashMap::new(),
+        recent_actions: vec![],
+        call_chain: vec![],
+        risk_score: None,
+        issued_at: 1000,
+        signature: "deadbeef".to_string(), // 8 chars, not 64
+    };
+    let err = blob.validate().unwrap_err();
+    assert!(err.contains("signature length 8 is not 64"));
+}
+
+#[test]
+fn test_stateless_blob_validate_long_signature_rejected() {
+    let blob = StatelessContextBlob {
+        version: 1,
+        agent_id: "agent-1".to_string(),
+        call_counts: HashMap::new(),
+        recent_actions: vec![],
+        call_chain: vec![],
+        risk_score: None,
+        issued_at: 1000,
+        signature: "a".repeat(128),
+    };
+    let err = blob.validate().unwrap_err();
+    assert!(err.contains("signature length 128 is not 64"));
+}
+
+#[test]
+fn test_stateless_blob_validate_non_hex_signature_rejected() {
+    let blob = StatelessContextBlob {
+        version: 1,
+        agent_id: "agent-1".to_string(),
+        call_counts: HashMap::new(),
+        recent_actions: vec![],
+        call_chain: vec![],
+        risk_score: None,
+        issued_at: 1000,
+        // 64 chars but contains 'g' which is not hex
+        signature: format!("{}g", "a".repeat(63)),
+    };
+    let err = blob.validate().unwrap_err();
+    assert!(err.contains("non-hex characters"));
+}
+
+#[test]
+fn test_stateless_blob_validate_mixed_case_hex_ok() {
+    let blob = StatelessContextBlob {
+        version: 1,
+        agent_id: "agent-1".to_string(),
+        call_counts: HashMap::new(),
+        recent_actions: vec![],
+        call_chain: vec![],
+        risk_score: None,
+        issued_at: 1000,
+        signature: "aAbBcCdDeEfF0123456789aAbBcCdDeEfF0123456789aAbBcCdDeEfF01234567".to_string(),
+    };
+    assert!(blob.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R51-008: CapabilityToken temporal ordering validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_capability_token_validate_structure_temporal_ordering_ok() {
+    let token = CapabilityToken {
+        token_id: "tok-1".to_string(),
+        parent_token_id: None,
+        issuer: "issuer-1".to_string(),
+        holder: "holder-1".to_string(),
+        grants: vec![CapabilityGrant {
+            tool_pattern: "test".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-12-31T23:59:59Z".to_string(),
+        signature: "sig".to_string(),
+        issuer_public_key: "key".to_string(),
+    };
+    assert!(token.validate_structure().is_ok());
+}
+
+#[test]
+fn test_capability_token_validate_structure_expires_before_issued_rejected() {
+    let token = CapabilityToken {
+        token_id: "tok-1".to_string(),
+        parent_token_id: None,
+        issuer: "issuer-1".to_string(),
+        holder: "holder-1".to_string(),
+        grants: vec![CapabilityGrant {
+            tool_pattern: "test".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2027-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-01-01T00:00:00Z".to_string(),
+        signature: "sig".to_string(),
+        issuer_public_key: "key".to_string(),
+    };
+    let err = token.validate_structure().unwrap_err();
+    assert!(
+        matches!(err, CapabilityError::ValidationFailed(ref msg) if msg.contains("expires_at must be after issued_at")),
+        "expected temporal ordering error, got: {:?}",
+        err
+    );
+}
+
+#[test]
+fn test_capability_token_validate_structure_expires_equals_issued_rejected() {
+    let token = CapabilityToken {
+        token_id: "tok-1".to_string(),
+        parent_token_id: None,
+        issuer: "issuer-1".to_string(),
+        holder: "holder-1".to_string(),
+        grants: vec![CapabilityGrant {
+            tool_pattern: "test".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-06-15T12:00:00Z".to_string(),
+        expires_at: "2026-06-15T12:00:00Z".to_string(),
+        signature: "sig".to_string(),
+        issuer_public_key: "key".to_string(),
+    };
+    let err = token.validate_structure().unwrap_err();
+    assert!(
+        matches!(err, CapabilityError::ValidationFailed(ref msg) if msg.contains("expires_at must be after issued_at")),
+        "equal timestamps should be rejected, got: {:?}",
+        err
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R51-009: NhiDelegationLink self-delegation rejection
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_nhi_delegation_link_validate_ok() {
+    let link = NhiDelegationLink {
+        from_agent: "agent-a".to_string(),
+        to_agent: "agent-b".to_string(),
+        permissions: vec!["read".to_string()],
+        scope_constraints: vec![],
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-02-01T00:00:00Z".to_string(),
+        active: true,
+        reason: None,
+    };
+    assert!(link.validate().is_ok());
+}
+
+#[test]
+fn test_nhi_delegation_link_self_delegation_rejected() {
+    let link = NhiDelegationLink {
+        from_agent: "agent-a".to_string(),
+        to_agent: "agent-a".to_string(),
+        permissions: vec!["read".to_string()],
+        scope_constraints: vec![],
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-02-01T00:00:00Z".to_string(),
+        active: true,
+        reason: None,
+    };
+    let err = link.validate().unwrap_err();
+    assert!(err.contains("self-delegation is not allowed"));
+}
+
+#[test]
+fn test_nhi_delegation_link_self_delegation_case_insensitive() {
+    let link = NhiDelegationLink {
+        from_agent: "Agent-A".to_string(),
+        to_agent: "agent-a".to_string(),
+        permissions: vec!["read".to_string()],
+        scope_constraints: vec![],
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-02-01T00:00:00Z".to_string(),
+        active: true,
+        reason: None,
+    };
+    let err = link.validate().unwrap_err();
+    assert!(err.contains("self-delegation is not allowed"));
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R51-012: NhiDelegationLink temporal ordering
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_nhi_delegation_link_temporal_ordering_ok() {
+    let link = NhiDelegationLink {
+        from_agent: "agent-a".to_string(),
+        to_agent: "agent-b".to_string(),
+        permissions: vec!["read".to_string()],
+        scope_constraints: vec![],
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-02-01T00:00:00Z".to_string(),
+        active: true,
+        reason: None,
+    };
+    assert!(link.validate().is_ok());
+}
+
+#[test]
+fn test_nhi_delegation_link_expires_before_created_rejected() {
+    let link = NhiDelegationLink {
+        from_agent: "agent-a".to_string(),
+        to_agent: "agent-b".to_string(),
+        permissions: vec!["read".to_string()],
+        scope_constraints: vec![],
+        created_at: "2026-02-01T00:00:00Z".to_string(),
+        expires_at: "2026-01-01T00:00:00Z".to_string(),
+        active: true,
+        reason: None,
+    };
+    let err = link.validate().unwrap_err();
+    assert!(err.contains("expires_at"));
+    assert!(err.contains("must be after created_at"));
+}
+
+#[test]
+fn test_nhi_delegation_link_expires_equals_created_rejected() {
+    let link = NhiDelegationLink {
+        from_agent: "agent-a".to_string(),
+        to_agent: "agent-b".to_string(),
+        permissions: vec!["read".to_string()],
+        scope_constraints: vec![],
+        created_at: "2026-06-15T12:00:00Z".to_string(),
+        expires_at: "2026-06-15T12:00:00Z".to_string(),
+        active: true,
+        reason: None,
+    };
+    let err = link.validate().unwrap_err();
+    assert!(err.contains("expires_at"));
+    assert!(err.contains("must be after created_at"));
+}
+
+#[test]
+fn test_nhi_delegation_link_empty_timestamps_skip_temporal_check() {
+    // When both are empty, skip the temporal ordering check
+    // (empty timestamps are a separate validation concern)
+    let link = NhiDelegationLink {
+        from_agent: "agent-a".to_string(),
+        to_agent: "agent-b".to_string(),
+        permissions: vec![],
+        scope_constraints: vec![],
+        created_at: "".to_string(),
+        expires_at: "".to_string(),
+        active: true,
+        reason: None,
+    };
+    assert!(link.validate().is_ok());
 }

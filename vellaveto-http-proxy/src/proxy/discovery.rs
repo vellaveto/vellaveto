@@ -382,10 +382,7 @@ mod discovery_tests {
     #[test]
     fn test_resolve_transport_priority_per_tool_no_match() {
         let mut overrides = HashMap::new();
-        overrides.insert(
-            "fs_*".to_string(),
-            vec![TransportProtocol::Http],
-        );
+        overrides.insert("fs_*".to_string(), vec![TransportProtocol::Http]);
         let config = TransportConfig {
             transport_overrides: overrides,
             ..default_config()
@@ -518,14 +515,8 @@ mod discovery_tests {
     #[test]
     fn test_resolve_transport_priority_overlapping_globs_deterministic() {
         let mut overrides = HashMap::new();
-        overrides.insert(
-            "*_query".to_string(),
-            vec![TransportProtocol::Grpc],
-        );
-        overrides.insert(
-            "fs_*".to_string(),
-            vec![TransportProtocol::Http],
-        );
+        overrides.insert("*_query".to_string(), vec![TransportProtocol::Grpc]);
+        overrides.insert("fs_*".to_string(), vec![TransportProtocol::Http]);
 
         let config = TransportConfig {
             transport_overrides: overrides,
@@ -552,14 +543,8 @@ mod discovery_tests {
     #[test]
     fn test_resolve_transport_priority_non_overlapping_globs() {
         let mut overrides = HashMap::new();
-        overrides.insert(
-            "db_*".to_string(),
-            vec![TransportProtocol::WebSocket],
-        );
-        overrides.insert(
-            "fs_*".to_string(),
-            vec![TransportProtocol::Http],
-        );
+        overrides.insert("db_*".to_string(), vec![TransportProtocol::WebSocket]);
+        overrides.insert("fs_*".to_string(), vec![TransportProtocol::Http]);
 
         let config = TransportConfig {
             transport_overrides: overrides,
@@ -603,8 +588,7 @@ mod discovery_tests {
     #[test]
     fn test_parse_transport_preference_capped() {
         // Even with 1000 entries, result is capped.
-        let header = std::iter::repeat("http,grpc,websocket,stdio")
-            .take(250)
+        let header = std::iter::repeat_n("http,grpc,websocket,stdio", 250)
             .collect::<Vec<_>>()
             .join(",");
         let result = parse_transport_preference(&header);

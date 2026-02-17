@@ -2854,10 +2854,7 @@ fn test_transport_config_overrides_count_bounded() {
     use vellaveto_types::TransportProtocol;
     let mut overrides = std::collections::HashMap::new();
     for i in 0..101 {
-        overrides.insert(
-            format!("tool_{}", i),
-            vec![TransportProtocol::Http],
-        );
+        overrides.insert(format!("tool_{}", i), vec![TransportProtocol::Http]);
     }
     let config = TransportConfig {
         transport_overrides: overrides,
@@ -3406,22 +3403,28 @@ fn test_governance_config_serde_roundtrip() {
 
 #[test]
 fn test_governance_config_validation_rejects_zero_auto_revoke() {
-    let mut config = GovernanceConfig::default();
-    config.auto_revoke_after_secs = 0;
+    let config = GovernanceConfig {
+        auto_revoke_after_secs: 0,
+        ..GovernanceConfig::default()
+    };
     assert!(config.validate().is_err());
 }
 
 #[test]
 fn test_governance_config_validation_rejects_excessive_auto_revoke() {
-    let mut config = GovernanceConfig::default();
-    config.auto_revoke_after_secs = 999_999;
+    let config = GovernanceConfig {
+        auto_revoke_after_secs: 999_999,
+        ..GovernanceConfig::default()
+    };
     assert!(config.validate().is_err());
 }
 
 #[test]
 fn test_governance_config_validation_rejects_zero_discovery_window() {
-    let mut config = GovernanceConfig::default();
-    config.discovery_window_secs = 0;
+    let config = GovernanceConfig {
+        discovery_window_secs: 0,
+        ..GovernanceConfig::default()
+    };
     assert!(config.validate().is_err());
 }
 
@@ -3486,7 +3489,10 @@ require_agent_registration = true
 registered_agents = ["agent-alpha", "agent-beta"]
 "#;
     let config = PolicyConfig::from_toml(toml).unwrap();
-    assert_eq!(config.governance.registered_agents, vec!["agent-alpha", "agent-beta"]);
+    assert_eq!(
+        config.governance.registered_agents,
+        vec!["agent-alpha", "agent-beta"]
+    );
 }
 
 #[test]
@@ -3497,8 +3503,10 @@ fn test_governance_config_registered_agents_defaults_empty() {
 
 #[test]
 fn test_governance_config_validation_rejects_too_many_registered_agents() {
-    let mut config = GovernanceConfig::default();
-    config.registered_agents = (0..10_001).map(|i| format!("agent-{}", i)).collect();
+    let config = GovernanceConfig {
+        registered_agents: (0..10_001).map(|i| format!("agent-{}", i)).collect(),
+        ..GovernanceConfig::default()
+    };
     let result = config.validate();
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("registered_agents"));
@@ -3506,8 +3514,10 @@ fn test_governance_config_validation_rejects_too_many_registered_agents() {
 
 #[test]
 fn test_governance_config_validation_rejects_overlong_agent_id() {
-    let mut config = GovernanceConfig::default();
-    config.registered_agents = vec!["a".repeat(257)];
+    let config = GovernanceConfig {
+        registered_agents: vec!["a".repeat(257)],
+        ..GovernanceConfig::default()
+    };
     let result = config.validate();
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("registered_agents"));
@@ -3515,8 +3525,10 @@ fn test_governance_config_validation_rejects_overlong_agent_id() {
 
 #[test]
 fn test_governance_config_validation_accepts_max_length_agent_id() {
-    let mut config = GovernanceConfig::default();
-    config.registered_agents = vec!["a".repeat(256)];
+    let config = GovernanceConfig {
+        registered_agents: vec!["a".repeat(256)],
+        ..GovernanceConfig::default()
+    };
     assert!(config.validate().is_ok());
 }
 
@@ -3526,8 +3538,10 @@ fn test_governance_config_validation_accepts_max_length_agent_id() {
 
 #[test]
 fn test_governance_config_validation_rejects_overlong_tool_name() {
-    let mut config = GovernanceConfig::default();
-    config.approved_tools = vec!["t".repeat(257)];
+    let config = GovernanceConfig {
+        approved_tools: vec!["t".repeat(257)],
+        ..GovernanceConfig::default()
+    };
     let result = config.validate();
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("approved_tools"));
@@ -3535,15 +3549,19 @@ fn test_governance_config_validation_rejects_overlong_tool_name() {
 
 #[test]
 fn test_governance_config_validation_accepts_max_length_tool_name() {
-    let mut config = GovernanceConfig::default();
-    config.approved_tools = vec!["t".repeat(256)];
+    let config = GovernanceConfig {
+        approved_tools: vec!["t".repeat(256)],
+        ..GovernanceConfig::default()
+    };
     assert!(config.validate().is_ok());
 }
 
 #[test]
 fn test_governance_config_validation_rejects_overlong_server_id() {
-    let mut config = GovernanceConfig::default();
-    config.known_servers = vec!["s".repeat(513)];
+    let config = GovernanceConfig {
+        known_servers: vec!["s".repeat(513)],
+        ..GovernanceConfig::default()
+    };
     let result = config.validate();
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("known_servers"));
@@ -3551,8 +3569,10 @@ fn test_governance_config_validation_rejects_overlong_server_id() {
 
 #[test]
 fn test_governance_config_validation_accepts_max_length_server_id() {
-    let mut config = GovernanceConfig::default();
-    config.known_servers = vec!["s".repeat(512)];
+    let config = GovernanceConfig {
+        known_servers: vec!["s".repeat(512)],
+        ..GovernanceConfig::default()
+    };
     assert!(config.validate().is_ok());
 }
 
@@ -3562,8 +3582,10 @@ fn test_governance_config_validation_accepts_max_length_server_id() {
 
 #[test]
 fn test_governance_config_validation_rejects_excessive_discovery_window() {
-    let mut config = GovernanceConfig::default();
-    config.discovery_window_secs = 86_401; // > 24 hours
+    let config = GovernanceConfig {
+        discovery_window_secs: 86_401, // > 24 hours
+        ..GovernanceConfig::default()
+    };
     let result = config.validate();
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("discovery_window_secs"));
@@ -3571,8 +3593,10 @@ fn test_governance_config_validation_rejects_excessive_discovery_window() {
 
 #[test]
 fn test_governance_config_validation_accepts_max_discovery_window() {
-    let mut config = GovernanceConfig::default();
-    config.discovery_window_secs = 86_400; // exactly 24 hours
+    let config = GovernanceConfig {
+        discovery_window_secs: 86_400, // exactly 24 hours
+        ..GovernanceConfig::default()
+    };
     assert!(config.validate().is_ok());
 }
 
@@ -3588,7 +3612,10 @@ fn test_deployment_config_defaults() {
     assert_eq!(config.leader_election.lease_duration_secs, 15);
     assert_eq!(config.leader_election.renew_interval_secs, 10);
     assert_eq!(config.leader_election.retry_period_secs, 5);
-    assert_eq!(config.service_discovery.mode, crate::ServiceDiscoveryMode::Static);
+    assert_eq!(
+        config.service_discovery.mode,
+        crate::ServiceDiscoveryMode::Static
+    );
     assert_eq!(config.service_discovery.refresh_interval_secs, 30);
     assert!(config.instance_id.is_none());
     assert!(config.validate().is_ok());
@@ -3620,10 +3647,16 @@ refresh_interval_secs = 15
 "#;
     let config = PolicyConfig::from_toml(toml).unwrap();
     assert_eq!(config.deployment.mode, crate::DeploymentMode::Kubernetes);
-    assert_eq!(config.deployment.instance_id, Some("vellaveto-0".to_string()));
+    assert_eq!(
+        config.deployment.instance_id,
+        Some("vellaveto-0".to_string())
+    );
     assert!(config.deployment.leader_election.enabled);
     assert_eq!(config.deployment.leader_election.lease_duration_secs, 20);
-    assert_eq!(config.deployment.service_discovery.mode, crate::ServiceDiscoveryMode::Dns);
+    assert_eq!(
+        config.deployment.service_discovery.mode,
+        crate::ServiceDiscoveryMode::Dns
+    );
     assert_eq!(
         config.deployment.service_discovery.dns_name,
         Some("vellaveto-headless.default.svc.cluster.local".to_string())
@@ -3711,54 +3744,70 @@ fn test_deployment_service_discovery_refresh_out_of_range() {
 
 #[test]
 fn test_deployment_instance_id_too_long() {
-    let mut config = crate::DeploymentConfig::default();
-    config.instance_id = Some("a".repeat(254));
+    let config = crate::DeploymentConfig {
+        instance_id: Some("a".repeat(254)),
+        ..crate::DeploymentConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("instance_id"));
 }
 
 #[test]
 fn test_deployment_instance_id_empty_rejected() {
-    let mut config = crate::DeploymentConfig::default();
-    config.instance_id = Some("".to_string());
+    let config = crate::DeploymentConfig {
+        instance_id: Some("".to_string()),
+        ..crate::DeploymentConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("instance_id"));
 }
 
 #[test]
 fn test_deployment_instance_id_invalid_chars() {
-    let mut config = crate::DeploymentConfig::default();
-    config.instance_id = Some("Vellaveto_0".to_string());
+    let config = crate::DeploymentConfig {
+        instance_id: Some("Vellaveto_0".to_string()),
+        ..crate::DeploymentConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("DNS-safe"));
 }
 
 #[test]
 fn test_deployment_instance_id_leading_hyphen() {
-    let mut config = crate::DeploymentConfig::default();
-    config.instance_id = Some("-vellaveto-0".to_string());
+    let config = crate::DeploymentConfig {
+        instance_id: Some("-vellaveto-0".to_string()),
+        ..crate::DeploymentConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("hyphen"));
 }
 
 #[test]
 fn test_deployment_effective_instance_id_configured() {
-    let mut config = crate::DeploymentConfig::default();
-    config.instance_id = Some("my-instance".to_string());
+    let config = crate::DeploymentConfig {
+        instance_id: Some("my-instance".to_string()),
+        ..crate::DeploymentConfig::default()
+    };
     assert_eq!(config.effective_instance_id(), "my-instance");
 }
 
 #[test]
 fn test_deployment_valid_kubernetes_config() {
-    let mut config = crate::DeploymentConfig::default();
-    config.mode = crate::DeploymentMode::Kubernetes;
-    config.leader_election.enabled = true;
-    config.leader_election.lease_duration_secs = 30;
-    config.leader_election.renew_interval_secs = 20;
-    config.leader_election.retry_period_secs = 5;
-    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
-    config.service_discovery.dns_name = Some("vellaveto-headless.default.svc.cluster.local".to_string());
-    config.instance_id = Some("vellaveto-0".to_string());
+    let config = crate::DeploymentConfig {
+        mode: crate::DeploymentMode::Kubernetes,
+        leader_election: crate::LeaderElectionConfig {
+            enabled: true,
+            lease_duration_secs: 30,
+            renew_interval_secs: 20,
+            retry_period_secs: 5,
+        },
+        service_discovery: crate::ServiceDiscoveryConfig {
+            mode: crate::ServiceDiscoveryMode::Dns,
+            dns_name: Some("vellaveto-headless.default.svc.cluster.local".to_string()),
+            ..crate::ServiceDiscoveryConfig::default()
+        },
+        instance_id: Some("vellaveto-0".to_string()),
+    };
     assert!(config.validate().is_ok());
 }
 
@@ -3772,7 +3821,11 @@ fn test_deployment_dns_name_ssrf_localhost_rejected() {
     config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
     config.service_discovery.dns_name = Some("localhost:80".to_string());
     let err = config.validate().unwrap_err();
-    assert!(err.contains("loopback"), "expected loopback rejection: {}", err);
+    assert!(
+        err.contains("loopback"),
+        "expected loopback rejection: {}",
+        err
+    );
 }
 
 #[test]
@@ -3781,7 +3834,11 @@ fn test_deployment_dns_name_ssrf_127_rejected() {
     config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
     config.service_discovery.dns_name = Some("127.0.0.1:8080".to_string());
     let err = config.validate().unwrap_err();
-    assert!(err.contains("loopback"), "expected loopback rejection: {}", err);
+    assert!(
+        err.contains("loopback"),
+        "expected loopback rejection: {}",
+        err
+    );
 }
 
 #[test]
@@ -3790,7 +3847,11 @@ fn test_deployment_dns_name_ssrf_127_subnet_rejected() {
     config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
     config.service_discovery.dns_name = Some("127.99.99.99:80".to_string());
     let err = config.validate().unwrap_err();
-    assert!(err.contains("loopback"), "expected loopback rejection: {}", err);
+    assert!(
+        err.contains("loopback"),
+        "expected loopback rejection: {}",
+        err
+    );
 }
 
 #[test]
@@ -3799,7 +3860,11 @@ fn test_deployment_dns_name_ssrf_aws_metadata_rejected() {
     config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
     config.service_discovery.dns_name = Some("169.254.169.254:80".to_string());
     let err = config.validate().unwrap_err();
-    assert!(err.contains("metadata") || err.contains("link-local"), "expected metadata rejection: {}", err);
+    assert!(
+        err.contains("metadata") || err.contains("link-local"),
+        "expected metadata rejection: {}",
+        err
+    );
 }
 
 #[test]
@@ -3808,7 +3873,11 @@ fn test_deployment_dns_name_ssrf_gcp_metadata_rejected() {
     config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
     config.service_discovery.dns_name = Some("metadata.google.internal:80".to_string());
     let err = config.validate().unwrap_err();
-    assert!(err.contains("metadata") || err.contains("internal"), "expected metadata rejection: {}", err);
+    assert!(
+        err.contains("metadata") || err.contains("internal"),
+        "expected metadata rejection: {}",
+        err
+    );
 }
 
 #[test]
@@ -3817,7 +3886,11 @@ fn test_deployment_dns_name_ssrf_link_local_rejected() {
     config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
     config.service_discovery.dns_name = Some("169.254.0.1:80".to_string());
     let err = config.validate().unwrap_err();
-    assert!(err.contains("link-local"), "expected link-local rejection: {}", err);
+    assert!(
+        err.contains("link-local"),
+        "expected link-local rejection: {}",
+        err
+    );
 }
 
 #[test]
@@ -3826,7 +3899,11 @@ fn test_deployment_dns_name_ssrf_zero_address_rejected() {
     config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
     config.service_discovery.dns_name = Some("0.0.0.0:80".to_string());
     let err = config.validate().unwrap_err();
-    assert!(err.contains("loopback"), "expected loopback rejection: {}", err);
+    assert!(
+        err.contains("loopback"),
+        "expected loopback rejection: {}",
+        err
+    );
 }
 
 #[test]
@@ -3835,7 +3912,11 @@ fn test_deployment_dns_name_ssrf_ipv6_loopback_rejected() {
     config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
     config.service_discovery.dns_name = Some("[::1]:80".to_string());
     let err = config.validate().unwrap_err();
-    assert!(err.contains("loopback"), "expected loopback rejection: {}", err);
+    assert!(
+        err.contains("loopback"),
+        "expected loopback rejection: {}",
+        err
+    );
 }
 
 #[test]
@@ -3844,7 +3925,11 @@ fn test_deployment_dns_name_ssrf_internal_suffix_rejected() {
     config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
     config.service_discovery.dns_name = Some("evil.internal:80".to_string());
     let err = config.validate().unwrap_err();
-    assert!(err.contains("metadata") || err.contains("internal"), "expected internal rejection: {}", err);
+    assert!(
+        err.contains("metadata") || err.contains("internal"),
+        "expected internal rejection: {}",
+        err
+    );
 }
 
 #[test]
@@ -3858,48 +3943,64 @@ fn test_deployment_dns_name_valid_headless_service_accepted() {
 
 #[test]
 fn test_deployment_instance_id_leading_dot_rejected() {
-    let mut config = crate::DeploymentConfig::default();
-    config.instance_id = Some(".my-instance".to_string());
+    let config = crate::DeploymentConfig {
+        instance_id: Some(".my-instance".to_string()),
+        ..crate::DeploymentConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("dot"), "expected dot rejection: {}", err);
 }
 
 #[test]
 fn test_deployment_instance_id_trailing_dot_rejected() {
-    let mut config = crate::DeploymentConfig::default();
-    config.instance_id = Some("my-instance.".to_string());
+    let config = crate::DeploymentConfig {
+        instance_id: Some("my-instance.".to_string()),
+        ..crate::DeploymentConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("dot"), "expected dot rejection: {}", err);
 }
 
 #[test]
 fn test_deployment_instance_id_consecutive_dots_rejected() {
-    let mut config = crate::DeploymentConfig::default();
-    config.instance_id = Some("my..instance".to_string());
+    let config = crate::DeploymentConfig {
+        instance_id: Some("my..instance".to_string()),
+        ..crate::DeploymentConfig::default()
+    };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("consecutive dots"), "expected consecutive dots rejection: {}", err);
+    assert!(
+        err.contains("consecutive dots"),
+        "expected consecutive dots rejection: {}",
+        err
+    );
 }
 
 #[test]
 fn test_deployment_instance_id_dot_only_rejected() {
-    let mut config = crate::DeploymentConfig::default();
-    config.instance_id = Some(".".to_string());
+    let config = crate::DeploymentConfig {
+        instance_id: Some(".".to_string()),
+        ..crate::DeploymentConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("dot"), "expected dot rejection: {}", err);
 }
 
 #[test]
 fn test_deployment_instance_id_double_dot_only_rejected() {
-    let mut config = crate::DeploymentConfig::default();
-    config.instance_id = Some("..".to_string());
+    let config = crate::DeploymentConfig {
+        instance_id: Some("..".to_string()),
+        ..crate::DeploymentConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("dot"), "expected dot rejection: {}", err);
 }
 
 #[test]
 fn test_deployment_instance_id_valid_fqdn_style_accepted() {
-    let mut config = crate::DeploymentConfig::default();
-    config.instance_id = Some("vellaveto-0.prod".to_string());
+    let config = crate::DeploymentConfig {
+        instance_id: Some("vellaveto-0.prod".to_string()),
+        ..crate::DeploymentConfig::default()
+    };
     assert!(config.validate().is_ok());
 }
 
@@ -3910,7 +4011,11 @@ fn test_deployment_dns_name_case_insensitive_ssrf_check() {
     config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
     config.service_discovery.dns_name = Some("LOCALHOST:80".to_string());
     let err = config.validate().unwrap_err();
-    assert!(err.contains("loopback"), "expected case-insensitive loopback rejection: {}", err);
+    assert!(
+        err.contains("loopback"),
+        "expected case-insensitive loopback rejection: {}",
+        err
+    );
 }
 
 #[test]
@@ -3919,7 +4024,11 @@ fn test_deployment_dns_name_azure_metadata_rejected() {
     config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
     config.service_discovery.dns_name = Some("169.254.165.254:80".to_string());
     let err = config.validate().unwrap_err();
-    assert!(err.contains("link-local") || err.contains("metadata"), "expected metadata/link-local rejection: {}", err);
+    assert!(
+        err.contains("link-local") || err.contains("metadata"),
+        "expected metadata/link-local rejection: {}",
+        err
+    );
 }
 
 // ═══════════════════════════════════════════════════════
@@ -3937,7 +4046,9 @@ fn test_deployment_effective_instance_id_hostname_valid() {
     assert!(!eid.is_empty());
     // The result should always pass validation (either from HOSTNAME or fallback).
     assert!(
-        eid.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.') || eid == "vellaveto-unknown",
+        eid.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')
+            || eid == "vellaveto-unknown",
         "effective_instance_id should be DNS-safe, got '{}'",
         eid
     );
@@ -3945,8 +4056,10 @@ fn test_deployment_effective_instance_id_hostname_valid() {
 
 #[test]
 fn test_deployment_effective_instance_id_configured_takes_precedence() {
-    let mut config = crate::DeploymentConfig::default();
-    config.instance_id = Some("my-pod-0".to_string());
+    let config = crate::DeploymentConfig {
+        instance_id: Some("my-pod-0".to_string()),
+        ..crate::DeploymentConfig::default()
+    };
     assert_eq!(config.effective_instance_id(), "my-pod-0");
 }
 
@@ -4013,7 +4126,10 @@ fn test_deployment_dns_name_local_tld_accepted_with_warning() {
     let mut config = crate::DeploymentConfig::default();
     config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
     config.service_discovery.dns_name = Some("myservice.local:8080".to_string());
-    assert!(config.validate().is_ok(), ".local TLD should be accepted (with warning)");
+    assert!(
+        config.validate().is_ok(),
+        ".local TLD should be accepted (with warning)"
+    );
 }
 
 #[test]
@@ -4033,7 +4149,10 @@ fn test_deployment_dns_name_random_local_not_k8s_accepted() {
     let mut config = crate::DeploymentConfig::default();
     config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
     config.service_discovery.dns_name = Some("printer.local:631".to_string());
-    assert!(config.validate().is_ok(), "non-k8s .local should be accepted");
+    assert!(
+        config.validate().is_ok(),
+        "non-k8s .local should be accepted"
+    );
 }
 
 // ═══════════════════════════════════════════════════════
@@ -4055,7 +4174,11 @@ fn test_gateway_backend_url_scheme_validation() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("http://") || err.contains("https://"), "expected scheme error: {}", err);
+    assert!(
+        err.contains("http://") || err.contains("https://"),
+        "expected scheme error: {}",
+        err
+    );
 }
 
 /// FIND-R42-008: Valid http:// and https:// schemes pass validation.
@@ -4073,7 +4196,11 @@ fn test_gateway_backend_url_valid_schemes() {
             }],
             ..Default::default()
         };
-        assert!(config.validate().is_ok(), "valid scheme {} should pass", scheme);
+        assert!(
+            config.validate().is_ok(),
+            "valid scheme {} should pass",
+            scheme
+        );
     }
 }
 
@@ -4094,7 +4221,11 @@ fn test_transport_overrides_wildcard_with_others_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("wildcard"), "expected wildcard rejection: {}", err);
+    assert!(
+        err.contains("wildcard"),
+        "expected wildcard rejection: {}",
+        err
+    );
 }
 
 /// FIND-R42-009: "*" wildcard alone is allowed.
@@ -4128,7 +4259,11 @@ fn test_transport_overrides_duplicate_protocols_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("duplicate"), "expected duplicate error: {}", err);
+    assert!(
+        err.contains("duplicate"),
+        "expected duplicate error: {}",
+        err
+    );
 }
 
 /// FIND-R42-015: Duplicate protocols in upstream_priorities rejected.
@@ -4143,7 +4278,11 @@ fn test_upstream_priorities_duplicate_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("duplicate"), "expected duplicate error: {}", err);
+    assert!(
+        err.contains("duplicate"),
+        "expected duplicate error: {}",
+        err
+    );
 }
 
 // ═══════════════════════════════════════════════════
@@ -4487,7 +4626,10 @@ fn test_gateway_backend_url_mixed_case_scheme() {
         }],
         ..Default::default()
     };
-    assert!(config.validate().is_ok(), "mixed-case HTTP should be accepted");
+    assert!(
+        config.validate().is_ok(),
+        "mixed-case HTTP should be accepted"
+    );
 }
 
 /// FIND-R44-006: transport_urls with mixed-case WS scheme accepted.
@@ -4509,7 +4651,10 @@ fn test_gateway_transport_url_mixed_case_ws() {
         }],
         ..Default::default()
     };
-    assert!(config.validate().is_ok(), "mixed-case WS should be accepted");
+    assert!(
+        config.validate().is_ok(),
+        "mixed-case WS should be accepted"
+    );
 }
 
 /// FIND-R44-007: Glob key with ASCII control characters rejected.
@@ -4674,88 +4819,110 @@ fn test_discovery_config_validate_default_passes() {
 
 #[test]
 fn test_discovery_config_validate_max_results_zero() {
-    let mut config = crate::DiscoveryConfig::default();
-    config.max_results = 0;
+    let config = crate::DiscoveryConfig {
+        max_results: 0,
+        ..crate::DiscoveryConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("max_results"), "got: {}", err);
 }
 
 #[test]
 fn test_discovery_config_validate_max_results_exceeds() {
-    let mut config = crate::DiscoveryConfig::default();
-    config.max_results = 100;
+    let config = crate::DiscoveryConfig {
+        max_results: 100,
+        ..crate::DiscoveryConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("max_results"), "got: {}", err);
 }
 
 #[test]
 fn test_discovery_config_validate_ttl_zero() {
-    let mut config = crate::DiscoveryConfig::default();
-    config.default_ttl_secs = 0;
+    let config = crate::DiscoveryConfig {
+        default_ttl_secs: 0,
+        ..crate::DiscoveryConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("default_ttl_secs"), "got: {}", err);
 }
 
 #[test]
 fn test_discovery_config_validate_ttl_exceeds() {
-    let mut config = crate::DiscoveryConfig::default();
-    config.default_ttl_secs = 100_000;
+    let config = crate::DiscoveryConfig {
+        default_ttl_secs: 100_000,
+        ..crate::DiscoveryConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("default_ttl_secs"), "got: {}", err);
 }
 
 #[test]
 fn test_discovery_config_validate_index_entries_zero() {
-    let mut config = crate::DiscoveryConfig::default();
-    config.max_index_entries = 0;
+    let config = crate::DiscoveryConfig {
+        max_index_entries: 0,
+        ..crate::DiscoveryConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("max_index_entries"), "got: {}", err);
 }
 
 #[test]
 fn test_discovery_config_validate_index_entries_exceeds() {
-    let mut config = crate::DiscoveryConfig::default();
-    config.max_index_entries = 100_000;
+    let config = crate::DiscoveryConfig {
+        max_index_entries: 100_000,
+        ..crate::DiscoveryConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("max_index_entries"), "got: {}", err);
 }
 
 #[test]
 fn test_discovery_config_validate_min_relevance_nan() {
-    let mut config = crate::DiscoveryConfig::default();
-    config.min_relevance_score = f64::NAN;
+    let config = crate::DiscoveryConfig {
+        min_relevance_score: f64::NAN,
+        ..crate::DiscoveryConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("min_relevance_score"), "got: {}", err);
 }
 
 #[test]
 fn test_discovery_config_validate_min_relevance_negative() {
-    let mut config = crate::DiscoveryConfig::default();
-    config.min_relevance_score = -0.1;
+    let config = crate::DiscoveryConfig {
+        min_relevance_score: -0.1,
+        ..crate::DiscoveryConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("min_relevance_score"), "got: {}", err);
 }
 
 #[test]
 fn test_discovery_config_validate_min_relevance_exceeds_one() {
-    let mut config = crate::DiscoveryConfig::default();
-    config.min_relevance_score = 1.1;
+    let config = crate::DiscoveryConfig {
+        min_relevance_score: 1.1,
+        ..crate::DiscoveryConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("min_relevance_score"), "got: {}", err);
 }
 
 #[test]
 fn test_discovery_config_validate_token_budget_zero() {
-    let mut config = crate::DiscoveryConfig::default();
-    config.token_budget = Some(0);
+    let config = crate::DiscoveryConfig {
+        token_budget: Some(0),
+        ..crate::DiscoveryConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("token_budget"), "got: {}", err);
 }
 
 #[test]
 fn test_discovery_config_validate_token_budget_exceeds() {
-    let mut config = crate::DiscoveryConfig::default();
-    config.token_budget = Some(2_000_000);
+    let config = crate::DiscoveryConfig {
+        token_budget: Some(2_000_000),
+        ..crate::DiscoveryConfig::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("token_budget"), "got: {}", err);
 }
@@ -5001,10 +5168,15 @@ fn test_federation_config_default_ttl_values() {
 
 #[test]
 fn test_federation_config_validation_ttl_too_low() {
-    let mut config = AbacConfig::default();
-    config.enabled = true;
-    config.federation.enabled = true;
-    config.federation.jwks_cache_ttl_secs = 5; // below min 60 (FIND-R50-017)
+    let config = AbacConfig {
+        enabled: true,
+        federation: crate::abac::FederationConfig {
+            enabled: true,
+            jwks_cache_ttl_secs: 5, // below min 60 (FIND-R50-017)
+            ..crate::abac::FederationConfig::default()
+        },
+        ..AbacConfig::default()
+    };
     let result = config.validate();
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("jwks_cache_ttl_secs"));
@@ -5012,9 +5184,6 @@ fn test_federation_config_validation_ttl_too_low() {
 
 #[test]
 fn test_federation_config_validation_duplicate_org_id() {
-    let mut config = AbacConfig::default();
-    config.enabled = true;
-    config.federation.enabled = true;
     let anchor = vellaveto_types::FederationTrustAnchor {
         org_id: "org-1".to_string(),
         display_name: "Org 1".to_string(),
@@ -5023,7 +5192,15 @@ fn test_federation_config_validation_duplicate_org_id() {
         identity_mappings: vec![],
         trust_level: "limited".to_string(),
     };
-    config.federation.trust_anchors = vec![anchor.clone(), anchor];
+    let config = AbacConfig {
+        enabled: true,
+        federation: crate::abac::FederationConfig {
+            enabled: true,
+            trust_anchors: vec![anchor.clone(), anchor],
+            ..crate::abac::FederationConfig::default()
+        },
+        ..AbacConfig::default()
+    };
     let result = config.validate();
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("duplicate"));
@@ -5031,19 +5208,24 @@ fn test_federation_config_validation_duplicate_org_id() {
 
 #[test]
 fn test_federation_config_validation_valid() {
-    let mut config = AbacConfig::default();
-    config.enabled = true;
-    config.federation.enabled = true;
-    config.federation.jwks_cache_ttl_secs = 600;
-    config.federation.jwks_fetch_timeout_secs = 15;
-    config.federation.trust_anchors = vec![vellaveto_types::FederationTrustAnchor {
-        org_id: "org-1".to_string(),
-        display_name: "Partner Org".to_string(),
-        jwks_uri: Some("https://keys.example.com/jwks".to_string()),
-        issuer_pattern: "https://auth.example.com".to_string(),
-        identity_mappings: vec![],
-        trust_level: "limited".to_string(),
-    }];
+    let config = AbacConfig {
+        enabled: true,
+        federation: crate::abac::FederationConfig {
+            enabled: true,
+            jwks_cache_ttl_secs: 600,
+            jwks_fetch_timeout_secs: 15,
+            trust_anchors: vec![vellaveto_types::FederationTrustAnchor {
+                org_id: "org-1".to_string(),
+                display_name: "Partner Org".to_string(),
+                jwks_uri: Some("https://keys.example.com/jwks".to_string()),
+                issuer_pattern: "https://auth.example.com".to_string(),
+                identity_mappings: vec![],
+                trust_level: "limited".to_string(),
+            }],
+            ..crate::abac::FederationConfig::default()
+        },
+        ..AbacConfig::default()
+    };
     // Should pass validation (valid TTLs, no duplicate org_ids)
     assert!(config.validate().is_ok());
 }

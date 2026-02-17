@@ -27,12 +27,16 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use vellaveto_mcp::extractor::{self, MessageType};
-use vellaveto_mcp::inspection::{inspect_for_injection, scan_response_for_secrets, scan_text_for_secrets};
+use vellaveto_mcp::inspection::{
+    inspect_for_injection, scan_response_for_secrets, scan_text_for_secrets,
+};
+use vellaveto_mcp::output_validation::ValidationResult;
 use vellaveto_types::{Action, EvaluationContext, Verdict};
 
 use super::auth::validate_api_key;
 use super::call_chain::{
-    check_privilege_escalation, sync_session_call_chain_from_headers,
+    check_privilege_escalation, sync_session_call_chain_from_headers, take_tracked_tool_call,
+    track_pending_tool_call,
 };
 use super::origin::validate_origin;
 use super::ProxyState;
@@ -63,19 +67,6 @@ impl Default for WebSocketConfig {
         }
     }
 }
-
-// TODO(output-schema-ws): WebSocket upstream responses currently bypass
-// `OutputSchemaRegistry` validation. The HTTP POST handler validates
-// `structuredContent` against the tool's output schema, but the
-// bidirectional WS relay forwards upstream text frames without inspecting
-// the JSON-RPC result payload. A future phase should:
-//   1. Parse upstream text frames as JSON-RPC responses.
-//   2. If the response corresponds to a `tools/call` request and the tool
-//      has a registered output schema, validate `result.structuredContent`
-//      against the schema.
-//   3. Close the connection (code 1008) if validation fails, or
-//      optionally strip the non-conforming field and forward a sanitized
-//      response (configurable via `ws_config.output_schema_enforcement`).
 
 /// WebSocket close codes per RFC 6455.
 const CLOSE_POLICY_VIOLATION: u16 = 1008;
@@ -153,9 +144,7 @@ pub async fn handle_ws_upgrade(
     // SECURITY (FIND-R46-006): Validate and extract call chain from upgrade headers.
     // The call chain is synced once during upgrade and reused for all messages
     // in this WebSocket connection.
-    if let Err(reason) =
-        super::call_chain::validate_call_chain_header(&headers, &state.limits)
-    {
+    if let Err(reason) = super::call_chain::validate_call_chain_header(&headers, &state.limits) {
         tracing::warn!(
             session_id = %session_id,
             "WS upgrade rejected: invalid call chain header: {}",
@@ -549,11 +538,8 @@ async fn relay_client_to_upstream(
                                     tool_name,
                                     e
                                 );
-                                let error = make_ws_error_response(
-                                    Some(id),
-                                    -32602,
-                                    "Invalid tool name",
-                                );
+                                let error =
+                                    make_ws_error_response(Some(id), -32602, "Invalid tool name");
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(error.into())).await;
                                 continue;
@@ -616,11 +602,8 @@ async fn relay_client_to_upstream(
                                         e
                                     );
                                 }
-                                let error = make_ws_error_response(
-                                    Some(id),
-                                    -32001,
-                                    "Denied by policy",
-                                );
+                                let error =
+                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(error.into())).await;
                                 continue;
@@ -658,11 +641,8 @@ async fn relay_client_to_upstream(
                             {
                                 tracing::warn!("Failed to audit WS rug-pull block: {}", e);
                             }
-                            let error = make_ws_error_response(
-                                Some(id),
-                                -32001,
-                                "Denied by policy",
-                            );
+                            let error =
+                                make_ws_error_response(Some(id), -32001, "Denied by policy");
                             let mut sink = client_sink.lock().await;
                             let _ = sink.send(Message::Text(error.into())).await;
                             continue;
@@ -748,7 +728,9 @@ async fn relay_client_to_upstream(
                                     let _ = sink.send(Message::Text(error.into())).await;
                                     continue;
                                 }
-                                vellaveto_mcp::tool_registry::TrustLevel::Untrusted { score: _ } => {
+                                vellaveto_mcp::tool_registry::TrustLevel::Untrusted {
+                                    score: _,
+                                } => {
                                     let verdict = Verdict::Deny {
                                         reason: "Untrusted tool requires approval".to_string(),
                                     };
@@ -939,6 +921,15 @@ async fn relay_client_to_upstream(
                                     text.to_string()
                                 };
 
+                                // Track request→response mapping for output-schema
+                                // enforcement when upstream omits result._meta.tool.
+                                track_pending_tool_call(
+                                    &state.sessions,
+                                    &session_id,
+                                    id,
+                                    tool_name,
+                                );
+
                                 let mut sink = upstream_sink.lock().await;
                                 if let Err(e) = sink
                                     .send(tokio_tungstenite::tungstenite::Message::Text(
@@ -975,11 +966,8 @@ async fn relay_client_to_upstream(
                                 // SECURITY (FIND-R46-012): Generic message to client.
                                 // Detailed reason is in the audit log only.
                                 let _ = reason; // used in audit above
-                                let error = make_ws_error_response(
-                                    Some(id),
-                                    -32001,
-                                    "Denied by policy",
-                                );
+                                let error =
+                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(error.into())).await;
                             }
@@ -1004,21 +992,15 @@ async fn relay_client_to_upstream(
                                     tracing::warn!("Failed to audit WS approval request: {}", e);
                                 }
                                 // SECURITY (FIND-R46-012): Generic message to client.
-                                let error = make_ws_error_response(
-                                    Some(id),
-                                    -32001,
-                                    "Denied by policy",
-                                );
+                                let error =
+                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(error.into())).await;
                             }
                             // Fail-closed: unknown Verdict variants produce Deny
                             _ => {
-                                let error = make_ws_error_response(
-                                    Some(id),
-                                    -32001,
-                                    "Denied by policy",
-                                );
+                                let error =
+                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(error.into())).await;
                             }
@@ -1104,11 +1086,8 @@ async fn relay_client_to_upstream(
                             _ => {
                                 // SECURITY (FIND-R46-012): Generic message to client.
                                 // Detailed reason is preserved in audit log above.
-                                let error = make_ws_error_response(
-                                    Some(id),
-                                    -32001,
-                                    "Denied by policy",
-                                );
+                                let error =
+                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(error.into())).await;
                             }
@@ -1153,8 +1132,15 @@ async fn relay_client_to_upstream(
                                 match serde_json::to_string(&parsed) {
                                     Ok(canonical) => canonical,
                                     Err(e) => {
-                                        tracing::error!("SECURITY: WS sampling canonicalization failed: {}", e);
-                                        let error_resp = make_ws_error_response(Some(id), -32603, "Internal error");
+                                        tracing::error!(
+                                            "SECURITY: WS sampling canonicalization failed: {}",
+                                            e
+                                        );
+                                        let error_resp = make_ws_error_response(
+                                            Some(id),
+                                            -32603,
+                                            "Internal error",
+                                        );
                                         let mut sink = client_sink.lock().await;
                                         let _ = sink.send(Message::Text(error_resp.into())).await;
                                         continue;
@@ -1220,10 +1206,18 @@ async fn relay_client_to_upstream(
                                     match serde_json::to_string(&parsed) {
                                         Ok(canonical) => canonical,
                                         Err(e) => {
-                                            tracing::error!("SECURITY: WS task canonicalization failed: {}", e);
-                                            let error_resp = make_ws_error_response(Some(id), -32603, "Internal error");
+                                            tracing::error!(
+                                                "SECURITY: WS task canonicalization failed: {}",
+                                                e
+                                            );
+                                            let error_resp = make_ws_error_response(
+                                                Some(id),
+                                                -32603,
+                                                "Internal error",
+                                            );
                                             let mut sink = client_sink.lock().await;
-                                            let _ = sink.send(Message::Text(error_resp.into())).await;
+                                            let _ =
+                                                sink.send(Message::Text(error_resp.into())).await;
                                             continue;
                                         }
                                     }
@@ -1336,9 +1330,14 @@ async fn relay_client_to_upstream(
                                         Ok(canonical) => canonical,
                                         Err(e) => {
                                             tracing::error!("SECURITY: WS extension canonicalization failed: {}", e);
-                                            let error_resp = make_ws_error_response(Some(id), -32603, "Internal error");
+                                            let error_resp = make_ws_error_response(
+                                                Some(id),
+                                                -32603,
+                                                "Internal error",
+                                            );
                                             let mut sink = client_sink.lock().await;
-                                            let _ = sink.send(Message::Text(error_resp.into())).await;
+                                            let _ =
+                                                sink.send(Message::Text(error_resp.into())).await;
                                             continue;
                                         }
                                     }
@@ -1449,9 +1448,14 @@ async fn relay_client_to_upstream(
                                         Ok(canonical) => canonical,
                                         Err(e) => {
                                             tracing::error!("SECURITY: WS elicitation canonicalization failed: {}", e);
-                                            let error_resp = make_ws_error_response(Some(id), -32603, "Internal error");
+                                            let error_resp = make_ws_error_response(
+                                                Some(id),
+                                                -32603,
+                                                "Internal error",
+                                            );
                                             let mut sink = client_sink.lock().await;
-                                            let _ = sink.send(Message::Text(error_resp.into())).await;
+                                            let _ =
+                                                sink.send(Message::Text(error_resp.into())).await;
                                             continue;
                                         }
                                     }
@@ -1467,8 +1471,7 @@ async fn relay_client_to_upstream(
                                 {
                                     // Rollback pre-incremented count on forward failure
                                     if let Some(mut s) = state.sessions.get_mut(&session_id) {
-                                        s.elicitation_count =
-                                            s.elicitation_count.saturating_sub(1);
+                                        s.elicitation_count = s.elicitation_count.saturating_sub(1);
                                     }
                                     tracing::error!("Failed to forward elicitation: {}", e);
                                     break;
@@ -1521,8 +1524,7 @@ async fn relay_client_to_upstream(
                             }
                         }
                     }
-                    MessageType::PassThrough
-                    | MessageType::ProgressNotification { .. } => {
+                    MessageType::PassThrough | MessageType::ProgressNotification { .. } => {
                         // SECURITY (FIND-R46-WS-004): Audit log forwarded passthrough/notification messages
                         let msg_type = match &classified {
                             MessageType::ProgressNotification { .. } => "progress_notification",
@@ -1558,7 +1560,10 @@ async fn relay_client_to_upstream(
                             match serde_json::to_string(&parsed) {
                                 Ok(canonical) => canonical,
                                 Err(e) => {
-                                    tracing::error!("SECURITY: WS passthrough canonicalization failed: {}", e);
+                                    tracing::error!(
+                                        "SECURITY: WS passthrough canonicalization failed: {}",
+                                        e
+                                    );
                                     continue;
                                 }
                             }
@@ -1717,6 +1722,10 @@ async fn relay_upstream_to_client(
             tokio_tungstenite::tungstenite::Message::Text(text) => {
                 // Try to parse for scanning
                 let forward = if let Ok(json_val) = serde_json::from_str::<Value>(&text) {
+                    // Resolve tracked tool context for response-side schema checks.
+                    let tracked_tool_name =
+                        take_tracked_tool_call(&state.sessions, &session_id, json_val.get("id"));
+
                     // DLP scanning on responses
                     if state.response_dlp_enabled {
                         let dlp_findings = scan_response_for_secrets(&json_val);
@@ -1890,21 +1899,26 @@ async fn relay_upstream_to_client(
                                 .await;
                             }
                         }
+                    }
 
-                        // SECURITY (FIND-R46-014): Output schema validation placeholder.
-                        // TODO: Validate structuredContent against declared output schema
-                        // when the tool declared one. This is complex and deferred, but
-                        // at minimum we note when structuredContent is present.
-                        if json_val
-                            .get("result")
-                            .and_then(|r| r.get("structuredContent"))
-                            .is_some()
-                        {
-                            tracing::debug!(
-                                session_id = %session_id,
-                                "WS response contains structuredContent — output schema validation deferred (FIND-R46-014)"
-                            );
-                        }
+                    // SECURITY: Enforce output schema on WS structuredContent.
+                    if validate_ws_structured_content_response(
+                        &json_val,
+                        &state,
+                        &session_id,
+                        tracked_tool_name.as_deref(),
+                    )
+                    .await
+                    {
+                        let id = json_val.get("id");
+                        let error = make_ws_error_response(
+                            id,
+                            -32001,
+                            "Response blocked: output schema validation failed",
+                        );
+                        let mut sink = client_sink.lock().await;
+                        let _ = sink.send(Message::Text(error.into())).await;
+                        continue;
                     }
 
                     // SECURITY (FIND-R46-WS-004): Audit log forwarded upstream→client text messages
@@ -1949,7 +1963,10 @@ async fn relay_upstream_to_client(
                         match serde_json::to_string(&json_val) {
                             Ok(canonical) => canonical,
                             Err(e) => {
-                                tracing::error!("SECURITY: WS response canonicalization failed: {}", e);
+                                tracing::error!(
+                                    "SECURITY: WS response canonicalization failed: {}",
+                                    e
+                                );
                                 continue;
                             }
                         }
@@ -2101,6 +2118,91 @@ async fn connect_upstream_ws(
         Ok(Ok((ws_stream, _response))) => Ok(ws_stream),
         Ok(Err(e)) => Err(format!("WebSocket connection error: {}", e)),
         Err(_) => Err("WebSocket connection timeout (10s)".to_string()),
+    }
+}
+
+/// Register output schemas and validate WS response `structuredContent`.
+///
+/// Returns true when the response should be blocked.
+async fn validate_ws_structured_content_response(
+    json_val: &Value,
+    state: &ProxyState,
+    session_id: &str,
+    tracked_tool_name: Option<&str>,
+) -> bool {
+    // Keep WS behavior aligned with HTTP/SSE paths.
+    state
+        .output_schema_registry
+        .register_from_tools_list(json_val);
+
+    let Some(result) = json_val.get("result") else {
+        return false;
+    };
+    let Some(structured) = result.get("structuredContent") else {
+        return false;
+    };
+
+    let meta_tool_name = result
+        .get("_meta")
+        .and_then(|m| m.get("tool"))
+        .and_then(|t| t.as_str());
+    let tool_name = match (meta_tool_name, tracked_tool_name) {
+        (Some(meta), Some(tracked)) if !meta.eq_ignore_ascii_case(tracked) => {
+            tracing::warn!(
+                "SECURITY: WS structuredContent tool mismatch (meta='{}', tracked='{}'); using tracked tool name",
+                meta,
+                tracked
+            );
+            tracked
+        }
+        (Some(meta), _) => meta,
+        (None, Some(tracked)) => tracked,
+        (None, None) => "unknown",
+    };
+
+    match state.output_schema_registry.validate(tool_name, structured) {
+        ValidationResult::Invalid { violations } => {
+            tracing::warn!(
+                "SECURITY: WS structuredContent validation failed for tool '{}': {:?}",
+                tool_name,
+                violations
+            );
+            let action = Action::new(
+                "vellaveto",
+                "output_schema_violation",
+                json!({
+                    "tool": tool_name,
+                    "violations": violations,
+                    "session": session_id,
+                    "transport": "websocket",
+                }),
+            );
+            if let Err(e) = state
+                .audit
+                .log_entry(
+                    &action,
+                    &Verdict::Deny {
+                        reason: format!("WS structuredContent validation failed: {:?}", violations),
+                    },
+                    json!({"source": "ws_proxy", "event": "output_schema_violation_ws"}),
+                )
+                .await
+            {
+                tracing::warn!("Failed to audit WS output schema violation: {}", e);
+            }
+            true
+        }
+        ValidationResult::Valid => {
+            tracing::debug!("WS structuredContent validated for tool '{}'", tool_name);
+            false
+        }
+        ValidationResult::NoSchema => {
+            tracing::debug!(
+                "No output schema registered for WS tool '{}', skipping validation",
+                tool_name
+            );
+            false
+        }
     }
 }
 

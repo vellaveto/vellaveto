@@ -195,7 +195,10 @@ impl GatewayRouter {
             let states = match self.states.read() {
                 Ok(guard) => guard,
                 Err(e) => {
-                    tracing::error!("Gateway states RwLock poisoned in route_with_affinity(): {}", e);
+                    tracing::error!(
+                        "Gateway states RwLock poisoned in route_with_affinity(): {}",
+                        e
+                    );
                     return None; // fail-closed: no healthy backend
                 }
             };
@@ -900,7 +903,7 @@ mod tests {
 
         // Create a string that is >256 bytes with multi-byte chars.
         // Each CJK character is 3 bytes in UTF-8. 90 chars = 270 bytes.
-        let multibyte_name: String = std::iter::repeat('\u{4e16}').take(90).collect();
+        let multibyte_name = "\u{4e16}".repeat(90);
         assert!(multibyte_name.len() > 256); // 270 bytes > 256
         assert!(multibyte_name.len() < 1000);
 
@@ -916,9 +919,9 @@ mod tests {
         let router = GatewayRouter::from_config(&config).unwrap();
 
         // 64 emoji (each 4 bytes) = 256 bytes exactly, then add one more to exceed.
-        let mut name: String = std::iter::repeat('\u{1F600}').take(65).collect();
+        let mut name = "\u{1F600}".repeat(65);
         assert!(name.len() > 256); // 260 bytes
-        // This should not panic.
+                                   // This should not panic.
         let decision = router.route(&name);
         assert!(decision.is_some());
 

@@ -102,10 +102,7 @@ fn extract_json_from_code_block(text: &str) -> Result<Value, ProjectorError> {
 /// If the `arguments` field is a JSON string, parse it into an object.
 fn parse_string_arguments(mut call: Value) -> Value {
     if let Some(obj) = call.as_object_mut() {
-        let needs_parse = obj
-            .get("arguments")
-            .map(|v| v.is_string())
-            .unwrap_or(false);
+        let needs_parse = obj.get("arguments").map(|v| v.is_string()).unwrap_or(false);
 
         if needs_parse {
             if let Some(Value::String(s)) = obj.get("arguments") {
@@ -410,7 +407,8 @@ mod tests {
         });
         let result = CallRepairer::repair(&call, &schema, &ModelFamily::Generic).unwrap();
         let rate = result["arguments"]["rate"].as_f64().unwrap();
-        assert!((rate - 3.14).abs() < f64::EPSILON);
+        let expected = "3.14".parse::<f64>().unwrap();
+        assert!((rate - expected).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -682,7 +680,8 @@ mod tests {
                 }
             }),
         );
-        let call = json!("```json\n{\"name\": \"search\", \"arguments\": {\"query\": \"test\"}}\n```");
+        let call =
+            json!("```json\n{\"name\": \"search\", \"arguments\": {\"query\": \"test\"}}\n```");
         let result = CallRepairer::repair(&call, &schema, &ModelFamily::DeepSeek).unwrap();
         assert_eq!(result["name"], "search");
         assert_eq!(result["arguments"]["query"], "test");

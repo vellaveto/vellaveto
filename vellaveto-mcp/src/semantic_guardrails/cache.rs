@@ -77,12 +77,7 @@ fn default_enabled() -> bool {
 }
 
 /// Fallback cache size when disabled or when max_size is 0.
-/// SAFETY: 1 is always non-zero, so this const initialization is safe.
-const FALLBACK_CACHE_SIZE: NonZeroUsize = match NonZeroUsize::new(1) {
-    Some(n) => n,
-    // SAFETY: 1 is non-zero.
-    None => unsafe { NonZeroUsize::new_unchecked(1) },
-};
+const FALLBACK_CACHE_SIZE: NonZeroUsize = NonZeroUsize::MIN;
 
 impl Default for CacheConfig {
     fn default() -> Self {

@@ -722,11 +722,7 @@ impl SpanSampler {
     fn hash_trace_id(trace_id: &str) -> u64 {
         use sha2::{Digest, Sha256};
         let hash = Sha256::digest(trace_id.as_bytes());
-        u64::from_le_bytes(
-            hash[..8]
-                .try_into()
-                .unwrap_or_default(),
-        )
+        u64::from_le_bytes(hash[..8].try_into().unwrap_or_default())
     }
 }
 
@@ -2029,7 +2025,10 @@ mod tests {
         let ctx = TraceContext::parse_traceparent(
             "00-00000000000000000000000000000001-b7ad6b7169203331-01",
         );
-        assert!(ctx.is_some(), "trace_id with at least one non-zero digit is valid");
+        assert!(
+            ctx.is_some(),
+            "trace_id with at least one non-zero digit is valid"
+        );
     }
 
     #[test]
@@ -2037,7 +2036,10 @@ mod tests {
         let ctx = TraceContext::parse_traceparent(
             "00-0af7651916cd43dd8448eb211c80319c-0000000000000001-01",
         );
-        assert!(ctx.is_some(), "parent_span_id with at least one non-zero digit is valid");
+        assert!(
+            ctx.is_some(),
+            "parent_span_id with at least one non-zero digit is valid"
+        );
     }
 
     // --- FIND-R44-009: Unbounded tracestate ---
@@ -2054,7 +2056,7 @@ mod tests {
         // Build a tracestate that is exactly 512 bytes
         let entry = "k=v"; // 3 bytes per entry + comma
         let mut ts = String::new();
-        while ts.len() + entry.len() + 1 <= MAX_TRACESTATE_BYTES {
+        while ts.len() + entry.len() < MAX_TRACESTATE_BYTES {
             if !ts.is_empty() {
                 ts.push(',');
             }
@@ -2236,10 +2238,7 @@ mod tests {
         // Generate many span IDs and verify none are all zeros
         for _ in 0..1000 {
             let id = TraceContext::new_span_id();
-            assert_ne!(
-                id, "0000000000000000",
-                "span_id must never be all zeros"
-            );
+            assert_ne!(id, "0000000000000000", "span_id must never be all zeros");
         }
     }
 

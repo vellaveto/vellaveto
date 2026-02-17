@@ -26,12 +26,11 @@ const MAX_PROOFS_LIST: usize = 100;
 /// Maximum entry range span for commitments query.
 const MAX_ENTRY_RANGE_SPAN: u64 = 10_000;
 
-/// Maximum number of loaded audit entries before returning 503.
+/// Maximum number of parsed audit entries scanned for range queries.
 ///
-/// Prevents OOM when the audit log has grown very large. Operators should
-/// rotate/archive audit logs to stay under this limit. In the future this
-/// endpoint should support range-aware loading so that only the requested
-/// sequence window is read from disk.
+/// Prevents unbounded work and memory pressure when serving commitments from
+/// very large audit logs. Operators should rotate/archive audit logs to stay
+/// under this limit.
 const MAX_LOADED_ENTRIES: usize = 500_000;
 
 /// GET /api/zk-audit/status
@@ -151,7 +150,12 @@ pub async fn zk_audit_proofs(
         ));
     }
 
-    let proofs: Vec<_> = guard.iter().skip(params.offset).take(limit).cloned().collect();
+    let proofs: Vec<_> = guard
+        .iter()
+        .skip(params.offset)
+        .take(limit)
+        .cloned()
+        .collect();
 
     let proofs_value = serde_json::to_value(&proofs).map_err(|e| {
         tracing::error!("Failed to serialize ZK proofs list: {}", e);
@@ -336,10 +340,7 @@ pub async fn zk_audit_commitments(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!(
-                    "from ({}) must be <= to ({})",
-                    params.from, params.to
-                ),
+                error: format!("from ({}) must be <= to ({})", params.from, params.to),
             }),
         ));
     }
@@ -357,31 +358,30 @@ pub async fn zk_audit_commitments(
         ));
     }
 
-    // Load entries from audit log and extract commitments.
-    // TODO: Replace with range-aware loading that reads only the requested
-    // sequence window from disk, avoiding full-log materialisation.
-    let entries = state.audit.load_entries().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to load audit entries: {}", e),
-            }),
-        )
-    })?;
-
-    // Guard: prevent OOM when the audit log is very large.
-    if entries.len() > MAX_LOADED_ENTRIES {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse {
-                error: "Audit log exceeds capacity limit. Rotate or archive the audit log.".to_string(),
-            }),
-        ));
-    }
+    // Stream-load only entries in the requested sequence range.
+    let entries = state
+        .audit
+        .load_entries_in_sequence_range(params.from, params.to, MAX_LOADED_ENTRIES)
+        .await
+        .map_err(|e| match e {
+            vellaveto_audit::AuditError::Validation(msg)
+                if msg.contains("exceeds capacity limit") =>
+            {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(ErrorResponse { error: msg }),
+                )
+            }
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to load audit entries: {}", e),
+                }),
+            ),
+        })?;
 
     let commitments: Vec<serde_json::Value> = entries
-        .iter()
-        .filter(|e| e.sequence >= params.from && e.sequence <= params.to)
+        .into_iter()
         .filter_map(|e| {
             e.commitment.as_ref().map(|c| {
                 json!({
