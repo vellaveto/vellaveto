@@ -25,7 +25,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561 # master
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master
         with:
           toolchain: stable
 
@@ -42,7 +42,7 @@ jobs:
         run: echo '<meta http-equiv="refresh" content="0;url=vellaveto_types/index.html">' > target/doc/index.html
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
         with:
           path: target/doc
 
