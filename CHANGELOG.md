@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+#### Round 51 Adversarial Audit (2 P1, 14 P2, 11 P3)
+
+- **FIND-R51-001 (P1):** Float scores (`trust_score`, `risk_score`, `anomaly_score`, `confidence`, `relevance_score`) now range-validated to `[0.0, 1.0]` in all `validate()`/`validate_finite()` methods across 6 types files — negative values could bypass threshold checks in continuous authorization
+- **FIND-R51-002 (P1):** `ToolSignature.is_expired()` validates ISO 8601 timestamp format (length 20, digit ranges for month/day/hour/minute/second) before lexicographic comparison — malformed timestamps like `"9999-99-99T99:99:99Z"` fail-closed (treated as expired)
+- **FIND-R51-001 (P2, http-proxy):** `backend_sessions` and `gateway_tools` HashMaps in `SessionState` bounded at 128 entries each with per-backend tool cap of 1000
+- **FIND-R51-002 (P2, http-proxy):** `abac_granted_policies` Vec bounded at 1024 with deduplication
+- **FIND-R51-003 (P2, SDK):** Python `AsyncVellavetoClient._request()` now has retry logic with exponential backoff matching sync client (transient 502/503/504)
+- **FIND-R51-005 (P2, types):** `EvaluationContext.validate()` now validates `call_chain` entry contents for control characters, null bytes, and excessive length
+- **FIND-R51-007 (P2, types):** `StatelessContextBlob.signature` validated for format (64 hex chars for HMAC-SHA256)
+- **FIND-R51-007 (P2, http-proxy):** `request_count` uses `saturating_add` for debug-build safety
+- **FIND-R51-008 (P2, types):** `CapabilityToken` validates `expires_at > issued_at` temporal ordering
+- **FIND-R51-009 (P2, types):** `NhiDelegationLink` rejects self-delegation (`from_agent == to_agent`)
+- **FIND-R51-010 (P2, config):** `expected_audience` in `FederationConfig` bounded at 512 chars with control character rejection
+- **FIND-R51-011 (P2, http-proxy):** Origin validation logs security warning when wildcard `"*"` is in `allowed_origins`
+- **FIND-R51-014 (P2, http-proxy):** `flagged_tools` HashSet bounded at 2048
+- **FIND-R51-015 (P2, config):** Governance `approved_tools`, `known_servers`, `registered_agents` reject control characters
+- **FIND-R51-005 (P3, SDK):** Python `Content-Length` parsing handles malformed values via try/except
+- **FIND-R51-008 (P3, http-proxy):** `elicitation_count` uses `saturating_add` for consistency
+- **FIND-R51-011 (P3, types):** `UpstreamBackend.validate()` rejects SSRF vectors (localhost, private IPs)
+- **FIND-R51-012 (P3, types):** `NhiDelegationLink` validates `expires_at > created_at` temporal ordering
+- **FIND-R51-012 (P3, http-proxy):** `known_tools` HashMap bounded at 2048
+- **FIND-R51-013 (P3, types):** `ExtensionDescriptor` capabilities vector bounded at 64 entries, 256 bytes each
+- **FIND-R51-013 (P3, server):** `tenant.rs` no longer leaks tenant ID in 404 error responses
+- **FIND-R51-014 (P3, types):** `ProvenanceNode` string fields bounded (`id` 256, `source` 2048, `content_hash` 512)
+- **FIND-R51-015 (P3, types):** `ToolMetadata.input_schema` bounded at 64KB serialized
+- **FIND-R51-015 (P3, server):** `JitAccessManager` global session cap at 100K
+- **FIND-R51-016 (P3, types):** `CanonicalToolSchema`/`CanonicalToolCall`/`CanonicalToolResponse` `validate()` methods with 64KB size bounds
+- **FIND-R51-016 (P3, server):** `JitRequest` fields bounded (`principal` 256, `reason` 1024, `permissions`/`tools` 100)
+- **FIND-R51-017 (P3, types):** `ModelFamily::Custom` string bounded at 256 bytes
+
 #### Round 50 Adversarial Audit (6 P1, 12 P2, 10 P3)
 
 - **FIND-R50-001 (P1):** `Policy::validate()` fail-open on Conditional conditions serialization — `unwrap_or_default()` returned empty string bypassing 65536-byte size check; replaced with `map_err()?` (fail-closed)
