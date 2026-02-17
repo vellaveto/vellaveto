@@ -3,9 +3,9 @@
 > **Version:** 4.0.0
 > **Generated:** 2026-02-17
 > **Baseline:** v3.0.0 — 4,812 Rust tests, 130 Python SDK tests, 28 Go SDK tests, 15 TypeScript SDK tests, 22 fuzz targets, 11 CI workflows, 38 audit rounds, 23 phases complete
-> **Current:** 6,103 Rust tests, 298 Python SDK tests, 40 Go SDK tests, 64 TypeScript SDK tests, 24 fuzz targets, 11 CI workflows (15 jobs), 49 audit rounds (all P0-P3 resolved), 39 phases complete
+> **Current:** 6,158 Rust tests, 298 Python SDK tests, 40 Go SDK tests, 64 TypeScript SDK tests, 24 fuzz targets, 11 CI workflows (15 jobs), 49 audit rounds (all P0-P3 resolved), 40 phases complete
 > **Scope:** 12 months (Q2 2026 – Q1 2027), quarterly milestones
-> **Status:** v3.0 shipped; Phases 24–35 + 37–39 complete
+> **Status:** v3.0 shipped; Phases 24–35 + 37–40 complete
 
 ---
 
@@ -77,9 +77,10 @@ Q4 2026 (Oct–Dec):  Phase 36 — Developer Experience & SDKs             [P2]
                      Phase 37 — Zero-Knowledge Audit Trails             [P3] ✅
                      Phase 38 — SOC 2 Type II Access Reviews            [P1] ✅
 
-Q1 2027 (Jan–Mar):  Phase 39 — Agent Identity Federation               [P1]
-                     Phase 40 — Post-Quantum Cryptography Migration     [P3]
-                     Phase 41 — Performance Benchmarking Paper          [P3]
+Q1 2027 (Jan–Mar):  Phase 39 — Agent Identity Federation               [P1] ✅
+                     Phase 40 — Workflow-Level Policy Constraints        [P1] ✅
+                     Phase 41 — Post-Quantum Cryptography Migration     [P3]
+                     Phase 42 — Performance Benchmarking Paper          [P3]
 ```
 
 ---
@@ -446,7 +447,37 @@ The existing federation types in `vellaveto-types/src/abac.rs` (`FederationTrust
 
 ---
 
-### Phase 40: Post-Quantum Cryptography Migration (P3)
+### Phase 40: Workflow-Level Policy Constraints (P1) ✅
+
+*Focus: Enable operators to define ordered action sequence requirements, forbidden sequence patterns, and full workflow DAG templates as context conditions on policies*
+
+Motivated by the SciAgentGym paper finding that GPT-5 drops from 60.6% to 30.9% success as interaction horizons extend — agents make more errors in longer, multi-step workflows. VellaVeto already had single-tool sequence checks (`RequirePreviousAction`, `ForbiddenPreviousAction`), but could not express **ordered multi-tool sequences** or **workflow DAGs**.
+
+**Implemented (engine-only, no new dependencies):**
+- `RequiredActionSequence`: ordered/unordered multi-tool prerequisites (max 20 steps)
+- `ForbiddenActionSequence`: ordered/unordered forbidden pattern detection (max 20 steps)
+- `WorkflowTemplate`: DAG-based tool transitions with Kahn's algorithm cycle detection (max 50 steps)
+- TLA+ formal verification: S8 (WorkflowPredecessor), S9 (AcyclicDAG)
+- 55 new tests
+
+### Phase 40 Exit Criteria
+- [x] Ordered subsequence: A→B detected even with C between them
+- [x] Ordered subsequence: B→A NOT detected (order matters)
+- [x] Unordered: set semantics (all must be present)
+- [x] WorkflowTemplate: non-governed tools pass through
+- [x] WorkflowTemplate: entry points validated on first governed tool
+- [x] WorkflowTemplate: cycle detection at compile time (Kahn's algorithm)
+- [x] WorkflowTemplate: warn mode logs but does not deny
+- [x] Fail-closed: empty history + required sequence = Deny
+- [x] Case-insensitive matching (consistent with existing conditions)
+- [x] No `unwrap()` in new code
+- [x] TLA+ spec (S8, S9) created
+
+**Completed:** 2026-02-17
+
+---
+
+### Phase 41: Post-Quantum Cryptography Migration (P3)
 
 *Focus: Replace classical cryptographic primitives with NIST post-quantum standards*
 
@@ -461,7 +492,7 @@ The existing TLS KEX policy in `vellaveto-config/src/enterprise.rs` and migratio
 | Update FIPS 140-3 mode (`vellaveto-mcp/src/fips.rs`) to include PQ algorithms | P3 | 2 days | ML-DSA, ML-KEM |
 | Benchmark: PQ signature verification overhead vs Ed25519 | P3 | 2 days | Implementation |
 
-### Phase 40 Exit Criteria
+### Phase 41 Exit Criteria
 - [ ] ML-DSA (FIPS 204) available as alternative to Ed25519 for all signing operations
 - [ ] ML-KEM (FIPS 203) available for key encapsulation
 - [ ] Dual-signature mode allows gradual migration
@@ -471,7 +502,7 @@ The existing TLS KEX policy in `vellaveto-config/src/enterprise.rs` and migratio
 
 ---
 
-### Phase 41: Performance Benchmarking Paper (P3)
+### Phase 42: Performance Benchmarking Paper (P3)
 
 *Focus: Rigorous, peer-reviewed performance characterization*
 
@@ -486,7 +517,7 @@ No rigorous MCP security proxy benchmark exists (Gap #5 in `docs/MCP_SECURITY_GA
 | Memory profiling: baseline RSS, per-connection overhead, policy count scaling | P3 | 2 days | — |
 | Draft paper for OSDI/NSDI/MLSys | P3 | 10 days | All benchmarks |
 
-### Phase 41 Exit Criteria
+### Phase 42 Exit Criteria
 - [ ] Standardized benchmark suite published as open-source
 - [ ] Pipeline decomposition shows per-component latency contribution
 - [ ] P99 < 5ms verified at 10K concurrent connections
@@ -519,7 +550,8 @@ No rigorous MCP security proxy benchmark exists (Gap #5 in `docs/MCP_SECURITY_GA
 | Cross-Transport Fallback | gRPC → WS → HTTP ✅ (Phase 29) | None | None | None | None | None |
 | Distributed Tracing | W3C + OTel GenAI ✅ (Phase 28) | None | None | None | None | X-Ray |
 | zk-SNARK Audit | Pedersen + Groth16 ✅ (Phase 37) | None | None | None | None | None |
-| Post-Quantum Crypto | ML-DSA/ML-KEM (Phase 40) | None | None | None | None | None |
+| Workflow Constraints | DAG-based tool transitions ✅ (Phase 40) | None | None | None | None | None |
+| Post-Quantum Crypto | ML-DSA/ML-KEM (Phase 41) | None | None | None | None | None |
 | Open Source | AGPL-3.0 | Commercial | Commercial | Commercial | MIT | Commercial |
 | Self-Hosted | Full | Partial | Full | Unknown | Full | No (managed) |
 | SDKs | Python, TypeScript, Go, Java (Phase 36) | Python | Python | TypeScript | None | Python, Java |
@@ -548,14 +580,15 @@ Phase 36 (DX/SDK)        ──── independent ──────────
 Phase 37 (zk-Audit)      ──── depends on Merkle proofs (Phase 19) ──────┤ ✅
 Phase 38 (SOC 2)         ──── depends on SOC 2 registry (Phase 19) ────┤
                                                                         │
-Phase 39 (Federation)    ──── depends on ABAC engine (Phase 21) ────────┤
-Phase 40 (PQC)           ──── depends on FIPS mode (Phase 23) ──────────┤
-Phase 41 (Benchmark)     ──── depends on all benchmarks complete ───────┘
+Phase 39 (Federation)    ──── depends on ABAC engine (Phase 21) ────────┤ ✅
+Phase 40 (Workflow)      ──── depends on engine context (Phase 21) ─────┤ ✅
+Phase 41 (PQC)           ──── depends on FIPS mode (Phase 23) ──────────┤
+Phase 42 (Benchmark)     ──── depends on all benchmarks complete ───────┘
 ```
 
-Phases 24–30, 33–35, 37 complete. Remaining phases:
-Phases 36 and 38 can run in parallel (Q4 2026).
-Phases 39, 40, and 41 can run in parallel (Q1 2027).
+Phases 24–30, 33–35, 37–40 complete. Remaining phases:
+Phase 36 (Q4 2026).
+Phases 41 and 42 can run in parallel (Q1 2027).
 
 ---
 
@@ -576,12 +609,13 @@ Phases 39, 40, and 41 can run in parallel (Q1 2027).
 | Phase 35 (Projector) | ~230 | 5,725 ✅ |
 | Phase 37 (zk-Audit) | ~38 | 5,763 ✅ |
 | Improvement Campaign | ~269 | 6,032 ✅ |
-| Phase 36 (DX/SDK) | ~80 | 6,112 |
-| Phase 38 (SOC 2) | ~20 | 6,132 |
-| Phase 39 (Federation) | ~30 | 6,162 |
-| Phase 40 (PQC) | ~20 | 6,182 |
-| Phase 41 (Benchmark) | ~10 | 6,192 |
-| **v4.0 target** | **~1,232 actual + ~160 remaining** | **~6,200+** |
+| Phase 38 (SOC 2) | ~75 | 6,107 ✅ |
+| Phase 39 (Federation) | ~30 | 6,137 ✅ |
+| Phase 40 (Workflow) | ~55 | 6,158 ✅ |
+| Phase 36 (DX/SDK) | ~80 | 6,238 |
+| Phase 41 (PQC) | ~20 | 6,258 |
+| Phase 42 (Benchmark) | ~10 | 6,268 |
+| **v4.0 target** | **~1,283 actual + ~110 remaining** | **~6,300+** |
 
 ---
 
@@ -595,7 +629,7 @@ Phases 39, 40, and 41 can run in parallel (Q1 2027).
 | K8s leader election edge cases | Phase 27 reliability | Medium | Use well-tested `kube-rs` lease implementation; extensive integration tests — ✅ mitigated (Phase 27 complete) |
 | Formal verification scope creep | Phase 33 never completes | High | Bound scope to 3 specific safety properties; time-box to 12 weeks — ✅ mitigated (Phase 33 complete, 19 properties) |
 | Competitor feature parity in K8s | Phase 27 insufficient | Low | Microsoft MCP GW is routing-only; Vellaveto's security stack remains differentiator — ✅ mitigated |
-| Post-quantum crate ecosystem immaturity | Phase 40 blocked | Medium | Track `pqcrypto` and `ml-dsa` crate development; defer if not production-ready |
+| Post-quantum crate ecosystem immaturity | Phase 41 blocked | Medium | Track `pqcrypto` and `ml-dsa` crate development; defer if not production-ready |
 
 ---
 

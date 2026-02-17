@@ -54,6 +54,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 40: Workflow-Level Policy Constraints
+
+Engine-only addition of three new `CompiledContextCondition` variants enabling operators to define multi-tool sequence requirements, forbidden patterns, and full workflow DAGs as context conditions on policies. Motivated by the SciAgentGym finding that agents make more errors in longer, multi-step workflows.
+
+- **`RequiredActionSequence`** (`vellaveto-engine/src/compiled.rs`): Ordered or unordered multi-tool sequence prerequisites. Ordered mode uses greedy left-to-right subsequence matching; unordered mode uses set semantics. Max 20 steps. Fail-closed: empty/shorter history → Deny. Case-insensitive.
+- **`ForbiddenActionSequence`** (`vellaveto-engine/src/compiled.rs`): Ordered or unordered forbidden sequence detection. Detects exfiltration patterns like `read_secret` → `http_request`. Empty history → Allow. Max 20 steps.
+- **`WorkflowTemplate`** (`vellaveto-engine/src/compiled.rs`): DAG-based tool transition enforcement. Non-governed tools pass through. Governed tools must follow DAG edges: current tool must be a valid successor of the most recent governed tool, or an entry point. Cycle detection via Kahn's algorithm at compile time. Strict mode denies violations; warn mode logs only. Max 50 steps.
+- **Compilation** (`vellaveto-engine/src/policy_compile.rs`): `compile_action_sequence()` and `compile_workflow_template()` with full input validation (bounds, control chars, empty strings, cycle detection)
+- **Evaluation** (`vellaveto-engine/src/context_check.rs`): `current_tool` parameter added to `check_context_conditions()` for WorkflowTemplate DAG lookup
+- **TLA+ Spec** (`formal/tla/WorkflowConstraint.tla`): S8 (WorkflowPredecessor) and S9 (AcyclicDAG) invariants verified
+- **Tests**: 55 new tests (18 RequiredActionSequence + 17 ForbiddenActionSequence + 20 WorkflowTemplate)
+
 #### Phase 39: Agent Identity Federation (placeholder)
 
 - `FederationResolver` type with config/status methods in vellaveto-server
