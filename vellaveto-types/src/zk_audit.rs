@@ -22,7 +22,7 @@ pub struct PedersenCommitment {
     /// Hex-encoded blinding factor (64 hex chars = 32 bytes).
     /// For the holder only — not shared with external verifiers.
     /// SECURITY: Excluded from serialization and redacted in Debug.
-    #[serde(skip_serializing)]
+    #[serde(default, skip_serializing)]
     pub blinding_hint: String,
 }
 

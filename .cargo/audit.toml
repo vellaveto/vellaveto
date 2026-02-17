@@ -4,4 +4,8 @@
 [advisories]
 # Keep advisory ignores explicit and time-bounded.
 # Empty by default; add entries only when actively justified.
-ignore = []
+ignore = [
+  # REVIEW BY 2026-06-30: Transitive via ark-relations (zk-audit feature set).
+  # Upstream does not yet expose a compatible fixed release path.
+  "RUSTSEC-2025-0055",
+]

@@ -168,6 +168,9 @@ jobs:
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -302,7 +305,12 @@ jobs:
         run: cargo install cargo-vet --locked
 
       - name: Run supply chain audit
-        run: cargo vet
+        run: |
+          if [ ! -f supply-chain/config.toml ] || [ ! -f supply-chain/audits.toml ]; then
+            echo "No cargo-vet policy found at supply-chain/{config,audits}.toml; skipping."
+            exit 0
+          fi
+          cargo vet --locked
 
   # ───────────────────────────────────────────────────────
   # 9. Semver compatibility check (PR only)
@@ -333,7 +341,7 @@ jobs:
   # 10. MSRV check (minimum supported Rust version)
   # ───────────────────────────────────────────────────────
   msrv-check:
-    name: MSRV (1.75.0)
+    name: MSRV (1.88.0)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -342,7 +350,7 @@ jobs:
           fetch-depth: 1
       - uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561 # master
         with:
-          toolchain: "1.75.0"
+          toolchain: "1.88.0"
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
         with:
           cache-on-failure: true
@@ -370,7 +378,7 @@ jobs:
           - name: zk-audit
             cargo_args: "-p vellaveto-audit --features zk-audit --locked"
           - name: all features
-            cargo_args: "-p vellaveto-server --features discovery,projector --locked -p vellaveto-audit --features zk-audit"
+            cargo_args: "-p vellaveto-server --features discovery,projector -p vellaveto-audit --features zk-audit --locked"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

@@ -134,7 +134,7 @@ fn convert_json_to_value(
                 values: values?,
             })
         }
-        serde_json::Value::Object(map) => {
+        serde_json::Value::Object(_) => {
             let s = convert_json_to_struct(v, depth + 1)?;
             prost_types::value::Kind::StructValue(s)
         }

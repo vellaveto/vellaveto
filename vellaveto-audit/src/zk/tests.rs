@@ -301,7 +301,11 @@ fn test_pedersen_commitment_type_serde_roundtrip() {
     };
     let json = serde_json::to_string(&commitment).unwrap();
     let deserialized: vellaveto_types::PedersenCommitment = serde_json::from_str(&json).unwrap();
-    assert_eq!(commitment, deserialized);
+    assert_eq!(commitment.commitment, deserialized.commitment);
+    assert!(
+        deserialized.blinding_hint.is_empty(),
+        "blinding_hint must not roundtrip through serialized output"
+    );
 }
 
 #[test]

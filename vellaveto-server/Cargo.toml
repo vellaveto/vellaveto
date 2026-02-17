@@ -21,7 +21,7 @@ projector = ["vellaveto-mcp/projector"]
 vellaveto-types = { path = "../vellaveto-types" }
 vellaveto-engine = { path = "../vellaveto-engine" }
 vellaveto-audit = { path = "../vellaveto-audit" }
-vellaveto-mcp = { path = "../vellaveto-mcp" }
+vellaveto-mcp = { path = "../vellaveto-mcp", features = ["discovery", "projector"] }
 vellaveto-canonical = { path = "../vellaveto-canonical" }
 vellaveto-config = { path = "../vellaveto-config" }
 vellaveto-approval = { path = "../vellaveto-approval" }
