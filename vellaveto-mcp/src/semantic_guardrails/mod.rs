@@ -285,11 +285,7 @@ impl SemanticGuardrailsService {
                     let oldest_key = chains
                         .iter()
                         .min_by_key(|(_, chain)| {
-                            chain
-                                .recent(1)
-                                .first()
-                                .map(|r| r.timestamp)
-                                .unwrap_or(0)
+                            chain.recent(1).first().map(|r| r.timestamp).unwrap_or(0)
                         })
                         .map(|(k, _)| k.clone());
                     if let Some(key) = oldest_key {

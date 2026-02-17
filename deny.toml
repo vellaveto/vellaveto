@@ -8,7 +8,7 @@ ignore = []
 
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
+wildcards = "allow"
 highlight = "all"
 skip = []
 skip-tree = []
@@ -37,6 +37,7 @@ allow = [
   "MPL-2.0",
   "NCSA",
   "OpenSSL",
+  "Unicode-3.0",
   "Unicode-DFS-2016",
   "Unlicense",
   "Zlib",

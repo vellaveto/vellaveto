@@ -152,7 +152,10 @@ impl GovernanceConfig {
                 ));
             }
             // SECURITY (FIND-R51-015): Reject control characters in governance strings.
-            if server.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+            if server
+                .bytes()
+                .any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b))
+            {
                 return Err(format!(
                     "governance.known_servers[{}] contains control characters",
                     i
@@ -177,7 +180,10 @@ impl GovernanceConfig {
                 ));
             }
             // SECURITY (FIND-R51-015): Reject control characters in governance strings.
-            if agent.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+            if agent
+                .bytes()
+                .any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b))
+            {
                 return Err(format!(
                     "governance.registered_agents[{}] contains control characters",
                     i

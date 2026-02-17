@@ -13042,14 +13042,20 @@ fn test_workflow_template_disconnected_components() {
     let v = engine
         .evaluate_action_with_context(&action_a, &[], Some(&ctx_empty))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow for entry 'a', got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow for entry 'a', got {v:?}"
+    );
 
     // Can start with entry point "c"
     let action_c = Action::new("c", "execute", json!({}));
     let v2 = engine
         .evaluate_action_with_context(&action_c, &[], Some(&ctx_empty))
         .unwrap();
-    assert!(matches!(v2, Verdict::Allow), "Expected Allow for entry 'c', got {v2:?}");
+    assert!(
+        matches!(v2, Verdict::Allow),
+        "Expected Allow for entry 'c', got {v2:?}"
+    );
 
     // After "a", calling "d" (from other component) should be denied
     let action_d = Action::new("d", "execute", json!({}));
@@ -13079,7 +13085,10 @@ fn test_workflow_template_single_node() {
     let v = engine
         .evaluate_action_with_context(&action_a, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow for single entry 'a', got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow for single entry 'a', got {v:?}"
+    );
 
     // Calling "a" again after "a" → Deny (terminal, no successors)
     let ctx2 = EvaluationContext {
@@ -13109,8 +13118,10 @@ fn test_required_action_sequence_repeated_pattern_in_history() {
     // History has the pattern twice: [a, b, a, b]
     let ctx = EvaluationContext {
         previous_actions: vec![
-            "a".to_string(), "b".to_string(),
-            "a".to_string(), "b".to_string(),
+            "a".to_string(),
+            "b".to_string(),
+            "a".to_string(),
+            "b".to_string(),
         ],
         ..Default::default()
     };
@@ -13193,7 +13204,10 @@ fn test_required_action_sequence_compile_control_chars_rejected() {
         "ordered": true
     }]));
     let result = PolicyEngine::with_policies(false, &[policy]);
-    assert!(result.is_err(), "Expected compile error for control char in tool name");
+    assert!(
+        result.is_err(),
+        "Expected compile error for control char in tool name"
+    );
 }
 
 #[test]
@@ -13201,7 +13215,10 @@ fn test_workflow_template_compile_control_chars_rejected() {
     let steps = json!([{"tool": "tool_a\n", "then": ["b"]}]);
     let policy = make_workflow_policy(steps, "strict");
     let result = PolicyEngine::with_policies(false, &[policy]);
-    assert!(result.is_err(), "Expected compile error for control char in workflow tool name");
+    assert!(
+        result.is_err(),
+        "Expected compile error for control char in workflow tool name"
+    );
 }
 
 // FIND-R50-068: Test explicit terminal node (empty then array)
@@ -13223,7 +13240,10 @@ fn test_workflow_template_explicit_terminal_node() {
     let v = engine
         .evaluate_action_with_context(&action_b, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (a→b valid), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (a→b valid), got {v:?}"
+    );
 
     // b has no successors → calling "a" after "b" denies
     let action_a = Action::new("a", "execute", json!({}));
