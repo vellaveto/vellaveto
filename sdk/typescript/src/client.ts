@@ -18,6 +18,8 @@ import {
   DiscoveryToolsResponse,
   EvaluationContext,
   EvaluationResult,
+  FederationStatusResponse,
+  FederationTrustAnchorsResponse,
   HealthResponse,
   PolicySummary,
   ProjectorModelsResponse,
@@ -805,6 +807,39 @@ export class VellavetoClient {
       ? `/api/compliance/soc2/access-review?${qs}`
       : "/api/compliance/soc2/access-review";
     return this.request<AccessReviewReport>("GET", path);
+  }
+
+  // ────────────────────────────────────────────────────
+  // Federation (Phase 39)
+  // ────────────────────────────────────────────────────
+
+  /** Get federation status including per-anchor cache info. */
+  async federationStatus(): Promise<FederationStatusResponse> {
+    return this.request<FederationStatusResponse>(
+      "GET",
+      "/api/federation/status"
+    );
+  }
+
+  /** List federation trust anchors, optionally filtered by org ID. */
+  async federationTrustAnchors(
+    orgId?: string
+  ): Promise<FederationTrustAnchorsResponse> {
+    if (orgId !== undefined) {
+      if (orgId.length > 128) {
+        throw new VellavetoError("org_id exceeds max length (128)");
+      }
+      if (/[\x00-\x1f]/.test(orgId)) {
+        throw new VellavetoError("org_id contains control characters");
+      }
+    }
+    const params = new URLSearchParams();
+    if (orgId) params.set("org_id", orgId);
+    const qs = params.toString();
+    const path = qs
+      ? `/api/federation/trust-anchors?${qs}`
+      : "/api/federation/trust-anchors";
+    return this.request<FederationTrustAnchorsResponse>("GET", path);
   }
 }
 

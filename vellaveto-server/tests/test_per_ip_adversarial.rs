@@ -94,6 +94,7 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     (state, tmp)
 }
@@ -471,6 +472,7 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

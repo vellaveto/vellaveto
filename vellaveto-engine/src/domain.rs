@@ -127,7 +127,17 @@ pub fn extract_domain(url: &str) -> String {
     // domain becomes "evil.com@blocked.com" instead of "blocked.com".
     // A standards-compliant parser decoding first would see userinfo="evil.com",
     // host="blocked.com", so we must decode before splitting on '@'.
-    let decoded_authority = percent_encoding::percent_decode_str(authority_raw).decode_utf8_lossy();
+    // SECURITY (FIND-R49-008): Strict UTF-8 decode instead of lossy.
+    // On invalid UTF-8 after percent-decoding, fail-closed by returning
+    // the raw authority as-is (lowercased) — no userinfo stripping attempted
+    // on data we cannot safely parse.
+    let decoded_authority = match percent_encoding::percent_decode_str(authority_raw).decode_utf8()
+    {
+        Ok(decoded) => decoded,
+        Err(_) => {
+            return authority_raw.to_lowercase();
+        }
+    };
     // SECURITY (R37-ENG-1): Strip userinfo FIRST on the decoded authority,
     // BEFORE backslash normalization. A %2F in userinfo (e.g., "evil.com%2F@legit.com")
     // decodes to '/' which would cause a wrong split if we split on '/' first.

@@ -81,6 +81,7 @@ pub async fn get_schema_lineage(
 
 /// Request body for resetting trust score.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ResetTrustRequest {
     pub trust_score: f32,
 }

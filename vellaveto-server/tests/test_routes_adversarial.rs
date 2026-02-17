@@ -92,6 +92,7 @@ fn make_state() -> (AppState, TempDir) {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     (state, tmp)
 }
@@ -157,6 +158,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     (state, tmp)
 }
@@ -606,6 +608,7 @@ priority = 1
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -738,6 +741,7 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     let app = routes::build_router(state);
 
@@ -991,6 +995,7 @@ async fn test_find004_metrics_require_auth_true_blocks_unauthenticated() {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     let app = routes::build_router(state);
 
@@ -1067,6 +1072,7 @@ async fn test_find004_metrics_require_auth_false_allows_unauthenticated() {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     let app = routes::build_router(state);
 

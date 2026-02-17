@@ -91,6 +91,7 @@ pub async fn get_memory_entry(
 
 /// Request body for quarantine action.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QuarantineRequest {
     pub reason: Option<String>,
     pub triggered_by: Option<String>,
@@ -222,6 +223,7 @@ pub async fn list_memory_namespaces(
 
 /// Request body for creating a namespace.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateNamespaceRequest {
     #[serde(alias = "id")]
     pub name: String,
@@ -272,6 +274,7 @@ pub async fn create_memory_namespace(
 
 /// Request body for sharing a namespace.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ShareNamespaceRequest {
     #[serde(alias = "requester_agent")]
     pub target_agent: String,

@@ -260,6 +260,8 @@ fn html_escape(s: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&#x27;"),
+            // SECURITY (FIND-R49-008): Escape / for OWASP-recommended comprehensive HTML escaping.
+            '/' => out.push_str("&#x2F;"),
             _ => out.push(c),
         }
     }
@@ -876,7 +878,7 @@ mod tests {
         let html = render_html(&report);
         // Agent ID with HTML should be escaped
         assert!(!html.contains("<b>evil</b>"));
-        assert!(html.contains("&lt;b&gt;evil&lt;/b&gt;"));
+        assert!(html.contains("&lt;b&gt;evil&lt;&#x2F;b&gt;"));
         // Org name with special chars should be escaped
         assert!(html.contains("Org&lt;&gt;&amp;&quot;&#x27;"));
     }

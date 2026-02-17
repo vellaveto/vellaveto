@@ -32,6 +32,7 @@ pub mod deputy;
 pub mod discovery;
 pub mod etdi;
 pub mod exec_graph;
+pub mod federation;
 pub mod governance;
 mod main;
 pub mod memory;

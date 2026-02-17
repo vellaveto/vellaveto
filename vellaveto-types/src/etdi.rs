@@ -130,6 +130,9 @@ pub struct ToolAttestation {
 }
 
 impl ToolAttestation {
+    /// Maximum attestation chain depth to prevent DoS during chain traversal.
+    pub const MAX_ATTESTATION_CHAIN_DEPTH: usize = 64;
+
     /// Returns true if this is the first attestation in the chain.
     pub fn is_initial(&self) -> bool {
         self.previous_attestation.is_none()

@@ -1026,6 +1026,20 @@ async fn cmd_serve(
         },
         zk_audit_enabled: policy_config.zk_audit.enabled,
         zk_audit_config: policy_config.zk_audit.clone(),
+        federation_resolver: {
+            let fed = &policy_config.abac.federation;
+            if fed.enabled && !fed.trust_anchors.is_empty() {
+                tracing::info!(
+                    anchors = fed.trust_anchors.len(),
+                    "Federation resolver initialized"
+                );
+                Some(std::sync::Arc::new(vellaveto_server::FederationResolver::new(
+                    fed.clone(),
+                )))
+            } else {
+                None
+            }
+        },
     };
 
     tracing::info!("Audit log: {}", audit_path.display());

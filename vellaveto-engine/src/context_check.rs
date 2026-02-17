@@ -379,10 +379,11 @@ impl PolicyEngine {
                     // condition is a no-op at the engine layer and enforcement happens
                     // elsewhere. Previously trace-level, which was invisible in production.
                     if *max_concurrent > 0 {
-                        tracing::warn!(
+                        tracing::error!(
                             policy = %cp.policy.name,
                             max_concurrent = %max_concurrent,
-                            "async_task_policy condition is a no-op in engine — enforcement is in MCP proxy layer"
+                            "SECURITY: AsyncTaskPolicy condition is NOT enforced at the engine level. \
+                             Enforcement requires the MCP proxy layer. Configure the proxy for task limits."
                         );
                     }
                     // Continue to next condition - actual enforcement is at task creation

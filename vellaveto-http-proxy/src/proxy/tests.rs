@@ -795,6 +795,8 @@ fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
         continuous_auth_config: None,
         transport_health: None,
         streamable_http: Default::default(),
+        // Phase 39: Federation
+        federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,
         #[cfg(feature = "projector")]

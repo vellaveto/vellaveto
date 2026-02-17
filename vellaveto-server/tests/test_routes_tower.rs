@@ -93,6 +93,7 @@ fn make_state() -> (AppState, TempDir) {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     (state, tmp)
 }
@@ -158,6 +159,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     (state, tmp)
 }
@@ -1271,6 +1273,7 @@ priority = 1
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     let app = routes::build_router(state.clone());
 
@@ -1401,6 +1404,7 @@ fn make_approval_state() -> (AppState, TempDir) {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     (state, tmp)
 }
@@ -1892,6 +1896,7 @@ fn make_authed_state() -> (AppState, TempDir) {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     (state, tmp)
 }
@@ -2407,6 +2412,7 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     (state, tmp)
 }
@@ -3123,6 +3129,7 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     (state, tmp)
 }

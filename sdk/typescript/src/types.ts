@@ -336,3 +336,34 @@ export interface AccessReviewReport {
   cc6_evidence: Cc6Evidence;
   attestation: ReviewerAttestation;
 }
+
+// ── Phase 39: Federation Types ──────────────────────────────────────
+
+/** Federation status response. */
+export interface FederationStatusResponse {
+  enabled: boolean;
+  trust_anchor_count: number;
+  anchors: FederationAnchorStatus[];
+}
+
+/** Status of a single federation trust anchor. */
+export interface FederationAnchorStatus {
+  org_id: string;
+  display_name: string;
+  trust_level: string;
+  successful_validations: number;
+  failed_validations: number;
+}
+
+/** Federation trust anchors list response. */
+export interface FederationTrustAnchorsResponse {
+  anchors: FederationTrustAnchor[];
+  total: number;
+}
+
+/** A federation trust anchor. */
+export interface FederationTrustAnchor {
+  org_id: string;
+  display_name: string;
+  trust_level: string;
+}

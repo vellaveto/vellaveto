@@ -97,6 +97,104 @@ pub struct AbacPolicy {
     pub conditions: Vec<AbacCondition>,
 }
 
+impl AbacPolicy {
+    /// Maximum number of conditions per policy.
+    pub const MAX_CONDITIONS: usize = 256;
+
+    /// SECURITY (FIND-R49-005): Validate AbacPolicy bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.conditions.len() > Self::MAX_CONDITIONS {
+            return Err(format!(
+                "AbacPolicy conditions count {} exceeds max {}",
+                self.conditions.len(),
+                Self::MAX_CONDITIONS
+            ));
+        }
+        self.principal.validate()?;
+        self.action.validate()?;
+        self.resource.validate()?;
+        Ok(())
+    }
+}
+
+impl PrincipalConstraint {
+    /// Maximum number of ID patterns per principal constraint.
+    pub const MAX_ID_PATTERNS: usize = 64;
+    /// Maximum number of required claims per principal constraint.
+    pub const MAX_CLAIMS: usize = 64;
+
+    /// SECURITY (FIND-R49-005): Validate PrincipalConstraint bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id_patterns.len() > Self::MAX_ID_PATTERNS {
+            return Err(format!(
+                "PrincipalConstraint id_patterns count {} exceeds max {}",
+                self.id_patterns.len(),
+                Self::MAX_ID_PATTERNS
+            ));
+        }
+        if self.claims.len() > Self::MAX_CLAIMS {
+            return Err(format!(
+                "PrincipalConstraint claims count {} exceeds max {}",
+                self.claims.len(),
+                Self::MAX_CLAIMS
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl ActionConstraint {
+    /// Maximum number of patterns per action constraint.
+    pub const MAX_PATTERNS: usize = 256;
+
+    /// SECURITY (FIND-R49-005): Validate ActionConstraint bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.patterns.len() > Self::MAX_PATTERNS {
+            return Err(format!(
+                "ActionConstraint patterns count {} exceeds max {}",
+                self.patterns.len(),
+                Self::MAX_PATTERNS
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl ResourceConstraint {
+    /// Maximum number of path patterns per resource constraint.
+    pub const MAX_PATH_PATTERNS: usize = 256;
+    /// Maximum number of domain patterns per resource constraint.
+    pub const MAX_DOMAIN_PATTERNS: usize = 256;
+    /// Maximum number of tags per resource constraint.
+    pub const MAX_TAGS: usize = 64;
+
+    /// SECURITY (FIND-R49-005): Validate ResourceConstraint bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.path_patterns.len() > Self::MAX_PATH_PATTERNS {
+            return Err(format!(
+                "ResourceConstraint path_patterns count {} exceeds max {}",
+                self.path_patterns.len(),
+                Self::MAX_PATH_PATTERNS
+            ));
+        }
+        if self.domain_patterns.len() > Self::MAX_DOMAIN_PATTERNS {
+            return Err(format!(
+                "ResourceConstraint domain_patterns count {} exceeds max {}",
+                self.domain_patterns.len(),
+                Self::MAX_DOMAIN_PATTERNS
+            ));
+        }
+        if self.tags.len() > Self::MAX_TAGS {
+            return Err(format!(
+                "ResourceConstraint tags count {} exceeds max {}",
+                self.tags.len(),
+                Self::MAX_TAGS
+            ));
+        }
+        Ok(())
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ENTITY STORE TYPES
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -226,14 +324,59 @@ pub struct FederationTrustAnchor {
     /// Identity claim-to-principal mappings.
     #[serde(default)]
     pub identity_mappings: Vec<IdentityMapping>,
+    /// Trust level for this federated organization.
+    /// Injected as `federation.trust_level` claim in mapped identity.
+    /// ABAC policies can condition on this value.
+    /// Valid values: "full", "limited", "read_only".
+    #[serde(default = "default_trust_level")]
+    pub trust_level: String,
 }
+
+fn default_trust_level() -> String {
+    "limited".to_string()
+}
+
+/// Allowed trust level values for federation trust anchors.
+const VALID_TRUST_LEVELS: &[&str] = &["full", "limited", "read_only"];
 
 impl FederationTrustAnchor {
     /// Maximum number of identity mappings per trust anchor.
     pub const MAX_IDENTITY_MAPPINGS: usize = 64;
 
-    /// SECURITY (FIND-R49-010): Validate identity_mappings bounds.
+    /// Validate the trust anchor configuration.
+    ///
+    /// Checks: org_id non-empty, issuer_pattern non-empty, jwks_uri scheme,
+    /// trust_level enum, identity_mappings bounds and individual validation.
     pub fn validate(&self) -> Result<(), String> {
+        if self.org_id.is_empty() {
+            return Err("FederationTrustAnchor org_id must not be empty".to_string());
+        }
+        if self.org_id.chars().any(|c| c.is_control()) {
+            return Err(format!(
+                "FederationTrustAnchor '{}' org_id contains control characters",
+                self.org_id
+            ));
+        }
+        if self.issuer_pattern.is_empty() {
+            return Err(format!(
+                "FederationTrustAnchor '{}' issuer_pattern must not be empty",
+                self.org_id
+            ));
+        }
+        if let Some(ref uri) = self.jwks_uri {
+            if !uri.starts_with("https://") && !uri.starts_with("http://") {
+                return Err(format!(
+                    "FederationTrustAnchor '{}' jwks_uri must use http(s) scheme, got: {}",
+                    self.org_id, uri
+                ));
+            }
+        }
+        if !VALID_TRUST_LEVELS.contains(&self.trust_level.as_str()) {
+            return Err(format!(
+                "FederationTrustAnchor '{}' trust_level must be one of {:?}, got: {}",
+                self.org_id, VALID_TRUST_LEVELS, self.trust_level
+            ));
+        }
         if self.identity_mappings.len() > Self::MAX_IDENTITY_MAPPINGS {
             return Err(format!(
                 "FederationTrustAnchor '{}' identity_mappings count {} exceeds max {}",
@@ -241,6 +384,14 @@ impl FederationTrustAnchor {
                 self.identity_mappings.len(),
                 Self::MAX_IDENTITY_MAPPINGS
             ));
+        }
+        for (i, mapping) in self.identity_mappings.iter().enumerate() {
+            mapping.validate().map_err(|e| {
+                format!(
+                    "FederationTrustAnchor '{}' identity_mappings[{}]: {}",
+                    self.org_id, i, e
+                )
+            })?;
         }
         Ok(())
     }
@@ -255,6 +406,97 @@ pub struct IdentityMapping {
     pub internal_principal_type: String,
     /// Template for the internal principal ID: "{org_id}:{claim_value}".
     pub id_template: String,
+}
+
+impl IdentityMapping {
+    /// Validate the identity mapping configuration.
+    ///
+    /// Checks: external_claim non-empty, id_template contains `{claim_value}`,
+    /// no control characters in any field.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.external_claim.is_empty() {
+            return Err("external_claim must not be empty".to_string());
+        }
+        if self.external_claim.chars().any(|c| c.is_control()) {
+            return Err(format!(
+                "external_claim '{}' contains control characters",
+                self.external_claim
+            ));
+        }
+        if !self.id_template.contains("{claim_value}") {
+            return Err(format!(
+                "id_template '{}' must contain '{{claim_value}}' placeholder",
+                self.id_template
+            ));
+        }
+        if self.id_template.chars().any(|c| c.is_control()) {
+            return Err(format!(
+                "id_template '{}' contains control characters",
+                self.id_template
+            ));
+        }
+        if self.internal_principal_type.is_empty() {
+            return Err("internal_principal_type must not be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FEDERATION STATUS TYPES (Phase 39)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Federation status returned by GET /api/federation/status.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FederationStatus {
+    /// Whether federation is enabled.
+    pub enabled: bool,
+    /// Number of configured trust anchors.
+    pub trust_anchor_count: usize,
+    /// Per-anchor status.
+    pub anchors: Vec<FederationAnchorStatus>,
+}
+
+/// Per-anchor status with JWKS cache info.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FederationAnchorStatus {
+    /// Organization identifier.
+    pub org_id: String,
+    /// Human-readable name.
+    pub display_name: String,
+    /// Issuer glob pattern.
+    pub issuer_pattern: String,
+    /// Trust level.
+    pub trust_level: String,
+    /// JWKS URI if configured.
+    pub jwks_uri: Option<String>,
+    /// Whether JWKS keys are currently cached.
+    pub jwks_cached: bool,
+    /// ISO 8601 timestamp of last JWKS fetch.
+    pub jwks_last_fetched: Option<String>,
+    /// Number of identity mappings.
+    pub identity_mapping_count: usize,
+    /// Successful validation count.
+    pub successful_validations: u64,
+    /// Failed validation count.
+    pub failed_validations: u64,
+}
+
+/// Abbreviated anchor info for API listing (excludes JWKS keys).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FederationAnchorInfo {
+    /// Organization identifier.
+    pub org_id: String,
+    /// Human-readable name.
+    pub display_name: String,
+    /// Issuer glob pattern.
+    pub issuer_pattern: String,
+    /// Trust level.
+    pub trust_level: String,
+    /// Whether a JWKS URI is configured.
+    pub has_jwks_uri: bool,
+    /// Number of identity mappings.
+    pub identity_mapping_count: usize,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

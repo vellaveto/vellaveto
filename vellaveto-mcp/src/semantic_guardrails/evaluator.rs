@@ -492,6 +492,13 @@ impl<E: LlmEvaluator> SemanticGuardrailsEvaluator<E> {
 
     /// Sets the fallback behavior on error.
     pub fn with_fallback(mut self, fallback: FallbackBehavior) -> Self {
+        if fallback == FallbackBehavior::Allow {
+            tracing::error!(
+                "SECURITY WARNING: Semantic guardrails configured with fallback_on_error=allow. \
+                 Evaluation failures will result in Allow verdicts (fail-open). \
+                 This is dangerous in production."
+            );
+        }
         self.fallback_on_error = fallback;
         self
     }

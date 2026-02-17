@@ -10,6 +10,8 @@ import {
   BatchResponse,
   ValidateResponse,
   SimulateResponse,
+  FederationStatusResponse,
+  FederationTrustAnchorsResponse,
   ZkSchedulerStatus,
   ZkProofsResponse,
   ZkVerifyResult,
@@ -929,5 +931,103 @@ describe("ParameterRedactor", () => {
     // At depth > 10, all values should be redacted as placeholder
     // The exact behavior depends on depth counting, but it should not crash
     expect(result).toBeDefined();
+  });
+});
+
+// ── Federation (Phase 39) ──────────────────────────────────
+
+describe("Federation (Phase 39)", () => {
+  let client: VellavetoClient;
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    client = new VellavetoClient({
+      baseUrl: "http://localhost:3000",
+      apiKey: "test-key",
+      timeout: 1000,
+    });
+  });
+
+  test("federationStatus returns status", async () => {
+    const mockStatus: FederationStatusResponse = {
+      enabled: true,
+      trust_anchor_count: 1,
+      anchors: [
+        {
+          org_id: "partner-org",
+          display_name: "Partner",
+          trust_level: "limited",
+          successful_validations: 42,
+          failed_validations: 3,
+        },
+      ],
+    };
+    mockFetch.mockResolvedValueOnce(jsonResponse(mockStatus));
+    const result = await client.federationStatus();
+    expect(result.enabled).toBe(true);
+    expect(result.trust_anchor_count).toBe(1);
+    expect(result.anchors).toHaveLength(1);
+    expect(result.anchors[0].org_id).toBe("partner-org");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:3000/api/federation/status",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  test("federationStatus disabled", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ enabled: false, trust_anchor_count: 0, anchors: [] })
+    );
+    const result = await client.federationStatus();
+    expect(result.enabled).toBe(false);
+    expect(result.trust_anchor_count).toBe(0);
+  });
+
+  test("federationTrustAnchors returns all anchors", async () => {
+    const mockAnchors: FederationTrustAnchorsResponse = {
+      anchors: [
+        { org_id: "org-1", display_name: "Org 1", trust_level: "full" },
+        { org_id: "org-2", display_name: "Org 2", trust_level: "limited" },
+      ],
+      total: 2,
+    };
+    mockFetch.mockResolvedValueOnce(jsonResponse(mockAnchors));
+    const result = await client.federationTrustAnchors();
+    expect(result.total).toBe(2);
+    expect(result.anchors).toHaveLength(2);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:3000/api/federation/trust-anchors",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  test("federationTrustAnchors with org_id filter", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ anchors: [{ org_id: "org-1" }], total: 1 })
+    );
+    const result = await client.federationTrustAnchors("org-1");
+    expect(result.total).toBe(1);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:3000/api/federation/trust-anchors?org_id=org-1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  test("federationTrustAnchors rejects org_id > 128 chars", async () => {
+    await expect(
+      client.federationTrustAnchors("x".repeat(129))
+    ).rejects.toThrow("org_id exceeds max length");
+  });
+
+  test("federationTrustAnchors rejects org_id with control chars", async () => {
+    await expect(
+      client.federationTrustAnchors("org\x00id")
+    ).rejects.toThrow("org_id contains control characters");
+  });
+
+  test("federationTrustAnchors rejects org_id with newline", async () => {
+    await expect(
+      client.federationTrustAnchors("org\nid")
+    ).rejects.toThrow("org_id contains control characters");
   });
 });

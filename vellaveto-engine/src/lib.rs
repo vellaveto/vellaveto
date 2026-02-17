@@ -205,6 +205,17 @@ impl PolicyEngine {
                 _ => always_check.push(i),
             }
         }
+        // SECURITY (FIND-R49-003): Assert sorted invariant in debug builds.
+        // The always_check list must be sorted by index for deterministic evaluation order.
+        // Tool index values must also be sorted per-key for the same reason.
+        debug_assert!(
+            always_check.windows(2).all(|w| w[0] < w[1]),
+            "always_check must be sorted"
+        );
+        debug_assert!(
+            index.values().all(|v| v.windows(2).all(|w| w[0] < w[1])),
+            "tool_index values must be sorted"
+        );
         (index, always_check)
     }
 

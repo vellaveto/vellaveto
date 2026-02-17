@@ -118,6 +118,7 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     (state, tmp)
 }

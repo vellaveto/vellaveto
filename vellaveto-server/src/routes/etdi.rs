@@ -76,6 +76,7 @@ pub async fn get_tool_signature(
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VerifySignatureRequest {
     pub schema: serde_json::Value,
 }
@@ -224,6 +225,7 @@ pub async fn get_version_pin(
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreatePinRequest {
     pub version: Option<String>,
     pub constraint: Option<String>,

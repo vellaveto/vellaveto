@@ -95,6 +95,7 @@ pub async fn list_delegations(
 
 /// Request body for registering a delegation.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegisterDelegationRequest {
     pub session_id: String,
     pub from_principal: String,

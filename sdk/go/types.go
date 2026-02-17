@@ -367,6 +367,37 @@ type ZkCommitmentsResponse struct {
 	Range       [2]uint64           `json:"range"`
 }
 
+// ── Phase 39: Federation Types ───────────────────────────────────────────────
+
+// FederationStatusResponse is the response from GET /api/federation/status.
+type FederationStatusResponse struct {
+	Enabled          bool                     `json:"enabled"`
+	TrustAnchorCount int                      `json:"trust_anchor_count"`
+	Anchors          []FederationAnchorStatus `json:"anchors"`
+}
+
+// FederationAnchorStatus represents the status of a single federation trust anchor.
+type FederationAnchorStatus struct {
+	OrgID                   string `json:"org_id"`
+	DisplayName             string `json:"display_name"`
+	TrustLevel              string `json:"trust_level"`
+	SuccessfulValidations   int    `json:"successful_validations"`
+	FailedValidations       int    `json:"failed_validations"`
+}
+
+// FederationTrustAnchorsResponse is the response from GET /api/federation/trust-anchors.
+type FederationTrustAnchorsResponse struct {
+	Anchors []FederationTrustAnchor `json:"anchors"`
+	Total   int                     `json:"total"`
+}
+
+// FederationTrustAnchor represents a federation trust anchor.
+type FederationTrustAnchor struct {
+	OrgID       string `json:"org_id"`
+	DisplayName string `json:"display_name"`
+	TrustLevel  string `json:"trust_level"`
+}
+
 // ── Phase 38: SOC 2 Type II Access Review Types ─────────────────────────────
 
 // ReviewerAttestation represents a reviewer's attestation on an access review report.

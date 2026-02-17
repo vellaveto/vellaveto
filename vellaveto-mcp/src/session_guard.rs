@@ -363,8 +363,10 @@ impl SessionGuard {
             // Any other event in Init transitions to Active first
             (SessionState::Init, _) => {
                 ctx.state = SessionState::Active;
-                ctx.transition_history
-                    .push((SessionState::Init, SessionState::Active, now));
+                if ctx.transition_history.len() < MAX_TRANSITION_HISTORY {
+                    ctx.transition_history
+                        .push((SessionState::Init, SessionState::Active, now));
+                }
                 self.compute_transition(ctx, event, now)
             }
 

@@ -82,6 +82,7 @@ pub async fn projector_models(
 
 /// Request body for `POST /api/projector/transform`.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectorTransformRequest {
     /// The canonical tool schema to project.
     pub schema: CanonicalToolSchema,

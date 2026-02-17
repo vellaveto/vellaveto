@@ -51,6 +51,7 @@ pub async fn get_auth_level(
 
 /// Request body for upgrading auth level.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpgradeAuthRequest {
     pub level: String,
     #[serde(default)]

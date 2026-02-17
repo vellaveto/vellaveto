@@ -30,6 +30,7 @@ pub struct TenantResponse {
 
 /// Request type for creating/updating a tenant.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TenantRequest {
     pub id: String,
     pub name: String,

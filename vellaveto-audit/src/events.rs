@@ -526,6 +526,34 @@ impl AuditLogger {
     // Tool Discovery Event Logging Helpers (Phase 34)
     // =========================================================================
 
+    // =========================================================================
+    // Federation Event Logging Helpers (Phase 39)
+    // =========================================================================
+
+    /// Log a federation identity event.
+    ///
+    /// Records federation-related events including identity validation,
+    /// JWKS cache operations, and validation failures.
+    ///
+    /// Event types:
+    /// - `identity_validated` — successful federated identity resolution
+    /// - `validation_failed` — JWT validation failed for matched anchor
+    /// - `jwks_refreshed` — JWKS cache refreshed for an anchor
+    /// - `jwks_fetch_failed` — JWKS endpoint unreachable
+    pub async fn log_federation_event(
+        &self,
+        event_type: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("vellaveto", "federation", serde_json::json!({}));
+        let verdict = Verdict::Allow;
+        let mut metadata = serde_json::json!({
+            "event": format!("federation.{}", event_type),
+        });
+        merge_details_safe(&mut metadata, details);
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
     /// Log a tool discovery query event.
     ///
     /// Records when an agent performs a discovery search, including the query,

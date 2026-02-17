@@ -73,6 +73,7 @@ pub async fn list_shadow_agents(
 
 /// Request body for registering an agent.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegisterAgentRequest {
     pub agent_id: String,
     pub fingerprint: vellaveto_types::AgentFingerprint,
@@ -150,6 +151,7 @@ pub async fn remove_shadow_agent(
 
 /// Request body for updating agent trust level.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateTrustRequest {
     pub trust_level: u8,
 }

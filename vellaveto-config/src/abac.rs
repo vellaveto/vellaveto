@@ -90,7 +90,7 @@ impl Default for LeastAgencyConfig {
 }
 
 /// Identity federation configuration for cross-org identity mapping.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FederationConfig {
     /// When false (default), federation is disabled.
     #[serde(default)]
@@ -98,6 +98,31 @@ pub struct FederationConfig {
     /// Trust anchors for federated identity providers.
     #[serde(default)]
     pub trust_anchors: Vec<FederationTrustAnchor>,
+    /// JWKS cache TTL in seconds. Default: 300 (5 min).
+    #[serde(default = "default_jwks_cache_ttl_secs")]
+    pub jwks_cache_ttl_secs: u64,
+    /// JWKS HTTP fetch timeout in seconds. Default: 10.
+    #[serde(default = "default_jwks_fetch_timeout_secs")]
+    pub jwks_fetch_timeout_secs: u64,
+}
+
+fn default_jwks_cache_ttl_secs() -> u64 {
+    300
+}
+
+fn default_jwks_fetch_timeout_secs() -> u64 {
+    10
+}
+
+impl Default for FederationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            trust_anchors: Vec::new(),
+            jwks_cache_ttl_secs: default_jwks_cache_ttl_secs(),
+            jwks_fetch_timeout_secs: default_jwks_fetch_timeout_secs(),
+        }
+    }
 }
 
 /// Continuous authorization configuration.
@@ -277,6 +302,37 @@ impl AbacConfig {
                     return Err(format!(
                         "abac.federation.trust_anchors[{}].issuer_pattern must not be empty",
                         i
+                    ));
+                }
+            }
+
+            // Validate JWKS cache TTL bounds
+            if self.federation.jwks_cache_ttl_secs < 10
+                || self.federation.jwks_cache_ttl_secs > 86400
+            {
+                return Err(format!(
+                    "abac.federation.jwks_cache_ttl_secs must be in [10, 86400], got {}",
+                    self.federation.jwks_cache_ttl_secs
+                ));
+            }
+
+            // Validate JWKS fetch timeout bounds
+            if self.federation.jwks_fetch_timeout_secs < 1
+                || self.federation.jwks_fetch_timeout_secs > 60
+            {
+                return Err(format!(
+                    "abac.federation.jwks_fetch_timeout_secs must be in [1, 60], got {}",
+                    self.federation.jwks_fetch_timeout_secs
+                ));
+            }
+
+            // Validate no duplicate org_id values
+            let mut seen_org_ids = std::collections::HashSet::new();
+            for anchor in &self.federation.trust_anchors {
+                if !seen_org_ids.insert(&anchor.org_id) {
+                    return Err(format!(
+                        "abac.federation.trust_anchors has duplicate org_id '{}'",
+                        anchor.org_id
                     ));
                 }
             }

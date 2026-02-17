@@ -3,6 +3,7 @@
 //! Re-exports proxy, session, and OAuth modules for use by both the binary
 //! and integration tests.
 
+pub mod federation;
 pub mod oauth;
 pub mod proxy;
 pub mod session;

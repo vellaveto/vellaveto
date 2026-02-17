@@ -327,6 +327,13 @@ pub(super) fn validate_api_key(state: &ProxyState, headers: &HeaderMap) -> Resul
 /// the agent's identity. When present, it is validated using the same OAuth
 /// infrastructure (JWKS, algorithm checks) to ensure signature integrity.
 ///
+/// **Phase 39 — Federation:** When a federation resolver is configured, the
+/// token is first checked against federation trust anchors. If the issuer
+/// matches a federated anchor, the token is validated via that anchor's JWKS.
+/// If no anchor matches, validation falls through to the local OAuth path.
+/// If a federation anchor matches but validation fails, the request is
+/// rejected (fail-closed).
+///
 /// Returns `Ok(Some(identity))` if the header is present and valid.
 /// Returns `Ok(None)` if the header is not present (backwards compatible).
 /// Returns `Err(response)` if the header is present but invalid/expired.
@@ -343,6 +350,45 @@ pub(super) async fn validate_agent_identity(
         Some(token) if !token.is_empty() => token,
         _ => return Ok(None), // No header = no attestation (backwards compatible)
     };
+
+    // Phase 39: Try federation resolver first if configured.
+    // Federation takes priority — if an anchor matches, we use its result.
+    // If no anchor matches (Ok(None)), we fall through to local OAuth.
+    // If an anchor matches but validation fails (Err), we fail-closed.
+    if let Some(ref federation) = state.federation {
+        match federation.validate_federated_token(identity_token).await {
+            Ok(Some(federated)) => {
+                tracing::debug!(
+                    org_id = %federated.org_id,
+                    trust_level = %federated.trust_level,
+                    subject = ?federated.identity.subject,
+                    "Federated agent identity validated"
+                );
+                return Ok(Some(federated.identity));
+            }
+            Ok(None) => {
+                // No matching anchor — fall through to local OAuth
+                tracing::trace!("No federation anchor matched, falling through to OAuth");
+            }
+            Err(e) => {
+                // SECURITY: Fail-closed — a matched anchor that fails validation
+                // must reject the request. Log details server-side only.
+                tracing::warn!("Federation identity validation failed: {}", e);
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "jsonrpc": "2.0",
+                        "error": {
+                            "code": -32001,
+                            "message": "Invalid agent identity token"
+                        },
+                        "id": null
+                    })),
+                )
+                    .into_response());
+            }
+        }
+    }
 
     // Reuse the OAuth validator if configured (same JWKS, same algorithms)
     let validator = match &state.oauth {

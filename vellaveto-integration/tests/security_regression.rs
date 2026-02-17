@@ -414,6 +414,7 @@ mod server_auth {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
         };
         (state, tmp)
     }
@@ -573,6 +574,7 @@ mod server_auth {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
         };
         let app = routes::build_router(state);
 
@@ -1199,6 +1201,7 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
 
     let app = routes::build_router(state);
@@ -1324,6 +1327,7 @@ async fn finding_12_approval_creation_failure_denies_request() {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
 
     let app = routes::build_router(state);
@@ -1792,6 +1796,7 @@ async fn find_r46_it003_malformed_json_request_body_rejected() {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
 
     // Test 1: Completely invalid JSON

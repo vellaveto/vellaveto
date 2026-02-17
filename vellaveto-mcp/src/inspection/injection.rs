@@ -225,6 +225,9 @@ impl InjectionScanner {
         }
 
         if patterns.is_empty() {
+            tracing::warn!(
+                "InjectionScanner: all patterns disabled by configuration — scanner will use defaults"
+            );
             return None;
         }
 

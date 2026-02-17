@@ -536,6 +536,92 @@ pub struct PolicySnapshot {
     pub compliance_config: vellaveto_config::compliance::ComplianceConfig,
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Phase 39: Agent Identity Federation — resolver type
+// ═══════════════════════════════════════════════════════════════════
+
+/// Federation identity resolver for cross-organization JWKS validation
+/// and identity mapping via `FederationTrustAnchor` (Phase 39).
+///
+/// Currently a placeholder — runtime JWKS resolution will be implemented
+/// in subsequent Phase 39 tasks.
+#[derive(Debug, Clone)]
+pub struct FederationResolver {
+    config: vellaveto_config::abac::FederationConfig,
+}
+
+impl FederationResolver {
+    /// Create a new federation resolver from config.
+    pub fn new(config: vellaveto_config::abac::FederationConfig) -> Self {
+        Self { config }
+    }
+
+    /// Return the federation config.
+    pub fn config(&self) -> &vellaveto_config::abac::FederationConfig {
+        &self.config
+    }
+
+    /// Status summary for dashboard/API.
+    pub fn status(&self) -> FederationStatus {
+        FederationStatus {
+            enabled: self.config.enabled,
+            trust_anchor_count: self.config.trust_anchors.len(),
+            anchors: self
+                .config
+                .trust_anchors
+                .iter()
+                .map(|a| FederationAnchorStatus {
+                    org_id: a.org_id.clone(),
+                    display_name: a.display_name.clone(),
+                    issuer_pattern: a.issuer_pattern.clone(),
+                    trust_level: a.trust_level.clone(),
+                    has_jwks_uri: a.jwks_uri.is_some(),
+                    identity_mapping_count: a.identity_mappings.len(),
+                    successful_validations: 0,
+                    failed_validations: 0,
+                })
+                .collect(),
+        }
+    }
+
+    /// Return the list of anchor status entries.
+    pub fn anchor_info(&self) -> Vec<FederationAnchorStatus> {
+        self.status().anchors
+    }
+}
+
+/// Summary of federation runtime status.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FederationStatus {
+    /// Whether federation is enabled.
+    pub enabled: bool,
+    /// Number of configured trust anchors.
+    pub trust_anchor_count: usize,
+    /// Per-anchor status.
+    pub anchors: Vec<FederationAnchorStatus>,
+}
+
+/// Per-anchor runtime status.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FederationAnchorStatus {
+    /// Organization identifier.
+    pub org_id: String,
+    /// Human-readable display name.
+    pub display_name: String,
+    /// Glob pattern for trusted JWT issuers.
+    pub issuer_pattern: String,
+    /// Trust level (full, limited, read_only).
+    pub trust_level: String,
+    /// Whether a JWKS URI is configured.
+    pub has_jwks_uri: bool,
+    /// Number of identity mappings configured.
+    pub identity_mapping_count: usize,
+    /// Successful JWKS validations (lifetime counter).
+    pub successful_validations: u64,
+    /// Failed JWKS validations (lifetime counter).
+    pub failed_validations: u64,
+}
+
 /// Shared application state for axum handlers.
 #[derive(Clone)]
 pub struct AppState {
@@ -744,6 +830,13 @@ pub struct AppState {
 
     /// ZK audit configuration for status reporting.
     pub zk_audit_config: vellaveto_config::ZkAuditConfig,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 39: Agent Identity Federation
+    // ═══════════════════════════════════════════════════════════════════
+    /// Federation identity resolver for cross-org JWKS validation and
+    /// identity mapping. None when federation is disabled.
+    pub federation_resolver: Option<Arc<FederationResolver>>,
 }
 
 /// Error type for cluster-dispatched approval operations.

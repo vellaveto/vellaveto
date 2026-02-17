@@ -1007,6 +1007,12 @@ impl PolicyEngine {
             // ═══════════════════════════════════════════════════
             "async_task_policy" => {
                 // MCP 2025-11-25: Async task lifecycle policy
+                // SECURITY (FIND-R49-005): Warn that this condition is a no-op at the engine level.
+                tracing::warn!(
+                    policy_id = %policy.id,
+                    "Policy condition 'async_task_policy' is not enforced at the engine level; \
+                     it requires the MCP proxy layer for enforcement"
+                );
                 // SECURITY (FIND-P3-015): Return a compilation error if max_concurrent
                 // overflows usize, instead of silently clamping to usize::MAX.
                 let max_concurrent_raw = obj
@@ -1155,6 +1161,12 @@ impl PolicyEngine {
             // ═══════════════════════════════════════════════════
             "circuit_breaker" => {
                 // OWASP ASI08: Cascading failure protection
+                // SECURITY (FIND-R49-005): Warn that this condition is a no-op at the engine level.
+                tracing::warn!(
+                    policy_id = %policy.id,
+                    "Policy condition 'circuit_breaker' is not enforced at the engine level; \
+                     it requires the MCP proxy layer for enforcement"
+                );
                 let tool_pattern = obj
                     .get("tool_pattern")
                     .and_then(|v| v.as_str())
@@ -1209,6 +1221,12 @@ impl PolicyEngine {
 
             "shadow_agent_check" => {
                 // Shadow agent detection
+                // SECURITY (FIND-R49-005): Warn that this condition is a no-op at the engine level.
+                tracing::warn!(
+                    policy_id = %policy.id,
+                    "Policy condition 'shadow_agent_check' is not enforced at the engine level; \
+                     it requires the MCP proxy layer for enforcement"
+                );
                 let require_known_fingerprint = obj
                     .get("require_known_fingerprint")
                     .and_then(|v| v.as_bool())
@@ -1244,6 +1262,12 @@ impl PolicyEngine {
 
             "schema_poisoning_check" => {
                 // OWASP ASI05: Schema poisoning protection
+                // SECURITY (FIND-R49-005): Warn that this condition is a no-op at the engine level.
+                tracing::warn!(
+                    policy_id = %policy.id,
+                    "Policy condition 'schema_poisoning_check' is not enforced at the engine level; \
+                     it requires the MCP proxy layer for enforcement"
+                );
                 let mutation_threshold = obj
                     .get("mutation_threshold")
                     .and_then(|v| v.as_f64())

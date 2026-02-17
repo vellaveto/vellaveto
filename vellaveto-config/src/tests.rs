@@ -4985,3 +4985,65 @@ fn test_projector_config_policy_config_validate_rejects_invalid() {
     let err = config.validate().unwrap_err();
     assert!(err.contains("projector"), "got: {}", err);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FEDERATION CONFIG TESTS (Phase 39)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_federation_config_default_ttl_values() {
+    let config = crate::abac::FederationConfig::default();
+    assert_eq!(config.jwks_cache_ttl_secs, 300);
+    assert_eq!(config.jwks_fetch_timeout_secs, 10);
+    assert!(!config.enabled);
+    assert!(config.trust_anchors.is_empty());
+}
+
+#[test]
+fn test_federation_config_validation_ttl_too_low() {
+    let mut config = AbacConfig::default();
+    config.enabled = true;
+    config.federation.enabled = true;
+    config.federation.jwks_cache_ttl_secs = 5; // below min 10
+    let result = config.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("jwks_cache_ttl_secs"));
+}
+
+#[test]
+fn test_federation_config_validation_duplicate_org_id() {
+    let mut config = AbacConfig::default();
+    config.enabled = true;
+    config.federation.enabled = true;
+    let anchor = vellaveto_types::FederationTrustAnchor {
+        org_id: "org-1".to_string(),
+        display_name: "Org 1".to_string(),
+        jwks_uri: Some("https://keys.example.com/jwks".to_string()),
+        issuer_pattern: "https://auth.example.com".to_string(),
+        identity_mappings: vec![],
+        trust_level: "limited".to_string(),
+    };
+    config.federation.trust_anchors = vec![anchor.clone(), anchor];
+    let result = config.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("duplicate"));
+}
+
+#[test]
+fn test_federation_config_validation_valid() {
+    let mut config = AbacConfig::default();
+    config.enabled = true;
+    config.federation.enabled = true;
+    config.federation.jwks_cache_ttl_secs = 600;
+    config.federation.jwks_fetch_timeout_secs = 15;
+    config.federation.trust_anchors = vec![vellaveto_types::FederationTrustAnchor {
+        org_id: "org-1".to_string(),
+        display_name: "Partner Org".to_string(),
+        jwks_uri: Some("https://keys.example.com/jwks".to_string()),
+        issuer_pattern: "https://auth.example.com".to_string(),
+        identity_mappings: vec![],
+        trust_level: "limited".to_string(),
+    }];
+    // Should pass validation (valid TTLs, no duplicate org_ids)
+    assert!(config.validate().is_ok());
+}

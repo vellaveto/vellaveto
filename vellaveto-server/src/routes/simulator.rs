@@ -43,6 +43,7 @@ const MAX_BATCH_ACTIONS_WITH_INLINE_CONFIG: usize = 25;
 
 /// Request body for `POST /api/simulator/evaluate`.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SimulateRequest {
     pub action: Action,
     #[serde(default)]
@@ -63,6 +64,7 @@ pub struct SimulateResponse {
 
 /// Request body for `POST /api/simulator/batch`.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BatchRequest {
     pub actions: Vec<Action>,
     #[serde(default)]
@@ -99,6 +101,7 @@ pub struct BatchSummary {
 
 /// Request body for `POST /api/simulator/validate`.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ValidateRequest {
     pub config: String,
     #[serde(default)]
@@ -116,6 +119,7 @@ pub struct ValidateResponse {
 
 /// Request body for `POST /api/simulator/diff`.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DiffRequest {
     pub before: String,
     pub after: String,

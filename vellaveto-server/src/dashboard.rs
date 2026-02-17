@@ -15,6 +15,9 @@ use crate::AppState;
 /// Prevents excessive rendering time and response size when the audit log is large.
 const MAX_DASHBOARD_AUDIT_ENTRIES: usize = 1_000;
 
+/// Maximum number of entries that can be loaded before returning an error.
+const MAX_LOADED_ENTRIES: usize = 500_000;
+
 // ═══════════════════════════════════════════════════
 // HTML ESCAPING (XSS prevention)
 // ═══════════════════════════════════════════════════
@@ -209,6 +212,13 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
     // ── Recent audit log ──────────────────────────
     let _ = write!(html, r#"<h2>Recent Audit Log</h2>"#);
     match state.audit.load_entries().await {
+        Ok(entries) if entries.len() > MAX_LOADED_ENTRIES => {
+            let _ = write!(
+                html,
+                r#"<p class="muted">Audit log exceeds capacity limit ({}). Rotate or archive the audit log.</p>"#,
+                entries.len()
+            );
+        }
         Ok(entries) => {
             let capped = entries.len() > MAX_DASHBOARD_AUDIT_ENTRIES;
             let display_entries = if capped {
@@ -356,6 +366,9 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
 
     // ── Governance section (Phase 26) ──────────────
     render_governance_section(&mut html, &state);
+
+    // ── Federation section (Phase 39) ──────────────
+    render_federation_section(&mut html, &state);
 
     // ── Compliance status ────────────────────────────
     render_compliance_section(&mut html, &snap);
@@ -705,6 +718,77 @@ fn render_governance_section(html: &mut String, state: &AppState) {
                 );
             }
             let _ = write!(html, "</table>");
+        }
+    }
+}
+
+/// Render federation status section (Phase 39).
+fn render_federation_section(html: &mut String, state: &AppState) {
+    match state.federation_resolver.as_ref() {
+        Some(resolver) => {
+            let status = resolver.status();
+            let anchor_count = status.trust_anchor_count;
+            let enabled_cls = "green";
+
+            let _ = write!(
+                html,
+                r#"<h2>Federation — Agent Identity</h2>
+<div class="grid">
+  <div class="card"><div class="label">Federation</div><div class="value {enabled_cls}">Enabled</div></div>
+  <div class="card"><div class="label">Trust Anchors</div><div class="value">{anchor_count}</div></div>
+</div>
+"#
+            );
+
+            if !status.anchors.is_empty() {
+                let _ = write!(
+                    html,
+                    r#"<table>
+<tr><th>Org ID</th><th>Display Name</th><th>Trust Level</th><th>JWKS</th><th>Mappings</th><th>OK</th><th>Fail</th></tr>
+"#
+                );
+                for anchor in &status.anchors {
+                    let org = html_escape(&truncate(&anchor.org_id, 30));
+                    let name = html_escape(&truncate(&anchor.display_name, 30));
+                    let level = html_escape(&anchor.trust_level);
+                    let level_cls = match anchor.trust_level.as_str() {
+                        "full" => "green",
+                        "limited" => "yellow",
+                        "read_only" => "muted",
+                        _ => "red",
+                    };
+                    let jwks = if anchor.has_jwks_uri { "Yes" } else { "No" };
+                    let mappings = anchor.identity_mapping_count;
+                    let ok = anchor.successful_validations;
+                    let fail = anchor.failed_validations;
+                    let fail_cls = if fail > 0 { "red" } else { "green" };
+
+                    let _ = write!(
+                        html,
+                        r#"<tr>
+  <td>{org}</td>
+  <td>{name}</td>
+  <td class="{level_cls}">{level}</td>
+  <td>{jwks}</td>
+  <td>{mappings}</td>
+  <td class="green">{ok}</td>
+  <td class="{fail_cls}">{fail}</td>
+</tr>
+"#
+                    );
+                }
+                let _ = write!(html, "</table>");
+            }
+        }
+        None => {
+            let _ = write!(
+                html,
+                r#"<h2>Federation — Agent Identity</h2>
+<div class="grid">
+  <div class="card"><div class="label">Federation</div><div class="value muted">Disabled</div></div>
+</div>
+"#
+            );
         }
     }
 }

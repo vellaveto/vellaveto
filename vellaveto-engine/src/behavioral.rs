@@ -497,14 +497,30 @@ impl BehavioralTracker {
         // Their effective count is 0 → EMA trends toward zero.
         // Note: we intentionally do NOT update `last_active` here so that
         // passively decaying tools are evicted before actively used ones.
+        // SECURITY (FIND-R49-002): Evict stale near-zero EMA tools after prolonged decay.
+        // Without this, tools that are never called again accumulate indefinitely in memory,
+        // with EMA asymptotically approaching zero but never being cleaned up.
+        const MAX_DECAY_SESSIONS: u32 = 200;
+        let mut evict_keys: Vec<String> = Vec::new();
+
         let existing_tools: Vec<String> = agent.tools.keys().cloned().collect();
         for tool_name in &existing_tools {
             if !called_tools.contains(tool_name) {
                 if let Some(baseline) = agent.tools.get_mut(tool_name) {
                     baseline.ema *= 1.0 - self.config.alpha;
                     baseline.session_count = baseline.session_count.saturating_add(1);
+
+                    // Track tools to evict (stale near-zero EMA after prolonged decay)
+                    if baseline.session_count > MAX_DECAY_SESSIONS && baseline.ema < 0.01 {
+                        evict_keys.push(tool_name.clone());
+                    }
                 }
             }
+        }
+
+        // Remove stale entries outside the borrow of agent.tools
+        for key in &evict_keys {
+            agent.tools.remove(key);
         }
     }
 

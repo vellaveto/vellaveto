@@ -574,6 +574,30 @@ async fn main() -> Result<()> {
         );
     }
 
+    // Phase 39: Federation resolver
+    let federation = if policy_config.abac.federation.enabled
+        && !policy_config.abac.federation.trust_anchors.is_empty()
+    {
+        match vellaveto_http_proxy::federation::FederationResolver::new(
+            &policy_config.abac.federation,
+            http_client.clone(),
+        ) {
+            Ok(resolver) => {
+                tracing::info!(
+                    anchors = policy_config.abac.federation.trust_anchors.len(),
+                    "Federation resolver initialized"
+                );
+                Some(std::sync::Arc::new(resolver))
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to initialize federation resolver");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Build shared state
     let state = ProxyState {
         engine: Arc::new(engine),
@@ -714,6 +738,7 @@ async fn main() -> Result<()> {
             None
         },
         streamable_http: policy_config.streamable_http.clone(),
+        federation,
         #[cfg(feature = "discovery")]
         discovery_engine: if policy_config.discovery.enabled {
             Some(std::sync::Arc::new(

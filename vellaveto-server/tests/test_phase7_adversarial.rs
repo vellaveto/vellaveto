@@ -93,6 +93,7 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     }
 }
 
@@ -349,6 +350,7 @@ async fn regression_38_prometheus_metrics_rate_limited() {
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
 
     // First request should succeed

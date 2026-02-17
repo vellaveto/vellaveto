@@ -3961,3 +3961,142 @@ fn test_p1_6_parse_timestamp_rejects_hour_25() {
     let decayed = entry.decayed_trust_score(0.01, "2026-02-01T00:00:00Z");
     assert_eq!(decayed, 0.0, "Hour=25 must fail-closed with 0.0 trust");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FEDERATION TYPES TESTS (Phase 39)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_federation_trust_anchor_validate_empty_org_id_fails() {
+    let anchor = FederationTrustAnchor {
+        org_id: String::new(),
+        display_name: "Test".to_string(),
+        jwks_uri: None,
+        issuer_pattern: "https://auth.example.com".to_string(),
+        identity_mappings: vec![],
+        trust_level: "limited".to_string(),
+    };
+    assert!(anchor.validate().is_err());
+    assert!(anchor.validate().unwrap_err().contains("org_id"));
+}
+
+#[test]
+fn test_federation_trust_anchor_validate_empty_issuer_fails() {
+    let anchor = FederationTrustAnchor {
+        org_id: "org-1".to_string(),
+        display_name: "Test".to_string(),
+        jwks_uri: None,
+        issuer_pattern: String::new(),
+        identity_mappings: vec![],
+        trust_level: "limited".to_string(),
+    };
+    assert!(anchor.validate().is_err());
+    assert!(anchor.validate().unwrap_err().contains("issuer_pattern"));
+}
+
+#[test]
+fn test_federation_trust_anchor_validate_jwks_uri_non_http_fails() {
+    let anchor = FederationTrustAnchor {
+        org_id: "org-1".to_string(),
+        display_name: "Test".to_string(),
+        jwks_uri: Some("ftp://keys.example.com/.well-known/jwks.json".to_string()),
+        issuer_pattern: "https://auth.example.com".to_string(),
+        identity_mappings: vec![],
+        trust_level: "limited".to_string(),
+    };
+    assert!(anchor.validate().is_err());
+    assert!(anchor.validate().unwrap_err().contains("http"));
+}
+
+#[test]
+fn test_federation_trust_anchor_validate_invalid_trust_level_fails() {
+    let anchor = FederationTrustAnchor {
+        org_id: "org-1".to_string(),
+        display_name: "Test".to_string(),
+        jwks_uri: None,
+        issuer_pattern: "https://auth.example.com".to_string(),
+        identity_mappings: vec![],
+        trust_level: "admin".to_string(),
+    };
+    assert!(anchor.validate().is_err());
+    assert!(anchor.validate().unwrap_err().contains("trust_level"));
+}
+
+#[test]
+fn test_federation_trust_anchor_validate_valid_succeeds() {
+    let anchor = FederationTrustAnchor {
+        org_id: "org-1".to_string(),
+        display_name: "Partner Org".to_string(),
+        jwks_uri: Some("https://keys.example.com/.well-known/jwks.json".to_string()),
+        issuer_pattern: "https://auth.example.com/*".to_string(),
+        identity_mappings: vec![IdentityMapping {
+            external_claim: "sub".to_string(),
+            internal_principal_type: "agent".to_string(),
+            id_template: "org-1:{claim_value}".to_string(),
+        }],
+        trust_level: "limited".to_string(),
+    };
+    assert!(anchor.validate().is_ok());
+}
+
+#[test]
+fn test_identity_mapping_validate_empty_claim_fails() {
+    let mapping = IdentityMapping {
+        external_claim: String::new(),
+        internal_principal_type: "agent".to_string(),
+        id_template: "{claim_value}".to_string(),
+    };
+    assert!(mapping.validate().is_err());
+    assert!(mapping.validate().unwrap_err().contains("external_claim"));
+}
+
+#[test]
+fn test_identity_mapping_validate_template_missing_placeholder_fails() {
+    let mapping = IdentityMapping {
+        external_claim: "sub".to_string(),
+        internal_principal_type: "agent".to_string(),
+        id_template: "org-1:fixed-value".to_string(),
+    };
+    assert!(mapping.validate().is_err());
+    assert!(mapping.validate().unwrap_err().contains("claim_value"));
+}
+
+#[test]
+fn test_identity_mapping_validate_valid_succeeds() {
+    let mapping = IdentityMapping {
+        external_claim: "email".to_string(),
+        internal_principal_type: "user".to_string(),
+        id_template: "partner:{claim_value}".to_string(),
+    };
+    assert!(mapping.validate().is_ok());
+}
+
+#[test]
+fn test_federation_status_serde_roundtrip() {
+    let status = FederationStatus {
+        enabled: true,
+        trust_anchor_count: 1,
+        anchors: vec![FederationAnchorStatus {
+            org_id: "org-1".to_string(),
+            display_name: "Partner".to_string(),
+            issuer_pattern: "https://auth.example.com".to_string(),
+            trust_level: "limited".to_string(),
+            jwks_uri: Some("https://keys.example.com/jwks".to_string()),
+            jwks_cached: true,
+            jwks_last_fetched: Some("2026-01-01T00:00:00Z".to_string()),
+            identity_mapping_count: 2,
+            successful_validations: 42,
+            failed_validations: 3,
+        }],
+    };
+    let json = serde_json::to_string(&status).unwrap();
+    let deserialized: FederationStatus = serde_json::from_str(&json).unwrap();
+    assert_eq!(status, deserialized);
+}
+
+#[test]
+fn test_federation_trust_anchor_default_trust_level() {
+    let json = r#"{"org_id":"org-1","display_name":"Test","issuer_pattern":"https://ex.com","identity_mappings":[]}"#;
+    let anchor: FederationTrustAnchor = serde_json::from_str(json).unwrap();
+    assert_eq!(anchor.trust_level, "limited");
+}

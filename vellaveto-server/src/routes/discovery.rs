@@ -36,6 +36,7 @@ const MAX_SERVER_ID_LENGTH: usize = 256;
 
 /// Request body for `POST /api/discovery/search`.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DiscoverySearchRequest {
     /// Natural language description of the desired tool.
     pub query: String,

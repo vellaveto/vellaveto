@@ -548,3 +548,37 @@ func (c *Client) Soc2AccessReview(ctx context.Context, period, format, agentID s
 	}
 	return &resp, nil
 }
+
+// FederationStatus returns the federation resolver status.
+func (c *Client) FederationStatus(ctx context.Context) (*FederationStatusResponse, error) {
+	var resp FederationStatusResponse
+	if err := c.doJSON(ctx, http.MethodGet, "/api/federation/status", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// FederationTrustAnchors returns configured federation trust anchors.
+// orgID is optional; pass empty string to list all.
+// SECURITY: Validates orgID length (max 128) and rejects control characters.
+func (c *Client) FederationTrustAnchors(ctx context.Context, orgID string) (*FederationTrustAnchorsResponse, error) {
+	if len(orgID) > 128 {
+		return nil, &VellavetoError{Message: "org_id exceeds max length (128)"}
+	}
+	for _, c := range orgID {
+		if c < ' ' {
+			return nil, &VellavetoError{Message: "org_id contains control characters"}
+		}
+	}
+	path := "/api/federation/trust-anchors"
+	if orgID != "" {
+		q := url.Values{}
+		q.Set("org_id", orgID)
+		path += "?" + q.Encode()
+	}
+	var resp FederationTrustAnchorsResponse
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

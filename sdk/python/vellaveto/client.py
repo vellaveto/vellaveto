@@ -679,6 +679,41 @@ class VellavetoClient:
             params["agent_id"] = agent_id
         return self._request("GET", "/api/compliance/soc2/access-review", params=params)
 
+    # ── Federation (Phase 39) ─────────────────────────────────────
+
+    def federation_status(self) -> Dict[str, Any]:
+        """
+        Get federation status including per-anchor cache info.
+
+        Returns:
+            Dictionary with enabled, trust_anchor_count, and anchors list
+        """
+        return self._request("GET", "/api/federation/status")
+
+    def federation_trust_anchors(
+        self,
+        org_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        List federation trust anchors.
+
+        Args:
+            org_id: Optional filter by organization ID (max 128 chars)
+
+        Returns:
+            Dictionary with anchors list and total count
+        """
+        params: Dict[str, str] = {}
+        if org_id is not None:
+            if len(org_id) > 128:
+                raise VellavetoError("org_id exceeds max length (128)")
+            if any(c < ' ' for c in org_id):
+                raise VellavetoError("org_id contains control characters")
+            params["org_id"] = org_id
+        return self._request(
+            "GET", "/api/federation/trust-anchors", params=params if params else None
+        )
+
     def close(self):
         """Close the client and release resources."""
         if self._use_httpx and hasattr(self, "_client"):
@@ -973,4 +1008,26 @@ class AsyncVellavetoClient:
             params["agent_id"] = agent_id
         return await self._request(
             "GET", "/api/compliance/soc2/access-review", params=params
+        )
+
+    # ── Federation (Phase 39) ─────────────────────────────────────
+
+    async def federation_status(self) -> Dict[str, Any]:
+        """Get federation status including per-anchor cache info (async)."""
+        return await self._request("GET", "/api/federation/status")
+
+    async def federation_trust_anchors(
+        self,
+        org_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """List federation trust anchors (async)."""
+        params: Dict[str, str] = {}
+        if org_id is not None:
+            if len(org_id) > 128:
+                raise VellavetoError("org_id exceeds max length (128)")
+            if any(c < ' ' for c in org_id):
+                raise VellavetoError("org_id contains control characters")
+            params["org_id"] = org_id
+        return await self._request(
+            "GET", "/api/federation/trust-anchors", params=params if params else None
         )

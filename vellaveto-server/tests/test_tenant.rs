@@ -124,6 +124,7 @@ fn test_state_with_tenants(
         zk_proofs: None,
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
+        federation_resolver: None,
     };
     (state, tmp)
 }

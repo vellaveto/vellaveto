@@ -233,6 +233,14 @@ pub struct ProxyState {
     pub streamable_http: vellaveto_config::StreamableHttpConfig,
 
     // =========================================================================
+    // Phase 39: Agent Identity Federation
+    // =========================================================================
+    /// Federation resolver for cross-organization agent identity validation.
+    /// When `Some`, incoming JWTs are checked against federation trust anchors
+    /// before falling back to the local OAuth validator.
+    pub federation: Option<Arc<crate::federation::FederationResolver>>,
+
+    // =========================================================================
     // Phase 34: Tool Discovery Service
     // =========================================================================
     /// Tool discovery engine for intent-based tool search.

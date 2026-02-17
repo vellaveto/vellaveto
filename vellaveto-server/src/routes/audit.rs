@@ -28,6 +28,8 @@ use crate::AppState;
 const DEFAULT_AUDIT_PAGE_SIZE: usize = 100;
 /// Maximum number of audit entries per page.
 const MAX_AUDIT_PAGE_SIZE: usize = 1000;
+/// Maximum number of entries that can be loaded before returning an error.
+const MAX_LOADED_ENTRIES: usize = 500_000;
 
 /// Query parameters for paginated audit entry listing.
 #[derive(Deserialize)]
@@ -57,6 +59,16 @@ pub async fn audit_entries(
             }),
         )
     })?;
+
+    if entries.len() > MAX_LOADED_ENTRIES {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "Audit log exceeds capacity limit. Rotate or archive the audit log."
+                    .to_string(),
+            }),
+        ));
+    }
 
     let total = entries.len();
     let limit = params
@@ -137,6 +149,16 @@ pub async fn audit_export(
             }),
         )
     })?;
+
+    if entries.len() > MAX_LOADED_ENTRIES {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "Audit log exceeds capacity limit. Rotate or archive the audit log."
+                    .to_string(),
+            }),
+        ));
+    }
 
     // Filter by `since` timestamp if provided (lexicographic comparison on ISO 8601)
     let filtered: Vec<_> = if let Some(ref since) = query.since {

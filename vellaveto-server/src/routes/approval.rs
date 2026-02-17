@@ -97,6 +97,7 @@ pub fn derive_resolver_identity(headers: &HeaderMap, client_value: &str) -> Stri
 
 /// Request body for resolving an approval.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ResolveRequest {
     #[serde(default = "default_resolver")]
     pub resolved_by: String,

@@ -1606,3 +1606,218 @@ func TestReloadPolicies_HTTPError(t *testing.T) {
 		t.Fatal("expected error for 500 response")
 	}
 }
+
+// ── Phase 39: Federation Tests ──────────────────────────────────────────────
+
+func TestFederationStatus(t *testing.T) {
+	srv := testServer(t, "GET", "/api/federation/status", 200, FederationStatusResponse{
+		Enabled:          true,
+		TrustAnchorCount: 1,
+		Anchors: []FederationAnchorStatus{
+			{
+				OrgID:                 "partner-org",
+				DisplayName:           "Partner",
+				TrustLevel:            "limited",
+				SuccessfulValidations: 42,
+				FailedValidations:     3,
+			},
+		},
+	})
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	resp, err := c.FederationStatus(context.Background())
+	if err != nil {
+		t.Fatalf("FederationStatus() error: %v", err)
+	}
+	if !resp.Enabled {
+		t.Error("Enabled = false, want true")
+	}
+	if resp.TrustAnchorCount != 1 {
+		t.Errorf("TrustAnchorCount = %d, want 1", resp.TrustAnchorCount)
+	}
+	if len(resp.Anchors) != 1 {
+		t.Fatalf("len(Anchors) = %d, want 1", len(resp.Anchors))
+	}
+	if resp.Anchors[0].OrgID != "partner-org" {
+		t.Errorf("Anchors[0].OrgID = %q, want %q", resp.Anchors[0].OrgID, "partner-org")
+	}
+	if resp.Anchors[0].SuccessfulValidations != 42 {
+		t.Errorf("SuccessfulValidations = %d, want 42", resp.Anchors[0].SuccessfulValidations)
+	}
+}
+
+func TestFederationStatus_Disabled(t *testing.T) {
+	srv := testServer(t, "GET", "/api/federation/status", 200, FederationStatusResponse{
+		Enabled:          false,
+		TrustAnchorCount: 0,
+		Anchors:          []FederationAnchorStatus{},
+	})
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	resp, err := c.FederationStatus(context.Background())
+	if err != nil {
+		t.Fatalf("FederationStatus() error: %v", err)
+	}
+	if resp.Enabled {
+		t.Error("Enabled = true, want false")
+	}
+	if resp.TrustAnchorCount != 0 {
+		t.Errorf("TrustAnchorCount = %d, want 0", resp.TrustAnchorCount)
+	}
+}
+
+func TestFederationStatus_HTTPError(t *testing.T) {
+	srv := testServer(t, "GET", "/api/federation/status", 500, map[string]string{"error": "internal"})
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	_, err := c.FederationStatus(context.Background())
+	if err == nil {
+		t.Fatal("FederationStatus() should return error for 500")
+	}
+	sentErr, ok := err.(*VellavetoError)
+	if !ok {
+		t.Fatalf("error type = %T, want *VellavetoError", err)
+	}
+	if sentErr.StatusCode != 500 {
+		t.Errorf("StatusCode = %d, want 500", sentErr.StatusCode)
+	}
+}
+
+func TestFederationTrustAnchors_All(t *testing.T) {
+	srv := testServer(t, "GET", "/api/federation/trust-anchors", 200, FederationTrustAnchorsResponse{
+		Anchors: []FederationTrustAnchor{
+			{OrgID: "org-1", DisplayName: "Org 1", TrustLevel: "full"},
+			{OrgID: "org-2", DisplayName: "Org 2", TrustLevel: "limited"},
+		},
+		Total: 2,
+	})
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	resp, err := c.FederationTrustAnchors(context.Background(), "")
+	if err != nil {
+		t.Fatalf("FederationTrustAnchors() error: %v", err)
+	}
+	if resp.Total != 2 {
+		t.Errorf("Total = %d, want 2", resp.Total)
+	}
+	if len(resp.Anchors) != 2 {
+		t.Fatalf("len(Anchors) = %d, want 2", len(resp.Anchors))
+	}
+	if resp.Anchors[0].OrgID != "org-1" {
+		t.Errorf("Anchors[0].OrgID = %q, want %q", resp.Anchors[0].OrgID, "org-1")
+	}
+}
+
+func TestFederationTrustAnchors_WithFilter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/federation/trust-anchors" {
+			t.Errorf("path = %s, want /api/federation/trust-anchors", r.URL.Path)
+		}
+		if orgID := r.URL.Query().Get("org_id"); orgID != "partner" {
+			t.Errorf("org_id = %q, want %q", orgID, "partner")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(FederationTrustAnchorsResponse{
+			Anchors: []FederationTrustAnchor{
+				{OrgID: "partner", DisplayName: "Partner Org", TrustLevel: "limited"},
+			},
+			Total: 1,
+		})
+	}))
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	resp, err := c.FederationTrustAnchors(context.Background(), "partner")
+	if err != nil {
+		t.Fatalf("FederationTrustAnchors() error: %v", err)
+	}
+	if resp.Total != 1 {
+		t.Errorf("Total = %d, want 1", resp.Total)
+	}
+	if resp.Anchors[0].OrgID != "partner" {
+		t.Errorf("Anchors[0].OrgID = %q, want %q", resp.Anchors[0].OrgID, "partner")
+	}
+}
+
+func TestFederationTrustAnchors_OrgIDTooLong(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	longID := strings.Repeat("a", 129)
+	_, err := c.FederationTrustAnchors(context.Background(), longID)
+	if err == nil {
+		t.Fatal("expected error for org_id > 128 chars")
+	}
+	if !strings.Contains(err.Error(), "org_id exceeds max length") {
+		t.Errorf("error = %q, want 'org_id exceeds max length'", err.Error())
+	}
+}
+
+func TestFederationTrustAnchors_OrgIDControlChars(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	_, err := c.FederationTrustAnchors(context.Background(), "org\x00id")
+	if err == nil {
+		t.Fatal("expected error for org_id with control characters")
+	}
+	if !strings.Contains(err.Error(), "org_id contains control characters") {
+		t.Errorf("error = %q, want 'org_id contains control characters'", err.Error())
+	}
+}
+
+func TestFederationTrustAnchors_OrgIDNewline(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	_, err := c.FederationTrustAnchors(context.Background(), "org\nid")
+	if err == nil {
+		t.Fatal("expected error for org_id with newline")
+	}
+	if !strings.Contains(err.Error(), "org_id contains control characters") {
+		t.Errorf("error = %q, want 'org_id contains control characters'", err.Error())
+	}
+}
+
+func TestFederationTrustAnchors_Empty(t *testing.T) {
+	srv := testServer(t, "GET", "/api/federation/trust-anchors", 200, FederationTrustAnchorsResponse{
+		Anchors: []FederationTrustAnchor{},
+		Total:   0,
+	})
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	resp, err := c.FederationTrustAnchors(context.Background(), "")
+	if err != nil {
+		t.Fatalf("FederationTrustAnchors() error: %v", err)
+	}
+	if resp.Total != 0 {
+		t.Errorf("Total = %d, want 0", resp.Total)
+	}
+	if len(resp.Anchors) != 0 {
+		t.Errorf("len(Anchors) = %d, want 0", len(resp.Anchors))
+	}
+}
+
+func TestFederationTrustAnchors_QueryParamEncoding(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify the query parameter is properly URL-encoded
+		orgID := r.URL.Query().Get("org_id")
+		if orgID != "org&evil=1" {
+			t.Errorf("org_id = %q, want %q", orgID, "org&evil=1")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(FederationTrustAnchorsResponse{
+			Anchors: []FederationTrustAnchor{},
+			Total:   0,
+		})
+	}))
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	_, err := c.FederationTrustAnchors(context.Background(), "org&evil=1")
+	if err != nil {
+		t.Fatalf("FederationTrustAnchors() error: %v", err)
+	}
+}

@@ -494,6 +494,17 @@ pub fn build_router(state: AppState) -> Router {
             "/api/zk-audit/commitments",
             get(super::zk_audit::zk_audit_commitments),
         )
+        // ═══════════════════════════════════════════════════════════════════
+        // Phase 39: Agent Identity Federation
+        // ═══════════════════════════════════════════════════════════════════
+        .route(
+            "/api/federation/status",
+            get(super::federation::federation_status),
+        )
+        .route(
+            "/api/federation/trust-anchors",
+            get(super::federation::federation_trust_anchors),
+        )
         // SECURITY (R38-SRV-1): /metrics inside auth — exposes policy count
         // and pending approval count, which are security-sensitive (see R26-SRV-6).
         // SECURITY (R38-SRV-2): /metrics inside rate_limit — prevents scraper DoS.
