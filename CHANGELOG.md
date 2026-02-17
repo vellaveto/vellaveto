@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+#### Round 48 Adversarial Audit (2 P1, 10 P2, 4 P3)
+
+- **FIND-R48-001 (P1):** WebSocket canonicalization fail-closed — 6 message type handlers (SamplingRequest, TaskRequest, ExtensionMethod, Elicitation, PassThrough, upstream response) now return errors instead of falling back to original bytes when re-serialization fails, closing TOCTOU gap
+- **FIND-R48-001 (P2):** `Action::validate()` fail-closed on `serde_json::to_string()` failure — previously skipped size check silently
+- **FIND-R48-002 (P2):** ABAC `resolve_field` treats non-finite `risk.score` (NaN/Inf) as 1.0 (maximum risk) to prevent Forbid policy bypass
+- **FIND-R48-003 (P2):** `ProvenanceNode::validate()` enforces `MAX_PARENTS` (64) and `MAX_METADATA_ENTRIES` (64) on deserialized data
+- **FIND-R48-004 (P2):** `AbacEntity::validate()` enforces `MAX_PARENTS` (256) and `MAX_ATTRIBUTES` (256)
+- **FIND-R48-005 (P2):** `NhiAgentIdentity::validate()` enforces `MAX_TAGS` (100), `MAX_METADATA_ENTRIES` (100), `MAX_ATTESTATIONS` (100)
+- **FIND-R48-006 (P2):** `NhiDelegationLink::validate()` enforces `MAX_PERMISSIONS` (256) and `MAX_SCOPE_CONSTRAINTS` (256)
+- **FIND-R48-008 (P2):** `MemoryNamespace::validate()` enforces `MAX_ACL_ENTRIES` (1000)
+- **FIND-R48-009 (P2):** `NhiBehavioralBaseline::validate_finite()` now also checks `MAX_TOOL_CALL_PATTERNS` (10K) and `MAX_SOURCE_IPS` (1K)
+- **FIND-R48-003 (P2, server):** Exec graph session path parameter validated for length (128) and control characters
+- **FIND-R48-005 (P2, server):** Discovery sensitivity parameter validated before reflection in error messages
+- **FIND-R48-010 (P3):** `SamplingStats::reset_window()` truncates `flagged_patterns` at 1000
+- **FIND-R48-011 (P3):** `Policy` struct gets `#[serde(deny_unknown_fields)]`
+- **FIND-R48-014 (P3):** `truncate_for_log` handles `max_len < 4` without exceeding requested maximum
+- **FIND-R48-007 (P3):** WS `extract_strings_recursive` bounded at 1000 parts
+
 ### Added
 
 #### Phase 38: SOC 2 Type II Access Review Reports

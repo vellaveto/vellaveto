@@ -13,7 +13,7 @@
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
     <img src="https://img.shields.io/badge/tests-6%2C501_passing-brightgreen.svg" alt="Tests: 6,501 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
-    <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-47_rounds%2C_400%2B_findings-informational.svg" alt="Adversarial Testing: 47 rounds, 400+ findings"></a>
+    <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-48_rounds%2C_400%2B_findings-informational.svg" alt="Adversarial Testing: 48 rounds, 400+ findings"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
   </p>
