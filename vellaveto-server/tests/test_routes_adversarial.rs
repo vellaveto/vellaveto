@@ -93,6 +93,16 @@ fn make_state() -> (AppState, TempDir) {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
     (state, tmp)
 }
@@ -159,6 +169,16 @@ fn make_empty_state() -> (AppState, TempDir) {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
     (state, tmp)
 }
@@ -609,6 +629,16 @@ priority = 1
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -742,6 +772,16 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
     let app = routes::build_router(state);
 
@@ -996,6 +1036,16 @@ async fn test_find004_metrics_require_auth_true_blocks_unauthenticated() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
     let app = routes::build_router(state);
 
@@ -1073,6 +1123,16 @@ async fn test_find004_metrics_require_auth_false_allows_unauthenticated() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
     let app = routes::build_router(state);
 

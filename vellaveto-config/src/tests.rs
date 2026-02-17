@@ -1124,6 +1124,8 @@ fn test_validate_rejects_too_many_policies() {
         discovery: Default::default(),
         projector: Default::default(),
         zk_audit: Default::default(),
+        licensing: Default::default(),
+        billing: Default::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {

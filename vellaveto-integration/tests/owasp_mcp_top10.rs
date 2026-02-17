@@ -929,6 +929,16 @@ mod owasp_mcp07_auth {
             zk_audit_enabled: false,
             zk_audit_config: Default::default(),
             federation_resolver: None,
+            billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+                paddle: Default::default(),
+                stripe: Default::default(),
+                enabled: false,
+                licensing_validation: vellaveto_config::LicenseValidation {
+                    tier: vellaveto_config::LicenseTier::Community,
+                    limits: vellaveto_config::LicenseTier::Community.limits(),
+                    reason: "test default".to_string(),
+                },
+            }),
         };
         (state, tmp)
     }
@@ -1361,6 +1371,16 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
             zk_audit_enabled: false,
             zk_audit_config: Default::default(),
             federation_resolver: None,
+            billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+                paddle: Default::default(),
+                stripe: Default::default(),
+                enabled: false,
+                licensing_validation: vellaveto_config::LicenseValidation {
+                    tier: vellaveto_config::LicenseTier::Community,
+                    limits: vellaveto_config::LicenseTier::Community.limits(),
+                    reason: "test default".to_string(),
+                },
+            }),
         };
 
         let app = routes::build_router(state);
@@ -1644,6 +1664,16 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test default".to_string(),
+            },
+        }),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1878,6 +1908,16 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test default".to_string(),
+            },
+        }),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

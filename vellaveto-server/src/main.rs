@@ -1071,6 +1071,20 @@ async fn cmd_serve(
                 None
             }
         },
+        billing_config: {
+            let licensing_validation = policy_config.licensing.resolve();
+            tracing::info!(
+                tier = %licensing_validation.tier,
+                reason = %licensing_validation.reason,
+                "License tier resolved"
+            );
+            Arc::new(vellaveto_server::BillingState {
+                paddle: policy_config.billing.paddle.clone(),
+                stripe: policy_config.billing.stripe.clone(),
+                enabled: policy_config.billing.enabled,
+                licensing_validation,
+            })
+        },
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -1690,6 +1704,8 @@ fn cmd_policies(preset: String) -> Result<()> {
         discovery: Default::default(),
         projector: Default::default(),
         zk_audit: Default::default(),
+        licensing: Default::default(),
+        billing: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

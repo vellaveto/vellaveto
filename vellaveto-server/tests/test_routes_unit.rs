@@ -171,6 +171,16 @@ fn test_state() -> (AppState, TempDir) {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
     (state, tmp)
 }
@@ -557,6 +567,16 @@ async fn health_not_rate_limited() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
 
     // Rapid /health requests must all succeed despite strict rate limit
@@ -644,6 +664,16 @@ async fn rate_limit_429_includes_retry_after() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -825,6 +855,16 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -954,6 +994,16 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1056,6 +1106,16 @@ async fn per_ip_health_exempt_from_rate_limit() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
 
     // Multiple health checks from same IP should all succeed
@@ -1150,6 +1210,16 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1279,6 +1349,16 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1392,6 +1472,16 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1504,6 +1594,16 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1614,6 +1714,16 @@ async fn per_ip_rate_limit_429_response_body_format() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1735,6 +1845,16 @@ async fn health_returns_degraded_when_cluster_unhealthy() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
 
     let app = routes::build_router(state);

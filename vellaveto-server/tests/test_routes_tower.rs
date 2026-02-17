@@ -94,6 +94,16 @@ fn make_state() -> (AppState, TempDir) {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
     (state, tmp)
 }
@@ -160,6 +170,16 @@ fn make_empty_state() -> (AppState, TempDir) {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
     (state, tmp)
 }
@@ -1274,6 +1294,16 @@ priority = 1
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
     let app = routes::build_router(state.clone());
 
@@ -1405,6 +1435,16 @@ fn make_approval_state() -> (AppState, TempDir) {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
     (state, tmp)
 }
@@ -1897,6 +1937,16 @@ fn make_authed_state() -> (AppState, TempDir) {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
     (state, tmp)
 }
@@ -2413,6 +2463,16 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
     (state, tmp)
 }
@@ -3130,6 +3190,16 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
     };
     (state, tmp)
 }

@@ -415,6 +415,16 @@ mod server_auth {
             zk_audit_enabled: false,
             zk_audit_config: Default::default(),
             federation_resolver: None,
+            billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+                paddle: Default::default(),
+                stripe: Default::default(),
+                enabled: false,
+                licensing_validation: vellaveto_config::LicenseValidation {
+                    tier: vellaveto_config::LicenseTier::Community,
+                    limits: vellaveto_config::LicenseTier::Community.limits(),
+                    reason: "test default".to_string(),
+                },
+            }),
         };
         (state, tmp)
     }
@@ -575,6 +585,16 @@ mod server_auth {
             zk_audit_enabled: false,
             zk_audit_config: Default::default(),
             federation_resolver: None,
+            billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+                paddle: Default::default(),
+                stripe: Default::default(),
+                enabled: false,
+                licensing_validation: vellaveto_config::LicenseValidation {
+                    tier: vellaveto_config::LicenseTier::Community,
+                    limits: vellaveto_config::LicenseTier::Community.limits(),
+                    reason: "test default".to_string(),
+                },
+            }),
         };
         let app = routes::build_router(state);
 
@@ -1202,6 +1222,16 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test default".to_string(),
+            },
+        }),
     };
 
     let app = routes::build_router(state);
@@ -1328,6 +1358,16 @@ async fn finding_12_approval_creation_failure_denies_request() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test default".to_string(),
+            },
+        }),
     };
 
     let app = routes::build_router(state);
@@ -1797,6 +1837,16 @@ async fn find_r46_it003_malformed_json_request_body_rejected() {
         zk_audit_enabled: false,
         zk_audit_config: Default::default(),
         federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test default".to_string(),
+            },
+        }),
     };
 
     // Test 1: Completely invalid JSON

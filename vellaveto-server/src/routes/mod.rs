@@ -25,6 +25,7 @@
 pub mod approval;
 pub mod audit;
 pub mod auth_level;
+pub mod billing;
 pub mod circuit_breaker;
 pub mod compliance;
 pub mod deployment;

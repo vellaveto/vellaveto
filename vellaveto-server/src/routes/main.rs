@@ -505,6 +505,10 @@ pub fn build_router(state: AppState) -> Router {
             "/api/federation/trust-anchors",
             get(super::federation::federation_trust_anchors),
         )
+        // ═══════════════════════════════════════════════════════════════════
+        // Billing & Licensing
+        // ═══════════════════════════════════════════════════════════════════
+        .route("/api/billing/license", get(super::billing::license_info))
         // SECURITY (R38-SRV-1): /metrics inside auth — exposes policy count
         // and pending approval count, which are security-sensitive (see R26-SRV-6).
         // SECURITY (R38-SRV-2): /metrics inside rate_limit — prevents scraper DoS.
@@ -535,8 +539,24 @@ pub fn build_router(state: AppState) -> Router {
         ))
         .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit));
 
+    // Billing webhook routes — bypass API key auth (use provider-specific signatures).
+    let billing = if state.billing_config.enabled {
+        Router::new()
+            .route(
+                "/api/billing/paddle/webhook",
+                post(super::billing::paddle_webhook),
+            )
+            .route(
+                "/api/billing/stripe/webhook",
+                post(super::billing::stripe_webhook),
+            )
+    } else {
+        Router::new()
+    };
+
     Router::new()
         .merge(authenticated)
+        .merge(billing)
         .layer(middleware::from_fn(request_id))
         .layer(middleware::from_fn_with_state(
             state.clone(),

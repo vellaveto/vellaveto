@@ -23,6 +23,7 @@ pub mod transport;
 // ═══════════════════════════════════════════════════════════════════════════════
 pub mod a2a;
 pub mod abac;
+pub mod billing;
 pub mod cluster;
 pub mod compliance;
 pub mod config_validate;
@@ -31,6 +32,7 @@ pub mod discovery;
 pub mod fips;
 pub mod governance;
 pub mod grpc_transport;
+pub mod licensing;
 pub mod limits;
 pub mod policy_rule;
 pub mod projector;
@@ -100,6 +102,7 @@ pub use rag_defense_config::{
 // Re-exports from Phase 16.6 split submodules
 pub use a2a::A2aConfig;
 pub use abac::AbacConfig;
+pub use billing::BillingConfig;
 pub use cluster::ClusterConfig;
 pub use compliance::{
     AiActRiskClass, ComplianceConfig, EuAiActConfig, Soc2Config, TrustServicesCategory,
@@ -118,6 +121,7 @@ pub use fips::FipsConfig;
 pub use gateway::{BackendConfig, GatewayConfig};
 pub use governance::GovernanceConfig;
 pub use grpc_transport::GrpcTransportConfig;
+pub use licensing::{LicenseTier, LicenseValidation, LicensingConfig, TierLimits};
 pub use limits::LimitsConfig;
 pub use policy_rule::PolicyRule;
 pub use projector::ProjectorConfig;
@@ -497,6 +501,21 @@ pub struct PolicyConfig {
     /// for privacy-preserving audit verification.
     #[serde(default)]
     pub zk_audit: ZkAuditConfig,
+
+    // ═══════════════════════════════════════════════════
+    // LICENSING & TIER MANAGEMENT
+    // ═══════════════════════════════════════════════════
+    /// License tier configuration and key validation.
+    /// Fail-closed: invalid/missing/expired key defaults to Community tier.
+    #[serde(default)]
+    pub licensing: LicensingConfig,
+
+    // ═══════════════════════════════════════════════════
+    // BILLING WEBHOOK CONFIGURATION
+    // ═══════════════════════════════════════════════════
+    /// Billing webhook configuration for Paddle and Stripe.
+    #[serde(default)]
+    pub billing: BillingConfig,
 }
 
 impl PolicyConfig {

@@ -622,6 +622,19 @@ pub struct FederationAnchorStatus {
     pub failed_validations: u64,
 }
 
+/// Billing and licensing state resolved at server startup.
+#[derive(Debug, Clone)]
+pub struct BillingState {
+    /// Paddle webhook configuration.
+    pub paddle: vellaveto_config::billing::PaddleConfig,
+    /// Stripe webhook configuration.
+    pub stripe: vellaveto_config::billing::StripeConfig,
+    /// Whether billing webhooks are enabled.
+    pub enabled: bool,
+    /// Resolved license validation result.
+    pub licensing_validation: vellaveto_config::LicenseValidation,
+}
+
 /// Shared application state for axum handlers.
 #[derive(Clone)]
 pub struct AppState {
@@ -837,6 +850,12 @@ pub struct AppState {
     /// Federation identity resolver for cross-org JWKS validation and
     /// identity mapping. None when federation is disabled.
     pub federation_resolver: Option<Arc<FederationResolver>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Licensing & Billing
+    // ═══════════════════════════════════════════════════════════════════
+    /// Billing configuration (Paddle/Stripe webhook settings).
+    pub billing_config: Arc<BillingState>,
 }
 
 /// Error type for cluster-dispatched approval operations.
@@ -1060,6 +1079,8 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             discovery: Default::default(),
             projector: Default::default(),
             zk_audit: Default::default(),
+            licensing: Default::default(),
+            billing: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {
