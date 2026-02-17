@@ -48,7 +48,8 @@ pub const DEFAULT_INJECTION_PATTERNS: &[&str] = &[
     // NOTE: patterns are lowercase because input is lowercased before matching.
     "<|im_start|>",
     "<|im_end|>",
-    // LLM prompt delimiters — Llama 2/3 format
+    // LLM prompt delimiters — Llama 2/3 + Mistral format (single entry covers both
+    // since input is lowercased before matching: [INST] -> [inst])
     "[inst]",
     "[/inst]",
     "<<sys>>",
@@ -77,8 +78,6 @@ pub const DEFAULT_INJECTION_PATTERNS: &[&str] = &[
     // LLM prompt delimiters — DeepSeek format
     "<|begin▁of▁sentence|>",
     "<|end▁of▁sentence|>",
-    // LLM prompt delimiters — Mistral format
-    "[inst]",
     // LLM prompt delimiters — Command R format (Cohere)
     "<|start_header_id|>",
     "<|end_header_id|>",

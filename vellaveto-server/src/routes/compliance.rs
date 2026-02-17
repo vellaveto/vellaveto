@@ -316,6 +316,16 @@ pub async fn soc2_evidence(
 
     // Apply category filter from query param if present
     let tracked_categories = if let Some(ref cat_filter) = params.category {
+        // SECURITY (FIND-R49-005): Validate length and reject control characters
+        // before using the filter value, and never echo user input in errors.
+        if cat_filter.len() > 16 || cat_filter.chars().any(|c| c.is_control()) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Invalid category. Valid values: CC1-CC9".to_string(),
+                }),
+            ));
+        }
         use vellaveto_config::TrustServicesCategory;
         let parsed = match cat_filter.to_uppercase().as_str() {
             "CC1" => Some(TrustServicesCategory::CC1),
@@ -335,7 +345,7 @@ pub async fn soc2_evidence(
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
-                    error: format!("Invalid category '{}'. Valid: CC1-CC9", cat_filter),
+                    error: "Invalid category. Valid values: CC1-CC9".to_string(),
                 }),
             ));
         }
@@ -600,6 +610,17 @@ pub async fn soc2_access_review(
             }),
         )
     })?;
+
+    // SECURITY (FIND-R49-004): Prevent OOM from very large audit logs.
+    const MAX_REVIEW_ENTRIES: usize = 500_000;
+    if entries.len() > MAX_REVIEW_ENTRIES {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "Audit log exceeds capacity limit. Rotate or archive the audit log.".to_string(),
+            }),
+        ));
+    }
 
     // Collect least-agency data from tracker (if available)
     let least_agency_data = collect_least_agency_data(&entries, &period_start, &period_end, &state);

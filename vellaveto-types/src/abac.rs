@@ -228,6 +228,24 @@ pub struct FederationTrustAnchor {
     pub identity_mappings: Vec<IdentityMapping>,
 }
 
+impl FederationTrustAnchor {
+    /// Maximum number of identity mappings per trust anchor.
+    pub const MAX_IDENTITY_MAPPINGS: usize = 64;
+
+    /// SECURITY (FIND-R49-010): Validate identity_mappings bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.identity_mappings.len() > Self::MAX_IDENTITY_MAPPINGS {
+            return Err(format!(
+                "FederationTrustAnchor '{}' identity_mappings count {} exceeds max {}",
+                self.org_id,
+                self.identity_mappings.len(),
+                Self::MAX_IDENTITY_MAPPINGS
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Maps external identity claims to an internal Vellaveto principal.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IdentityMapping {

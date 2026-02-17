@@ -516,13 +516,18 @@ fn matches_principal(
 
     // Claims check
     for (claim_key, pattern) in &principal.claims {
-        let claim_value = ctx
+        // SECURITY (FIND-R49-010): Absent claim must not match — returning false
+        // when the key is missing prevents treating missing claims as empty strings,
+        // which would incorrectly match patterns like "" or wildcard.
+        let claim_value = match ctx
             .eval_ctx
             .agent_identity
             .as_ref()
             .and_then(|id| id.claims.get(claim_key))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        {
+            Some(v) => v.as_str().unwrap_or(""),
+            None => return false,
+        };
         if !pattern.matches(claim_value) {
             return false;
         }
@@ -557,7 +562,8 @@ fn matches_resource(resource: &CompiledResource, action: &Action) -> bool {
             return false;
         }
         let any_path_matches = action.target_paths.iter().any(|path| {
-            let normalized = crate::path::normalize_path(path)
+            // SECURITY (FIND-R49-001): Use bounded path normalization.
+            let normalized = crate::path::normalize_path_bounded(path, crate::path::DEFAULT_MAX_PATH_DECODE_ITERATIONS)
                 .unwrap_or_else(|_| "/".to_string());
             resource.path_matchers.iter().any(|m| m.matches(&normalized))
         });

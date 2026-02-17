@@ -69,8 +69,18 @@ pub fn generate_access_review(
             continue;
         }
 
+        // SECURITY (FIND-R49-004): Normalize UTC offset variants before comparison.
+        // RFC 3339 allows both "Z" and "+00:00" for UTC — normalize to "Z" for consistent
+        // lexicographic ordering.
+        let ts = if entry.timestamp.ends_with("+00:00") {
+            let base = &entry.timestamp[..entry.timestamp.len() - 6];
+            std::borrow::Cow::Owned(format!("{}Z", base))
+        } else {
+            std::borrow::Cow::Borrowed(entry.timestamp.as_str())
+        };
+
         // Filter by period — RFC 3339 strings sort lexicographically for UTC timestamps
-        if entry.timestamp.as_str() < period_start || entry.timestamp.as_str() > period_end {
+        if ts.as_ref() < period_start || ts.as_ref() > period_end {
             continue;
         }
 

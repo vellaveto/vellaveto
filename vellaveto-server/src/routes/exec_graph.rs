@@ -21,6 +21,12 @@ use serde_json::json;
 use crate::routes::ErrorResponse;
 use crate::AppState;
 
+/// Maximum number of sessions to scan when filtering by tool.
+const MAX_TOOL_FILTER_SCAN: usize = 10_000;
+
+/// Maximum tool filter parameter length.
+const MAX_TOOL_FILTER_LEN: usize = 256;
+
 /// Query parameters for graph listing.
 #[derive(Deserialize)]
 pub struct GraphListQuery {
@@ -51,12 +57,33 @@ pub async fn list_graphs(
     let sessions = store.list_sessions().await;
     let total = sessions.len();
     let limit = params.limit.unwrap_or(100).min(1000);
-    let offset = params.offset.unwrap_or(0);
+    // SECURITY (FIND-R49-006): Cap offset to prevent unreasonable pagination.
+    let offset = params.offset.unwrap_or(0).min(1_000_000);
+
+    // SECURITY (FIND-R49-002): Validate tool filter parameter.
+    if let Some(ref tool_filter) = params.tool {
+        if tool_filter.is_empty() || tool_filter.len() > MAX_TOOL_FILTER_LEN {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Invalid tool filter parameter".to_string(),
+                }),
+            ));
+        }
+        if tool_filter.chars().any(|c| c.is_control()) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "tool filter contains control characters".to_string(),
+                }),
+            ));
+        }
+    }
 
     // If filtering by tool, we need to check each graph
     let filtered: Vec<_> = if let Some(ref tool_filter) = params.tool {
         let mut result = Vec::new();
-        for session_id in &sessions {
+        for session_id in sessions.iter().take(MAX_TOOL_FILTER_SCAN) {
             if let Some(graph) = store.get(session_id).await {
                 if graph.metadata.unique_tools.contains(tool_filter) {
                     result.push(json!({

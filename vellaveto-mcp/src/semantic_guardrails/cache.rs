@@ -80,7 +80,8 @@ fn default_enabled() -> bool {
 /// SAFETY: 1 is always non-zero, so this const initialization is safe.
 const FALLBACK_CACHE_SIZE: NonZeroUsize = match NonZeroUsize::new(1) {
     Some(n) => n,
-    None => unreachable!(),
+    // SAFETY: 1 is non-zero.
+    None => unsafe { NonZeroUsize::new_unchecked(1) },
 };
 
 impl Default for CacheConfig {

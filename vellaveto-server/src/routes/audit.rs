@@ -98,6 +98,28 @@ pub async fn audit_export(
     State(state): State<AppState>,
     Query(query): Query<AuditExportQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R49-005): Validate `since` and `format` query parameters
+    if let Some(ref since) = query.since {
+        if since.len() > 64 || since.chars().any(|c| c.is_control()) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Invalid 'since' parameter".to_string(),
+                }),
+            ));
+        }
+    }
+    if let Some(ref fmt) = query.format {
+        if fmt.len() > 16 || fmt.chars().any(|c| c.is_control()) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Invalid 'format' parameter".to_string(),
+                }),
+            ));
+        }
+    }
+
     let format = query
         .format
         .as_deref()

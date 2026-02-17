@@ -144,6 +144,10 @@ pub struct SecureTask {
 /// Absolute upper bound for `max_nonces` to prevent memory exhaustion.
 pub const MAX_NONCES_CAP: usize = 10_000;
 
+/// SECURITY (FIND-R49-001): Maximum number of state chain entries to prevent
+/// unbounded growth from repeated status transitions.
+pub const MAX_STATE_CHAIN: usize = 1_000;
+
 fn default_max_nonces() -> usize {
     1000
 }

@@ -96,3 +96,32 @@ pub struct SdkCapabilities {
     /// MCP protocol versions this SDK supports.
     pub supported_versions: Vec<String>,
 }
+
+impl SdkCapabilities {
+    /// Maximum number of individual capability strings.
+    const MAX_CAPABILITIES: usize = 100;
+    /// Maximum number of supported protocol versions.
+    const MAX_VERSIONS: usize = 20;
+
+    /// Validate structural bounds on `SdkCapabilities`.
+    ///
+    /// SECURITY (FIND-R49-002): Unbounded capability/version vectors could be
+    /// used for memory exhaustion via oversized discovery responses.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.capabilities.len() > Self::MAX_CAPABILITIES {
+            return Err(format!(
+                "capabilities count {} exceeds maximum {}",
+                self.capabilities.len(),
+                Self::MAX_CAPABILITIES,
+            ));
+        }
+        if self.supported_versions.len() > Self::MAX_VERSIONS {
+            return Err(format!(
+                "supported_versions count {} exceeds maximum {}",
+                self.supported_versions.len(),
+                Self::MAX_VERSIONS,
+            ));
+        }
+        Ok(())
+    }
+}

@@ -351,7 +351,7 @@ impl CircuitBreakerManager {
                 }
             }
             CircuitState::HalfOpen => {
-                stats.success_count += 1;
+                stats.success_count = stats.success_count.saturating_add(1);
 
                 // Check if we've reached success threshold to close
                 if stats.success_count >= self.success_threshold {
@@ -425,7 +425,7 @@ impl CircuitBreakerManager {
 
         match stats.state {
             CircuitState::Closed => {
-                stats.failure_count += 1;
+                stats.failure_count = stats.failure_count.saturating_add(1);
 
                 // Check if we've reached failure threshold
                 if stats.failure_count >= self.failure_threshold {
@@ -447,12 +447,12 @@ impl CircuitBreakerManager {
             }
             CircuitState::Open => {
                 // Already open, just update failure count
-                stats.failure_count += 1;
+                stats.failure_count = stats.failure_count.saturating_add(1);
             }
             CircuitState::HalfOpen => {
                 // Failure in half-open means we go back to open
                 stats.state = CircuitState::Open;
-                stats.failure_count += 1;
+                stats.failure_count = stats.failure_count.saturating_add(1);
                 stats.success_count = 0;
                 // SECURITY (FIND-079): Increment trip_count for exponential backoff.
                 stats.trip_count = stats.trip_count.saturating_add(1);

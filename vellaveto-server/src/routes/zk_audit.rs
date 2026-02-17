@@ -60,11 +60,12 @@ pub async fn zk_audit_status(
         )
     })?;
 
-    let guard = proofs_store.lock().map_err(|e| {
+    let guard = proofs_store.lock().map_err(|_e| {
+        tracing::error!("SECURITY: ZK proof store mutex poisoned");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Proof store lock poisoned: {}", e),
+                error: "Internal server error".to_string(),
             }),
         )
     })?;
@@ -123,11 +124,12 @@ pub async fn zk_audit_proofs(
         )
     })?;
 
-    let guard = proofs_store.lock().map_err(|e| {
+    let guard = proofs_store.lock().map_err(|_e| {
+        tracing::error!("SECURITY: ZK proof store mutex poisoned");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Proof store lock poisoned: {}", e),
+                error: "Internal server error".to_string(),
             }),
         )
     })?;
@@ -171,6 +173,7 @@ pub async fn zk_audit_proofs(
 
 /// Request body for `POST /api/zk-audit/verify`.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ZkVerifyRequest {
     /// The batch_id to verify. Must correspond to a stored proof.
     pub batch_id: String,
@@ -237,11 +240,12 @@ pub async fn zk_audit_verify(
 
     // Clone proof data inside the lock scope to avoid holding MutexGuard across .await
     let result = {
-        let guard = proofs_store.lock().map_err(|e| {
+        let guard = proofs_store.lock().map_err(|_e| {
+            tracing::error!("SECURITY: ZK proof store mutex poisoned");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: format!("Proof store lock poisoned: {}", e),
+                    error: "Internal server error".to_string(),
                 }),
             )
         })?;
@@ -253,7 +257,7 @@ pub async fn zk_audit_verify(
                 (
                     StatusCode::NOT_FOUND,
                     Json(ErrorResponse {
-                        error: format!("Batch proof '{}' not found", body.batch_id),
+                        error: "Proof not found".to_string(),
                     }),
                 )
             })?;
@@ -370,12 +374,7 @@ pub async fn zk_audit_commitments(
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ErrorResponse {
-                error: format!(
-                    "Audit log contains {} entries (limit {}). \
-                     Rotate or archive the audit log to reduce size.",
-                    entries.len(),
-                    MAX_LOADED_ENTRIES
-                ),
+                error: "Audit log exceeds capacity limit. Rotate or archive the audit log.".to_string(),
             }),
         ));
     }

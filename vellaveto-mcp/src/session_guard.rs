@@ -379,7 +379,7 @@ impl SessionGuard {
                     description,
                 },
             ) => {
-                ctx.anomaly_count += 1;
+                ctx.anomaly_count = ctx.anomaly_count.saturating_add(1);
                 // Critical severity → immediate Suspicious
                 let immediate = matches!(severity, AnomalySeverity::Critical);
                 if immediate || ctx.anomaly_count >= self.config.suspicious_threshold {
@@ -402,8 +402,8 @@ impl SessionGuard {
                 }
             }
             (SessionState::Active, SessionEvent::PolicyViolation { reason }) => {
-                ctx.violation_count += 1;
-                ctx.anomaly_count += 1;
+                ctx.violation_count = ctx.violation_count.saturating_add(1);
+                ctx.anomaly_count = ctx.anomaly_count.saturating_add(1);
                 if ctx.anomaly_count >= self.config.suspicious_threshold {
                     (
                         SessionState::Suspicious,
@@ -424,8 +424,8 @@ impl SessionGuard {
                 }
             }
             (SessionState::Active, SessionEvent::RepeatedViolation { count }) => {
-                ctx.violation_count += count;
-                ctx.anomaly_count += count;
+                ctx.violation_count = ctx.violation_count.saturating_add(*count);
+                ctx.anomaly_count = ctx.anomaly_count.saturating_add(*count);
                 (
                     SessionState::Suspicious,
                     TransitionAction::Warn {
@@ -454,7 +454,7 @@ impl SessionGuard {
                     description,
                 },
             ) => {
-                ctx.anomaly_count += 1;
+                ctx.anomaly_count = ctx.anomaly_count.saturating_add(1);
                 let immediate =
                     matches!(severity, AnomalySeverity::Critical | AnomalySeverity::High);
                 if immediate || ctx.violation_count >= self.config.lock_threshold {
@@ -477,7 +477,7 @@ impl SessionGuard {
                 }
             }
             (SessionState::Suspicious, SessionEvent::PolicyViolation { reason }) => {
-                ctx.violation_count += 1;
+                ctx.violation_count = ctx.violation_count.saturating_add(1);
                 if ctx.violation_count >= self.config.lock_threshold {
                     (
                         SessionState::Locked,
@@ -498,7 +498,7 @@ impl SessionGuard {
                 }
             }
             (SessionState::Suspicious, SessionEvent::RepeatedViolation { count }) => {
-                ctx.violation_count += count;
+                ctx.violation_count = ctx.violation_count.saturating_add(*count);
                 (
                     SessionState::Locked,
                     TransitionAction::DenyAll {

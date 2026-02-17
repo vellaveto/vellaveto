@@ -7888,8 +7888,10 @@ fn test_context_max_chain_depth_over_limit_denies() {
     );
 }
 
+// SECURITY (FIND-R49-002): MaxChainDepth uses >= for consistency with MaxCalls.
+// Exact limit now denies; one below limit allows.
 #[test]
-fn test_context_max_chain_depth_exact_limit_allows() {
+fn test_context_max_chain_depth_exact_limit_denies() {
     let policy = make_context_policy(json!([
         {"type": "max_chain_depth", "max_depth": 2}
     ]));
@@ -7911,8 +7913,37 @@ fn test_context_max_chain_depth_exact_limit_allows() {
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
     assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Chain depth 2 == max 2 should deny (>= semantics), got: {:?}",
+        v
+    );
+}
+
+#[test]
+fn test_context_max_chain_depth_below_limit_allows() {
+    let policy = make_context_policy(json!([
+        {"type": "max_chain_depth", "max_depth": 2}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let entry = vellaveto_types::CallChainEntry {
+        agent_id: "a".into(),
+        tool: "t".into(),
+        function: "f".into(),
+        timestamp: "2026-01-01T00:00:00Z".into(),
+        hmac: None,
+        verified: None,
+    };
+    let ctx = EvaluationContext {
+        call_chain: vec![entry],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
         matches!(v, Verdict::Allow),
-        "Chain depth 2 == max 2 should allow, got: {:?}",
+        "Chain depth 1 < max 2 should allow, got: {:?}",
         v
     );
 }

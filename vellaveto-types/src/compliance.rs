@@ -261,6 +261,22 @@ pub struct AccessReviewEntry {
     pub agency_recommendation: String,
 }
 
+impl AccessReviewEntry {
+    /// Validate that `usage_ratio` is a finite number (not NaN or infinity).
+    ///
+    /// SECURITY (FIND-R49-003): Non-finite floats can cause unexpected behavior
+    /// in comparisons, serialization, and downstream reporting logic.
+    pub fn validate_finite(&self) -> Result<(), String> {
+        if !self.usage_ratio.is_finite() {
+            return Err(format!(
+                "AccessReviewEntry for agent '{}' has non-finite usage_ratio: {}",
+                self.agent_id, self.usage_ratio,
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// CC6 (Logical and Physical Access Controls) evidence summary.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Cc6Evidence {
@@ -301,6 +317,19 @@ pub struct AccessReviewReport {
     pub cc6_evidence: Cc6Evidence,
     /// Reviewer attestation (empty/pending by default).
     pub attestation: ReviewerAttestation,
+}
+
+impl AccessReviewReport {
+    /// Validate all entries in the report.
+    ///
+    /// Calls `validate_finite()` on each `AccessReviewEntry` to ensure no
+    /// non-finite `usage_ratio` values are present.
+    pub fn validate(&self) -> Result<(), String> {
+        for entry in &self.entries {
+            entry.validate_finite()?;
+        }
+        Ok(())
+    }
 }
 
 /// Schedule for automated access review report generation.

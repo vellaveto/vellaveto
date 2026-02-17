@@ -57,6 +57,21 @@ impl AgentIdentity {
                 .map(|arr| arr.iter().filter_map(|item| item.as_str()).collect())
         })
     }
+
+    /// Maximum number of claims to prevent memory abuse.
+    pub const MAX_CLAIMS: usize = 64;
+
+    /// SECURITY (FIND-R49-006): Validate AgentIdentity bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.claims.len() > Self::MAX_CLAIMS {
+            return Err(format!(
+                "AgentIdentity claims count {} exceeds max {}",
+                self.claims.len(),
+                Self::MAX_CLAIMS
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// An entry in a multi-agent call chain, tracking the path of a request
@@ -206,10 +221,42 @@ impl EvaluationContext {
     /// via control characters in identity fields. A present-but-empty identity
     /// field may bypass agent-matching logic that treats `None` as "no identity"
     /// but matches `Some("")` against wildcard patterns.
+    /// Maximum number of entries in `call_counts` before validation fails.
+    const MAX_CALL_COUNTS: usize = 10_000;
+    /// Maximum number of entries in `previous_actions` before validation fails.
+    const MAX_PREVIOUS_ACTIONS: usize = 10_000;
+    /// Maximum number of entries in `call_chain` before validation fails.
+    const MAX_CALL_CHAIN: usize = 100;
+
     pub fn validate(&self) -> Result<(), String> {
         Self::validate_optional_id_field(&self.agent_id, "agent_id")?;
         Self::validate_optional_id_field(&self.tenant_id, "tenant_id")?;
         Self::validate_optional_id_field(&self.session_state, "session_state")?;
+
+        // SECURITY (FIND-R49-001): Bound collection sizes to prevent memory exhaustion
+        // from oversized deserialized payloads.
+        if self.call_counts.len() > Self::MAX_CALL_COUNTS {
+            return Err(format!(
+                "EvaluationContext call_counts has {} entries, max {}",
+                self.call_counts.len(),
+                Self::MAX_CALL_COUNTS,
+            ));
+        }
+        if self.previous_actions.len() > Self::MAX_PREVIOUS_ACTIONS {
+            return Err(format!(
+                "EvaluationContext previous_actions has {} entries, max {}",
+                self.previous_actions.len(),
+                Self::MAX_PREVIOUS_ACTIONS,
+            ));
+        }
+        if self.call_chain.len() > Self::MAX_CALL_CHAIN {
+            return Err(format!(
+                "EvaluationContext call_chain has {} entries, max {}",
+                self.call_chain.len(),
+                Self::MAX_CALL_CHAIN,
+            ));
+        }
+
         Ok(())
     }
 
@@ -478,9 +525,53 @@ impl StatelessContextBlob {
     /// Maximum number of recent actions stored in the blob.
     pub const MAX_RECENT_ACTIONS: usize = 100;
 
+    /// Maximum number of entries in `call_counts` before validation fails.
+    const MAX_BLOB_CALL_COUNTS: usize = 10_000;
+
+    /// Maximum number of entries in `call_chain` before validation fails.
+    const MAX_BLOB_CALL_CHAIN: usize = 100;
+
     /// Check if this blob has expired based on the current time.
     pub fn is_expired(&self, now_unix_secs: u64) -> bool {
         now_unix_secs.saturating_sub(self.issued_at) > Self::MAX_AGE_SECS
+    }
+
+    /// Validate the blob's collection sizes and identity fields.
+    ///
+    /// SECURITY (FIND-R49-002): Prevents memory exhaustion from oversized
+    /// deserialized blobs and rejects malformed agent identifiers.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.agent_id.is_empty() {
+            return Err("StatelessContextBlob agent_id is empty".to_string());
+        }
+        if self.agent_id.len() > 256 {
+            return Err(format!(
+                "StatelessContextBlob agent_id length {} exceeds max 256",
+                self.agent_id.len(),
+            ));
+        }
+        if self.call_counts.len() > Self::MAX_BLOB_CALL_COUNTS {
+            return Err(format!(
+                "StatelessContextBlob call_counts has {} entries, max {}",
+                self.call_counts.len(),
+                Self::MAX_BLOB_CALL_COUNTS,
+            ));
+        }
+        if self.recent_actions.len() > Self::MAX_RECENT_ACTIONS {
+            return Err(format!(
+                "StatelessContextBlob recent_actions has {} entries, max {}",
+                self.recent_actions.len(),
+                Self::MAX_RECENT_ACTIONS,
+            ));
+        }
+        if self.call_chain.len() > Self::MAX_BLOB_CALL_CHAIN {
+            return Err(format!(
+                "StatelessContextBlob call_chain has {} entries, max {}",
+                self.call_chain.len(),
+                Self::MAX_BLOB_CALL_CHAIN,
+            ));
+        }
+        Ok(())
     }
 }
 

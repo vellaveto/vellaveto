@@ -69,9 +69,16 @@ impl ToolSignature {
     /// with or without fractional seconds) as long as both timestamps use
     /// the same format and timezone.
     pub fn is_expired(&self, now: &str) -> bool {
-        self.expires_at
-            .as_ref()
-            .is_some_and(|exp| now >= exp.as_str())
+        // SECURITY (FIND-R49-004): Reject non-UTC timestamps as expired (fail-closed).
+        if !now.ends_with('Z') {
+            return true;
+        }
+        self.expires_at.as_ref().is_some_and(|exp| {
+            if !exp.ends_with('Z') {
+                return true;
+            }
+            now >= exp.as_str()
+        })
     }
 }
 

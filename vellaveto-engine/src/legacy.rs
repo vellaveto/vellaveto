@@ -60,13 +60,17 @@ impl PolicyEngine {
             // are not supported by the legacy matcher. After stripping the trailing `*`,
             // if the remaining prefix still contains `*`, this is an infix wildcard.
             // Warn operators so they know the pattern is being treated as a prefix match.
+            // SECURITY (FIND-R49-005): Fail-closed for infix wildcards.
+            // Infix wildcards (e.g., "foo*bar*") are not supported by the legacy
+            // matcher. Instead of partial prefix matching (fail-open), match all
+            // values so the policy still applies.
             if prefix.contains('*') {
                 tracing::warn!(
                     pattern = %pattern,
-                    "Legacy matcher detected infix wildcard pattern — treating as prefix match \
-                     on '{}'. Use compiled policies (with_policies()) for correct infix support.",
-                    prefix.split('*').next().unwrap_or(prefix)
+                    "Legacy matcher detected infix wildcard pattern — treating as match-all \
+                     (fail-closed). Use compiled policies (with_policies()) for correct infix support.",
                 );
+                return true;
             }
             return value.starts_with(prefix);
         }

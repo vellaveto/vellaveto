@@ -193,11 +193,12 @@ impl ShadowAiDiscovery {
         }
 
         // Check if tool is approved (empty approved_tools = all approved)
+        // SECURITY (FIND-R49-006): Fail-closed on lock poisoning — treat as needing check.
         let tool_check_needed = self
             .approved_tools
             .read()
             .map(|r| !r.is_empty() && !r.contains(tool_name))
-            .unwrap_or(false);
+            .unwrap_or(true);
 
         if tool_check_needed && !tool_name.is_empty() {
             if let Ok(mut unapproved) = self.unapproved.write() {

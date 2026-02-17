@@ -168,6 +168,13 @@ impl SecureTaskManager {
         }
 
         // Record initial state transition
+        // SECURITY (FIND-R49-001): Bound state_chain to prevent memory exhaustion.
+        if secure_task.state_chain.len() >= vellaveto_types::MAX_STATE_CHAIN {
+            return Err(TaskSecurityError::IntegrityViolation(format!(
+                "state_chain exceeds maximum of {} entries",
+                vellaveto_types::MAX_STATE_CHAIN,
+            )));
+        }
         let transition = self.create_transition(&secure_task, task.status.clone(), None);
         secure_task.state_chain.push(transition);
 
@@ -192,6 +199,13 @@ impl SecureTaskManager {
             return Err(TaskSecurityError::TaskTerminal);
         }
 
+        // SECURITY (FIND-R49-001): Bound state_chain to prevent memory exhaustion.
+        if task.state_chain.len() >= vellaveto_types::MAX_STATE_CHAIN {
+            return Err(TaskSecurityError::IntegrityViolation(format!(
+                "state_chain exceeds maximum of {} entries",
+                vellaveto_types::MAX_STATE_CHAIN,
+            )));
+        }
         // Record state transition
         let transition = self.create_transition(
             task,
