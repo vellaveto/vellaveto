@@ -31,6 +31,10 @@ COPY vellaveto-http-proxy/Cargo.toml vellaveto-http-proxy/
 COPY vellaveto-proxy/Cargo.toml vellaveto-proxy/
 COPY vellaveto-integration/Cargo.toml vellaveto-integration/
 COPY mcpsec/Cargo.toml mcpsec/
+COPY vellaveto-engine/benches vellaveto-engine/benches/
+COPY vellaveto-audit/benches vellaveto-audit/benches/
+COPY vellaveto-mcp/benches vellaveto-mcp/benches/
+COPY vellaveto-http-proxy/benches vellaveto-http-proxy/benches/
 
 # Create dummy src files for dependency caching
 RUN mkdir -p vellaveto-types/src vellaveto-engine/src vellaveto-audit/src \
@@ -70,6 +74,7 @@ COPY vellaveto-approval/src vellaveto-approval/src/
 COPY vellaveto-cluster/src vellaveto-cluster/src/
 COPY vellaveto-server/src vellaveto-server/src/
 COPY vellaveto-http-proxy/src vellaveto-http-proxy/src/
+COPY vellaveto-http-proxy/benches vellaveto-http-proxy/benches/
 COPY vellaveto-proxy/src vellaveto-proxy/src/
 COPY mcpsec/src mcpsec/src/
 
