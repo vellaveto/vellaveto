@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-#### Round 49 Adversarial Audit (6 P1, 17 P2, 10 P3)
+#### Round 49 Adversarial Audit (6 P1, 22 P2, 17 P3)
 
 - **FIND-R49-001 (P1):** `EvaluationContext` and `StatelessContextBlob` collection bounds enforced — `call_counts` (10K), `previous_actions` (10K), `call_chain` (100) validated to prevent pre-sanitization OOM via oversized deserialized payloads
 - **FIND-R49-002 (P1):** `AccessReviewEntry.usage_ratio` missing `validate_finite()` — NaN could propagate to SDK consumers and silently bypass threshold checks in compliance reporting
@@ -37,6 +37,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **FIND-R49-024 (P3):** ABAC absent claim treated as empty string matching `*` — absent claims now return no-match
 - **FIND-R49-025 (P3):** Duplicate `[inst]` injection pattern removed; `unreachable!()` replaced with `unsafe { new_unchecked(1) }`
 - **FIND-R49-026 (P3):** Compliance category filter reflects user input in error — fixed message; `GraphListQuery` offset capped at 1M
+- **FIND-R49-027 (P2):** `AbacPolicy` missing `validate()` — conditions (256), principal/action/resource constraint bounds now enforced
+- **FIND-R49-028 (P2):** `FederationTrustAnchor.validate()` incomplete — org_id, issuer_pattern, jwks_uri scheme, identity_mappings all validated
+- **FIND-R49-029 (P2):** `ToolAttestation` missing `MAX_ATTESTATION_CHAIN_DEPTH` constant — added at 64
+- **FIND-R49-030 (P2):** `html_escape()` missing `/` escape — added `&#x2F;` per OWASP recommendation
+- **FIND-R49-031 (P2):** Dashboard and audit routes load entire audit log without entry count guard — bounded at 500K
+- **FIND-R49-032 (P3):** `BehavioralAnomaly` tool decay sessions unbounded — added MAX_DECAY_SESSIONS (200) eviction
+- **FIND-R49-033 (P3):** `AsyncTaskPolicy` error logged at warn instead of error — upgraded
+- **FIND-R49-034 (P3):** Domain normalization uses lossy UTF-8 decode — changed to strict (fail-closed on invalid UTF-8)
+- **FIND-R49-035 (P3):** `build_tool_index()` sorted invariant undocumented — added debug_assert! checks
+- **FIND-R49-036 (P3):** No-op policy conditions compiled silently — added compile-time tracing::warn
+- **FIND-R49-037 (P3):** `InjectionDetector::from_config()` returns None silently when all patterns disabled — added warning
+- **FIND-R49-038 (P3):** `FallbackBehavior::Allow` configured without warning — added tracing::error
+- **FIND-R49-039 (P3):** Session guard Init-to-Active transition could exceed MAX_TRANSITION_HISTORY — added bounds check
+- **FIND-R49-040 (P3):** 19 POST body structs missing `deny_unknown_fields` — added to prevent config typo/field smuggling
+
+### Added
+
+#### Phase 39: Agent Identity Federation (placeholder)
+
+- `FederationResolver` type with config/status methods in vellaveto-server
+- `FederationConfig` with trust anchor validation in vellaveto-config
+- Dashboard federation status section
+- Server and http-proxy federation API routes (`/api/federation/status`, `/api/federation/trust-anchors`)
+- SDK methods: Python (sync+async), TypeScript, Go with input validation
+- Audit events for federation lifecycle
 
 #### Round 48 Adversarial Audit (2 P1, 10 P2, 4 P3)
 
