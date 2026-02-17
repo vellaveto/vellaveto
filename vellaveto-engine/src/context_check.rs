@@ -23,6 +23,7 @@ impl PolicyEngine {
         &self,
         context: &EvaluationContext,
         cp: &CompiledPolicy,
+        current_tool: &str,
     ) -> Option<Verdict> {
         for cond in &cp.context_conditions {
             match cond {
@@ -752,6 +753,155 @@ impl PolicyEngine {
                                     deny_reason
                                 ),
                             });
+                        }
+                    }
+                }
+
+                // ═══════════════════════════════════════════════════
+                // PHASE 40: WORKFLOW-LEVEL POLICY CONSTRAINTS
+                // ═══════════════════════════════════════════════════
+
+                // VERIFIED [S8]: Workflow predecessor — a governed tool is only allowed if
+                // it's a valid successor of the most recent governed tool (WorkflowConstraint.tla S8)
+                CompiledContextCondition::RequiredActionSequence {
+                    sequence,
+                    ordered,
+                    deny_reason,
+                } => {
+                    let history = &context.previous_actions;
+
+                    // Fail-closed: history must have at least as many entries as the sequence.
+                    if history.len() < sequence.len() {
+                        return Some(Verdict::Deny {
+                            reason: deny_reason.clone(),
+                        });
+                    }
+
+                    if *ordered {
+                        // Ordered subsequence match: greedy left-to-right scan.
+                        // Advance sequence pointer each time a history entry matches.
+                        let mut seq_idx = 0;
+                        for h in history {
+                            if seq_idx < sequence.len()
+                                && h.eq_ignore_ascii_case(&sequence[seq_idx])
+                            {
+                                seq_idx += 1;
+                            }
+                        }
+                        if seq_idx < sequence.len() {
+                            return Some(Verdict::Deny {
+                                reason: deny_reason.clone(),
+                            });
+                        }
+                    } else {
+                        // Unordered: every tool in sequence must appear somewhere in history.
+                        for required in sequence {
+                            if !history
+                                .iter()
+                                .any(|h| h.eq_ignore_ascii_case(required))
+                            {
+                                return Some(Verdict::Deny {
+                                    reason: deny_reason.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+
+                CompiledContextCondition::ForbiddenActionSequence {
+                    sequence,
+                    ordered,
+                    deny_reason,
+                } => {
+                    let history = &context.previous_actions;
+
+                    // Empty history: nothing forbidden can have occurred.
+                    if history.is_empty() {
+                        // Allow — continue to next condition.
+                    } else if *ordered {
+                        // Ordered subsequence match: if all tools matched in order → Deny.
+                        let mut seq_idx = 0;
+                        for h in history {
+                            if seq_idx < sequence.len()
+                                && h.eq_ignore_ascii_case(&sequence[seq_idx])
+                            {
+                                seq_idx += 1;
+                            }
+                        }
+                        if seq_idx >= sequence.len() {
+                            return Some(Verdict::Deny {
+                                reason: deny_reason.clone(),
+                            });
+                        }
+                    } else {
+                        // Unordered: if all tools present → Deny.
+                        let all_present = sequence.iter().all(|required| {
+                            history
+                                .iter()
+                                .any(|h| h.eq_ignore_ascii_case(required))
+                        });
+                        if all_present {
+                            return Some(Verdict::Deny {
+                                reason: deny_reason.clone(),
+                            });
+                        }
+                    }
+                }
+
+                CompiledContextCondition::WorkflowTemplate {
+                    adjacency,
+                    governed_tools,
+                    entry_points,
+                    strict,
+                    deny_reason,
+                } => {
+                    let tool_lower = current_tool.to_ascii_lowercase();
+
+                    // Non-governed tools pass through — no restriction.
+                    if !governed_tools.contains(&tool_lower) {
+                        // Continue to next condition.
+                    } else {
+                        let history = &context.previous_actions;
+
+                        // Find the most recent governed tool in history (reverse scan).
+                        let last_governed = history
+                            .iter()
+                            .rev()
+                            .map(|h| h.to_ascii_lowercase())
+                            .find(|h| governed_tools.contains(h.as_str()));
+
+                        let violation = match last_governed {
+                            None => {
+                                // No previous governed tool: current must be an entry point.
+                                !entry_points.iter().any(|ep| ep == &tool_lower)
+                            }
+                            Some(ref prev) => {
+                                // Current must be a valid successor of the previous governed tool.
+                                match adjacency.get(prev.as_str()) {
+                                    Some(successors) => {
+                                        !successors.iter().any(|s| s == &tool_lower)
+                                    }
+                                    None => {
+                                        // Previous tool is a terminal node (no successors).
+                                        // Current governed tool has no valid predecessor → violation.
+                                        true
+                                    }
+                                }
+                            }
+                        };
+
+                        if violation {
+                            if *strict {
+                                return Some(Verdict::Deny {
+                                    reason: deny_reason.clone(),
+                                });
+                            }
+                            tracing::warn!(
+                                policy = %cp.policy.name,
+                                tool = %current_tool,
+                                "workflow template violation (warn mode): {}",
+                                deny_reason
+                            );
                         }
                     }
                 }

@@ -11327,3 +11327,1016 @@ fn test_r46_007_redos_overlength_rejected() {
     let long_pattern = "a".repeat(1025);
     assert!(PolicyEngine::validate_regex_safety(&long_pattern).is_err());
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 40: Workflow-Level Policy Constraints — RequiredActionSequence
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Like `make_context_policy` but matches ALL tools (id="*:*").
+fn make_wildcard_context_policy(context_conditions: serde_json::Value) -> Policy {
+    Policy {
+        id: "*:*".to_string(),
+        name: "wildcard-context-test".to_string(),
+        policy_type: PolicyType::Conditional {
+            conditions: json!({
+                "context_conditions": context_conditions,
+            }),
+        },
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }
+}
+
+#[test]
+fn test_required_action_sequence_ordered_present_allows() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["authenticate", "read_data"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec![
+            "authenticate".to_string(),
+            "list_files".to_string(),
+            "read_data".to_string(),
+        ],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow, got {v:?}");
+}
+
+#[test]
+fn test_required_action_sequence_ordered_absent_denies() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["authenticate", "read_data"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["list_files".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny, got {v:?}");
+}
+
+#[test]
+fn test_required_action_sequence_ordered_reversed_denies() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["authenticate", "read_data"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["read_data".to_string(), "authenticate".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (wrong order), got {v:?}");
+}
+
+#[test]
+fn test_required_action_sequence_ordered_non_consecutive_allows() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["authenticate", "read_data"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec![
+            "authenticate".to_string(),
+            "list_files".to_string(),
+            "check_permissions".to_string(),
+            "read_data".to_string(),
+        ],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (non-consecutive), got {v:?}");
+}
+
+#[test]
+fn test_required_action_sequence_ordered_partial_denies() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["authenticate", "read_data", "process"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["authenticate".to_string(), "read_data".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (partial), got {v:?}");
+}
+
+#[test]
+fn test_required_action_sequence_unordered_all_present_allows() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["read_data", "authenticate"],
+        "ordered": false
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec![
+            "read_data".to_string(),
+            "list_files".to_string(),
+            "authenticate".to_string(),
+        ],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (unordered all present), got {v:?}");
+}
+
+#[test]
+fn test_required_action_sequence_unordered_missing_one_denies() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["authenticate", "read_data", "validate"],
+        "ordered": false
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec![
+            "authenticate".to_string(),
+            "read_data".to_string(),
+            "list_files".to_string(),
+        ],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (missing 'validate'), got {v:?}");
+}
+
+#[test]
+fn test_required_action_sequence_empty_history_denies() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["authenticate"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec![],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (empty history), got {v:?}");
+}
+
+#[test]
+fn test_required_action_sequence_history_shorter_denies() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["a", "b", "c"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["a".to_string(), "b".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (history shorter), got {v:?}");
+}
+
+#[test]
+fn test_required_action_sequence_case_insensitive_allows() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["Authenticate", "READ_DATA"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["AUTHENTICATE".to_string(), "read_data".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (case insensitive), got {v:?}");
+}
+
+#[test]
+fn test_required_action_sequence_single_tool_equivalent() {
+    // Single-tool sequence should behave like RequirePreviousAction.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["authenticate"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+
+    // Present → Allow
+    let ctx = EvaluationContext {
+        previous_actions: vec!["authenticate".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow for single-tool present, got {v:?}");
+
+    // Absent → Deny
+    let ctx2 = EvaluationContext {
+        previous_actions: vec!["other_tool".to_string()],
+        ..Default::default()
+    };
+    let v2 = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx2))
+        .unwrap();
+    assert!(matches!(v2, Verdict::Deny { .. }), "Expected Deny for single-tool absent, got {v2:?}");
+}
+
+#[test]
+fn test_required_action_sequence_duplicate_tools_in_sequence() {
+    // Duplicate tools in sequence: requires the tool to appear twice.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["read", "read"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+
+    // Only one read → Deny
+    let ctx = EvaluationContext {
+        previous_actions: vec!["read".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (only one read), got {v:?}");
+
+    // Two reads → Allow
+    let ctx2 = EvaluationContext {
+        previous_actions: vec!["read".to_string(), "read".to_string()],
+        ..Default::default()
+    };
+    let v2 = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx2))
+        .unwrap();
+    assert!(matches!(v2, Verdict::Allow), "Expected Allow (two reads), got {v2:?}");
+}
+
+#[test]
+fn test_required_action_sequence_compile_empty_sequence_errors() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": [],
+        "ordered": true
+    }]));
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for empty sequence");
+}
+
+#[test]
+fn test_required_action_sequence_compile_too_many_steps_errors() {
+    let sequence: Vec<String> = (0..21).map(|i| format!("tool_{i}")).collect();
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": sequence,
+        "ordered": true
+    }]));
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for >20 steps");
+}
+
+#[test]
+fn test_required_action_sequence_compile_non_string_errors() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": [123, "read"],
+        "ordered": true
+    }]));
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for non-string element");
+}
+
+#[test]
+fn test_required_action_sequence_compile_empty_string_errors() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["authenticate", ""],
+        "ordered": true
+    }]));
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for empty string");
+}
+
+#[test]
+fn test_required_action_sequence_compile_missing_sequence_errors() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "ordered": true
+    }]));
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for missing sequence");
+}
+
+#[test]
+fn test_required_action_sequence_ordered_exact_length_allows() {
+    // History has exactly the same tools as the sequence.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["a", "b", "c"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (exact length), got {v:?}");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 40: Workflow-Level Policy Constraints — ForbiddenActionSequence
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_forbidden_action_sequence_ordered_present_denies() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["read_secret", "http_request"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["read_secret".to_string(), "http_request".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny, got {v:?}");
+}
+
+#[test]
+fn test_forbidden_action_sequence_ordered_absent_allows() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["read_secret", "http_request"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["read_data".to_string(), "process".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow, got {v:?}");
+}
+
+#[test]
+fn test_forbidden_action_sequence_ordered_reversed_allows() {
+    // Sequence in wrong order should NOT trigger the forbidden check.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["read_secret", "http_request"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["http_request".to_string(), "read_secret".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (reversed), got {v:?}");
+}
+
+#[test]
+fn test_forbidden_action_sequence_ordered_non_consecutive_denies() {
+    // Non-consecutive but in order should still trigger.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["read_secret", "http_request"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec![
+            "read_secret".to_string(),
+            "process".to_string(),
+            "http_request".to_string(),
+        ],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (non-consecutive), got {v:?}");
+}
+
+#[test]
+fn test_forbidden_action_sequence_ordered_partial_allows() {
+    // Only partial match should not deny.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["read_secret", "http_request", "send_email"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["read_secret".to_string(), "http_request".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (partial), got {v:?}");
+}
+
+#[test]
+fn test_forbidden_action_sequence_unordered_all_present_denies() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["read_secret", "http_request"],
+        "ordered": false
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["http_request".to_string(), "read_secret".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (unordered all present), got {v:?}");
+}
+
+#[test]
+fn test_forbidden_action_sequence_unordered_partial_allows() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["read_secret", "http_request", "send_email"],
+        "ordered": false
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["read_secret".to_string(), "http_request".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (partial), got {v:?}");
+}
+
+#[test]
+fn test_forbidden_action_sequence_empty_history_allows() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["read_secret", "http_request"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec![],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (empty history), got {v:?}");
+}
+
+#[test]
+fn test_forbidden_action_sequence_case_insensitive_denies() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["Read_Secret", "HTTP_REQUEST"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["READ_SECRET".to_string(), "http_request".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (case insensitive), got {v:?}");
+}
+
+#[test]
+fn test_forbidden_action_sequence_single_tool_equivalent() {
+    // Single-tool forbidden sequence should behave like ForbiddenPreviousAction.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["dangerous_tool"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+
+    // Present → Deny
+    let ctx = EvaluationContext {
+        previous_actions: vec!["dangerous_tool".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny, got {v:?}");
+
+    // Absent → Allow
+    let ctx2 = EvaluationContext {
+        previous_actions: vec!["safe_tool".to_string()],
+        ..Default::default()
+    };
+    let v2 = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx2))
+        .unwrap();
+    assert!(matches!(v2, Verdict::Allow), "Expected Allow, got {v2:?}");
+}
+
+#[test]
+fn test_forbidden_action_sequence_exfiltration_detects() {
+    // Real-world scenario: detect read_secret → http_request exfiltration.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["read_secret", "http_request"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec![
+            "authenticate".to_string(),
+            "read_secret".to_string(),
+            "process_data".to_string(),
+            "http_request".to_string(),
+        ],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (exfiltration), got {v:?}");
+}
+
+#[test]
+fn test_forbidden_action_sequence_exfiltration_wrong_order_allows() {
+    // Same tools but in reverse order: not an exfiltration.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["read_secret", "http_request"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec![
+            "http_request".to_string(),
+            "authenticate".to_string(),
+            "read_secret".to_string(),
+        ],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (wrong order), got {v:?}");
+}
+
+#[test]
+fn test_forbidden_action_sequence_compile_empty_sequence_errors() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": [],
+        "ordered": true
+    }]));
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for empty sequence");
+}
+
+#[test]
+fn test_forbidden_action_sequence_compile_too_many_steps_errors() {
+    let sequence: Vec<String> = (0..21).map(|i| format!("tool_{i}")).collect();
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": sequence,
+        "ordered": true
+    }]));
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for >20 steps");
+}
+
+#[test]
+fn test_forbidden_action_sequence_compile_non_string_errors() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": [true, "read"],
+        "ordered": true
+    }]));
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for non-string element");
+}
+
+#[test]
+fn test_forbidden_action_sequence_compile_empty_string_errors() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["read_secret", ""],
+        "ordered": true
+    }]));
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for empty string");
+}
+
+#[test]
+fn test_forbidden_action_sequence_compile_missing_sequence_errors() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "ordered": false
+    }]));
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for missing sequence");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 40: Workflow-Level Policy Constraints — WorkflowTemplate
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn make_workflow_policy(steps: serde_json::Value, enforce: &str) -> Policy {
+    Policy {
+        id: "*:*".to_string(),
+        name: "workflow-test".to_string(),
+        policy_type: PolicyType::Conditional {
+            conditions: json!({
+                "context_conditions": [{
+                    "type": "workflow_template",
+                    "steps": steps,
+                    "enforce": enforce
+                }]
+            }),
+        },
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }
+}
+
+fn standard_workflow_steps() -> serde_json::Value {
+    json!([
+        {"tool": "authenticate", "then": ["read_data", "list_data"]},
+        {"tool": "read_data", "then": ["process"]},
+        {"tool": "list_data", "then": ["process"]},
+        {"tool": "process", "then": ["write_result"]}
+    ])
+}
+
+#[test]
+fn test_workflow_template_valid_first_step_allows() {
+    let policy = make_workflow_policy(standard_workflow_steps(), "strict");
+    let engine = make_context_engine(policy);
+    let action = Action::new("authenticate", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec![],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (entry point), got {v:?}");
+}
+
+#[test]
+fn test_workflow_template_valid_successor_allows() {
+    let policy = make_workflow_policy(standard_workflow_steps(), "strict");
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_data", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["authenticate".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (valid successor), got {v:?}");
+}
+
+#[test]
+fn test_workflow_template_invalid_successor_strict_denies() {
+    let policy = make_workflow_policy(standard_workflow_steps(), "strict");
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["authenticate".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (invalid successor), got {v:?}");
+}
+
+#[test]
+fn test_workflow_template_invalid_successor_warn_allows() {
+    let policy = make_workflow_policy(standard_workflow_steps(), "warn");
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["authenticate".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (warn mode), got {v:?}");
+}
+
+#[test]
+fn test_workflow_template_non_governed_tool_passthrough() {
+    let policy = make_workflow_policy(standard_workflow_steps(), "strict");
+    let engine = make_context_engine(policy);
+    // "log_event" is not in the DAG so it should pass through.
+    let action = Action::new("log_event", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["authenticate".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (non-governed), got {v:?}");
+}
+
+#[test]
+fn test_workflow_template_non_entry_point_first_denies() {
+    let policy = make_workflow_policy(standard_workflow_steps(), "strict");
+    let engine = make_context_engine(policy);
+    // "read_data" is not an entry point — calling it first should deny.
+    let action = Action::new("read_data", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec![],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (not entry point), got {v:?}");
+}
+
+#[test]
+fn test_workflow_template_governed_after_non_governed_history() {
+    let policy = make_workflow_policy(standard_workflow_steps(), "strict");
+    let engine = make_context_engine(policy);
+    // History has only non-governed tools; calling an entry point should work.
+    let action = Action::new("authenticate", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["log_event".to_string(), "trace_call".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (only non-governed in history), got {v:?}");
+}
+
+#[test]
+fn test_workflow_template_multi_step_full_path() {
+    let policy = make_workflow_policy(standard_workflow_steps(), "strict");
+    let engine = make_context_engine(policy);
+    // Full valid path: authenticate → read_data → process → write_result
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec![
+            "authenticate".to_string(),
+            "read_data".to_string(),
+            "process".to_string(),
+        ],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (full path), got {v:?}");
+}
+
+#[test]
+fn test_workflow_template_branch_allows_either_successor() {
+    let policy = make_workflow_policy(standard_workflow_steps(), "strict");
+    let engine = make_context_engine(policy);
+    // authenticate → list_data is also valid (branch).
+    let action = Action::new("list_data", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["authenticate".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (branch), got {v:?}");
+}
+
+#[test]
+fn test_workflow_template_case_insensitive() {
+    let policy = make_workflow_policy(standard_workflow_steps(), "strict");
+    let engine = make_context_engine(policy);
+    let action = Action::new("READ_DATA", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["AUTHENTICATE".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (case insensitive), got {v:?}");
+}
+
+#[test]
+fn test_workflow_template_compile_cycle_rejects() {
+    let steps = json!([
+        {"tool": "a", "then": ["b"]},
+        {"tool": "b", "then": ["c"]},
+        {"tool": "c", "then": ["a"]}
+    ]);
+    let policy = make_workflow_policy(steps, "strict");
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for cycle");
+    let errs = result.unwrap_err();
+    let err = format!("{:?}", errs);
+    assert!(
+        err.contains("cycle") || err.contains("entry point"),
+        "Error should mention cycle: {err}"
+    );
+}
+
+#[test]
+fn test_workflow_template_compile_self_cycle_rejects() {
+    let steps = json!([
+        {"tool": "a", "then": ["a"]}
+    ]);
+    let policy = make_workflow_policy(steps, "strict");
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for self-cycle");
+}
+
+#[test]
+fn test_workflow_template_compile_empty_steps_errors() {
+    let policy = make_workflow_policy(json!([]), "strict");
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for empty steps");
+}
+
+#[test]
+fn test_workflow_template_compile_too_many_steps_errors() {
+    let steps: Vec<serde_json::Value> = (0..51)
+        .map(|i| json!({"tool": format!("tool_{i}"), "then": [format!("tool_{}", i + 100)]}))
+        .collect();
+    let policy = make_workflow_policy(serde_json::Value::Array(steps), "strict");
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for >50 steps");
+}
+
+#[test]
+fn test_workflow_template_compile_invalid_enforce_errors() {
+    let steps = json!([{"tool": "a", "then": ["b"]}]);
+    let policy = Policy {
+        id: "*:*".to_string(),
+        name: "workflow-test".to_string(),
+        policy_type: PolicyType::Conditional {
+            conditions: json!({
+                "context_conditions": [{
+                    "type": "workflow_template",
+                    "steps": steps,
+                    "enforce": "invalid_mode"
+                }]
+            }),
+        },
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    };
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for invalid enforce");
+}
+
+#[test]
+fn test_workflow_template_compile_missing_tool_errors() {
+    let steps = json!([{"then": ["b"]}]);
+    let policy = make_workflow_policy(steps, "strict");
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for missing tool");
+}
+
+#[test]
+fn test_workflow_template_compile_missing_then_errors() {
+    let steps = json!([{"tool": "a"}]);
+    let policy = make_workflow_policy(steps, "strict");
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for missing then");
+}
+
+#[test]
+fn test_workflow_template_compile_duplicate_step_errors() {
+    let steps = json!([
+        {"tool": "a", "then": ["b"]},
+        {"tool": "a", "then": ["c"]}
+    ]);
+    let policy = make_workflow_policy(steps, "strict");
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for duplicate step");
+}
+
+#[test]
+fn test_workflow_template_terminal_node_allowed() {
+    // write_result is a terminal node (appears only as a successor, no step defined).
+    // Calling write_result after process should be allowed.
+    let policy = make_workflow_policy(standard_workflow_steps(), "strict");
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec![
+            "authenticate".to_string(),
+            "read_data".to_string(),
+            "process".to_string(),
+        ],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (terminal node), got {v:?}");
+}
+
+#[test]
+fn test_workflow_template_terminal_no_successor_denies() {
+    // write_result is a terminal node with no successors.
+    // Calling any governed tool after write_result should deny.
+    let policy = make_workflow_policy(standard_workflow_steps(), "strict");
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_data", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec![
+            "authenticate".to_string(),
+            "read_data".to_string(),
+            "process".to_string(),
+            "write_result".to_string(),
+        ],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (no successor after terminal), got {v:?}");
+}

@@ -552,7 +552,7 @@ impl PolicyEngine {
         if !cp.context_conditions.is_empty() {
             match context {
                 Some(ctx) => {
-                    if let Some(denial) = self.check_context_conditions(ctx, cp) {
+                    if let Some(denial) = self.check_context_conditions(ctx, cp, &action.tool) {
                         return Ok(Some(denial));
                     }
                 }

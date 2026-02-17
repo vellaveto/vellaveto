@@ -1416,11 +1416,360 @@ impl PolicyEngine {
                 })
             }
 
+            // ═══════════════════════════════════════════════════
+            // PHASE 40: WORKFLOW-LEVEL POLICY CONSTRAINTS
+            // ═══════════════════════════════════════════════════
+
+            "required_action_sequence" => {
+                Self::compile_action_sequence(obj, policy, true)
+            }
+
+            "forbidden_action_sequence" => {
+                Self::compile_action_sequence(obj, policy, false)
+            }
+
+            "workflow_template" => {
+                Self::compile_workflow_template(obj, policy)
+            }
+
             _ => Err(PolicyValidationError {
                 policy_id: policy.id.clone(),
                 policy_name: policy.name.clone(),
                 reason: format!("Unknown context condition type '{}'", kind),
             }),
         }
+    }
+
+    /// Compile a `required_action_sequence` or `forbidden_action_sequence` condition.
+    ///
+    /// Both share identical parsing; only the resulting variant differs.
+    fn compile_action_sequence(
+        obj: &serde_json::Map<String, serde_json::Value>,
+        policy: &vellaveto_types::Policy,
+        is_required: bool,
+    ) -> Result<CompiledContextCondition, PolicyValidationError> {
+        const MAX_SEQUENCE_STEPS: usize = 20;
+
+        let kind = if is_required {
+            "required_action_sequence"
+        } else {
+            "forbidden_action_sequence"
+        };
+
+        let arr = obj
+            .get("sequence")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: format!("{kind} requires a 'sequence' array"),
+            })?;
+
+        if arr.is_empty() {
+            return Err(PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: format!("{kind} sequence must not be empty"),
+            });
+        }
+
+        if arr.len() > MAX_SEQUENCE_STEPS {
+            return Err(PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: format!(
+                    "{kind} sequence has {} steps (max {MAX_SEQUENCE_STEPS})",
+                    arr.len()
+                ),
+            });
+        }
+
+        let mut sequence = Vec::with_capacity(arr.len());
+        for (i, val) in arr.iter().enumerate() {
+            let s = val.as_str().ok_or_else(|| PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: format!("{kind} sequence[{i}] must be a string"),
+            })?;
+
+            if s.is_empty() {
+                return Err(PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!("{kind} sequence[{i}] must not be empty"),
+                });
+            }
+
+            // Reject control characters in tool names.
+            if s.chars().any(|c| c.is_control()) {
+                return Err(PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!("{kind} sequence[{i}] contains control characters"),
+                });
+            }
+
+            sequence.push(s.to_ascii_lowercase());
+        }
+
+        let ordered = obj
+            .get("ordered")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        if is_required {
+            let deny_reason = format!(
+                "Required action sequence not satisfied for policy '{}'",
+                policy.name
+            );
+            Ok(CompiledContextCondition::RequiredActionSequence {
+                sequence,
+                ordered,
+                deny_reason,
+            })
+        } else {
+            let deny_reason = format!(
+                "Forbidden action sequence detected for policy '{}'",
+                policy.name
+            );
+            Ok(CompiledContextCondition::ForbiddenActionSequence {
+                sequence,
+                ordered,
+                deny_reason,
+            })
+        }
+    }
+
+    /// Compile a `workflow_template` condition.
+    ///
+    /// Parses the `steps` array, computes governed tools, entry points,
+    /// and validates acyclicity via Kahn's algorithm.
+    fn compile_workflow_template(
+        obj: &serde_json::Map<String, serde_json::Value>,
+        policy: &vellaveto_types::Policy,
+    ) -> Result<CompiledContextCondition, PolicyValidationError> {
+        use std::collections::{HashMap, HashSet, VecDeque};
+
+        const MAX_WORKFLOW_STEPS: usize = 50;
+
+        let steps = obj
+            .get("steps")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: "workflow_template requires a 'steps' array".to_string(),
+            })?;
+
+        if steps.is_empty() {
+            return Err(PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: "workflow_template steps must not be empty".to_string(),
+            });
+        }
+
+        if steps.len() > MAX_WORKFLOW_STEPS {
+            return Err(PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: format!(
+                    "workflow_template has {} steps (max {MAX_WORKFLOW_STEPS})",
+                    steps.len()
+                ),
+            });
+        }
+
+        let enforce = obj
+            .get("enforce")
+            .and_then(|v| v.as_str())
+            .unwrap_or("strict");
+
+        let strict = match enforce {
+            "strict" => true,
+            "warn" => false,
+            other => {
+                return Err(PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!(
+                        "workflow_template enforce must be 'strict' or 'warn', got '{other}'"
+                    ),
+                });
+            }
+        };
+
+        let mut adjacency: HashMap<String, Vec<String>> = HashMap::new();
+        let mut governed_tools: HashSet<String> = HashSet::new();
+        let mut seen_tools: HashSet<String> = HashSet::new();
+
+        for (i, step) in steps.iter().enumerate() {
+            let step_obj = step.as_object().ok_or_else(|| PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: format!("workflow_template steps[{i}] must be an object"),
+            })?;
+
+            let tool = step_obj
+                .get("tool")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!("workflow_template steps[{i}] requires a 'tool' string"),
+                })?;
+
+            if tool.is_empty() {
+                return Err(PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!("workflow_template steps[{i}].tool must not be empty"),
+                });
+            }
+
+            if tool.chars().any(|c| c.is_control()) {
+                return Err(PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!("workflow_template steps[{i}].tool contains control characters"),
+                });
+            }
+
+            let tool_lower = tool.to_ascii_lowercase();
+
+            if !seen_tools.insert(tool_lower.clone()) {
+                return Err(PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!(
+                        "workflow_template has duplicate step tool '{tool}'"
+                    ),
+                });
+            }
+
+            let then_arr = step_obj
+                .get("then")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!("workflow_template steps[{i}] requires a 'then' array"),
+                })?;
+
+            let mut successors = Vec::with_capacity(then_arr.len());
+            for (j, v) in then_arr.iter().enumerate() {
+                let s = v.as_str().ok_or_else(|| PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!("workflow_template steps[{i}].then[{j}] must be a string"),
+                })?;
+
+                if s.is_empty() {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "workflow_template steps[{i}].then[{j}] must not be empty"
+                        ),
+                    });
+                }
+
+                if s.chars().any(|c| c.is_control()) {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "workflow_template steps[{i}].then[{j}] contains control characters"
+                        ),
+                    });
+                }
+
+                successors.push(s.to_ascii_lowercase());
+            }
+
+            governed_tools.insert(tool_lower.clone());
+            for succ in &successors {
+                governed_tools.insert(succ.clone());
+            }
+
+            adjacency.insert(tool_lower, successors);
+        }
+
+        // Compute entry points: governed tools with no predecessors.
+        let mut has_predecessor: HashSet<&str> = HashSet::new();
+        for successors in adjacency.values() {
+            for succ in successors {
+                has_predecessor.insert(succ.as_str());
+            }
+        }
+        let entry_points: Vec<String> = governed_tools
+            .iter()
+            .filter(|t| !has_predecessor.contains(t.as_str()))
+            .cloned()
+            .collect();
+
+        if entry_points.is_empty() {
+            return Err(PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: "workflow_template has no entry points (implies cycle)".to_string(),
+            });
+        }
+
+        // Cycle detection via Kahn's algorithm (topological sort).
+        let mut in_degree: HashMap<&str, usize> = HashMap::new();
+        for tool in &governed_tools {
+            in_degree.insert(tool.as_str(), 0);
+        }
+        for successors in adjacency.values() {
+            for succ in successors {
+                if let Some(deg) = in_degree.get_mut(succ.as_str()) {
+                    *deg = deg.saturating_add(1);
+                }
+            }
+        }
+
+        let mut queue: VecDeque<&str> = VecDeque::new();
+        for (tool, deg) in &in_degree {
+            if *deg == 0 {
+                queue.push_back(tool);
+            }
+        }
+
+        let mut visited_count: usize = 0;
+        while let Some(node) = queue.pop_front() {
+            visited_count += 1;
+            if let Some(successors) = adjacency.get(node) {
+                for succ in successors {
+                    if let Some(deg) = in_degree.get_mut(succ.as_str()) {
+                        *deg = deg.saturating_sub(1);
+                        if *deg == 0 {
+                            queue.push_back(succ.as_str());
+                        }
+                    }
+                }
+            }
+        }
+
+        if visited_count < governed_tools.len() {
+            return Err(PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: "workflow_template contains a cycle".to_string(),
+            });
+        }
+
+        let deny_reason = format!(
+            "Workflow template violation for policy '{}'",
+            policy.name
+        );
+
+        Ok(CompiledContextCondition::WorkflowTemplate {
+            adjacency,
+            governed_tools,
+            entry_points,
+            strict,
+            deny_reason,
+        })
     }
 }

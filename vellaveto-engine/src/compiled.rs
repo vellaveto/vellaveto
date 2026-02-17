@@ -8,7 +8,7 @@ use crate::matcher::{CompiledToolMatcher, PatternMatcher};
 use globset::GlobMatcher;
 use ipnet::IpNet;
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use vellaveto_types::Policy;
 
 /// A single pre-compiled parameter constraint with all patterns resolved at load time.
@@ -388,6 +388,59 @@ pub enum CompiledContextCondition {
         /// Allowed session states (e.g., ["active", "init"]).
         /// State names are compared case-insensitively.
         allowed_states: Vec<String>,
+        deny_reason: String,
+    },
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 40: WORKFLOW-LEVEL POLICY CONSTRAINTS
+    // ═══════════════════════════════════════════════════
+
+    /// Require an ordered (or unordered) sequence of tools in session history.
+    ///
+    /// **Ordered:** subsequence match — tools must appear in order, not necessarily
+    /// consecutive (e.g., A→C→B history matches A→B sequence).
+    /// **Unordered:** all tools must appear anywhere in history (set semantics).
+    ///
+    /// Max 20 steps. Fail-closed: empty/shorter history → Deny.
+    RequiredActionSequence {
+        /// Tool names (lowercased at compile time).
+        sequence: Vec<String>,
+        /// `true` = ordered subsequence, `false` = unordered set.
+        ordered: bool,
+        deny_reason: String,
+    },
+
+    /// Deny if a sequence of tools has appeared in session history.
+    ///
+    /// **Ordered:** subsequence match — if all tools found in order → Deny.
+    /// **Unordered:** if all tools present anywhere → Deny.
+    ///
+    /// Max 20 steps. Empty history → Allow (nothing forbidden yet).
+    ForbiddenActionSequence {
+        /// Tool names (lowercased at compile time).
+        sequence: Vec<String>,
+        /// `true` = ordered subsequence, `false` = unordered set.
+        ordered: bool,
+        deny_reason: String,
+    },
+
+    /// Workflow template: DAG of allowed tool transitions.
+    ///
+    /// Non-governed tools pass through (no restriction). Governed tools must
+    /// follow the DAG edges: the current tool must be a valid successor of the
+    /// most recent governed tool in history, or an entry point if no governed
+    /// tool has been called yet.
+    ///
+    /// Max 50 steps. Cycles rejected at compile time via Kahn's algorithm.
+    WorkflowTemplate {
+        /// Tool → valid successor tools.
+        adjacency: HashMap<String, Vec<String>>,
+        /// All tools appearing in the DAG.
+        governed_tools: HashSet<String>,
+        /// Tools with no predecessors (valid starting points).
+        entry_points: Vec<String>,
+        /// `true` = Deny on violation, `false` = warn only.
+        strict: bool,
         deny_reason: String,
     },
 }
