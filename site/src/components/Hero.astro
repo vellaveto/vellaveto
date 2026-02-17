@@ -1,0 +1,35 @@
+---
+---
+<section class="hero">
+  <div class="wrap">
+    <h1><span>Vellaveto</span> &mdash; Runtime Security for AI Agents</h1>
+    <p class="tagline">The MCP firewall that intercepts, evaluates, and enforces policy on every AI agent tool call.</p>
+    <p class="compliance">EU AI Act + NIS2 + DORA compliant</p>
+    <div class="install" id="install">
+      <span class="label">Quick start</span>
+      <code>docker run -p 3000:3000 ghcr.io/paolovella/vellaveto:latest</code>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero{padding:9rem 0 5rem;text-align:center}
+  .hero h1{font-size:clamp(2rem,5vw,3.25rem);font-weight:800;
+    line-height:1.15;margin-bottom:1rem}
+  .hero h1 span{background:var(--grad);-webkit-background-clip:text;
+    -webkit-text-fill-color:transparent}
+  .tagline{font-size:1.125rem;color:var(--muted);margin-bottom:.5rem}
+  .compliance{font-size:.95rem;color:var(--teal);font-weight:600;
+    margin-bottom:2.5rem}
+  .install{background:var(--surface);border:1px solid var(--border);
+    border-radius:.5rem;padding:1rem 1.25rem;max-width:640px;margin:0 auto;
+    display:flex;align-items:center;justify-content:space-between;gap:1rem;
+    font-family:var(--mono);font-size:.875rem;overflow-x:auto}
+  .install code{white-space:nowrap;color:var(--accent)}
+  .label{color:var(--muted);font-size:.75rem;font-family:var(--sans);flex-shrink:0}
+  @media(max-width:600px){
+    .hero{padding:7rem 0 3.5rem}
+    .hero h1{font-size:1.75rem}
+    .install{flex-direction:column;align-items:flex-start}
+  }
+</style>

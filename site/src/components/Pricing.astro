@@ -1,0 +1,72 @@
+---
+---
+<section id="pricing">
+  <div class="wrap">
+    <h2 class="section-title">Self-Serve Plans</h2>
+    <p class="section-sub">Start free, scale as you grow. For teams and startups worldwide.</p>
+    <div class="pricing-grid">
+      <div class="price-card">
+        <div class="tier">Community</div>
+        <div class="price">Free</div>
+        <div class="period">forever</div>
+        <ul>
+          <li>5 MCP servers</li>
+          <li>3 users</li>
+          <li>Full policy engine</li>
+          <li>Audit logging</li>
+          <li>AGPL-3.0 license</li>
+        </ul>
+        <a href="https://github.com/paolovella/vellaveto" class="btn btn-outline">Get Started</a>
+      </div>
+      <div class="price-card featured">
+        <div class="tier">Pro</div>
+        <div class="price">$149</div>
+        <div class="period">/month</div>
+        <ul>
+          <li>25 MCP servers</li>
+          <li>20 users</li>
+          <li>SIEM export (CEF/syslog)</li>
+          <li>OIDC single sign-on</li>
+          <li>Priority support</li>
+        </ul>
+        <a href="#contact" class="btn btn-primary">Coming Soon</a>
+      </div>
+      <div class="price-card">
+        <div class="tier">Enterprise</div>
+        <div class="price">Custom</div>
+        <div class="period">annual</div>
+        <ul>
+          <li>Unlimited servers &amp; users</li>
+          <li>SAML + OIDC SSO</li>
+          <li>RBAC &amp; multi-tenancy</li>
+          <li>HA clustering</li>
+          <li>Dedicated support</li>
+        </ul>
+        <a href="mailto:paolovella1993@gmail.com" class="btn btn-outline">Contact Sales</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .pricing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+    gap:1.5rem;margin-top:2.5rem;align-items:start}
+  .price-card{background:var(--surface);border:1px solid var(--border);
+    border-radius:.5rem;padding:2rem 1.5rem;text-align:center}
+  .price-card.featured{border-color:var(--accent);position:relative}
+  .price-card.featured::before{content:'Most Popular';position:absolute;
+    top:-.75rem;left:50%;transform:translateX(-50%);
+    background:var(--grad);color:#0a0e17;font-size:.7rem;font-weight:700;
+    padding:.25rem .75rem;border-radius:1rem;white-space:nowrap}
+  .tier{font-size:.85rem;font-weight:600;color:var(--teal);
+    text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem}
+  .price{font-size:2.5rem;font-weight:800;
+    background:var(--grad);-webkit-background-clip:text;
+    -webkit-text-fill-color:transparent}
+  .period{font-size:.8rem;color:var(--muted);margin-bottom:1.5rem}
+  .price-card ul{list-style:none;margin-bottom:1.5rem;text-align:left}
+  .price-card li{padding:.35rem 0;font-size:.875rem;color:var(--muted);
+    border-bottom:1px solid var(--border)}
+  .price-card li:last-child{border-bottom:none}
+  .price-card li::before{content:'\2713 ';color:var(--teal);font-weight:700}
+</style>

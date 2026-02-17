@@ -1,0 +1,66 @@
+---
+import Base from '../layouts/Base.astro';
+import Pricing from '../components/Pricing.astro';
+import EnterprisePricing from '../components/EnterprisePricing.astro';
+---
+<Base title="Pricing — Vellaveto" description="Vellaveto pricing plans: free Community tier, self-serve Pro, and enterprise pricing for regulated sectors.">
+  <section class="page-hero">
+    <div class="wrap">
+      <h1>Pricing</h1>
+      <p class="section-sub">Two tracks: self-serve for teams worldwide, enterprise pricing for regulated industries.</p>
+    </div>
+  </section>
+  <hr class="divider" />
+  <Pricing />
+  <hr class="divider" />
+  <EnterprisePricing />
+  <hr class="divider" />
+  <section>
+    <div class="wrap" style="text-align:center">
+      <h2 class="section-title">Feature Comparison</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th>Community</th>
+              <th>Pro</th>
+              <th>Business</th>
+              <th>Enterprise</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>MCP Servers</td><td>5</td><td>25</td><td>100</td><td>Unlimited</td></tr>
+            <tr><td>Users</td><td>3</td><td>20</td><td>Unlimited</td><td>Unlimited</td></tr>
+            <tr><td>Policy Engine</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+            <tr><td>Audit Logging</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+            <tr><td>SIEM Export</td><td>&mdash;</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+            <tr><td>SSO (OIDC)</td><td>&mdash;</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+            <tr><td>SSO (SAML)</td><td>&mdash;</td><td>&mdash;</td><td>Yes</td><td>Yes</td></tr>
+            <tr><td>RBAC</td><td>&mdash;</td><td>&mdash;</td><td>Yes</td><td>Yes</td></tr>
+            <tr><td>Multi-tenancy</td><td>&mdash;</td><td>&mdash;</td><td>Yes</td><td>Yes</td></tr>
+            <tr><td>HA Clustering</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>Yes</td></tr>
+            <tr><td>Compliance Reports</td><td>&mdash;</td><td>&mdash;</td><td>Yes</td><td>Yes</td></tr>
+            <tr><td>NIS2 Evidence</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>Yes</td></tr>
+            <tr><td>Incident Workflow</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>Yes</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .page-hero{padding:8rem 0 3rem;text-align:center}
+  .page-hero h1{font-size:2.5rem;font-weight:800;
+    background:var(--grad);-webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;margin-bottom:.5rem}
+  .table-wrap{overflow-x:auto;margin-top:2rem}
+  table{width:100%;border-collapse:collapse;text-align:center;font-size:.85rem}
+  thead{background:var(--surface)}
+  th{padding:.75rem 1rem;color:var(--accent);font-weight:600;
+    border-bottom:2px solid var(--border);white-space:nowrap}
+  td{padding:.6rem 1rem;border-bottom:1px solid var(--border);color:var(--muted)}
+  tr:hover td{background:rgba(56,189,248,.03)}
+  td:first-child{text-align:left;color:var(--text);font-weight:500}
+</style>

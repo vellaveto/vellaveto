@@ -1,0 +1,34 @@
+---
+import Base from '../layouts/Base.astro';
+import Hero from '../components/Hero.astro';
+import Features from '../components/Features.astro';
+import Compliance from '../components/Compliance.astro';
+import CodeExample from '../components/CodeExample.astro';
+import Audience from '../components/Audience.astro';
+import Stats from '../components/Stats.astro';
+---
+<Base title="Vellaveto — Runtime Security for AI Agents">
+  <Hero />
+  <hr class="divider" />
+  <Features />
+  <hr class="divider" />
+  <Compliance />
+  <hr class="divider" />
+  <CodeExample />
+  <hr class="divider" />
+  <Audience />
+  <hr class="divider" />
+  <Stats />
+  <hr class="divider" />
+  <section>
+    <div class="wrap" style="text-align:center">
+      <h2 class="section-title">Get started</h2>
+      <p class="section-sub">Explore the source, read the docs, or review the license.</p>
+      <div class="links-row">
+        <a href="https://github.com/paolovella/vellaveto" class="btn btn-primary">GitHub Repository</a>
+        <a href="https://github.com/paolovella/vellaveto/tree/main/docs" class="btn btn-outline">Documentation</a>
+        <a href="/pricing" class="btn btn-outline">Pricing</a>
+      </div>
+    </div>
+  </section>
+</Base>

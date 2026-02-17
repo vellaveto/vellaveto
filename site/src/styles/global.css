@@ -1,0 +1,41 @@
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0e17;--surface:#111827;--border:#1e293b;
+  --text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;
+  --accent2:#0ea5e9;--teal:#14b8a6;
+  --grad:linear-gradient(135deg,#0ea5e9,#14b8a6);
+  --mono:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  --max:960px;
+}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);
+  line-height:1.7;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none;transition:color .2s}
+a:hover{color:var(--teal)}
+
+/* Layout */
+.wrap{max-width:var(--max);margin:0 auto;padding:0 1.5rem}
+section{padding:5rem 0}
+
+/* Section titles */
+.section-title{font-size:1.75rem;font-weight:700;margin-bottom:.25rem}
+.section-sub{color:var(--muted);margin-bottom:1rem}
+
+/* Buttons */
+.btn{display:inline-block;padding:.7rem 1.6rem;border-radius:.375rem;
+  font-weight:600;font-size:.9rem;transition:all .2s}
+.btn-primary{background:var(--grad);color:#0a0e17}
+.btn-primary:hover{opacity:.9;color:#0a0e17}
+.btn-outline{border:1px solid var(--border);color:var(--text)}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+.links-row{display:flex;flex-wrap:wrap;gap:1rem;margin-top:2rem;justify-content:center}
+
+/* Divider */
+.divider{border:none;border-top:1px solid var(--border);margin:0}
+
+/* Responsive */
+@media(max-width:600px){
+  section{padding:3.5rem 0}
+  .wrap{padding:0 1rem}
+}

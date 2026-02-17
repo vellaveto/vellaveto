@@ -1,0 +1,196 @@
+---
+import Base from '../layouts/Base.astro';
+---
+<Base title="Compliance — Vellaveto" description="How Vellaveto maps to EU AI Act, NIS2 (D.Lgs. 138/2024), DORA, SOC 2, ISO 42001, and OWASP Top 10 for Agentic Applications.">
+  <section class="page-hero">
+    <div class="wrap">
+      <h1>Compliance Mapping</h1>
+      <p class="section-sub">Detailed mapping of Vellaveto features to European regulatory requirements.</p>
+    </div>
+  </section>
+
+  <hr class="divider" />
+
+  <!-- EU AI Act -->
+  <section>
+    <div class="wrap">
+      <h2 class="section-title">EU AI Act</h2>
+      <p class="section-sub">Regulation (EU) 2024/1689 &mdash; effective August 2, 2026.</p>
+      <div class="compliance-table">
+        <table>
+          <thead>
+            <tr><th>Article</th><th>Requirement</th><th>Vellaveto Feature</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Art 50(2)</td>
+              <td>Transparency: mark AI-generated output</td>
+              <td>VerdictExplanation with configurable verbosity injected into _meta</td>
+            </tr>
+            <tr>
+              <td>Art 10</td>
+              <td>Data governance for training/validation</td>
+              <td>DataGovernanceRecord with classification, purpose, provenance, retention</td>
+            </tr>
+            <tr>
+              <td>Art 12</td>
+              <td>Record-keeping and traceability</td>
+              <td>Tamper-evident audit: SHA-256 chains, Merkle proofs, Ed25519 checkpoints</td>
+            </tr>
+            <tr>
+              <td>Art 14</td>
+              <td>Human oversight</td>
+              <td>RequireApproval verdict, human-in-the-loop workflow with timeout</td>
+            </tr>
+            <tr>
+              <td>Art 9</td>
+              <td>Risk management system</td>
+              <td>Policy engine with risk scoring, ABAC, behavioral anomaly detection</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider" />
+
+  <!-- NIS2 -->
+  <section>
+    <div class="wrap">
+      <h2 class="section-title">NIS2 (D.Lgs. 138/2024)</h2>
+      <p class="section-sub">Italy's implementation of Directive (EU) 2022/2555 on cybersecurity.</p>
+      <div class="compliance-table">
+        <table>
+          <thead>
+            <tr><th>Requirement</th><th>Vellaveto Feature</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Incident notification (24h pre-notifica, 72h notifica, 1M relazione)</td>
+              <td>Incident reporting templates and audit evidence export</td>
+            </tr>
+            <tr>
+              <td>Supply chain security</td>
+              <td>ETDI cryptographic tool verification, version pinning, attestation chains</td>
+            </tr>
+            <tr>
+              <td>Access control and identity management</td>
+              <td>ABAC, RBAC, NHI lifecycle, delegation chains, SSO (OIDC/SAML)</td>
+            </tr>
+            <tr>
+              <td>Continuous monitoring and logging</td>
+              <td>Real-time audit, SIEM export (CEF/syslog/webhook), anomaly detection</td>
+            </tr>
+            <tr>
+              <td>Risk assessment</td>
+              <td>Policy simulation, gap analysis (7 frameworks), compliance evidence</td>
+            </tr>
+            <tr>
+              <td>Business continuity</td>
+              <td>HA clustering, leader election, cross-transport smart fallback</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider" />
+
+  <!-- DORA -->
+  <section>
+    <div class="wrap">
+      <h2 class="section-title">DORA</h2>
+      <p class="section-sub">Regulation (EU) 2022/2554 on digital operational resilience for financial services.</p>
+      <div class="compliance-table">
+        <table>
+          <thead>
+            <tr><th>Chapter</th><th>Requirement</th><th>Vellaveto Feature</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Ch II</td>
+              <td>ICT risk management framework</td>
+              <td>Policy engine, risk scoring, circuit breakers, behavioral monitoring</td>
+            </tr>
+            <tr>
+              <td>Ch III</td>
+              <td>ICT incident management</td>
+              <td>Structured audit events, incident workflow, automated classification</td>
+            </tr>
+            <tr>
+              <td>Ch V</td>
+              <td>ICT third-party risk</td>
+              <td>Supply chain verification, tool registry trust scoring, vendor attestation</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider" />
+
+  <!-- SOC 2 + ISO + OWASP -->
+  <section>
+    <div class="wrap">
+      <h2 class="section-title">Additional Frameworks</h2>
+      <div class="frameworks-grid">
+        <div class="fw-card">
+          <h3>SOC 2 Type II</h3>
+          <p>Automated access review reports with CC6 evidence generation. Trust services criteria mapped to Vellaveto controls. HTML and JSON report export.</p>
+        </div>
+        <div class="fw-card">
+          <h3>ISO 42001</h3>
+          <p>AI management system controls mapped to policy engine features. Risk assessment, monitoring, and continuous improvement evidence.</p>
+        </div>
+        <div class="fw-card">
+          <h3>OWASP Top 10 Agentic 2026</h3>
+          <p>All 10 risks mitigated: prompt injection (ASI01), tool poisoning (ASI02), insecure output (ASI03), rug pull (ASI04), memory poisoning (ASI05), and more.</p>
+        </div>
+        <div class="fw-card">
+          <h3>CoSAI Landscape</h3>
+          <p>38/38 CoSAI controls implemented. Adversa TOP 25: 25/25. 7-framework gap analysis with remediation guidance.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider" />
+
+  <section>
+    <div class="wrap" style="text-align:center">
+      <h2 class="section-title">Need a compliance assessment?</h2>
+      <p class="section-sub">Our Compliance-as-a-Service offering provides auditor-ready evidence packages.</p>
+      <div class="links-row">
+        <a href="/pricing#enterprise-pricing" class="btn btn-primary">View Enterprise Pricing</a>
+        <a href="mailto:paolovella1993@gmail.com" class="btn btn-outline">Contact Us</a>
+      </div>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .page-hero{padding:8rem 0 3rem;text-align:center}
+  .page-hero h1{font-size:2.5rem;font-weight:800;
+    background:var(--grad);-webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;margin-bottom:.5rem}
+
+  .compliance-table{overflow-x:auto;margin-top:1.5rem}
+  .compliance-table table{width:100%;border-collapse:collapse;font-size:.85rem}
+  .compliance-table thead{background:var(--surface)}
+  .compliance-table th{padding:.75rem 1rem;color:var(--accent);font-weight:600;
+    border-bottom:2px solid var(--border);text-align:left;white-space:nowrap}
+  .compliance-table td{padding:.6rem 1rem;border-bottom:1px solid var(--border);
+    color:var(--muted);vertical-align:top}
+  .compliance-table td:first-child{color:var(--text);font-weight:500;white-space:nowrap}
+  .compliance-table tr:hover td{background:rgba(56,189,248,.03)}
+
+  .frameworks-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+    gap:1.25rem;margin-top:2rem}
+  .fw-card{background:var(--surface);border:1px solid var(--border);
+    border-radius:.5rem;padding:1.5rem}
+  .fw-card h3{font-size:1rem;font-weight:700;color:var(--accent);margin-bottom:.5rem}
+  .fw-card p{font-size:.85rem;color:var(--muted);line-height:1.6}
+</style>

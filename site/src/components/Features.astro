@@ -1,0 +1,35 @@
+---
+---
+<section id="features">
+  <div class="wrap">
+    <h2 class="section-title">What it does</h2>
+    <p class="section-sub">Four pillars of runtime protection for autonomous AI systems.</p>
+    <div class="pillars-grid">
+      <div class="pillar">
+        <h3>Intercept</h3>
+        <p>Sits between your AI agent and its tools. Every MCP call passes through Vellaveto before execution.</p>
+      </div>
+      <div class="pillar">
+        <h3>Evaluate</h3>
+        <p>Policy engine scores each request against configurable rules &mdash; scope, sensitivity, blast radius.</p>
+      </div>
+      <div class="pillar">
+        <h3>Enforce</h3>
+        <p>Allow, deny, or require human approval in real time. No tool call runs without clearance.</p>
+      </div>
+      <div class="pillar">
+        <h3>Audit</h3>
+        <p>Tamper-evident trail with SHA-256 chains, Merkle proofs, and Ed25519 checkpoints for compliance and forensics.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .pillars-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:1.5rem;margin-top:2.5rem}
+  .pillar{background:var(--surface);border:1px solid var(--border);
+    border-radius:.5rem;padding:1.75rem}
+  .pillar h3{font-size:1rem;margin-bottom:.5rem;color:var(--accent)}
+  .pillar p{font-size:.875rem;color:var(--muted);line-height:1.6}
+</style>

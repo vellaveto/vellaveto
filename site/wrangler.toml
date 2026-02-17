@@ -2,4 +2,4 @@ name = "vellaveto-site"
 compatibility_date = "2024-09-25"
 
 [site]
-bucket = "."
+bucket = "./dist"

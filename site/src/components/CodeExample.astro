@@ -1,0 +1,34 @@
+---
+---
+<section>
+  <div class="wrap">
+    <h2 class="section-title">Try it</h2>
+    <p class="section-sub">Evaluate a tool call with a single request.</p>
+    <div class="code-block">
+      <span class="comment"># Evaluate an MCP tool call against your policy</span><br>
+      <span class="cmd">curl</span> -X POST http://localhost:3000/api/evaluate \<br>
+      &nbsp;&nbsp;-H <span class="str">"Content-Type: application/json"</span> \<br>
+      &nbsp;&nbsp;-d <span class="str">'</span>&#123;<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"tool"</span>: <span class="str">"filesystem.write"</span>,<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"arguments"</span>: &#123;<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"path"</span>: <span class="str">"/etc/passwd"</span>,<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"content"</span>: <span class="str">"..."</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&#125;,<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"context"</span>: &#123; <span class="key">"agent"</span>: <span class="str">"coding-assistant"</span> &#125;<br>
+      &nbsp;&nbsp;&#125;<span class="str">'</span><br>
+      <br>
+      <span class="comment"># Response: &#123; "decision": "deny", "reason": "write to sensitive system path", ... &#125;</span>
+    </div>
+  </div>
+</section>
+
+<style>
+  .code-block{background:#0d1117;border:1px solid var(--border);
+    border-radius:.5rem;padding:1.25rem 1.5rem;overflow-x:auto;
+    font-family:var(--mono);font-size:.8rem;line-height:1.8;
+    color:#c9d1d9;margin-top:2rem;max-width:640px}
+  .comment{color:#6e7681}
+  .str{color:#a5d6ff}
+  .key{color:#7ee787}
+  .cmd{color:#f0883e}
+</style>

@@ -1,0 +1,36 @@
+---
+---
+<section>
+  <div class="wrap">
+    <h2 class="section-title">By the numbers</h2>
+    <div class="stats-grid">
+      <div class="stat">
+        <div class="num">&lt;5ms</div>
+        <div class="desc">P99 evaluation latency</div>
+      </div>
+      <div class="stat">
+        <div class="num">6,293+</div>
+        <div class="desc">Tests passing</div>
+      </div>
+      <div class="stat">
+        <div class="num">52</div>
+        <div class="desc">Adversarial audit rounds</div>
+      </div>
+      <div class="stat">
+        <div class="num">20</div>
+        <div class="desc">Formally verified properties</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:1.5rem;margin-top:2.5rem;text-align:center}
+  .stat{background:var(--surface);border:1px solid var(--border);
+    border-radius:.5rem;padding:1.75rem 1rem}
+  .num{font-size:1.75rem;font-weight:800;
+    background:var(--grad);-webkit-background-clip:text;
+    -webkit-text-fill-color:transparent}
+  .desc{font-size:.8rem;color:var(--muted);margin-top:.35rem}
+</style>

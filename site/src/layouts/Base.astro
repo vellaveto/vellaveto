@@ -1,0 +1,67 @@
+---
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description = 'MCP firewall for AI agent tool calls. Intercept, evaluate, enforce, and audit every action your agents take. EU AI Act compliant.' } = Astro.props;
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{title}</title>
+  <meta name="description" content={description}>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+</head>
+<body>
+  <nav>
+    <div class="wrap">
+      <a href="/" class="logo">VELLAVETO</a>
+      <div class="nav-links">
+        <a href="/#features">Features</a>
+        <a href="/pricing">Pricing</a>
+        <a href="/compliance">Compliance</a>
+        <a href="https://github.com/paolovella/vellaveto">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <slot />
+
+  <footer>
+    <div class="wrap">
+      <p>Built by <strong>Paolo Vella</strong> &mdash; <a href="mailto:paolovella1993@gmail.com">paolovella1993@gmail.com</a></p>
+      <p class="copy">Vellaveto is licensed under AGPL-3.0. Commercial licenses available. Made in Italy.</p>
+    </div>
+  </footer>
+</body>
+</html>
+
+<style is:global>
+  @import '../styles/global.css';
+
+  /* Nav */
+  nav{position:fixed;top:0;left:0;right:0;z-index:100;
+    background:rgba(10,14,23,.85);backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--border)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;
+    height:3.5rem}
+  .logo{font-weight:700;font-size:1.1rem;letter-spacing:.04em;
+    background:var(--grad);-webkit-background-clip:text;
+    -webkit-text-fill-color:transparent}
+  .nav-links a{margin-left:1.5rem;font-size:.875rem;color:var(--muted)}
+  .nav-links a:hover{color:var(--text)}
+
+  /* Footer */
+  footer{border-top:1px solid var(--border);padding:2.5rem 0;
+    text-align:center;font-size:.85rem;color:var(--muted)}
+  footer a{color:var(--muted)}
+  footer a:hover{color:var(--accent)}
+  footer .copy{margin-top:.5rem;font-size:.75rem}
+
+  @media(max-width:600px){
+    .nav-links a{margin-left:.75rem;font-size:.8rem}
+  }
+</style>
