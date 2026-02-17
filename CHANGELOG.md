@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+#### Round 50 Adversarial Audit (6 P1, 12 P2, 10 P3)
+
+- **FIND-R50-001 (P1):** `Policy::validate()` fail-open on Conditional conditions serialization — `unwrap_or_default()` returned empty string bypassing 65536-byte size check; replaced with `map_err()?` (fail-closed)
+- **FIND-R50-002 (P1):** `NhiDelegationChain.max_depth` attacker-controlled — added `MAX_DELEGATION_DEPTH` constant (20) as hard upper bound; `exceeds_max_depth()` now uses `min(self.max_depth, MAX_DELEGATION_DEPTH)`
+- **FIND-R50-003 (P1):** TypeScript SDK `evaluate()` dropped `target_paths` and `target_domains` from request body — added both fields to match Python/Go SDKs
+- **FIND-R50-004 (P1):** Federation JWT `nbf` (not-before) validation disabled — enabled `validate_nbf = true`
+- **FIND-R50-005 (P1):** Federation JWT audience validation disabled (`validate_aud = false`) — enabled with configurable `expected_audience`
+- **FIND-R50-006 (P1):** Federation JWKS body fully downloaded before size check (OOM) — added `Content-Length` pre-check and chunked bounded read (1MB max)
+- **FIND-R50-007 (P2):** `SecureTask` state_chain/seen_nonces unbounded on deserialization — bounded at `MAX_STATE_CHAIN` (1000) with per-element 256-byte limit
+- **FIND-R50-008 (P2):** `CapabilityGrant` allowed_paths/allowed_domains unbounded — bounded at 1000 entries, 2048 bytes per entry via `validate()`
+- **FIND-R50-009 (P2):** `DidPlcGenesisOperation` 4 unbounded vectors — added `validate()` with 100-entry, 4096-byte per-element bounds
+- **FIND-R50-010 (P2):** `ToolSignature.rekor_entry` unbounded `serde_json::Value` — bounded at 64KB serialized via `validate()`
+- **FIND-R50-011 (P2):** Identity mapping template injection via unsanitized JWT claims — added `sanitize_claim_for_template()` stripping control chars, template syntax, and truncating to 1024 bytes
+- **FIND-R50-012 (P2):** Issuer extracted from unverified JWT for anchor selection — added post-verification issuer re-check against anchor's `issuer_pattern`
+- **FIND-R50-013 (P2):** `find_key_in_jwks` accepted kidless JWK as wildcard — now requires `kid` field, skips kidless with warning
+- **FIND-R50-014 (P2):** JWK algorithm matching used `format!("{:?}")` Debug comparison — replaced with explicit `key_algorithm_to_algorithm()` enum mapping
+- **FIND-R50-015 (P2):** Federation `issuer_pattern` unbounded, bare `*` not rejected — bounded at 2048 bytes, bare `*` rejected in `validate()`
+- **FIND-R50-016 (P2):** Federation `jwks_uri` not validated for SSRF — added private IP/hostname rejection in `validate()`
+- **FIND-R50-017 (P2):** OAuth JWKS fetch same OOM pattern — added Content-Length check and chunked bounded read
+- **FIND-R50-018 (P2):** `issuer_pattern_matches` consecutive wildcard edge cases — normalized `**` → `*`, bounded pattern complexity at 10 segments
+- **FIND-R50-019 (P3):** `SecureTask.resume_token` not redacted in Debug — manual Debug impl with `[REDACTED]`
+- **FIND-R50-020 (P3):** `TaskResumeRequest.resume_token` not redacted in Debug — manual Debug impl with `[REDACTED]`
+- **FIND-R50-021 (P3):** `NhiBehavioralBaseline.active_hours` no 0-23 validation — added range check and 24-entry max in `validate_finite()`
+- **FIND-R50-022 (P3):** `AbacCondition.value` unbounded `serde_json::Value` — bounded at 8KB serialized via `validate()`
+- **FIND-R50-023 (P3):** `FederatedClaims` unbounded extra claims via `#[serde(flatten)]` — bounded at 50 entries post-deserialization
+- **FIND-R50-024 (P3):** RwLock poisoning recovery used partial cache data — write lock poisoning now clears cache
+- **FIND-R50-025 (P3):** `call_chain` serde `unwrap_or(Value::Null)` swallowed errors — added `tracing::warn` on failure
+- **FIND-R50-026 (P3):** SSE injection scanner `all_matches` vector unbounded — capped at 1000 matches
+- **FIND-R50-027 (P3):** Federation JWKS cache TTL/fetch timeout no minimum bounds — enforced 60s min TTL, 1000ms min timeout
+- **FIND-R50-028 (P3):** `extract_claim_value` joins array elements without bounds — capped at 64 elements, 1024 bytes each, 8192 total
+
 #### Round 49 Adversarial Audit (6 P1, 22 P2, 17 P3)
 
 - **FIND-R49-001 (P1):** `EvaluationContext` and `StatelessContextBlob` collection bounds enforced — `call_counts` (10K), `previous_actions` (10K), `call_chain` (100) validated to prevent pre-sanitization OOM via oversized deserialized payloads
