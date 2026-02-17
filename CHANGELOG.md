@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+#### Round 49 Adversarial Audit (6 P1, 17 P2, 10 P3)
+
+- **FIND-R49-001 (P1):** `EvaluationContext` and `StatelessContextBlob` collection bounds enforced — `call_counts` (10K), `previous_actions` (10K), `call_chain` (100) validated to prevent pre-sanitization OOM via oversized deserialized payloads
+- **FIND-R49-002 (P1):** `AccessReviewEntry.usage_ratio` missing `validate_finite()` — NaN could propagate to SDK consumers and silently bypass threshold checks in compliance reporting
+- **FIND-R49-003 (P1):** ZK audit mutex poison details leaked to client in 3 endpoints — replaced with generic "Internal server error" and server-side logging
+- **FIND-R49-004 (P1):** `list_graphs` tool filter scanned all sessions without bound — capped at 10K with input validation (length 256, control chars)
+- **FIND-R49-005 (P1):** Session guard `violation_count`/`anomaly_count` used wrapping `+=` — u32 overflow could reset counters preventing session lock; replaced with `saturating_add`
+- **FIND-R49-006 (P2):** ETDI `is_expired()` timezone bypass — non-UTC timestamps (e.g., `+05:30`) break lexicographic ordering; now rejects as expired (fail-closed)
+- **FIND-R49-007 (P2):** `AgentIdentity.claims` unbounded `HashMap<String, Value>` — bounded at 64 entries with `validate()` method
+- **FIND-R49-008 (P2):** `ShadowAiReport` vectors unbounded on deserialization — bounded to match runtime caps (1000/500/100)
+- **FIND-R49-009 (P2):** Governance inner HashSets (`tools_used`, `requesting_agents`, `advertised_tools`) unbounded — bounded at 1000 each
+- **FIND-R49-010 (P2):** `FederationTrustAnchor.identity_mappings` unbounded — bounded at 64
+- **FIND-R49-011 (P2):** ABAC path normalization ignores engine's `max_path_decode_iterations` — now uses `normalize_path_bounded`
+- **FIND-R49-012 (P2):** `MaxChainDepth` off-by-one (`>` vs `>=`) — fixed to `>=` for consistency with `MaxCalls`
+- **FIND-R49-013 (P2):** Circuit breaker `failure_count`/`success_count` non-saturating `+= 1` — replaced with `saturating_add(1)`
+- **FIND-R49-014 (P2):** Dashboard approve/deny error responses leak debug-formatted internal errors + missing control char validation
+- **FIND-R49-015 (P2):** Audit export `since`/`format` parameters unbounded — validated (64/16 char max, control chars rejected)
+- **FIND-R49-016 (P2):** Shadow AI discovery `approved_tools` lock poisoning fail-open — changed to `unwrap_or(true)` (fail-closed)
+- **FIND-R49-017 (P2):** Access review timestamp comparison fails for non-UTC RFC 3339 — normalized `+00:00` to `Z` before comparison
+- **FIND-R49-018 (P2):** SOC 2 access review loads entire audit log without entry count guard — bounded at 500K
+- **FIND-R49-019 (P2):** `ZkVerifyRequest` missing `deny_unknown_fields` — added; batch_id echo and entry count leak removed
+- **FIND-R49-020 (P3):** `SecureTask.state_chain` unbounded — bounded at 1000 transitions
+- **FIND-R49-021 (P3):** `SdkCapabilities` capability vectors unbounded — bounded at 100/20 with `validate()`
+- **FIND-R49-022 (P3):** `PolicyType::Conditional.conditions` unbounded JSON — size-checked at 64KB in `Policy::validate()`
+- **FIND-R49-023 (P3):** Legacy infix wildcard treated as prefix (fail-open) — changed to match-all (fail-closed)
+- **FIND-R49-024 (P3):** ABAC absent claim treated as empty string matching `*` — absent claims now return no-match
+- **FIND-R49-025 (P3):** Duplicate `[inst]` injection pattern removed; `unreachable!()` replaced with `unsafe { new_unchecked(1) }`
+- **FIND-R49-026 (P3):** Compliance category filter reflects user input in error — fixed message; `GraphListQuery` offset capped at 1M
+
 #### Round 48 Adversarial Audit (2 P1, 10 P2, 4 P3)
 
 - **FIND-R48-001 (P1):** WebSocket canonicalization fail-closed — 6 message type handlers (SamplingRequest, TaskRequest, ExtensionMethod, Elicitation, PassThrough, upstream response) now return errors instead of falling back to original bytes when re-serialization fails, closing TOCTOU gap
