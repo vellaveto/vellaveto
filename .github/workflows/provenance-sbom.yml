@@ -58,6 +58,7 @@ jobs:
           if-no-files-found: error
 
       - name: Attest release binaries provenance
+        if: ${{ github.event.repository.private == false || vars.ENABLE_ATTESTATIONS == 'true' }}
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: |
@@ -65,7 +66,14 @@ jobs:
             target/release/vellaveto-proxy
             target/release/vellaveto-http-proxy
 
+      - name: Skip attestation on private repositories
+        if: ${{ github.event.repository.private == true && vars.ENABLE_ATTESTATIONS != 'true' }}
+        run: |
+          echo "Attestations are unavailable for private user-owned repositories."
+          echo "Set ENABLE_ATTESTATIONS=true once repository settings support this feature."
+
       - name: Verify provenance attestations
+        if: ${{ github.event.repository.private == false || vars.ENABLE_ATTESTATIONS == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
