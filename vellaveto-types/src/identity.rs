@@ -364,15 +364,21 @@ impl EvaluationContext {
     }
 
     /// Validate a single optional identity field: if present, must be non-empty
-    /// and must not contain control characters.
+    /// and must not contain control or Unicode format characters.
+    ///
+    /// SECURITY (FIND-R52-005): Also reject Unicode format characters (category Cf)
+    /// to prevent identity confusion via zero-width chars, bidi overrides, or BOM.
     fn validate_optional_id_field(field: &Option<String>, name: &str) -> Result<(), String> {
         if let Some(value) = field {
             if value.is_empty() {
                 return Err(format!("EvaluationContext {name} is present but empty"));
             }
-            if value.chars().any(|c| c.is_control()) {
+            if value
+                .chars()
+                .any(|c| c.is_control() || Self::is_unicode_format_char(c))
+            {
                 return Err(format!(
-                    "EvaluationContext {name} contains control characters"
+                    "EvaluationContext {name} contains control or format characters"
                 ));
             }
         }

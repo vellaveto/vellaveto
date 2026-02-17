@@ -288,7 +288,9 @@ impl ShadowAiDiscovery {
             .read()
             .map(|r| r.contains(agent_id))
             .unwrap_or_else(|_| {
-                tracing::error!("registered_agents lock poisoned — fail-closed: treating as unregistered");
+                tracing::error!(
+                    "registered_agents lock poisoned — fail-closed: treating as unregistered"
+                );
                 false // fail-closed: unregistered → deny if require_registration enabled
             })
     }
@@ -303,7 +305,9 @@ impl ShadowAiDiscovery {
             .read()
             .map(|r| r.is_empty() || r.contains(tool_name))
             .unwrap_or_else(|_| {
-                tracing::error!("approved_tools lock poisoned — fail-closed: treating as unapproved");
+                tracing::error!(
+                    "approved_tools lock poisoned — fail-closed: treating as unapproved"
+                );
                 false // fail-closed: unapproved → flagged by discovery
             })
     }

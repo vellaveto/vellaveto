@@ -290,6 +290,11 @@ Test naming: `test_<function>_<scenario>_<expected>`
 
 ## Common Mistakes to Avoid
 
+> **Full orientation protocol:** See `.claude/rules/onboarding.md` for the
+> complete 17-trap checklist, transport parity matrix, and verification gates.
+> Every instance MUST read it before modifying code.
+
+### General
 1. **Adding dependencies without justification** — every dep is attack surface
 2. **Using `unwrap()` in library code** — use `?` or `ok_or_else()`
 3. **Cloning when borrowing works** — check if `&T` suffices
@@ -298,6 +303,17 @@ Test naming: `test_<function>_<scenario>_<expected>`
 6. **Async where sync suffices** — the engine is synchronous by design
 7. **Silent failures** — every error must be observable
 8. **Premature optimization** — measure first, optimize proven hot spots
+
+### Discovered from 52 audit rounds (top causes of breakage)
+9. **Changing error messages without grepping tests** — tests assert on exact substrings; grep `tests.rs` for the old string before changing
+10. **Using a name-similar constant** — `MAX_ID_LENGTH` vs `MAX_SERVER_ID_LENGTH` are different; verify the doc comment matches your domain
+11. **Adding unbounded collections** — every `Vec`/`HashMap`/`HashSet` needs a `MAX_*` constant enforced in `validate()`
+12. **Fail-open defaults** — defaults and error branches must produce `Deny`, not `Allow`; `unwrap_or(true)` on a lock is a security bypass
+13. **Missing transport parity** — if HTTP handler has a check, WebSocket/gRPC/stdio/SSE must too; see `.claude/rules/onboarding.md` Section 4
+14. **Leaking secrets in `Debug`** — custom `Debug` impl required for types with keys, tokens, or signatures
+15. **SDK payload format drift** — all 3 SDKs must match server's serde layout; test after any server format change
+16. **Numeric fields without range validation** — `f64` scores need `[0.0, 1.0]` checks; `NaN`/`Infinity` bypass thresholds
+17. **Counters without saturating arithmetic** — `+= 1` wraps to zero; use `saturating_add` for rate limits and circuit breakers
 
 ---
 
