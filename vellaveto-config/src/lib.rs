@@ -108,7 +108,10 @@ pub use config_validate::{
     MAX_ALLOWED_SERVERS, MAX_CUSTOM_PII_PATTERNS, MAX_DISABLED_INJECTION_PATTERNS,
     MAX_EXTRA_INJECTION_PATTERNS, MAX_KNOWN_TOOL_NAMES, MAX_POLICIES, MAX_TRUSTED_KEYS,
 };
-pub use deployment::{DeploymentConfig, DeploymentMode, LeaderElectionConfig, ServiceDiscoveryConfig, ServiceDiscoveryMode};
+pub use deployment::{
+    DeploymentConfig, DeploymentMode, LeaderElectionConfig, ServiceDiscoveryConfig,
+    ServiceDiscoveryMode,
+};
 pub use discovery::DiscoveryConfig;
 pub use extension::ExtensionConfig;
 pub use fips::FipsConfig;
@@ -119,8 +122,8 @@ pub use limits::LimitsConfig;
 pub use policy_rule::PolicyRule;
 pub use projector::ProjectorConfig;
 pub use tool_registry::ToolRegistryConfig;
-pub use zk_audit::ZkAuditConfig;
 pub use transport::TransportConfig;
+pub use zk_audit::ZkAuditConfig;
 
 use serde::{Deserialize, Serialize};
 use vellaveto_types::{Policy, PolicyType};

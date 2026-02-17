@@ -10,7 +10,12 @@ use mcpsec::{AttackResult, BenchmarkResult, BenchmarkSummary, PropertyScore};
 #[test]
 fn test_attack_registry_has_64_tests() {
     let tests = attacks::all_tests();
-    assert_eq!(tests.len(), 64, "Expected 64 test cases, got {}", tests.len());
+    assert_eq!(
+        tests.len(),
+        64,
+        "Expected 64 test cases, got {}",
+        tests.len()
+    );
 }
 
 #[test]

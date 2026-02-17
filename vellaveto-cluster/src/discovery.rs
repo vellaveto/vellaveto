@@ -24,8 +24,5 @@ pub trait ServiceDiscovery: Send + Sync {
     /// does not support watching (e.g., static discovery).
     async fn watch(
         &self,
-    ) -> Result<
-        Option<tokio::sync::mpsc::Receiver<vellaveto_types::DiscoveryEvent>>,
-        ClusterError,
-    >;
+    ) -> Result<Option<tokio::sync::mpsc::Receiver<vellaveto_types::DiscoveryEvent>>, ClusterError>;
 }

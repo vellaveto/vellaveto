@@ -28,12 +28,8 @@ const MAX_SCHEMA_DEPTH: usize = 32;
 /// SECURITY (FIND-R46-005): Measure JSON value nesting depth.
 fn json_depth(value: &serde_json::Value) -> usize {
     match value {
-        serde_json::Value::Object(map) => {
-            1 + map.values().map(json_depth).max().unwrap_or(0)
-        }
-        serde_json::Value::Array(arr) => {
-            1 + arr.iter().map(json_depth).max().unwrap_or(0)
-        }
+        serde_json::Value::Object(map) => 1 + map.values().map(json_depth).max().unwrap_or(0),
+        serde_json::Value::Array(arr) => 1 + arr.iter().map(json_depth).max().unwrap_or(0),
         _ => 1,
     }
 }
@@ -98,9 +94,7 @@ fn parse_model_family(s: &str) -> ModelFamily {
         "deepseek" => ModelFamily::DeepSeek,
         "qwen" => ModelFamily::Qwen,
         "generic" => ModelFamily::Generic,
-        other if other.starts_with("custom:") => {
-            ModelFamily::Custom(other[7..].to_string())
-        }
+        other if other.starts_with("custom:") => ModelFamily::Custom(other[7..].to_string()),
         other => ModelFamily::Custom(other.to_string()),
     }
 }

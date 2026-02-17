@@ -325,7 +325,10 @@ mod tests {
     #[test]
     fn test_did_plc_serde_rejects_invalid() {
         let result: Result<DidPlc, _> = serde_json::from_str("\"arbitrary-string\"");
-        assert!(result.is_err(), "Invalid DID:PLC must be rejected on deserialization");
+        assert!(
+            result.is_err(),
+            "Invalid DID:PLC must be rejected on deserialization"
+        );
     }
 
     #[test]

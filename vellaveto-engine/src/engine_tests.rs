@@ -8609,8 +8609,12 @@ fn test_legacy_sort_deterministic_with_same_priority_and_type() {
     };
 
     // Pass in reverse ID order to exercise the sort path
-    let verdict1 = engine.evaluate_action(&action, &[policy_z.clone(), policy_a.clone()]).unwrap();
-    let verdict2 = engine.evaluate_action(&action, &[policy_a.clone(), policy_z.clone()]).unwrap();
+    let verdict1 = engine
+        .evaluate_action(&action, &[policy_z.clone(), policy_a.clone()])
+        .unwrap();
+    let verdict2 = engine
+        .evaluate_action(&action, &[policy_a.clone(), policy_z.clone()])
+        .unwrap();
 
     // Both orderings should produce the same result (deterministic)
     assert_eq!(
@@ -8865,7 +8869,12 @@ fn test_compile_policies_collects_all_errors_not_just_first() {
         },
     ];
     let errors = PolicyEngine::compile_policies(&policies, false).unwrap_err();
-    assert_eq!(errors.len(), 2, "Should collect all errors, got: {:?}", errors);
+    assert_eq!(
+        errors.len(),
+        2,
+        "Should collect all errors, got: {:?}",
+        errors
+    );
 }
 
 #[test]
@@ -9289,7 +9298,13 @@ fn test_compile_constraint_regex_invalid_pattern_fails() {
 #[test]
 fn test_compile_constraint_regex_dfa_size_limit() {
     // A regex pattern that compiles to a very large DFA
-    let big_pattern = format!("({})", (0..100).map(|i| format!("a{{{}}}", i + 100)).collect::<Vec<_>>().join("|"));
+    let big_pattern = format!(
+        "({})",
+        (0..100)
+            .map(|i| format!("a{{{}}}", i + 100))
+            .collect::<Vec<_>>()
+            .join("|")
+    );
     let policies = vec![Policy {
         id: "tool:*".to_string(),
         name: "Big regex".to_string(),
@@ -9363,9 +9378,13 @@ fn make_conditional_policy(id: &str, name: &str, conditions: serde_json::Value) 
 #[test]
 fn test_constraint_glob_match_fires() {
     let action = make_action("fs", "read", json!({"path": "/etc/passwd"}));
-    let policy = make_conditional_policy("fs:*", "Block etc", json!({
-        "parameter_constraints": [{"param": "path", "op": "glob", "pattern": "/etc/**"}]
-    }));
+    let policy = make_conditional_policy(
+        "fs:*",
+        "Block etc",
+        json!({
+            "parameter_constraints": [{"param": "path", "op": "glob", "pattern": "/etc/**"}]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -9374,9 +9393,13 @@ fn test_constraint_glob_match_fires() {
 #[test]
 fn test_constraint_glob_no_match_allows() {
     let action = make_action("fs", "read", json!({"path": "/home/user/file.txt"}));
-    let policy = make_conditional_policy("fs:*", "Block etc", json!({
-        "parameter_constraints": [{"param": "path", "op": "glob", "pattern": "/etc/**"}]
-    }));
+    let policy = make_conditional_policy(
+        "fs:*",
+        "Block etc",
+        json!({
+            "parameter_constraints": [{"param": "path", "op": "glob", "pattern": "/etc/**"}]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Allow));
@@ -9385,9 +9408,13 @@ fn test_constraint_glob_no_match_allows() {
 #[test]
 fn test_constraint_glob_non_string_denies_non_strict() {
     let action = make_action("fs", "read", json!({"path": 42}));
-    let policy = make_conditional_policy("fs:*", "Block", json!({
-        "parameter_constraints": [{"param": "path", "op": "glob", "pattern": "/etc/**"}]
-    }));
+    let policy = make_conditional_policy(
+        "fs:*",
+        "Block",
+        json!({
+            "parameter_constraints": [{"param": "path", "op": "glob", "pattern": "/etc/**"}]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -9396,13 +9423,17 @@ fn test_constraint_glob_non_string_denies_non_strict() {
 #[test]
 fn test_constraint_not_glob_outside_allowlist_fires() {
     let action = make_action("fs", "write", json!({"path": "/tmp/evil"}));
-    let policy = make_conditional_policy("fs:*", "Not in safe", json!({
-        "parameter_constraints": [{
-            "param": "path",
-            "op": "not_glob",
-            "patterns": ["/home/**", "/var/data/**"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "fs:*",
+        "Not in safe",
+        json!({
+            "parameter_constraints": [{
+                "param": "path",
+                "op": "not_glob",
+                "patterns": ["/home/**", "/var/data/**"]
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -9411,13 +9442,17 @@ fn test_constraint_not_glob_outside_allowlist_fires() {
 #[test]
 fn test_constraint_not_glob_in_allowlist_allows() {
     let action = make_action("fs", "write", json!({"path": "/home/user/doc.txt"}));
-    let policy = make_conditional_policy("fs:*", "Safe paths", json!({
-        "parameter_constraints": [{
-            "param": "path",
-            "op": "not_glob",
-            "patterns": ["/home/**"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "fs:*",
+        "Safe paths",
+        json!({
+            "parameter_constraints": [{
+                "param": "path",
+                "op": "not_glob",
+                "patterns": ["/home/**"]
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Allow));
@@ -9426,13 +9461,17 @@ fn test_constraint_not_glob_in_allowlist_allows() {
 #[test]
 fn test_constraint_regex_match_fires() {
     let action = make_action("net", "fetch", json!({"url": "http://evil.com/steal"}));
-    let policy = make_conditional_policy("net:*", "Block evil", json!({
-        "parameter_constraints": [{
-            "param": "url",
-            "op": "regex",
-            "pattern": "evil\\.com"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "net:*",
+        "Block evil",
+        json!({
+            "parameter_constraints": [{
+                "param": "url",
+                "op": "regex",
+                "pattern": "evil\\.com"
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -9441,13 +9480,17 @@ fn test_constraint_regex_match_fires() {
 #[test]
 fn test_constraint_regex_no_match_allows() {
     let action = make_action("net", "fetch", json!({"url": "http://good.com/api"}));
-    let policy = make_conditional_policy("net:*", "Block evil", json!({
-        "parameter_constraints": [{
-            "param": "url",
-            "op": "regex",
-            "pattern": "evil\\.com"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "net:*",
+        "Block evil",
+        json!({
+            "parameter_constraints": [{
+                "param": "url",
+                "op": "regex",
+                "pattern": "evil\\.com"
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Allow));
@@ -9456,13 +9499,17 @@ fn test_constraint_regex_no_match_allows() {
 #[test]
 fn test_constraint_domain_match_fires() {
     let action = make_action("net", "fetch", json!({"url": "https://sub.evil.com/api"}));
-    let policy = make_conditional_policy("net:*", "Block evil domain", json!({
-        "parameter_constraints": [{
-            "param": "url",
-            "op": "domain_match",
-            "pattern": "*.evil.com"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "net:*",
+        "Block evil domain",
+        json!({
+            "parameter_constraints": [{
+                "param": "url",
+                "op": "domain_match",
+                "pattern": "*.evil.com"
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -9471,13 +9518,17 @@ fn test_constraint_domain_match_fires() {
 #[test]
 fn test_constraint_domain_match_no_match_allows() {
     let action = make_action("net", "fetch", json!({"url": "https://good.com/api"}));
-    let policy = make_conditional_policy("net:*", "Block evil domain", json!({
-        "parameter_constraints": [{
-            "param": "url",
-            "op": "domain_match",
-            "pattern": "*.evil.com"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "net:*",
+        "Block evil domain",
+        json!({
+            "parameter_constraints": [{
+                "param": "url",
+                "op": "domain_match",
+                "pattern": "*.evil.com"
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Allow));
@@ -9486,13 +9537,17 @@ fn test_constraint_domain_match_no_match_allows() {
 #[test]
 fn test_constraint_domain_not_in_fires() {
     let action = make_action("net", "fetch", json!({"url": "https://unauthorized.com"}));
-    let policy = make_conditional_policy("net:*", "Only good domains", json!({
-        "parameter_constraints": [{
-            "param": "url",
-            "op": "domain_not_in",
-            "patterns": ["good.com", "api.good.com"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "net:*",
+        "Only good domains",
+        json!({
+            "parameter_constraints": [{
+                "param": "url",
+                "op": "domain_not_in",
+                "patterns": ["good.com", "api.good.com"]
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -9501,13 +9556,17 @@ fn test_constraint_domain_not_in_fires() {
 #[test]
 fn test_constraint_eq_match_fires() {
     let action = make_action("db", "query", json!({"mode": "delete"}));
-    let policy = make_conditional_policy("db:*", "Block delete", json!({
-        "parameter_constraints": [{
-            "param": "mode",
-            "op": "eq",
-            "value": "delete"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "db:*",
+        "Block delete",
+        json!({
+            "parameter_constraints": [{
+                "param": "mode",
+                "op": "eq",
+                "value": "delete"
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -9516,13 +9575,17 @@ fn test_constraint_eq_match_fires() {
 #[test]
 fn test_constraint_eq_no_match_allows() {
     let action = make_action("db", "query", json!({"mode": "read"}));
-    let policy = make_conditional_policy("db:*", "Block delete", json!({
-        "parameter_constraints": [{
-            "param": "mode",
-            "op": "eq",
-            "value": "delete"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "db:*",
+        "Block delete",
+        json!({
+            "parameter_constraints": [{
+                "param": "mode",
+                "op": "eq",
+                "value": "delete"
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Allow));
@@ -9531,13 +9594,17 @@ fn test_constraint_eq_no_match_allows() {
 #[test]
 fn test_constraint_ne_fires_when_not_equal() {
     let action = make_action("tool", "op", json!({"env": "staging"}));
-    let policy = make_conditional_policy("tool:*", "Not prod", json!({
-        "parameter_constraints": [{
-            "param": "env",
-            "op": "ne",
-            "value": "production"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Not prod",
+        json!({
+            "parameter_constraints": [{
+                "param": "env",
+                "op": "ne",
+                "value": "production"
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -9546,13 +9613,17 @@ fn test_constraint_ne_fires_when_not_equal() {
 #[test]
 fn test_constraint_one_of_fires_when_in_set() {
     let action = make_action("tool", "op", json!({"format": "exe"}));
-    let policy = make_conditional_policy("tool:*", "Block dangerous formats", json!({
-        "parameter_constraints": [{
-            "param": "format",
-            "op": "one_of",
-            "values": ["exe", "bat", "cmd"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Block dangerous formats",
+        json!({
+            "parameter_constraints": [{
+                "param": "format",
+                "op": "one_of",
+                "values": ["exe", "bat", "cmd"]
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -9561,13 +9632,17 @@ fn test_constraint_one_of_fires_when_in_set() {
 #[test]
 fn test_constraint_one_of_allows_when_not_in_set() {
     let action = make_action("tool", "op", json!({"format": "txt"}));
-    let policy = make_conditional_policy("tool:*", "Block dangerous formats", json!({
-        "parameter_constraints": [{
-            "param": "format",
-            "op": "one_of",
-            "values": ["exe", "bat", "cmd"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Block dangerous formats",
+        json!({
+            "parameter_constraints": [{
+                "param": "format",
+                "op": "one_of",
+                "values": ["exe", "bat", "cmd"]
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Allow));
@@ -9576,13 +9651,17 @@ fn test_constraint_one_of_allows_when_not_in_set() {
 #[test]
 fn test_constraint_none_of_fires_when_not_in_set() {
     let action = make_action("tool", "op", json!({"format": "unknown"}));
-    let policy = make_conditional_policy("tool:*", "Only safe formats", json!({
-        "parameter_constraints": [{
-            "param": "format",
-            "op": "none_of",
-            "values": ["txt", "pdf", "json"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Only safe formats",
+        json!({
+            "parameter_constraints": [{
+                "param": "format",
+                "op": "none_of",
+                "values": ["txt", "pdf", "json"]
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -9591,13 +9670,17 @@ fn test_constraint_none_of_fires_when_not_in_set() {
 #[test]
 fn test_constraint_none_of_allows_when_in_set() {
     let action = make_action("tool", "op", json!({"format": "pdf"}));
-    let policy = make_conditional_policy("tool:*", "Only safe formats", json!({
-        "parameter_constraints": [{
-            "param": "format",
-            "op": "none_of",
-            "values": ["txt", "pdf", "json"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Only safe formats",
+        json!({
+            "parameter_constraints": [{
+                "param": "format",
+                "op": "none_of",
+                "values": ["txt", "pdf", "json"]
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Allow));
@@ -9605,17 +9688,25 @@ fn test_constraint_none_of_allows_when_in_set() {
 
 #[test]
 fn test_constraint_wildcard_param_scans_all_values() {
-    let action = make_action("tool", "op", json!({
-        "a": "safe",
-        "b": "/etc/shadow"
-    }));
-    let policy = make_conditional_policy("tool:*", "Block etc in any param", json!({
-        "parameter_constraints": [{
-            "param": "*",
-            "op": "glob",
-            "pattern": "/etc/**"
-        }]
-    }));
+    let action = make_action(
+        "tool",
+        "op",
+        json!({
+            "a": "safe",
+            "b": "/etc/shadow"
+        }),
+    );
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Block etc in any param",
+        json!({
+            "parameter_constraints": [{
+                "param": "*",
+                "op": "glob",
+                "pattern": "/etc/**"
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -9624,14 +9715,18 @@ fn test_constraint_wildcard_param_scans_all_values() {
 #[test]
 fn test_constraint_missing_param_on_missing_skip() {
     let action = make_action("tool", "op", json!({"other": "value"}));
-    let policy = make_conditional_policy("tool:*", "Skip missing", json!({
-        "parameter_constraints": [{
-            "param": "nonexistent",
-            "op": "eq",
-            "value": "x",
-            "on_missing": "skip"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Skip missing",
+        json!({
+            "parameter_constraints": [{
+                "param": "nonexistent",
+                "op": "eq",
+                "value": "x",
+                "on_missing": "skip"
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     // With on_missing: skip and no other constraints, all constraints are skipped → fail-closed
@@ -9641,14 +9736,18 @@ fn test_constraint_missing_param_on_missing_skip() {
 #[test]
 fn test_constraint_missing_param_on_missing_deny() {
     let action = make_action("tool", "op", json!({"other": "value"}));
-    let policy = make_conditional_policy("tool:*", "Deny missing", json!({
-        "parameter_constraints": [{
-            "param": "required_param",
-            "op": "eq",
-            "value": "x",
-            "on_missing": "deny"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Deny missing",
+        json!({
+            "parameter_constraints": [{
+                "param": "required_param",
+                "op": "eq",
+                "value": "x",
+                "on_missing": "deny"
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -9656,16 +9755,24 @@ fn test_constraint_missing_param_on_missing_deny() {
 
 #[test]
 fn test_constraint_nested_param_path() {
-    let action = make_action("tool", "op", json!({
-        "config": {"output": {"path": "/etc/shadow"}}
-    }));
-    let policy = make_conditional_policy("tool:*", "Block nested path", json!({
-        "parameter_constraints": [{
-            "param": "config.output.path",
-            "op": "glob",
-            "pattern": "/etc/**"
-        }]
-    }));
+    let action = make_action(
+        "tool",
+        "op",
+        json!({
+            "config": {"output": {"path": "/etc/shadow"}}
+        }),
+    );
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Block nested path",
+        json!({
+            "parameter_constraints": [{
+                "param": "config.output.path",
+                "op": "glob",
+                "pattern": "/etc/**"
+            }]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -9674,27 +9781,39 @@ fn test_constraint_nested_param_path() {
 #[test]
 fn test_constraint_all_skipped_fail_closed() {
     let action = make_action("tool", "op", json!({"x": "y"}));
-    let policy = make_conditional_policy("tool:*", "All skip", json!({
-        "parameter_constraints": [
-            {"param": "missing1", "op": "eq", "value": "a", "on_missing": "skip"},
-            {"param": "missing2", "op": "eq", "value": "b", "on_missing": "skip"}
-        ]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "All skip",
+        json!({
+            "parameter_constraints": [
+                {"param": "missing1", "op": "eq", "value": "a", "on_missing": "skip"},
+                {"param": "missing2", "op": "eq", "value": "b", "on_missing": "skip"}
+            ]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
-    assert!(matches!(verdict, Verdict::Deny { .. }), "All skipped should fail-closed, got: {:?}", verdict);
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "All skipped should fail-closed, got: {:?}",
+        verdict
+    );
 }
 
 #[test]
 fn test_constraint_all_skipped_on_no_match_continue_returns_none() {
     let action = make_action("tool", "op", json!({"x": "y"}));
     let policies = vec![
-        make_conditional_policy("tool:*", "Skip continue", json!({
-            "on_no_match": "continue",
-            "parameter_constraints": [
-                {"param": "missing", "op": "eq", "value": "a", "on_missing": "skip"}
-            ]
-        })),
+        make_conditional_policy(
+            "tool:*",
+            "Skip continue",
+            json!({
+                "on_no_match": "continue",
+                "parameter_constraints": [
+                    {"param": "missing", "op": "eq", "value": "a", "on_missing": "skip"}
+                ]
+            }),
+        ),
         Policy {
             id: "tool:*:allow".to_string(),
             name: "Fallback allow".to_string(),
@@ -9706,15 +9825,22 @@ fn test_constraint_all_skipped_on_no_match_continue_returns_none() {
     ];
     let engine = PolicyEngine::with_policies(false, &policies).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
-    assert!(matches!(verdict, Verdict::Allow), "on_no_match=continue should fall through to allow");
+    assert!(
+        matches!(verdict, Verdict::Allow),
+        "on_no_match=continue should fall through to allow"
+    );
 }
 
 #[test]
 fn test_constraint_require_approval_returns_require_approval() {
     let action = make_action("tool", "op", json!({}));
-    let policy = make_conditional_policy("tool:*", "Approval", json!({
-        "require_approval": true
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Approval",
+        json!({
+            "require_approval": true
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::RequireApproval { .. }));
@@ -9723,9 +9849,13 @@ fn test_constraint_require_approval_returns_require_approval() {
 #[test]
 fn test_constraint_forbidden_parameter_present_denies() {
     let action = make_action("tool", "op", json!({"secret": "value"}));
-    let policy = make_conditional_policy("tool:*", "No secrets", json!({
-        "forbidden_parameters": ["secret"]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "No secrets",
+        json!({
+            "forbidden_parameters": ["secret"]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -9734,9 +9864,13 @@ fn test_constraint_forbidden_parameter_present_denies() {
 #[test]
 fn test_constraint_required_parameter_missing_denies() {
     let action = make_action("tool", "op", json!({"other": "value"}));
-    let policy = make_conditional_policy("tool:*", "Need path", json!({
-        "required_parameters": ["path"]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Need path",
+        json!({
+            "required_parameters": ["path"]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -9745,9 +9879,13 @@ fn test_constraint_required_parameter_missing_denies() {
 #[test]
 fn test_constraint_traced_vs_non_traced_consistency() {
     let action = make_action("fs", "read", json!({"path": "/etc/passwd"}));
-    let policy = make_conditional_policy("fs:*", "Block etc", json!({
-        "parameter_constraints": [{"param": "path", "op": "glob", "pattern": "/etc/**"}]
-    }));
+    let policy = make_conditional_policy(
+        "fs:*",
+        "Block etc",
+        json!({
+            "parameter_constraints": [{"param": "path", "op": "glob", "pattern": "/etc/**"}]
+        }),
+    );
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
 
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
@@ -9772,19 +9910,29 @@ fn test_context_time_window_within_allows() {
     let ctx = EvaluationContext::builder()
         .timestamp("2024-06-15T10:00:00Z".to_string()) // Saturday, 10:00
         .build();
-    let policy = make_conditional_policy("tool:*", "Business hours", json!({
-        "context_conditions": [{
-            "type": "time_window",
-            "start_hour": 9,
-            "end_hour": 17,
-            "days": [6]  // Saturday
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Business hours",
+        json!({
+            "context_conditions": [{
+                "type": "time_window",
+                "start_hour": 9,
+                "end_hour": 17,
+                "days": [6]  // Saturday
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let mut engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     engine.set_trust_context_timestamps(true);
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
-    assert!(matches!(verdict, Verdict::Allow), "Within window should allow, got: {:?}", verdict);
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(verdict, Verdict::Allow),
+        "Within window should allow, got: {:?}",
+        verdict
+    );
 }
 
 #[test]
@@ -9792,18 +9940,24 @@ fn test_context_time_window_outside_denies() {
     let ctx = EvaluationContext::builder()
         .timestamp("2024-06-15T22:00:00Z".to_string()) // Saturday, 22:00
         .build();
-    let policy = make_conditional_policy("tool:*", "Business hours", json!({
-        "context_conditions": [{
-            "type": "time_window",
-            "start_hour": 9,
-            "end_hour": 17,
-            "days": [6]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Business hours",
+        json!({
+            "context_conditions": [{
+                "type": "time_window",
+                "start_hour": 9,
+                "end_hour": 17,
+                "days": [6]
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let mut engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     engine.set_trust_context_timestamps(true);
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
@@ -9813,18 +9967,24 @@ fn test_context_time_window_midnight_wrap_compiled() {
     let ctx = EvaluationContext::builder()
         .timestamp("2024-06-15T23:00:00Z".to_string())
         .build();
-    let policy = make_conditional_policy("tool:*", "Night shift", json!({
-        "context_conditions": [{
-            "type": "time_window",
-            "start_hour": 22,
-            "end_hour": 6,
-            "days": []
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Night shift",
+        json!({
+            "context_conditions": [{
+                "type": "time_window",
+                "start_hour": 22,
+                "end_hour": 6,
+                "days": []
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let mut engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     engine.set_trust_context_timestamps(true);
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Allow));
 }
 
@@ -9834,18 +9994,24 @@ fn test_context_time_window_wrong_day_denies_compiled() {
     let ctx = EvaluationContext::builder()
         .timestamp("2024-06-18T10:00:00Z".to_string()) // Tuesday
         .build();
-    let policy = make_conditional_policy("tool:*", "Monday only", json!({
-        "context_conditions": [{
-            "type": "time_window",
-            "start_hour": 0,
-            "end_hour": 23,
-            "days": [1]  // Monday only
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Monday only",
+        json!({
+            "context_conditions": [{
+                "type": "time_window",
+                "start_hour": 0,
+                "end_hour": 23,
+                "days": [1]  // Monday only
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let mut engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     engine.set_trust_context_timestamps(true);
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
@@ -9854,18 +10020,24 @@ fn test_context_time_window_empty_days_allows_any_day() {
     let ctx = EvaluationContext::builder()
         .timestamp("2024-06-18T10:00:00Z".to_string()) // Tuesday 10:00
         .build();
-    let policy = make_conditional_policy("tool:*", "Any day", json!({
-        "context_conditions": [{
-            "type": "time_window",
-            "start_hour": 9,
-            "end_hour": 17,
-            "days": []
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Any day",
+        json!({
+            "context_conditions": [{
+                "type": "time_window",
+                "start_hour": 9,
+                "end_hour": 17,
+                "days": []
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let mut engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
     engine.set_trust_context_timestamps(true);
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Allow));
 }
 
@@ -9873,19 +10045,23 @@ fn test_context_time_window_empty_days_allows_any_day() {
 fn test_context_max_calls_under_limit_allows() {
     let mut counts = std::collections::HashMap::new();
     counts.insert("tool:op".to_string(), 5u64);
-    let ctx = EvaluationContext::builder()
-        .call_counts(counts)
-        .build();
-    let policy = make_conditional_policy("tool:*", "Rate limit", json!({
-        "context_conditions": [{
-            "type": "max_calls",
-            "tool_pattern": "*",
-            "max": 10
-        }]
-    }));
+    let ctx = EvaluationContext::builder().call_counts(counts).build();
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Rate limit",
+        json!({
+            "context_conditions": [{
+                "type": "max_calls",
+                "tool_pattern": "*",
+                "max": 10
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Allow));
 }
 
@@ -9893,56 +10069,73 @@ fn test_context_max_calls_under_limit_allows() {
 fn test_context_max_calls_at_limit_denies_compiled() {
     let mut counts = std::collections::HashMap::new();
     counts.insert("tool:op".to_string(), 10u64);
-    let ctx = EvaluationContext::builder()
-        .call_counts(counts)
-        .build();
-    let policy = make_conditional_policy("tool:*", "Rate limit", json!({
-        "context_conditions": [{
-            "type": "max_calls",
-            "tool_pattern": "*",
-            "max": 10
-        }]
-    }));
+    let ctx = EvaluationContext::builder().call_counts(counts).build();
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Rate limit",
+        json!({
+            "context_conditions": [{
+                "type": "max_calls",
+                "tool_pattern": "*",
+                "max": 10
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
 #[test]
 fn test_context_max_calls_empty_counts_fail_closed() {
     let ctx = make_context(); // empty call_counts
-    let policy = make_conditional_policy("tool:*", "Rate limit", json!({
-        "context_conditions": [{
-            "type": "max_calls",
-            "tool_pattern": "*",
-            "max": 10
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Rate limit",
+        json!({
+            "context_conditions": [{
+                "type": "max_calls",
+                "tool_pattern": "*",
+                "max": 10
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
-    assert!(matches!(verdict, Verdict::Deny { .. }), "Empty call_counts should fail-closed");
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "Empty call_counts should fail-closed"
+    );
 }
 
 #[test]
 fn test_context_max_calls_case_insensitive() {
     let mut counts = std::collections::HashMap::new();
     counts.insert("TOOL:OP".to_string(), 10u64);
-    let ctx = EvaluationContext::builder()
-        .call_counts(counts)
-        .build();
+    let ctx = EvaluationContext::builder().call_counts(counts).build();
     // Pattern lowercased at compile time
-    let policy = make_conditional_policy("tool:*", "Rate limit", json!({
-        "context_conditions": [{
-            "type": "max_calls",
-            "tool_pattern": "tool:*",
-            "max": 5
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Rate limit",
+        json!({
+            "context_conditions": [{
+                "type": "max_calls",
+                "tool_pattern": "tool:*",
+                "max": 5
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
@@ -9951,15 +10144,21 @@ fn test_context_agent_id_allowed_allows() {
     let ctx = EvaluationContext::builder()
         .agent_id("agent-a".to_string())
         .build();
-    let policy = make_conditional_policy("tool:*", "Agent check", json!({
-        "context_conditions": [{
-            "type": "agent_id",
-            "allowed": ["agent-a", "agent-b"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Agent check",
+        json!({
+            "context_conditions": [{
+                "type": "agent_id",
+                "allowed": ["agent-a", "agent-b"]
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Allow));
 }
 
@@ -9968,15 +10167,21 @@ fn test_context_agent_id_blocked_denies() {
     let ctx = EvaluationContext::builder()
         .agent_id("evil-agent".to_string())
         .build();
-    let policy = make_conditional_policy("tool:*", "Block agent", json!({
-        "context_conditions": [{
-            "type": "agent_id",
-            "blocked": ["evil-agent"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Block agent",
+        json!({
+            "context_conditions": [{
+                "type": "agent_id",
+                "blocked": ["evil-agent"]
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
@@ -9985,31 +10190,46 @@ fn test_context_agent_id_not_in_allowed_denies() {
     let ctx = EvaluationContext::builder()
         .agent_id("unknown-agent".to_string())
         .build();
-    let policy = make_conditional_policy("tool:*", "Allowlist", json!({
-        "context_conditions": [{
-            "type": "agent_id",
-            "allowed": ["agent-a", "agent-b"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Allowlist",
+        json!({
+            "context_conditions": [{
+                "type": "agent_id",
+                "allowed": ["agent-a", "agent-b"]
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
 #[test]
 fn test_context_agent_id_none_fail_closed() {
     let ctx = make_context(); // no agent_id
-    let policy = make_conditional_policy("tool:*", "Require agent", json!({
-        "context_conditions": [{
-            "type": "agent_id",
-            "allowed": ["agent-a"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Require agent",
+        json!({
+            "context_conditions": [{
+                "type": "agent_id",
+                "allowed": ["agent-a"]
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
-    assert!(matches!(verdict, Verdict::Deny { .. }), "No agent_id should fail-closed");
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "No agent_id should fail-closed"
+    );
 }
 
 #[test]
@@ -10017,16 +10237,25 @@ fn test_context_agent_id_case_insensitive_compiled() {
     let ctx = EvaluationContext::builder()
         .agent_id("Agent-A".to_string())
         .build();
-    let policy = make_conditional_policy("tool:*", "Case check", json!({
-        "context_conditions": [{
-            "type": "agent_id",
-            "allowed": ["agent-a"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Case check",
+        json!({
+            "context_conditions": [{
+                "type": "agent_id",
+                "allowed": ["agent-a"]
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
-    assert!(matches!(verdict, Verdict::Allow), "Case-insensitive match should allow");
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(verdict, Verdict::Allow),
+        "Case-insensitive match should allow"
+    );
 }
 
 #[test]
@@ -10034,15 +10263,21 @@ fn test_context_require_previous_action_present_allows() {
     let ctx = EvaluationContext::builder()
         .previous_actions(vec!["authenticate".to_string()])
         .build();
-    let policy = make_conditional_policy("tool:*", "Require auth", json!({
-        "context_conditions": [{
-            "type": "require_previous_action",
-            "required_tool": "authenticate"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Require auth",
+        json!({
+            "context_conditions": [{
+                "type": "require_previous_action",
+                "required_tool": "authenticate"
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Allow));
 }
 
@@ -10051,15 +10286,21 @@ fn test_context_require_previous_action_absent_denies() {
     let ctx = EvaluationContext::builder()
         .previous_actions(vec!["other_action".to_string()])
         .build();
-    let policy = make_conditional_policy("tool:*", "Require auth", json!({
-        "context_conditions": [{
-            "type": "require_previous_action",
-            "required_tool": "authenticate"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Require auth",
+        json!({
+            "context_conditions": [{
+                "type": "require_previous_action",
+                "required_tool": "authenticate"
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
@@ -10068,16 +10309,25 @@ fn test_context_require_previous_action_case_insensitive() {
     let ctx = EvaluationContext::builder()
         .previous_actions(vec!["Authenticate".to_string()])
         .build();
-    let policy = make_conditional_policy("tool:*", "Require auth", json!({
-        "context_conditions": [{
-            "type": "require_previous_action",
-            "required_tool": "authenticate"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Require auth",
+        json!({
+            "context_conditions": [{
+                "type": "require_previous_action",
+                "required_tool": "authenticate"
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
-    assert!(matches!(verdict, Verdict::Allow), "Case-insensitive should match");
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(verdict, Verdict::Allow),
+        "Case-insensitive should match"
+    );
 }
 
 #[test]
@@ -10085,15 +10335,21 @@ fn test_context_forbidden_previous_action_present_denies_compiled() {
     let ctx = EvaluationContext::builder()
         .previous_actions(vec!["dangerous_op".to_string()])
         .build();
-    let policy = make_conditional_policy("tool:*", "Forbid dangerous", json!({
-        "context_conditions": [{
-            "type": "forbidden_previous_action",
-            "forbidden_tool": "dangerous_op"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Forbid dangerous",
+        json!({
+            "context_conditions": [{
+                "type": "forbidden_previous_action",
+                "forbidden_tool": "dangerous_op"
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
@@ -10102,15 +10358,21 @@ fn test_context_forbidden_previous_action_absent_allows_compiled() {
     let ctx = EvaluationContext::builder()
         .previous_actions(vec!["safe_op".to_string()])
         .build();
-    let policy = make_conditional_policy("tool:*", "Forbid dangerous", json!({
-        "context_conditions": [{
-            "type": "forbidden_previous_action",
-            "forbidden_tool": "dangerous_op"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Forbid dangerous",
+        json!({
+            "context_conditions": [{
+                "type": "forbidden_previous_action",
+                "forbidden_tool": "dangerous_op"
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Allow));
 }
 
@@ -10123,17 +10385,23 @@ fn test_context_max_calls_in_window_under_limit_allows() {
             "other:op".to_string(),
         ])
         .build();
-    let policy = make_conditional_policy("tool:*", "Window limit", json!({
-        "context_conditions": [{
-            "type": "max_calls_in_window",
-            "tool_pattern": "tool:*",
-            "max": 5,
-            "window": 10
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Window limit",
+        json!({
+            "context_conditions": [{
+                "type": "max_calls_in_window",
+                "tool_pattern": "tool:*",
+                "max": 5,
+                "window": 10
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Allow));
 }
 
@@ -10146,17 +10414,23 @@ fn test_context_max_calls_in_window_at_limit_denies_compiled() {
             "tool:op".to_string(),
         ])
         .build();
-    let policy = make_conditional_policy("tool:*", "Window limit", json!({
-        "context_conditions": [{
-            "type": "max_calls_in_window",
-            "tool_pattern": "tool:*",
-            "max": 3,
-            "window": 10
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Window limit",
+        json!({
+            "context_conditions": [{
+                "type": "max_calls_in_window",
+                "tool_pattern": "tool:*",
+                "max": 3,
+                "window": 10
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
@@ -10171,43 +10445,53 @@ fn test_context_max_calls_in_window_zero_window_checks_all() {
             "tool:op".to_string(),
         ])
         .build();
-    let policy = make_conditional_policy("tool:*", "All history", json!({
-        "context_conditions": [{
-            "type": "max_calls_in_window",
-            "tool_pattern": "tool:*",
-            "max": 3,
-            "window": 0
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "All history",
+        json!({
+            "context_conditions": [{
+                "type": "max_calls_in_window",
+                "tool_pattern": "tool:*",
+                "max": 3,
+                "window": 0
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
 #[test]
 fn test_context_max_chain_depth_under_allows() {
     let ctx = EvaluationContext::builder()
-        .call_chain(vec![
-            vellaveto_types::CallChainEntry {
-                agent_id: "a".to_string(),
-                tool: "t".to_string(),
-                function: "op".to_string(),
-                timestamp: String::new(),
-                hmac: None,
-                verified: None,
-            },
-        ])
+        .call_chain(vec![vellaveto_types::CallChainEntry {
+            agent_id: "a".to_string(),
+            tool: "t".to_string(),
+            function: "op".to_string(),
+            timestamp: String::new(),
+            hmac: None,
+            verified: None,
+        }])
         .build();
-    let policy = make_conditional_policy("tool:*", "Depth limit", json!({
-        "context_conditions": [{
-            "type": "max_chain_depth",
-            "max_depth": 5
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Depth limit",
+        json!({
+            "context_conditions": [{
+                "type": "max_chain_depth",
+                "max_depth": 5
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Allow));
 }
 
@@ -10223,18 +10507,22 @@ fn test_context_max_chain_depth_over_denies() {
             verified: None,
         })
         .collect();
-    let ctx = EvaluationContext::builder()
-        .call_chain(chain)
-        .build();
-    let policy = make_conditional_policy("tool:*", "Depth limit", json!({
-        "context_conditions": [{
-            "type": "max_chain_depth",
-            "max_depth": 3
-        }]
-    }));
+    let ctx = EvaluationContext::builder().call_chain(chain).build();
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Depth limit",
+        json!({
+            "context_conditions": [{
+                "type": "max_chain_depth",
+                "max_depth": 3
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
@@ -10249,16 +10537,22 @@ fn test_context_agent_identity_issuer_match_allows() {
     let ctx = EvaluationContext::builder()
         .agent_identity(identity)
         .build();
-    let policy = make_conditional_policy("tool:*", "Identity check", json!({
-        "context_conditions": [{
-            "type": "agent_identity",
-            "issuer": "trusted-idp",
-            "require_attestation": true
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Identity check",
+        json!({
+            "context_conditions": [{
+                "type": "agent_identity",
+                "issuer": "trusted-idp",
+                "require_attestation": true
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Allow));
 }
 
@@ -10273,47 +10567,68 @@ fn test_context_agent_identity_blocked_issuer_denies() {
     let ctx = EvaluationContext::builder()
         .agent_identity(identity)
         .build();
-    let policy = make_conditional_policy("tool:*", "Block issuer", json!({
-        "context_conditions": [{
-            "type": "agent_identity",
-            "blocked_issuers": ["evil-idp"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Block issuer",
+        json!({
+            "context_conditions": [{
+                "type": "agent_identity",
+                "blocked_issuers": ["evil-idp"]
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
 #[test]
 fn test_context_agent_identity_missing_attestation_denies() {
     let ctx = make_context(); // no agent_identity
-    let policy = make_conditional_policy("tool:*", "Require attestation", json!({
-        "context_conditions": [{
-            "type": "agent_identity",
-            "require_attestation": true
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Require attestation",
+        json!({
+            "context_conditions": [{
+                "type": "agent_identity",
+                "require_attestation": true
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
 #[test]
 fn test_context_agent_identity_missing_with_requirements_denies() {
     let ctx = make_context(); // no agent_identity
-    let policy = make_conditional_policy("tool:*", "Has reqs", json!({
-        "context_conditions": [{
-            "type": "agent_identity",
-            "issuer": "trusted",
-            "require_attestation": false
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Has reqs",
+        json!({
+            "context_conditions": [{
+                "type": "agent_identity",
+                "issuer": "trusted",
+                "require_attestation": false
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
-    assert!(matches!(verdict, Verdict::Deny { .. }), "Missing identity with requirements should deny");
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "Missing identity with requirements should deny"
+    );
 }
 
 #[test]
@@ -10321,15 +10636,21 @@ fn test_context_min_verification_tier_sufficient_allows() {
     let ctx = EvaluationContext::builder()
         .verification_tier(vellaveto_types::VerificationTier::DidVerified)
         .build();
-    let policy = make_conditional_policy("tool:*", "Tier check", json!({
-        "context_conditions": [{
-            "type": "min_verification_tier",
-            "required_tier": 2
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Tier check",
+        json!({
+            "context_conditions": [{
+                "type": "min_verification_tier",
+                "required_tier": 2
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Allow));
 }
 
@@ -10338,30 +10659,42 @@ fn test_context_min_verification_tier_insufficient_denies() {
     let ctx = EvaluationContext::builder()
         .verification_tier(vellaveto_types::VerificationTier::EmailVerified)
         .build();
-    let policy = make_conditional_policy("tool:*", "Tier check", json!({
-        "context_conditions": [{
-            "type": "min_verification_tier",
-            "required_tier": 3
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Tier check",
+        json!({
+            "context_conditions": [{
+                "type": "min_verification_tier",
+                "required_tier": 3
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
 #[test]
 fn test_context_min_verification_tier_none_fail_closed() {
     let ctx = make_context(); // no verification_tier
-    let policy = make_conditional_policy("tool:*", "Tier check", json!({
-        "context_conditions": [{
-            "type": "min_verification_tier",
-            "required_tier": 1
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Tier check",
+        json!({
+            "context_conditions": [{
+                "type": "min_verification_tier",
+                "required_tier": 1
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
@@ -10389,16 +10722,22 @@ fn test_context_require_capability_token_valid_allows() {
         .agent_id("agent-a".to_string())
         .capability_token(token)
         .build();
-    let policy = make_conditional_policy("tool:*", "Cap token", json!({
-        "context_conditions": [{
-            "type": "require_capability_token",
-            "required_issuers": ["authority"],
-            "min_remaining_depth": 1
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Cap token",
+        json!({
+            "context_conditions": [{
+                "type": "require_capability_token",
+                "required_issuers": ["authority"],
+                "min_remaining_depth": 1
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Allow));
 }
 
@@ -10420,28 +10759,40 @@ fn test_context_require_capability_token_wrong_holder_denies() {
         .agent_id("agent-a".to_string())
         .capability_token(token)
         .build();
-    let policy = make_conditional_policy("tool:*", "Cap token", json!({
-        "context_conditions": [{
-            "type": "require_capability_token"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Cap token",
+        json!({
+            "context_conditions": [{
+                "type": "require_capability_token"
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
 #[test]
 fn test_context_require_capability_token_none_fail_closed() {
     let ctx = make_context();
-    let policy = make_conditional_policy("tool:*", "Cap token", json!({
-        "context_conditions": [{
-            "type": "require_capability_token"
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Cap token",
+        json!({
+            "context_conditions": [{
+                "type": "require_capability_token"
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
@@ -10450,15 +10801,21 @@ fn test_context_session_state_allowed_allows() {
     let ctx = EvaluationContext::builder()
         .session_state("authenticated".to_string())
         .build();
-    let policy = make_conditional_policy("tool:*", "Session state", json!({
-        "context_conditions": [{
-            "type": "session_state_required",
-            "allowed_states": ["authenticated", "admin"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Session state",
+        json!({
+            "context_conditions": [{
+                "type": "session_state_required",
+                "allowed_states": ["authenticated", "admin"]
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Allow));
 }
 
@@ -10467,30 +10824,42 @@ fn test_context_session_state_not_allowed_denies() {
     let ctx = EvaluationContext::builder()
         .session_state("guest".to_string())
         .build();
-    let policy = make_conditional_policy("tool:*", "Session state", json!({
-        "context_conditions": [{
-            "type": "session_state_required",
-            "allowed_states": ["authenticated", "admin"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Session state",
+        json!({
+            "context_conditions": [{
+                "type": "session_state_required",
+                "allowed_states": ["authenticated", "admin"]
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
 #[test]
 fn test_context_session_state_none_fail_closed() {
     let ctx = make_context();
-    let policy = make_conditional_policy("tool:*", "Session state", json!({
-        "context_conditions": [{
-            "type": "session_state_required",
-            "allowed_states": ["authenticated"]
-        }]
-    }));
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Session state",
+        json!({
+            "context_conditions": [{
+                "type": "session_state_required",
+                "allowed_states": ["authenticated"]
+            }]
+        }),
+    );
     let action = make_action("tool", "op", json!({}));
     let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-    let verdict = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
 
@@ -10676,7 +11045,10 @@ fn test_legacy_check_path_rules_no_targets_with_allowlist_fail_closed() {
         network_rules: None,
     };
     let verdict = engine.evaluate_action(&action, &[policy]).unwrap();
-    assert!(matches!(verdict, Verdict::Deny { .. }), "No targets with allowlist should fail-closed");
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "No targets with allowlist should fail-closed"
+    );
 }
 
 #[test]
@@ -10696,7 +11068,10 @@ fn test_legacy_check_path_rules_path_normalization() {
         network_rules: None,
     };
     let verdict = engine.evaluate_action(&action, &[policy]).unwrap();
-    assert!(matches!(verdict, Verdict::Deny { .. }), "Path traversal should be caught after normalization");
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "Path traversal should be caught after normalization"
+    );
 }
 
 #[test]
@@ -10862,7 +11237,10 @@ fn test_legacy_check_ip_rules_invalid_cidr_fail_closed() {
         }),
     };
     let verdict = engine.evaluate_action(&action, &[policy]).unwrap();
-    assert!(matches!(verdict, Verdict::Deny { .. }), "Invalid CIDR should fail-closed");
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "Invalid CIDR should fail-closed"
+    );
 }
 
 #[test]
@@ -10889,7 +11267,10 @@ fn test_legacy_check_ip_rules_ipv6_embedded_ipv4() {
         }),
     };
     let verdict = engine.evaluate_action(&action, &[policy]).unwrap();
-    assert!(matches!(verdict, Verdict::Deny { .. }), "IPv6-mapped private IPv4 should be blocked");
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "IPv6-mapped private IPv4 should be blocked"
+    );
 }
 
 // ═══════════════════════════════════════════════════════
@@ -10903,8 +11284,7 @@ fn assert_compiled_legacy_equivalent(policies: &[Policy], action: &Action) {
         .evaluate_action(action, policies)
         .expect("legacy evaluation failed");
 
-    let engine_compiled = PolicyEngine::with_policies(false, policies)
-        .expect("compilation failed");
+    let engine_compiled = PolicyEngine::with_policies(false, policies).expect("compilation failed");
     let compiled_verdict = engine_compiled
         .evaluate_action(action, &[])
         .expect("compiled evaluation failed");
@@ -11121,11 +11501,7 @@ fn test_r46_004_legacy_match_pattern_infix_wildcard_treated_as_prefix() {
     // a leading '*', so it becomes an exact match).
     // Actually: "foo*bar" has no leading or trailing '*', so it's exact.
     let engine = PolicyEngine::new(false);
-    let action = Action::new(
-        "file_read_write".to_string(),
-        "exec".to_string(),
-        json!({}),
-    );
+    let action = Action::new("file_read_write".to_string(), "exec".to_string(), json!({}));
     // "file_*_write" as a policy ID has no leading/trailing '*', so it's an exact match.
     // It should NOT match "file_read_write".
     let policies = vec![Policy {
@@ -11198,7 +11574,11 @@ fn test_r46_005_json_depth_wide_json_bounded() {
     let depth = PolicyEngine::json_depth(&val);
     // Should be 1 (flat object, each value is at depth 1)
     // The important thing is it doesn't OOM
-    assert!(depth <= 2, "Wide flat JSON should have low depth: {}", depth);
+    assert!(
+        depth <= 2,
+        "Wide flat JSON should have low depth: {}",
+        depth
+    );
 }
 
 #[test]
@@ -11206,7 +11586,7 @@ fn test_r46_005_json_depth_normal_json() {
     let val = json!({"a": {"b": [1, 2, {"c": true}]}});
     let depth = PolicyEngine::json_depth(&val);
     // a=1, b=2, array=3, items=3, c_obj=4, c_val=4
-    assert!(depth >= 3 && depth <= 5, "Normal JSON depth: {}", depth);
+    assert!((3..=5).contains(&depth), "Normal JSON depth: {}", depth);
 }
 
 // ═══════════════════════════════════════════════════
@@ -11242,10 +11622,7 @@ fn test_r46_006_collect_all_string_values_beyond_depth_limit() {
     let results = PolicyEngine::collect_all_string_values(&val);
     // The string at depth 40 should NOT be found (exceeds MAX_JSON_DEPTH=32)
     let found = results.iter().any(|(_, v)| *v == "unreachable");
-    assert!(
-        !found,
-        "String beyond depth limit should not be collected"
-    );
+    assert!(!found, "String beyond depth limit should not be collected");
 }
 
 #[test]
@@ -11267,7 +11644,10 @@ fn test_r46_006_collect_all_string_values_mixed_nesting() {
     assert!(values.contains(&"found2"), "level2 string missing");
     assert!(values.contains(&"found3"), "level3 string missing");
     assert!(values.contains(&"found4"), "array string missing");
-    assert!(values.contains(&"found5"), "nested array object string missing");
+    assert!(
+        values.contains(&"found5"),
+        "nested array object string missing"
+    );
 }
 
 // ═══════════════════════════════════════════════════
@@ -11387,7 +11767,10 @@ fn test_required_action_sequence_ordered_absent_denies() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny, got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny, got {v:?}"
+    );
 }
 
 #[test]
@@ -11406,7 +11789,10 @@ fn test_required_action_sequence_ordered_reversed_denies() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (wrong order), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (wrong order), got {v:?}"
+    );
 }
 
 #[test]
@@ -11430,7 +11816,10 @@ fn test_required_action_sequence_ordered_non_consecutive_allows() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (non-consecutive), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (non-consecutive), got {v:?}"
+    );
 }
 
 #[test]
@@ -11449,7 +11838,10 @@ fn test_required_action_sequence_ordered_partial_denies() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (partial), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (partial), got {v:?}"
+    );
 }
 
 #[test]
@@ -11472,7 +11864,10 @@ fn test_required_action_sequence_unordered_all_present_allows() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (unordered all present), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (unordered all present), got {v:?}"
+    );
 }
 
 #[test]
@@ -11495,7 +11890,10 @@ fn test_required_action_sequence_unordered_missing_one_denies() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (missing 'validate'), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (missing 'validate'), got {v:?}"
+    );
 }
 
 #[test]
@@ -11514,7 +11912,10 @@ fn test_required_action_sequence_empty_history_denies() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (empty history), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (empty history), got {v:?}"
+    );
 }
 
 #[test]
@@ -11533,7 +11934,10 @@ fn test_required_action_sequence_history_shorter_denies() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (history shorter), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (history shorter), got {v:?}"
+    );
 }
 
 #[test]
@@ -11552,7 +11956,10 @@ fn test_required_action_sequence_case_insensitive_allows() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (case insensitive), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (case insensitive), got {v:?}"
+    );
 }
 
 #[test]
@@ -11574,7 +11981,10 @@ fn test_required_action_sequence_single_tool_equivalent() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow for single-tool present, got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow for single-tool present, got {v:?}"
+    );
 
     // Absent → Deny
     let ctx2 = EvaluationContext {
@@ -11584,7 +11994,10 @@ fn test_required_action_sequence_single_tool_equivalent() {
     let v2 = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx2))
         .unwrap();
-    assert!(matches!(v2, Verdict::Deny { .. }), "Expected Deny for single-tool absent, got {v2:?}");
+    assert!(
+        matches!(v2, Verdict::Deny { .. }),
+        "Expected Deny for single-tool absent, got {v2:?}"
+    );
 }
 
 #[test]
@@ -11606,7 +12019,10 @@ fn test_required_action_sequence_duplicate_tools_in_sequence() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (only one read), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (only one read), got {v:?}"
+    );
 
     // Two reads → Allow
     let ctx2 = EvaluationContext {
@@ -11616,7 +12032,10 @@ fn test_required_action_sequence_duplicate_tools_in_sequence() {
     let v2 = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx2))
         .unwrap();
-    assert!(matches!(v2, Verdict::Allow), "Expected Allow (two reads), got {v2:?}");
+    assert!(
+        matches!(v2, Verdict::Allow),
+        "Expected Allow (two reads), got {v2:?}"
+    );
 }
 
 #[test]
@@ -11650,7 +12069,10 @@ fn test_required_action_sequence_compile_non_string_errors() {
         "ordered": true
     }]));
     let result = PolicyEngine::with_policies(false, &[policy]);
-    assert!(result.is_err(), "Expected compile error for non-string element");
+    assert!(
+        result.is_err(),
+        "Expected compile error for non-string element"
+    );
 }
 
 #[test]
@@ -11671,7 +12093,10 @@ fn test_required_action_sequence_compile_missing_sequence_errors() {
         "ordered": true
     }]));
     let result = PolicyEngine::with_policies(false, &[policy]);
-    assert!(result.is_err(), "Expected compile error for missing sequence");
+    assert!(
+        result.is_err(),
+        "Expected compile error for missing sequence"
+    );
 }
 
 #[test]
@@ -11691,7 +12116,10 @@ fn test_required_action_sequence_ordered_exact_length_allows() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (exact length), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (exact length), got {v:?}"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -11714,7 +12142,10 @@ fn test_forbidden_action_sequence_ordered_present_denies() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny, got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny, got {v:?}"
+    );
 }
 
 #[test]
@@ -11753,7 +12184,10 @@ fn test_forbidden_action_sequence_ordered_reversed_allows() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (reversed), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (reversed), got {v:?}"
+    );
 }
 
 #[test]
@@ -11777,7 +12211,10 @@ fn test_forbidden_action_sequence_ordered_non_consecutive_denies() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (non-consecutive), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (non-consecutive), got {v:?}"
+    );
 }
 
 #[test]
@@ -11797,7 +12234,10 @@ fn test_forbidden_action_sequence_ordered_partial_allows() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (partial), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (partial), got {v:?}"
+    );
 }
 
 #[test]
@@ -11816,7 +12256,10 @@ fn test_forbidden_action_sequence_unordered_all_present_denies() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (unordered all present), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (unordered all present), got {v:?}"
+    );
 }
 
 #[test]
@@ -11835,7 +12278,10 @@ fn test_forbidden_action_sequence_unordered_partial_allows() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (partial), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (partial), got {v:?}"
+    );
 }
 
 #[test]
@@ -11854,7 +12300,10 @@ fn test_forbidden_action_sequence_empty_history_allows() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (empty history), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (empty history), got {v:?}"
+    );
 }
 
 #[test]
@@ -11873,7 +12322,10 @@ fn test_forbidden_action_sequence_case_insensitive_denies() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (case insensitive), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (case insensitive), got {v:?}"
+    );
 }
 
 #[test]
@@ -11895,7 +12347,10 @@ fn test_forbidden_action_sequence_single_tool_equivalent() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny, got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny, got {v:?}"
+    );
 
     // Absent → Allow
     let ctx2 = EvaluationContext {
@@ -11930,7 +12385,10 @@ fn test_forbidden_action_sequence_exfiltration_detects() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (exfiltration), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (exfiltration), got {v:?}"
+    );
 }
 
 #[test]
@@ -11954,7 +12412,10 @@ fn test_forbidden_action_sequence_exfiltration_wrong_order_allows() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (wrong order), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (wrong order), got {v:?}"
+    );
 }
 
 #[test]
@@ -11988,7 +12449,10 @@ fn test_forbidden_action_sequence_compile_non_string_errors() {
         "ordered": true
     }]));
     let result = PolicyEngine::with_policies(false, &[policy]);
-    assert!(result.is_err(), "Expected compile error for non-string element");
+    assert!(
+        result.is_err(),
+        "Expected compile error for non-string element"
+    );
 }
 
 #[test]
@@ -12009,7 +12473,10 @@ fn test_forbidden_action_sequence_compile_missing_sequence_errors() {
         "ordered": false
     }]));
     let result = PolicyEngine::with_policies(false, &[policy]);
-    assert!(result.is_err(), "Expected compile error for missing sequence");
+    assert!(
+        result.is_err(),
+        "Expected compile error for missing sequence"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -12056,7 +12523,10 @@ fn test_workflow_template_valid_first_step_allows() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (entry point), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (entry point), got {v:?}"
+    );
 }
 
 #[test]
@@ -12071,7 +12541,10 @@ fn test_workflow_template_valid_successor_allows() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (valid successor), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (valid successor), got {v:?}"
+    );
 }
 
 #[test]
@@ -12086,7 +12559,10 @@ fn test_workflow_template_invalid_successor_strict_denies() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (invalid successor), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (invalid successor), got {v:?}"
+    );
 }
 
 #[test]
@@ -12101,7 +12577,10 @@ fn test_workflow_template_invalid_successor_warn_allows() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (warn mode), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (warn mode), got {v:?}"
+    );
 }
 
 #[test]
@@ -12117,7 +12596,10 @@ fn test_workflow_template_non_governed_tool_passthrough() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (non-governed), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (non-governed), got {v:?}"
+    );
 }
 
 #[test]
@@ -12133,7 +12615,10 @@ fn test_workflow_template_non_entry_point_first_denies() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (not entry point), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (not entry point), got {v:?}"
+    );
 }
 
 #[test]
@@ -12149,7 +12634,10 @@ fn test_workflow_template_governed_after_non_governed_history() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (only non-governed in history), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (only non-governed in history), got {v:?}"
+    );
 }
 
 #[test]
@@ -12169,7 +12657,10 @@ fn test_workflow_template_multi_step_full_path() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (full path), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (full path), got {v:?}"
+    );
 }
 
 #[test]
@@ -12185,7 +12676,10 @@ fn test_workflow_template_branch_allows_either_successor() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (branch), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (branch), got {v:?}"
+    );
 }
 
 #[test]
@@ -12200,7 +12694,10 @@ fn test_workflow_template_case_insensitive() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (case insensitive), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (case insensitive), got {v:?}"
+    );
 }
 
 #[test]
@@ -12268,7 +12765,10 @@ fn test_workflow_template_compile_invalid_enforce_errors() {
         network_rules: None,
     };
     let result = PolicyEngine::with_policies(false, &[policy]);
-    assert!(result.is_err(), "Expected compile error for invalid enforce");
+    assert!(
+        result.is_err(),
+        "Expected compile error for invalid enforce"
+    );
 }
 
 #[test]
@@ -12316,7 +12816,10 @@ fn test_workflow_template_terminal_node_allowed() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Expected Allow (terminal node), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (terminal node), got {v:?}"
+    );
 }
 
 #[test]
@@ -12338,5 +12841,8 @@ fn test_workflow_template_terminal_no_successor_denies() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny (no successor after terminal), got {v:?}");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (no successor after terminal), got {v:?}"
+    );
 }

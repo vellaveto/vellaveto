@@ -82,7 +82,11 @@ pub async fn discovery_search(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("query length {} exceeds max {}", body.query.len(), MAX_QUERY_LENGTH),
+                error: format!(
+                    "query length {} exceeds max {}",
+                    body.query.len(),
+                    MAX_QUERY_LENGTH
+                ),
             }),
         ));
     }
@@ -112,10 +116,7 @@ pub async fn discovery_search(
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
-                    error: format!(
-                        "token_budget {} exceeds max {}",
-                        budget, MAX_TOKEN_BUDGET
-                    ),
+                    error: format!("token_budget {} exceeds max {}", budget, MAX_TOKEN_BUDGET),
                 }),
             ));
         }

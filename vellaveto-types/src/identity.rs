@@ -257,20 +257,62 @@ impl EvaluationContext {
             ));
         }
 
+        // SECURITY (FIND-R51-005): Validate call_chain entry contents to prevent
+        // log injection and confusion attacks via control characters or oversized fields.
+        for (i, entry) in self.call_chain.iter().enumerate() {
+            Self::validate_call_chain_field(&entry.agent_id, "agent_id", i)?;
+            Self::validate_call_chain_field(&entry.tool, "tool", i)?;
+            Self::validate_call_chain_field(&entry.function, "function", i)?;
+            if entry.timestamp.len() > 64 {
+                return Err(format!(
+                    "EvaluationContext call_chain[{}].timestamp length {} exceeds max 64",
+                    i,
+                    entry.timestamp.len(),
+                ));
+            }
+            if entry.timestamp.chars().any(|c| c.is_control()) {
+                return Err(format!(
+                    "EvaluationContext call_chain[{}].timestamp contains control characters",
+                    i,
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validate a call_chain entry field: reject control chars, enforce max 512 chars.
+    ///
+    /// SECURITY (FIND-R51-005): Prevents log injection via control characters
+    /// and memory abuse via oversized call chain fields.
+    fn validate_call_chain_field(
+        value: &str,
+        field_name: &str,
+        index: usize,
+    ) -> Result<(), String> {
+        if value.len() > 512 {
+            return Err(format!(
+                "EvaluationContext call_chain[{}].{} length {} exceeds max 512",
+                index,
+                field_name,
+                value.len(),
+            ));
+        }
+        if value.chars().any(|c| c.is_control()) {
+            return Err(format!(
+                "EvaluationContext call_chain[{}].{} contains control characters",
+                index, field_name,
+            ));
+        }
         Ok(())
     }
 
     /// Validate a single optional identity field: if present, must be non-empty
     /// and must not contain control characters.
-    fn validate_optional_id_field(
-        field: &Option<String>,
-        name: &str,
-    ) -> Result<(), String> {
+    fn validate_optional_id_field(field: &Option<String>, name: &str) -> Result<(), String> {
         if let Some(value) = field {
             if value.is_empty() {
-                return Err(format!(
-                    "EvaluationContext {name} is present but empty"
-                ));
+                return Err(format!("EvaluationContext {name} is present but empty"));
             }
             if value.chars().any(|c| c.is_control()) {
                 return Err(format!(
@@ -571,6 +613,22 @@ impl StatelessContextBlob {
                 Self::MAX_BLOB_CALL_CHAIN,
             ));
         }
+
+        // SECURITY (FIND-R51-007): Validate signature format.
+        // HMAC-SHA256 produces 32 bytes = 64 hex characters.
+        if self.signature.is_empty() {
+            return Err("StatelessContextBlob signature must not be empty".to_string());
+        }
+        if self.signature.len() != 64 {
+            return Err(format!(
+                "StatelessContextBlob signature length {} is not 64 (expected HMAC-SHA256 hex)",
+                self.signature.len(),
+            ));
+        }
+        if !self.signature.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err("StatelessContextBlob signature contains non-hex characters".to_string());
+        }
+
         Ok(())
     }
 }

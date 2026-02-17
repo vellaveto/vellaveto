@@ -753,7 +753,7 @@ impl MultimodalScanner {
         let mut stream_count = 0;
         let mut aggregate_text_len = 0usize;
         const MAX_AGGREGATE_TEXT: usize = 1024 * 1024; // 1MB aggregate text limit
-        // FIND-R44-004: Cumulative decompression counter across all PDF streams
+                                                       // FIND-R44-004: Cumulative decompression counter across all PDF streams
         let mut cumulative_decompressed = 0usize;
 
         while stream_count < max_streams {
@@ -794,11 +794,8 @@ impl MultimodalScanner {
 
             // FIND-R44-004: Use inflate_with_budget to enforce cumulative decompression limit.
             let decoded = if is_flate {
-                Self::inflate_with_budget(
-                    stream_bytes,
-                    &mut Some(&mut cumulative_decompressed),
-                )
-                .ok()
+                Self::inflate_with_budget(stream_bytes, &mut Some(&mut cumulative_decompressed))
+                    .ok()
             } else {
                 cumulative_decompressed =
                     cumulative_decompressed.saturating_add(stream_bytes.len());
@@ -913,15 +910,14 @@ impl MultimodalScanner {
                                             && bytes[i + 1] <= b'7'
                                         {
                                             i += 1;
-                                            octal_val =
-                                                octal_val * 8 + (bytes[i] - b'0') as u16;
+                                            octal_val = octal_val * 8 + (bytes[i] - b'0') as u16;
                                             if i + 1 < bytes.len()
                                                 && bytes[i + 1] >= b'0'
                                                 && bytes[i + 1] <= b'7'
                                             {
                                                 i += 1;
-                                                octal_val = octal_val * 8
-                                                    + (bytes[i] - b'0') as u16;
+                                                octal_val =
+                                                    octal_val * 8 + (bytes[i] - b'0') as u16;
                                             }
                                         }
                                         // Truncate to byte (PDF spec: modulo 256)
@@ -3824,7 +3820,13 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            matches!(err, MultimodalError::ContentTooLarge { size: 101, max: 100 }),
+            matches!(
+                err,
+                MultimodalError::ContentTooLarge {
+                    size: 101,
+                    max: 100
+                }
+            ),
             "expected ContentTooLarge, got: {err:?}"
         );
     }
@@ -3850,7 +3852,10 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            MultimodalError::ContentTooLarge { size: 201, max: 200 }
+            MultimodalError::ContentTooLarge {
+                size: 201,
+                max: 200
+            }
         ));
     }
 
@@ -3949,12 +3954,7 @@ mod tests {
             ocr_timeout_ms: 2000,
             min_ocr_confidence: 0.8,
             enable_stego_detection: true,
-            content_types: vec![
-                "Image".into(),
-                "Audio".into(),
-                "Video".into(),
-                "Pdf".into(),
-            ],
+            content_types: vec!["Image".into(), "Audio".into(), "Video".into(), "Pdf".into()],
             blocked_content_types: vec!["Video".into()],
         };
 
@@ -4171,15 +4171,13 @@ mod tests {
 
         // Create a small valid zlib-compressed payload
         let data = b"Hello, this is test data for inflate budget tracking";
-        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut encoder =
+            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
         encoder.write_all(data).unwrap();
         let compressed = encoder.finish().unwrap();
 
         let mut counter = 0usize;
-        let result = MultimodalScanner::inflate_with_budget(
-            &compressed,
-            &mut Some(&mut counter),
-        );
+        let result = MultimodalScanner::inflate_with_budget(&compressed, &mut Some(&mut counter));
         assert!(result.is_ok());
         assert!(
             counter > 0,
@@ -4193,10 +4191,7 @@ mod tests {
         // FIND-R44-004: When cumulative budget is exceeded, inflate should fail
         let mut counter = MultimodalScanner::MAX_TOTAL_DECOMPRESSED_BYTES; // Already at limit
         let compressed = vec![0x78, 0x9C, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]; // empty zlib
-        let result = MultimodalScanner::inflate_with_budget(
-            &compressed,
-            &mut Some(&mut counter),
-        );
+        let result = MultimodalScanner::inflate_with_budget(&compressed, &mut Some(&mut counter));
         assert!(
             result.is_err(),
             "Should reject when cumulative budget is already exceeded"

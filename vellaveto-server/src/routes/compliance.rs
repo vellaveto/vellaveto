@@ -512,9 +512,12 @@ fn parse_period_days(period: &str) -> Result<u32, String> {
         (trimmed, "")
     };
     let _ = suffix; // suffix is always "d" or empty (days only)
-    let days: u32 = num_str
-        .parse()
-        .map_err(|_| format!("Invalid period '{}': must be a number followed by 'd'", period))?;
+    let days: u32 = num_str.parse().map_err(|_| {
+        format!(
+            "Invalid period '{}': must be a number followed by 'd'",
+            period
+        )
+    })?;
     if days == 0 {
         return Err("Period must be at least 1 day".to_string());
     }
@@ -561,12 +564,8 @@ pub async fn soc2_access_review(
 
     // Parse period
     let period_days = if let Some(ref p) = params.period {
-        parse_period_days(p).map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse { error: e }),
-            )
-        })?
+        parse_period_days(p)
+            .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?
     } else {
         config.soc2.access_review.default_period_days
     };
@@ -617,7 +616,8 @@ pub async fn soc2_access_review(
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ErrorResponse {
-                error: "Audit log exceeds capacity limit. Rotate or archive the audit log.".to_string(),
+                error: "Audit log exceeds capacity limit. Rotate or archive the audit log."
+                    .to_string(),
             }),
         ));
     }

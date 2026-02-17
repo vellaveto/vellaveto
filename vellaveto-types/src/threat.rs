@@ -487,8 +487,7 @@ impl SamplingStats {
         self.request_count = 0;
         self.window_start = now;
         if self.flagged_patterns.len() > Self::MAX_FLAGGED_PATTERNS {
-            self.flagged_patterns
-                .truncate(Self::MAX_FLAGGED_PATTERNS);
+            self.flagged_patterns.truncate(Self::MAX_FLAGGED_PATTERNS);
         }
     }
 
@@ -567,10 +566,7 @@ impl fmt::Display for ValidationError {
                 write!(f, "Target {field}[{index}] contains null byte")
             }
             ValidationError::ParametersTooLarge { size, max } => {
-                write!(
-                    f,
-                    "Action parameters too large: {size} bytes (max {max})"
-                )
+                write!(f, "Action parameters too large: {size} bytes (max {max})")
             }
         }
     }

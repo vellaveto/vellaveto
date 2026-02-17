@@ -213,8 +213,7 @@ pub(super) async fn forward_get_to_upstream(
                     // DLP scanning (same as POST path)
                     let mut dlp_found = false;
                     if state.response_dlp_enabled {
-                        dlp_found =
-                            scan_sse_events_for_dlp(&sse_bytes, session_id, state).await;
+                        dlp_found = scan_sse_events_for_dlp(&sse_bytes, session_id, state).await;
                         if dlp_found && state.response_dlp_blocking {
                             return (
                                 StatusCode::OK,

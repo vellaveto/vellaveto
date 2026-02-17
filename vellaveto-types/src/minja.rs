@@ -142,7 +142,10 @@ impl MemoryEntry {
     }
 
     /// Validate that all f64 fields are finite (not NaN or Infinity).
-    #[deprecated(since = "4.0.1", note = "use validate() which also checks taint/trust consistency")]
+    #[deprecated(
+        since = "4.0.1",
+        note = "use validate() which also checks taint/trust consistency"
+    )]
     pub fn validate_finite(&self) -> Result<(), String> {
         if !self.trust_score.is_finite() {
             return Err(format!(
@@ -381,11 +384,52 @@ impl ProvenanceNode {
     /// Maximum number of metadata entries per node.
     pub const MAX_METADATA_ENTRIES: usize = 64;
 
+    /// Maximum length of the `id` field.
+    ///
+    /// SECURITY (FIND-R51-014): Bound string fields to prevent memory exhaustion.
+    pub const MAX_ID_LEN: usize = 256;
+
+    /// Maximum length of the `source` field.
+    ///
+    /// SECURITY (FIND-R51-014): Bound string fields to prevent memory exhaustion.
+    pub const MAX_SOURCE_LEN: usize = 1024;
+
+    /// Maximum length of the `content_hash` field.
+    ///
+    /// SECURITY (FIND-R51-014): Bound string fields to prevent memory exhaustion.
+    pub const MAX_CONTENT_HASH_LEN: usize = 256;
+
     /// Validate bounds on deserialized data.
     ///
     /// SECURITY (FIND-R48-003): MAX_PARENTS was declared but never enforced.
     /// Deserialized payloads can contain arbitrarily many parents/metadata.
+    ///
+    /// SECURITY (FIND-R51-014): Also validates string field lengths for id,
+    /// source, and content_hash to prevent memory exhaustion via crafted payloads.
     pub fn validate(&self) -> Result<(), String> {
+        if self.id.len() > Self::MAX_ID_LEN {
+            return Err(format!(
+                "ProvenanceNode id length {} exceeds max {}",
+                self.id.len(),
+                Self::MAX_ID_LEN
+            ));
+        }
+        if self.source.len() > Self::MAX_SOURCE_LEN {
+            return Err(format!(
+                "ProvenanceNode '{}' source length {} exceeds max {}",
+                self.id,
+                self.source.len(),
+                Self::MAX_SOURCE_LEN
+            ));
+        }
+        if self.content_hash.len() > Self::MAX_CONTENT_HASH_LEN {
+            return Err(format!(
+                "ProvenanceNode '{}' content_hash length {} exceeds max {}",
+                self.id,
+                self.content_hash.len(),
+                Self::MAX_CONTENT_HASH_LEN
+            ));
+        }
         if self.parents.len() > Self::MAX_PARENTS {
             return Err(format!(
                 "ProvenanceNode '{}' has {} parents (max {})",

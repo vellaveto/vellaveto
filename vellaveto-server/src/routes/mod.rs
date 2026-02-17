@@ -39,14 +39,85 @@ pub mod memory;
 pub mod nhi;
 pub mod observability;
 pub mod policy;
+pub mod projector;
 pub mod registry;
 pub mod sampling;
 pub mod schema_lineage;
 pub mod shadow_agent;
 pub mod simulator;
 pub mod task_state;
-pub mod projector;
 pub mod tenant;
 pub mod zk_audit;
 
 pub use main::*;
+
+/// Maximum length for path parameters (IDs, tool names, session IDs).
+const MAX_PATH_PARAM_LEN: usize = 256;
+
+/// SECURITY (FIND-R51-005): Detect control characters AND Unicode format
+/// characters that can bypass simple `is_control()` checks.
+/// Mirrors `is_unsafe_char` from nhi.rs.
+pub(crate) fn is_unsafe_char(c: char) -> bool {
+    let cp = c as u32;
+    c.is_control()
+        || (0x200B..=0x200F).contains(&cp)
+        || (0x202A..=0x202E).contains(&cp)
+        || (0x2060..=0x2064).contains(&cp)
+        || (0x2066..=0x2069).contains(&cp)
+        || cp == 0xFEFF
+        || (0xFFF9..=0xFFFB).contains(&cp)
+        || (0xE0001..=0xE007F).contains(&cp)
+        || cp == 0x00AD
+}
+
+/// SECURITY (FIND-R51-005): Validate a path parameter — reject if too long
+/// or contains control/format characters. Returns a `BAD_REQUEST` error
+/// compatible with `(StatusCode, Json<ErrorResponse>)`.
+pub fn validate_path_param(
+    value: &str,
+    field_name: &str,
+) -> Result<(), (axum::http::StatusCode, axum::Json<ErrorResponse>)> {
+    if value.len() > MAX_PATH_PARAM_LEN {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            axum::Json(ErrorResponse {
+                error: format!("{} exceeds maximum length", field_name),
+            }),
+        ));
+    }
+    if value.chars().any(is_unsafe_char) {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            axum::Json(ErrorResponse {
+                error: format!("{} contains invalid characters", field_name),
+            }),
+        ));
+    }
+    Ok(())
+}
+
+/// SECURITY (FIND-R51-005): Validate a path parameter — same logic but
+/// returns `(StatusCode, Json<serde_json::Value>)` for handlers that use
+/// that error type instead of `ErrorResponse`.
+pub fn validate_path_param_json(
+    value: &str,
+    field_name: &str,
+) -> Result<(), (axum::http::StatusCode, axum::Json<serde_json::Value>)> {
+    if value.len() > MAX_PATH_PARAM_LEN {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({
+                "error": format!("{} exceeds maximum length", field_name)
+            })),
+        ));
+    }
+    if value.chars().any(is_unsafe_char) {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({
+                "error": format!("{} contains invalid characters", field_name)
+            })),
+        ));
+    }
+    Ok(())
+}

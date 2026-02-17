@@ -79,6 +79,9 @@ pub async fn get_task(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param(&id, "id")?;
+
     let manager = state.task_state.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -88,11 +91,12 @@ pub async fn get_task(
         )
     })?;
 
+    // SECURITY (FIND-R51-011): Generic error — do not echo task ID.
     let task = manager.get_task(&id).await.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: format!("Task '{}' not found", id),
+                error: "Task not found".to_string(),
             }),
         )
     })?;
@@ -107,6 +111,9 @@ pub async fn cancel_task(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param(&id, "id")?;
+
     let manager = state.task_state.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -116,13 +123,17 @@ pub async fn cancel_task(
         )
     })?;
 
+    // SECURITY (FIND-R51-017): Generic error — do not leak state machine details.
     manager
         .update_status(&id, vellaveto_types::TaskStatus::Cancelled)
         .await
         .map_err(|e| {
+            tracing::warn!("Failed to cancel task: {}", e);
             (
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse { error: e.clone() }),
+                Json(ErrorResponse {
+                    error: "Cannot cancel task".to_string(),
+                }),
             )
         })?;
 

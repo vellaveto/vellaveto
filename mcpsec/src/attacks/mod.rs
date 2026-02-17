@@ -114,7 +114,12 @@ mod tests {
     #[test]
     fn test_all_tests_count() {
         let tests = all_tests();
-        assert_eq!(tests.len(), 64, "Expected 64 test cases, got {}", tests.len());
+        assert_eq!(
+            tests.len(),
+            64,
+            "Expected 64 test cases, got {}",
+            tests.len()
+        );
     }
 
     #[test]

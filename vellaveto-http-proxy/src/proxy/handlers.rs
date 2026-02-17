@@ -986,8 +986,7 @@ pub async fn handle_mcp_post(
                                 let per_attempt = std::time::Duration::from_secs(
                                     state.transport_config.fallback_timeout_secs,
                                 );
-                                let total = per_attempt
-                                    .saturating_mul(priorities.len() as u32);
+                                let total = per_attempt.saturating_mul(priorities.len() as u32);
 
                                 let mut chain = super::smart_fallback::SmartFallbackChain::new(
                                     &state.http_client,
@@ -1161,7 +1160,8 @@ pub async fn handle_mcp_post(
                                                                     )
                                                                     .await;
                                                                 return attach_session_header(
-                                                                    StatusCode::BAD_GATEWAY.into_response(),
+                                                                    StatusCode::BAD_GATEWAY
+                                                                        .into_response(),
                                                                     &session_id,
                                                                 );
                                                             }
@@ -1186,8 +1186,7 @@ pub async fn handle_mcp_post(
                                             .unwrap_or_else(|_| {
                                                 StatusCode::BAD_GATEWAY.into_response()
                                             });
-                                        let response =
-                                            attach_session_header(response, &session_id);
+                                        let response = attach_session_header(response, &session_id);
                                         return attach_trace_header(response, trace);
                                     }
                                     Err(e) => {
@@ -1207,10 +1206,7 @@ pub async fn handle_mcp_post(
                                             .log_entry(
                                                 &action,
                                                 &Verdict::Deny {
-                                                    reason: format!(
-                                                        "all transports failed: {}",
-                                                        e
-                                                    ),
+                                                    reason: format!("all transports failed: {}", e),
                                                 },
                                                 json!({
                                                     "event": "cross_transport_fallback_failed",
@@ -1250,11 +1246,10 @@ pub async fn handle_mcp_post(
                         )
                         .await
                     } else {
-                        let (up_tp, up_ts) =
-                            trace_propagation::build_upstream_headers(
-                                &vellaveto_trace_ctx,
-                                "allow",
-                            );
+                        let (up_tp, up_ts) = trace_propagation::build_upstream_headers(
+                            &vellaveto_trace_ctx,
+                            "allow",
+                        );
                         forward_to_upstream(
                             &state,
                             &session_id,
@@ -2652,8 +2647,8 @@ pub(crate) fn build_transport_targets(
                 TransportProtocol::Grpc => {
                     if let Some(grpc_port) = state.grpc_port {
                         // Extract host from upstream_url via simple string parsing.
-                        let host = extract_host_from_url(&state.upstream_url)
-                            .unwrap_or("127.0.0.1");
+                        let host =
+                            extract_host_from_url(&state.upstream_url).unwrap_or("127.0.0.1");
                         // SECURITY (FIND-R43-029): Wrap IPv6 addresses in brackets
                         // to produce valid URLs (e.g., "http://[::1]:50051").
                         if host.contains(':') {
@@ -2700,22 +2695,13 @@ pub(crate) fn build_transport_targets(
 /// everything before the last `@` in the authority component. Also handles
 /// IPv6 addresses in brackets (`[::1]:8080`).
 pub(crate) fn extract_host_from_url(url: &str) -> Option<&str> {
-    let after_scheme = url
-        .find("://")
-        .map(|i| &url[i + 3..])
-        .unwrap_or(url);
+    let after_scheme = url.find("://").map(|i| &url[i + 3..]).unwrap_or(url);
     // SECURITY (FIND-R44-004): Strip fragment before authority parsing.
     // Fragments (#...) are not part of the authority per RFC 3986 but
     // if present they can cause discrepancy between this parser and reqwest.
-    let no_fragment = after_scheme
-        .split('#')
-        .next()
-        .unwrap_or(after_scheme);
+    let no_fragment = after_scheme.split('#').next().unwrap_or(after_scheme);
     // Strip path and query to get authority component.
-    let authority = no_fragment
-        .split('/')
-        .next()
-        .unwrap_or(no_fragment);
+    let authority = no_fragment.split('/').next().unwrap_or(no_fragment);
     // SECURITY (FIND-R42-003): Strip userinfo (user:pass@host) to prevent
     // SSRF via @-smuggling (e.g., "http://safe@evil/path").
     // SECURITY (FIND-R43-023): Also handle URL-encoded @ (%40) in authority
@@ -2819,10 +2805,7 @@ pub async fn handle_mcp_get(
         match version_hdr.to_str() {
             Ok(version) if SUPPORTED_PROTOCOL_VERSIONS.contains(&version) => {}
             Ok(version) => {
-                tracing::warn!(
-                    "GET /mcp: Unsupported MCP protocol version: '{}'",
-                    version,
-                );
+                tracing::warn!("GET /mcp: Unsupported MCP protocol version: '{}'", version,);
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(json!({
@@ -3075,8 +3058,7 @@ pub async fn handle_mcp_get(
         None
     };
 
-    let (up_tp, up_ts) =
-        trace_propagation::build_upstream_headers(&vellaveto_trace_ctx, "sse_get");
+    let (up_tp, up_ts) = trace_propagation::build_upstream_headers(&vellaveto_trace_ctx, "sse_get");
 
     // SECURITY (FIND-R45-004): Audit log the SSE resumption request.
     // Without this, GET /mcp requests leave no audit trail, preventing

@@ -394,7 +394,6 @@ pub enum CompiledContextCondition {
     // ═══════════════════════════════════════════════════
     // PHASE 40: WORKFLOW-LEVEL POLICY CONSTRAINTS
     // ═══════════════════════════════════════════════════
-
     /// Require an ordered (or unordered) sequence of tools in session history.
     ///
     /// **Ordered:** subsequence match — tools must appear in order, not necessarily

@@ -372,10 +372,7 @@ mod tests {
             }
         });
         truncate_descriptions(&mut schema);
-        assert_eq!(
-            schema["description"],
-            "Read a file from disk."
-        );
+        assert_eq!(schema["description"], "Read a file from disk.");
         assert_eq!(
             schema["properties"]["path"]["description"],
             "The path to the file."
@@ -496,14 +493,9 @@ mod tests {
         });
         remove_optional_descriptions(&mut schema);
         // Required field keeps its description
-        assert_eq!(
-            schema["properties"]["path"]["description"],
-            "Required path"
-        );
+        assert_eq!(schema["properties"]["path"]["description"], "Required path");
         // Optional field loses its description
-        assert!(schema["properties"]["verbose"]
-            .get("description")
-            .is_none());
+        assert!(schema["properties"]["verbose"].get("description").is_none());
     }
 
     #[test]

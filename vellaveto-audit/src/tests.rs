@@ -2151,7 +2151,10 @@ async fn test_rotation_verification_detects_missing_file() {
     // SECURITY (FIND-R43-017): Missing (pruned) files are now skipped gracefully
     // instead of failing verification, because prune_rotated_files() legitimately
     // removes old rotated logs while their manifest entries persist.
-    assert!(result.valid, "Missing (pruned) files should be skipped, not fail verification");
+    assert!(
+        result.valid,
+        "Missing (pruned) files should be skipped, not fail verification"
+    );
 }
 
 #[tokio::test]
@@ -2814,8 +2817,7 @@ async fn test_rotation_manifest_entry_replacement_detected() {
         // NOT checked during content validation). This ensures the hash chain is
         // the detection mechanism, not entry_count or tail_hash validation.
         let mut entry: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
-        entry["timestamp"] =
-            serde_json::Value::String("2000-01-01T00:00:00Z".to_string());
+        entry["timestamp"] = serde_json::Value::String("2000-01-01T00:00:00Z".to_string());
         let tampered_line = serde_json::to_string(&entry).unwrap();
         let mut new_lines = vec![tampered_line.as_str()];
         new_lines.extend_from_slice(&lines[1..]);
@@ -3082,8 +3084,7 @@ fn test_merkle_proof_self_referential_forgery_rejected() {
 
     // With the fix, we verify against the TRUSTED root from the real tree.
     // The attacker's proof must be rejected.
-    let result =
-        merkle::MerkleTree::verify_proof(fake_leaf, &forged_proof, &trusted_root).unwrap();
+    let result = merkle::MerkleTree::verify_proof(fake_leaf, &forged_proof, &trusted_root).unwrap();
     assert!(
         !result.valid,
         "Self-referential forged proof must be rejected when trusted root differs"
@@ -3388,9 +3389,7 @@ async fn test_log_leader_election_event_lost_produces_deny() {
 
     let entries = logger.load_entries().await.unwrap();
     assert_eq!(entries.len(), 1);
-    assert!(
-        matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("lost"))
-    );
+    assert!(matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("lost")));
 }
 
 #[tokio::test]
@@ -3400,15 +3399,17 @@ async fn test_log_leader_election_event_failed_produces_deny() {
     let logger = AuditLogger::new(log_path.clone());
 
     logger
-        .log_leader_election_event("failed", "instance-2", json!({ "error": "backend unreachable" }))
+        .log_leader_election_event(
+            "failed",
+            "instance-2",
+            json!({ "error": "backend unreachable" }),
+        )
         .await
         .unwrap();
 
     let entries = logger.load_entries().await.unwrap();
     assert_eq!(entries.len(), 1);
-    assert!(
-        matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("failed"))
-    );
+    assert!(matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("failed")));
 }
 
 #[tokio::test]
@@ -3606,7 +3607,8 @@ fn test_redact_keys_and_patterns_depth_64_returns_value_as_is() {
 #[test]
 fn test_redact_nfkc_normalized_fullwidth_digits_ssn() {
     // Fullwidth digits: ０１２-３４-５６７８ (U+FF10-FF18)
-    let fullwidth_ssn = "\u{FF10}\u{FF11}\u{FF12}-\u{FF13}\u{FF14}-\u{FF15}\u{FF16}\u{FF17}\u{FF18}";
+    let fullwidth_ssn =
+        "\u{FF10}\u{FF11}\u{FF12}-\u{FF13}\u{FF14}-\u{FF15}\u{FF16}\u{FF17}\u{FF18}";
     let value = json!({"data": fullwidth_ssn});
     let redacted = crate::redaction::redact_keys_and_patterns(&value);
     assert_eq!(
@@ -3620,7 +3622,8 @@ fn test_redact_nfkc_normalized_fullwidth_digits_ssn() {
 #[test]
 fn test_redact_nfkc_normalized_fullwidth_digits_phone() {
     // Fullwidth digits for phone: ５５５-１２３-４５６７
-    let fullwidth_phone = "\u{FF15}\u{FF15}\u{FF15}-\u{FF11}\u{FF12}\u{FF13}-\u{FF14}\u{FF15}\u{FF16}\u{FF17}";
+    let fullwidth_phone =
+        "\u{FF15}\u{FF15}\u{FF15}-\u{FF11}\u{FF12}\u{FF13}-\u{FF14}\u{FF15}\u{FF16}\u{FF17}";
     let value = json!({"data": fullwidth_phone});
     let redacted = crate::redaction::redact_keys_and_patterns(&value);
     assert_eq!(
@@ -3693,7 +3696,8 @@ fn test_redact_with_scanner_depth_boundary() {
 fn test_redact_with_scanner_nfkc_normalized() {
     let scanner = crate::pii::PiiScanner::default();
     // SSN with fullwidth digits
-    let fullwidth_ssn = "\u{FF11}\u{FF12}\u{FF13}-\u{FF14}\u{FF15}-\u{FF16}\u{FF17}\u{FF18}\u{FF19}";
+    let fullwidth_ssn =
+        "\u{FF11}\u{FF12}\u{FF13}-\u{FF14}\u{FF15}-\u{FF16}\u{FF17}\u{FF18}\u{FF19}";
     let value = json!({"data": fullwidth_ssn});
     let redacted = crate::redaction::redact_keys_and_patterns_with_scanner(&value, &scanner);
     assert_eq!(
@@ -3810,7 +3814,10 @@ async fn test_verification_corrupted_utf8_line_skipped() {
     // Write a valid line first
     let logger = AuditLogger::new(log_path.clone());
     let action = test_action();
-    logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+    logger
+        .log_entry(&action, &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
 
     // Append invalid JSON line
     let mut file = OpenOptions::new()
@@ -3823,7 +3830,11 @@ async fn test_verification_corrupted_utf8_line_skipped() {
 
     // Load should still work (skipping the bad line)
     let entries = logger.load_entries().await.unwrap();
-    assert_eq!(entries.len(), 1, "Should load the valid entry and skip the corrupt one");
+    assert_eq!(
+        entries.len(),
+        1,
+        "Should load the valid entry and skip the corrupt one"
+    );
 }
 
 #[tokio::test]
@@ -3834,7 +3845,10 @@ async fn test_verification_embedded_null_in_json_handled() {
     // Write valid entry
     let logger = AuditLogger::new(log_path.clone());
     let action = test_action();
-    logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+    logger
+        .log_entry(&action, &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
 
     // Append a line with embedded null character (should fail JSON parsing)
     let mut file = OpenOptions::new()
@@ -3882,7 +3896,10 @@ async fn test_checkpoint_sequential_creation_safety() {
     // Log some entries first
     let action = test_action();
     for _ in 0..5 {
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
     }
 
     // Create two checkpoints sequentially — both should succeed
@@ -3895,8 +3912,14 @@ async fn test_checkpoint_sequential_creation_safety() {
     // Both checkpoints should have valid chain head hashes
     let cp1 = r1.unwrap();
     let cp2 = r2.unwrap();
-    assert!(cp1.chain_head_hash.is_some(), "Checkpoint 1 should have a chain head hash");
-    assert!(cp2.chain_head_hash.is_some(), "Checkpoint 2 should have a chain head hash");
+    assert!(
+        cp1.chain_head_hash.is_some(),
+        "Checkpoint 1 should have a chain head hash"
+    );
+    assert!(
+        cp2.chain_head_hash.is_some(),
+        "Checkpoint 2 should have a chain head hash"
+    );
 }
 
 // ═══════════════════════════════════════════════════
@@ -3915,12 +3938,19 @@ async fn test_gap_t01_initialize_chain_with_corrupted_log() {
     let logger = AuditLogger::new(log_path);
     let result = logger.initialize_chain().await;
     // Should succeed: corrupted entries are skipped, chain starts fresh.
-    assert!(result.is_ok(), "initialize_chain should handle corrupted log gracefully: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "initialize_chain should handle corrupted log gracefully: {:?}",
+        result.err()
+    );
 
     // After initialization, logging a new entry should work
     let action = test_action();
     let log_result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-    assert!(log_result.is_ok(), "Should be able to log after corrupted init");
+    assert!(
+        log_result.is_ok(),
+        "Should be able to log after corrupted init"
+    );
 }
 
 /// GAP-T02: Test security event logging helpers (circuit_breaker, deputy, schema).
@@ -3931,36 +3961,75 @@ async fn test_gap_t02_event_logging_helpers() {
     let logger = AuditLogger::new(log_path);
 
     // log_circuit_breaker_event
-    logger.log_circuit_breaker_event("opened", "dangerous_tool", json!({"failures": 5})).await.unwrap();
-    logger.log_circuit_breaker_event("rejected", "dangerous_tool", json!({})).await.unwrap();
+    logger
+        .log_circuit_breaker_event("opened", "dangerous_tool", json!({"failures": 5}))
+        .await
+        .unwrap();
+    logger
+        .log_circuit_breaker_event("rejected", "dangerous_tool", json!({}))
+        .await
+        .unwrap();
 
     // log_deputy_event
-    logger.log_deputy_event("registered", "session-1", json!({"depth": 1})).await.unwrap();
-    logger.log_deputy_event("validation_failed", "session-2", json!({})).await.unwrap();
+    logger
+        .log_deputy_event("registered", "session-1", json!({"depth": 1}))
+        .await
+        .unwrap();
+    logger
+        .log_deputy_event("validation_failed", "session-2", json!({}))
+        .await
+        .unwrap();
 
     // log_schema_event
-    logger.log_schema_event("mutation_detected", "tool_x", json!({"field": "params"})).await.unwrap();
-    logger.log_schema_event("poisoning_alert", "tool_y", json!({})).await.unwrap();
+    logger
+        .log_schema_event("mutation_detected", "tool_x", json!({"field": "params"}))
+        .await
+        .unwrap();
+    logger
+        .log_schema_event("poisoning_alert", "tool_y", json!({}))
+        .await
+        .unwrap();
 
     // log_shadow_agent_event
-    logger.log_shadow_agent_event("detected", "agent-bad", json!({})).await.unwrap();
+    logger
+        .log_shadow_agent_event("detected", "agent-bad", json!({}))
+        .await
+        .unwrap();
 
     // log_task_event
-    logger.log_task_event("created", "task-1", json!({})).await.unwrap();
-    logger.log_task_event("limit_exceeded", "task-2", json!({})).await.unwrap();
+    logger
+        .log_task_event("created", "task-1", json!({}))
+        .await
+        .unwrap();
+    logger
+        .log_task_event("limit_exceeded", "task-2", json!({}))
+        .await
+        .unwrap();
 
     // log_auth_event
-    logger.log_auth_event("step_up_required", "sess-3", json!({})).await.unwrap();
+    logger
+        .log_auth_event("step_up_required", "sess-3", json!({}))
+        .await
+        .unwrap();
 
     // log_sampling_event
-    logger.log_sampling_event("rate_limit", "sess-4", json!({})).await.unwrap();
+    logger
+        .log_sampling_event("rate_limit", "sess-4", json!({}))
+        .await
+        .unwrap();
 
     let entries = logger.load_entries().await.unwrap();
     assert_eq!(entries.len(), 11, "Should have 11 event entries");
 
     // Verify deny verdicts for rejection events
-    assert!(matches!(&entries[1].verdict, Verdict::Deny { .. }), "rejected circuit_breaker should be Deny");
-    assert!(matches!(&entries[3].verdict, Verdict::Deny { .. }), "validation_failed deputy should be Deny");
+    assert!(
+        matches!(&entries[1].verdict, Verdict::Deny { .. }),
+        "rejected circuit_breaker should be Deny"
+    );
+    assert!(
+        matches!(&entries[3].verdict, Verdict::Deny { .. }),
+        "validation_failed deputy should be Deny"
+    );
 }
 
 /// GAP-T03: Test detect_heartbeat_gap with known gaps and no gaps.
@@ -3972,12 +4041,21 @@ async fn test_gap_t03_detect_heartbeat_gap() {
 
     // Log two entries close together
     let action = test_action();
-    logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
-    logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+    logger
+        .log_entry(&action, &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
+    logger
+        .log_entry(&action, &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
 
     // No gap expected (entries are milliseconds apart, threshold is 10s)
     let gap = logger.detect_heartbeat_gap(10).await.unwrap();
-    assert!(gap.is_none(), "Should detect no gap for closely-spaced entries");
+    assert!(
+        gap.is_none(),
+        "Should detect no gap for closely-spaced entries"
+    );
 
     // With a threshold of 0 seconds, any gap should be detected
     let gap_zero = logger.detect_heartbeat_gap(0).await.unwrap();
@@ -3995,7 +4073,10 @@ async fn test_gap_t03b_detect_heartbeat_gap_single_entry() {
     let log_path = dir.path().join("audit.jsonl");
     let logger = AuditLogger::new_unredacted(log_path);
     let action = test_action();
-    logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+    logger
+        .log_entry(&action, &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
     let gap = logger.detect_heartbeat_gap(10).await.unwrap();
     assert!(gap.is_none(), "Single entry should have no gap");
 }
@@ -4021,7 +4102,10 @@ fn test_gap_t05_merkle_compute_siblings_single_leaf() {
     tree.append(leaf).unwrap();
     let proof = tree.generate_proof(0).unwrap();
     // Single leaf: no siblings needed
-    assert!(proof.siblings.is_empty(), "Single leaf proof should have no siblings");
+    assert!(
+        proof.siblings.is_empty(),
+        "Single leaf proof should have no siblings"
+    );
     assert_eq!(proof.tree_size, 1);
 }
 
@@ -4042,7 +4126,10 @@ fn test_gap_t05b_merkle_odd_leaf_count() {
     // Verify the proof is valid
     let leaf = hash_leaf(&2u64.to_le_bytes());
     let verification = MerkleTree::verify_proof(leaf, &proof, &proof.root_hash).unwrap();
-    assert!(verification.valid, "Proof for odd-count tree should be valid");
+    assert!(
+        verification.valid,
+        "Proof for odd-count tree should be valid"
+    );
 }
 
 /// GAP-T05c: Merkle proof for leaf 0 in power-of-2 tree.
@@ -4060,8 +4147,16 @@ fn test_gap_t05c_merkle_power_of_two() {
         let proof = tree.generate_proof(idx).unwrap();
         let leaf = hash_leaf(&idx.to_le_bytes());
         let v = MerkleTree::verify_proof(leaf, &proof, &proof.root_hash).unwrap();
-        assert!(v.valid, "Proof for leaf {} in 8-leaf tree should be valid", idx);
-        assert_eq!(proof.siblings.len(), 3, "8-leaf tree should need 3 siblings");
+        assert!(
+            v.valid,
+            "Proof for leaf {} in 8-leaf tree should be valid",
+            idx
+        );
+        assert_eq!(
+            proof.siblings.len(),
+            3,
+            "8-leaf tree should need 3 siblings"
+        );
     }
 }
 
@@ -4123,19 +4218,46 @@ async fn test_gap_t06_etdi_audit_helpers() {
     let log_path = dir.path().join("audit.jsonl");
     let logger = AuditLogger::new(log_path);
 
-    logger.log_etdi_signature_verified("tool_a", "signer-1", true).await.unwrap();
-    logger.log_etdi_signature_verified("tool_b", "signer-2", false).await.unwrap();
-    logger.log_etdi_signature_failed("tool_c", "invalid signature").await.unwrap();
+    logger
+        .log_etdi_signature_verified("tool_a", "signer-1", true)
+        .await
+        .unwrap();
+    logger
+        .log_etdi_signature_verified("tool_b", "signer-2", false)
+        .await
+        .unwrap();
+    logger
+        .log_etdi_signature_failed("tool_c", "invalid signature")
+        .await
+        .unwrap();
     logger.log_etdi_unsigned_tool("tool_d", true).await.unwrap();
-    logger.log_etdi_unsigned_tool("tool_e", false).await.unwrap();
+    logger
+        .log_etdi_unsigned_tool("tool_e", false)
+        .await
+        .unwrap();
 
     let entries = logger.load_entries().await.unwrap();
     assert_eq!(entries.len(), 5, "Should have 5 ETDI entries");
-    assert!(matches!(&entries[0].verdict, Verdict::Allow), "Trusted sig should be Allow");
-    assert!(matches!(&entries[1].verdict, Verdict::Deny { .. }), "Untrusted sig should be Deny");
-    assert!(matches!(&entries[2].verdict, Verdict::Deny { .. }), "Failed sig should be Deny");
-    assert!(matches!(&entries[3].verdict, Verdict::Deny { .. }), "Blocked unsigned should be Deny");
-    assert!(matches!(&entries[4].verdict, Verdict::Allow), "Allowed unsigned should be Allow");
+    assert!(
+        matches!(&entries[0].verdict, Verdict::Allow),
+        "Trusted sig should be Allow"
+    );
+    assert!(
+        matches!(&entries[1].verdict, Verdict::Deny { .. }),
+        "Untrusted sig should be Deny"
+    );
+    assert!(
+        matches!(&entries[2].verdict, Verdict::Deny { .. }),
+        "Failed sig should be Deny"
+    );
+    assert!(
+        matches!(&entries[3].verdict, Verdict::Deny { .. }),
+        "Blocked unsigned should be Deny"
+    );
+    assert!(
+        matches!(&entries[4].verdict, Verdict::Allow),
+        "Allowed unsigned should be Allow"
+    );
 }
 
 /// GAP-T07: Test compress_rotated_file with missing file.

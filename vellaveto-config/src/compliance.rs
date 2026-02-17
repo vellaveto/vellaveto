@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 pub use vellaveto_types::compliance::{
-    AccessReviewEntry, AccessReviewReport, AttestationStatus, AiActRiskClass, Cc6Evidence,
+    AccessReviewEntry, AccessReviewReport, AiActRiskClass, AttestationStatus, Cc6Evidence,
     DataClassification, ExplanationVerbosity, ProcessingPurpose, ReportExportFormat,
     ReviewSchedule, ReviewerAttestation, TrustServicesCategory,
 };
@@ -530,8 +530,7 @@ reviewers = ["Alice"]
     #[test]
     fn test_access_review_validation_too_many_reviewers() {
         let mut config = ComplianceConfig::default();
-        config.soc2.access_review.reviewers =
-            (0..51).map(|i| format!("reviewer_{}", i)).collect();
+        config.soc2.access_review.reviewers = (0..51).map(|i| format!("reviewer_{}", i)).collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("reviewers"));
     }

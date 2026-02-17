@@ -41,7 +41,7 @@ fn is_unsafe_char(c: char) -> bool {
         || cp == 0xFEFF                    // BOM
         || (0xFFF9..=0xFFFB).contains(&cp) // Interlinear annotation
         || (0xE0001..=0xE007F).contains(&cp) // TAG characters
-        || cp == 0x00AD                    // Soft hyphen
+        || cp == 0x00AD // Soft hyphen
 }
 
 /// Validate a string field: reject if too long or contains control/format characters.
@@ -140,10 +140,7 @@ pub async fn register_delegation(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!(
-                    "allowed_tools exceeds maximum of {} entries",
-                    MAX_TOOLS_LEN
-                ),
+                error: format!("allowed_tools exceeds maximum of {} entries", MAX_TOOLS_LEN),
             }),
         ));
     }

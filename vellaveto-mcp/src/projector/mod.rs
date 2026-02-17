@@ -1,19 +1,19 @@
-mod error;
 mod claude;
-mod openai;
-mod deepseek;
-mod qwen;
-mod generic;
 pub mod compress;
+mod deepseek;
+mod error;
+mod generic;
+mod openai;
+mod qwen;
 pub mod repair;
 
-pub use error::ProjectorError;
 pub use compress::SchemaCompressor;
+pub use error::ProjectorError;
 pub use repair::CallRepairer;
 
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use serde_json::Value;
 use vellaveto_types::{CanonicalToolCall, CanonicalToolResponse, CanonicalToolSchema, ModelFamily};
 
 /// Trait for model-specific schema projection.
@@ -49,10 +49,7 @@ impl ProjectorRegistry {
         Ok(registry)
     }
 
-    pub fn register(
-        &self,
-        projection: Arc<dyn ModelProjection>,
-    ) -> Result<(), ProjectorError> {
+    pub fn register(&self, projection: Arc<dyn ModelProjection>) -> Result<(), ProjectorError> {
         let family = projection.model_family();
         let mut map = self
             .projections
@@ -62,10 +59,7 @@ impl ProjectorRegistry {
         Ok(())
     }
 
-    pub fn get(
-        &self,
-        family: &ModelFamily,
-    ) -> Result<Arc<dyn ModelProjection>, ProjectorError> {
+    pub fn get(&self, family: &ModelFamily) -> Result<Arc<dyn ModelProjection>, ProjectorError> {
         let map = self
             .projections
             .read()
@@ -209,7 +203,11 @@ mod tests {
         ] {
             let proj = reg.get(family).unwrap();
             let formatted = proj.format_response(&resp).unwrap();
-            assert!(formatted.is_object(), "family {:?} produced non-object", family);
+            assert!(
+                formatted.is_object(),
+                "family {:?} produced non-object",
+                family
+            );
         }
     }
 

@@ -163,29 +163,30 @@ pub fn generate_access_review(
                 .iter()
                 .find_map(|sid| least_agency.get(&(agent_id.clone(), sid.clone())));
 
-            let (permissions_granted, permissions_used, usage_ratio, unused_permissions, recommendation) =
-                if let Some(la) = la_report {
-                    let rec = format!("{:?}", la.recommendation);
-                    match la.recommendation {
-                        vellaveto_types::AgencyRecommendation::Optimal => optimal_count += 1,
-                        vellaveto_types::AgencyRecommendation::ReviewGrants => {
-                            review_grants_count += 1
-                        }
-                        vellaveto_types::AgencyRecommendation::NarrowScope => {
-                            narrow_scope_count += 1
-                        }
-                        vellaveto_types::AgencyRecommendation::Critical => critical_count += 1,
-                    }
-                    (
-                        la.granted_permissions,
-                        la.used_permissions,
-                        la.usage_ratio,
-                        la.unused_permissions.clone(),
-                        rec,
-                    )
-                } else {
-                    (0, 0, 0.0, Vec::new(), "NoData".to_string())
-                };
+            let (
+                permissions_granted,
+                permissions_used,
+                usage_ratio,
+                unused_permissions,
+                recommendation,
+            ) = if let Some(la) = la_report {
+                let rec = format!("{:?}", la.recommendation);
+                match la.recommendation {
+                    vellaveto_types::AgencyRecommendation::Optimal => optimal_count += 1,
+                    vellaveto_types::AgencyRecommendation::ReviewGrants => review_grants_count += 1,
+                    vellaveto_types::AgencyRecommendation::NarrowScope => narrow_scope_count += 1,
+                    vellaveto_types::AgencyRecommendation::Critical => critical_count += 1,
+                }
+                (
+                    la.granted_permissions,
+                    la.used_permissions,
+                    la.usage_ratio,
+                    la.unused_permissions.clone(),
+                    rec,
+                )
+            } else {
+                (0, 0, 0.0, Vec::new(), "NoData".to_string())
+            };
 
             AccessReviewEntry {
                 agent_id,
@@ -281,7 +282,9 @@ pub fn render_html(report: &AccessReviewReport) -> String {
     html.push_str("th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }\n");
     html.push_str("th { background-color: #f4f4f8; }\n");
     html.push_str("tr:nth-child(even) { background-color: #fafafa; }\n");
-    html.push_str(".summary { background: #f0f4ff; padding: 1em; border-radius: 6px; margin: 1em 0; }\n");
+    html.push_str(
+        ".summary { background: #f0f4ff; padding: 1em; border-radius: 6px; margin: 1em 0; }\n",
+    );
     html.push_str(".attestation { border: 2px solid #ccc; padding: 1em; margin: 2em 0; border-radius: 6px; }\n");
     html.push_str(".optimal { color: #2d8a4e; } .review { color: #b8860b; } .narrow { color: #d4760a; } .critical { color: #c0392b; }\n");
     html.push_str("</style>\n</head>\n<body>\n");
@@ -392,10 +395,16 @@ pub fn render_html(report: &AccessReviewReport) -> String {
     html.push_str(&html_escape(&report.attestation.status.to_string()));
     html.push_str("</p>\n");
     html.push_str("<table>\n");
-    html.push_str("<tr><td><strong>Reviewer Name:</strong></td><td>___________________________</td></tr>\n");
-    html.push_str("<tr><td><strong>Reviewer Title:</strong></td><td>___________________________</td></tr>\n");
+    html.push_str(
+        "<tr><td><strong>Reviewer Name:</strong></td><td>___________________________</td></tr>\n",
+    );
+    html.push_str(
+        "<tr><td><strong>Reviewer Title:</strong></td><td>___________________________</td></tr>\n",
+    );
     html.push_str("<tr><td><strong>Date:</strong></td><td>___________________________</td></tr>\n");
-    html.push_str("<tr><td><strong>Notes:</strong></td><td>___________________________</td></tr>\n");
+    html.push_str(
+        "<tr><td><strong>Notes:</strong></td><td>___________________________</td></tr>\n",
+    );
     html.push_str("</table>\n");
     html.push_str("</div>\n");
 
@@ -922,9 +931,7 @@ mod tests {
             make_entry(
                 "tool",
                 "f",
-                Verdict::Deny {
-                    reason: "x".into(),
-                },
+                Verdict::Deny { reason: "x".into() },
                 "2026-01-15T10:02:00Z",
                 Some("a1"),
                 None,
@@ -932,9 +939,7 @@ mod tests {
             make_entry(
                 "tool",
                 "f",
-                Verdict::RequireApproval {
-                    reason: "y".into(),
-                },
+                Verdict::RequireApproval { reason: "y".into() },
                 "2026-01-15T10:03:00Z",
                 Some("a1"),
                 None,

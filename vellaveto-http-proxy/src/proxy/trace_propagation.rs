@@ -19,9 +19,7 @@ use vellaveto_audit::observability::{TraceContext, MAX_TRACESTATE_BYTES};
 /// Parses `traceparent` and `tracestate` headers. If `traceparent` is missing
 /// or invalid, generates a new trace context (fail-open for observability).
 pub fn extract_trace_context(headers: &HeaderMap) -> TraceContext {
-    let traceparent = headers
-        .get("traceparent")
-        .and_then(|v| v.to_str().ok());
+    let traceparent = headers.get("traceparent").and_then(|v| v.to_str().ok());
 
     let mut ctx = match traceparent {
         Some(tp) => TraceContext::parse_traceparent(tp).unwrap_or_default(),
@@ -70,10 +68,7 @@ pub fn create_vellaveto_span(parent: &TraceContext) -> (TraceContext, String) {
 /// that act as trust boundaries.
 ///
 /// Returns `(traceparent, Option<tracestate>)`.
-pub fn build_upstream_headers(
-    ctx: &TraceContext,
-    verdict: &str,
-) -> (String, Option<String>) {
+pub fn build_upstream_headers(ctx: &TraceContext, verdict: &str) -> (String, Option<String>) {
     // Build a clean context with NO incoming tracestate — only our verdict
     let mut clean_ctx = TraceContext {
         trace_id: ctx.trace_id.clone(),
@@ -83,20 +78,15 @@ pub fn build_upstream_headers(
     };
     clean_ctx = clean_ctx.with_vellaveto_verdict(verdict);
 
-    let traceparent = clean_ctx
-        .to_traceparent()
-        .unwrap_or_else(|| {
-            // Fallback: generate a minimal valid traceparent
-            let trace_id = ctx
-                .trace_id
-                .as_deref()
-                .unwrap_or("00000000000000000000000000000001");
-            let span_id = ctx
-                .parent_span_id
-                .as_deref()
-                .unwrap_or("0000000000000001");
-            format!("00-{}-{}-{:02x}", trace_id, span_id, ctx.trace_flags)
-        });
+    let traceparent = clean_ctx.to_traceparent().unwrap_or_else(|| {
+        // Fallback: generate a minimal valid traceparent
+        let trace_id = ctx
+            .trace_id
+            .as_deref()
+            .unwrap_or("00000000000000000000000000000001");
+        let span_id = ctx.parent_span_id.as_deref().unwrap_or("0000000000000001");
+        format!("00-{}-{}-{:02x}", trace_id, span_id, ctx.trace_flags)
+    });
 
     let tracestate = clean_ctx.trace_state;
 

@@ -412,6 +412,23 @@ impl NhiDelegationLink {
     ///
     /// SECURITY (FIND-R48-006): Unbounded permissions and scope_constraints.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R51-009): Reject self-delegation to prevent
+        // privilege escalation loops. Case-insensitive comparison.
+        if self.from_agent.eq_ignore_ascii_case(&self.to_agent) {
+            return Err("self-delegation is not allowed".to_string());
+        }
+        // SECURITY (FIND-R51-012): Validate temporal ordering.
+        // For ISO 8601 timestamps, lexicographic comparison preserves chronological order.
+        // Only check when both fields are non-empty (empty fields caught elsewhere).
+        if !self.created_at.is_empty()
+            && !self.expires_at.is_empty()
+            && self.expires_at <= self.created_at
+        {
+            return Err(format!(
+                "NhiDelegationLink expires_at '{}' must be after created_at '{}'",
+                self.expires_at, self.created_at,
+            ));
+        }
         if self.permissions.len() > Self::MAX_PERMISSIONS {
             return Err(format!(
                 "NhiDelegationLink has {} permissions (max {})",

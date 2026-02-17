@@ -1102,10 +1102,7 @@ mod tests {
         // Not enough failures to open
 
         let result = manager.reset("my_tool");
-        assert!(
-            result.is_ok(),
-            "Reset should succeed for a Closed circuit"
-        );
+        assert!(result.is_ok(), "Reset should succeed for a Closed circuit");
     }
 
     #[test]

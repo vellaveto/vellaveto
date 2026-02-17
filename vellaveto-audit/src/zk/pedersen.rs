@@ -64,10 +64,7 @@ impl PedersenCommitter {
     /// for later opening/verification. Loss of the blinding factor makes the
     /// commitment unopenable. Disclosure of the blinding factor reveals the
     /// committed entry hash to anyone who has the commitment point.
-    pub fn commit(
-        &self,
-        entry_hash: &[u8; 32],
-    ) -> Result<(CompressedRistretto, Scalar), ZkError> {
+    pub fn commit(&self, entry_hash: &[u8; 32]) -> Result<(CompressedRistretto, Scalar), ZkError> {
         // Convert entry hash to a scalar (reduce mod group order)
         let entry_scalar = Scalar::from_bytes_mod_order(*entry_hash);
 
@@ -97,9 +94,7 @@ impl PedersenCommitter {
     /// Decompress a commitment from its compressed form.
     ///
     /// Returns `Err` if the bytes don't represent a valid Ristretto point.
-    pub fn decompress(
-        compressed: &CompressedRistretto,
-    ) -> Result<RistrettoPoint, ZkError> {
+    pub fn decompress(compressed: &CompressedRistretto) -> Result<RistrettoPoint, ZkError> {
         compressed
             .decompress()
             .ok_or_else(|| ZkError::Commitment("Invalid compressed Ristretto point".to_string()))

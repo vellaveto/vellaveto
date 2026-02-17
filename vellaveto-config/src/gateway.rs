@@ -188,7 +188,8 @@ impl GatewayConfig {
                 let trimmed_lower = trimmed.to_ascii_lowercase();
                 let valid_scheme = match proto {
                     TransportProtocol::Http | TransportProtocol::Grpc => {
-                        trimmed_lower.starts_with("http://") || trimmed_lower.starts_with("https://")
+                        trimmed_lower.starts_with("http://")
+                            || trimmed_lower.starts_with("https://")
                     }
                     TransportProtocol::WebSocket => {
                         trimmed_lower.starts_with("ws://") || trimmed_lower.starts_with("wss://")

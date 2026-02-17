@@ -97,9 +97,11 @@ fn redact_keys_only_inner(value: &serde_json::Value, depth: usize) -> serde_json
             }
             serde_json::Value::Object(result)
         }
-        serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(|v| redact_keys_only_inner(v, depth + 1)).collect())
-        }
+        serde_json::Value::Array(arr) => serde_json::Value::Array(
+            arr.iter()
+                .map(|v| redact_keys_only_inner(v, depth + 1))
+                .collect(),
+        ),
         _ => value.clone(),
     }
 }
@@ -137,9 +139,11 @@ fn redact_keys_and_patterns_inner(value: &serde_json::Value, depth: usize) -> se
             }
             serde_json::Value::Object(result)
         }
-        serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(|v| redact_keys_and_patterns_inner(v, depth + 1)).collect())
-        }
+        serde_json::Value::Array(arr) => serde_json::Value::Array(
+            arr.iter()
+                .map(|v| redact_keys_and_patterns_inner(v, depth + 1))
+                .collect(),
+        ),
         serde_json::Value::String(s) => {
             // SECURITY (R9-8): Case-insensitive prefix check — "SK-..." or
             // "bearer ..." should match as well as "sk-..." and "Bearer ...".

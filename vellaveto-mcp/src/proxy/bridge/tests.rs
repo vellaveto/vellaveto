@@ -1653,13 +1653,8 @@ fn test_evaluate_deny_overrides_allow_same_priority() {
     ];
     let bridge = test_bridge(policies);
 
-    let (decision, _trace) = bridge.evaluate_tool_call(
-        &json!(109),
-        "any_tool",
-        &json!({}),
-        None,
-        None,
-    );
+    let (decision, _trace) =
+        bridge.evaluate_tool_call(&json!(109), "any_tool", &json!({}), None, None);
     assert!(
         matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
         "Deny should override Allow at the same priority level"

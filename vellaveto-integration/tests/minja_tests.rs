@@ -180,8 +180,11 @@ fn test_trust_decay_calculation() {
         // SECURITY (FIND-R46-018): New entries start with trust_score 0.5
         // (Untrusted taint label requires trust < 1.0). The decayed trust
         // should be close to 0.5 for a freshly recorded entry.
-        assert!(match_result.current_trust > 0.49 && match_result.current_trust <= 0.5,
-            "Expected trust ~0.5, got {}", match_result.current_trust);
+        assert!(
+            match_result.current_trust > 0.49 && match_result.current_trust <= 0.5,
+            "Expected trust ~0.5, got {}",
+            match_result.current_trust
+        );
     });
 }
 

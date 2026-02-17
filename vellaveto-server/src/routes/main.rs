@@ -961,7 +961,11 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         None
     };
     let discovered_endpoints = if state.service_discovery.is_some() {
-        Some(state.cached_discovered_endpoints.load(std::sync::atomic::Ordering::Relaxed) as usize)
+        Some(
+            state
+                .cached_discovered_endpoints
+                .load(std::sync::atomic::Ordering::Relaxed) as usize,
+        )
     } else {
         None
     };

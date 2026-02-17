@@ -35,13 +35,13 @@ impl CompiledPathMatcher {
     /// SECURITY: If a glob pattern fails to compile, returns `None` (fail-closed).
     /// The caller must treat `None` as a deny.
     fn compile(pattern: &str) -> Option<Self> {
-        let has_glob_meta = pattern.contains('*')
-            || pattern.contains('?')
-            || pattern.contains('[');
+        let has_glob_meta = pattern.contains('*') || pattern.contains('?') || pattern.contains('[');
 
         if !has_glob_meta {
             // No glob metacharacters — simple exact match
-            return Some(CompiledPathMatcher::Simple(PatternMatcher::compile(pattern)));
+            return Some(CompiledPathMatcher::Simple(PatternMatcher::compile(
+                pattern,
+            )));
         }
 
         // Try to compile as a glob with literal_separator so that `*` does
@@ -396,9 +396,7 @@ fn compile_policy(policy: &AbacPolicy) -> Result<CompiledAbacPolicy, String> {
                 policy.id
             ));
         }
-        if !KNOWN_CONDITION_FIELDS.contains(&c.field.as_str())
-            && !c.field.starts_with("claims.")
-        {
+        if !KNOWN_CONDITION_FIELDS.contains(&c.field.as_str()) && !c.field.starts_with("claims.") {
             tracing::warn!(
                 policy_id = %policy.id,
                 field = %c.field,
@@ -563,9 +561,15 @@ fn matches_resource(resource: &CompiledResource, action: &Action) -> bool {
         }
         let any_path_matches = action.target_paths.iter().any(|path| {
             // SECURITY (FIND-R49-001): Use bounded path normalization.
-            let normalized = crate::path::normalize_path_bounded(path, crate::path::DEFAULT_MAX_PATH_DECODE_ITERATIONS)
-                .unwrap_or_else(|_| "/".to_string());
-            resource.path_matchers.iter().any(|m| m.matches(&normalized))
+            let normalized = crate::path::normalize_path_bounded(
+                path,
+                crate::path::DEFAULT_MAX_PATH_DECODE_ITERATIONS,
+            )
+            .unwrap_or_else(|_| "/".to_string());
+            resource
+                .path_matchers
+                .iter()
+                .any(|m| m.matches(&normalized))
         });
         if !any_path_matches {
             return false;
@@ -594,7 +598,10 @@ fn matches_resource(resource: &CompiledResource, action: &Action) -> bool {
                     return false;
                 }
             };
-            resource.domain_matchers.iter().any(|m| m.matches(&normalized))
+            resource
+                .domain_matchers
+                .iter()
+                .any(|m| m.matches(&normalized))
         });
         if !any_domain_matches {
             return false;
@@ -1775,7 +1782,10 @@ mod tests {
             }],
         };
         let result = AbacEngine::new(&[policy], &[]);
-        assert!(result.is_err(), "Empty condition field should be rejected at compile time");
+        assert!(
+            result.is_err(),
+            "Empty condition field should be rejected at compile time"
+        );
     }
 
     #[test]

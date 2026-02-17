@@ -729,9 +729,13 @@ async fn main() -> Result<()> {
         transport_health: if policy_config.transport.cross_transport_fallback {
             Some(std::sync::Arc::new(
                 proxy::transport_health::TransportHealthTracker::new(
-                    policy_config.transport.transport_circuit_breaker_failure_threshold,
+                    policy_config
+                        .transport
+                        .transport_circuit_breaker_failure_threshold,
                     2, // success threshold for half-open recovery
-                    policy_config.transport.transport_circuit_breaker_open_duration_secs,
+                    policy_config
+                        .transport
+                        .transport_circuit_breaker_open_duration_secs,
                 ),
             ))
         } else {
@@ -752,11 +756,17 @@ async fn main() -> Result<()> {
             let family = parse_model_family(&policy_config.projector.default_model_family);
             match vellaveto_mcp::projector::ProjectorRegistry::with_defaults(family) {
                 Ok(registry) => {
-                    tracing::info!("Model projector enabled (default family: {})", policy_config.projector.default_model_family);
+                    tracing::info!(
+                        "Model projector enabled (default family: {})",
+                        policy_config.projector.default_model_family
+                    );
                     Some(std::sync::Arc::new(registry))
                 }
                 Err(e) => {
-                    return Err(anyhow::anyhow!("Failed to initialize projector registry: {}", e));
+                    return Err(anyhow::anyhow!(
+                        "Failed to initialize projector registry: {}",
+                        e
+                    ));
                 }
             }
         } else {

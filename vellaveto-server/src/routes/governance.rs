@@ -131,14 +131,16 @@ pub async fn least_agency_report(
     })?;
 
     // FIND-R44-050: Use generic error message to prevent agent/session enumeration
-    let report = tracker.generate_report(&agent_id, &session_id).ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "No tracking data found".to_string(),
-            }),
-        )
-    })?;
+    let report = tracker
+        .generate_report(&agent_id, &session_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "No tracking data found".to_string(),
+                }),
+            )
+        })?;
 
     // Also check for auto-revocation candidates
     let auto_revoke_candidates = tracker.check_auto_revoke(&agent_id, &session_id);

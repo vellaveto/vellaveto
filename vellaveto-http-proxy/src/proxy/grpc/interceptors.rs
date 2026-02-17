@@ -96,15 +96,19 @@ pub fn extract_trace_context_from_metadata(
         .and_then(|v| v.to_str().ok());
 
     let mut ctx = match traceparent {
-        Some(tp) => vellaveto_audit::observability::TraceContext::parse_traceparent(tp)
-            .unwrap_or_default(),
+        Some(tp) => {
+            vellaveto_audit::observability::TraceContext::parse_traceparent(tp).unwrap_or_default()
+        }
         None => vellaveto_audit::observability::TraceContext::default(),
     };
 
     ctx.ensure_trace_id();
 
     // SECURITY (FIND-R44-009): Reject tracestate exceeding W3C 512-byte limit
-    if let Some(ts) = metadata.get(METADATA_TRACESTATE).and_then(|v| v.to_str().ok()) {
+    if let Some(ts) = metadata
+        .get(METADATA_TRACESTATE)
+        .and_then(|v| v.to_str().ok())
+    {
         if !ts.is_empty() && ts.len() <= vellaveto_audit::observability::MAX_TRACESTATE_BYTES {
             ctx = ctx.with_parsed_tracestate(ts);
         }

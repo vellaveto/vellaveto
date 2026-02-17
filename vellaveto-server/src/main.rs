@@ -895,12 +895,24 @@ async fn cmd_serve(
         // Phase 26: Shadow AI Discovery & Governance
         shadow_ai_discovery: if policy_config.governance.shadow_ai_discovery {
             // FIND-R44-017: Populate registered agents from config
-            let registered: std::collections::HashSet<String> =
-                policy_config.governance.registered_agents.iter().cloned().collect();
-            let approved: std::collections::HashSet<String> =
-                policy_config.governance.approved_tools.iter().cloned().collect();
-            let known: std::collections::HashSet<String> =
-                policy_config.governance.known_servers.iter().cloned().collect();
+            let registered: std::collections::HashSet<String> = policy_config
+                .governance
+                .registered_agents
+                .iter()
+                .cloned()
+                .collect();
+            let approved: std::collections::HashSet<String> = policy_config
+                .governance
+                .approved_tools
+                .iter()
+                .cloned()
+                .collect();
+            let known: std::collections::HashSet<String> = policy_config
+                .governance
+                .known_servers
+                .iter()
+                .cloned()
+                .collect();
             Some(Arc::new(
                 vellaveto_mcp::shadow_ai_discovery::ShadowAiDiscovery::new(
                     registered,
@@ -931,9 +943,12 @@ async fn cmd_serve(
                 DeploymentMode::Standalone => {
                     if policy_config.deployment.leader_election.enabled {
                         let id = policy_config.deployment.effective_instance_id();
-                        Some(Arc::new(
-                            vellaveto_cluster::leader_local::LocalLeaderElection::new(id),
-                        ) as Arc<dyn vellaveto_cluster::leader::LeaderElection>)
+                        Some(
+                            Arc::new(vellaveto_cluster::leader_local::LocalLeaderElection::new(
+                                id,
+                            ))
+                                as Arc<dyn vellaveto_cluster::leader::LeaderElection>,
+                        )
                     } else {
                         None
                     }
@@ -942,9 +957,12 @@ async fn cmd_serve(
                     // Clustered / Kubernetes modes use local leader election as placeholder
                     // until kube-rs backend is implemented behind a feature gate.
                     let id = policy_config.deployment.effective_instance_id();
-                    Some(Arc::new(
-                        vellaveto_cluster::leader_local::LocalLeaderElection::new(id),
-                    ) as Arc<dyn vellaveto_cluster::leader::LeaderElection>)
+                    Some(
+                        Arc::new(vellaveto_cluster::leader_local::LocalLeaderElection::new(
+                            id,
+                        ))
+                            as Arc<dyn vellaveto_cluster::leader::LeaderElection>,
+                    )
                 }
             }
         },
@@ -953,18 +971,25 @@ async fn cmd_serve(
             match policy_config.deployment.service_discovery.mode {
                 ServiceDiscoveryMode::Static => None, // no static endpoints configured at server level
                 ServiceDiscoveryMode::Dns => {
-                    if let Some(ref dns_name) = policy_config.deployment.service_discovery.dns_name {
+                    if let Some(ref dns_name) = policy_config.deployment.service_discovery.dns_name
+                    {
                         let interval = std::time::Duration::from_secs(
-                            policy_config.deployment.service_discovery.refresh_interval_secs,
+                            policy_config
+                                .deployment
+                                .service_discovery
+                                .refresh_interval_secs,
                         );
-                        Some(Arc::new(
-                            vellaveto_cluster::discovery_dns::DnsServiceDiscovery::new(
+                        Some(
+                            Arc::new(vellaveto_cluster::discovery_dns::DnsServiceDiscovery::new(
                                 dns_name.clone(),
                                 interval,
-                            ),
-                        ) as Arc<dyn vellaveto_cluster::discovery::ServiceDiscovery>)
+                            ))
+                                as Arc<dyn vellaveto_cluster::discovery::ServiceDiscovery>,
+                        )
                     } else {
-                        tracing::warn!("DNS service discovery mode requires dns_name; falling back to none");
+                        tracing::warn!(
+                            "DNS service discovery mode requires dns_name; falling back to none"
+                        );
                         None
                     }
                 }
@@ -1010,7 +1035,10 @@ async fn cmd_serve(
                     Some(Arc::new(registry))
                 }
                 Err(e) => {
-                    return Err(anyhow::anyhow!("Failed to initialize projector registry: {}", e));
+                    return Err(anyhow::anyhow!(
+                        "Failed to initialize projector registry: {}",
+                        e
+                    ));
                 }
             }
         } else {
@@ -1019,7 +1047,10 @@ async fn cmd_serve(
 
         // Phase 37: Zero-Knowledge Audit Trails
         zk_proofs: if policy_config.zk_audit.enabled {
-            tracing::info!("ZK audit enabled (batch_proof={})", policy_config.zk_audit.batch_proof_enabled);
+            tracing::info!(
+                "ZK audit enabled (batch_proof={})",
+                policy_config.zk_audit.batch_proof_enabled
+            );
             Some(Arc::new(std::sync::Mutex::new(Vec::new())))
         } else {
             None
@@ -1033,9 +1064,9 @@ async fn cmd_serve(
                     anchors = fed.trust_anchors.len(),
                     "Federation resolver initialized"
                 );
-                Some(std::sync::Arc::new(vellaveto_server::FederationResolver::new(
-                    fed.clone(),
-                )))
+                Some(std::sync::Arc::new(
+                    vellaveto_server::FederationResolver::new(fed.clone()),
+                ))
             } else {
                 None
             }
@@ -1071,10 +1102,12 @@ async fn cmd_serve(
     if let Some(ref sd) = state.service_discovery {
         let sd_clone = sd.clone();
         let cached_count = state.cached_discovered_endpoints.clone();
-        let refresh_secs = state.deployment_config.service_discovery.refresh_interval_secs;
+        let refresh_secs = state
+            .deployment_config
+            .service_discovery
+            .refresh_interval_secs;
         tokio::spawn(async move {
-            let mut interval =
-                tokio::time::interval(std::time::Duration::from_secs(refresh_secs));
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(refresh_secs));
             loop {
                 interval.tick().await;
                 match sd_clone.discover().await {
@@ -1224,14 +1257,13 @@ async fn cmd_serve(
                                 } else {
                                     std::collections::HashMap::new()
                                 };
-                                let report =
-                                    vellaveto_audit::access_review::generate_access_review(
-                                        &entries,
-                                        &snap.compliance_config.soc2.organization_name,
-                                        &period_start,
-                                        &period_end,
-                                        &la_data,
-                                    );
+                                let report = vellaveto_audit::access_review::generate_access_review(
+                                    &entries,
+                                    &snap.compliance_config.soc2.organization_name,
+                                    &period_start,
+                                    &period_end,
+                                    &la_data,
+                                );
                                 tracing::info!(
                                     total_agents = report.total_agents,
                                     total_evaluations = report.total_evaluations,

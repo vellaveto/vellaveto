@@ -133,9 +133,7 @@ impl FederatedClaims {
             ));
         }
         for (key, value) in &self.extra {
-            let serialized_len = serde_json::to_string(value)
-                .map(|s| s.len())
-                .unwrap_or(0);
+            let serialized_len = serde_json::to_string(value).map(|s| s.len()).unwrap_or(0);
             if serialized_len > MAX_EXTRA_CLAIM_VALUE_BYTES {
                 return Err(format!(
                     "federated JWT extra claim '{}' is {} bytes, max is {}",
@@ -264,16 +262,14 @@ impl FederationResolver {
         // Allow 60s clock skew
         validation.leeway = 60;
 
-        let token_data =
-            jsonwebtoken::decode::<FederatedClaims>(token, &decoding_key, &validation).map_err(
-                |e| {
-                    anchor.failure_count.fetch_add(1, Ordering::Relaxed);
-                    FederationError::JwtValidationFailed {
-                        org_id: anchor.config.org_id.clone(),
-                        source: e.to_string(),
-                    }
-                },
-            )?;
+        let token_data = jsonwebtoken::decode::<FederatedClaims>(token, &decoding_key, &validation)
+            .map_err(|e| {
+                anchor.failure_count.fetch_add(1, Ordering::Relaxed);
+                FederationError::JwtValidationFailed {
+                    org_id: anchor.config.org_id.clone(),
+                    source: e.to_string(),
+                }
+            })?;
 
         // FIND-R50-013: Validate extra claims are within bounds
         if let Err(reason) = token_data.claims.validate_extra_claims() {
@@ -375,12 +371,15 @@ impl FederationResolver {
         kid: &str,
         alg: &Algorithm,
     ) -> Result<DecodingKey, FederationError> {
-        let jwks_uri = anchor.config.jwks_uri.as_deref().ok_or_else(|| {
-            FederationError::JwksFetchFailed {
-                org_id: anchor.config.org_id.clone(),
-                source: "no jwks_uri configured".to_string(),
-            }
-        })?;
+        let jwks_uri =
+            anchor
+                .config
+                .jwks_uri
+                .as_deref()
+                .ok_or_else(|| FederationError::JwksFetchFailed {
+                    org_id: anchor.config.org_id.clone(),
+                    source: "no jwks_uri configured".to_string(),
+                })?;
 
         // Check cache first (fast path via read lock)
         {
@@ -465,19 +464,18 @@ impl FederationResolver {
         );
         let mut body = Vec::with_capacity(capacity);
         let mut resp = resp;
-        while let Some(chunk) = resp.chunk().await.map_err(|e| {
-            FederationError::JwksFetchFailed {
-                org_id: org_id.to_string(),
-                source: e.to_string(),
-            }
-        })? {
+        while let Some(chunk) =
+            resp.chunk()
+                .await
+                .map_err(|e| FederationError::JwksFetchFailed {
+                    org_id: org_id.to_string(),
+                    source: e.to_string(),
+                })?
+        {
             if body.len().saturating_add(chunk.len()) > MAX_JWKS_BODY_BYTES {
                 return Err(FederationError::JwksFetchFailed {
                     org_id: org_id.to_string(),
-                    source: format!(
-                        "JWKS response exceeds {} byte limit",
-                        MAX_JWKS_BODY_BYTES
-                    ),
+                    source: format!("JWKS response exceeds {} byte limit", MAX_JWKS_BODY_BYTES),
                 });
             }
             body.extend_from_slice(&chunk);
@@ -933,7 +931,10 @@ mod tests {
             "https://*.*",
             "https://auth.example.com"
         ));
-        assert!(!issuer_pattern_matches("https://*.*", "https://nosubdomain"));
+        assert!(!issuer_pattern_matches(
+            "https://*.*",
+            "https://nosubdomain"
+        ));
     }
 
     #[test]
@@ -943,10 +944,7 @@ mod tests {
         let resolver = FederationResolver::new(&config, client).expect("valid config");
         let anchor = resolver.find_matching_anchor("https://auth.partner.com");
         assert!(anchor.is_some());
-        assert_eq!(
-            anchor.expect("should match").config.org_id,
-            "partner-org"
-        );
+        assert_eq!(anchor.expect("should match").config.org_id, "partner-org");
     }
 
     #[test]
@@ -1189,10 +1187,8 @@ mod tests {
     #[test]
     fn test_extract_issuer_from_payload_missing_iss() {
         use base64::Engine;
-        let header =
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"alg":"RS256"}"#);
-        let payload =
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"sub":"test"}"#);
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"alg":"RS256"}"#);
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"sub":"test"}"#);
         let token = format!("{}.{}.sig", header, payload);
         assert_eq!(extract_issuer_from_payload(&token), None);
     }
@@ -1238,9 +1234,8 @@ mod tests {
         use base64::Engine;
         let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(r#"{"alg":"RS256","typ":"JWT"}"#);
-        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
-            r#"{"iss":"https://auth.nojwks.com","sub":"test","exp":9999999999}"#,
-        );
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(r#"{"iss":"https://auth.nojwks.com","sub":"test","exp":9999999999}"#);
         let token = format!("{}.{}.fake-sig", header, payload);
 
         let result = resolver.validate_federated_token(&token).await;

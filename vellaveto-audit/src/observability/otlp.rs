@@ -165,7 +165,11 @@ pub fn span_to_otel_attributes(span: &SecuritySpan) -> Vec<KeyValue> {
     }
 
     // GenAI agent identity attributes (Phase 28)
-    if let Some(agent_id) = span.attributes.get("gen_ai.agent.id").and_then(|v| v.as_str()) {
+    if let Some(agent_id) = span
+        .attributes
+        .get("gen_ai.agent.id")
+        .and_then(|v| v.as_str())
+    {
         attrs.push(KeyValue::new("gen_ai.agent.id", agent_id.to_string()));
     }
     if let Some(agent_name) = span

@@ -430,9 +430,6 @@ fn bench_injection_and_dlp_long_text(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    long_text_benches,
-    bench_injection_and_dlp_long_text,
-);
+criterion_group!(long_text_benches, bench_injection_and_dlp_long_text,);
 
 criterion_main!(inspection_benches, data_flow_benches, long_text_benches);

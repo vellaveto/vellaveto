@@ -1419,18 +1419,11 @@ impl PolicyEngine {
             // ═══════════════════════════════════════════════════
             // PHASE 40: WORKFLOW-LEVEL POLICY CONSTRAINTS
             // ═══════════════════════════════════════════════════
+            "required_action_sequence" => Self::compile_action_sequence(obj, policy, true),
 
-            "required_action_sequence" => {
-                Self::compile_action_sequence(obj, policy, true)
-            }
+            "forbidden_action_sequence" => Self::compile_action_sequence(obj, policy, false),
 
-            "forbidden_action_sequence" => {
-                Self::compile_action_sequence(obj, policy, false)
-            }
-
-            "workflow_template" => {
-                Self::compile_workflow_template(obj, policy)
-            }
+            "workflow_template" => Self::compile_workflow_template(obj, policy),
 
             _ => Err(PolicyValidationError {
                 policy_id: policy.id.clone(),
@@ -1512,10 +1505,7 @@ impl PolicyEngine {
             sequence.push(s.to_ascii_lowercase());
         }
 
-        let ordered = obj
-            .get("ordered")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        let ordered = obj.get("ordered").and_then(|v| v.as_bool()).unwrap_or(true);
 
         if is_required {
             let deny_reason = format!(
@@ -1552,14 +1542,14 @@ impl PolicyEngine {
 
         const MAX_WORKFLOW_STEPS: usize = 50;
 
-        let steps = obj
-            .get("steps")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| PolicyValidationError {
-                policy_id: policy.id.clone(),
-                policy_name: policy.name.clone(),
-                reason: "workflow_template requires a 'steps' array".to_string(),
-            })?;
+        let steps =
+            obj.get("steps")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: "workflow_template requires a 'steps' array".to_string(),
+                })?;
 
         if steps.is_empty() {
             return Err(PolicyValidationError {
@@ -1631,7 +1621,9 @@ impl PolicyEngine {
                 return Err(PolicyValidationError {
                     policy_id: policy.id.clone(),
                     policy_name: policy.name.clone(),
-                    reason: format!("workflow_template steps[{i}].tool contains control characters"),
+                    reason: format!(
+                        "workflow_template steps[{i}].tool contains control characters"
+                    ),
                 });
             }
 
@@ -1641,9 +1633,7 @@ impl PolicyEngine {
                 return Err(PolicyValidationError {
                     policy_id: policy.id.clone(),
                     policy_name: policy.name.clone(),
-                    reason: format!(
-                        "workflow_template has duplicate step tool '{tool}'"
-                    ),
+                    reason: format!("workflow_template has duplicate step tool '{tool}'"),
                 });
             }
 
@@ -1668,9 +1658,7 @@ impl PolicyEngine {
                     return Err(PolicyValidationError {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
-                        reason: format!(
-                            "workflow_template steps[{i}].then[{j}] must not be empty"
-                        ),
+                        reason: format!("workflow_template steps[{i}].then[{j}] must not be empty"),
                     });
                 }
 
@@ -1759,10 +1747,7 @@ impl PolicyEngine {
             });
         }
 
-        let deny_reason = format!(
-            "Workflow template violation for policy '{}'",
-            policy.name
-        );
+        let deny_reason = format!("Workflow template violation for policy '{}'", policy.name);
 
         Ok(CompiledContextCondition::WorkflowTemplate {
             adjacency,

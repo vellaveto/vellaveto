@@ -246,7 +246,9 @@ impl SemanticGuardrailsService {
                         return Ok(LlmEvaluation::deny("evaluation timed out"))
                     }
                     FallbackBehavior::Allow => {
-                        tracing::warn!("semantic guardrail falling back to Allow — check configuration");
+                        tracing::warn!(
+                            "semantic guardrail falling back to Allow — check configuration"
+                        );
                         return Ok(LlmEvaluation::allow());
                     }
                     FallbackBehavior::PatternMatch => {
@@ -276,8 +278,7 @@ impl SemanticGuardrailsService {
 
                 // Guard: skip insertion for new sessions when at capacity.
                 // Intent tracking is defense-in-depth; skipping is fail-safe.
-                if !chains.contains_key(session_id.as_str())
-                    && chains.len() >= MAX_INTENT_SESSIONS
+                if !chains.contains_key(session_id.as_str()) && chains.len() >= MAX_INTENT_SESSIONS
                 {
                     tracing::warn!(
                         session_id = %session_id,

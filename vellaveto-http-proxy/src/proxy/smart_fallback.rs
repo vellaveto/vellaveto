@@ -54,13 +54,9 @@ pub struct SmartFallbackResult {
 #[derive(Debug)]
 pub enum SmartFallbackError {
     /// All transports failed after trying each one.
-    AllTransportsFailed {
-        history: FallbackNegotiationHistory,
-    },
+    AllTransportsFailed { history: FallbackNegotiationHistory },
     /// Total timeout budget exhausted.
-    TotalTimeoutExceeded {
-        history: FallbackNegotiationHistory,
-    },
+    TotalTimeoutExceeded { history: FallbackNegotiationHistory },
     /// No targets provided.
     NoTargets,
 }
@@ -69,11 +65,7 @@ impl std::fmt::Display for SmartFallbackError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::AllTransportsFailed { history } => {
-                write!(
-                    f,
-                    "all {} transport(s) failed",
-                    history.attempts.len()
-                )
+                write!(f, "all {} transport(s) failed", history.attempts.len())
             }
             Self::TotalTimeoutExceeded { history } => {
                 write!(
@@ -158,7 +150,10 @@ impl<'a> SmartFallbackChain<'a> {
             }
 
             // Check circuit breaker.
-            if let Err(reason) = self.health_tracker.can_use(&target.upstream_id, target.protocol) {
+            if let Err(reason) = self
+                .health_tracker
+                .can_use(&target.upstream_id, target.protocol)
+            {
                 attempts.push(TransportAttempt {
                     protocol: target.protocol,
                     endpoint_url: target.url.clone(),
@@ -220,7 +215,8 @@ impl<'a> SmartFallbackChain<'a> {
                     // transport. A backend returning 500s must not keep the circuit
                     // closed.
                     if status >= 500 {
-                        self.health_tracker.record_failure(&target.upstream_id, target.protocol);
+                        self.health_tracker
+                            .record_failure(&target.upstream_id, target.protocol);
 
                         metrics::counter!(
                             "vellaveto_transport_fallback_total",
@@ -241,7 +237,8 @@ impl<'a> SmartFallbackChain<'a> {
                         continue;
                     }
 
-                    self.health_tracker.record_success(&target.upstream_id, target.protocol);
+                    self.health_tracker
+                        .record_success(&target.upstream_id, target.protocol);
 
                     metrics::counter!(
                         "vellaveto_transport_fallback_total",
@@ -273,7 +270,8 @@ impl<'a> SmartFallbackChain<'a> {
                     });
                 }
                 Err(error) => {
-                    self.health_tracker.record_failure(&target.upstream_id, target.protocol);
+                    self.health_tracker
+                        .record_failure(&target.upstream_id, target.protocol);
 
                     metrics::counter!(
                         "vellaveto_transport_fallback_total",
@@ -320,7 +318,10 @@ impl<'a> SmartFallbackChain<'a> {
         // prevent leaking Authorization, Cookie, etc. to upstream backends.
         for (key, value) in headers {
             let key_lower = key.as_str().to_lowercase();
-            if FORWARDED_HEADERS.iter().any(|&allowed| allowed == key_lower) {
+            if FORWARDED_HEADERS
+                .iter()
+                .any(|&allowed| allowed == key_lower)
+            {
                 request = request.header(key.clone(), value.clone());
             }
         }
@@ -345,8 +346,10 @@ impl<'a> SmartFallbackChain<'a> {
 
         // SECURITY (FIND-R41-015): Read body in chunks with bounded accumulation.
         // Prevents OOM from chunked-encoded responses that omit Content-Length.
-        let capacity =
-            std::cmp::min(resp.content_length().unwrap_or(8192) as usize, MAX_RESPONSE_BODY_BYTES);
+        let capacity = std::cmp::min(
+            resp.content_length().unwrap_or(8192) as usize,
+            MAX_RESPONSE_BODY_BYTES,
+        );
         let mut response_body = Vec::with_capacity(capacity);
         while let Some(chunk) = resp
             .chunk()
@@ -394,11 +397,9 @@ impl<'a> SmartFallbackChain<'a> {
             // replacing bytes with U+FFFD, which would mutate the request body.
             let body_text = String::from_utf8(body.to_vec())
                 .map_err(|_| "WebSocket body contains invalid UTF-8".to_string())?;
-            ws.send(Message::Text(
-                body_text.into(),
-            ))
-            .await
-            .map_err(|e| format!("WebSocket send error: {}", e))?;
+            ws.send(Message::Text(body_text.into()))
+                .await
+                .map_err(|e| format!("WebSocket send error: {}", e))?;
 
             use futures_util::StreamExt;
             let response = ws
@@ -434,10 +435,7 @@ impl<'a> SmartFallbackChain<'a> {
                     bytes::Bytes::from(Vec::from(b.as_ref()))
                 }
                 other => {
-                    return Err(format!(
-                        "unexpected WebSocket message type: {:?}",
-                        other
-                    ));
+                    return Err(format!("unexpected WebSocket message type: {:?}", other));
                 }
             };
 
@@ -684,10 +682,7 @@ mod tests {
 
         let targets = make_targets(&[
             (TransportProtocol::Grpc, "http://localhost:1/grpc"),
-            (
-                TransportProtocol::Http,
-                "http://localhost:1/does-not-exist",
-            ),
+            (TransportProtocol::Http, "http://localhost:1/does-not-exist"),
         ]);
 
         let chain = SmartFallbackChain::new(
@@ -712,13 +707,11 @@ mod tests {
                 assert_eq!(history.attempts.len(), 2);
                 // First attempt was circuit-open (0ms).
                 assert!(!history.attempts[0].succeeded);
-                assert!(
-                    history.attempts[0]
-                        .error
-                        .as_ref()
-                        .unwrap()
-                        .contains("circuit open")
-                );
+                assert!(history.attempts[0]
+                    .error
+                    .as_ref()
+                    .unwrap()
+                    .contains("circuit open"));
                 // Second attempt tried HTTP but connection refused.
                 assert!(!history.attempts[1].succeeded);
             }

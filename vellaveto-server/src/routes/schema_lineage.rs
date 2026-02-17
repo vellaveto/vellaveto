@@ -49,6 +49,9 @@ pub async fn get_schema_lineage(
     State(state): State<AppState>,
     Path(tool): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param(&tool, "tool")?;
+
     let tracker = state.schema_lineage.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -58,11 +61,12 @@ pub async fn get_schema_lineage(
         )
     })?;
 
+    // SECURITY (FIND-R51-011): Generic error — do not echo tool name.
     let lineage = tracker.get_lineage(&tool).ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: format!("No lineage found for tool '{}'", tool),
+                error: "Tool lineage not found".to_string(),
             }),
         )
     })?;
@@ -94,6 +98,20 @@ pub async fn reset_schema_trust(
     Path(tool): Path<String>,
     Json(req): Json<ResetTrustRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param(&tool, "tool")?;
+
+    // SECURITY (FIND-R51-001): Validate trust_score is finite and within [0.0, 1.0].
+    // NaN, Infinity, negative, and >1.0 values are rejected.
+    if !req.trust_score.is_finite() || req.trust_score < 0.0 || req.trust_score > 1.0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "trust_score must be a finite number in the range [0.0, 1.0]".to_string(),
+            }),
+        ));
+    }
+
     let tracker = state.schema_lineage.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -119,6 +137,9 @@ pub async fn remove_schema_lineage(
     State(state): State<AppState>,
     Path(tool): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param(&tool, "tool")?;
+
     let tracker = state.schema_lineage.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,

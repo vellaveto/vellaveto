@@ -69,9 +69,10 @@ impl WitnessStore {
     /// Returns `Err` if the store is at capacity (fail-closed: the caller
     /// should log a warning but the audit entry is still written).
     pub fn append(&self, witness: EntryWitness) -> Result<(), ZkError> {
-        let mut guard = self.witnesses.lock().map_err(|e| {
-            ZkError::WitnessStore(format!("Witness store lock poisoned: {}", e))
-        })?;
+        let mut guard = self
+            .witnesses
+            .lock()
+            .map_err(|e| ZkError::WitnessStore(format!("Witness store lock poisoned: {}", e)))?;
 
         if guard.len() >= self.max_capacity {
             return Err(ZkError::WitnessStore(format!(
@@ -89,9 +90,10 @@ impl WitnessStore {
     /// Returns the drained witnesses in order. If fewer than `count`
     /// witnesses are available, returns all available witnesses.
     pub fn drain(&self, count: usize) -> Result<Vec<EntryWitness>, ZkError> {
-        let mut guard = self.witnesses.lock().map_err(|e| {
-            ZkError::WitnessStore(format!("Witness store lock poisoned: {}", e))
-        })?;
+        let mut guard = self
+            .witnesses
+            .lock()
+            .map_err(|e| ZkError::WitnessStore(format!("Witness store lock poisoned: {}", e)))?;
 
         let drain_count = count.min(guard.len());
         let drained: Vec<EntryWitness> = guard.drain(..drain_count).collect();
@@ -109,9 +111,10 @@ impl WitnessStore {
     /// beyond capacity due to concurrent appends, the excess is tolerated
     /// to avoid permanent data loss.
     pub fn restore(&self, witnesses: Vec<EntryWitness>) -> Result<(), ZkError> {
-        let mut guard = self.witnesses.lock().map_err(|e| {
-            ZkError::WitnessStore(format!("Witness store lock poisoned: {}", e))
-        })?;
+        let mut guard = self
+            .witnesses
+            .lock()
+            .map_err(|e| ZkError::WitnessStore(format!("Witness store lock poisoned: {}", e)))?;
 
         // Splice witnesses to the front: prepend the restored witnesses
         // before the existing ones.
@@ -123,9 +126,10 @@ impl WitnessStore {
 
     /// Return the number of pending witnesses.
     pub fn len(&self) -> Result<usize, ZkError> {
-        let guard = self.witnesses.lock().map_err(|e| {
-            ZkError::WitnessStore(format!("Witness store lock poisoned: {}", e))
-        })?;
+        let guard = self
+            .witnesses
+            .lock()
+            .map_err(|e| ZkError::WitnessStore(format!("Witness store lock poisoned: {}", e)))?;
         Ok(guard.len())
     }
 

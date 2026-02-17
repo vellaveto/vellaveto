@@ -20,7 +20,9 @@ impl ModelProjection for ClaudeProjection {
         });
         if let Some(ref output) = canonical.output_schema {
             tool.as_object_mut()
-                .ok_or_else(|| ProjectorError::Serialization("failed to build tool object".to_string()))?
+                .ok_or_else(|| {
+                    ProjectorError::Serialization("failed to build tool object".to_string())
+                })?
                 .insert("output_schema".to_string(), output.clone());
         }
         Ok(tool)
@@ -31,10 +33,7 @@ impl ModelProjection for ClaudeProjection {
             .as_object()
             .ok_or_else(|| ProjectorError::ParseError("expected JSON object".to_string()))?;
 
-        let call_type = obj
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let call_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
         if call_type != "tool_use" {
             return Err(ProjectorError::ParseError(format!(
                 "expected type 'tool_use', got '{}'",
@@ -76,14 +75,18 @@ impl ModelProjection for ClaudeProjection {
         if let Some(ref id) = canonical.call_id {
             result
                 .as_object_mut()
-                .ok_or_else(|| ProjectorError::Serialization("failed to build result object".to_string()))?
+                .ok_or_else(|| {
+                    ProjectorError::Serialization("failed to build result object".to_string())
+                })?
                 .insert("tool_use_id".to_string(), Value::String(id.clone()));
         }
 
         if canonical.is_error {
             result
                 .as_object_mut()
-                .ok_or_else(|| ProjectorError::Serialization("failed to build result object".to_string()))?
+                .ok_or_else(|| {
+                    ProjectorError::Serialization("failed to build result object".to_string())
+                })?
                 .insert("is_error".to_string(), Value::Bool(true));
         }
 

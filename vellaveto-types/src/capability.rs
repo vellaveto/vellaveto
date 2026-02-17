@@ -231,6 +231,13 @@ impl CapabilityToken {
                 "expires_at must not be empty".to_string(),
             ));
         }
+        // SECURITY (FIND-R51-008): Validate temporal ordering.
+        // For ISO 8601 timestamps, lexicographic comparison preserves chronological order.
+        if self.expires_at <= self.issued_at {
+            return Err(CapabilityError::ValidationFailed(
+                "expires_at must be after issued_at".to_string(),
+            ));
+        }
         // Validate grants
         for (i, grant) in self.grants.iter().enumerate() {
             if grant.tool_pattern.is_empty() {

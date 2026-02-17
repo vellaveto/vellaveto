@@ -168,7 +168,8 @@ impl ProxyBridge {
             } else {
                 tracing::warn!(
                     "flagged_tools at capacity ({}); cannot flag tool '{}'",
-                    super::relay::MAX_FLAGGED_TOOLS, name
+                    super::relay::MAX_FLAGGED_TOOLS,
+                    name
                 );
                 break;
             }
@@ -190,7 +191,8 @@ impl ProxyBridge {
             }
             tracing::warn!(
                 "known_tool_annotations exceeded cap ({}); evicted {} entries",
-                super::relay::MAX_KNOWN_TOOL_ANNOTATIONS, excess
+                super::relay::MAX_KNOWN_TOOL_ANNOTATIONS,
+                excess
             );
         }
     }

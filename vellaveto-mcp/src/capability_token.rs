@@ -507,8 +507,7 @@ fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) 
             };
             let covered = parent_grant.allowed_paths.iter().any(|pp| {
                 // Also normalize parent pattern for consistent comparison
-                let parent_normalized = normalize_path_for_grant(pp)
-                    .unwrap_or_default();
+                let parent_normalized = normalize_path_for_grant(pp).unwrap_or_default();
                 if parent_normalized.is_empty() {
                     return false; // Malformed parent pattern — fail-closed
                 }

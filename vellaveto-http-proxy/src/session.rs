@@ -799,7 +799,10 @@ mod tests {
     #[test]
     fn test_record_discovered_tools() {
         let mut state = SessionState::new("test".to_string());
-        let tools = vec!["server:read_file".to_string(), "server:write_file".to_string()];
+        let tools = vec![
+            "server:read_file".to_string(),
+            "server:write_file".to_string(),
+        ];
         state.record_discovered_tools(&tools, Duration::from_secs(300));
 
         assert_eq!(state.discovered_tools.len(), 2);
@@ -810,10 +813,7 @@ mod tests {
     #[test]
     fn test_record_discovered_tools_sets_ttl() {
         let mut state = SessionState::new("test".to_string());
-        state.record_discovered_tools(
-            &["server:tool1".to_string()],
-            Duration::from_secs(60),
-        );
+        state.record_discovered_tools(&["server:tool1".to_string()], Duration::from_secs(60));
 
         let entry = state.discovered_tools.get("server:tool1").unwrap();
         assert_eq!(entry.ttl, Duration::from_secs(60));
@@ -823,20 +823,14 @@ mod tests {
     #[test]
     fn test_record_discovered_tools_rediscovery_resets_ttl() {
         let mut state = SessionState::new("test".to_string());
-        state.record_discovered_tools(
-            &["server:tool1".to_string()],
-            Duration::from_secs(60),
-        );
+        state.record_discovered_tools(&["server:tool1".to_string()], Duration::from_secs(60));
 
         // Mark as used
         state.mark_tool_used("server:tool1");
         assert!(state.discovered_tools.get("server:tool1").unwrap().used);
 
         // Re-discover resets TTL and used flag
-        state.record_discovered_tools(
-            &["server:tool1".to_string()],
-            Duration::from_secs(120),
-        );
+        state.record_discovered_tools(&["server:tool1".to_string()], Duration::from_secs(120));
 
         let entry = state.discovered_tools.get("server:tool1").unwrap();
         assert_eq!(entry.ttl, Duration::from_secs(120));
@@ -852,10 +846,7 @@ mod tests {
     #[test]
     fn test_is_tool_discovery_expired_fresh_tool() {
         let mut state = SessionState::new("test".to_string());
-        state.record_discovered_tools(
-            &["server:tool1".to_string()],
-            Duration::from_secs(300),
-        );
+        state.record_discovered_tools(&["server:tool1".to_string()], Duration::from_secs(300));
         assert_eq!(state.is_tool_discovery_expired("server:tool1"), Some(false));
     }
 
@@ -878,10 +869,7 @@ mod tests {
     #[test]
     fn test_mark_tool_used_existing() {
         let mut state = SessionState::new("test".to_string());
-        state.record_discovered_tools(
-            &["server:tool1".to_string()],
-            Duration::from_secs(300),
-        );
+        state.record_discovered_tools(&["server:tool1".to_string()], Duration::from_secs(300));
         assert!(!state.discovered_tools.get("server:tool1").unwrap().used);
 
         assert!(state.mark_tool_used("server:tool1"));
@@ -910,10 +898,7 @@ mod tests {
         let mut state = SessionState::new("test".to_string());
 
         // Fresh tool
-        state.record_discovered_tools(
-            &["server:fresh".to_string()],
-            Duration::from_secs(300),
-        );
+        state.record_discovered_tools(&["server:fresh".to_string()], Duration::from_secs(300));
 
         // Expired tool (discovered in the past with short TTL)
         state.discovered_tools.insert(
@@ -979,10 +964,8 @@ mod tests {
         // Record a discovered tool
         {
             let mut session = store.get_mut(&id).unwrap();
-            session.record_discovered_tools(
-                &["server:tool1".to_string()],
-                Duration::from_secs(300),
-            );
+            session
+                .record_discovered_tools(&["server:tool1".to_string()], Duration::from_secs(300));
         }
 
         // Touch via reuse
@@ -1010,10 +993,7 @@ mod tests {
         );
 
         // Tool with long TTL (still valid)
-        state.record_discovered_tools(
-            &["server:long".to_string()],
-            Duration::from_secs(3600),
-        );
+        state.record_discovered_tools(&["server:long".to_string()], Duration::from_secs(3600));
 
         assert_eq!(state.is_tool_discovery_expired("server:short"), Some(true));
         assert_eq!(state.is_tool_discovery_expired("server:long"), Some(false));

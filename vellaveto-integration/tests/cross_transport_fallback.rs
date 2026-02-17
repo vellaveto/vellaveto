@@ -14,9 +14,7 @@ use vellaveto_http_proxy::proxy::discovery::resolve_transport_priority;
 use vellaveto_http_proxy::proxy::transport_health::{
     TransportCircuitState, TransportHealthTracker,
 };
-use vellaveto_types::{
-    FallbackNegotiationHistory, TransportAttempt, TransportProtocol,
-};
+use vellaveto_types::{FallbackNegotiationHistory, TransportAttempt, TransportProtocol};
 
 // ═══════════════════════════════════════════════════
 // TEST 1: Circuit breaker prevents retry to open transport
@@ -135,8 +133,7 @@ fn test_negotiation_history_serde_for_audit() {
     assert_eq!(json["successful_transport"], "http");
     assert_eq!(json["total_duration_ms"], 15);
 
-    let roundtrip: FallbackNegotiationHistory =
-        serde_json::from_value(json).unwrap();
+    let roundtrip: FallbackNegotiationHistory = serde_json::from_value(json).unwrap();
     assert_eq!(roundtrip, history);
 }
 
@@ -257,10 +254,7 @@ fn test_restricted_transports_filtered_in_all_paths() {
     );
 
     // Client preference also filtered.
-    let prefs = vec![
-        TransportProtocol::Grpc,
-        TransportProtocol::Http,
-    ];
+    let prefs = vec![TransportProtocol::Grpc, TransportProtocol::Http];
     let result = resolve_transport_priority("any_tool", Some(&prefs), &config);
     assert_eq!(result, vec![TransportProtocol::Http]);
 }

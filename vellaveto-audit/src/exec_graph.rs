@@ -287,9 +287,7 @@ impl ExecutionGraph {
                 if self.edges.len() < MAX_EDGES_PER_GRAPH {
                     // SECURITY (FIND-R44-035): Deduplicate call edges
                     let already_exists = self.edges.iter().any(|e| {
-                        e.from == *parent_id
-                            && e.to == node_id
-                            && e.edge_type == EdgeType::Call
+                        e.from == *parent_id && e.to == node_id && e.edge_type == EdgeType::Call
                     });
                     if !already_exists {
                         self.edges.push(ExecutionEdge {
@@ -366,7 +364,10 @@ impl ExecutionGraph {
         }
         // SECURITY (FIND-R43-016): Deduplicate edges to prevent budget exhaustion
         let edge_type = EdgeType::DataFlow;
-        let already_exists = self.edges.iter().any(|e| e.from == from && e.to == to && e.edge_type == edge_type);
+        let already_exists = self
+            .edges
+            .iter()
+            .any(|e| e.from == from && e.to == to && e.edge_type == edge_type);
         if already_exists {
             return; // Silently deduplicate
         }
@@ -412,7 +413,10 @@ impl ExecutionGraph {
         }
         // SECURITY (FIND-R43-016): Deduplicate edges to prevent budget exhaustion
         let edge_type = EdgeType::Delegation;
-        let already_exists = self.edges.iter().any(|e| e.from == from && e.to == to && e.edge_type == edge_type);
+        let already_exists = self
+            .edges
+            .iter()
+            .any(|e| e.from == from && e.to == to && e.edge_type == edge_type);
         if already_exists {
             return; // Silently deduplicate
         }
@@ -985,8 +989,14 @@ mod tests {
 
         let dot = graph.to_dot();
         // The DOT output should escape quotes and newlines.
-        assert!(dot.contains("\\\""), "quotes should be escaped in DOT output");
-        assert!(!dot.contains("\"\n"), "raw newlines should not appear in DOT labels");
+        assert!(
+            dot.contains("\\\""),
+            "quotes should be escaped in DOT output"
+        );
+        assert!(
+            !dot.contains("\"\n"),
+            "raw newlines should not appear in DOT labels"
+        );
     }
 
     /// FIND-R42-011: escape_dot handles all special characters.
@@ -1085,10 +1095,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!(
-            result,
-            "safe_tool\\\"]; malicious [label=\\\"pwned"
-        );
+        assert_eq!(result, "safe_tool\\\"]; malicious [label=\\\"pwned");
     }
 
     /// FIND-R43-001: DOT output with bidi characters renders without spoofing.

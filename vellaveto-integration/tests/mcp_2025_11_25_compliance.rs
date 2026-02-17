@@ -44,14 +44,14 @@ fn test_tool_name_validation_spec_examples() {
     }
 
     let invalid = [
-        "",               // empty
-        "tool@bad",       // @ not allowed
-        "tool name",      // space not allowed
-        ".hidden",        // leading dot
-        "ns..tool",       // consecutive dots
-        "/root",          // leading slash
-        "trail.",         // trailing dot
-        "trail/",         // trailing slash
+        "",          // empty
+        "tool@bad",  // @ not allowed
+        "tool name", // space not allowed
+        ".hidden",   // leading dot
+        "ns..tool",  // consecutive dots
+        "/root",     // leading slash
+        "trail.",    // trailing dot
+        "trail/",    // trailing slash
     ];
     for name in invalid {
         assert!(
@@ -208,13 +208,7 @@ fn test_last_event_id_control_chars_rejected() {
 
 #[test]
 fn test_last_event_id_valid_ids_accepted() {
-    let good_ids = [
-        "evt-12345",
-        "abc123",
-        "event_2025-11-25_001",
-        "a",
-        "0",
-    ];
+    let good_ids = ["evt-12345", "abc123", "event_2025-11-25_001", "a", "0"];
     for id in good_ids {
         assert!(
             !id.chars().any(|c| c.is_control()),
@@ -271,8 +265,7 @@ fn test_engine_evaluates_valid_mcp_tool_names() {
         path_rules: None,
         network_rules: None,
     }];
-    let engine = PolicyEngine::with_policies(false, &policies)
-        .expect("compile policies");
+    let engine = PolicyEngine::with_policies(false, &policies).expect("compile policies");
 
     // Tool name that passes MCP 2025-11-25 validation
     let tool_name = "ns.read_file";

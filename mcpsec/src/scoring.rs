@@ -3,7 +3,7 @@
 use crate::{AttackResult, PropertyScore};
 
 /// Property weights (must sum to 1.0).
-const PROPERTY_WEIGHTS: [(& str, f64); 10] = [
+const PROPERTY_WEIGHTS: [(&str, f64); 10] = [
     ("P1", 0.15),  // Tool-Level Access Control
     ("P2", 0.12),  // Parameter Constraint Enforcement
     ("P3", 0.05),  // Priority Monotonicity
@@ -207,9 +207,6 @@ mod tests {
 
         let props = calculate_property_scores(&attacks);
         let score = calculate_overall_score(&props);
-        assert!(
-            score.abs() < 0.01,
-            "All-fail should give 0%, got {score}"
-        );
+        assert!(score.abs() < 0.01, "All-fail should give 0%, got {score}");
     }
 }

@@ -87,9 +87,10 @@ pub fn tests() -> Vec<AttackTest> {
             // Gateway should cap tracker at MAX_FINGERPRINTS without OOM.
             check_fn: |body: &serde_json::Value, status: u16| -> bool {
                 // Any response (not a 500 error) means the gateway handled it
-                status != 500 && !body.get("error").is_some_and(|e| {
-                    e.as_str().is_some_and(|s| s.contains("out of memory"))
-                })
+                status != 500
+                    && !body
+                        .get("error")
+                        .is_some_and(|e| e.as_str().is_some_and(|s| s.contains("out of memory")))
             },
         },
     ]

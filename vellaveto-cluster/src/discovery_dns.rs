@@ -105,9 +105,9 @@ impl DnsServiceDiscovery {
 
     /// Perform a single DNS lookup and return sorted endpoints.
     async fn resolve(&self) -> Result<Vec<ServiceEndpoint>, ClusterError> {
-        let addrs = tokio::net::lookup_host(&self.dns_name)
-            .await
-            .map_err(|e| ClusterError::Connection(format!("DNS lookup failed for '{}': {}", self.dns_name, e)))?;
+        let addrs = tokio::net::lookup_host(&self.dns_name).await.map_err(|e| {
+            ClusterError::Connection(format!("DNS lookup failed for '{}': {}", self.dns_name, e))
+        })?;
 
         // SECURITY (FIND-R44-012): Bound DNS results to prevent unbounded memory allocation.
         let all_addrs: Vec<SocketAddr> = addrs.collect();
@@ -165,10 +165,7 @@ impl ServiceDiscovery for DnsServiceDiscovery {
 
     async fn watch(
         &self,
-    ) -> Result<
-        Option<tokio::sync::mpsc::Receiver<DiscoveryEvent>>,
-        ClusterError,
-    > {
+    ) -> Result<Option<tokio::sync::mpsc::Receiver<DiscoveryEvent>>, ClusterError> {
         let (tx, rx) = tokio::sync::mpsc::channel(64);
         let dns_name = self.dns_name.clone();
         let interval = self.refresh_interval;
@@ -177,10 +174,8 @@ impl ServiceDiscovery for DnsServiceDiscovery {
         let initial = self.resolve().await?;
 
         tokio::spawn(async move {
-            let mut known: HashMap<String, ServiceEndpoint> = initial
-                .into_iter()
-                .map(|ep| (ep.id.clone(), ep))
-                .collect();
+            let mut known: HashMap<String, ServiceEndpoint> =
+                initial.into_iter().map(|ep| (ep.id.clone(), ep)).collect();
             let mut tick = tokio::time::interval(interval);
             // Skip the first immediate tick -- initial state already captured.
             tick.tick().await;
@@ -213,10 +208,8 @@ impl ServiceDiscovery for DnsServiceDiscovery {
                     }
                 };
 
-                let current_map: HashMap<String, ServiceEndpoint> = current
-                    .into_iter()
-                    .map(|ep| (ep.id.clone(), ep))
-                    .collect();
+                let current_map: HashMap<String, ServiceEndpoint> =
+                    current.into_iter().map(|ep| (ep.id.clone(), ep)).collect();
 
                 // Detect added endpoints.
                 for (id, ep) in &current_map {
@@ -325,13 +318,19 @@ mod tests {
     #[test]
     fn test_is_safe_addr_rejects_ipv4_mapped_loopback() {
         let addr: SocketAddr = "[::ffff:127.0.0.1]:80".parse().unwrap();
-        assert!(!is_safe_addr(&addr), "IPv4-mapped loopback should be rejected");
+        assert!(
+            !is_safe_addr(&addr),
+            "IPv4-mapped loopback should be rejected"
+        );
     }
 
     #[test]
     fn test_is_safe_addr_rejects_ipv4_mapped_link_local() {
         let addr: SocketAddr = "[::ffff:169.254.1.1]:80".parse().unwrap();
-        assert!(!is_safe_addr(&addr), "IPv4-mapped link-local should be rejected");
+        assert!(
+            !is_safe_addr(&addr),
+            "IPv4-mapped link-local should be rejected"
+        );
     }
 
     #[test]
@@ -343,19 +342,28 @@ mod tests {
     #[test]
     fn test_is_safe_addr_rejects_ipv4_mapped_private_172() {
         let addr: SocketAddr = "[::ffff:172.16.0.1]:80".parse().unwrap();
-        assert!(!is_safe_addr(&addr), "IPv4-mapped 172.16.x should be rejected");
+        assert!(
+            !is_safe_addr(&addr),
+            "IPv4-mapped 172.16.x should be rejected"
+        );
     }
 
     #[test]
     fn test_is_safe_addr_rejects_ipv4_mapped_private_192() {
         let addr: SocketAddr = "[::ffff:192.168.1.1]:80".parse().unwrap();
-        assert!(!is_safe_addr(&addr), "IPv4-mapped 192.168.x should be rejected");
+        assert!(
+            !is_safe_addr(&addr),
+            "IPv4-mapped 192.168.x should be rejected"
+        );
     }
 
     #[test]
     fn test_is_safe_addr_rejects_ipv4_mapped_unspecified() {
         let addr: SocketAddr = "[::ffff:0.0.0.0]:80".parse().unwrap();
-        assert!(!is_safe_addr(&addr), "IPv4-mapped 0.0.0.0 should be rejected");
+        assert!(
+            !is_safe_addr(&addr),
+            "IPv4-mapped 0.0.0.0 should be rejected"
+        );
     }
 
     // ─────────────────────────────────────────────────────────
@@ -381,7 +389,10 @@ mod tests {
         );
         let endpoints = dd.discover().await.unwrap();
         // All loopback addresses should be filtered out.
-        assert!(endpoints.is_empty(), "localhost endpoints should be filtered as unsafe (loopback)");
+        assert!(
+            endpoints.is_empty(),
+            "localhost endpoints should be filtered as unsafe (loopback)"
+        );
     }
 
     #[tokio::test]

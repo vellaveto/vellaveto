@@ -140,7 +140,10 @@ pub struct SecureTask {
     pub seen_nonces: Vec<String>,
     /// Maximum number of nonces to track (FIFO eviction).
     /// Capped at `MAX_NONCES_CAP` (10,000) to prevent memory exhaustion.
-    #[serde(default = "default_max_nonces", deserialize_with = "deserialize_capped_max_nonces")]
+    #[serde(
+        default = "default_max_nonces",
+        deserialize_with = "deserialize_capped_max_nonces"
+    )]
     pub max_nonces: usize,
 }
 
@@ -257,7 +260,10 @@ impl fmt::Debug for SecureTask {
             .field("encrypted_state", &self.encrypted_state)
             .field("encryption_nonce", &self.encryption_nonce)
             .field("state_chain", &self.state_chain)
-            .field("resume_token", &self.resume_token.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "resume_token",
+                &self.resume_token.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("seen_nonces", &self.seen_nonces)
             .field("max_nonces", &self.max_nonces)
             .finish()

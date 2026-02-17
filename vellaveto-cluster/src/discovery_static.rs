@@ -29,10 +29,8 @@ impl ServiceDiscovery for StaticServiceDiscovery {
 
     async fn watch(
         &self,
-    ) -> Result<
-        Option<tokio::sync::mpsc::Receiver<vellaveto_types::DiscoveryEvent>>,
-        ClusterError,
-    > {
+    ) -> Result<Option<tokio::sync::mpsc::Receiver<vellaveto_types::DiscoveryEvent>>, ClusterError>
+    {
         // Static discovery does not support watching
         Ok(None)
     }

@@ -89,7 +89,10 @@ pub async fn forward_with_fallback(
         // prevent leaking internal/sensitive headers to upstream backends.
         for (key, value) in headers {
             let key_lower = key.as_str().to_lowercase();
-            if FORWARDED_HEADERS.iter().any(|&allowed| allowed == key_lower) {
+            if FORWARDED_HEADERS
+                .iter()
+                .any(|&allowed| allowed == key_lower)
+            {
                 request = request.header(key.clone(), value.clone());
             }
         }

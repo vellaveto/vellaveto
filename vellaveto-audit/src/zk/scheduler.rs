@@ -126,9 +126,10 @@ impl ZkBatchScheduler {
 
     /// Get all stored batch proofs.
     pub fn proofs(&self) -> Result<Vec<ZkBatchProof>, ZkError> {
-        let guard = self.proof_store.lock().map_err(|e| {
-            ZkError::Proof(format!("Proof store lock poisoned: {}", e))
-        })?;
+        let guard = self
+            .proof_store
+            .lock()
+            .map_err(|e| ZkError::Proof(format!("Proof store lock poisoned: {}", e)))?;
         Ok(guard.clone())
     }
 
@@ -139,9 +140,10 @@ impl ZkBatchScheduler {
 
     /// Get the number of stored proofs.
     pub fn proof_count(&self) -> Result<usize, ZkError> {
-        let guard = self.proof_store.lock().map_err(|e| {
-            ZkError::Proof(format!("Proof store lock poisoned: {}", e))
-        })?;
+        let guard = self
+            .proof_store
+            .lock()
+            .map_err(|e| ZkError::Proof(format!("Proof store lock poisoned: {}", e)))?;
         Ok(guard.len())
     }
 
@@ -194,9 +196,10 @@ impl ZkBatchScheduler {
             }
         };
 
-        let mut guard = self.proof_store.lock().map_err(|e| {
-            ZkError::Proof(format!("Proof store lock poisoned: {}", e))
-        })?;
+        let mut guard = self
+            .proof_store
+            .lock()
+            .map_err(|e| ZkError::Proof(format!("Proof store lock poisoned: {}", e)))?;
 
         // Evict oldest proofs if at capacity
         if guard.len() >= MAX_STORED_PROOFS {

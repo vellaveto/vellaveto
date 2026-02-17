@@ -24,9 +24,9 @@ fn tamper_detected(body: &serde_json::Value, status: u16) -> bool {
 /// Check that entries have hash fields.
 fn has_hashes(body: &serde_json::Value, _status: u16) -> bool {
     if let Some(entries) = body.get("entries").and_then(|e| e.as_array()) {
-        return entries.iter().all(|e| {
-            e.get("entry_hash").is_some_and(|h| h.is_string())
-        });
+        return entries
+            .iter()
+            .all(|e| e.get("entry_hash").is_some_and(|h| h.is_string()));
     }
     // If gateway doesn't expose entries, check for audit capability
     body.get("audit_enabled") == Some(&json!(true)) || _status == 200

@@ -132,8 +132,7 @@ mod tests {
 
     #[test]
     fn test_federation_anchors_query_with_org_id() {
-        let q: FederationAnchorsQuery =
-            serde_json::from_str(r#"{"org_id": "acme-corp"}"#).unwrap();
+        let q: FederationAnchorsQuery = serde_json::from_str(r#"{"org_id": "acme-corp"}"#).unwrap();
         assert_eq!(q.org_id.as_deref(), Some("acme-corp"));
     }
 

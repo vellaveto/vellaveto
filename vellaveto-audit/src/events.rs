@@ -266,7 +266,10 @@ impl AuditLogger {
     ) -> Result<(), AuditError> {
         let action = Action::new("vellaveto", "shadow_ai_discovery", serde_json::json!({}));
         let verdict = Verdict::Deny {
-            reason: format!("Shadow AI discovery: {} for entity '{}'", event_type, entity_id),
+            reason: format!(
+                "Shadow AI discovery: {} for entity '{}'",
+                event_type, entity_id
+            ),
         };
         let mut metadata = serde_json::json!({
             "event": format!("shadow_ai.{}", event_type),

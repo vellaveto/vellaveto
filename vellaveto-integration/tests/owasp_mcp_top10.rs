@@ -925,10 +925,10 @@ mod owasp_mcp07_auth {
             discovery_engine: None,
             discovery_audit: None,
             projector_registry: None,
-        zk_proofs: None,
-        zk_audit_enabled: false,
-        zk_audit_config: Default::default(),
-        federation_resolver: None,
+            zk_proofs: None,
+            zk_audit_enabled: false,
+            zk_audit_config: Default::default(),
+            federation_resolver: None,
         };
         (state, tmp)
     }
@@ -1357,10 +1357,10 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
             discovery_engine: None,
             discovery_audit: None,
             projector_registry: None,
-        zk_proofs: None,
-        zk_audit_enabled: false,
-        zk_audit_config: Default::default(),
-        federation_resolver: None,
+            zk_proofs: None,
+            zk_audit_enabled: false,
+            zk_audit_config: Default::default(),
+            federation_resolver: None,
         };
 
         let app = routes::build_router(state);
@@ -1747,12 +1747,14 @@ fn test_owasp_excessive_agency_unregistered_tool_denied() {
     let engine = PolicyEngine::new(false);
 
     // Only file:read is explicitly allowed, everything else is denied
-    let policies = vec![
-        allow_policy("file:read", "Only file reads", 100),
-    ];
+    let policies = vec![allow_policy("file:read", "Only file reads", 100)];
 
     // An unregistered tool:function combination should be denied
-    let action = make_action("file", "chmod", json!({"path": "/etc/shadow", "mode": "777"}));
+    let action = make_action(
+        "file",
+        "chmod",
+        json!({"path": "/etc/shadow", "mode": "777"}),
+    );
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
@@ -1796,7 +1798,9 @@ fn test_owasp_excessive_agency_wildcard_grants_everything() {
     PolicyEngine::sort_policies(&mut restricted_policies);
 
     let action = make_action("bash", "exec", json!({"command": "rm -rf /"}));
-    let verdict = engine.evaluate_action(&action, &restricted_policies).unwrap();
+    let verdict = engine
+        .evaluate_action(&action, &restricted_policies)
+        .unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
         "Compensating deny must block excessive agency: got {:?}",

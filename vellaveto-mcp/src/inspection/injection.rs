@@ -526,7 +526,7 @@ fn is_invisible_char(cp: u32) -> bool {
         // (U+0300-U+036F) can be inserted between characters to break pattern
         // matching without visible effect.
         || cp == 0x034F                      // Combining Grapheme Joiner
-        || (0x0300..=0x036F).contains(&cp)   // Combining Diacritical Marks
+        || (0x0300..=0x036F).contains(&cp) // Combining Diacritical Marks
 }
 
 /// SECURITY (FIND-075): Variant of sanitize that *removes* invisible chars entirely

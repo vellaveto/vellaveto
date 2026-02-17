@@ -217,7 +217,9 @@ mod filesystem_errors {
             // Fail-closed: must NOT produce an Allow verdict when approval store
             // is broken. It should either Deny or RequireApproval.
             assert!(
-                !body_str.contains("\"Allow\"") || body_str.contains("\"Deny\"") || body_str.contains("\"RequireApproval\""),
+                !body_str.contains("\"Allow\"")
+                    || body_str.contains("\"Deny\"")
+                    || body_str.contains("\"RequireApproval\""),
                 "Unwritable approval store must fail-closed (not Allow): {}",
                 body_str
             );
@@ -284,7 +286,9 @@ mod policy_errors {
             // Fail-closed: the response must NOT be an Allow verdict
             let body_lower = body_str.to_lowercase();
             assert!(
-                !body_lower.contains("\"allow\"") || body_lower.contains("\"deny\"") || body_lower.contains("deny"),
+                !body_lower.contains("\"allow\"")
+                    || body_lower.contains("\"deny\"")
+                    || body_lower.contains("deny"),
                 "Invalid glob must fail-closed (deny, not allow): {}",
                 body_str
             );
@@ -326,8 +330,8 @@ mod policy_errors {
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
             .await
             .unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body)
-            .expect("Response must be valid JSON");
+        let json: serde_json::Value =
+            serde_json::from_slice(&body).expect("Response must be valid JSON");
 
         let verdict = &json["verdict"];
         let verdict_str = serde_json::to_string(verdict).unwrap();

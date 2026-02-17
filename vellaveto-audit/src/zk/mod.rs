@@ -10,11 +10,11 @@
 //!
 //! Feature-gated behind `zk-audit`.
 
-pub mod pedersen;
-pub mod witness;
 pub mod circuit;
+pub mod pedersen;
 pub mod prover;
 pub mod scheduler;
+pub mod witness;
 
 #[cfg(test)]
 mod tests;

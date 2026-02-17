@@ -122,10 +122,7 @@ impl TransportHealthTracker {
         // Read-lock first for common path (Closed).
         let needs_transition = {
             let states = self.states.read().map_err(|e| {
-                tracing::error!(
-                    "TransportHealthTracker RwLock poisoned in can_use(): {}",
-                    e
-                );
+                tracing::error!("TransportHealthTracker RwLock poisoned in can_use(): {}", e);
                 "transport health tracker unavailable (poisoned)".to_string()
             })?;
 
@@ -282,8 +279,8 @@ impl TransportHealthTracker {
             }
             TransportCircuitState::HalfOpen => {
                 stats.half_open_in_flight = false; // FIND-R42-010: probe completed.
-                // SECURITY (FIND-R43-010): Use saturating_add to prevent wrapping arithmetic
-                // panic in debug builds, consistent with failure_count fix (FIND-R42-012).
+                                                   // SECURITY (FIND-R43-010): Use saturating_add to prevent wrapping arithmetic
+                                                   // panic in debug builds, consistent with failure_count fix (FIND-R42-012).
                 stats.success_count = stats.success_count.saturating_add(1);
                 if stats.success_count >= self.success_threshold {
                     tracing::info!(
@@ -453,10 +450,7 @@ impl TransportHealthTracker {
         let states = match self.states.read() {
             Ok(guard) => guard,
             Err(e) => {
-                tracing::error!(
-                    "TransportHealthTracker RwLock poisoned in summary(): {}",
-                    e
-                );
+                tracing::error!("TransportHealthTracker RwLock poisoned in summary(): {}", e);
                 return TransportHealthSummary {
                     total: 0,
                     closed: 0,
@@ -500,10 +494,7 @@ impl TransportHealthTracker {
         let mut states = match self.states.write() {
             Ok(guard) => guard,
             Err(e) => {
-                tracing::error!(
-                    "TransportHealthTracker RwLock poisoned in reset(): {}",
-                    e
-                );
+                tracing::error!("TransportHealthTracker RwLock poisoned in reset(): {}", e);
                 return;
             }
         };
@@ -551,14 +542,18 @@ mod tests {
     #[test]
     fn test_can_use_unknown_transport_allowed() {
         let tracker = TransportHealthTracker::new(3, 2, 30);
-        assert!(tracker.can_use("upstream-1", TransportProtocol::Http).is_ok());
+        assert!(tracker
+            .can_use("upstream-1", TransportProtocol::Http)
+            .is_ok());
     }
 
     #[test]
     fn test_can_use_closed_circuit_allowed() {
         let tracker = TransportHealthTracker::new(3, 2, 30);
         tracker.record_success("upstream-1", TransportProtocol::Grpc);
-        assert!(tracker.can_use("upstream-1", TransportProtocol::Grpc).is_ok());
+        assert!(tracker
+            .can_use("upstream-1", TransportProtocol::Grpc)
+            .is_ok());
     }
 
     #[test]
@@ -948,7 +943,11 @@ mod tests {
 
         // peek should report it as available (timer expired) without transitioning.
         let available = tracker.peek_available_transports("up", &[proto]);
-        assert_eq!(available, vec![proto], "peek should show expired Open as available");
+        assert_eq!(
+            available,
+            vec![proto],
+            "peek should show expired Open as available"
+        );
 
         // Call peek again — should still work (no probe slot consumed).
         let available2 = tracker.peek_available_transports("up", &[proto]);
@@ -967,10 +966,8 @@ mod tests {
         // We can't fill 10K in a test, but verify the logic path exists
         // by checking a known circuit.
         tracker.record_success("up", TransportProtocol::Http);
-        let available = tracker.peek_available_transports(
-            "up",
-            &[TransportProtocol::Http, TransportProtocol::Grpc],
-        );
+        let available = tracker
+            .peek_available_transports("up", &[TransportProtocol::Http, TransportProtocol::Grpc]);
         assert!(available.contains(&TransportProtocol::Http));
         assert!(available.contains(&TransportProtocol::Grpc)); // Unknown = available
     }

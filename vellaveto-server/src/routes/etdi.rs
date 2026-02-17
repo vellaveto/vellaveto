@@ -56,6 +56,9 @@ pub async fn get_tool_signature(
     State(state): State<AppState>,
     Path(tool): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param_json(&tool, "tool")?;
+
     let Some(ref store) = state.etdi_store else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -68,9 +71,10 @@ pub async fn get_tool_signature(
             "tool": tool,
             "signature": sig,
         }))),
+        // SECURITY (FIND-R51-011): Generic error — do not echo tool name.
         None => Err((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": format!("No signature found for tool '{}'", tool)})),
+            Json(json!({"error": "Tool signature not found"})),
         )),
     }
 }
@@ -87,6 +91,9 @@ pub async fn verify_tool_signature(
     Path(tool): Path<String>,
     Json(req): Json<VerifySignatureRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param_json(&tool, "tool")?;
+
     let Some(ref store) = state.etdi_store else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -101,10 +108,11 @@ pub async fn verify_tool_signature(
         ));
     };
 
+    // SECURITY (FIND-R51-011): Generic error — do not echo tool name.
     let Some(sig) = store.get_signature(&tool).await else {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": format!("No signature found for tool '{}'", tool)})),
+            Json(json!({"error": "Tool signature not found"})),
         ));
     };
 
@@ -147,6 +155,9 @@ pub async fn get_tool_attestations(
     State(state): State<AppState>,
     Path(tool): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param_json(&tool, "tool")?;
+
     let Some(ref store) = state.etdi_store else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -167,6 +178,9 @@ pub async fn verify_attestation_chain(
     State(state): State<AppState>,
     Path(tool): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param_json(&tool, "tool")?;
+
     let Some(ref chain_manager) = state.etdi_attestations else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -206,6 +220,9 @@ pub async fn get_version_pin(
     State(state): State<AppState>,
     Path(tool): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param_json(&tool, "tool")?;
+
     let Some(ref pin_manager) = state.etdi_version_pins else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -217,9 +234,10 @@ pub async fn get_version_pin(
         Some(pin) => Ok(Json(json!({
             "pin": pin,
         }))),
+        // SECURITY (FIND-R51-011): Generic error — do not echo tool name.
         None => Err((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": format!("No pin found for tool '{}'", tool)})),
+            Json(json!({"error": "Tool version pin not found"})),
         )),
     }
 }
@@ -238,6 +256,9 @@ pub async fn create_version_pin(
     Path(tool): Path<String>,
     Json(req): Json<CreatePinRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param_json(&tool, "tool")?;
+
     let Some(ref pin_manager) = state.etdi_version_pins else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -276,6 +297,9 @@ pub async fn remove_version_pin(
     State(state): State<AppState>,
     Path(tool): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param_json(&tool, "tool")?;
+
     let Some(ref pin_manager) = state.etdi_version_pins else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -286,15 +310,19 @@ pub async fn remove_version_pin(
     match pin_manager.unpin(&tool).await {
         Ok(true) => Ok(Json(json!({
             "success": true,
-            "message": format!("Pin removed for tool '{}'", tool),
+            "message": "Tool version pin removed",
         }))),
+        // SECURITY (FIND-R51-011): Generic error — do not echo tool name.
         Ok(false) => Err((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": format!("No pin found for tool '{}'", tool)})),
+            Json(json!({"error": "Tool version pin not found"})),
         )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )),
+        Err(e) => {
+            tracing::warn!("Failed to remove version pin: {}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to remove version pin"})),
+            ))
+        }
     }
 }

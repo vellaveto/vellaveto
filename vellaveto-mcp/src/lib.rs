@@ -14,8 +14,6 @@ pub mod data_flow;
 pub mod did_plc;
 #[cfg(feature = "discovery")]
 pub mod discovery;
-#[cfg(feature = "projector")]
-pub mod projector;
 pub mod elicitation;
 pub mod escalation_detector;
 pub mod etdi;
@@ -31,6 +29,8 @@ pub mod memory_tracking;
 pub mod nhi;
 pub mod output_security;
 pub mod output_validation;
+#[cfg(feature = "projector")]
+pub mod projector;
 pub mod proxy;
 #[cfg(feature = "rag-defense")]
 pub mod rag_defense;

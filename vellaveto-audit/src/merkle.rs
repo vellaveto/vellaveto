@@ -26,7 +26,6 @@ const HASH_SIZE: usize = 32;
 /// SECURITY (FIND-R46-001): Prevents OOM when loading large leaf files.
 const DEFAULT_MAX_LEAF_COUNT: u64 = 1_000_000;
 
-
 /// Incremental append-only Merkle tree.
 ///
 /// Stores leaf hashes in a binary file and maintains O(log n) peaks

@@ -342,9 +342,7 @@ impl AgentTrustGraph {
             );
             return;
         }
-        let session_chains = chains
-            .entry(session_id.to_string())
-            .or_default();
+        let session_chains = chains.entry(session_id.to_string()).or_default();
         if session_chains.len() >= MAX_CHAINS_PER_SESSION {
             tracing::warn!(
                 target: "vellaveto::security",
@@ -369,7 +367,11 @@ impl AgentTrustGraph {
         drop(activity);
 
         // SECURITY (FIND-R43-018): Opportunistic cleanup every 1000 calls.
-        if self.call_count.fetch_add(1, Ordering::Relaxed).is_multiple_of(1000) {
+        if self
+            .call_count
+            .fetch_add(1, Ordering::Relaxed)
+            .is_multiple_of(1000)
+        {
             self.cleanup();
         }
     }

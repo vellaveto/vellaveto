@@ -1965,10 +1965,7 @@ fn test_extract_host_from_url_ssrf_userinfo() {
 /// FIND-R42-003: extract_host_from_url handles IPv6 addresses.
 #[test]
 fn test_extract_host_from_url_ipv6() {
-    assert_eq!(
-        extract_host_from_url("http://[::1]:8080/mcp"),
-        Some("::1")
-    );
+    assert_eq!(extract_host_from_url("http://[::1]:8080/mcp"), Some("::1"));
     assert_eq!(
         extract_host_from_url("http://[2001:db8::1]/path"),
         Some("2001:db8::1")
@@ -2258,7 +2255,10 @@ fn test_last_event_id_valid_accepted() {
 #[test]
 fn test_streamable_http_config_resumability_gate() {
     let config = vellaveto_config::StreamableHttpConfig::default();
-    assert!(!config.resumability_enabled, "resumability should default to off");
+    assert!(
+        !config.resumability_enabled,
+        "resumability should default to off"
+    );
 }
 
 #[test]

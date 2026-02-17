@@ -59,7 +59,9 @@ fn extract_json_from_response(text: &str) -> Result<Value, ProjectorError> {
         let json_start = if let Some(stripped) = after_ticks.strip_prefix("json") {
             stripped.trim_start()
         } else {
-            after_ticks.trim_start_matches(|c: char| c.is_alphabetic()).trim_start()
+            after_ticks
+                .trim_start_matches(|c: char| c.is_alphabetic())
+                .trim_start()
         };
         if let Some(end) = json_start.find("```") {
             let json_text = json_start[..end].trim();
@@ -107,9 +109,7 @@ impl ModelProjection for DeepSeekProjection {
             let name = function
                 .get("name")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| {
-                    ProjectorError::ParseError("missing 'function.name'".to_string())
-                })?;
+                .ok_or_else(|| ProjectorError::ParseError("missing 'function.name'".to_string()))?;
 
             let arguments = match function.get("arguments") {
                 Some(Value::String(s)) => serde_json::from_str(s).map_err(|e| {
@@ -132,12 +132,9 @@ impl ModelProjection for DeepSeekProjection {
         }
 
         // Fallback: try direct name/arguments
-        let name = obj
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ProjectorError::ParseError("missing 'name' or 'function' field".to_string())
-            })?;
+        let name = obj.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
+            ProjectorError::ParseError("missing 'name' or 'function' field".to_string())
+        })?;
 
         let arguments = obj
             .get("arguments")
@@ -367,9 +364,6 @@ mod tests {
 
     #[test]
     fn test_first_sentence_exclamation() {
-        assert_eq!(
-            first_sentence("Wow! That is cool."),
-            "Wow!"
-        );
+        assert_eq!(first_sentence("Wow! That is cool."), "Wow!");
     }
 }

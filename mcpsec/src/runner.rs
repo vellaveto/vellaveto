@@ -23,7 +23,10 @@ async fn send_evaluate(
         req = req.header("Authorization", format!("Bearer {auth}"));
     }
 
-    let resp = req.send().await.map_err(|e| format!("Request failed: {e}"))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
 
     let status = resp.status().as_u16();
     let body = resp

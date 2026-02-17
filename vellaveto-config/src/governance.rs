@@ -164,9 +164,7 @@ impl GovernanceConfig {
             }
         }
         if self.auto_revoke_after_secs == 0 {
-            return Err(
-                "governance.auto_revoke_after_secs must be > 0".to_string()
-            );
+            return Err("governance.auto_revoke_after_secs must be > 0".to_string());
         }
         if self.auto_revoke_after_secs > MAX_AUTO_REVOKE_SECS {
             return Err(format!(
@@ -175,9 +173,7 @@ impl GovernanceConfig {
             ));
         }
         if self.discovery_window_secs == 0 {
-            return Err(
-                "governance.discovery_window_secs must be > 0".to_string()
-            );
+            return Err("governance.discovery_window_secs must be > 0".to_string());
         }
         // FIND-R44-048: Upper bound on discovery_window_secs
         if self.discovery_window_secs > MAX_DISCOVERY_WINDOW_SECS {

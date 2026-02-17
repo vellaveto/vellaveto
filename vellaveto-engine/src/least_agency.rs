@@ -74,7 +74,10 @@ impl LeastAgencyTracker {
         let mut trackers = match self.trackers.write() {
             Ok(guard) => guard,
             Err(e) => {
-                tracing::error!("LeastAgencyTracker::register_grants write lock poisoned: {}", e);
+                tracing::error!(
+                    "LeastAgencyTracker::register_grants write lock poisoned: {}",
+                    e
+                );
                 e.into_inner()
             }
         };
@@ -105,10 +108,7 @@ impl LeastAgencyTracker {
                 break;
             }
             tracker.granted.insert(id.clone());
-            tracker
-                .granted_last_used
-                .entry(id.clone())
-                .or_insert(now);
+            tracker.granted_last_used.entry(id.clone()).or_insert(now);
         }
     }
 
@@ -126,7 +126,10 @@ impl LeastAgencyTracker {
         let mut trackers = match self.trackers.write() {
             Ok(guard) => guard,
             Err(e) => {
-                tracing::error!("LeastAgencyTracker::record_usage write lock poisoned: {}", e);
+                tracing::error!(
+                    "LeastAgencyTracker::record_usage write lock poisoned: {}",
+                    e
+                );
                 e.into_inner()
             }
         };
@@ -180,7 +183,10 @@ impl LeastAgencyTracker {
         let trackers = match self.trackers.read() {
             Ok(guard) => guard,
             Err(e) => {
-                tracing::error!("LeastAgencyTracker::generate_report read lock poisoned: {}", e);
+                tracing::error!(
+                    "LeastAgencyTracker::generate_report read lock poisoned: {}",
+                    e
+                );
                 e.into_inner()
             }
         };
@@ -243,7 +249,10 @@ impl LeastAgencyTracker {
                 let trackers = match self.trackers.read() {
                     Ok(guard) => guard,
                     Err(e) => {
-                        tracing::error!("LeastAgencyTracker::revoke_stale_permissions read lock poisoned: {}", e);
+                        tracing::error!(
+                            "LeastAgencyTracker::revoke_stale_permissions read lock poisoned: {}",
+                            e
+                        );
                         e.into_inner()
                     }
                 };
@@ -271,7 +280,10 @@ impl LeastAgencyTracker {
                 let mut trackers = match self.trackers.write() {
                     Ok(guard) => guard,
                     Err(e) => {
-                        tracing::error!("LeastAgencyTracker::revoke_stale_permissions write lock poisoned: {}", e);
+                        tracing::error!(
+                            "LeastAgencyTracker::revoke_stale_permissions write lock poisoned: {}",
+                            e
+                        );
                         e.into_inner()
                     }
                 };
@@ -445,22 +457,19 @@ mod tests {
 
     #[test]
     fn test_new_with_config_enforcement_mode() {
-        let tracker =
-            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 1800);
+        let tracker = LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 1800);
         assert_eq!(tracker.enforcement_mode(), EnforcementMode::Enforce);
     }
 
     #[test]
     fn test_new_with_config_monitor_mode() {
-        let tracker =
-            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Monitor, 3600);
+        let tracker = LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Monitor, 3600);
         assert_eq!(tracker.enforcement_mode(), EnforcementMode::Monitor);
     }
 
     #[test]
     fn test_check_auto_revoke_no_session() {
-        let tracker =
-            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 1);
+        let tracker = LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 1);
         // No session registered — should return empty
         let revokable = tracker.check_auto_revoke("agent-1", "sess-1");
         assert!(revokable.is_empty());
@@ -468,8 +477,7 @@ mod tests {
 
     #[test]
     fn test_check_auto_revoke_recently_granted() {
-        let tracker =
-            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 3600);
+        let tracker = LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 3600);
         tracker.register_grants("agent-1", "sess-1", &["p1".to_string(), "p2".to_string()]);
         // Just granted — nothing should be revokable with 3600s threshold
         let revokable = tracker.check_auto_revoke("agent-1", "sess-1");
@@ -480,8 +488,7 @@ mod tests {
     fn test_check_auto_revoke_with_zero_threshold() {
         // With auto_revoke_after_secs = 0, any elapsed time > 0 triggers revocation.
         // Config validation prevents 0 in production, but the tracker itself handles it.
-        let tracker =
-            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 0);
+        let tracker = LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 0);
         tracker.register_grants("agent-1", "sess-1", &["p1".to_string()]);
         // Even a microsecond of elapsed time is > Duration::from_secs(0),
         // so the permission should be revokable.
@@ -572,13 +579,8 @@ mod tests {
 
     #[test]
     fn test_revoke_stale_permissions_enforce_removes_stale() {
-        let tracker =
-            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 0);
-        tracker.register_grants(
-            "agent-1",
-            "sess-1",
-            &["p1".to_string(), "p2".to_string()],
-        );
+        let tracker = LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 0);
+        tracker.register_grants("agent-1", "sess-1", &["p1".to_string(), "p2".to_string()]);
 
         // With 0-sec threshold, both should be stale immediately
         let revoked = tracker.revoke_stale_permissions("agent-1", "sess-1");
@@ -600,13 +602,8 @@ mod tests {
 
     #[test]
     fn test_revoke_stale_permissions_monitor_does_not_remove() {
-        let tracker =
-            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Monitor, 0);
-        tracker.register_grants(
-            "agent-1",
-            "sess-1",
-            &["p1".to_string(), "p2".to_string()],
-        );
+        let tracker = LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Monitor, 0);
+        tracker.register_grants("agent-1", "sess-1", &["p1".to_string(), "p2".to_string()]);
 
         // Monitor mode should identify but not remove
         let candidates = tracker.revoke_stale_permissions("agent-1", "sess-1");
@@ -616,22 +613,13 @@ mod tests {
         let trackers = tracker.trackers.read().unwrap_or_else(|e| e.into_inner());
         let key = LeastAgencyTracker::session_key("agent-1", "sess-1");
         let pt = trackers.get(&key).expect("session should exist");
-        assert_eq!(
-            pt.granted.len(),
-            2,
-            "Monitor mode should not remove grants"
-        );
+        assert_eq!(pt.granted.len(), 2, "Monitor mode should not remove grants");
     }
 
     #[test]
     fn test_revoke_stale_permissions_used_recently_not_revoked() {
-        let tracker =
-            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 3600);
-        tracker.register_grants(
-            "agent-1",
-            "sess-1",
-            &["p1".to_string(), "p2".to_string()],
-        );
+        let tracker = LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 3600);
+        tracker.register_grants("agent-1", "sess-1", &["p1".to_string(), "p2".to_string()]);
         // Record usage to refresh last_used
         tracker.record_usage("agent-1", "sess-1", "p1", "fs", "read");
 

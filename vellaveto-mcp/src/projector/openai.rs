@@ -30,16 +30,12 @@ impl ModelProjection for OpenAiProjection {
         let function = obj
             .get("function")
             .and_then(|v| v.as_object())
-            .ok_or_else(|| {
-                ProjectorError::ParseError("missing 'function' object".to_string())
-            })?;
+            .ok_or_else(|| ProjectorError::ParseError("missing 'function' object".to_string()))?;
 
         let name = function
             .get("name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ProjectorError::ParseError("missing 'function.name'".to_string())
-            })?;
+            .ok_or_else(|| ProjectorError::ParseError("missing 'function.name'".to_string()))?;
 
         let arguments = match function.get("arguments") {
             Some(Value::String(s)) => serde_json::from_str(s).map_err(|e| {

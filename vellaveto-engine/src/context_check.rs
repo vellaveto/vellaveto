@@ -796,10 +796,7 @@ impl PolicyEngine {
                     } else {
                         // Unordered: every tool in sequence must appear somewhere in history.
                         for required in sequence {
-                            if !history
-                                .iter()
-                                .any(|h| h.eq_ignore_ascii_case(required))
-                            {
+                            if !history.iter().any(|h| h.eq_ignore_ascii_case(required)) {
                                 return Some(Verdict::Deny {
                                     reason: deny_reason.clone(),
                                 });
@@ -836,9 +833,7 @@ impl PolicyEngine {
                     } else {
                         // Unordered: if all tools present → Deny.
                         let all_present = sequence.iter().all(|required| {
-                            history
-                                .iter()
-                                .any(|h| h.eq_ignore_ascii_case(required))
+                            history.iter().any(|h| h.eq_ignore_ascii_case(required))
                         });
                         if all_present {
                             return Some(Verdict::Deny {

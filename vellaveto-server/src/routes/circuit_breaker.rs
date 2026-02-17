@@ -84,6 +84,9 @@ pub async fn get_circuit_state(
     State(state): State<AppState>,
     Path(tool): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param(&tool, "tool")?;
+
     let cb = state.circuit_breaker.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -112,6 +115,9 @@ pub async fn reset_circuit(
     State(state): State<AppState>,
     Path(tool): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param(&tool, "tool")?;
+
     let cb = state.circuit_breaker.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -124,9 +130,7 @@ pub async fn reset_circuit(
     if let Err(reason) = cb.reset(&tool) {
         return Err((
             StatusCode::TOO_MANY_REQUESTS,
-            Json(ErrorResponse {
-                error: reason,
-            }),
+            Json(ErrorResponse { error: reason }),
         ));
     }
 

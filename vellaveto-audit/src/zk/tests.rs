@@ -54,7 +54,10 @@ fn test_pedersen_different_entries_different_commitments() {
     let (c1, _) = committer.commit(&hash1).unwrap();
     let (c2, _) = committer.commit(&hash2).unwrap();
 
-    assert_ne!(c1, c2, "Different entries should produce different commitments");
+    assert_ne!(
+        c1, c2,
+        "Different entries should produce different commitments"
+    );
 }
 
 #[test]
@@ -67,7 +70,10 @@ fn test_pedersen_same_entry_different_blinding() {
 
     // Same entry but different blinding should produce different commitments
     assert_ne!(b1, b2, "Blinding factors should differ");
-    assert_ne!(c1, c2, "Commitments should differ due to different blinding");
+    assert_ne!(
+        c1, c2,
+        "Commitments should differ due to different blinding"
+    );
 
     // But both should verify
     assert!(committer.verify(&c1, &entry_hash, &b1));
@@ -120,8 +126,8 @@ fn test_pedersen_deterministic_h_generator() {
 
     // Compute commitment using verify: both should accept the same commitment
     let entry_scalar = Scalar::from_bytes_mod_order(entry_hash);
-    let expected =
-        entry_scalar * curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT + blinding * c1.h_point();
+    let expected = entry_scalar * curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT
+        + blinding * c1.h_point();
     let compressed = expected.compress();
 
     assert!(c1.verify(&compressed, &entry_hash, &blinding));
@@ -545,14 +551,9 @@ fn test_circuit_valid_chain_satisfied() {
     let first_prev = prev_hashes[0];
     let final_hash = entry_hashes[2];
 
-    let circuit = AuditChainCircuit::with_witnesses(
-        3,
-        first_prev,
-        final_hash,
-        entry_hashes,
-        prev_hashes,
-    )
-    .unwrap();
+    let circuit =
+        AuditChainCircuit::with_witnesses(3, first_prev, final_hash, entry_hashes, prev_hashes)
+            .unwrap();
 
     let cs = ConstraintSystem::<Fr>::new_ref();
     circuit.generate_constraints(cs.clone()).unwrap();
@@ -568,14 +569,9 @@ fn test_circuit_single_entry_satisfied() {
     let first_prev = prev_hashes[0];
     let final_hash = entry_hashes[0];
 
-    let circuit = AuditChainCircuit::with_witnesses(
-        1,
-        first_prev,
-        final_hash,
-        entry_hashes,
-        prev_hashes,
-    )
-    .unwrap();
+    let circuit =
+        AuditChainCircuit::with_witnesses(1, first_prev, final_hash, entry_hashes, prev_hashes)
+            .unwrap();
 
     let cs = ConstraintSystem::<Fr>::new_ref();
     circuit.generate_constraints(cs.clone()).unwrap();
@@ -591,14 +587,9 @@ fn test_circuit_broken_chain_linkage_unsatisfied() {
     // Tamper with entry_hash[0] — breaks linkage prev_hash[1] != entry_hash[0]
     entry_hashes[0] = Fr::from(99999u64);
 
-    let circuit = AuditChainCircuit::with_witnesses(
-        3,
-        first_prev,
-        final_hash,
-        entry_hashes,
-        prev_hashes,
-    )
-    .unwrap();
+    let circuit =
+        AuditChainCircuit::with_witnesses(3, first_prev, final_hash, entry_hashes, prev_hashes)
+            .unwrap();
 
     let cs = ConstraintSystem::<Fr>::new_ref();
     circuit.generate_constraints(cs.clone()).unwrap();
@@ -616,14 +607,9 @@ fn test_circuit_wrong_first_prev_hash_unsatisfied() {
     // Wrong first_prev_hash
     let wrong_first = Fr::from(12345u64);
 
-    let circuit = AuditChainCircuit::with_witnesses(
-        3,
-        wrong_first,
-        final_hash,
-        entry_hashes,
-        prev_hashes,
-    )
-    .unwrap();
+    let circuit =
+        AuditChainCircuit::with_witnesses(3, wrong_first, final_hash, entry_hashes, prev_hashes)
+            .unwrap();
 
     let cs = ConstraintSystem::<Fr>::new_ref();
     circuit.generate_constraints(cs.clone()).unwrap();
@@ -641,14 +627,9 @@ fn test_circuit_wrong_final_hash_unsatisfied() {
     // Wrong final_hash
     let wrong_final = Fr::from(54321u64);
 
-    let circuit = AuditChainCircuit::with_witnesses(
-        3,
-        first_prev,
-        wrong_final,
-        entry_hashes,
-        prev_hashes,
-    )
-    .unwrap();
+    let circuit =
+        AuditChainCircuit::with_witnesses(3, first_prev, wrong_final, entry_hashes, prev_hashes)
+            .unwrap();
 
     let cs = ConstraintSystem::<Fr>::new_ref();
     circuit.generate_constraints(cs.clone()).unwrap();
@@ -688,14 +669,9 @@ fn test_circuit_padded_batch_satisfied() {
         padded_prevs.push(final_hash);
     }
 
-    let circuit = AuditChainCircuit::with_witnesses(
-        4,
-        first_prev,
-        final_hash,
-        padded_entries,
-        padded_prevs,
-    )
-    .unwrap();
+    let circuit =
+        AuditChainCircuit::with_witnesses(4, first_prev, final_hash, padded_entries, padded_prevs)
+            .unwrap();
 
     let cs = ConstraintSystem::<Fr>::new_ref();
     circuit.generate_constraints(cs.clone()).unwrap();
@@ -714,14 +690,9 @@ fn test_circuit_constraint_count() {
     let first_prev = prev_hashes[0];
     let final_hash = entry_hashes[4];
 
-    let circuit = AuditChainCircuit::with_witnesses(
-        5,
-        first_prev,
-        final_hash,
-        entry_hashes,
-        prev_hashes,
-    )
-    .unwrap();
+    let circuit =
+        AuditChainCircuit::with_witnesses(5, first_prev, final_hash, entry_hashes, prev_hashes)
+            .unwrap();
 
     let cs = ConstraintSystem::<Fr>::new_ref();
     circuit.generate_constraints(cs.clone()).unwrap();
@@ -867,7 +838,10 @@ fn test_prover_key_serialization_roundtrip() {
 
     // Original prover should also verify the proof
     let result2 = prover.verify(&proof).unwrap();
-    assert!(result2.valid, "Original prover should verify loaded prover's proof");
+    assert!(
+        result2.valid,
+        "Original prover should verify loaded prover's proof"
+    );
 }
 
 #[test]
@@ -879,10 +853,7 @@ fn test_prover_proof_contains_correct_metadata() {
 
     // Check public inputs match witness data
     assert_eq!(proof.first_prev_hash, hex::encode(witnesses[0].prev_hash));
-    assert_eq!(
-        proof.final_entry_hash,
-        hex::encode(witnesses[2].entry_hash)
-    );
+    assert_eq!(proof.final_entry_hash, hex::encode(witnesses[2].entry_hash));
     assert!(!proof.batch_id.is_empty());
     assert!(!proof.merkle_root.is_empty());
     assert!(!proof.created_at.is_empty());

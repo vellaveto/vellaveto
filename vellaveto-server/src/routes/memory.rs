@@ -35,11 +35,30 @@ pub struct ListMemoryEntriesQuery {
     pub offset: Option<usize>,
 }
 
+/// Maximum length for query parameter session_id.
+const MAX_SESSION_ID_LEN: usize = 128;
+
 /// List memory entries with optional filters.
 pub async fn list_memory_entries(
     State(state): State<AppState>,
     Query(params): Query<ListMemoryEntriesQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY (FIND-R51-006): Validate session_id query parameter if present.
+    if let Some(ref sid) = params.session_id {
+        if sid.len() > MAX_SESSION_ID_LEN {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "session_id exceeds maximum length"})),
+            ));
+        }
+        if sid.chars().any(crate::routes::is_unsafe_char) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "session_id contains invalid characters"})),
+            ));
+        }
+    }
+
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -73,6 +92,9 @@ pub async fn get_memory_entry(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param_json(&id, "id")?;
+
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,

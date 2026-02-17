@@ -690,13 +690,18 @@ pub async fn rbac_middleware(
 
     if let Some(required_permission) = endpoint_permission(&method, &path) {
         if !principal.has_permission(required_permission) {
+            // SECURITY (FIND-R51-002): Only return a generic error message.
+            // Do not leak required_permission, role, or path to the client.
+            tracing::warn!(
+                role = %principal.role,
+                permission = ?required_permission,
+                path = %path,
+                "RBAC middleware permission denied"
+            );
             return (
                 StatusCode::FORBIDDEN,
                 Json(json!({
                     "error": "Permission denied",
-                    "required_permission": format!("{:?}", required_permission),
-                    "your_role": principal.role.to_string(),
-                    "path": path,
                 })),
             )
                 .into_response();

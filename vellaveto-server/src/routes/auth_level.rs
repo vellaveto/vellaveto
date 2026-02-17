@@ -19,6 +19,10 @@ use serde_json::json;
 use crate::routes::ErrorResponse;
 use crate::AppState;
 
+/// SECURITY (FIND-R51-004): Maximum allowed value for expires_secs (24 hours).
+/// Prevents unbounded session durations from a single API call.
+const MAX_AUTH_EXPIRES_SECS: u64 = 86400;
+
 /// Get auth level for a session.
 ///
 /// GET /api/auth-levels/{session}
@@ -26,6 +30,9 @@ pub async fn get_auth_level(
     State(state): State<AppState>,
     Path(session): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param(&session, "session")?;
+
     let tracker = state.auth_level.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -66,6 +73,9 @@ pub async fn upgrade_auth_level(
     Path(session): Path<String>,
     Json(req): Json<UpgradeAuthRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param(&session, "session")?;
+
     let tracker = state.auth_level.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -75,23 +85,36 @@ pub async fn upgrade_auth_level(
         )
     })?;
 
+    // SECURITY (FIND-R51-004): Validate expires_secs is bounded.
+    if let Some(secs) = req.expires_secs {
+        if secs > MAX_AUTH_EXPIRES_SECS {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!(
+                        "expires_secs must not exceed {} (24 hours)",
+                        MAX_AUTH_EXPIRES_SECS
+                    ),
+                }),
+            ));
+        }
+    }
+
     let level = match req.level.to_lowercase().as_str() {
         "none" => vellaveto_types::AuthLevel::None,
         "basic" => vellaveto_types::AuthLevel::Basic,
         "oauth" => vellaveto_types::AuthLevel::OAuth,
         "oauth_mfa" | "oauthmfa" => vellaveto_types::AuthLevel::OAuthMfa,
         "hardware_key" | "hardwarekey" => vellaveto_types::AuthLevel::HardwareKey,
-        _ => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: format!(
-                        "Invalid auth level: {}. Valid levels: none, basic, oauth, oauth_mfa, hardware_key",
-                        req.level
-                    ),
-                }),
-            ))
-        }
+        // SECURITY (FIND-R51-014): Do not echo raw input in error message.
+        _ => return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error:
+                    "Invalid auth level. Valid levels: none, basic, oauth, oauth_mfa, hardware_key"
+                        .to_string(),
+            }),
+        )),
     };
 
     let expires = req.expires_secs.map(std::time::Duration::from_secs);
@@ -111,6 +134,9 @@ pub async fn clear_auth_level(
     State(state): State<AppState>,
     Path(session): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param(&session, "session")?;
+
     let tracker = state.auth_level.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,

@@ -74,7 +74,9 @@ impl AbacCondition {
         if size > Self::MAX_VALUE_SIZE {
             return Err(format!(
                 "AbacCondition field '{}' value serialized size {} exceeds max {}",
-                self.field, size, Self::MAX_VALUE_SIZE
+                self.field,
+                size,
+                Self::MAX_VALUE_SIZE
             ));
         }
         Ok(())
@@ -129,7 +131,8 @@ impl AbacPolicy {
             ));
         }
         for (i, cond) in self.conditions.iter().enumerate() {
-            cond.validate().map_err(|e| format!("conditions[{}]: {}", i, e))?;
+            cond.validate()
+                .map_err(|e| format!("conditions[{}]: {}", i, e))?;
         }
         self.principal.validate()?;
         self.action.validate()?;
@@ -416,9 +419,8 @@ impl FederationTrustAnchor {
             }
             // SECURITY (FIND-R50-010): Validate jwks_uri against SSRF —
             // reject localhost, loopback, link-local, and private IP ranges.
-            Self::validate_jwks_uri_ssrf(uri).map_err(|e| {
-                format!("FederationTrustAnchor '{}' jwks_uri {}", self.org_id, e)
-            })?;
+            Self::validate_jwks_uri_ssrf(uri)
+                .map_err(|e| format!("FederationTrustAnchor '{}' jwks_uri {}", self.org_id, e))?;
         }
         if !VALID_TRUST_LEVELS.contains(&self.trust_level.as_str()) {
             return Err(format!(

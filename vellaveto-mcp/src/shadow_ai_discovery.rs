@@ -114,12 +114,7 @@ impl ShadowAiDiscovery {
     /// Returns early (silently) if any input fails validation:
     /// - Length exceeds `MAX_ID_LENGTH` (FIND-R44-007)
     /// - Contains control characters, bidi overrides, ZWSP, BOM, or null bytes (FIND-R44-020)
-    pub fn observe_request(
-        &self,
-        agent_id: &str,
-        tool_name: &str,
-        server_id: Option<&str>,
-    ) {
+    pub fn observe_request(&self, agent_id: &str, tool_name: &str, server_id: Option<&str>) {
         // FIND-R44-007: Reject overlong inputs
         if agent_id.len() > MAX_ID_LENGTH || tool_name.len() > MAX_ID_LENGTH {
             return;
@@ -157,16 +152,13 @@ impl ShadowAiDiscovery {
                     if entry.tools_used.len() < MAX_TOOLS_PER_AGENT {
                         entry.tools_used.insert(tool_name.to_string());
                     }
-                    entry.risk_score = Self::compute_risk_score(
-                        entry.request_count,
-                        entry.tools_used.len(),
-                    );
+                    entry.risk_score =
+                        Self::compute_risk_score(entry.request_count, entry.tools_used.len());
                 } else if unregistered.len() < MAX_UNREGISTERED_AGENTS {
                     let mut tools_used = HashSet::new();
                     tools_used.insert(tool_name.to_string());
                     let request_count = 1;
-                    let risk_score =
-                        Self::compute_risk_score(request_count, tools_used.len());
+                    let risk_score = Self::compute_risk_score(request_count, tools_used.len());
                     unregistered.insert(
                         agent_id.to_string(),
                         UnregisteredAgent {
@@ -205,9 +197,7 @@ impl ShadowAiDiscovery {
                 if let Some(entry) = unapproved.get_mut(tool_name) {
                     entry.request_count = entry.request_count.saturating_add(1);
                     if entry.requesting_agents.len() < MAX_AGENTS_PER_TOOL {
-                        entry
-                            .requesting_agents
-                            .insert(agent_id.to_string());
+                        entry.requesting_agents.insert(agent_id.to_string());
                     }
                 } else if unapproved.len() < MAX_UNAPPROVED_TOOLS {
                     let mut requesting_agents = HashSet::new();
@@ -264,7 +254,9 @@ impl ShadowAiDiscovery {
                         );
                     } else {
                         // FIND-R44-016: Log warning on capacity drop (every 100th drop)
-                        let count = self.unknown_servers_drop_count.fetch_add(1, Ordering::Relaxed);
+                        let count = self
+                            .unknown_servers_drop_count
+                            .fetch_add(1, Ordering::Relaxed);
                         if count.is_multiple_of(100) {
                             tracing::warn!(
                                 "Shadow AI discovery: unknown servers at capacity ({}), new entries dropped (total drops: {})",
@@ -387,12 +379,7 @@ mod tests {
     use super::*;
 
     fn empty_discovery() -> ShadowAiDiscovery {
-        ShadowAiDiscovery::new(
-            HashSet::new(),
-            HashSet::new(),
-            HashSet::new(),
-            false,
-        )
+        ShadowAiDiscovery::new(HashSet::new(), HashSet::new(), HashSet::new(), false)
     }
 
     fn configured_discovery() -> ShadowAiDiscovery {

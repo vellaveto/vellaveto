@@ -9,6 +9,18 @@ use serde::{Deserialize, Serialize};
 /// Maximum number of methods per extension descriptor.
 pub const MAX_EXTENSION_METHODS: usize = 64;
 
+/// Maximum number of capabilities per extension descriptor.
+///
+/// SECURITY (FIND-R51-013): Unbounded capabilities vector could be used
+/// for memory exhaustion via crafted extension descriptors.
+pub const MAX_EXTENSION_CAPABILITIES: usize = 64;
+
+/// Maximum length of a single capability string.
+///
+/// SECURITY (FIND-R51-013): Individual capability strings must be bounded
+/// to prevent memory exhaustion.
+pub const MAX_EXTENSION_CAPABILITY_LEN: usize = 512;
+
 /// Maximum length of an extension ID.
 pub const MAX_EXTENSION_ID_LEN: usize = 256;
 
@@ -71,6 +83,25 @@ impl ExtensionDescriptor {
                 self.methods.len(),
                 MAX_EXTENSION_METHODS
             )));
+        }
+        // SECURITY (FIND-R51-013): Bound capabilities vector size.
+        if self.capabilities.len() > MAX_EXTENSION_CAPABILITIES {
+            return Err(ExtensionError::Validation(format!(
+                "too many capabilities: {} (max {})",
+                self.capabilities.len(),
+                MAX_EXTENSION_CAPABILITIES
+            )));
+        }
+        // SECURITY (FIND-R51-013): Bound individual capability string lengths.
+        for (i, cap) in self.capabilities.iter().enumerate() {
+            if cap.len() > MAX_EXTENSION_CAPABILITY_LEN {
+                return Err(ExtensionError::Validation(format!(
+                    "capability[{}] length {} exceeds max {}",
+                    i,
+                    cap.len(),
+                    MAX_EXTENSION_CAPABILITY_LEN
+                )));
+            }
         }
         Ok(())
     }

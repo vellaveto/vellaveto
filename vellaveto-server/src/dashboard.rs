@@ -619,7 +619,11 @@ pub async fn dashboard_approve(State(state): State<AppState>, Path(id): Path<Str
         Err(e) => {
             // SECURITY (FIND-R49-006): Log error details server-side, return generic message
             tracing::warn!("Dashboard action failed for id={}: {:?}", id, e);
-            (StatusCode::BAD_REQUEST, "Approval action failed".to_string()).into_response()
+            (
+                StatusCode::BAD_REQUEST,
+                "Approval action failed".to_string(),
+            )
+                .into_response()
         }
     }
 }
@@ -639,7 +643,11 @@ pub async fn dashboard_deny(State(state): State<AppState>, Path(id): Path<String
         Err(e) => {
             // SECURITY (FIND-R49-006): Log error details server-side, return generic message
             tracing::warn!("Dashboard action failed for id={}: {:?}", id, e);
-            (StatusCode::BAD_REQUEST, "Approval action failed".to_string()).into_response()
+            (
+                StatusCode::BAD_REQUEST,
+                "Approval action failed".to_string(),
+            )
+                .into_response()
         }
     }
 }

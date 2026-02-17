@@ -6,9 +6,9 @@
 //! The prover operates over the BN254 pairing curve using the Groth16 proving
 //! system from arkworks.
 
+use std::fs;
 use std::io::Cursor;
 use std::path::Path;
-use std::fs;
 
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::{Groth16, Proof as Groth16Proof, ProvingKey, VerifyingKey};
@@ -67,16 +67,11 @@ impl ZkBatchProver {
         let vk_bytes = fs::read(vk_path)
             .map_err(|e| ZkError::Key(format!("Failed to read verifying key: {}", e)))?;
 
-        let proving_key =
-            ProvingKey::<Bn254>::deserialize_compressed(&mut Cursor::new(&pk_bytes))
-                .map_err(|e| {
-                    ZkError::Serialization(format!("PK deserialization failed: {}", e))
-                })?;
+        let proving_key = ProvingKey::<Bn254>::deserialize_compressed(&mut Cursor::new(&pk_bytes))
+            .map_err(|e| ZkError::Serialization(format!("PK deserialization failed: {}", e)))?;
         let verifying_key =
             VerifyingKey::<Bn254>::deserialize_compressed(&mut Cursor::new(&vk_bytes))
-                .map_err(|e| {
-                    ZkError::Serialization(format!("VK deserialization failed: {}", e))
-                })?;
+                .map_err(|e| ZkError::Serialization(format!("VK deserialization failed: {}", e)))?;
 
         Ok(Self {
             proving_key,
@@ -177,10 +172,7 @@ impl ZkBatchProver {
         Ok(vellaveto_types::ZkBatchProof {
             proof: hex::encode(proof_bytes),
             batch_id: uuid::Uuid::new_v4().to_string(),
-            entry_range: (
-                witnesses[0].sequence,
-                witnesses[actual_count - 1].sequence,
-            ),
+            entry_range: (witnesses[0].sequence, witnesses[actual_count - 1].sequence),
             merkle_root,
             first_prev_hash: hex::encode(witnesses[0].prev_hash),
             final_entry_hash: hex::encode(witnesses[actual_count - 1].entry_hash),
@@ -207,11 +199,10 @@ impl ZkBatchProver {
         // Decode proof
         let proof_bytes = hex::decode(&batch_proof.proof)
             .map_err(|e| ZkError::Serialization(format!("Proof hex decode failed: {}", e)))?;
-        let groth16_proof =
-            Groth16Proof::<Bn254>::deserialize_compressed(&mut Cursor::new(&proof_bytes))
-                .map_err(|e| {
-                    ZkError::Serialization(format!("Proof deserialization failed: {}", e))
-                })?;
+        let groth16_proof = Groth16Proof::<Bn254>::deserialize_compressed(&mut Cursor::new(
+            &proof_bytes,
+        ))
+        .map_err(|e| ZkError::Serialization(format!("Proof deserialization failed: {}", e)))?;
 
         // Public inputs must match the allocation order in generate_constraints:
         // [first_prev_hash, final_hash]

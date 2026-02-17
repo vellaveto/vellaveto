@@ -83,10 +83,7 @@ impl PolicyConfig {
         // Empty patterns match everything, which would cause excessive false positives.
         for (i, pattern) in self.injection.extra_patterns.iter().enumerate() {
             if pattern.is_empty() {
-                return Err(format!(
-                    "injection.extra_patterns[{}] must not be empty",
-                    i
-                ));
+                return Err(format!("injection.extra_patterns[{}] must not be empty", i));
             }
         }
         // FIND-002: Validate DLP extra_patterns compile as valid regex at config load time.
@@ -418,9 +415,7 @@ impl PolicyConfig {
         // SECURITY (FIND-R46-015): Reject zero batch_size which would cause
         // infinite loops or no-op exports.
         if self.audit_export.batch_size == 0 {
-            return Err(
-                "audit_export.batch_size must be > 0".to_string()
-            );
+            return Err("audit_export.batch_size must be > 0".to_string());
         }
 
         // Validate behavioral detection config
@@ -916,7 +911,8 @@ impl PolicyConfig {
                 "Config file '{}' has unsupported extension. \
                  Supported extensions: .toml, .json",
                 path
-            ).into());
+            )
+            .into());
         };
         config
             .validate()

@@ -1386,12 +1386,7 @@ fn bench_abac_group_membership_transitive_depth_10(c: &mut Criterion) {
     let store = EntityStore::from_config(&entities);
 
     c.bench_function("abac/group_membership_transitive_depth_10", |b| {
-        b.iter(|| {
-            black_box(store.is_member_of(
-                black_box("Agent::leaf"),
-                black_box("Group::g9"),
-            ))
-        })
+        b.iter(|| black_box(store.is_member_of(black_box("Agent::leaf"), black_box("Group::g9"))))
     });
 }
 

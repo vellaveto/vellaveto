@@ -61,6 +61,38 @@ pub struct ToolMetadata {
     pub token_cost: usize,
 }
 
+impl ToolMetadata {
+    /// Maximum serialized size of `input_schema` in bytes.
+    ///
+    /// SECURITY (FIND-R51-015): Matches SchemaRecord::MAX_SCHEMA_SIZE (64 KiB).
+    /// Unbounded input_schema could be used for memory exhaustion.
+    pub const MAX_INPUT_SCHEMA_SIZE: usize = 65536;
+
+    /// Validate bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R51-015): Checks that the serialized size of
+    /// `input_schema` does not exceed `MAX_INPUT_SCHEMA_SIZE`.
+    pub fn validate(&self) -> Result<(), String> {
+        let schema_size = serde_json::to_string(&self.input_schema)
+            .map_err(|e| {
+                format!(
+                    "ToolMetadata '{}' input_schema serialization failed: {}",
+                    self.tool_id, e
+                )
+            })?
+            .len();
+        if schema_size > Self::MAX_INPUT_SCHEMA_SIZE {
+            return Err(format!(
+                "ToolMetadata '{}' input_schema serialized size {} exceeds max {}",
+                self.tool_id,
+                schema_size,
+                Self::MAX_INPUT_SCHEMA_SIZE
+            ));
+        }
+        Ok(())
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // DISCOVERY RESULT
 // ═══════════════════════════════════════════════════════════════════════════════

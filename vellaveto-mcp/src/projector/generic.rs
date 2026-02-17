@@ -61,8 +61,7 @@ impl ModelProjection for GenericProjection {
     }
 
     fn format_response(&self, canonical: &CanonicalToolResponse) -> Result<Value, ProjectorError> {
-        serde_json::to_value(canonical)
-            .map_err(|e| ProjectorError::Serialization(e.to_string()))
+        serde_json::to_value(canonical).map_err(|e| ProjectorError::Serialization(e.to_string()))
     }
 
     fn estimate_tokens(&self, schema: &CanonicalToolSchema) -> usize {

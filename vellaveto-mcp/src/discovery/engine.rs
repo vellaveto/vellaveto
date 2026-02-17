@@ -202,13 +202,28 @@ fn infer_sensitivity(name: &str, description: &str) -> ToolSensitivity {
     let text = format!("{} {}", name, description).to_lowercase();
 
     const HIGH_KEYWORDS: &[&str] = &[
-        "delete", "drop", "destroy", "exec", "execute", "shell", "sudo",
-        "admin", "credential", "password", "secret", "token", "key",
-        "encrypt", "decrypt", "sign", "root", "privilege",
+        "delete",
+        "drop",
+        "destroy",
+        "exec",
+        "execute",
+        "shell",
+        "sudo",
+        "admin",
+        "credential",
+        "password",
+        "secret",
+        "token",
+        "key",
+        "encrypt",
+        "decrypt",
+        "sign",
+        "root",
+        "privilege",
     ];
     const MEDIUM_KEYWORDS: &[&str] = &[
-        "write", "create", "update", "modify", "insert", "upload",
-        "send", "post", "put", "patch", "move", "rename", "config",
+        "write", "create", "update", "modify", "insert", "upload", "send", "post", "put", "patch",
+        "move", "rename", "config",
     ];
 
     if HIGH_KEYWORDS.iter().any(|kw| text.contains(kw)) {
@@ -228,16 +243,45 @@ fn infer_domain_tags(name: &str, description: &str) -> Vec<String> {
     let mut tags = Vec::new();
 
     const DOMAIN_MAP: &[(&[&str], &str)] = &[
-        (&["file", "directory", "path", "folder", "disk", "filesystem"], "filesystem"),
-        (&["http", "url", "api", "request", "fetch", "download", "upload"], "network"),
-        (&["sql", "database", "query", "table", "column", "row"], "database"),
+        (
+            &["file", "directory", "path", "folder", "disk", "filesystem"],
+            "filesystem",
+        ),
+        (
+            &[
+                "http", "url", "api", "request", "fetch", "download", "upload",
+            ],
+            "network",
+        ),
+        (
+            &["sql", "database", "query", "table", "column", "row"],
+            "database",
+        ),
         (&["git", "commit", "branch", "merge", "repo", "pull"], "vcs"),
-        (&["shell", "bash", "command", "terminal", "exec", "process"], "shell"),
-        (&["search", "find", "grep", "pattern", "match", "regex"], "search"),
-        (&["image", "photo", "picture", "video", "audio", "media"], "media"),
-        (&["email", "mail", "message", "notification", "alert"], "communication"),
-        (&["encrypt", "decrypt", "hash", "sign", "certificate", "tls"], "security"),
-        (&["docker", "container", "kubernetes", "pod", "deploy"], "infrastructure"),
+        (
+            &["shell", "bash", "command", "terminal", "exec", "process"],
+            "shell",
+        ),
+        (
+            &["search", "find", "grep", "pattern", "match", "regex"],
+            "search",
+        ),
+        (
+            &["image", "photo", "picture", "video", "audio", "media"],
+            "media",
+        ),
+        (
+            &["email", "mail", "message", "notification", "alert"],
+            "communication",
+        ),
+        (
+            &["encrypt", "decrypt", "hash", "sign", "certificate", "tls"],
+            "security",
+        ),
+        (
+            &["docker", "container", "kubernetes", "pod", "deploy"],
+            "infrastructure",
+        ),
     ];
 
     for (keywords, tag) in DOMAIN_MAP {
@@ -358,14 +402,18 @@ mod tests {
     #[test]
     fn test_ingest_tools_list_empty() {
         let engine = DiscoveryEngine::new(test_config());
-        let count = engine.ingest_tools_list("srv", &json!({"tools": []})).unwrap();
+        let count = engine
+            .ingest_tools_list("srv", &json!({"tools": []}))
+            .unwrap();
         assert_eq!(count, 0);
     }
 
     #[test]
     fn test_ingest_tools_list_no_tools_key() {
         let engine = DiscoveryEngine::new(test_config());
-        let count = engine.ingest_tools_list("srv", &json!({"other": "data"})).unwrap();
+        let count = engine
+            .ingest_tools_list("srv", &json!({"other": "data"}))
+            .unwrap();
         assert_eq!(count, 0);
     }
 
@@ -440,9 +488,7 @@ mod tests {
             .ingest_tools_list("srv", &make_tools_list_response())
             .unwrap();
 
-        let result = engine
-            .discover("file", 5, None, &|_| false)
-            .unwrap();
+        let result = engine.discover("file", 5, None, &|_| false).unwrap();
         assert!(result.tools.is_empty());
         assert!(result.policy_filtered > 0);
     }
@@ -540,23 +586,50 @@ mod tests {
 
     #[test]
     fn test_infer_sensitivity_high() {
-        assert_eq!(infer_sensitivity("delete_file", "Delete a file"), ToolSensitivity::High);
-        assert_eq!(infer_sensitivity("exec", "Execute command"), ToolSensitivity::High);
-        assert_eq!(infer_sensitivity("get_secret", "Fetch secret"), ToolSensitivity::High);
+        assert_eq!(
+            infer_sensitivity("delete_file", "Delete a file"),
+            ToolSensitivity::High
+        );
+        assert_eq!(
+            infer_sensitivity("exec", "Execute command"),
+            ToolSensitivity::High
+        );
+        assert_eq!(
+            infer_sensitivity("get_secret", "Fetch secret"),
+            ToolSensitivity::High
+        );
     }
 
     #[test]
     fn test_infer_sensitivity_medium() {
-        assert_eq!(infer_sensitivity("write_file", "Write to file"), ToolSensitivity::Medium);
-        assert_eq!(infer_sensitivity("create_user", "Create new user"), ToolSensitivity::Medium);
-        assert_eq!(infer_sensitivity("upload", "Upload data"), ToolSensitivity::Medium);
+        assert_eq!(
+            infer_sensitivity("write_file", "Write to file"),
+            ToolSensitivity::Medium
+        );
+        assert_eq!(
+            infer_sensitivity("create_user", "Create new user"),
+            ToolSensitivity::Medium
+        );
+        assert_eq!(
+            infer_sensitivity("upload", "Upload data"),
+            ToolSensitivity::Medium
+        );
     }
 
     #[test]
     fn test_infer_sensitivity_low() {
-        assert_eq!(infer_sensitivity("read_file", "Read file contents"), ToolSensitivity::Low);
-        assert_eq!(infer_sensitivity("list", "List items"), ToolSensitivity::Low);
-        assert_eq!(infer_sensitivity("search", "Search for data"), ToolSensitivity::Low);
+        assert_eq!(
+            infer_sensitivity("read_file", "Read file contents"),
+            ToolSensitivity::Low
+        );
+        assert_eq!(
+            infer_sensitivity("list", "List items"),
+            ToolSensitivity::Low
+        );
+        assert_eq!(
+            infer_sensitivity("search", "Search for data"),
+            ToolSensitivity::Low
+        );
     }
 
     // ── Domain tag inference ────────────────────────────────────────────

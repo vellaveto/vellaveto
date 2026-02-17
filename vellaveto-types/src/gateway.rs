@@ -48,10 +48,15 @@ impl UpstreamBackend {
     /// - `id` is not empty
     /// - `url` is not empty
     /// - `url` starts with `http://` or `https://`
+    /// - `url` host is not a loopback, link-local, or private IP (SSRF)
     ///
     /// SECURITY (FIND-P2-009): Backends with empty URLs could cause panics
     /// or undefined behavior in HTTP clients. Restricting schemes to HTTP(S)
     /// prevents SSRF via `file://`, `gopher://`, etc.
+    ///
+    /// SECURITY (FIND-R51-011): After scheme validation, parse the URL host
+    /// and reject localhost, loopback, link-local, and private IP ranges to
+    /// prevent SSRF attacks routing traffic to internal services.
     pub fn validate(&self) -> Result<(), String> {
         if self.id.is_empty() {
             return Err("UpstreamBackend id must not be empty".to_string());
@@ -69,6 +74,96 @@ impl UpstreamBackend {
                 self.url.chars().take(40).collect::<String>()
             ));
         }
+        // SECURITY (FIND-R51-011): Reject SSRF vectors in URL host.
+        Self::validate_url_ssrf(&self.url)
+            .map_err(|e| format!("UpstreamBackend '{}' url {}", self.id, e))?;
+        Ok(())
+    }
+
+    /// SECURITY (FIND-R51-011): Validate a backend URL against SSRF vectors.
+    ///
+    /// Rejects localhost, loopback, link-local, and private IP ranges in the
+    /// host portion of the URL. Follows the same pattern as
+    /// `FederationTrustAnchor::validate_jwks_uri_ssrf` in abac.rs.
+    fn validate_url_ssrf(url: &str) -> Result<(), String> {
+        // Extract the scheme-relative portion
+        let after_scheme = if let Some(rest) = url.strip_prefix("https://") {
+            rest
+        } else if let Some(rest) = url.strip_prefix("http://") {
+            rest
+        } else {
+            return Err("must use http(s) scheme".to_string());
+        };
+
+        // Extract authority (before first '/')
+        let authority = after_scheme
+            .find('/')
+            .map_or(after_scheme, |i| &after_scheme[..i]);
+
+        // Strip userinfo before '@'
+        let host_portion = match authority.rfind('@') {
+            Some(at) => &authority[at + 1..],
+            None => authority,
+        };
+
+        // Extract host (handle IPv6 brackets and port)
+        let host = if host_portion.starts_with('[') {
+            if let Some(bracket_end) = host_portion.find(']') {
+                host_portion[1..bracket_end].to_lowercase()
+            } else {
+                return Err("malformed IPv6 address (missing ']')".to_string());
+            }
+        } else {
+            let host_end = host_portion
+                .find([':', '/', '?', '#'])
+                .unwrap_or(host_portion.len());
+            host_portion[..host_end].to_lowercase()
+        };
+
+        if host.is_empty() {
+            return Err("has no host".to_string());
+        }
+
+        // Reject localhost/loopback hostnames
+        let loopbacks = ["localhost", "127.0.0.1", "::1", "0.0.0.0"];
+        if loopbacks.iter().any(|lb| host == *lb) {
+            return Err(format!(
+                "must not target localhost/loopback, got '{}'",
+                host
+            ));
+        }
+
+        // Reject private IPv4 ranges
+        if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+            let is_private = ip.is_loopback()
+                || ip.octets()[0] == 10
+                || (ip.octets()[0] == 172 && (ip.octets()[1] & 0xf0) == 16)
+                || (ip.octets()[0] == 192 && ip.octets()[1] == 168)
+                || (ip.octets()[0] == 169 && ip.octets()[1] == 254)
+                || ip.octets()[0] == 0;
+            if is_private {
+                return Err(format!(
+                    "must not target private/internal IPs, got '{}'",
+                    host
+                ));
+            }
+        }
+
+        // Reject private IPv6 ranges
+        if let Ok(ip6) = host.parse::<std::net::Ipv6Addr>() {
+            let segs = ip6.segments();
+            let is_private = ip6.is_loopback()
+                || ip6.is_unspecified()
+                || (segs[0] & 0xfe00) == 0xfc00
+                || (segs[0] & 0xffc0) == 0xfe80;
+            if is_private {
+                return Err(format!(
+                    "must not target private/internal IPv6 ranges, got '{}'",
+                    host
+                ));
+            }
+        }
+
         Ok(())
     }
 }

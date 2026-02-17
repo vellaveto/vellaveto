@@ -328,8 +328,8 @@ fn verify_extension_signature(
     use ed25519_dalek::{Signature, VerifyingKey};
 
     // Decode the public key
-    let pub_key_bytes = hex::decode(public_key_hex)
-        .map_err(|e| format!("invalid public key hex: {}", e))?;
+    let pub_key_bytes =
+        hex::decode(public_key_hex).map_err(|e| format!("invalid public key hex: {}", e))?;
     if pub_key_bytes.len() != 32 {
         return Err(format!(
             "public key has wrong length: {} (expected 32)",
@@ -342,8 +342,8 @@ fn verify_extension_signature(
         .map_err(|e| format!("invalid Ed25519 public key: {}", e))?;
 
     // Decode the signature
-    let sig_bytes = hex::decode(signature_hex)
-        .map_err(|e| format!("invalid signature hex: {}", e))?;
+    let sig_bytes =
+        hex::decode(signature_hex).map_err(|e| format!("invalid signature hex: {}", e))?;
     if sig_bytes.len() != 64 {
         return Err(format!(
             "signature has wrong length: {} (expected 64)",
@@ -572,7 +572,9 @@ mod tests {
         handler.descriptor.signature = Some("deadbeef".repeat(8));
         // No public_key → should fail
         let result = registry.register(Box::new(handler));
-        assert!(matches!(result, Err(ExtensionError::Validation(ref msg)) if msg.contains("public_key")));
+        assert!(
+            matches!(result, Err(ExtensionError::Validation(ref msg)) if msg.contains("public_key"))
+        );
     }
 
     #[test]
@@ -588,7 +590,9 @@ mod tests {
         handler.descriptor.signature = Some("deadbeef".repeat(8));
         handler.descriptor.public_key = Some("bbbb".repeat(16)); // not in trusted list
         let result = registry.register(Box::new(handler));
-        assert!(matches!(result, Err(ExtensionError::Validation(ref msg)) if msg.contains("untrusted")));
+        assert!(
+            matches!(result, Err(ExtensionError::Validation(ref msg)) if msg.contains("untrusted"))
+        );
     }
 
     #[test]
@@ -610,7 +614,9 @@ mod tests {
         handler.descriptor.signature = Some("00".repeat(64)); // invalid signature
         handler.descriptor.public_key = Some(pub_key_hex);
         let result = registry.register(Box::new(handler));
-        assert!(matches!(result, Err(ExtensionError::Validation(ref msg)) if msg.contains("verification failed")));
+        assert!(
+            matches!(result, Err(ExtensionError::Validation(ref msg)) if msg.contains("verification failed"))
+        );
     }
 
     #[test]
@@ -664,7 +670,11 @@ mod tests {
 
         let handler = SignedHandler { descriptor };
         let result = registry.register(Box::new(handler));
-        assert!(result.is_ok(), "Valid signature should be accepted: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Valid signature should be accepted: {:?}",
+            result.err()
+        );
     }
 
     // --- glob_match tests ---

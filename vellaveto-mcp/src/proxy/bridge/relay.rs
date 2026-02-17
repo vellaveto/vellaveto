@@ -183,7 +183,8 @@ impl RelayState {
         } else {
             tracing::warn!(
                 "flagged_tools at capacity ({}); cannot flag tool '{}'",
-                MAX_FLAGGED_TOOLS, name
+                MAX_FLAGGED_TOOLS,
+                name
             );
         }
     }
@@ -199,7 +200,8 @@ impl RelayState {
         } else {
             tracing::warn!(
                 "call_counts at capacity ({}); not tracking '{}'",
-                MAX_CALL_COUNTS, action_name
+                MAX_CALL_COUNTS,
+                action_name
             );
         }
         if self.action_history.len() >= MAX_ACTION_HISTORY {
@@ -1385,7 +1387,8 @@ impl ProxyBridge {
                         .collect();
                     tracing::warn!(
                         "SECURITY: DLP alert in extension method '{}': {:?}",
-                        method, patterns
+                        method,
+                        patterns
                     );
                     let dlp_action = vellaveto_types::Action::new(
                         "vellaveto",
@@ -1417,10 +1420,8 @@ impl ProxyBridge {
                     {
                         tracing::warn!("Failed to audit extension DLP finding: {}", e);
                     }
-                    let response = make_denial_response(
-                        &id,
-                        "Request blocked: security policy violation",
-                    );
+                    let response =
+                        make_denial_response(&id, "Request blocked: security policy violation");
                     write_message(agent_writer, &response)
                         .await
                         .map_err(ProxyError::Framing)?;
@@ -1585,7 +1586,8 @@ impl ProxyBridge {
                     } else {
                         tracing::warn!(
                             "tools_list_request_ids at capacity ({}); dropping tracking for {}",
-                            MAX_REQUEST_TRACKING_IDS, id_key
+                            MAX_REQUEST_TRACKING_IDS,
+                            id_key
                         );
                     }
                 }
@@ -1598,7 +1600,8 @@ impl ProxyBridge {
                     } else {
                         tracing::warn!(
                             "initialize_request_ids at capacity ({}); dropping tracking for {}",
-                            MAX_REQUEST_TRACKING_IDS, id_key
+                            MAX_REQUEST_TRACKING_IDS,
+                            id_key
                         );
                     }
                     if let Some(ver) = msg
@@ -1683,19 +1686,18 @@ impl ProxyBridge {
         // SECURITY (FIND-R46-RLY-001): Injection scan passthrough messages.
         // Same rationale — extensible methods must not bypass injection detection.
         if !self.injection_disabled {
-            let injection_matches: Vec<String> =
-                if let Some(ref scanner) = self.injection_scanner {
-                    scanner
-                        .scan_notification(msg)
-                        .into_iter()
-                        .map(|s| s.to_string())
-                        .collect()
-                } else {
-                    scan_notification_for_injection(msg)
-                        .into_iter()
-                        .map(|s| s.to_string())
-                        .collect()
-                };
+            let injection_matches: Vec<String> = if let Some(ref scanner) = self.injection_scanner {
+                scanner
+                    .scan_notification(msg)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            } else {
+                scan_notification_for_injection(msg)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            };
             if !injection_matches.is_empty() {
                 let method_name = msg
                     .get("method")
@@ -1800,9 +1802,7 @@ impl ProxyBridge {
                             "Server→client sampling/createMessage request (id: {}) — routing to sampling handler",
                             id
                         );
-                        return self
-                            .handle_sampling_request(&msg, id, agent_writer)
-                            .await;
+                        return self.handle_sampling_request(&msg, id, agent_writer).await;
                     }
                     "elicitation/create" => {
                         let id = msg.get("id").cloned().unwrap_or(Value::Null);

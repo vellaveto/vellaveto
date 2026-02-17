@@ -162,9 +162,7 @@ impl ServiceDiscoveryConfig {
         // Validate dns_name is not empty if provided
         if let Some(ref name) = self.dns_name {
             if name.trim().is_empty() {
-                return Err(
-                    "deployment.service_discovery.dns_name must not be empty".to_string()
-                );
+                return Err("deployment.service_discovery.dns_name must not be empty".to_string());
             }
             // SECURITY (FIND-P27-005): Reject SSRF-prone DNS names.
             // Extract host part before the port (required by tokio::net::lookup_host).

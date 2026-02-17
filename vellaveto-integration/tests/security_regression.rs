@@ -411,10 +411,10 @@ mod server_auth {
             discovery_engine: None,
             discovery_audit: None,
             projector_registry: None,
-        zk_proofs: None,
-        zk_audit_enabled: false,
-        zk_audit_config: Default::default(),
-        federation_resolver: None,
+            zk_proofs: None,
+            zk_audit_enabled: false,
+            zk_audit_config: Default::default(),
+            federation_resolver: None,
         };
         (state, tmp)
     }
@@ -571,10 +571,10 @@ mod server_auth {
             discovery_engine: None,
             discovery_audit: None,
             projector_registry: None,
-        zk_proofs: None,
-        zk_audit_enabled: false,
-        zk_audit_config: Default::default(),
-        federation_resolver: None,
+            zk_proofs: None,
+            zk_audit_enabled: false,
+            zk_audit_config: Default::default(),
+            federation_resolver: None,
         };
         let app = routes::build_router(state);
 
@@ -1898,12 +1898,7 @@ fn find_r46_it004_ssrf_private_ip_10_blocked() {
     }];
 
     // RFC 1918 10.0.0.0/8 range
-    let private_ips = vec![
-        "10.0.0.1",
-        "10.255.255.255",
-        "10.0.0.0",
-        "10.128.64.32",
-    ];
+    let private_ips = vec!["10.0.0.1", "10.255.255.255", "10.0.0.0", "10.128.64.32"];
 
     for ip in private_ips {
         let action = Action {
@@ -1947,11 +1942,7 @@ fn find_r46_it004_ssrf_private_ip_172_16_blocked() {
     }];
 
     // RFC 1918 172.16.0.0/12 range
-    let private_ips = vec![
-        "172.16.0.1",
-        "172.31.255.255",
-        "172.20.10.5",
-    ];
+    let private_ips = vec!["172.16.0.1", "172.31.255.255", "172.20.10.5"];
 
     for ip in private_ips {
         let action = Action {
@@ -1995,11 +1986,7 @@ fn find_r46_it004_ssrf_private_ip_192_168_blocked() {
     }];
 
     // RFC 1918 192.168.0.0/16 range
-    let private_ips = vec![
-        "192.168.0.1",
-        "192.168.1.1",
-        "192.168.255.255",
-    ];
+    let private_ips = vec!["192.168.0.1", "192.168.1.1", "192.168.255.255"];
 
     for ip in private_ips {
         let action = Action {
@@ -2095,7 +2082,7 @@ fn find_r46_it004_ssrf_public_ip_allowed() {
     let public_ips = vec![
         "8.8.8.8",       // Google DNS
         "1.1.1.1",       // Cloudflare DNS
-        "93.184.216.34",  // example.com
+        "93.184.216.34", // example.com
     ];
 
     for ip in public_ips {

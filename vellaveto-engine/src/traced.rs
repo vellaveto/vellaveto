@@ -630,7 +630,8 @@ impl PolicyEngine {
                 max_depth = depth;
             }
             // Early termination: if we exceed depth limit or node budget, stop
-            if max_depth > Self::MAX_JSON_DEPTH_LIMIT || nodes_visited > Self::MAX_JSON_DEPTH_NODES {
+            if max_depth > Self::MAX_JSON_DEPTH_LIMIT || nodes_visited > Self::MAX_JSON_DEPTH_NODES
+            {
                 return max_depth;
             }
             match val {

@@ -42,9 +42,10 @@ impl LeaderElection for LocalLeaderElection {
     async fn try_acquire(&self) -> Result<bool, ClusterError> {
         // SECURITY (FIND-P27-003): Propagate mutex poisoning instead of silently swallowing.
         let now = chrono::Utc::now().to_rfc3339();
-        let mut guard = self.acquired_at.lock().map_err(|e| {
-            ClusterError::Backend(format!("Leader election mutex poisoned: {}", e))
-        })?;
+        let mut guard = self
+            .acquired_at
+            .lock()
+            .map_err(|e| ClusterError::Backend(format!("Leader election mutex poisoned: {}", e)))?;
         // SECURITY (FIND-R44-044): Set timestamp BEFORE setting AtomicBool to true.
         // This ensures observers always see a valid timestamp when is_leader() returns true.
         *guard = Some(now);
@@ -59,9 +60,10 @@ impl LeaderElection for LocalLeaderElection {
 
     async fn release(&self) -> Result<(), ClusterError> {
         // SECURITY (FIND-P27-003): Propagate mutex poisoning.
-        let mut guard = self.acquired_at.lock().map_err(|e| {
-            ClusterError::Backend(format!("Leader election mutex poisoned: {}", e))
-        })?;
+        let mut guard = self
+            .acquired_at
+            .lock()
+            .map_err(|e| ClusterError::Backend(format!("Leader election mutex poisoned: {}", e)))?;
         // SECURITY (FIND-R44-044): Set AtomicBool to false BEFORE clearing the timestamp.
         // This ensures observers never see is_leader()=true with a None timestamp.
         self.is_leader.store(false, Ordering::SeqCst);
@@ -193,7 +195,10 @@ mod tests {
         assert!(le.is_leader());
         match le.current_status() {
             LeaderStatus::Leader { since } => {
-                assert!(!since.is_empty(), "timestamp should be set when is_leader is true");
+                assert!(
+                    !since.is_empty(),
+                    "timestamp should be set when is_leader is true"
+                );
             }
             other => panic!("expected Leader status after acquire, got {:?}", other),
         }

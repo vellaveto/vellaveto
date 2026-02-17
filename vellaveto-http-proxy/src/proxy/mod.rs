@@ -15,12 +15,12 @@ pub mod grpc;
 mod handlers;
 mod helpers;
 mod inspection;
-pub mod smart_fallback;
-pub mod transport_health;
 pub mod origin;
+pub mod smart_fallback;
 #[cfg(test)]
 mod tests;
 pub mod trace_propagation;
+pub mod transport_health;
 mod upstream;
 pub mod websocket;
 

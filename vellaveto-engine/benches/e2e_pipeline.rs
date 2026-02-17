@@ -180,16 +180,11 @@ fn generate_e2e_policies(n: usize) -> Vec<Policy> {
 
 fn bench_e2e_compile_and_evaluate_10_policies(c: &mut Criterion) {
     let policies = generate_e2e_policies(10);
-    let action = make_action(
-        "file",
-        "read",
-        json!({"path": "/workspace/dir_0/test.txt"}),
-    );
+    let action = make_action("file", "read", json!({"path": "/workspace/dir_0/test.txt"}));
 
     c.bench_function("e2e/compile_and_evaluate_10_policies", |b| {
         b.iter(|| {
-            let engine =
-                PolicyEngine::with_policies(false, black_box(&policies)).unwrap();
+            let engine = PolicyEngine::with_policies(false, black_box(&policies)).unwrap();
             engine.evaluate_action(black_box(&action), black_box(&[]))
         })
     });
@@ -205,8 +200,7 @@ fn bench_e2e_compile_and_evaluate_100_policies(c: &mut Criterion) {
 
     c.bench_function("e2e/compile_and_evaluate_100_policies", |b| {
         b.iter(|| {
-            let engine =
-                PolicyEngine::with_policies(false, black_box(&policies)).unwrap();
+            let engine = PolicyEngine::with_policies(false, black_box(&policies)).unwrap();
             engine.evaluate_action(black_box(&action), black_box(&[]))
         })
     });

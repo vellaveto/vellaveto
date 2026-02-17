@@ -97,7 +97,6 @@ pub struct TransportConfig {
     // =========================================================================
     // Phase 29: Cross-Transport Smart Fallback
     // =========================================================================
-
     /// Enable cross-transport fallback (Phase 29). When true, failed transports
     /// trigger automatic fallback to the next transport in priority order.
     /// Default: false (backward compatible — no behavioral change without opt-in).
@@ -262,9 +261,7 @@ impl TransportConfig {
                 ));
             }
             if glob.is_empty() {
-                return Err(
-                    "transport.transport_overrides contains empty key".to_string(),
-                );
+                return Err("transport.transport_overrides contains empty key".to_string());
             }
             // SECURITY (FIND-R44-007): Reject all ASCII control characters
             // (including null bytes). Control chars in glob keys can cause log
@@ -310,9 +307,7 @@ impl TransportConfig {
                 // Null bytes cause CString truncation in Command::new(),
                 // executing a different path than what validation inspected.
                 if cmd_trimmed.contains('\0') {
-                    return Err(
-                        "transport.stdio_command contains null byte".to_string(),
-                    );
+                    return Err("transport.stdio_command contains null byte".to_string());
                 }
                 if !cmd_trimmed.starts_with('/') {
                     return Err(
@@ -321,15 +316,13 @@ impl TransportConfig {
                     );
                 }
                 const SHELL_METACHARACTERS: &[char] = &[
-                    ';', '|', '&', '$', '`', '(', ')', '>', '<', '!', '{', '}',
-                    '[', ']', '*', '?', '#', '~', '\n', '\r',
+                    ';', '|', '&', '$', '`', '(', ')', '>', '<', '!', '{', '}', '[', ']', '*', '?',
+                    '#', '~', '\n', '\r',
                 ];
                 if cmd_trimmed.contains(SHELL_METACHARACTERS) {
-                    return Err(
-                        "transport.stdio_command contains shell metacharacters — \
+                    return Err("transport.stdio_command contains shell metacharacters — \
                          must be a plain absolute path to an executable"
-                            .to_string(),
-                    );
+                        .to_string());
                 }
             }
         }

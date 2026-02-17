@@ -47,6 +47,9 @@ pub async fn reset_sampling_stats(
     State(state): State<AppState>,
     Path(session): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R51-005): Validate path parameter.
+    crate::routes::validate_path_param(&session, "session")?;
+
     let detector = state.sampling_detector.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
