@@ -378,6 +378,33 @@ impl ProvenanceNode {
         }
     }
 
+    /// Maximum number of metadata entries per node.
+    pub const MAX_METADATA_ENTRIES: usize = 64;
+
+    /// Validate bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R48-003): MAX_PARENTS was declared but never enforced.
+    /// Deserialized payloads can contain arbitrarily many parents/metadata.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.parents.len() > Self::MAX_PARENTS {
+            return Err(format!(
+                "ProvenanceNode '{}' has {} parents (max {})",
+                self.id,
+                self.parents.len(),
+                Self::MAX_PARENTS
+            ));
+        }
+        if self.metadata.len() > Self::MAX_METADATA_ENTRIES {
+            return Err(format!(
+                "ProvenanceNode '{}' has {} metadata entries (max {})",
+                self.id,
+                self.metadata.len(),
+                Self::MAX_METADATA_ENTRIES
+            ));
+        }
+        Ok(())
+    }
+
     /// Check if this node represents a suspicious pattern.
     pub fn is_suspicious(&self) -> bool {
         matches!(
@@ -520,6 +547,32 @@ impl MemoryNamespace {
     /// Check if an agent can write to this namespace.
     pub fn can_write(&self, agent_id: &str) -> bool {
         self.owner_agent == agent_id || self.write_allowed.iter().any(|a| a == agent_id || a == "*")
+    }
+
+    /// Maximum ACL entries per namespace.
+    pub const MAX_ACL_ENTRIES: usize = 1000;
+
+    /// Validate bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R48-008): Unbounded read_allowed/write_allowed from deserialization.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.read_allowed.len() > Self::MAX_ACL_ENTRIES {
+            return Err(format!(
+                "MemoryNamespace '{}' has {} read_allowed entries (max {})",
+                self.id,
+                self.read_allowed.len(),
+                Self::MAX_ACL_ENTRIES
+            ));
+        }
+        if self.write_allowed.len() > Self::MAX_ACL_ENTRIES {
+            return Err(format!(
+                "MemoryNamespace '{}' has {} write_allowed entries (max {})",
+                self.id,
+                self.write_allowed.len(),
+                Self::MAX_ACL_ENTRIES
+            ));
+        }
+        Ok(())
     }
 }
 

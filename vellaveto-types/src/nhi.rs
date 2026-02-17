@@ -126,6 +126,46 @@ pub struct NhiAgentIdentity {
     pub attestations: Vec<AccountabilityAttestation>,
 }
 
+impl NhiAgentIdentity {
+    /// Maximum tags per identity.
+    pub const MAX_TAGS: usize = 100;
+    /// Maximum metadata entries per identity.
+    pub const MAX_METADATA_ENTRIES: usize = 100;
+    /// Maximum attestations per identity.
+    pub const MAX_ATTESTATIONS: usize = 100;
+
+    /// Validate bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R48-005): Unbounded tags, metadata, attestations from deserialization.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.tags.len() > Self::MAX_TAGS {
+            return Err(format!(
+                "NhiAgentIdentity '{}' has {} tags (max {})",
+                self.id,
+                self.tags.len(),
+                Self::MAX_TAGS
+            ));
+        }
+        if self.metadata.len() > Self::MAX_METADATA_ENTRIES {
+            return Err(format!(
+                "NhiAgentIdentity '{}' has {} metadata entries (max {})",
+                self.id,
+                self.metadata.len(),
+                Self::MAX_METADATA_ENTRIES
+            ));
+        }
+        if self.attestations.len() > Self::MAX_ATTESTATIONS {
+            return Err(format!(
+                "NhiAgentIdentity '{}' has {} attestations (max {})",
+                self.id,
+                self.attestations.len(),
+                Self::MAX_ATTESTATIONS
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Behavioral baseline for continuous agent authentication.
 ///
 /// Tracks typical behavior patterns to detect anomalies that might
@@ -165,8 +205,30 @@ pub struct NhiBehavioralBaseline {
 }
 
 impl NhiBehavioralBaseline {
-    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    /// Maximum tool call pattern entries.
+    pub const MAX_TOOL_CALL_PATTERNS: usize = 10_000;
+    /// Maximum typical source IPs.
+    pub const MAX_SOURCE_IPS: usize = 1000;
+
+    /// Validate that all f64 fields are finite (not NaN or Infinity)
+    /// and collection sizes are bounded.
+    ///
+    /// SECURITY (FIND-R48-009): Also check collection size bounds.
     pub fn validate_finite(&self) -> Result<(), String> {
+        if self.tool_call_patterns.len() > Self::MAX_TOOL_CALL_PATTERNS {
+            return Err(format!(
+                "NhiBehavioralBaseline has {} tool_call_patterns (max {})",
+                self.tool_call_patterns.len(),
+                Self::MAX_TOOL_CALL_PATTERNS
+            ));
+        }
+        if self.typical_source_ips.len() > Self::MAX_SOURCE_IPS {
+            return Err(format!(
+                "NhiBehavioralBaseline has {} typical_source_ips (max {})",
+                self.typical_source_ips.len(),
+                Self::MAX_SOURCE_IPS
+            ));
+        }
         for (key, val) in &self.tool_call_patterns {
             if !val.is_finite() {
                 return Err(format!(
@@ -321,6 +383,34 @@ pub struct NhiDelegationLink {
     /// Reason for the delegation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+}
+
+impl NhiDelegationLink {
+    /// Maximum permissions per delegation link.
+    pub const MAX_PERMISSIONS: usize = 256;
+    /// Maximum scope constraints per delegation link.
+    pub const MAX_SCOPE_CONSTRAINTS: usize = 256;
+
+    /// Validate bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R48-006): Unbounded permissions and scope_constraints.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.permissions.len() > Self::MAX_PERMISSIONS {
+            return Err(format!(
+                "NhiDelegationLink has {} permissions (max {})",
+                self.permissions.len(),
+                Self::MAX_PERMISSIONS
+            ));
+        }
+        if self.scope_constraints.len() > Self::MAX_SCOPE_CONSTRAINTS {
+            return Err(format!(
+                "NhiDelegationLink has {} scope_constraints (max {})",
+                self.scope_constraints.len(),
+                Self::MAX_SCOPE_CONSTRAINTS
+            ));
+        }
+        Ok(())
+    }
 }
 
 fn default_true_nhi() -> bool {

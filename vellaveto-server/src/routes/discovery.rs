@@ -323,19 +323,28 @@ pub async fn discovery_tools(
         }
     }
 
+    // SECURITY (FIND-R48-005): Validate sensitivity parameter length before reflecting.
+    if let Some(ref s) = params.sensitivity {
+        if s.len() > 32 || s.chars().any(|c| c.is_control()) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "invalid sensitivity parameter".to_string(),
+                }),
+            ));
+        }
+    }
+
     // Parse and validate sensitivity parameter
     let sensitivity_filter = match params.sensitivity.as_deref() {
         Some("low") => Some(vellaveto_types::ToolSensitivity::Low),
         Some("medium") => Some(vellaveto_types::ToolSensitivity::Medium),
         Some("high") => Some(vellaveto_types::ToolSensitivity::High),
-        Some(other) => {
+        Some(_) => {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
-                    error: format!(
-                        "invalid sensitivity '{}'; must be one of: low, medium, high",
-                        other
-                    ),
+                    error: "invalid sensitivity; must be one of: low, medium, high".to_string(),
                 }),
             ));
         }

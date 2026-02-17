@@ -99,6 +99,16 @@ pub async fn get_graph(
     State(state): State<AppState>,
     Path(session): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R48-003): Validate session path parameter length and control chars.
+    if session.len() > 128 || session.chars().any(|c| c.is_control()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Invalid session ID".to_string(),
+            }),
+        ));
+    }
+
     let store = state.exec_graph_store.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -112,7 +122,7 @@ pub async fn get_graph(
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: format!("Graph not found for session: {}", session),
+                error: "Graph not found".to_string(),
             }),
         )
     })?;
@@ -136,6 +146,16 @@ pub async fn get_graph_dot(
     State(state): State<AppState>,
     Path(session): Path<String>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R48-003): Validate session path parameter.
+    if session.len() > 128 || session.chars().any(|c| c.is_control()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Invalid session ID".to_string(),
+            }),
+        ));
+    }
+
     let store = state.exec_graph_store.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -149,7 +169,7 @@ pub async fn get_graph_dot(
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: format!("Graph not found for session: {}", session),
+                error: "Graph not found".to_string(),
             }),
         )
     })?;
@@ -171,6 +191,16 @@ pub async fn get_graph_stats(
     State(state): State<AppState>,
     Path(session): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R48-003): Validate session path parameter.
+    if session.len() > 128 || session.chars().any(|c| c.is_control()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Invalid session ID".to_string(),
+            }),
+        ));
+    }
+
     let store = state.exec_graph_store.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -184,7 +214,7 @@ pub async fn get_graph_stats(
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: format!("Graph not found for session: {}", session),
+                error: "Graph not found".to_string(),
             }),
         )
     })?;

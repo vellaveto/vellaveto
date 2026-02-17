@@ -220,9 +220,14 @@ impl AgentFingerprint {
 /// Truncate a string for logging, adding "..." if truncated.
 /// SECURITY (FIND-R44-031): Use char_indices() to find a valid char boundary
 /// instead of byte slicing, which panics on multi-byte UTF-8.
+/// SECURITY (FIND-R48-014): Guard against max_len < 4 where the "..." suffix
+/// would exceed the requested maximum.
 fn truncate_for_log(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         return s.to_string();
+    }
+    if max_len < 4 {
+        return s.chars().take(max_len).collect();
     }
     let truncate_at = max_len.saturating_sub(3);
     let boundary = s
@@ -472,10 +477,19 @@ impl SamplingStats {
         }
     }
 
-    /// Reset the window, keeping flagged patterns.
+    /// Maximum flagged patterns retained across window resets.
+    const MAX_FLAGGED_PATTERNS: usize = 1000;
+
+    /// Reset the window, truncating flagged patterns if over limit.
+    ///
+    /// SECURITY (FIND-R48-010): Patterns accumulated without bound across resets.
     pub fn reset_window(&mut self, now: u64) {
         self.request_count = 0;
         self.window_start = now;
+        if self.flagged_patterns.len() > Self::MAX_FLAGGED_PATTERNS {
+            self.flagged_patterns
+                .truncate(Self::MAX_FLAGGED_PATTERNS);
+        }
     }
 
     /// Record a request and return the new count.

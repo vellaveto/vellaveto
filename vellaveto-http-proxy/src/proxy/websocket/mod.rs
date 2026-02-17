@@ -1147,8 +1147,19 @@ async fn relay_client_to_upstream(
                             let _ = sink.send(Message::Text(denial_text.into())).await;
                         } else {
                             // Forward allowed sampling request
+                            // SECURITY (FIND-R48-001): Fail-closed on canonicalization failure.
+                            // Falling back to original text would create a TOCTOU gap.
                             let forward_text = if state.canonicalize {
-                                serde_json::to_string(&parsed).unwrap_or_else(|_| text.to_string())
+                                match serde_json::to_string(&parsed) {
+                                    Ok(canonical) => canonical,
+                                    Err(e) => {
+                                        tracing::error!("SECURITY: WS sampling canonicalization failed: {}", e);
+                                        let error_resp = make_ws_error_response(Some(id), -32603, "Internal error");
+                                        let mut sink = client_sink.lock().await;
+                                        let _ = sink.send(Message::Text(error_resp.into())).await;
+                                        continue;
+                                    }
+                                }
                             } else {
                                 text.to_string()
                             };
@@ -1204,9 +1215,18 @@ async fn relay_client_to_upstream(
                                 {
                                     tracing::warn!("Failed to audit WS task allow: {}", e);
                                 }
+                                // SECURITY (FIND-R48-001): Fail-closed on canonicalization failure.
                                 let forward_text = if state.canonicalize {
-                                    serde_json::to_string(&parsed)
-                                        .unwrap_or_else(|_| text.to_string())
+                                    match serde_json::to_string(&parsed) {
+                                        Ok(canonical) => canonical,
+                                        Err(e) => {
+                                            tracing::error!("SECURITY: WS task canonicalization failed: {}", e);
+                                            let error_resp = make_ws_error_response(Some(id), -32603, "Internal error");
+                                            let mut sink = client_sink.lock().await;
+                                            let _ = sink.send(Message::Text(error_resp.into())).await;
+                                            continue;
+                                        }
+                                    }
                                 } else {
                                     text.to_string()
                                 };
@@ -1310,9 +1330,18 @@ async fn relay_client_to_upstream(
                                 {
                                     tracing::warn!("Failed to audit WS extension allow: {}", e);
                                 }
+                                // SECURITY (FIND-R48-001): Fail-closed on canonicalization failure.
                                 let forward_text = if state.canonicalize {
-                                    serde_json::to_string(&parsed)
-                                        .unwrap_or_else(|_| text.to_string())
+                                    match serde_json::to_string(&parsed) {
+                                        Ok(canonical) => canonical,
+                                        Err(e) => {
+                                            tracing::error!("SECURITY: WS extension canonicalization failed: {}", e);
+                                            let error_resp = make_ws_error_response(Some(id), -32603, "Internal error");
+                                            let mut sink = client_sink.lock().await;
+                                            let _ = sink.send(Message::Text(error_resp.into())).await;
+                                            continue;
+                                        }
+                                    }
                                 } else {
                                     text.to_string()
                                 };
@@ -1414,9 +1443,18 @@ async fn relay_client_to_upstream(
                                     tracing::warn!("Failed to audit WS elicitation: {}", e);
                                 }
 
+                                // SECURITY (FIND-R48-001): Fail-closed on canonicalization failure.
                                 let forward_text = if state.canonicalize {
-                                    serde_json::to_string(&parsed)
-                                        .unwrap_or_else(|_| text.to_string())
+                                    match serde_json::to_string(&parsed) {
+                                        Ok(canonical) => canonical,
+                                        Err(e) => {
+                                            tracing::error!("SECURITY: WS elicitation canonicalization failed: {}", e);
+                                            let error_resp = make_ws_error_response(Some(id), -32603, "Internal error");
+                                            let mut sink = client_sink.lock().await;
+                                            let _ = sink.send(Message::Text(error_resp.into())).await;
+                                            continue;
+                                        }
+                                    }
                                 } else {
                                     text.to_string()
                                 };
@@ -1515,9 +1553,15 @@ async fn relay_client_to_upstream(
                             tracing::warn!("Failed to audit WS passthrough: {}", e);
                         }
 
-                        // Forward as-is (canonicalized if enabled)
+                        // SECURITY (FIND-R48-001): Fail-closed on canonicalization failure.
                         let forward_text = if state.canonicalize {
-                            serde_json::to_string(&parsed).unwrap_or_else(|_| text.to_string())
+                            match serde_json::to_string(&parsed) {
+                                Ok(canonical) => canonical,
+                                Err(e) => {
+                                    tracing::error!("SECURITY: WS passthrough canonicalization failed: {}", e);
+                                    continue;
+                                }
+                            }
                         } else {
                             text.to_string()
                         };
@@ -1900,9 +1944,15 @@ async fn relay_upstream_to_client(
                         }
                     }
 
-                    // Canonicalize response if enabled
+                    // SECURITY (FIND-R48-001): Fail-closed on canonicalization failure.
                     if state.canonicalize {
-                        serde_json::to_string(&json_val).unwrap_or_else(|_| text.to_string())
+                        match serde_json::to_string(&json_val) {
+                            Ok(canonical) => canonical,
+                            Err(e) => {
+                                tracing::error!("SECURITY: WS response canonicalization failed: {}", e);
+                                continue;
+                            }
+                        }
                     } else {
                         text.to_string()
                     }
@@ -2130,10 +2180,14 @@ fn extract_scannable_text_from_request(json_val: &Value) -> String {
     text_parts.join("\n")
 }
 
-/// Recursively extract string values from a JSON value, with depth bound.
+/// Recursively extract string values from a JSON value, with depth and count bounds.
+///
+/// SECURITY (FIND-R48-007): Added MAX_PARTS to prevent memory amplification
+/// from messages containing many short strings.
 fn extract_strings_recursive(val: &Value, parts: &mut Vec<String>, depth: usize) {
     const MAX_DEPTH: usize = 10;
-    if depth > MAX_DEPTH {
+    const MAX_PARTS: usize = 1000;
+    if depth > MAX_DEPTH || parts.len() >= MAX_PARTS {
         return;
     }
     match val {

@@ -125,11 +125,20 @@ impl Action {
         validate_name(&self.function, "function")?;
 
         // SECURITY (FIND-P3-016): Bound parameters size to prevent memory exhaustion.
-        // Uses serde_json::to_string() length as a proxy for in-memory size.
-        if let Ok(serialized) = serde_json::to_string(&self.parameters) {
-            if serialized.len() > MAX_PARAMETERS_SIZE {
+        // SECURITY (FIND-R48-001): Fail-closed when serialization fails — reject rather
+        // than silently skipping the size check.
+        match serde_json::to_string(&self.parameters) {
+            Ok(serialized) => {
+                if serialized.len() > MAX_PARAMETERS_SIZE {
+                    return Err(ValidationError::ParametersTooLarge {
+                        size: serialized.len(),
+                        max: MAX_PARAMETERS_SIZE,
+                    });
+                }
+            }
+            Err(_) => {
                 return Err(ValidationError::ParametersTooLarge {
-                    size: serialized.len(),
+                    size: 0,
                     max: MAX_PARAMETERS_SIZE,
                 });
             }
@@ -276,7 +285,10 @@ pub struct IpRules {
     pub allowed_cidrs: Vec<String>,
 }
 
+// SECURITY (FIND-R48-011): deny_unknown_fields catches typos like "network_rule"
+// that would silently result in missing security rules.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Policy {
     pub id: String,
     pub name: String,

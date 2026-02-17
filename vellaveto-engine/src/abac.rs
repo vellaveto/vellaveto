@@ -684,9 +684,22 @@ fn resolve_field(field: &str, ctx: &AbacEvalContext<'_>) -> serde_json::Value {
     match field {
         "principal.type" => serde_json::Value::String(ctx.principal_type.to_string()),
         "principal.id" => serde_json::Value::String(ctx.principal_id.to_string()),
+        // SECURITY (FIND-R48-002): Non-finite risk.score (NaN/Inf) must fail-closed.
+        // json!(NaN) produces Null, which would cause Forbid conditions to not match.
+        // Treat non-finite scores as maximum risk (1.0) to ensure Forbid policies fire.
         "risk.score" => ctx
             .risk_score
-            .map(|r| serde_json::json!(r.score))
+            .map(|r| {
+                if r.score.is_finite() {
+                    serde_json::json!(r.score)
+                } else {
+                    tracing::warn!(
+                        "ABAC resolve_field: risk.score is non-finite ({}) — treating as max risk",
+                        r.score
+                    );
+                    serde_json::json!(1.0)
+                }
+            })
             .unwrap_or(serde_json::Value::Null),
         "context.agent_id" => ctx
             .eval_ctx

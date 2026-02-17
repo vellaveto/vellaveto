@@ -116,6 +116,38 @@ pub struct AbacEntity {
     pub parents: Vec<String>,
 }
 
+impl AbacEntity {
+    /// Maximum parents per entity.
+    pub const MAX_PARENTS: usize = 256;
+    /// Maximum attributes per entity.
+    pub const MAX_ATTRIBUTES: usize = 256;
+
+    /// Validate bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R48-004): Unbounded parents and attributes from deserialization.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.parents.len() > Self::MAX_PARENTS {
+            return Err(format!(
+                "AbacEntity '{}::{}' has {} parents (max {})",
+                self.entity_type,
+                self.id,
+                self.parents.len(),
+                Self::MAX_PARENTS
+            ));
+        }
+        if self.attributes.len() > Self::MAX_ATTRIBUTES {
+            return Err(format!(
+                "AbacEntity '{}::{}' has {} attributes (max {})",
+                self.entity_type,
+                self.id,
+                self.attributes.len(),
+                Self::MAX_ATTRIBUTES
+            ));
+        }
+        Ok(())
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONTINUOUS AUTHORIZATION (21.4)
 // ═══════════════════════════════════════════════════════════════════════════════
