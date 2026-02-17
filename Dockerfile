@@ -30,12 +30,14 @@ COPY vellaveto-server/Cargo.toml vellaveto-server/
 COPY vellaveto-http-proxy/Cargo.toml vellaveto-http-proxy/
 COPY vellaveto-proxy/Cargo.toml vellaveto-proxy/
 COPY vellaveto-integration/Cargo.toml vellaveto-integration/
+COPY mcpsec/Cargo.toml mcpsec/
 
 # Create dummy src files for dependency caching
 RUN mkdir -p vellaveto-types/src vellaveto-engine/src vellaveto-audit/src \
     vellaveto-config/src vellaveto-canonical/src vellaveto-mcp/src \
     vellaveto-approval/src vellaveto-cluster/src vellaveto-server/src \
     vellaveto-http-proxy/src vellaveto-proxy/src vellaveto-integration/src \
+    mcpsec/src \
     && echo "pub fn dummy() {}" > vellaveto-types/src/lib.rs \
     && echo "pub fn dummy() {}" > vellaveto-engine/src/lib.rs \
     && echo "pub fn dummy() {}" > vellaveto-audit/src/lib.rs \
@@ -47,7 +49,8 @@ RUN mkdir -p vellaveto-types/src vellaveto-engine/src vellaveto-audit/src \
     && echo "fn main() {}" > vellaveto-server/src/main.rs \
     && echo "fn main() {}" > vellaveto-http-proxy/src/main.rs \
     && echo "fn main() {}" > vellaveto-proxy/src/main.rs \
-    && echo "" > vellaveto-integration/src/lib.rs
+    && echo "" > vellaveto-integration/src/lib.rs \
+    && echo "fn main() {}" > mcpsec/src/main.rs
 
 # Build dependencies only (for layer caching)
 RUN cargo build --release --target x86_64-unknown-linux-musl \
@@ -68,6 +71,7 @@ COPY vellaveto-cluster/src vellaveto-cluster/src/
 COPY vellaveto-server/src vellaveto-server/src/
 COPY vellaveto-http-proxy/src vellaveto-http-proxy/src/
 COPY vellaveto-proxy/src vellaveto-proxy/src/
+COPY mcpsec/src mcpsec/src/
 
 # Touch source files to invalidate cache
 RUN find . -name "*.rs" -exec touch {} \;
