@@ -24,6 +24,63 @@ impl fmt::Display for SignatureAlgorithm {
     }
 }
 
+/// SECURITY (FIND-R51-002): Validate that a string is a well-formed ISO 8601
+/// basic timestamp in the format `YYYY-MM-DDTHH:MM:SSZ`.
+///
+/// Checks structure, character classes, and value ranges for all components.
+/// Returns `false` for any malformed input, which callers use for fail-closed
+/// behavior (treating malformed timestamps as expired).
+fn is_valid_iso8601_basic(s: &str) -> bool {
+    // Must be exactly 20 bytes: "YYYY-MM-DDTHH:MM:SSZ"
+    if s.len() != 20 {
+        return false;
+    }
+    let b = s.as_bytes();
+
+    // Structural checks: separators at fixed positions
+    if b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[13] != b':' || b[16] != b':' || b[19] != b'Z' {
+        return false;
+    }
+
+    // All digit positions must be ASCII digits
+    let digit_positions = [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18];
+    for &pos in &digit_positions {
+        if !b[pos].is_ascii_digit() {
+            return false;
+        }
+    }
+
+    // Parse and validate numeric ranges
+    // Safe: we verified all positions are ASCII digits above, so from_utf8 and parse cannot fail.
+    let year: u16 = s[0..4].parse().unwrap_or(0);
+    let month: u8 = s[5..7].parse().unwrap_or(0);
+    let day: u8 = s[8..10].parse().unwrap_or(0);
+    let hour: u8 = s[11..13].parse().unwrap_or(0);
+    let minute: u8 = s[14..16].parse().unwrap_or(0);
+    let second: u8 = s[17..19].parse().unwrap_or(0);
+
+    if year < 1970 {
+        return false;
+    }
+    if !(1..=12).contains(&month) {
+        return false;
+    }
+    if !(1..=31).contains(&day) {
+        return false;
+    }
+    if hour > 23 {
+        return false;
+    }
+    if minute > 59 {
+        return false;
+    }
+    if second > 59 {
+        return false;
+    }
+
+    true
+}
+
 /// A cryptographic signature on a tool definition.
 ///
 /// Part of the ETDI (Enhanced Tool Definition Interface) system.
@@ -92,8 +149,16 @@ impl ToolSignature {
         if !now.ends_with('Z') {
             return true;
         }
+        // SECURITY (FIND-R51-002): Reject malformed `now` timestamps as expired (fail-closed).
+        if !is_valid_iso8601_basic(now) {
+            return true;
+        }
         self.expires_at.as_ref().is_some_and(|exp| {
             if !exp.ends_with('Z') {
+                return true;
+            }
+            // SECURITY (FIND-R51-002): Reject malformed `expires_at` as expired (fail-closed).
+            if !is_valid_iso8601_basic(exp) {
                 return true;
             }
             now >= exp.as_str()

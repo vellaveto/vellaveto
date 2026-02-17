@@ -1410,7 +1410,8 @@ async fn relay_client_to_upstream(
                                 vellaveto_mcp::elicitation::ElicitationVerdict::Allow
                             ) {
                                 if let Some(ref mut s) = session_ref {
-                                    s.elicitation_count += 1;
+                                    // SECURITY (FIND-R51-008): Use saturating_add for consistency.
+                                    s.elicitation_count = s.elicitation_count.saturating_add(1);
                                 }
                             }
                             verdict

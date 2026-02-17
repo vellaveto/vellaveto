@@ -133,6 +133,13 @@ impl DiscoveredTool {
                 self.metadata.tool_id, self.relevance_score
             ));
         }
+        // SECURITY (FIND-R51-001): Validate relevance_score is in documented [0.0, 1.0] range.
+        if self.relevance_score < 0.0 || self.relevance_score > 1.0 {
+            return Err(format!(
+                "DiscoveredTool '{}' relevance_score must be in [0.0, 1.0], got {}",
+                self.metadata.tool_id, self.relevance_score
+            ));
+        }
         Ok(())
     }
 }

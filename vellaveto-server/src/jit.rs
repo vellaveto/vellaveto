@@ -12,6 +12,9 @@ use thiserror::Error;
 use uuid::Uuid;
 use vellaveto_config::JitAccessConfig;
 
+/// SECURITY (FIND-R51-015): Global session cap for JIT access.
+const MAX_TOTAL_JIT_SESSIONS: usize = 100_000;
+
 /// Errors that can occur during JIT access operations.
 #[derive(Debug, Error)]
 pub enum JitError {
@@ -35,6 +38,14 @@ pub enum JitError {
 
     #[error("Invalid TTL: {0} seconds exceeds maximum {1}")]
     InvalidTtl(u64, u64),
+
+    /// SECURITY (FIND-R51-015): Global session capacity exceeded.
+    #[error("JIT session capacity exceeded")]
+    CapacityExceeded,
+
+    /// SECURITY (FIND-R51-016): Invalid input field.
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
 }
 
 /// A JIT access session granting temporary elevated permissions.
@@ -124,6 +135,33 @@ impl JitAccessManager {
 
     /// Request JIT access.
     pub fn request_access(&self, request: JitRequest) -> Result<JitSession, JitError> {
+        // SECURITY (FIND-R51-016): Bound JIT request fields.
+        if request.principal.len() > 256 {
+            return Err(JitError::InvalidInput(
+                "principal exceeds max length (256)".to_string(),
+            ));
+        }
+        if request.reason.len() > 1024 {
+            return Err(JitError::InvalidInput(
+                "reason exceeds max length (1024)".to_string(),
+            ));
+        }
+        if request.permissions.len() > 100 {
+            return Err(JitError::InvalidInput(
+                "too many permissions (max 100)".to_string(),
+            ));
+        }
+        if request.tools.len() > 100 {
+            return Err(JitError::InvalidInput(
+                "too many tools (max 100)".to_string(),
+            ));
+        }
+
+        // SECURITY (FIND-R51-015): Global session cap.
+        if self.sessions.len() >= MAX_TOTAL_JIT_SESSIONS {
+            return Err(JitError::CapacityExceeded);
+        }
+
         // Validate TTL
         if request.ttl_secs > self.config.max_ttl_secs {
             return Err(JitError::InvalidTtl(

@@ -795,11 +795,22 @@ impl PolicyEngine {
                         }
                     } else {
                         // Unordered: every tool in sequence must appear somewhere in history.
+                        // SECURITY (FIND-R50-011): Track matched indices to handle
+                        // duplicate tools correctly. Without this, sequence ["a", "a"]
+                        // would be satisfied by a single "a" in history.
+                        let mut used = vec![false; history.len()];
                         for required in sequence {
-                            if !history.iter().any(|h| h.eq_ignore_ascii_case(required)) {
-                                return Some(Verdict::Deny {
-                                    reason: deny_reason.clone(),
-                                });
+                            let found = history
+                                .iter()
+                                .enumerate()
+                                .position(|(i, h)| !used[i] && h.eq_ignore_ascii_case(required));
+                            match found {
+                                Some(i) => used[i] = true,
+                                None => {
+                                    return Some(Verdict::Deny {
+                                        reason: deny_reason.clone(),
+                                    });
+                                }
                             }
                         }
                     }
@@ -812,13 +823,16 @@ impl PolicyEngine {
                 } => {
                     let history = &context.previous_actions;
 
-                    // Empty history: nothing forbidden can have occurred.
-                    if history.is_empty() {
-                        // Allow — continue to next condition.
-                    } else if *ordered {
-                        // Ordered subsequence match: if all tools matched in order → Deny.
+                    // SECURITY (FIND-R50-010): Include current_tool in the effective
+                    // history for forbidden sequence matching. Without this, a two-step
+                    // exfiltration like [read_secret, http_request] is only detected
+                    // AFTER http_request has been forwarded (one step too late).
+                    let current_lower = current_tool.to_ascii_lowercase();
+
+                    if *ordered {
+                        // Ordered subsequence match over history + current_tool.
                         let mut seq_idx = 0;
-                        for h in history {
+                        for h in history.iter().map(|s| s.as_str()).chain(std::iter::once(current_lower.as_str())) {
                             if seq_idx < sequence.len()
                                 && h.eq_ignore_ascii_case(&sequence[seq_idx])
                             {
@@ -831,9 +845,27 @@ impl PolicyEngine {
                             });
                         }
                     } else {
-                        // Unordered: if all tools present → Deny.
+                        // Unordered: if all tools present in history + current_tool → Deny.
+                        // SECURITY (FIND-R50-012): Track matched indices to handle
+                        // duplicate tools correctly (don't double-count same entry).
+                        let effective: Vec<&str> = history
+                            .iter()
+                            .map(|s| s.as_str())
+                            .chain(std::iter::once(current_lower.as_str()))
+                            .collect();
+                        let mut used = vec![false; effective.len()];
                         let all_present = sequence.iter().all(|required| {
-                            history.iter().any(|h| h.eq_ignore_ascii_case(required))
+                            effective
+                                .iter()
+                                .enumerate()
+                                .any(|(i, h)| {
+                                    if !used[i] && h.eq_ignore_ascii_case(required) {
+                                        used[i] = true;
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                })
                         });
                         if all_present {
                             return Some(Verdict::Deny {
@@ -859,11 +891,16 @@ impl PolicyEngine {
                         let history = &context.previous_actions;
 
                         // Find the most recent governed tool in history (reverse scan).
+                        // SECURITY (FIND-R50-019): Use eq_ignore_ascii_case to avoid
+                        // per-entry String allocation. Only allocate for the single
+                        // matched entry. governed_tools contains lowercase strings.
                         let last_governed = history
                             .iter()
                             .rev()
-                            .map(|h| h.to_ascii_lowercase())
-                            .find(|h| governed_tools.contains(h.as_str()));
+                            .find(|h| {
+                                governed_tools.iter().any(|g| h.eq_ignore_ascii_case(g))
+                            })
+                            .map(|h| h.to_ascii_lowercase());
 
                         let violation = match last_governed {
                             None => {

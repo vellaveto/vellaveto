@@ -24,7 +24,9 @@ pub use error::{EngineError, PolicyValidationError};
 pub use matcher::{CompiledToolMatcher, PatternMatcher};
 pub use path::DEFAULT_MAX_PATH_DECODE_ITERATIONS;
 
-use vellaveto_types::{Action, EvaluationContext, EvaluationTrace, Policy, PolicyType, Verdict};
+use vellaveto_types::{
+    Action, ActionSummary, EvaluationContext, EvaluationTrace, Policy, PolicyType, Verdict,
+};
 
 use globset::{Glob, GlobMatcher};
 use regex::Regex;
@@ -340,6 +342,14 @@ impl PolicyEngine {
         policies: &[Policy],
         context: Option<&EvaluationContext>,
     ) -> Result<Verdict, EngineError> {
+        // SECURITY (FIND-R50-063): Validate context bounds before evaluation.
+        // Without this, crafted EvaluationContext with >10K previous_actions
+        // bypasses the bounds checks and causes unbounded CPU/memory usage.
+        if let Some(ctx) = context {
+            if let Err(reason) = ctx.validate() {
+                return Ok(Verdict::Deny { reason });
+            }
+        }
         if context.is_none() {
             return self.evaluate_action(action, policies);
         }
@@ -371,6 +381,33 @@ impl PolicyEngine {
         action: &Action,
         context: Option<&EvaluationContext>,
     ) -> Result<(Verdict, EvaluationTrace), EngineError> {
+        // SECURITY (FIND-R50-063): Validate context bounds before evaluation.
+        if let Some(ctx) = context {
+            if let Err(reason) = ctx.validate() {
+                let deny = Verdict::Deny {
+                    reason: reason.clone(),
+                };
+                let param_keys: Vec<String> = action
+                    .parameters
+                    .as_object()
+                    .map(|o| o.keys().cloned().collect::<Vec<String>>())
+                    .unwrap_or_default();
+                let trace = EvaluationTrace {
+                    action_summary: ActionSummary {
+                        tool: action.tool.clone(),
+                        function: action.function.clone(),
+                        param_count: param_keys.len(),
+                        param_keys,
+                    },
+                    policies_checked: 0,
+                    policies_matched: 0,
+                    matches: vec![],
+                    verdict: deny.clone(),
+                    duration_us: 0,
+                };
+                return Ok((deny, trace));
+            }
+        }
         if context.is_none() {
             return self.evaluate_action_traced(action);
         }

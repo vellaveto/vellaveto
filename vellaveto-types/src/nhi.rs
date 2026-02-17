@@ -277,6 +277,13 @@ impl NhiBehavioralBaseline {
                 self.confidence
             ));
         }
+        // SECURITY (FIND-R51-001): Validate confidence is in documented [0.0, 1.0] range.
+        if self.confidence < 0.0 || self.confidence > 1.0 {
+            return Err(format!(
+                "NhiBehavioralBaseline confidence must be in [0.0, 1.0], got {}",
+                self.confidence
+            ));
+        }
         Ok(())
     }
 }
@@ -322,6 +329,13 @@ impl NhiBehavioralCheckResult {
         if !self.anomaly_score.is_finite() {
             return Err(format!(
                 "NhiBehavioralCheckResult has non-finite anomaly_score: {}",
+                self.anomaly_score
+            ));
+        }
+        // SECURITY (FIND-R51-001): Validate anomaly_score is in documented [0.0, 1.0] range.
+        if self.anomaly_score < 0.0 || self.anomaly_score > 1.0 {
+            return Err(format!(
+                "NhiBehavioralCheckResult anomaly_score must be in [0.0, 1.0], got {}",
                 self.anomaly_score
             ));
         }

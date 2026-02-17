@@ -4,6 +4,7 @@ Vellaveto API client for Python.
 Provides synchronous and asynchronous HTTP client for the Vellaveto API.
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -269,12 +270,18 @@ class VellavetoClient:
                         break
                     response.raise_for_status()
                     # SECURITY (FIND-SDK-003): Enforce response size limit to prevent OOM
+                    # SECURITY (FIND-R51-005): Safe Content-Length parsing
                     content_length = response.headers.get("content-length")
-                    if content_length is not None and int(content_length) > _MAX_RESPONSE_BYTES:
-                        raise VellavetoError(
-                            f"Response too large: {content_length} bytes exceeds "
-                            f"{_MAX_RESPONSE_BYTES} byte limit"
-                        )
+                    if content_length is not None:
+                        try:
+                            cl = int(content_length)
+                        except (ValueError, TypeError):
+                            cl = None
+                        if cl is not None and cl > _MAX_RESPONSE_BYTES:
+                            raise VellavetoError(
+                                f"Response too large: {content_length} bytes exceeds "
+                                f"{_MAX_RESPONSE_BYTES} byte limit"
+                            )
                     if len(response.content) > _MAX_RESPONSE_BYTES:
                         raise VellavetoError(
                             f"Response body too large: {len(response.content)} bytes exceeds "
@@ -303,12 +310,18 @@ class VellavetoClient:
                         break
                     response.raise_for_status()
                     # SECURITY (FIND-SDK-003): Enforce response size limit to prevent OOM
+                    # SECURITY (FIND-R51-005): Safe Content-Length parsing
                     content_length = response.headers.get("content-length")
-                    if content_length is not None and int(content_length) > _MAX_RESPONSE_BYTES:
-                        raise VellavetoError(
-                            f"Response too large: {content_length} bytes exceeds "
-                            f"{_MAX_RESPONSE_BYTES} byte limit"
-                        )
+                    if content_length is not None:
+                        try:
+                            cl = int(content_length)
+                        except (ValueError, TypeError):
+                            cl = None
+                        if cl is not None and cl > _MAX_RESPONSE_BYTES:
+                            raise VellavetoError(
+                                f"Response too large: {content_length} bytes exceeds "
+                                f"{_MAX_RESPONSE_BYTES} byte limit"
+                            )
                     if len(response.content) > _MAX_RESPONSE_BYTES:
                         raise VellavetoError(
                             f"Response body too large: {len(response.content)} bytes exceeds "
@@ -707,7 +720,8 @@ class VellavetoClient:
         if org_id is not None:
             if len(org_id) > 128:
                 raise VellavetoError("org_id exceeds max length (128)")
-            if any(c < ' ' for c in org_id):
+            # SECURITY (FIND-R50-037): Catch DEL (0x7F) and C1 control chars (0x80-0x9F)
+            if any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in org_id):
                 raise VellavetoError("org_id contains control characters")
             params["org_id"] = org_id
         return self._request(
@@ -742,7 +756,20 @@ class AsyncVellavetoClient:
         timeout: float = 30.0,
         verify_ssl: bool = True,
         redactor: Optional["ParameterRedactor"] = None,
+        max_retries: int = 1,
     ):
+        """
+        Initialize the async Vellaveto client.
+
+        Args:
+            url: Base URL of the Vellaveto server
+            api_key: API key for authentication
+            timeout: Request timeout in seconds
+            verify_ssl: Whether to verify SSL certificates
+            redactor: Optional ParameterRedactor for client-side secret stripping
+            max_retries: Maximum number of retries for transient failures
+                (connection errors, 502/503/504). Default 1.
+        """
         if not HAS_HTTPX:
             raise ImportError(
                 "AsyncVellavetoClient requires 'httpx' package. "
@@ -754,6 +781,7 @@ class AsyncVellavetoClient:
         self.timeout = timeout
         self.verify_ssl = verify_ssl
         self.redactor = redactor
+        self.max_retries = max(0, max_retries)
         self._client: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self) -> "AsyncVellavetoClient":
@@ -783,43 +811,80 @@ class AsyncVellavetoClient:
         json_data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
+        """Make an HTTP request to the Vellaveto API (async).
+
+        SECURITY (FIND-R51-003): Retries transient failures (connection errors,
+        502/503/504) up to ``max_retries`` times with exponential backoff
+        (0.5s, 1s, 2s, ...).  Non-transient errors are raised immediately.
+        """
         if not self._client:
             raise VellavetoError("Client not initialized. Use 'async with' context.")
 
         url = urljoin(self.url + "/", path.lstrip("/"))
 
-        try:
-            response = await self._client.request(
-                method=method,
-                url=url,
-                json=json_data,
-                params=params,
-                headers=self._headers(),
-            )
-            response.raise_for_status()
-            # SECURITY (FIND-SDK-003): Enforce response size limit to prevent OOM
-            content_length = response.headers.get("content-length")
-            if content_length is not None and int(content_length) > _MAX_RESPONSE_BYTES:
-                raise VellavetoError(
-                    f"Response too large: {content_length} bytes exceeds "
-                    f"{_MAX_RESPONSE_BYTES} byte limit"
+        last_exc: Optional[Exception] = None
+        for attempt in range(1 + self.max_retries):
+            try:
+                response = await self._client.request(
+                    method=method,
+                    url=url,
+                    json=json_data,
+                    params=params,
+                    headers=self._headers(),
                 )
-            if len(response.content) > _MAX_RESPONSE_BYTES:
-                raise VellavetoError(
-                    f"Response body too large: {len(response.content)} bytes exceeds "
-                    f"{_MAX_RESPONSE_BYTES} byte limit"
-                )
-            return response.json()
-        except (VellavetoError, PolicyDenied, ApprovalRequired):
-            raise
-        except Exception as e:
-            # SECURITY (FIND-SDK-001): Sanitize error messages in async client too.
-            error_msg = str(e)
-            if self.api_key and self.api_key in error_msg:
-                error_msg = error_msg.replace(self.api_key, "[REDACTED]")
-            if "Connection" in str(type(e).__name__):
-                raise ConnectionError(f"Failed to connect to Vellaveto at {url}: {error_msg}")
-            raise VellavetoError(f"Request failed: {error_msg}")
+                # SECURITY (FIND-R51-003): Retry on transient HTTP status
+                if response.status_code in _TRANSIENT_STATUS_CODES:
+                    last_exc = VellavetoError(
+                        f"Transient HTTP {response.status_code}"
+                    )
+                    if attempt < self.max_retries:
+                        await asyncio.sleep(0.5 * (2 ** attempt))
+                        continue
+                    # Last attempt — fall through to "all retries exhausted"
+                    break
+                response.raise_for_status()
+                # SECURITY (FIND-SDK-003): Enforce response size limit to prevent OOM
+                # SECURITY (FIND-R51-005): Safe Content-Length parsing
+                content_length = response.headers.get("content-length")
+                if content_length is not None:
+                    try:
+                        cl = int(content_length)
+                    except (ValueError, TypeError):
+                        cl = None
+                    if cl is not None and cl > _MAX_RESPONSE_BYTES:
+                        raise VellavetoError(
+                            f"Response too large: {content_length} bytes exceeds "
+                            f"{_MAX_RESPONSE_BYTES} byte limit"
+                        )
+                if len(response.content) > _MAX_RESPONSE_BYTES:
+                    raise VellavetoError(
+                        f"Response body too large: {len(response.content)} bytes exceeds "
+                        f"{_MAX_RESPONSE_BYTES} byte limit"
+                    )
+                return response.json()
+
+            except (VellavetoError, PolicyDenied, ApprovalRequired):
+                raise
+            except Exception as e:
+                # SECURITY (FIND-SDK-001): Sanitize error messages in async client too.
+                last_exc = e
+                is_connection = "Connection" in str(type(e).__name__)
+                # SECURITY (FIND-R51-003): Retry connection errors
+                if is_connection and attempt < self.max_retries:
+                    await asyncio.sleep(0.5 * (2 ** attempt))
+                    continue
+                error_msg = str(e)
+                if self.api_key and self.api_key in error_msg:
+                    error_msg = error_msg.replace(self.api_key, "[REDACTED]")
+                if is_connection:
+                    raise ConnectionError(f"Failed to connect to Vellaveto at {url}: {error_msg}")
+                raise VellavetoError(f"Request failed: {error_msg}")
+
+        # All retries exhausted
+        error_msg = str(last_exc) if last_exc else "Unknown error"
+        if self.api_key and self.api_key in error_msg:
+            error_msg = error_msg.replace(self.api_key, "[REDACTED]")
+        raise VellavetoError(f"Request failed after {self.max_retries + 1} attempts: {error_msg}")
 
     async def evaluate(
         self,
@@ -1025,7 +1090,8 @@ class AsyncVellavetoClient:
         if org_id is not None:
             if len(org_id) > 128:
                 raise VellavetoError("org_id exceeds max length (128)")
-            if any(c < ' ' for c in org_id):
+            # SECURITY (FIND-R50-037): Catch DEL (0x7F) and C1 control chars (0x80-0x9F)
+            if any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in org_id):
                 raise VellavetoError("org_id contains control characters")
             params["org_id"] = org_id
         return await self._request(

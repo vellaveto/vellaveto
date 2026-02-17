@@ -110,7 +110,8 @@ pub(super) async fn extract_annotations_from_response(
     if let Some(mut s) = sessions.get_mut(session_id) {
         s.known_tools = result.updated_known.clone();
         for name in result.flagged_tool_names() {
-            s.flagged_tools.insert(name.to_string());
+            // SECURITY (FIND-R51-014): Use bounded insertion for flagged tools.
+            s.insert_flagged_tool(name.to_string());
         }
     }
 

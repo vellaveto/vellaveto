@@ -332,6 +332,13 @@ impl SchemaRecord {
                 self.tool_name, self.trust_score
             ));
         }
+        // SECURITY (FIND-R51-001): Validate trust_score is in documented [0.0, 1.0] range.
+        if self.trust_score < 0.0 || self.trust_score > 1.0 {
+            return Err(format!(
+                "SchemaRecord '{}' trust_score must be in [0.0, 1.0], got {}",
+                self.tool_name, self.trust_score
+            ));
+        }
         Ok(())
     }
 

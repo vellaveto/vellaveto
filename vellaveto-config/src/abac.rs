@@ -345,6 +345,21 @@ impl AbacConfig {
             }
         }
 
+        // SECURITY (FIND-R51-010): Validate expected_audience length and content.
+        if let Some(ref aud) = self.federation.expected_audience {
+            if aud.len() > 512 {
+                return Err(format!(
+                    "abac.federation.expected_audience exceeds max length 512 (got {})",
+                    aud.len()
+                ));
+            }
+            if aud.bytes().any(|b| b < 0x20 || b == 0x7F) {
+                return Err(
+                    "abac.federation.expected_audience contains control characters".to_string(),
+                );
+            }
+        }
+
         Ok(())
     }
 }

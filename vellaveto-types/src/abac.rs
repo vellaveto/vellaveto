@@ -303,6 +303,13 @@ impl RiskScore {
         if !self.score.is_finite() {
             return Err(format!("RiskScore::score is not finite: {}", self.score));
         }
+        // SECURITY (FIND-R51-001): Validate score is in documented [0.0, 1.0] range.
+        if self.score < 0.0 || self.score > 1.0 {
+            return Err(format!(
+                "RiskScore::score must be in [0.0, 1.0], got {}",
+                self.score
+            ));
+        }
         for factor in &self.factors {
             factor.validate_finite()?;
         }
@@ -606,8 +613,10 @@ pub struct FederationAnchorStatus {
     pub issuer_pattern: String,
     /// Trust level.
     pub trust_level: String,
-    /// JWKS URI if configured.
-    pub jwks_uri: Option<String>,
+    /// Whether a JWKS URI is configured.
+    /// SECURITY (FIND-R50-030): Changed from `Option<String>` to `bool` to avoid
+    /// exposing the full JWKS endpoint URL in API responses.
+    pub has_jwks_uri: bool,
     /// Whether JWKS keys are currently cached.
     pub jwks_cached: bool,
     /// ISO 8601 timestamp of last JWKS fetch.

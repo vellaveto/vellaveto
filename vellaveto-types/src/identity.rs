@@ -227,6 +227,8 @@ impl EvaluationContext {
     const MAX_PREVIOUS_ACTIONS: usize = 10_000;
     /// Maximum number of entries in `call_chain` before validation fails.
     const MAX_CALL_CHAIN: usize = 100;
+    /// SECURITY (FIND-R50-064): Maximum byte length per `previous_actions` entry.
+    const MAX_ACTION_NAME_LEN: usize = 256;
 
     pub fn validate(&self) -> Result<(), String> {
         Self::validate_optional_id_field(&self.agent_id, "agent_id")?;
@@ -248,6 +250,19 @@ impl EvaluationContext {
                 self.previous_actions.len(),
                 Self::MAX_PREVIOUS_ACTIONS,
             ));
+        }
+        // SECURITY (FIND-R50-064): Bound individual previous_actions entry length
+        // to prevent memory amplification via to_ascii_lowercase() allocations
+        // in sequence/workflow evaluation.
+        for (i, action) in self.previous_actions.iter().enumerate() {
+            if action.len() > Self::MAX_ACTION_NAME_LEN {
+                return Err(format!(
+                    "EvaluationContext previous_actions[{}] length {} exceeds max {}",
+                    i,
+                    action.len(),
+                    Self::MAX_ACTION_NAME_LEN,
+                ));
+            }
         }
         if self.call_chain.len() > Self::MAX_CALL_CHAIN {
             return Err(format!(

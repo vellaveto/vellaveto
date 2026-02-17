@@ -58,10 +58,17 @@ impl std::fmt::Display for FederationError {
                 write!(f, "JWT validation failed for {}: {}", org_id, source)
             }
             Self::NoMatchingKey { org_id, kid } => {
+                // SECURITY (FIND-R50-040): Sanitize kid value in error messages
+                // to prevent control character injection in logs.
+                let safe_kid: String = kid
+                    .chars()
+                    .filter(|c| !c.is_control())
+                    .take(128)
+                    .collect();
                 write!(
                     f,
                     "no matching key in JWKS for org {}, kid '{}'",
-                    org_id, kid
+                    org_id, safe_kid
                 )
             }
             Self::DisallowedAlgorithm(alg) => {
@@ -220,7 +227,17 @@ impl FederationResolver {
             return Err(FederationError::DisallowedAlgorithm(alg_str));
         }
 
-        let kid = header.kid.unwrap_or_default();
+        // SECURITY (FIND-R50-032): Require kid in JWT header for federation.
+        // Without a kid, we cannot reliably select the correct key from the JWKS,
+        // and an empty kid would match any JWK with a matching algorithm.
+        let kid = match header.kid {
+            Some(ref k) if !k.is_empty() => k.clone(),
+            _ => {
+                return Err(FederationError::InvalidHeader(
+                    "JWT header missing required 'kid' field for federation".to_string(),
+                ))
+            }
+        };
 
         // Extract issuer from payload without validation
         let issuer = extract_issuer_from_payload(token)
@@ -329,7 +346,7 @@ impl FederationResolver {
                         display_name: a.config.display_name.clone(),
                         issuer_pattern: a.config.issuer_pattern.clone(),
                         trust_level: a.config.trust_level.clone(),
-                        jwks_uri: a.config.jwks_uri.clone(),
+                        has_jwks_uri: a.config.jwks_uri.is_some(),
                         jwks_cached: cached,
                         jwks_last_fetched: last_fetched,
                         identity_mapping_count: a.config.identity_mappings.len(),
@@ -635,10 +652,19 @@ fn extract_claim_value(claims: &FederatedClaims, claim_path: &str) -> Option<Str
     })
 }
 
+/// Maximum base64-encoded JWT payload size before decode (64 KB).
+/// SECURITY (FIND-R50-031): Prevents OOM from oversized JWT payloads
+/// before base64 decoding, which would expand the data further.
+const MAX_JWT_PAYLOAD_B64_LEN: usize = 65_536;
+
 /// Extract issuer from JWT payload without validation.
 fn extract_issuer_from_payload(token: &str) -> Option<String> {
     let parts: Vec<&str> = token.splitn(4, '.').collect();
     if parts.len() < 2 {
+        return None;
+    }
+    // SECURITY (FIND-R50-031): Reject oversized payloads before decoding.
+    if parts[1].len() > MAX_JWT_PAYLOAD_B64_LEN {
         return None;
     }
     use base64::Engine;
@@ -1199,10 +1225,10 @@ mod tests {
         let client = reqwest::Client::new();
         let resolver = FederationResolver::new(&config, client).expect("valid config");
 
-        // Construct a JWT with non-matching issuer
+        // Construct a JWT with non-matching issuer (includes kid per FIND-R50-032)
         use base64::Engine;
         let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(r#"{"alg":"RS256","typ":"JWT"}"#);
+            .encode(r#"{"alg":"RS256","typ":"JWT","kid":"key-1"}"#);
         let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(r#"{"iss":"https://auth.unknown.com","sub":"test","exp":9999999999}"#);
         let token = format!("{}.{}.fake-sig", header, payload);
@@ -1233,7 +1259,7 @@ mod tests {
 
         use base64::Engine;
         let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(r#"{"alg":"RS256","typ":"JWT"}"#);
+            .encode(r#"{"alg":"RS256","typ":"JWT","kid":"key-1"}"#);
         let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(r#"{"iss":"https://auth.nojwks.com","sub":"test","exp":9999999999}"#);
         let token = format!("{}.{}.fake-sig", header, payload);
