@@ -3719,7 +3719,7 @@ fn test_evaluation_context_validate_control_char_in_agent_id() {
     let ctx = EvaluationContext::builder().agent_id("agent\n123").build();
     let result = ctx.validate();
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("control characters"));
+    assert!(result.unwrap_err().contains("control or format characters"));
 }
 
 #[test]
@@ -3743,7 +3743,7 @@ fn test_evaluation_context_validate_null_byte_in_tenant_id() {
     let ctx = EvaluationContext::builder().tenant_id("tenant\0id").build();
     let result = ctx.validate();
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("control characters"));
+    assert!(result.unwrap_err().contains("control or format characters"));
 }
 
 #[test]
@@ -4798,24 +4798,30 @@ fn test_nhi_behavioral_check_anomaly_score_range_accepts_valid() {
 
 #[test]
 fn test_nhi_behavioral_baseline_confidence_range_rejects_negative() {
-    let mut baseline = NhiBehavioralBaseline::default();
-    baseline.confidence = -0.01;
+    let baseline = NhiBehavioralBaseline {
+        confidence: -0.01,
+        ..Default::default()
+    };
     let err = baseline.validate_finite().unwrap_err();
     assert!(err.contains("confidence must be in [0.0, 1.0]"));
 }
 
 #[test]
 fn test_nhi_behavioral_baseline_confidence_range_rejects_above_one() {
-    let mut baseline = NhiBehavioralBaseline::default();
-    baseline.confidence = 1.001;
+    let baseline = NhiBehavioralBaseline {
+        confidence: 1.001,
+        ..Default::default()
+    };
     let err = baseline.validate_finite().unwrap_err();
     assert!(err.contains("confidence must be in [0.0, 1.0]"));
 }
 
 #[test]
 fn test_nhi_behavioral_baseline_confidence_range_accepts_valid() {
-    let mut baseline = NhiBehavioralBaseline::default();
-    baseline.confidence = 0.95;
+    let baseline = NhiBehavioralBaseline {
+        confidence: 0.95,
+        ..Default::default()
+    };
     assert!(baseline.validate_finite().is_ok());
 }
 

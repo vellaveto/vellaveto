@@ -36,8 +36,13 @@ const MAX_TOOLS_PER_SERVER: usize = 100;
 /// Maximum registered agents (FIND-R44-006).
 const MAX_REGISTERED_AGENTS: usize = 10_000;
 
-/// Maximum length for agent IDs, tool names, and server IDs (FIND-R44-007).
+/// Maximum length for agent IDs and tool names (FIND-R44-007).
+/// SECURITY (FIND-R53-XC-003): Matches vellaveto-config/src/governance.rs::MAX_AGENT_ID_LENGTH.
 const MAX_ID_LENGTH: usize = 256;
+
+/// Maximum length for server IDs (FIND-R53-XC-003).
+/// Matches vellaveto-config/src/governance.rs::MAX_SERVER_ID_LENGTH.
+const MAX_SERVER_ID_LENGTH: usize = 512;
 
 /// Returns false if the string contains control characters, Unicode bidi overrides
 /// (U+202A-U+202E, U+2066-U+2069), zero-width space (U+200B), BOM (U+FEFF), or null bytes.
@@ -120,7 +125,9 @@ impl ShadowAiDiscovery {
             return;
         }
         if let Some(sid) = server_id {
-            if sid.len() > MAX_ID_LENGTH {
+            // SECURITY (FIND-R53-XC-003): Server IDs use MAX_SERVER_ID_LENGTH (512),
+            // which matches the authoritative value in governance.rs.
+            if sid.len() > MAX_SERVER_ID_LENGTH {
                 return;
             }
         }
@@ -273,20 +280,32 @@ impl ShadowAiDiscovery {
     }
 
     /// Check if an agent is in the registered agent list.
+    ///
+    /// Fail-closed: if the lock is poisoned, returns `false` (unregistered),
+    /// which causes denial when `require_registration` is enabled.
     pub fn is_agent_registered(&self, agent_id: &str) -> bool {
         self.registered_agents
             .read()
             .map(|r| r.contains(agent_id))
-            .unwrap_or(false)
+            .unwrap_or_else(|_| {
+                tracing::error!("registered_agents lock poisoned — fail-closed: treating as unregistered");
+                false // fail-closed: unregistered → deny if require_registration enabled
+            })
     }
 
     /// Check if a tool is in the approved tools list.
     /// Returns true if the approved list is empty (all tools approved).
+    ///
+    /// Fail-closed: if the lock is poisoned, returns `false` (unapproved),
+    /// which causes the tool to be flagged by the discovery engine.
     pub fn is_tool_approved(&self, tool_name: &str) -> bool {
         self.approved_tools
             .read()
             .map(|r| r.is_empty() || r.contains(tool_name))
-            .unwrap_or(false)
+            .unwrap_or_else(|_| {
+                tracing::error!("approved_tools lock poisoned — fail-closed: treating as unapproved");
+                false // fail-closed: unapproved → flagged by discovery
+            })
     }
 
     /// Returns true when the agent should be denied due to being unregistered.
@@ -644,7 +663,8 @@ mod tests {
     #[test]
     fn test_observe_request_rejects_overlong_server_id() {
         let d = configured_discovery();
-        let long_srv = "s".repeat(MAX_ID_LENGTH + 1);
+        // FIND-R53-XC-003: Server IDs use MAX_SERVER_ID_LENGTH (512)
+        let long_srv = "s".repeat(MAX_SERVER_ID_LENGTH + 1);
         d.observe_request("unknown-agent", "filesystem", Some(&long_srv));
         // Entire call returns early due to server_id length
         assert_eq!(d.unregistered_agent_count(), 0);
