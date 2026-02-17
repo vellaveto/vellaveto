@@ -24,12 +24,69 @@ impl fmt::Display for SignatureAlgorithm {
     }
 }
 
+/// SECURITY (FIND-R51-002): Validate that a string is a well-formed ISO 8601
+/// basic timestamp in the format `YYYY-MM-DDTHH:MM:SSZ`.
+///
+/// Checks structure, character classes, and value ranges for all components.
+/// Returns `false` for any malformed input, which callers use for fail-closed
+/// behavior (treating malformed timestamps as expired).
+fn is_valid_iso8601_basic(s: &str) -> bool {
+    // Must be exactly 20 bytes: "YYYY-MM-DDTHH:MM:SSZ"
+    if s.len() != 20 {
+        return false;
+    }
+    let b = s.as_bytes();
+
+    // Structural checks: separators at fixed positions
+    if b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[13] != b':' || b[16] != b':' || b[19] != b'Z' {
+        return false;
+    }
+
+    // All digit positions must be ASCII digits
+    let digit_positions = [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18];
+    for &pos in &digit_positions {
+        if !b[pos].is_ascii_digit() {
+            return false;
+        }
+    }
+
+    // Parse and validate numeric ranges
+    // Safe: we verified all positions are ASCII digits above, so from_utf8 and parse cannot fail.
+    let year: u16 = s[0..4].parse().unwrap_or(0);
+    let month: u8 = s[5..7].parse().unwrap_or(0);
+    let day: u8 = s[8..10].parse().unwrap_or(0);
+    let hour: u8 = s[11..13].parse().unwrap_or(0);
+    let minute: u8 = s[14..16].parse().unwrap_or(0);
+    let second: u8 = s[17..19].parse().unwrap_or(0);
+
+    if year < 1970 {
+        return false;
+    }
+    if !(1..=12).contains(&month) {
+        return false;
+    }
+    if !(1..=31).contains(&day) {
+        return false;
+    }
+    if hour > 23 {
+        return false;
+    }
+    if minute > 59 {
+        return false;
+    }
+    if second > 59 {
+        return false;
+    }
+
+    true
+}
+
 /// A cryptographic signature on a tool definition.
 ///
 /// Part of the ETDI (Enhanced Tool Definition Interface) system.
 /// Tool providers sign their tool definitions, and Vellaveto verifies
 /// these signatures before allowing tool registration.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolSignature {
     /// Unique identifier for this signature.
     pub signature_id: String,
@@ -56,11 +113,77 @@ pub struct ToolSignature {
     pub rekor_entry: Option<serde_json::Value>,
 }
 
+// SECURITY (FIND-R52-016): Custom Debug to redact signature and public_key.
+impl std::fmt::Debug for ToolSignature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolSignature")
+            .field("signature_id", &self.signature_id)
+            .field("signature", &"[REDACTED]")
+            .field("algorithm", &self.algorithm)
+            .field("public_key", &"[REDACTED]")
+            .field("key_fingerprint", &self.key_fingerprint)
+            .field("signed_at", &self.signed_at)
+            .field("expires_at", &self.expires_at)
+            .field("signer_spiffe_id", &self.signer_spiffe_id)
+            .field("rekor_entry", &self.rekor_entry.as_ref().map(|_| "[PRESENT]"))
+            .finish()
+    }
+}
+
 impl ToolSignature {
     /// Maximum serialized size of `rekor_entry` in bytes.
     pub const MAX_REKOR_ENTRY_SIZE: usize = 65_536;
 
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R52-002): Validate all string field lengths.
+        if self.signature_id.len() > 256 {
+            return Err(format!(
+                "ToolSignature signature_id length {} exceeds max 256",
+                self.signature_id.len()
+            ));
+        }
+        if self.signature.len() > 512 {
+            return Err(format!(
+                "ToolSignature signature length {} exceeds max 512",
+                self.signature.len()
+            ));
+        }
+        if self.public_key.len() > 512 {
+            return Err(format!(
+                "ToolSignature public_key length {} exceeds max 512",
+                self.public_key.len()
+            ));
+        }
+        if self.signed_at.len() > 64 {
+            return Err(format!(
+                "ToolSignature signed_at length {} exceeds max 64",
+                self.signed_at.len()
+            ));
+        }
+        if let Some(ref ea) = self.expires_at {
+            if ea.len() > 64 {
+                return Err(format!(
+                    "ToolSignature expires_at length {} exceeds max 64",
+                    ea.len()
+                ));
+            }
+        }
+        if let Some(ref kf) = self.key_fingerprint {
+            if kf.len() > 256 {
+                return Err(format!(
+                    "ToolSignature key_fingerprint length {} exceeds max 256",
+                    kf.len()
+                ));
+            }
+        }
+        if let Some(ref spiffe) = self.signer_spiffe_id {
+            if spiffe.len() > 2048 {
+                return Err(format!(
+                    "ToolSignature signer_spiffe_id length {} exceeds max 2048",
+                    spiffe.len()
+                ));
+            }
+        }
         if let Some(ref entry) = self.rekor_entry {
             let size = serde_json::to_string(entry)
                 .map_err(|e| format!("rekor_entry serialization failed: {e}"))?
@@ -92,8 +215,16 @@ impl ToolSignature {
         if !now.ends_with('Z') {
             return true;
         }
+        // SECURITY (FIND-R51-002): Reject malformed `now` timestamps as expired (fail-closed).
+        if !is_valid_iso8601_basic(now) {
+            return true;
+        }
         self.expires_at.as_ref().is_some_and(|exp| {
             if !exp.ends_with('Z') {
+                return true;
+            }
+            // SECURITY (FIND-R51-002): Reject malformed `expires_at` as expired (fail-closed).
+            if !is_valid_iso8601_basic(exp) {
                 return true;
             }
             now >= exp.as_str()

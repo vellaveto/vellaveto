@@ -155,6 +155,7 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}) 
 const maxErrorBodyDisplay = 256
 
 // doJSON executes a request, checks status, and decodes JSON into dst.
+// TODO(FIND-R51-009): Add retry logic for transient HTTP failures (429, 502, 503, 504)
 func (c *Client) doJSON(ctx context.Context, method, path string, body interface{}, dst interface{}) error {
 	respBody, status, err := c.do(ctx, method, path, body)
 	if err != nil {
@@ -565,8 +566,9 @@ func (c *Client) FederationTrustAnchors(ctx context.Context, orgID string) (*Fed
 	if len(orgID) > 128 {
 		return nil, &VellavetoError{Message: "org_id exceeds max length (128)"}
 	}
+	// SECURITY (FIND-R50-037): Catch DEL (0x7F) and C1 control chars (0x80-0x9F)
 	for _, c := range orgID {
-		if c < ' ' {
+		if c < ' ' || (c >= 0x7F && c <= 0x9F) {
 			return nil, &VellavetoError{Message: "org_id contains control characters"}
 		}
 	}

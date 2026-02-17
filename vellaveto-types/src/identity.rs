@@ -227,6 +227,8 @@ impl EvaluationContext {
     const MAX_PREVIOUS_ACTIONS: usize = 10_000;
     /// Maximum number of entries in `call_chain` before validation fails.
     const MAX_CALL_CHAIN: usize = 100;
+    /// SECURITY (FIND-R50-064): Maximum byte length per `previous_actions` entry.
+    const MAX_ACTION_NAME_LEN: usize = 256;
 
     pub fn validate(&self) -> Result<(), String> {
         Self::validate_optional_id_field(&self.agent_id, "agent_id")?;
@@ -248,6 +250,41 @@ impl EvaluationContext {
                 self.previous_actions.len(),
                 Self::MAX_PREVIOUS_ACTIONS,
             ));
+        }
+        // SECURITY (FIND-R50-064): Bound individual previous_actions entry length
+        // to prevent memory amplification via to_ascii_lowercase() allocations
+        // in sequence/workflow evaluation.
+        for (i, action) in self.previous_actions.iter().enumerate() {
+            if action.len() > Self::MAX_ACTION_NAME_LEN {
+                return Err(format!(
+                    "EvaluationContext previous_actions[{}] length {} exceeds max {}",
+                    i,
+                    action.len(),
+                    Self::MAX_ACTION_NAME_LEN,
+                ));
+            }
+            // SECURITY (FIND-R52-008): Reject control characters in previous_actions entries.
+            // Compiled sequences reject control characters at compile time, so a history
+            // entry with embedded control characters (e.g., "read_secret\x00") would
+            // never match a compiled sequence entry via eq_ignore_ascii_case, allowing
+            // ForbiddenActionSequence bypass.
+            if action.chars().any(|c| c.is_control()) {
+                return Err(format!(
+                    "EvaluationContext previous_actions[{}] contains control characters",
+                    i,
+                ));
+            }
+        }
+        // SECURITY (FIND-R52-006): Bound individual call_counts key length
+        // to prevent memory amplification via oversized HashMap keys.
+        for key in self.call_counts.keys() {
+            if key.len() > Self::MAX_ACTION_NAME_LEN {
+                return Err(format!(
+                    "EvaluationContext call_counts key length {} exceeds max {}",
+                    key.len(),
+                    Self::MAX_ACTION_NAME_LEN,
+                ));
+            }
         }
         if self.call_chain.len() > Self::MAX_CALL_CHAIN {
             return Err(format!(
@@ -298,13 +335,29 @@ impl EvaluationContext {
                 value.len(),
             ));
         }
-        if value.chars().any(|c| c.is_control()) {
+        // SECURITY (FIND-R52-005): Also reject Unicode format characters (category Cf)
+        // which include zero-width chars (U+200B-U+200F), bidi overrides (U+202A-U+202E,
+        // U+2066-U+2069), and BOM (U+FEFF). These can cause identity confusion in logs.
+        if value.chars().any(|c| c.is_control() || Self::is_unicode_format_char(c)) {
             return Err(format!(
-                "EvaluationContext call_chain[{}].{} contains control characters",
+                "EvaluationContext call_chain[{}].{} contains control or format characters",
                 index, field_name,
             ));
         }
         Ok(())
+    }
+
+    /// Returns true if the character is a Unicode format character (category Cf)
+    /// that could cause identity confusion or log injection.
+    ///
+    /// SECURITY (FIND-R52-005): Covers zero-width chars, bidi overrides, and BOM.
+    fn is_unicode_format_char(c: char) -> bool {
+        matches!(c,
+            '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
+            '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
+            '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
+            '\u{FEFF}'                  // BOM / zero-width no-break space
+        )
     }
 
     /// Validate a single optional identity field: if present, must be non-empty
@@ -614,6 +667,29 @@ impl StatelessContextBlob {
             ));
         }
 
+        // SECURITY (FIND-R52-019): Validate per-entry lengths for call_counts keys
+        // and recent_actions entries to prevent memory amplification.
+        const MAX_ENTRY_LEN: usize = 256;
+        for key in self.call_counts.keys() {
+            if key.len() > MAX_ENTRY_LEN {
+                return Err(format!(
+                    "StatelessContextBlob call_counts key length {} exceeds max {}",
+                    key.len(),
+                    MAX_ENTRY_LEN,
+                ));
+            }
+        }
+        for (i, action) in self.recent_actions.iter().enumerate() {
+            if action.len() > MAX_ENTRY_LEN {
+                return Err(format!(
+                    "StatelessContextBlob recent_actions[{}] length {} exceeds max {}",
+                    i,
+                    action.len(),
+                    MAX_ENTRY_LEN,
+                ));
+            }
+        }
+
         // SECURITY (FIND-R51-007): Validate signature format.
         // HMAC-SHA256 produces 32 bytes = 64 hex characters.
         if self.signature.is_empty() {
@@ -625,8 +701,16 @@ impl StatelessContextBlob {
                 self.signature.len(),
             ));
         }
-        if !self.signature.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err("StatelessContextBlob signature contains non-hex characters".to_string());
+        // SECURITY (FIND-R52-004): Reject non-lowercase hex to ensure canonical
+        // representation for consistent comparison and log analysis.
+        if !self
+            .signature
+            .bytes()
+            .all(|b| b.is_ascii_digit() || matches!(b, b'a'..=b'f'))
+        {
+            return Err(
+                "StatelessContextBlob signature must be lowercase hex characters".to_string(),
+            );
         }
 
         Ok(())

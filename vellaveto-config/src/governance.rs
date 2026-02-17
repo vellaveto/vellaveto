@@ -126,6 +126,13 @@ impl GovernanceConfig {
                     MAX_TOOL_NAME_LENGTH
                 ));
             }
+            // SECURITY (FIND-R51-015): Reject control characters in governance strings.
+            if tool.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+                return Err(format!(
+                    "governance.approved_tools[{}] contains control characters",
+                    i
+                ));
+            }
         }
         if self.known_servers.len() > MAX_GOVERNANCE_KNOWN_SERVERS {
             return Err(format!(
@@ -144,6 +151,13 @@ impl GovernanceConfig {
                     MAX_SERVER_ID_LENGTH
                 ));
             }
+            // SECURITY (FIND-R51-015): Reject control characters in governance strings.
+            if server.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+                return Err(format!(
+                    "governance.known_servers[{}] contains control characters",
+                    i
+                ));
+            }
         }
         // FIND-R44-017: Validate registered_agents count and per-string length
         if self.registered_agents.len() > MAX_GOVERNANCE_REGISTERED_AGENTS {
@@ -160,6 +174,13 @@ impl GovernanceConfig {
                     i,
                     agent.len(),
                     MAX_AGENT_ID_LENGTH
+                ));
+            }
+            // SECURITY (FIND-R51-015): Reject control characters in governance strings.
+            if agent.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+                return Err(format!(
+                    "governance.registered_agents[{}] contains control characters",
+                    i
                 ));
             }
         }

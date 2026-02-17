@@ -377,13 +377,17 @@ impl AuditLogger {
         // Done under the lock to prevent concurrent writes from racing.
         if self.maybe_rotate().await? {
             *last_hash_guard = None; // New file = new hash chain
-            self.entry_count.store(0, Ordering::Relaxed); // Reset counter for new file
+            // SECURITY (FIND-R52-AUDIT-002): Use SeqCst for sequence counter to prevent
+            // reordering that could cause duplicate sequence numbers under concurrent access.
+            self.entry_count.store(0, Ordering::SeqCst); // Reset counter for new file
         }
 
         // SECURITY (R33-001): Assign monotonic sequence number BEFORE creating entry.
         // This ensures the sequence is included in the hash, preventing collision
         // attacks where two entries might have identical timestamps under high load.
-        let sequence = self.entry_count.load(Ordering::Relaxed);
+        // SECURITY (FIND-R52-AUDIT-002): Use SeqCst for sequence counter to ensure
+        // globally consistent ordering and prevent duplicate sequence numbers.
+        let sequence = self.entry_count.load(Ordering::SeqCst);
 
         let mut entry = AuditEntry {
             id: Uuid::new_v4().to_string(),
@@ -474,7 +478,9 @@ impl AuditLogger {
         }
 
         // Increment in-memory entry count for rotation metadata
-        self.entry_count.fetch_add(1, Ordering::Relaxed);
+        // SECURITY (FIND-R52-AUDIT-002): Use SeqCst for sequence counter to ensure
+        // the increment is globally visible and prevents reordering.
+        self.entry_count.fetch_add(1, Ordering::SeqCst);
 
         Ok(())
     }

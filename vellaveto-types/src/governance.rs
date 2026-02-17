@@ -64,6 +64,13 @@ impl UnregisteredAgent {
                 self.agent_id, self.risk_score
             ));
         }
+        // SECURITY (FIND-R51-001): Validate risk_score is in documented [0.0, 1.0] range.
+        if self.risk_score < 0.0 || self.risk_score > 1.0 {
+            return Err(format!(
+                "UnregisteredAgent '{}' risk_score must be in [0.0, 1.0], got {}",
+                self.agent_id, self.risk_score
+            ));
+        }
         if self.tools_used.len() > Self::MAX_TOOLS_USED {
             return Err(format!(
                 "UnregisteredAgent '{}' tools_used count {} exceeds max {}",
@@ -156,6 +163,13 @@ impl ShadowAiReport {
         if !self.total_risk_score.is_finite() {
             return Err(format!(
                 "ShadowAiReport has non-finite total_risk_score: {}",
+                self.total_risk_score
+            ));
+        }
+        // SECURITY (FIND-R51-001): Validate total_risk_score is in documented [0.0, 1.0] range.
+        if self.total_risk_score < 0.0 || self.total_risk_score > 1.0 {
+            return Err(format!(
+                "ShadowAiReport total_risk_score must be in [0.0, 1.0], got {}",
                 self.total_risk_score
             ));
         }

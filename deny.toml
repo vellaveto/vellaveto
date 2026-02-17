@@ -1,9 +1,8 @@
 [advisories]
 db-urls = ["https://github.com/RustSec/advisory-db"]
-vulnerability = "deny"
-unmaintained = "warn"
-unsound = "warn"
-notice = "warn"
+# cargo-deny >=0.19.0: unmaintained/unsound use scope values, not severity
+unmaintained = "workspace"
+unsound = "workspace"
 yanked = "warn"
 ignore = []
 

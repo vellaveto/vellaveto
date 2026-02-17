@@ -446,6 +446,18 @@ impl MerkleTree {
         proof: &MerkleProof,
         trusted_root: &str,
     ) -> Result<MerkleVerification, AuditError> {
+        // SECURITY (FIND-R52-AUDIT-003): Bound proof siblings to 64. A tree with
+        // 2^64 leaves is physically impossible, so any proof claiming more siblings
+        // is malicious or corrupt. This prevents CPU waste iterating forged proofs.
+        const MAX_PROOF_SIBLINGS: usize = 64;
+        if proof.siblings.len() > MAX_PROOF_SIBLINGS {
+            return Err(AuditError::Validation(format!(
+                "Proof has too many siblings ({}, max {})",
+                proof.siblings.len(),
+                MAX_PROOF_SIBLINGS
+            )));
+        }
+
         if proof.tree_size == 0 {
             return Ok(MerkleVerification {
                 valid: false,

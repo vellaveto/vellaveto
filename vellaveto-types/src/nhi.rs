@@ -277,6 +277,13 @@ impl NhiBehavioralBaseline {
                 self.confidence
             ));
         }
+        // SECURITY (FIND-R51-001): Validate confidence is in documented [0.0, 1.0] range.
+        if self.confidence < 0.0 || self.confidence > 1.0 {
+            return Err(format!(
+                "NhiBehavioralBaseline confidence must be in [0.0, 1.0], got {}",
+                self.confidence
+            ));
+        }
         Ok(())
     }
 }
@@ -325,10 +332,26 @@ impl NhiBehavioralCheckResult {
                 self.anomaly_score
             ));
         }
+        // SECURITY (FIND-R51-001): Validate anomaly_score is in documented [0.0, 1.0] range.
+        if self.anomaly_score < 0.0 || self.anomaly_score > 1.0 {
+            return Err(format!(
+                "NhiBehavioralCheckResult anomaly_score must be in [0.0, 1.0], got {}",
+                self.anomaly_score
+            ));
+        }
+        // SECURITY (FIND-R52-002): Bound deviations collection size.
+        const MAX_DEVIATIONS: usize = 256;
+        if self.deviations.len() > MAX_DEVIATIONS {
+            return Err(format!(
+                "NhiBehavioralCheckResult deviations count {} exceeds max {}",
+                self.deviations.len(),
+                MAX_DEVIATIONS,
+            ));
+        }
         for dev in &self.deviations {
-            if !dev.severity.is_finite() {
+            if !dev.severity.is_finite() || dev.severity < 0.0 || dev.severity > 1.0 {
                 return Err(format!(
-                    "NhiBehavioralDeviation '{}' has non-finite severity: {}",
+                    "NhiBehavioralDeviation '{}' severity must be in [0.0, 1.0], got {}",
                     dev.deviation_type, dev.severity
                 ));
             }

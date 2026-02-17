@@ -74,10 +74,12 @@ pub async fn get_tenant(
     })?;
 
     let tenant = store.get_tenant(&id).ok_or_else(|| {
+        // SECURITY (FIND-R51-013): Do not leak tenant ID in error response.
+        tracing::warn!(tenant_id = %id, "Tenant not found");
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: format!("Tenant not found: {}", id),
+                error: "Tenant not found".to_string(),
             }),
         )
     })?;
@@ -162,10 +164,12 @@ pub async fn update_tenant(
 
     // Get existing tenant to preserve created_at
     let existing = store.get_tenant(&id).ok_or_else(|| {
+        // SECURITY (FIND-R51-013): Do not leak tenant ID in error response.
+        tracing::warn!(tenant_id = %id, "Tenant not found for update");
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: format!("Tenant not found: {}", id),
+                error: "Tenant not found".to_string(),
             }),
         )
     })?;
@@ -218,12 +222,16 @@ pub async fn delete_tenant(
     })?;
 
     store.delete_tenant(&id).map_err(|e| match e {
-        TenantError::TenantNotFound(_) => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("Tenant not found: {}", id),
-            }),
-        ),
+        TenantError::TenantNotFound(_) => {
+            // SECURITY (FIND-R51-013): Do not leak tenant ID in error response.
+            tracing::warn!(tenant_id = %id, "Tenant not found for deletion");
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "Tenant not found".to_string(),
+                }),
+            )
+        }
         _ => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {

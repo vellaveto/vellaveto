@@ -118,6 +118,13 @@ impl MemoryEntry {
                 self.id, self.trust_score
             ));
         }
+        // SECURITY (FIND-R51-001): Validate trust_score is in documented [0.0, 1.0] range.
+        if self.trust_score < 0.0 || self.trust_score > 1.0 {
+            return Err(format!(
+                "MemoryEntry '{}' trust_score must be in [0.0, 1.0], got {}",
+                self.id, self.trust_score
+            ));
+        }
 
         // Security-relevant taint labels that are incompatible with perfect trust
         let has_security_taint = self.taint_labels.iter().any(|label| {
@@ -150,6 +157,13 @@ impl MemoryEntry {
         if !self.trust_score.is_finite() {
             return Err(format!(
                 "MemoryEntry '{}' trust_score is not finite: {}",
+                self.id, self.trust_score
+            ));
+        }
+        // SECURITY (FIND-R51-001): Validate trust_score is in documented [0.0, 1.0] range.
+        if self.trust_score < 0.0 || self.trust_score > 1.0 {
+            return Err(format!(
+                "MemoryEntry '{}' trust_score must be in [0.0, 1.0], got {}",
                 self.id, self.trust_score
             ));
         }

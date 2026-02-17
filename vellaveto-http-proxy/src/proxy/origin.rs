@@ -65,6 +65,13 @@ pub fn validate_origin(
     // If explicit allowlist is configured, use it
     if !allowed_origins.is_empty() {
         if allowed_origins.iter().any(|a| a == origin || a == "*") {
+            // SECURITY (FIND-R51-011): Warn when wildcard "*" disables origin protection.
+            if allowed_origins.iter().any(|o| o == "*") {
+                tracing::warn!(
+                    target: "vellaveto::security",
+                    "SECURITY: allowed_origins contains '*' — CSRF and DNS rebinding protection is DISABLED"
+                );
+            }
             return Ok(());
         }
         tracing::warn!(

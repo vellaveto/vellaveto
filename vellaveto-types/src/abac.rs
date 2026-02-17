@@ -303,6 +303,22 @@ impl RiskScore {
         if !self.score.is_finite() {
             return Err(format!("RiskScore::score is not finite: {}", self.score));
         }
+        // SECURITY (FIND-R51-001): Validate score is in documented [0.0, 1.0] range.
+        if self.score < 0.0 || self.score > 1.0 {
+            return Err(format!(
+                "RiskScore::score must be in [0.0, 1.0], got {}",
+                self.score
+            ));
+        }
+        // SECURITY (FIND-R52-001): Bound factors collection size.
+        const MAX_FACTORS: usize = 256;
+        if self.factors.len() > MAX_FACTORS {
+            return Err(format!(
+                "RiskScore factors count {} exceeds max {}",
+                self.factors.len(),
+                MAX_FACTORS,
+            ));
+        }
         for factor in &self.factors {
             factor.validate_finite()?;
         }
@@ -311,17 +327,19 @@ impl RiskScore {
 }
 
 impl RiskFactor {
-    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    /// Validate that all f64 fields are finite and in [0.0, 1.0].
     pub fn validate_finite(&self) -> Result<(), String> {
-        if !self.weight.is_finite() {
+        // SECURITY (FIND-R52-003): Range-validate weight and value to prevent
+        // adversarial composite score manipulation via negative factors.
+        if !self.weight.is_finite() || self.weight < 0.0 || self.weight > 1.0 {
             return Err(format!(
-                "RiskFactor '{}' weight is not finite: {}",
+                "RiskFactor '{}' weight must be in [0.0, 1.0], got {}",
                 self.name, self.weight
             ));
         }
-        if !self.value.is_finite() {
+        if !self.value.is_finite() || self.value < 0.0 || self.value > 1.0 {
             return Err(format!(
-                "RiskFactor '{}' value is not finite: {}",
+                "RiskFactor '{}' value must be in [0.0, 1.0], got {}",
                 self.name, self.value
             ));
         }
@@ -606,8 +624,10 @@ pub struct FederationAnchorStatus {
     pub issuer_pattern: String,
     /// Trust level.
     pub trust_level: String,
-    /// JWKS URI if configured.
-    pub jwks_uri: Option<String>,
+    /// Whether a JWKS URI is configured.
+    /// SECURITY (FIND-R50-030): Changed from `Option<String>` to `bool` to avoid
+    /// exposing the full JWKS endpoint URL in API responses.
+    pub has_jwks_uri: bool,
     /// Whether JWKS keys are currently cached.
     pub jwks_cached: bool,
     /// ISO 8601 timestamp of last JWKS fetch.

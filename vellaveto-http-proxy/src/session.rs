@@ -25,7 +25,9 @@ pub struct SessionState {
     pub created_at: Instant,
     pub last_activity: Instant,
     pub protocol_version: Option<String>,
-    pub known_tools: HashMap<String, ToolAnnotations>,
+    /// SECURITY (FIND-R52-SESSION-001): Use `pub(crate)` to force callers through
+    /// bounded `insert_known_tool` method. Direct read access within the crate is allowed.
+    pub(crate) known_tools: HashMap<String, ToolAnnotations>,
     pub request_count: u64,
     /// Whether the initial tools/list response has been seen for this session.
     /// Used for rug-pull detection: tool additions after the first list are suspicious.
@@ -35,7 +37,9 @@ pub struct SessionState {
     pub oauth_subject: Option<String>,
     /// Tools flagged by rug-pull detection. Tool calls to these tools are
     /// blocked until the session is cleared or a clean tools/list is received.
-    pub flagged_tools: HashSet<String>,
+    /// SECURITY (FIND-R52-SESSION-001): Use `pub(crate)` to force callers through
+    /// bounded `insert_flagged_tool` method. Direct read access within the crate is allowed.
+    pub(crate) flagged_tools: HashSet<String>,
     /// Pinned tool manifest for this session. Built from the first tools/list
     /// response, used to verify subsequent tools/list responses.
     pub pinned_manifest: Option<ToolManifest>,
@@ -70,14 +74,20 @@ pub struct SessionState {
     pub agent_identity: Option<AgentIdentity>,
     /// Phase 20: Gateway backend session mapping.
     /// Maps backend_id → upstream session_id for session affinity.
-    pub backend_sessions: HashMap<String, String>,
+    /// SECURITY (FIND-R52-SESSION-001): Use `pub(crate)` to force callers through
+    /// bounded `insert_backend_session` method.
+    pub(crate) backend_sessions: HashMap<String, String>,
     /// Phase 20: Tools discovered from each gateway backend.
     /// Maps backend_id → list of tool names for conflict detection.
-    pub gateway_tools: HashMap<String, Vec<String>>,
+    /// SECURITY (FIND-R52-SESSION-001): Use `pub(crate)` to force callers through
+    /// bounded `insert_gateway_tools` method.
+    pub(crate) gateway_tools: HashMap<String, Vec<String>>,
     /// Phase 21: Per-session risk score for continuous authorization.
     pub risk_score: Option<vellaveto_types::RiskScore>,
     /// Phase 21: Granted ABAC policy IDs for least-agency tracking.
-    pub abac_granted_policies: Vec<String>,
+    /// SECURITY (FIND-R52-SESSION-001): Use `pub(crate)` to force callers through
+    /// bounded `insert_granted_policy` method.
+    pub(crate) abac_granted_policies: Vec<String>,
     /// Phase 34: Tools discovered via `vv_discover` with TTL tracking.
     /// Maps tool_id → session entry with discovery timestamp and TTL.
     pub discovered_tools: HashMap<String, DiscoveredToolSession>,
@@ -86,6 +96,22 @@ pub struct SessionState {
 /// Maximum number of discovered tools tracked per session.
 /// Prevents unbounded memory growth from excessive discovery requests.
 const MAX_DISCOVERED_TOOLS_PER_SESSION: usize = 10_000;
+
+/// SECURITY (FIND-R51-001): Maximum backend sessions per client session.
+const MAX_BACKEND_SESSIONS: usize = 128;
+/// SECURITY (FIND-R51-001): Maximum gateway tool entries per client session.
+const MAX_GATEWAY_TOOLS: usize = 128;
+/// SECURITY (FIND-R51-001): Maximum tools per backend in gateway_tools.
+const MAX_TOOLS_PER_BACKEND: usize = 1000;
+
+/// SECURITY (FIND-R51-002): Maximum ABAC granted policies per session.
+const MAX_GRANTED_POLICIES: usize = 1024;
+
+/// SECURITY (FIND-R51-012): Maximum known tools per session.
+const MAX_KNOWN_TOOLS: usize = 2048;
+
+/// SECURITY (FIND-R51-014): Maximum flagged tools per session.
+const MAX_FLAGGED_TOOLS: usize = 2048;
 
 /// Per-session tracking of a discovered tool (Phase 34.3).
 #[derive(Debug, Clone)]
@@ -134,6 +160,110 @@ impl SessionState {
             risk_score: None,
             abac_granted_policies: Vec::new(),
             discovered_tools: HashMap::new(),
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // SECURITY (FIND-R52-SESSION-001): Read-only accessors for bounded fields.
+    // These allow integration tests and external consumers to inspect state
+    // without bypassing the bounded insertion methods.
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Read-only access to known tools.
+    pub fn known_tools(&self) -> &HashMap<String, ToolAnnotations> {
+        &self.known_tools
+    }
+
+    /// Read-only access to flagged tools.
+    pub fn flagged_tools(&self) -> &HashSet<String> {
+        &self.flagged_tools
+    }
+
+    /// Read-only access to backend sessions.
+    pub fn backend_sessions(&self) -> &HashMap<String, String> {
+        &self.backend_sessions
+    }
+
+    /// Read-only access to gateway tools.
+    pub fn gateway_tools(&self) -> &HashMap<String, Vec<String>> {
+        &self.gateway_tools
+    }
+
+    /// Read-only access to ABAC granted policies.
+    pub fn abac_granted_policies(&self) -> &[String] {
+        &self.abac_granted_policies
+    }
+
+    /// SECURITY (FIND-R51-001): Insert a backend session with capacity bound.
+    /// Returns `true` if the entry was inserted or already existed, `false` if at capacity.
+    #[allow(clippy::map_entry)] // Capacity check requires len() which conflicts with entry() borrow
+    pub fn insert_backend_session(&mut self, backend_id: String, upstream_session_id: String) -> bool {
+        if self.backend_sessions.contains_key(&backend_id) {
+            self.backend_sessions.insert(backend_id, upstream_session_id);
+            return true;
+        }
+        if self.backend_sessions.len() >= MAX_BACKEND_SESSIONS {
+            tracing::warn!(
+                session_id = %self.session_id,
+                capacity = MAX_BACKEND_SESSIONS,
+                "Backend sessions capacity reached; dropping new entry"
+            );
+            return false;
+        }
+        self.backend_sessions.insert(backend_id, upstream_session_id);
+        true
+    }
+
+    /// SECURITY (FIND-R51-001): Insert gateway tools for a backend with capacity bounds.
+    /// Returns `true` if inserted, `false` if at capacity.
+    pub fn insert_gateway_tools(&mut self, backend_id: String, tools: Vec<String>) -> bool {
+        if !self.gateway_tools.contains_key(&backend_id) && self.gateway_tools.len() >= MAX_GATEWAY_TOOLS {
+            tracing::warn!(
+                session_id = %self.session_id,
+                capacity = MAX_GATEWAY_TOOLS,
+                "Gateway tools capacity reached; dropping new backend entry"
+            );
+            return false;
+        }
+        // Truncate the tool list per backend to MAX_TOOLS_PER_BACKEND
+        let bounded_tools: Vec<String> = tools.into_iter().take(MAX_TOOLS_PER_BACKEND).collect();
+        self.gateway_tools.insert(backend_id, bounded_tools);
+        true
+    }
+
+    /// SECURITY (FIND-R51-002): Insert an ABAC granted policy with capacity bound and dedup.
+    pub fn insert_granted_policy(&mut self, policy_id: String) {
+        if !self.abac_granted_policies.contains(&policy_id)
+            && self.abac_granted_policies.len() < MAX_GRANTED_POLICIES
+        {
+            self.abac_granted_policies.push(policy_id);
+        }
+    }
+
+    /// SECURITY (FIND-R51-012): Insert a known tool with capacity bound.
+    /// Returns `true` if inserted or updated, `false` if at capacity.
+    #[allow(clippy::map_entry)] // Capacity check requires len() which conflicts with entry() borrow
+    pub fn insert_known_tool(&mut self, name: String, annotations: ToolAnnotationsCompact) -> bool {
+        if self.known_tools.contains_key(&name) {
+            self.known_tools.insert(name, annotations);
+            return true;
+        }
+        if self.known_tools.len() >= MAX_KNOWN_TOOLS {
+            tracing::warn!(
+                session_id = %self.session_id,
+                capacity = MAX_KNOWN_TOOLS,
+                "Known tools capacity reached; dropping new tool"
+            );
+            return false;
+        }
+        self.known_tools.insert(name, annotations);
+        true
+    }
+
+    /// SECURITY (FIND-R51-014): Insert a flagged tool with capacity bound.
+    pub fn insert_flagged_tool(&mut self, name: String) {
+        if self.flagged_tools.len() < MAX_FLAGGED_TOOLS {
+            self.flagged_tools.insert(name);
         }
     }
 
@@ -205,7 +335,8 @@ impl SessionState {
     /// Touch the session to update last activity time.
     pub fn touch(&mut self) {
         self.last_activity = Instant::now();
-        self.request_count += 1;
+        // SECURITY (FIND-R51-007): Use saturating_add for debug-build safety.
+        self.request_count = self.request_count.saturating_add(1);
     }
 
     /// Check if this session has expired.

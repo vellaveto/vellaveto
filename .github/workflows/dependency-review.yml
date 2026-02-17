@@ -17,6 +17,9 @@ jobs:
     name: Dependency Review
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Dependency graph review requires GitHub Advanced Security (GHAS).
+    # Mark non-blocking until GHAS is enabled on this repository.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

@@ -449,6 +449,7 @@ export class VellavetoClient {
         `Network error: ${this.sanitizeErrorMessage(rawMsg)}`
       );
     } finally {
+      // TODO(FIND-R51-013): Move clearTimeout before body reading for resource efficiency
       clearTimeout(timeoutId);
     }
   }
@@ -833,7 +834,8 @@ export class VellavetoClient {
       if (orgId.length > 128) {
         throw new VellavetoError("org_id exceeds max length (128)");
       }
-      if (/[\x00-\x1f]/.test(orgId)) {
+      // SECURITY (FIND-R50-037): Catch DEL (0x7F) and C1 control chars (0x80-0x9F)
+      if (/[\x00-\x1f\x7f-\x9f]/.test(orgId)) {
         throw new VellavetoError("org_id contains control characters");
       }
     }

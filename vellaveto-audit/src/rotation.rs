@@ -45,8 +45,10 @@ impl AuditLogger {
         }
 
         // Initialize entry count from loaded entries
+        // SECURITY (FIND-R52-AUDIT-002): Use SeqCst for sequence counter to ensure
+        // globally consistent ordering and prevent duplicate sequence numbers.
         self.entry_count
-            .store(entries.len() as u64, Ordering::Relaxed);
+            .store(entries.len() as u64, Ordering::SeqCst);
 
         // Initialize Merkle tree from existing leaf file (if enabled)
         if let Some(ref merkle) = self.merkle_tree {

@@ -12846,3 +12846,472 @@ fn test_workflow_template_terminal_no_successor_denies() {
         "Expected Deny (no successor after terminal), got {v:?}"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// ROUND 50 AUDIT: Additional tests for coverage gaps
+// ═══════════════════════════════════════════════════════════════════════
+
+// FIND-R50-010: ForbiddenActionSequence includes current tool in matching
+#[test]
+fn test_forbidden_action_sequence_detects_current_tool_as_final_step() {
+    // The forbidden sequence is [read_secret, http_request].
+    // When http_request IS the current tool, it should be detected.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["read_secret", "http_request"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    // current tool is http_request, history has read_secret
+    let action = Action::new("http_request", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["read_secret".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (current tool completes forbidden sequence), got {v:?}"
+    );
+}
+
+#[test]
+fn test_forbidden_action_sequence_current_tool_only_partial_allows() {
+    // forbidden: [a, b, c]. history: [a], current tool: b (only 2/3 matched).
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["a", "b", "c"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("b", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["a".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (only 2/3 of forbidden sequence), got {v:?}"
+    );
+}
+
+#[test]
+fn test_forbidden_action_sequence_unordered_includes_current_tool() {
+    // Unordered forbidden: {a, b}. history: [a], current tool: b → deny.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["a", "b"],
+        "ordered": false
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("b", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["a".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (unordered forbidden set complete with current tool), got {v:?}"
+    );
+}
+
+// FIND-R50-011: RequiredActionSequence unordered duplicate multiplicity
+#[test]
+fn test_required_action_sequence_unordered_duplicate_needs_multiple() {
+    // sequence: ["read", "read"], unordered — requires read to appear twice.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["read", "read"],
+        "ordered": false
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write", "execute", json!({}));
+
+    // Only one read → Deny
+    let ctx = EvaluationContext {
+        previous_actions: vec!["read".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (only one read for unordered duplicate), got {v:?}"
+    );
+
+    // Two reads → Allow
+    let ctx2 = EvaluationContext {
+        previous_actions: vec!["read".to_string(), "read".to_string()],
+        ..Default::default()
+    };
+    let v2 = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx2))
+        .unwrap();
+    assert!(
+        matches!(v2, Verdict::Allow),
+        "Expected Allow (two reads for unordered duplicate), got {v2:?}"
+    );
+}
+
+// FIND-R50-012: ForbiddenActionSequence unordered duplicate multiplicity
+#[test]
+fn test_forbidden_action_sequence_unordered_duplicate_needs_multiple() {
+    // forbidden: ["read", "read"], unordered — only deny if read appears twice.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["read", "read"],
+        "ordered": false
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write", "execute", json!({}));
+
+    // Only one read in history (+ current tool "write") → Allow
+    let ctx = EvaluationContext {
+        previous_actions: vec!["read".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (only one read, unordered duplicate forbidden), got {v:?}"
+    );
+
+    // Two reads → Deny
+    let ctx2 = EvaluationContext {
+        previous_actions: vec!["read".to_string(), "read".to_string()],
+        ..Default::default()
+    };
+    let v2 = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx2))
+        .unwrap();
+    assert!(
+        matches!(v2, Verdict::Deny { .. }),
+        "Expected Deny (two reads for unordered duplicate forbidden), got {v2:?}"
+    );
+}
+
+// FIND-R50-052: Boundary test for exactly 20 sequence steps
+#[test]
+fn test_required_action_sequence_compile_exactly_20_steps_succeeds() {
+    let sequence: Vec<String> = (0..20).map(|i| format!("tool_{i}")).collect();
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": sequence,
+        "ordered": true
+    }]));
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_ok(), "Expected 20 steps to compile: {result:?}");
+}
+
+// FIND-R50-053: Boundary test for exactly 50 workflow steps
+#[test]
+fn test_workflow_template_compile_exactly_50_steps_succeeds() {
+    let steps: Vec<serde_json::Value> = (0..50)
+        .map(|i| json!({"tool": format!("tool_{i}"), "then": [format!("tool_{}", i + 100)]}))
+        .collect();
+    let policy = make_workflow_policy(serde_json::Value::Array(steps), "strict");
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_ok(), "Expected 50 steps to compile: {result:?}");
+}
+
+// FIND-R50-055: Test disconnected workflow components
+#[test]
+fn test_workflow_template_disconnected_components() {
+    // Two separate sub-DAGs: a→b, c→d
+    let steps = json!([
+        {"tool": "a", "then": ["b"]},
+        {"tool": "c", "then": ["d"]}
+    ]);
+    let policy = make_workflow_policy(steps, "strict");
+    let engine = make_context_engine(policy);
+
+    // Can start with entry point "a"
+    let action_a = Action::new("a", "execute", json!({}));
+    let ctx_empty = EvaluationContext::default();
+    let v = engine
+        .evaluate_action_with_context(&action_a, &[], Some(&ctx_empty))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow for entry 'a', got {v:?}");
+
+    // Can start with entry point "c"
+    let action_c = Action::new("c", "execute", json!({}));
+    let v2 = engine
+        .evaluate_action_with_context(&action_c, &[], Some(&ctx_empty))
+        .unwrap();
+    assert!(matches!(v2, Verdict::Allow), "Expected Allow for entry 'c', got {v2:?}");
+
+    // After "a", calling "d" (from other component) should be denied
+    let action_d = Action::new("d", "execute", json!({}));
+    let ctx_a = EvaluationContext {
+        previous_actions: vec!["a".to_string()],
+        ..Default::default()
+    };
+    let v3 = engine
+        .evaluate_action_with_context(&action_d, &[], Some(&ctx_a))
+        .unwrap();
+    assert!(
+        matches!(v3, Verdict::Deny { .. }),
+        "Expected Deny (cross-component transition), got {v3:?}"
+    );
+}
+
+// FIND-R50-056: Test single-node workflow
+#[test]
+fn test_workflow_template_single_node() {
+    let steps = json!([{"tool": "a", "then": []}]);
+    let policy = make_workflow_policy(steps, "strict");
+    let engine = make_context_engine(policy);
+
+    // "a" as first governed tool → Allow (entry point)
+    let action_a = Action::new("a", "execute", json!({}));
+    let ctx = EvaluationContext::default();
+    let v = engine
+        .evaluate_action_with_context(&action_a, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow for single entry 'a', got {v:?}");
+
+    // Calling "a" again after "a" → Deny (terminal, no successors)
+    let ctx2 = EvaluationContext {
+        previous_actions: vec!["a".to_string()],
+        ..Default::default()
+    };
+    let v2 = engine
+        .evaluate_action_with_context(&action_a, &[], Some(&ctx2))
+        .unwrap();
+    assert!(
+        matches!(v2, Verdict::Deny { .. }),
+        "Expected Deny (no successor after terminal), got {v2:?}"
+    );
+}
+
+// FIND-R50-059: Repeated matching patterns in history
+#[test]
+fn test_required_action_sequence_repeated_pattern_in_history() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["a", "b"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("c", "execute", json!({}));
+
+    // History has the pattern twice: [a, b, a, b]
+    let ctx = EvaluationContext {
+        previous_actions: vec![
+            "a".to_string(), "b".to_string(),
+            "a".to_string(), "b".to_string(),
+        ],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (repeated pattern), got {v:?}"
+    );
+}
+
+// FIND-R50-062: Test ordered default value (should be true when omitted)
+#[test]
+fn test_required_action_sequence_ordered_defaults_true() {
+    // Omit "ordered" — should default to true (ordered).
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["a", "b"]
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("c", "execute", json!({}));
+
+    // Reversed order → Deny (ordered mode)
+    let ctx = EvaluationContext {
+        previous_actions: vec!["b".to_string(), "a".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (reversed order, default ordered=true), got {v:?}"
+    );
+}
+
+// FIND-R50-063: Test enforce default value (should be "strict" when omitted)
+#[test]
+fn test_workflow_template_enforce_defaults_strict() {
+    // Omit "enforce" — should default to strict.
+    let steps = json!([
+        {"tool": "a", "then": ["b"]}
+    ]);
+    let policy = Policy {
+        id: "*:*".to_string(),
+        name: "workflow-test".to_string(),
+        policy_type: PolicyType::Conditional {
+            conditions: json!({
+                "context_conditions": [{
+                    "type": "workflow_template",
+                    "steps": steps
+                }]
+            }),
+        },
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    };
+    let engine = make_context_engine(policy);
+
+    // Try invalid transition → should Deny (strict is default)
+    let action = Action::new("b", "execute", json!({}));
+    let ctx = EvaluationContext::default();
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (default enforce=strict), got {v:?}"
+    );
+}
+
+// FIND-R50-067: Test control character rejection at compile time
+#[test]
+fn test_required_action_sequence_compile_control_chars_rejected() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["tool_a\x00"],
+        "ordered": true
+    }]));
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for control char in tool name");
+}
+
+#[test]
+fn test_workflow_template_compile_control_chars_rejected() {
+    let steps = json!([{"tool": "tool_a\n", "then": ["b"]}]);
+    let policy = make_workflow_policy(steps, "strict");
+    let result = PolicyEngine::with_policies(false, &[policy]);
+    assert!(result.is_err(), "Expected compile error for control char in workflow tool name");
+}
+
+// FIND-R50-068: Test explicit terminal node (empty then array)
+#[test]
+fn test_workflow_template_explicit_terminal_node() {
+    let steps = json!([
+        {"tool": "a", "then": ["b"]},
+        {"tool": "b", "then": []}
+    ]);
+    let policy = make_workflow_policy(steps, "strict");
+    let engine = make_context_engine(policy);
+
+    // a → b is valid
+    let action_b = Action::new("b", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["a".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action_b, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Expected Allow (a→b valid), got {v:?}");
+
+    // b has no successors → calling "a" after "b" denies
+    let action_a = Action::new("a", "execute", json!({}));
+    let ctx2 = EvaluationContext {
+        previous_actions: vec!["a".to_string(), "b".to_string()],
+        ..Default::default()
+    };
+    let v2 = engine
+        .evaluate_action_with_context(&action_a, &[], Some(&ctx2))
+        .unwrap();
+    assert!(
+        matches!(v2, Verdict::Deny { .. }),
+        "Expected Deny (explicit terminal node), got {v2:?}"
+    );
+}
+
+// FIND-R50-069: Short-history allow for ForbiddenActionSequence
+#[test]
+fn test_forbidden_action_sequence_short_history_allows() {
+    // forbidden: [a, b, c] (3 steps). history: [a, b] (only 2).
+    // Even though a and b match the prefix, the sequence isn't complete → Allow.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["a", "b", "c"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    // current tool is "x" (not "c"), history has prefix [a, b]
+    let action = Action::new("x", "execute", json!({}));
+    let ctx = EvaluationContext {
+        previous_actions: vec!["a".to_string(), "b".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Expected Allow (forbidden sequence incomplete), got {v:?}"
+    );
+}
+
+// FIND-R50-063: EvaluationContext.validate() called at engine boundary
+#[test]
+fn test_evaluation_context_validate_called_at_boundary() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["a"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("test", "execute", json!({}));
+
+    // Create context with oversized previous_actions (> 10,000)
+    let ctx = EvaluationContext {
+        previous_actions: (0..10_001).map(|i| format!("tool_{i}")).collect(),
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (context validation failure), got {v:?}"
+    );
+}
+
+// FIND-R50-064: Previous action entry length validation
+#[test]
+fn test_evaluation_context_validate_action_name_length() {
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "required_action_sequence",
+        "sequence": ["a"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("test", "execute", json!({}));
+
+    // Create context with oversized action name (> 256 bytes)
+    let ctx = EvaluationContext {
+        previous_actions: vec!["a".repeat(257)],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Expected Deny (action name too long), got {v:?}"
+    );
+}

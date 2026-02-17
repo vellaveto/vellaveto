@@ -60,6 +60,21 @@ impl PolicyEngine {
         policy: &Policy,
         strict_mode: bool,
     ) -> Result<CompiledPolicy, PolicyValidationError> {
+        // SECURITY (FIND-R50-065): Validate policy name length to prevent
+        // unboundedly large deny_reason strings derived from policy.name.
+        const MAX_POLICY_NAME_LEN: usize = 256;
+        if policy.name.len() > MAX_POLICY_NAME_LEN {
+            return Err(PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: format!(
+                    "Policy name is {} bytes, max is {}",
+                    policy.name.len(),
+                    MAX_POLICY_NAME_LEN
+                ),
+            });
+        }
+
         let tool_matcher = CompiledToolMatcher::compile(&policy.id);
 
         let CompiledConditions {
@@ -305,6 +320,9 @@ impl PolicyEngine {
             Vec::new()
         };
 
+        // SECURITY (FIND-R50-060): Maximum number of context conditions per policy.
+        const MAX_CONTEXT_CONDITIONS: usize = 50;
+
         // Parse context conditions (session-level checks)
         let context_conditions = if let Some(ctx_arr) = conditions.get("context_conditions") {
             let arr = ctx_arr.as_array().ok_or_else(|| PolicyValidationError {
@@ -312,6 +330,20 @@ impl PolicyEngine {
                 policy_name: policy.name.clone(),
                 reason: "context_conditions must be an array".to_string(),
             })?;
+
+            // SECURITY (FIND-R50-060): Reject excessively large context condition arrays
+            // to prevent memory exhaustion during policy compilation.
+            if arr.len() > MAX_CONTEXT_CONDITIONS {
+                return Err(PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!(
+                        "context_conditions has {} entries, max is {}",
+                        arr.len(),
+                        MAX_CONTEXT_CONDITIONS
+                    ),
+                });
+            }
 
             let mut context_conditions = Vec::with_capacity(arr.len());
             for ctx_val in arr {
@@ -1442,6 +1474,8 @@ impl PolicyEngine {
         is_required: bool,
     ) -> Result<CompiledContextCondition, PolicyValidationError> {
         const MAX_SEQUENCE_STEPS: usize = 20;
+        // SECURITY (FIND-R50-051): Bound tool name length in sequences.
+        const MAX_TOOL_NAME_LEN: usize = 256;
 
         let kind = if is_required {
             "required_action_sequence"
@@ -1502,6 +1536,18 @@ impl PolicyEngine {
                 });
             }
 
+            // SECURITY (FIND-R50-051): Reject excessively long tool names.
+            if s.len() > MAX_TOOL_NAME_LEN {
+                return Err(PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!(
+                        "{kind} sequence[{i}] tool name is {} bytes, max is {MAX_TOOL_NAME_LEN}",
+                        s.len()
+                    ),
+                });
+            }
+
             sequence.push(s.to_ascii_lowercase());
         }
 
@@ -1541,6 +1587,10 @@ impl PolicyEngine {
         use std::collections::{HashMap, HashSet, VecDeque};
 
         const MAX_WORKFLOW_STEPS: usize = 50;
+        // SECURITY (FIND-R50-061): Maximum successors per workflow step.
+        const MAX_SUCCESSORS_PER_STEP: usize = 50;
+        // SECURITY (FIND-R50-051): Maximum tool name length in workflows.
+        const MAX_TOOL_NAME_LEN: usize = 256;
 
         let steps =
             obj.get("steps")
@@ -1627,6 +1677,18 @@ impl PolicyEngine {
                 });
             }
 
+            // SECURITY (FIND-R50-051): Reject excessively long tool names.
+            if tool.len() > MAX_TOOL_NAME_LEN {
+                return Err(PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!(
+                        "workflow_template steps[{i}].tool is {} bytes, max is {MAX_TOOL_NAME_LEN}",
+                        tool.len()
+                    ),
+                });
+            }
+
             let tool_lower = tool.to_ascii_lowercase();
 
             if !seen_tools.insert(tool_lower.clone()) {
@@ -1646,7 +1708,22 @@ impl PolicyEngine {
                     reason: format!("workflow_template steps[{i}] requires a 'then' array"),
                 })?;
 
+            // SECURITY (FIND-R50-061): Reject excessively large successor arrays
+            // to prevent inflated Kahn's algorithm in-degree computation.
+            if then_arr.len() > MAX_SUCCESSORS_PER_STEP {
+                return Err(PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!(
+                        "workflow_template steps[{i}].then has {} entries, max is {MAX_SUCCESSORS_PER_STEP}",
+                        then_arr.len()
+                    ),
+                });
+            }
+
             let mut successors = Vec::with_capacity(then_arr.len());
+            // SECURITY (FIND-R50-068): Track seen successors to deduplicate.
+            let mut seen_successors: HashSet<String> = HashSet::new();
             for (j, v) in then_arr.iter().enumerate() {
                 let s = v.as_str().ok_or_else(|| PolicyValidationError {
                     policy_id: policy.id.clone(),
@@ -1672,7 +1749,24 @@ impl PolicyEngine {
                     });
                 }
 
-                successors.push(s.to_ascii_lowercase());
+                // SECURITY (FIND-R50-051): Reject excessively long tool names.
+                if s.len() > MAX_TOOL_NAME_LEN {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "workflow_template steps[{i}].then[{j}] is {} bytes, max is {MAX_TOOL_NAME_LEN}",
+                            s.len()
+                        ),
+                    });
+                }
+
+                let lowered = s.to_ascii_lowercase();
+                // SECURITY (FIND-R50-068): Silently deduplicate successors to prevent
+                // duplicate entries from inflating Kahn's algorithm in-degree counts.
+                if seen_successors.insert(lowered.clone()) {
+                    successors.push(lowered);
+                }
             }
 
             governed_tools.insert(tool_lower.clone());
@@ -1690,11 +1784,14 @@ impl PolicyEngine {
                 has_predecessor.insert(succ.as_str());
             }
         }
-        let entry_points: Vec<String> = governed_tools
+        // SECURITY (FIND-R50-016): Sort entry points for deterministic ordering
+        // across HashSet iterations, ensuring reproducible policy compilation.
+        let mut entry_points: Vec<String> = governed_tools
             .iter()
             .filter(|t| !has_predecessor.contains(t.as_str()))
             .cloned()
             .collect();
+        entry_points.sort();
 
         if entry_points.is_empty() {
             return Err(PolicyValidationError {

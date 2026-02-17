@@ -4170,7 +4170,7 @@ fn test_federation_status_serde_roundtrip() {
             display_name: "Partner".to_string(),
             issuer_pattern: "https://auth.example.com".to_string(),
             trust_level: "limited".to_string(),
-            jwks_uri: Some("https://keys.example.com/jwks".to_string()),
+            has_jwks_uri: true,
             jwks_cached: true,
             jwks_last_fetched: Some("2026-01-01T00:00:00Z".to_string()),
             identity_mapping_count: 2,
@@ -4225,7 +4225,7 @@ fn test_evaluation_context_validate_call_chain_control_char_agent_id() {
     };
     let err = ctx.validate().unwrap_err();
     assert!(err.contains("call_chain[0].agent_id"));
-    assert!(err.contains("control characters"));
+    assert!(err.contains("control or format characters"));
 }
 
 #[test]
@@ -4243,7 +4243,7 @@ fn test_evaluation_context_validate_call_chain_control_char_tool() {
     };
     let err = ctx.validate().unwrap_err();
     assert!(err.contains("call_chain[0].tool"));
-    assert!(err.contains("control characters"));
+    assert!(err.contains("control or format characters"));
 }
 
 #[test]
@@ -4261,7 +4261,7 @@ fn test_evaluation_context_validate_call_chain_control_char_function() {
     };
     let err = ctx.validate().unwrap_err();
     assert!(err.contains("call_chain[0].function"));
-    assert!(err.contains("control characters"));
+    assert!(err.contains("control or format characters"));
 }
 
 #[test]
@@ -4443,11 +4443,13 @@ fn test_stateless_blob_validate_non_hex_signature_rejected() {
         signature: format!("{}g", "a".repeat(63)),
     };
     let err = blob.validate().unwrap_err();
-    assert!(err.contains("non-hex characters"));
+    assert!(err.contains("lowercase hex"));
 }
 
 #[test]
-fn test_stateless_blob_validate_mixed_case_hex_ok() {
+fn test_stateless_blob_validate_mixed_case_hex_rejected() {
+    // SECURITY (FIND-R52-004): Mixed case hex is now rejected to enforce
+    // canonical representation for consistent comparison.
     let blob = StatelessContextBlob {
         version: 1,
         agent_id: "agent-1".to_string(),
@@ -4457,6 +4459,21 @@ fn test_stateless_blob_validate_mixed_case_hex_ok() {
         risk_score: None,
         issued_at: 1000,
         signature: "aAbBcCdDeEfF0123456789aAbBcCdDeEfF0123456789aAbBcCdDeEfF01234567".to_string(),
+    };
+    assert!(blob.validate().is_err());
+}
+
+#[test]
+fn test_stateless_blob_validate_lowercase_hex_ok() {
+    let blob = StatelessContextBlob {
+        version: 1,
+        agent_id: "agent-1".to_string(),
+        call_counts: HashMap::new(),
+        recent_actions: vec![],
+        call_chain: vec![],
+        risk_score: None,
+        issued_at: 1000,
+        signature: "aabbccddeeff0123456789aabbccddeeff0123456789aabbccddeeff01234567".to_string(),
     };
     assert!(blob.validate().is_ok());
 }
@@ -4663,4 +4680,566 @@ fn test_nhi_delegation_link_empty_timestamps_skip_temporal_check() {
         reason: None,
     };
     assert!(link.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R51-001: Float score [0.0, 1.0] range validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_risk_score_range_rejects_negative() {
+    let rs = RiskScore {
+        score: -0.1,
+        factors: vec![],
+        updated_at: "2026-01-01T00:00:00Z".to_string(),
+    };
+    let err = rs.validate_finite().unwrap_err();
+    assert!(err.contains("must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_risk_score_range_rejects_above_one() {
+    let rs = RiskScore {
+        score: 1.01,
+        factors: vec![],
+        updated_at: "2026-01-01T00:00:00Z".to_string(),
+    };
+    let err = rs.validate_finite().unwrap_err();
+    assert!(err.contains("must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_risk_score_range_accepts_zero() {
+    let rs = RiskScore {
+        score: 0.0,
+        factors: vec![],
+        updated_at: "2026-01-01T00:00:00Z".to_string(),
+    };
+    assert!(rs.validate_finite().is_ok());
+}
+
+#[test]
+fn test_risk_score_range_accepts_one() {
+    let rs = RiskScore {
+        score: 1.0,
+        factors: vec![],
+        updated_at: "2026-01-01T00:00:00Z".to_string(),
+    };
+    assert!(rs.validate_finite().is_ok());
+}
+
+#[test]
+fn test_risk_score_range_accepts_mid() {
+    let rs = RiskScore {
+        score: 0.5,
+        factors: vec![],
+        updated_at: "2026-01-01T00:00:00Z".to_string(),
+    };
+    assert!(rs.validate_finite().is_ok());
+}
+
+#[test]
+fn test_schema_record_trust_score_range_rejects_negative() {
+    let mut sr = SchemaRecord::new("test_tool", "abc123", 100);
+    sr.trust_score = -0.5;
+    let err = sr.validate_finite().unwrap_err();
+    assert!(err.contains("must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_schema_record_trust_score_range_rejects_above_one() {
+    let mut sr = SchemaRecord::new("test_tool", "abc123", 100);
+    sr.trust_score = 1.5;
+    let err = sr.validate_finite().unwrap_err();
+    assert!(err.contains("must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_schema_record_trust_score_range_accepts_valid() {
+    let sr = SchemaRecord::new("test_tool", "abc123", 100);
+    // trust_score starts at 0.0 which is valid
+    assert!(sr.validate_finite().is_ok());
+}
+
+#[test]
+fn test_nhi_behavioral_check_anomaly_score_range_rejects_negative() {
+    let check = NhiBehavioralCheckResult {
+        within_baseline: true,
+        anomaly_score: -0.1,
+        deviations: vec![],
+        recommendation: NhiBehavioralRecommendation::Allow,
+    };
+    let err = check.validate_finite().unwrap_err();
+    assert!(err.contains("must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_nhi_behavioral_check_anomaly_score_range_rejects_above_one() {
+    let check = NhiBehavioralCheckResult {
+        within_baseline: false,
+        anomaly_score: 1.5,
+        deviations: vec![],
+        recommendation: NhiBehavioralRecommendation::Revoke,
+    };
+    let err = check.validate_finite().unwrap_err();
+    assert!(err.contains("must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_nhi_behavioral_check_anomaly_score_range_accepts_valid() {
+    let check = NhiBehavioralCheckResult {
+        within_baseline: true,
+        anomaly_score: 0.75,
+        deviations: vec![],
+        recommendation: NhiBehavioralRecommendation::AllowWithLogging,
+    };
+    assert!(check.validate_finite().is_ok());
+}
+
+#[test]
+fn test_nhi_behavioral_baseline_confidence_range_rejects_negative() {
+    let mut baseline = NhiBehavioralBaseline::default();
+    baseline.confidence = -0.01;
+    let err = baseline.validate_finite().unwrap_err();
+    assert!(err.contains("confidence must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_nhi_behavioral_baseline_confidence_range_rejects_above_one() {
+    let mut baseline = NhiBehavioralBaseline::default();
+    baseline.confidence = 1.001;
+    let err = baseline.validate_finite().unwrap_err();
+    assert!(err.contains("confidence must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_nhi_behavioral_baseline_confidence_range_accepts_valid() {
+    let mut baseline = NhiBehavioralBaseline::default();
+    baseline.confidence = 0.95;
+    assert!(baseline.validate_finite().is_ok());
+}
+
+#[test]
+fn test_memory_entry_trust_score_range_rejects_negative() {
+    let mut entry = MemoryEntry::new(
+        "id-1".to_string(),
+        "fp".to_string(),
+        "test content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    entry.trust_score = -0.5;
+    let err = entry.validate().unwrap_err();
+    assert!(err.contains("trust_score must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_memory_entry_trust_score_range_rejects_above_one() {
+    let mut entry = MemoryEntry::new(
+        "id-1".to_string(),
+        "fp".to_string(),
+        "test content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    entry.trust_score = 2.0;
+    let err = entry.validate().unwrap_err();
+    assert!(err.contains("trust_score must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_memory_entry_trust_score_range_accepts_valid() {
+    let mut entry = MemoryEntry::new(
+        "id-1".to_string(),
+        "fp".to_string(),
+        "test content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    // Set to a valid value without security taint labels
+    entry.taint_labels.clear();
+    entry.trust_score = 0.75;
+    assert!(entry.validate().is_ok());
+}
+
+#[test]
+fn test_unregistered_agent_risk_score_range_rejects_negative() {
+    let agent = UnregisteredAgent {
+        agent_id: "rogue".to_string(),
+        first_seen: "2026-01-01T00:00:00Z".to_string(),
+        last_seen: "2026-01-01T00:00:00Z".to_string(),
+        request_count: 1,
+        tools_used: std::collections::HashSet::new(),
+        risk_score: -0.1,
+    };
+    let err = agent.validate_finite().unwrap_err();
+    assert!(err.contains("must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_unregistered_agent_risk_score_range_rejects_above_one() {
+    let agent = UnregisteredAgent {
+        agent_id: "rogue".to_string(),
+        first_seen: "2026-01-01T00:00:00Z".to_string(),
+        last_seen: "2026-01-01T00:00:00Z".to_string(),
+        request_count: 1,
+        tools_used: std::collections::HashSet::new(),
+        risk_score: 5.0,
+    };
+    let err = agent.validate_finite().unwrap_err();
+    assert!(err.contains("must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_shadow_ai_report_total_risk_score_range_rejects_above_one() {
+    let report = ShadowAiReport {
+        unregistered_agents: vec![],
+        unapproved_tools: vec![],
+        unknown_servers: vec![],
+        total_risk_score: 1.5,
+    };
+    let err = report.validate_finite().unwrap_err();
+    assert!(err.contains("total_risk_score must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_shadow_ai_report_total_risk_score_range_accepts_valid() {
+    let report = ShadowAiReport {
+        unregistered_agents: vec![],
+        unapproved_tools: vec![],
+        unknown_servers: vec![],
+        total_risk_score: 0.3,
+    };
+    assert!(report.validate_finite().is_ok());
+}
+
+#[test]
+fn test_discovered_tool_relevance_score_range_rejects_above_one() {
+    let tool = DiscoveredTool {
+        metadata: ToolMetadata {
+            tool_id: "srv:tool".to_string(),
+            name: "tool".to_string(),
+            description: "desc".to_string(),
+            server_id: "srv".to_string(),
+            input_schema: json!({}),
+            schema_hash: "abc".to_string(),
+            sensitivity: ToolSensitivity::Low,
+            domain_tags: vec![],
+            token_cost: 10,
+        },
+        relevance_score: 1.1,
+        ttl_secs: 60,
+    };
+    let err = tool.validate_finite().unwrap_err();
+    assert!(err.contains("must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_discovered_tool_relevance_score_range_rejects_negative() {
+    let tool = DiscoveredTool {
+        metadata: ToolMetadata {
+            tool_id: "srv:tool".to_string(),
+            name: "tool".to_string(),
+            description: "desc".to_string(),
+            server_id: "srv".to_string(),
+            input_schema: json!({}),
+            schema_hash: "abc".to_string(),
+            sensitivity: ToolSensitivity::Low,
+            domain_tags: vec![],
+            token_cost: 10,
+        },
+        relevance_score: -0.01,
+        ttl_secs: 60,
+    };
+    let err = tool.validate_finite().unwrap_err();
+    assert!(err.contains("must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_discovered_tool_relevance_score_range_accepts_valid() {
+    let tool = DiscoveredTool {
+        metadata: ToolMetadata {
+            tool_id: "srv:tool".to_string(),
+            name: "tool".to_string(),
+            description: "desc".to_string(),
+            server_id: "srv".to_string(),
+            input_schema: json!({}),
+            schema_hash: "abc".to_string(),
+            sensitivity: ToolSensitivity::Low,
+            domain_tags: vec![],
+            token_cost: 10,
+        },
+        relevance_score: 0.85,
+        ttl_secs: 60,
+    };
+    assert!(tool.validate_finite().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R51-002: ToolSignature.is_expired() malformed timestamp handling
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_tool_signature_is_expired_malformed_timestamp_returns_expired() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("9999-99-99T99:99:99Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    // "9999-99-99T99:99:99Z" has invalid month/day/hour/minute/second
+    // Should be treated as expired (fail-closed)
+    assert!(sig.is_expired("2026-01-15T12:00:00Z"));
+}
+
+#[test]
+fn test_tool_signature_is_expired_malformed_now_returns_expired() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("2030-12-31T23:59:59Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    // Malformed `now` timestamp
+    assert!(sig.is_expired("not-a-timestampZZZZ"));
+}
+
+#[test]
+fn test_tool_signature_is_expired_valid_future_not_expired() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("2030-12-31T23:59:59Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    // Valid timestamps, expires_at is in the future
+    assert!(!sig.is_expired("2026-02-15T12:00:00Z"));
+}
+
+#[test]
+fn test_tool_signature_is_expired_valid_past_expired() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("2026-01-15T00:00:00Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    // now is after expires_at
+    assert!(sig.is_expired("2026-02-01T00:00:00Z"));
+}
+
+#[test]
+fn test_tool_signature_is_expired_no_expiry_not_expired() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: None,
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    // No expires_at means it never expires
+    assert!(!sig.is_expired("2030-12-31T23:59:59Z"));
+}
+
+#[test]
+fn test_tool_signature_is_expired_short_timestamp_returns_expired() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("2030-12-31T23:59:59Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    // Too short to be valid
+    assert!(sig.is_expired("2026Z"));
+}
+
+#[test]
+fn test_tool_signature_is_expired_year_before_1970_returns_expired() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("2030-12-31T23:59:59Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    assert!(sig.is_expired("1969-12-31T23:59:59Z"));
+}
+
+#[test]
+fn test_tool_signature_is_expired_month_00_returns_expired() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("2030-12-31T23:59:59Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    assert!(sig.is_expired("2026-00-15T12:00:00Z"));
+}
+
+#[test]
+fn test_tool_signature_is_expired_month_13_returns_expired() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("2030-12-31T23:59:59Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    assert!(sig.is_expired("2026-13-15T12:00:00Z"));
+}
+
+#[test]
+fn test_tool_signature_is_expired_day_00_returns_expired() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("2030-12-31T23:59:59Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    assert!(sig.is_expired("2026-01-00T12:00:00Z"));
+}
+
+#[test]
+fn test_tool_signature_is_expired_day_32_returns_expired() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("2030-12-31T23:59:59Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    assert!(sig.is_expired("2026-01-32T12:00:00Z"));
+}
+
+#[test]
+fn test_tool_signature_is_expired_hour_24_returns_expired() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("2030-12-31T23:59:59Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    assert!(sig.is_expired("2026-01-15T24:00:00Z"));
+}
+
+#[test]
+fn test_tool_signature_is_expired_minute_60_returns_expired() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("2030-12-31T23:59:59Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    assert!(sig.is_expired("2026-01-15T12:60:00Z"));
+}
+
+#[test]
+fn test_tool_signature_is_expired_second_60_returns_expired() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("2030-12-31T23:59:59Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    assert!(sig.is_expired("2026-01-15T12:00:60Z"));
+}
+
+#[test]
+fn test_tool_signature_is_expired_letters_in_digit_positions() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("2030-12-31T23:59:59Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    assert!(sig.is_expired("ABCD-EF-GHTab:cd:efZ"));
+}
+
+#[test]
+fn test_tool_signature_is_expired_malformed_expires_at_returns_expired() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "deadbeef".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pubkey".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("9999-99-99T99:99:99Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    // Even though "9999-99-99T99:99:99Z" > any valid timestamp lexicographically,
+    // the malformed month/day/hour/minute/second should cause fail-closed (expired).
+    assert!(sig.is_expired("2026-02-15T12:00:00Z"));
 }

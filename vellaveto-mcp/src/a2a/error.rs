@@ -60,6 +60,10 @@ pub enum A2aError {
     #[error("DLP violation: {0}")]
     DlpViolation(String),
 
+    /// Response from upstream exceeded maximum allowed size.
+    #[error("Response too large: estimated {size} bytes exceeds maximum {max} bytes")]
+    ResponseTooLarge { size: usize, max: usize },
+
     /// JSON-RPC batch requests are not allowed (security hardening).
     #[error("Batch requests are not allowed")]
     BatchNotAllowed,
@@ -100,6 +104,7 @@ impl A2aError {
             A2aError::Timeout => json_rpc::TIMEOUT as i32,
             A2aError::InjectionDetected(_) => json_rpc::INJECTION_DETECTED as i32,
             A2aError::DlpViolation(_) => json_rpc::DLP_VIOLATION as i32,
+            A2aError::ResponseTooLarge { .. } => json_rpc::MESSAGE_TOO_LARGE as i32,
             A2aError::BatchNotAllowed => json_rpc::BATCH_NOT_ALLOWED as i32,
             A2aError::CircuitBreakerOpen { .. } => json_rpc::CIRCUIT_BREAKER_OPEN as i32,
             A2aError::ShadowAgentDetected(_) => json_rpc::SHADOW_AGENT_DETECTED as i32,

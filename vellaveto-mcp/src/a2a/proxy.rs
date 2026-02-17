@@ -356,14 +356,33 @@ impl A2aProxyService {
     }
 }
 
+/// Maximum response size for A2A responses (16 MB).
+///
+/// SECURITY (FIND-R52-004): Prevents unbounded memory use from `.clone()` on
+/// oversized upstream responses. The request side has `max_message_size` but
+/// the response side previously had no corresponding check.
+const MAX_A2A_RESPONSE_SIZE: usize = 16 * 1024 * 1024;
+
 /// Process an A2A response from the upstream server.
 ///
 /// Scans the response for security issues before returning to the client.
+/// SECURITY (FIND-R52-004): Estimates response size before cloning to prevent
+/// unbounded memory use from oversized upstream responses.
 pub fn process_response(
     response: &Value,
     enable_dlp: bool,
     enable_injection: bool,
 ) -> Result<Value, A2aError> {
+    // SECURITY (FIND-R52-004): Estimate response size before scanning/cloning
+    // to prevent DoS from oversized upstream responses.
+    let estimated_size = response.to_string().len();
+    if estimated_size > MAX_A2A_RESPONSE_SIZE {
+        return Err(A2aError::ResponseTooLarge {
+            size: estimated_size,
+            max: MAX_A2A_RESPONSE_SIZE,
+        });
+    }
+
     let response_texts = extract_response_text_content(response);
 
     if enable_injection {

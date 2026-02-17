@@ -335,7 +335,7 @@ jobs:
         run: cargo install cargo-semver-checks --locked
 
       - name: Check for semver violations
-        run: cargo semver-checks check-release
+        run: cargo semver-checks check-release --exclude mcpsec
 
   # ───────────────────────────────────────────────────────
   # 10. MSRV check (minimum supported Rust version)

@@ -1128,10 +1128,10 @@ async fn tools_list_extracts_annotations_to_session() {
     // Verify annotations were extracted into session
     let session = sessions.get_mut(&session_id).unwrap();
     assert!(
-        session.known_tools.contains_key("file:read"),
+        session.known_tools().contains_key("file:read"),
         "Should have file:read tool annotations"
     );
-    let file_read_ann = &session.known_tools["file:read"];
+    let file_read_ann = &session.known_tools()["file:read"];
     assert!(file_read_ann.read_only_hint);
     assert!(!file_read_ann.destructive_hint);
 }
@@ -1397,7 +1397,7 @@ async fn rug_pull_tool_removal_audited() {
     // Verify 2 tools registered
     {
         let session = sessions.get_mut(&session_id).unwrap();
-        assert_eq!(session.known_tools.len(), 2);
+        assert_eq!(session.known_tools().len(), 2);
         assert!(session.tools_list_seen);
     }
 
@@ -1421,9 +1421,9 @@ async fn rug_pull_tool_removal_audited() {
     // Verify tool was removed from session
     {
         let session = sessions.get_mut(&session_id).unwrap();
-        assert_eq!(session.known_tools.len(), 1, "bash:run should be removed");
-        assert!(session.known_tools.contains_key("file:read"));
-        assert!(!session.known_tools.contains_key("bash:run"));
+        assert_eq!(session.known_tools().len(), 1, "bash:run should be removed");
+        assert!(session.known_tools().contains_key("file:read"));
+        assert!(!session.known_tools().contains_key("bash:run"));
     }
 
     // Verify audit entry for tool removal
@@ -1479,7 +1479,7 @@ async fn rug_pull_tool_addition_audited() {
 
     {
         let session = sessions.get_mut(&session_id).unwrap();
-        assert_eq!(session.known_tools.len(), 1);
+        assert_eq!(session.known_tools().len(), 1);
     }
 
     // Second tools/list — evil_tool added
@@ -1502,8 +1502,8 @@ async fn rug_pull_tool_addition_audited() {
     // Verify new tool is tracked (but flagged)
     {
         let session = sessions.get_mut(&session_id).unwrap();
-        assert_eq!(session.known_tools.len(), 2);
-        assert!(session.known_tools.contains_key("evil_tool"));
+        assert_eq!(session.known_tools().len(), 2);
+        assert!(session.known_tools().contains_key("evil_tool"));
     }
 
     // Verify audit entry for tool addition
@@ -1684,7 +1684,7 @@ async fn rug_pull_annotation_change_blocks_tool_call() {
     {
         let session = sessions.get_mut(&session_id).unwrap();
         assert!(
-            session.flagged_tools.is_empty(),
+            session.flagged_tools().is_empty(),
             "No flags after first list"
         );
     }
@@ -1711,7 +1711,7 @@ async fn rug_pull_annotation_change_blocks_tool_call() {
     {
         let session = sessions.get_mut(&session_id).unwrap();
         assert!(
-            session.flagged_tools.contains("file:read"),
+            session.flagged_tools().contains("file:read"),
             "file:read should be flagged after annotation change"
         );
     }
@@ -1959,11 +1959,11 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
     {
         let session = sessions.get_mut(&session_id).unwrap();
         assert!(
-            session.flagged_tools.contains("evil_tool"),
+            session.flagged_tools().contains("evil_tool"),
             "evil_tool should be flagged"
         );
         assert!(
-            !session.flagged_tools.contains("safe_tool"),
+            !session.flagged_tools().contains("safe_tool"),
             "safe_tool should not be flagged"
         );
     }
