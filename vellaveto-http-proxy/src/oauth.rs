@@ -761,21 +761,42 @@ impl OAuthValidator {
             )));
         }
 
-        // SECURITY (R24-PROXY-2): Bound JWKS response body to prevent OOM
-        // from oversized responses. 1 MB is generous for any legitimate JWKS.
+        // SECURITY (R24-PROXY-2 + FIND-R50-011): Bound JWKS response body to prevent OOM.
+        // Check Content-Length header BEFORE downloading, then read in bounded chunks.
         const MAX_JWKS_BODY_SIZE: usize = 1024 * 1024;
-        let body_bytes = response
-            .bytes()
-            .await
-            .map_err(|e| OAuthError::JwksFetchFailed(format!("body read failed: {}", e)))?;
-        if body_bytes.len() > MAX_JWKS_BODY_SIZE {
-            return Err(OAuthError::JwksFetchFailed(format!(
-                "JWKS response too large ({} bytes, max {} bytes)",
-                body_bytes.len(),
-                MAX_JWKS_BODY_SIZE
-            )));
+
+        if let Some(len) = response.content_length() {
+            if len as usize > MAX_JWKS_BODY_SIZE {
+                return Err(OAuthError::JwksFetchFailed(format!(
+                    "JWKS Content-Length {} exceeds {} byte limit",
+                    len, MAX_JWKS_BODY_SIZE
+                )));
+            }
         }
-        let jwks: JwkSet = serde_json::from_slice(&body_bytes)
+
+        // Read body in chunks with bounded accumulation to handle chunked-encoded
+        // responses that omit Content-Length.
+        let capacity = std::cmp::min(
+            response.content_length().unwrap_or(8192) as usize,
+            MAX_JWKS_BODY_SIZE,
+        );
+        let mut body = Vec::with_capacity(capacity);
+        let mut response = response;
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|e| OAuthError::JwksFetchFailed(format!("body read failed: {}", e)))?
+        {
+            if body.len().saturating_add(chunk.len()) > MAX_JWKS_BODY_SIZE {
+                return Err(OAuthError::JwksFetchFailed(format!(
+                    "JWKS response exceeds {} byte limit",
+                    MAX_JWKS_BODY_SIZE
+                )));
+            }
+            body.extend_from_slice(&chunk);
+        }
+
+        let jwks: JwkSet = serde_json::from_slice(&body)
             .map_err(|e| OAuthError::JwksFetchFailed(format!("invalid JWKS JSON: {}", e)))?;
 
         tracing::info!("Fetched {} keys from JWKS endpoint", jwks.keys.len());

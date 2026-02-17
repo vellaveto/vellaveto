@@ -329,7 +329,12 @@ impl Policy {
         // SECURITY (FIND-R49-003): Reject oversized Conditional conditions to prevent
         // memory exhaustion via deeply nested or excessively large JSON values.
         if let PolicyType::Conditional { ref conditions } = self.policy_type {
-            let serialized = serde_json::to_string(conditions).unwrap_or_default();
+            let serialized = serde_json::to_string(conditions).map_err(|e| {
+                format!(
+                    "Policy '{}' Conditional conditions failed to serialize: {}",
+                    self.id, e
+                )
+            })?;
             if serialized.len() > 65536 {
                 return Err(format!(
                     "Policy '{}' Conditional conditions exceed 65536 bytes (got {})",

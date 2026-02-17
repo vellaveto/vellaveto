@@ -517,6 +517,10 @@ export class VellavetoClient {
       tool: action.tool,
       function: action.function ?? "",
       parameters: action.parameters ?? {},
+      // SECURITY (FIND-R50-003): Include target_paths and target_domains in the
+      // request body, matching the Python and Go SDK behavior.
+      target_paths: action.target_paths ?? [],
+      target_domains: action.target_domains ?? [],
     };
     if (context) {
       body.context = context;

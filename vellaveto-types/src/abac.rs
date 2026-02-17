@@ -63,6 +63,24 @@ pub struct AbacCondition {
     pub value: serde_json::Value,
 }
 
+impl AbacCondition {
+    /// Maximum serialized size of `value` in bytes.
+    pub const MAX_VALUE_SIZE: usize = 8192;
+
+    pub fn validate(&self) -> Result<(), String> {
+        let size = serde_json::to_string(&self.value)
+            .map_err(|e| format!("AbacCondition value serialization failed: {e}"))?
+            .len();
+        if size > Self::MAX_VALUE_SIZE {
+            return Err(format!(
+                "AbacCondition field '{}' value serialized size {} exceeds max {}",
+                self.field, size, Self::MAX_VALUE_SIZE
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// ABAC comparison operators.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -109,6 +127,9 @@ impl AbacPolicy {
                 self.conditions.len(),
                 Self::MAX_CONDITIONS
             ));
+        }
+        for (i, cond) in self.conditions.iter().enumerate() {
+            cond.validate().map_err(|e| format!("conditions[{}]: {}", i, e))?;
         }
         self.principal.validate()?;
         self.action.validate()?;
@@ -343,9 +364,13 @@ impl FederationTrustAnchor {
     /// Maximum number of identity mappings per trust anchor.
     pub const MAX_IDENTITY_MAPPINGS: usize = 64;
 
+    /// Maximum length for issuer_pattern.
+    pub const MAX_ISSUER_PATTERN_LEN: usize = 2048;
+
     /// Validate the trust anchor configuration.
     ///
-    /// Checks: org_id non-empty, issuer_pattern non-empty, jwks_uri scheme,
+    /// Checks: org_id non-empty, issuer_pattern non-empty and bounded,
+    /// issuer_pattern not bare wildcard, jwks_uri scheme and SSRF safety,
     /// trust_level enum, identity_mappings bounds and individual validation.
     pub fn validate(&self) -> Result<(), String> {
         if self.org_id.is_empty() {
@@ -363,13 +388,37 @@ impl FederationTrustAnchor {
                 self.org_id
             ));
         }
+        // SECURITY (FIND-R50-009): Bound issuer_pattern length.
+        if self.issuer_pattern.len() > Self::MAX_ISSUER_PATTERN_LEN {
+            return Err(format!(
+                "FederationTrustAnchor '{}' issuer_pattern length {} exceeds max {}",
+                self.org_id,
+                self.issuer_pattern.len(),
+                Self::MAX_ISSUER_PATTERN_LEN
+            ));
+        }
+        // SECURITY (FIND-R50-009): Reject bare `*` wildcard — it would match
+        // any issuer, which is almost certainly a misconfiguration.
+        if self.issuer_pattern.trim() == "*" {
+            return Err(format!(
+                "FederationTrustAnchor '{}' issuer_pattern must not be a bare '*' wildcard",
+                self.org_id
+            ));
+        }
         if let Some(ref uri) = self.jwks_uri {
+            // SECURITY (FIND-R50-010): Require https:// scheme for JWKS URIs
+            // in production. http:// is only allowed for testing.
             if !uri.starts_with("https://") && !uri.starts_with("http://") {
                 return Err(format!(
                     "FederationTrustAnchor '{}' jwks_uri must use http(s) scheme, got: {}",
                     self.org_id, uri
                 ));
             }
+            // SECURITY (FIND-R50-010): Validate jwks_uri against SSRF —
+            // reject localhost, loopback, link-local, and private IP ranges.
+            Self::validate_jwks_uri_ssrf(uri).map_err(|e| {
+                format!("FederationTrustAnchor '{}' jwks_uri {}", self.org_id, e)
+            })?;
         }
         if !VALID_TRUST_LEVELS.contains(&self.trust_level.as_str()) {
             return Err(format!(
@@ -393,6 +442,93 @@ impl FederationTrustAnchor {
                 )
             })?;
         }
+        Ok(())
+    }
+
+    /// SECURITY (FIND-R50-010): Validate a JWKS URI against SSRF vectors.
+    ///
+    /// Rejects localhost, loopback, link-local, and private IP ranges in the
+    /// host portion of the URI. Follows the same pattern as
+    /// `validate_agent_card_base_url` in vellaveto-mcp.
+    fn validate_jwks_uri_ssrf(uri: &str) -> Result<(), String> {
+        // Extract the scheme-relative portion
+        let after_scheme = if let Some(rest) = uri.strip_prefix("https://") {
+            rest
+        } else if let Some(rest) = uri.strip_prefix("http://") {
+            rest
+        } else {
+            return Err("must use http(s) scheme".to_string());
+        };
+
+        // Extract authority (before first '/')
+        let authority = after_scheme
+            .find('/')
+            .map_or(after_scheme, |i| &after_scheme[..i]);
+
+        // Strip userinfo before '@'
+        let host_portion = match authority.rfind('@') {
+            Some(at) => &authority[at + 1..],
+            None => authority,
+        };
+
+        // Extract host (handle IPv6 brackets and port)
+        let host = if host_portion.starts_with('[') {
+            if let Some(bracket_end) = host_portion.find(']') {
+                host_portion[1..bracket_end].to_lowercase()
+            } else {
+                return Err("malformed IPv6 address (missing ']')".to_string());
+            }
+        } else {
+            let host_end = host_portion
+                .find([':', '/', '?', '#'])
+                .unwrap_or(host_portion.len());
+            host_portion[..host_end].to_lowercase()
+        };
+
+        if host.is_empty() {
+            return Err("has no host".to_string());
+        }
+
+        // Reject localhost/loopback hostnames
+        let loopbacks = ["localhost", "127.0.0.1", "::1", "0.0.0.0"];
+        if loopbacks.iter().any(|lb| host == *lb) {
+            return Err(format!(
+                "must not target localhost/loopback, got '{}'",
+                host
+            ));
+        }
+
+        // Reject private IPv4 ranges
+        if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+            let is_private = ip.is_loopback()
+                || ip.octets()[0] == 10
+                || (ip.octets()[0] == 172 && (ip.octets()[1] & 0xf0) == 16)
+                || (ip.octets()[0] == 192 && ip.octets()[1] == 168)
+                || (ip.octets()[0] == 169 && ip.octets()[1] == 254)
+                || ip.octets()[0] == 0;
+            if is_private {
+                return Err(format!(
+                    "must not target private/internal IPs, got '{}'",
+                    host
+                ));
+            }
+        }
+
+        // Reject private IPv6 ranges
+        if let Ok(ip6) = host.parse::<std::net::Ipv6Addr>() {
+            let segs = ip6.segments();
+            let is_private = ip6.is_loopback()
+                || ip6.is_unspecified()
+                || (segs[0] & 0xfe00) == 0xfc00
+                || (segs[0] & 0xffc0) == 0xfe80;
+            if is_private {
+                return Err(format!(
+                    "must not target private/internal IPv6 ranges, got '{}'",
+                    host
+                ));
+            }
+        }
+
         Ok(())
     }
 }

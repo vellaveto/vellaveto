@@ -57,6 +57,25 @@ pub struct ToolSignature {
 }
 
 impl ToolSignature {
+    /// Maximum serialized size of `rekor_entry` in bytes.
+    pub const MAX_REKOR_ENTRY_SIZE: usize = 65_536;
+
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(ref entry) = self.rekor_entry {
+            let size = serde_json::to_string(entry)
+                .map_err(|e| format!("rekor_entry serialization failed: {e}"))?
+                .len();
+            if size > Self::MAX_REKOR_ENTRY_SIZE {
+                return Err(format!(
+                    "rekor_entry serialized size {} exceeds max {}",
+                    size,
+                    Self::MAX_REKOR_ENTRY_SIZE
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Returns true if the signature has expired.
     ///
     /// SAFETY: Lexicographic comparison is correct for ISO 8601 timestamps

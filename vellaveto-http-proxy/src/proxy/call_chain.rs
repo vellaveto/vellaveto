@@ -136,7 +136,11 @@ pub fn build_audit_context_with_chain(
         if let Value::Object(ref mut ctx_map) = ctx {
             ctx_map.insert(
                 "call_chain".to_string(),
-                serde_json::to_value(call_chain).unwrap_or(Value::Null),
+                // FIND-R50-015: Log serialization failures instead of silently swallowing.
+                serde_json::to_value(call_chain).unwrap_or_else(|e| {
+                    tracing::warn!("call_chain serialization failed: {e}");
+                    Value::Null
+                }),
             );
         }
     }

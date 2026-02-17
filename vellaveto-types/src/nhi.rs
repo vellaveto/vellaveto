@@ -209,6 +209,8 @@ impl NhiBehavioralBaseline {
     pub const MAX_TOOL_CALL_PATTERNS: usize = 10_000;
     /// Maximum typical source IPs.
     pub const MAX_SOURCE_IPS: usize = 1000;
+    /// Maximum entries in `active_hours`.
+    pub const MAX_ACTIVE_HOURS: usize = 24;
 
     /// Validate that all f64 fields are finite (not NaN or Infinity)
     /// and collection sizes are bounded.
@@ -228,6 +230,21 @@ impl NhiBehavioralBaseline {
                 self.typical_source_ips.len(),
                 Self::MAX_SOURCE_IPS
             ));
+        }
+        if self.active_hours.len() > Self::MAX_ACTIVE_HOURS {
+            return Err(format!(
+                "NhiBehavioralBaseline has {} active_hours (max {})",
+                self.active_hours.len(),
+                Self::MAX_ACTIVE_HOURS
+            ));
+        }
+        for (i, &hour) in self.active_hours.iter().enumerate() {
+            if hour > 23 {
+                return Err(format!(
+                    "NhiBehavioralBaseline active_hours[{}] value {} is not a valid hour (0-23)",
+                    i, hour
+                ));
+            }
         }
         for (key, val) in &self.tool_call_patterns {
             if !val.is_finite() {
@@ -429,6 +446,8 @@ pub struct NhiDelegationChain {
 }
 
 impl NhiDelegationChain {
+    pub const MAX_DELEGATION_DEPTH: usize = 20;
+
     /// Returns the current depth of the chain.
     pub fn depth(&self) -> usize {
         self.chain.len()
@@ -436,7 +455,22 @@ impl NhiDelegationChain {
 
     /// Returns true if the chain exceeds the maximum allowed depth.
     pub fn exceeds_max_depth(&self) -> bool {
-        self.chain.len() > self.max_depth
+        let effective_max = self.max_depth.min(Self::MAX_DELEGATION_DEPTH);
+        self.chain.len() > effective_max
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.max_depth > Self::MAX_DELEGATION_DEPTH {
+            return Err(format!(
+                "NhiDelegationChain max_depth {} exceeds maximum allowed {} (capped internally)",
+                self.max_depth,
+                Self::MAX_DELEGATION_DEPTH
+            ));
+        }
+        for link in &self.chain {
+            link.validate()?;
+        }
+        Ok(())
     }
 
     /// Returns the originating agent (first in chain).

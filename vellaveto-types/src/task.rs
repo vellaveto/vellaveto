@@ -106,6 +106,9 @@ pub struct TaskStateTransition {
     pub hash: String,
 }
 
+/// Maximum byte length for individual entries in `state_chain` hashes and `seen_nonces`.
+pub const MAX_ENTRY_LEN: usize = 256;
+
 /// A secure task with encryption and integrity protection.
 ///
 /// Extends `TrackedTask` with:
@@ -113,7 +116,7 @@ pub struct TaskStateTransition {
 /// - Hash chain for tamper detection
 /// - Resume token for authenticated task resumption
 /// - Replay protection via nonces
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct SecureTask {
     /// The underlying tracked task.
     pub task: TrackedTask,
@@ -198,6 +201,67 @@ impl SecureTask {
     pub fn current_sequence(&self) -> u64 {
         self.state_chain.last().map_or(0, |t| t.sequence)
     }
+
+    /// Validate bounds on deserialized data.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.state_chain.len() > MAX_STATE_CHAIN {
+            return Err(format!(
+                "SecureTask state_chain length {} exceeds max {}",
+                self.state_chain.len(),
+                MAX_STATE_CHAIN
+            ));
+        }
+        if self.seen_nonces.len() > MAX_NONCES_CAP {
+            return Err(format!(
+                "SecureTask seen_nonces length {} exceeds max {}",
+                self.seen_nonces.len(),
+                MAX_NONCES_CAP
+            ));
+        }
+        for (i, nonce) in self.seen_nonces.iter().enumerate() {
+            if nonce.len() > MAX_ENTRY_LEN {
+                return Err(format!(
+                    "SecureTask seen_nonces[{}] length {} exceeds max {}",
+                    i,
+                    nonce.len(),
+                    MAX_ENTRY_LEN
+                ));
+            }
+        }
+        for (i, transition) in self.state_chain.iter().enumerate() {
+            if transition.hash.len() > MAX_ENTRY_LEN {
+                return Err(format!(
+                    "SecureTask state_chain[{}].hash length {} exceeds max {}",
+                    i,
+                    transition.hash.len(),
+                    MAX_ENTRY_LEN
+                ));
+            }
+            if transition.prev_hash.len() > MAX_ENTRY_LEN {
+                return Err(format!(
+                    "SecureTask state_chain[{}].prev_hash length {} exceeds max {}",
+                    i,
+                    transition.prev_hash.len(),
+                    MAX_ENTRY_LEN
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for SecureTask {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SecureTask")
+            .field("task", &self.task)
+            .field("encrypted_state", &self.encrypted_state)
+            .field("encryption_nonce", &self.encryption_nonce)
+            .field("state_chain", &self.state_chain)
+            .field("resume_token", &self.resume_token.as_ref().map(|_| "[REDACTED]"))
+            .field("seen_nonces", &self.seen_nonces)
+            .field("max_nonces", &self.max_nonces)
+            .finish()
+    }
 }
 
 /// A checkpoint of task state for verification.
@@ -223,7 +287,7 @@ pub struct TaskCheckpoint {
 }
 
 /// Request to resume a task with authentication.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TaskResumeRequest {
     /// Task ID to resume.
     pub task_id: String,
@@ -234,6 +298,17 @@ pub struct TaskResumeRequest {
     /// Agent ID requesting the resume.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
+}
+
+impl fmt::Debug for TaskResumeRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TaskResumeRequest")
+            .field("task_id", &self.task_id)
+            .field("resume_token", &"[REDACTED]")
+            .field("nonce", &self.nonce)
+            .field("agent_id", &self.agent_id)
+            .finish()
+    }
 }
 
 /// Result of a task resume attempt.

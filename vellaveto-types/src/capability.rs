@@ -91,6 +91,51 @@ pub struct CapabilityGrant {
     pub max_invocations: u64,
 }
 
+impl CapabilityGrant {
+    /// Maximum entries in `allowed_paths` or `allowed_domains`.
+    pub const MAX_ENTRIES: usize = 1000;
+    /// Maximum byte length per path or domain entry.
+    pub const MAX_ENTRY_LEN: usize = 2048;
+
+    pub fn validate(&self) -> Result<(), CapabilityError> {
+        if self.allowed_paths.len() > Self::MAX_ENTRIES {
+            return Err(CapabilityError::ValidationFailed(format!(
+                "allowed_paths count {} exceeds max {}",
+                self.allowed_paths.len(),
+                Self::MAX_ENTRIES
+            )));
+        }
+        if self.allowed_domains.len() > Self::MAX_ENTRIES {
+            return Err(CapabilityError::ValidationFailed(format!(
+                "allowed_domains count {} exceeds max {}",
+                self.allowed_domains.len(),
+                Self::MAX_ENTRIES
+            )));
+        }
+        for (i, p) in self.allowed_paths.iter().enumerate() {
+            if p.len() > Self::MAX_ENTRY_LEN {
+                return Err(CapabilityError::ValidationFailed(format!(
+                    "allowed_paths[{}] length {} exceeds max {}",
+                    i,
+                    p.len(),
+                    Self::MAX_ENTRY_LEN
+                )));
+            }
+        }
+        for (i, d) in self.allowed_domains.iter().enumerate() {
+            if d.len() > Self::MAX_ENTRY_LEN {
+                return Err(CapabilityError::ValidationFailed(format!(
+                    "allowed_domains[{}] length {} exceeds max {}",
+                    i,
+                    d.len(),
+                    Self::MAX_ENTRY_LEN
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Result of verifying a capability token.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapabilityVerification {
@@ -200,6 +245,7 @@ impl CapabilityToken {
                     i
                 )));
             }
+            grant.validate()?;
         }
         // Check serialized size
         let serialized = serde_json::to_string(self).map_err(|e| {

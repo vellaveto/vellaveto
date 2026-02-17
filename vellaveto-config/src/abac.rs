@@ -104,6 +104,11 @@ pub struct FederationConfig {
     /// JWKS HTTP fetch timeout in seconds. Default: 10.
     #[serde(default = "default_jwks_fetch_timeout_secs")]
     pub jwks_fetch_timeout_secs: u64,
+    /// Expected JWT audience for this service. When set, federated tokens
+    /// must include this value in the `aud` claim (FIND-R50-002).
+    /// Prevents cross-service token replay attacks.
+    #[serde(default)]
+    pub expected_audience: Option<String>,
 }
 
 fn default_jwks_cache_ttl_secs() -> u64 {
@@ -121,6 +126,7 @@ impl Default for FederationConfig {
             trust_anchors: Vec::new(),
             jwks_cache_ttl_secs: default_jwks_cache_ttl_secs(),
             jwks_fetch_timeout_secs: default_jwks_fetch_timeout_secs(),
+            expected_audience: None,
         }
     }
 }
@@ -306,12 +312,13 @@ impl AbacConfig {
                 }
             }
 
-            // Validate JWKS cache TTL bounds
-            if self.federation.jwks_cache_ttl_secs < 10
+            // FIND-R50-017: Validate JWKS cache TTL bounds — minimum 60s to prevent
+            // constant refetching that could amplify DoS against the IdP.
+            if self.federation.jwks_cache_ttl_secs < 60
                 || self.federation.jwks_cache_ttl_secs > 86400
             {
                 return Err(format!(
-                    "abac.federation.jwks_cache_ttl_secs must be in [10, 86400], got {}",
+                    "abac.federation.jwks_cache_ttl_secs must be in [60, 86400], got {}",
                     self.federation.jwks_cache_ttl_secs
                 ));
             }

@@ -154,6 +154,76 @@ pub struct DidPlcGenesisOperation {
     pub prev: Option<String>,
 }
 
+impl DidPlcGenesisOperation {
+    /// Maximum entries per vector field.
+    pub const MAX_ENTRIES: usize = 100;
+    /// Maximum byte length per string entry.
+    pub const MAX_ENTRY_LEN: usize = 4096;
+
+    pub fn validate(&self) -> Result<(), DidPlcError> {
+        let fields: &[(&str, &[String])] = &[
+            ("verification_methods", &self.verification_methods),
+            ("also_known_as", &self.also_known_as),
+            ("rotation_keys", &self.rotation_keys),
+        ];
+        for &(name, vec) in fields {
+            if vec.len() > Self::MAX_ENTRIES {
+                return Err(DidPlcError::InvalidFormat(format!(
+                    "{} count {} exceeds max {}",
+                    name,
+                    vec.len(),
+                    Self::MAX_ENTRIES
+                )));
+            }
+            for (i, entry) in vec.iter().enumerate() {
+                if entry.len() > Self::MAX_ENTRY_LEN {
+                    return Err(DidPlcError::InvalidFormat(format!(
+                        "{}[{}] length {} exceeds max {}",
+                        name,
+                        i,
+                        entry.len(),
+                        Self::MAX_ENTRY_LEN
+                    )));
+                }
+            }
+        }
+        if self.services.len() > Self::MAX_ENTRIES {
+            return Err(DidPlcError::InvalidFormat(format!(
+                "services count {} exceeds max {}",
+                self.services.len(),
+                Self::MAX_ENTRIES
+            )));
+        }
+        for (i, svc) in self.services.iter().enumerate() {
+            if svc.id.len() > Self::MAX_ENTRY_LEN {
+                return Err(DidPlcError::InvalidFormat(format!(
+                    "services[{}].id length {} exceeds max {}",
+                    i,
+                    svc.id.len(),
+                    Self::MAX_ENTRY_LEN
+                )));
+            }
+            if svc.service_type.len() > Self::MAX_ENTRY_LEN {
+                return Err(DidPlcError::InvalidFormat(format!(
+                    "services[{}].service_type length {} exceeds max {}",
+                    i,
+                    svc.service_type.len(),
+                    Self::MAX_ENTRY_LEN
+                )));
+            }
+            if svc.endpoint.len() > Self::MAX_ENTRY_LEN {
+                return Err(DidPlcError::InvalidFormat(format!(
+                    "services[{}].endpoint length {} exceeds max {}",
+                    i,
+                    svc.endpoint.len(),
+                    Self::MAX_ENTRY_LEN
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Errors related to DID:PLC operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DidPlcError {

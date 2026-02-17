@@ -117,7 +117,15 @@ pub(super) async fn scan_sse_events_for_injection(
     let events: Vec<&str> = normalized.split("\n\n").collect();
     let mut all_matches: Vec<String> = Vec::new();
 
+    // FIND-R50-016: Cap the number of matches collected. The presence of *any* match
+    // is sufficient for a deny decision; collecting unbounded matches wastes memory.
+    const MAX_INJECTION_MATCHES: usize = 1000;
+
     for event in &events {
+        // FIND-R50-016: Stop scanning once we have enough matches for a deny decision.
+        if all_matches.len() >= MAX_INJECTION_MATCHES {
+            break;
+        }
         // SECURITY (R11-RESP-4): Concatenate all data: lines per event before scanning.
         // SSE spec says multiple data: lines are joined with \n. An attacker can split
         // an injection payload across data: lines to evade per-line scanning.
@@ -305,6 +313,9 @@ pub(super) async fn scan_sse_events_for_injection(
             all_matches.extend(matches);
         }
     }
+
+    // FIND-R50-016: Truncate to cap before logging/auditing.
+    all_matches.truncate(MAX_INJECTION_MATCHES);
 
     let found = !all_matches.is_empty();
     if found {

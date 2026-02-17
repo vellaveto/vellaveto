@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
+use jsonwebtoken::jwk::KeyAlgorithm;
 use jsonwebtoken::{decode_header, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 use vellaveto_config::abac::FederationConfig;
@@ -89,6 +90,21 @@ struct CompiledAnchor {
     failure_count: AtomicU64,
 }
 
+/// Maximum number of extra claims allowed in a federated JWT (FIND-R50-013).
+const MAX_EXTRA_CLAIMS: usize = 50;
+
+/// Maximum serialized size per extra claim value in bytes (FIND-R50-013).
+const MAX_EXTRA_CLAIM_VALUE_BYTES: usize = 8192;
+
+/// Maximum length of a single array element string when extracting claim values (FIND-R50-018).
+const MAX_CLAIM_ELEMENT_LEN: usize = 1024;
+
+/// Maximum total joined length when extracting array claim values (FIND-R50-018).
+const MAX_CLAIM_JOINED_LEN: usize = 8192;
+
+/// Maximum length for a claim value used in template substitution (FIND-R50-005).
+const MAX_TEMPLATE_CLAIM_VALUE_LEN: usize = 1024;
+
 /// JWT claims we extract from federated tokens.
 #[derive(Debug, Deserialize)]
 struct FederatedClaims {
@@ -101,6 +117,34 @@ struct FederatedClaims {
     /// Catch-all for custom claims.
     #[serde(flatten)]
     extra: HashMap<String, serde_json::Value>,
+}
+
+impl FederatedClaims {
+    /// Validate that extra claims are within bounds (FIND-R50-013).
+    ///
+    /// Returns `Err` if there are too many extra claims or any single claim value
+    /// exceeds the serialized size limit.
+    fn validate_extra_claims(&self) -> Result<(), String> {
+        if self.extra.len() > MAX_EXTRA_CLAIMS {
+            return Err(format!(
+                "federated JWT has {} extra claims, max is {}",
+                self.extra.len(),
+                MAX_EXTRA_CLAIMS
+            ));
+        }
+        for (key, value) in &self.extra {
+            let serialized_len = serde_json::to_string(value)
+                .map(|s| s.len())
+                .unwrap_or(0);
+            if serialized_len > MAX_EXTRA_CLAIM_VALUE_BYTES {
+                return Err(format!(
+                    "federated JWT extra claim '{}' is {} bytes, max is {}",
+                    key, serialized_len, MAX_EXTRA_CLAIM_VALUE_BYTES
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Allowed asymmetric JWT algorithms.
@@ -124,11 +168,17 @@ const ALLOWED_ALGORITHMS: &[Algorithm] = &[
 ///
 /// Validates JWTs against configured trust anchors, caches JWKS per-anchor,
 /// and maps external claims to internal `AgentIdentity`.
+/// Maximum JWKS response body size (1 MB).
+const MAX_JWKS_BODY_BYTES: usize = 1_048_576;
+
 pub struct FederationResolver {
     anchors: Vec<Arc<CompiledAnchor>>,
     http_client: reqwest::Client,
     cache_ttl: Duration,
     fetch_timeout: Duration,
+    /// SECURITY (FIND-R50-002): Expected audience for JWT validation.
+    /// When set, federated tokens must include this value in `aud`.
+    expected_audience: Option<String>,
 }
 
 impl FederationResolver {
@@ -149,6 +199,7 @@ impl FederationResolver {
             http_client,
             cache_ttl: Duration::from_secs(config.jwks_cache_ttl_secs),
             fetch_timeout: Duration::from_secs(config.jwks_fetch_timeout_secs),
+            expected_audience: config.expected_audience.clone(),
         })
     }
 
@@ -178,6 +229,10 @@ impl FederationResolver {
             .ok_or_else(|| FederationError::InvalidHeader("missing iss claim".to_string()))?;
 
         // 2. Find matching anchor
+        // SECURITY (FIND-R50-006): The issuer is extracted from the unverified JWT
+        // payload and used ONLY to select from pre-configured trust anchors. The
+        // JWKS URI comes from the anchor config, NOT from the JWT. After signature
+        // verification below, we re-check that the verified issuer still matches.
         let anchor = match self.find_matching_anchor(&issuer) {
             Some(a) => a,
             None => return Ok(None), // No anchor matches — not a federated token
@@ -194,9 +249,18 @@ impl FederationResolver {
         // 4. Validate JWT
         let mut validation = Validation::new(alg);
         validation.validate_exp = true;
+        // SECURITY (FIND-R50-004): Validate nbf claim to reject pre-dated tokens,
+        // matching the local OAuth path behavior.
+        validation.validate_nbf = true;
         validation.set_issuer(&[&issuer]);
-        // Accept any audience — federated tokens may target different audiences
-        validation.validate_aud = false;
+        // SECURITY (FIND-R50-002): When expected_audience is configured, enforce
+        // audience validation to prevent cross-service token replay attacks.
+        if let Some(ref aud) = self.expected_audience {
+            validation.validate_aud = true;
+            validation.set_audience(&[aud]);
+        } else {
+            validation.validate_aud = false;
+        }
         // Allow 60s clock skew
         validation.leeway = 60;
 
@@ -210,6 +274,33 @@ impl FederationResolver {
                     }
                 },
             )?;
+
+        // FIND-R50-013: Validate extra claims are within bounds
+        if let Err(reason) = token_data.claims.validate_extra_claims() {
+            anchor.failure_count.fetch_add(1, Ordering::Relaxed);
+            return Err(FederationError::JwtValidationFailed {
+                org_id: anchor.config.org_id.clone(),
+                source: reason,
+            });
+        }
+
+        // SECURITY (FIND-R50-006): After signature verification, re-check that
+        // the verified token's issuer matches the anchor that was used for key
+        // selection. This prevents an attacker from forging a JWT with issuer A
+        // (to select anchor A's JWKS) while the actual verified token has a
+        // different issuer B.
+        if let Some(ref verified_iss) = token_data.claims.iss {
+            if !issuer_pattern_matches(&anchor.config.issuer_pattern, verified_iss) {
+                anchor.failure_count.fetch_add(1, Ordering::Relaxed);
+                return Err(FederationError::JwtValidationFailed {
+                    org_id: anchor.config.org_id.clone(),
+                    source: format!(
+                        "verified token issuer '{}' does not match anchor pattern '{}'",
+                        verified_iss, anchor.config.issuer_pattern
+                    ),
+                });
+            }
+        }
 
         // 5. Apply identity mappings
         let identity = self.apply_identity_mappings(&anchor, &token_data.claims);
@@ -308,11 +399,18 @@ impl FederationResolver {
         let result = find_key_in_jwks(&jwks, kid, alg, &anchor.config.org_id);
 
         // Update cache
+        // FIND-R50-014: On write-lock poisoning, clear stale/partial cache before writing.
+        // The poisoned guard may contain partially-written data from a panicked thread.
         {
-            let mut cache_guard = anchor
-                .jwks_cache
-                .write()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut cache_guard = anchor.jwks_cache.write().unwrap_or_else(|e| {
+                tracing::warn!(
+                    "JWKS cache write lock poisoned for org '{}'; clearing stale cache",
+                    anchor.config.org_id
+                );
+                let mut guard = e.into_inner();
+                *guard = None; // Clear potentially partial data
+                guard
+            });
             *cache_guard = Some(CachedJwks {
                 keys: jwks,
                 fetched_at: Instant::now(),
@@ -345,20 +443,44 @@ impl FederationResolver {
             });
         }
 
-        let body = resp
-            .bytes()
-            .await
-            .map_err(|e| FederationError::JwksFetchFailed {
+        // SECURITY (FIND-R50-001): Check Content-Length header BEFORE downloading
+        // to prevent OOM from malicious JWKS endpoints serving gigabytes.
+        if let Some(len) = resp.content_length() {
+            if len as usize > MAX_JWKS_BODY_BYTES {
+                return Err(FederationError::JwksFetchFailed {
+                    org_id: org_id.to_string(),
+                    source: format!(
+                        "JWKS Content-Length {} exceeds {} byte limit",
+                        len, MAX_JWKS_BODY_BYTES
+                    ),
+                });
+            }
+        }
+
+        // SECURITY (FIND-R50-001): Read body in chunks with bounded accumulation.
+        // Handles chunked-encoded responses that omit Content-Length.
+        let capacity = std::cmp::min(
+            resp.content_length().unwrap_or(8192) as usize,
+            MAX_JWKS_BODY_BYTES,
+        );
+        let mut body = Vec::with_capacity(capacity);
+        let mut resp = resp;
+        while let Some(chunk) = resp.chunk().await.map_err(|e| {
+            FederationError::JwksFetchFailed {
                 org_id: org_id.to_string(),
                 source: e.to_string(),
-            })?;
-
-        // Limit body size to 1MB
-        if body.len() > 1_048_576 {
-            return Err(FederationError::JwksFetchFailed {
-                org_id: org_id.to_string(),
-                source: "JWKS response exceeds 1MB".to_string(),
-            });
+            }
+        })? {
+            if body.len().saturating_add(chunk.len()) > MAX_JWKS_BODY_BYTES {
+                return Err(FederationError::JwksFetchFailed {
+                    org_id: org_id.to_string(),
+                    source: format!(
+                        "JWKS response exceeds {} byte limit",
+                        MAX_JWKS_BODY_BYTES
+                    ),
+                });
+            }
+            body.extend_from_slice(&chunk);
         }
 
         serde_json::from_slice(&body).map_err(|e| FederationError::JwksFetchFailed {
@@ -395,9 +517,15 @@ impl FederationResolver {
         // Apply each identity mapping
         for mapping in &anchor.config.identity_mappings {
             if let Some(value) = extract_claim_value(claims, &mapping.external_claim) {
+                // SECURITY (FIND-R50-005): Sanitize claim values before template
+                // substitution to prevent template injection and control character
+                // injection. Strip control characters, limit length, and reject
+                // values containing template syntax characters.
+                let sanitized = sanitize_claim_for_template(&value);
+
                 let rendered = mapping
                     .id_template
-                    .replace("{claim_value}", &value)
+                    .replace("{claim_value}", &sanitized)
                     .replace("{org_id}", &anchor.config.org_id);
 
                 identity_claims.insert(
@@ -429,6 +557,28 @@ impl FederationResolver {
 // Helper functions
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/// SECURITY (FIND-R50-005): Sanitize a claim value before template substitution.
+///
+/// - Strips control characters (U+0000..U+001F, U+007F..U+009F)
+/// - Truncates to `MAX_TEMPLATE_CLAIM_VALUE_LEN` bytes
+/// - Strips template syntax characters (`{`, `}`) to prevent nested injection
+fn sanitize_claim_for_template(value: &str) -> String {
+    let sanitized: String = value
+        .chars()
+        .filter(|c| !c.is_control() && *c != '{' && *c != '}')
+        .collect();
+    if sanitized.len() > MAX_TEMPLATE_CLAIM_VALUE_LEN {
+        // Truncate at a char boundary
+        let mut end = MAX_TEMPLATE_CLAIM_VALUE_LEN;
+        while end > 0 && !sanitized.is_char_boundary(end) {
+            end -= 1;
+        }
+        sanitized[..end].to_string()
+    } else {
+        sanitized
+    }
+}
+
 /// Extract a claim value from federated claims. Supports nested dot notation.
 fn extract_claim_value(claims: &FederatedClaims, claim_path: &str) -> Option<String> {
     // Direct fields first
@@ -450,11 +600,30 @@ fn extract_claim_value(claims: &FederatedClaims, claim_path: &str) -> Option<Str
     current.and_then(|v| match v {
         serde_json::Value::String(s) => Some(s.clone()),
         serde_json::Value::Array(arr) => {
-            // Join array elements as comma-separated string
+            // FIND-R50-018: Join array elements with per-element and total length bounds.
+            let mut total_len = 0usize;
             let joined: Vec<String> = arr
                 .iter()
-                .take(64) // Bound iteration
-                .filter_map(|item| item.as_str().map(String::from))
+                .take(64) // Bound iteration count
+                .filter_map(|item| {
+                    item.as_str().map(|s| {
+                        // Cap each element to MAX_CLAIM_ELEMENT_LEN
+                        if s.len() > MAX_CLAIM_ELEMENT_LEN {
+                            s[..MAX_CLAIM_ELEMENT_LEN].to_string()
+                        } else {
+                            s.to_string()
+                        }
+                    })
+                })
+                .take_while(|s| {
+                    // Cap total joined length (including commas)
+                    let added = if total_len == 0 { s.len() } else { s.len() + 1 };
+                    if total_len + added > MAX_CLAIM_JOINED_LEN {
+                        return false;
+                    }
+                    total_len += added;
+                    true
+                })
                 .collect();
             if joined.is_empty() {
                 None
@@ -483,6 +652,9 @@ fn extract_issuer_from_payload(token: &str) -> Option<String> {
 }
 
 /// Simple glob-style issuer pattern matching with `*` wildcards.
+///
+/// SECURITY (FIND-R50-012): Consecutive wildcards (`**`) are collapsed into
+/// a single `*` before matching, and pattern complexity is bounded.
 fn issuer_pattern_matches(pattern: &str, issuer: &str) -> bool {
     if pattern == issuer {
         return true;
@@ -490,8 +662,34 @@ fn issuer_pattern_matches(pattern: &str, issuer: &str) -> bool {
     if !pattern.contains('*') {
         return false;
     }
+
+    // SECURITY (FIND-R50-012): Normalize consecutive wildcards into single `*`.
+    // This prevents patterns like "**" from causing unexpected matching behavior.
+    let normalized: String = {
+        let mut result = String::with_capacity(pattern.len());
+        let mut prev_star = false;
+        for ch in pattern.chars() {
+            if ch == '*' {
+                if !prev_star {
+                    result.push(ch);
+                }
+                prev_star = true;
+            } else {
+                result.push(ch);
+                prev_star = false;
+            }
+        }
+        result
+    };
+
     // Split pattern by `*` and check that all parts appear in order
-    let parts: Vec<&str> = pattern.split('*').collect();
+    let parts: Vec<&str> = normalized.split('*').collect();
+
+    // Bound pattern complexity: reject patterns with more than 10 wildcard segments
+    if parts.len() > 11 {
+        return false;
+    }
+
     let mut remaining = issuer;
     for (i, part) in parts.iter().enumerate() {
         if part.is_empty() {
@@ -520,7 +718,38 @@ fn issuer_pattern_matches(pattern: &str, issuer: &str) -> bool {
     true
 }
 
+/// Convert a JWK `KeyAlgorithm` to a JWT `Algorithm` using explicit matching.
+///
+/// SECURITY (FIND-R50-008): Uses proper enum mapping instead of Debug format
+/// string comparison, which is fragile across library versions.
+///
+/// Returns `None` for encryption-only algorithms that have no signing equivalent.
+fn key_algorithm_to_algorithm(ka: &KeyAlgorithm) -> Option<Algorithm> {
+    match ka {
+        KeyAlgorithm::HS256 => Some(Algorithm::HS256),
+        KeyAlgorithm::HS384 => Some(Algorithm::HS384),
+        KeyAlgorithm::HS512 => Some(Algorithm::HS512),
+        KeyAlgorithm::ES256 => Some(Algorithm::ES256),
+        KeyAlgorithm::ES384 => Some(Algorithm::ES384),
+        KeyAlgorithm::RS256 => Some(Algorithm::RS256),
+        KeyAlgorithm::RS384 => Some(Algorithm::RS384),
+        KeyAlgorithm::RS512 => Some(Algorithm::RS512),
+        KeyAlgorithm::PS256 => Some(Algorithm::PS256),
+        KeyAlgorithm::PS384 => Some(Algorithm::PS384),
+        KeyAlgorithm::PS512 => Some(Algorithm::PS512),
+        KeyAlgorithm::EdDSA => Some(Algorithm::EdDSA),
+        // Encryption-only algorithms have no signing equivalent
+        _ => None,
+    }
+}
+
 /// Find a decoding key in a JWKS set by kid and algorithm.
+///
+/// SECURITY (FIND-R50-007): JWKs without a `kid` field are skipped (not treated
+/// as wildcard matches). A kidless JWK would otherwise match any JWT kid value.
+///
+/// SECURITY (FIND-R50-008): Algorithm matching uses explicit enum mapping via
+/// `key_algorithm_to_algorithm` instead of Debug format string comparison.
 fn find_key_in_jwks(
     jwks: &jsonwebtoken::jwk::JwkSet,
     kid: &str,
@@ -528,28 +757,36 @@ fn find_key_in_jwks(
     org_id: &str,
 ) -> Result<DecodingKey, FederationError> {
     for key in &jwks.keys {
-        let kid_matches = kid.is_empty() || key.common.key_id.as_deref() == Some(kid);
+        // SECURITY (FIND-R50-007): Require JWKs to have a `kid` field.
+        // A JWK without `kid` is skipped — it must not act as a wildcard.
+        match &key.common.key_id {
+            Some(key_kid) => {
+                if !kid.is_empty() && key_kid != kid {
+                    continue; // kid mismatch — skip
+                }
+            }
+            None => {
+                // JWK has no kid — skip it and log a warning
+                tracing::warn!(
+                    org_id = %org_id,
+                    "skipping JWK without kid field in JWKS for org '{}'",
+                    org_id
+                );
+                continue;
+            }
+        }
 
-        if !kid_matches {
-            continue;
+        // SECURITY (FIND-R50-008): Use explicit algorithm mapping, not Debug format.
+        if let Some(ref key_alg) = key.common.key_algorithm {
+            match key_algorithm_to_algorithm(key_alg) {
+                Some(mapped) if &mapped == alg => {} // match — continue to key construction
+                _ => continue,                       // no match or encryption-only — skip
+            }
         }
 
         // Try to build decoding key
         if let Ok(dk) = DecodingKey::from_jwk(key) {
-            // Check algorithm compatibility
-            let alg_matches = key
-                .common
-                .key_algorithm
-                .map(|ka| {
-                    let ka_str = format!("{:?}", ka);
-                    let alg_str = format!("{:?}", alg);
-                    ka_str == alg_str
-                })
-                .unwrap_or(true); // If no algorithm specified, allow any
-
-            if alg_matches {
-                return Ok(dk);
-            }
+            return Ok(dk);
         }
     }
 
@@ -584,6 +821,7 @@ mod tests {
             }],
             jwks_cache_ttl_secs: 300,
             jwks_fetch_timeout_secs: 10,
+            expected_audience: None,
         }
     }
 
@@ -600,6 +838,7 @@ mod tests {
             }],
             jwks_cache_ttl_secs: 300,
             jwks_fetch_timeout_secs: 10,
+            expected_audience: None,
         }
     }
 
@@ -627,6 +866,7 @@ mod tests {
             }],
             jwks_cache_ttl_secs: 300,
             jwks_fetch_timeout_secs: 10,
+            expected_audience: None,
         };
         let client = reqwest::Client::new();
         assert!(FederationResolver::new(&config, client).is_err());
@@ -670,6 +910,30 @@ mod tests {
             "https://auth.acme.com/*",
             "https://auth.evil.com/tenant"
         ));
+    }
+
+    // SECURITY (FIND-R50-012): Consecutive wildcards are collapsed.
+    #[test]
+    fn test_issuer_pattern_consecutive_wildcards_collapsed() {
+        // "**" should behave the same as "*"
+        assert!(issuer_pattern_matches(
+            "https://auth.acme.com/**",
+            "https://auth.acme.com/tenant-1"
+        ));
+        assert!(!issuer_pattern_matches(
+            "https://auth.acme.com/**",
+            "https://auth.evil.com/tenant"
+        ));
+    }
+
+    // SECURITY (FIND-R50-012): Pattern with `*.*` works correctly.
+    #[test]
+    fn test_issuer_pattern_star_dot_star() {
+        assert!(issuer_pattern_matches(
+            "https://*.*",
+            "https://auth.example.com"
+        ));
+        assert!(!issuer_pattern_matches("https://*.*", "https://nosubdomain"));
     }
 
     #[test]
@@ -801,6 +1065,86 @@ mod tests {
         );
     }
 
+    // SECURITY (FIND-R50-005): Template injection via claim values is prevented.
+    #[test]
+    fn test_apply_identity_mappings_sanitizes_control_chars() {
+        let config = test_config();
+        let client = reqwest::Client::new();
+        let resolver = FederationResolver::new(&config, client).expect("valid config");
+        let claims = FederatedClaims {
+            sub: Some("agent\x00\x0A\x0Dinjected".to_string()),
+            iss: Some("https://auth.partner.com".to_string()),
+            email: None,
+            extra: HashMap::new(),
+        };
+        let identity = resolver.apply_identity_mappings(&resolver.anchors[0], &claims);
+        let principal_id = identity
+            .claims
+            .get("principal.id")
+            .and_then(|v| v.as_str())
+            .expect("principal.id must exist");
+        // Control characters should be stripped
+        assert!(!principal_id.contains('\x00'));
+        assert!(!principal_id.contains('\x0A'));
+        assert!(!principal_id.contains('\x0D'));
+        assert!(principal_id.contains("agentinjected"));
+    }
+
+    // SECURITY (FIND-R50-005): Template syntax in claim values is stripped.
+    #[test]
+    fn test_apply_identity_mappings_strips_template_syntax() {
+        let config = test_config();
+        let client = reqwest::Client::new();
+        let resolver = FederationResolver::new(&config, client).expect("valid config");
+        let claims = FederatedClaims {
+            sub: Some("{claim_value}evil{org_id}".to_string()),
+            iss: Some("https://auth.partner.com".to_string()),
+            email: None,
+            extra: HashMap::new(),
+        };
+        let identity = resolver.apply_identity_mappings(&resolver.anchors[0], &claims);
+        let principal_id = identity
+            .claims
+            .get("principal.id")
+            .and_then(|v| v.as_str())
+            .expect("principal.id must exist");
+        // Template braces should be stripped from the claim value
+        assert!(!principal_id.contains('{'));
+        assert!(!principal_id.contains('}'));
+        assert!(principal_id.contains("claim_valueevilorg_id"));
+    }
+
+    // SECURITY (FIND-R50-005): Overly long claim values are truncated.
+    #[test]
+    fn test_sanitize_claim_for_template_truncates_long_values() {
+        let long_value = "a".repeat(2000);
+        let sanitized = sanitize_claim_for_template(&long_value);
+        assert!(sanitized.len() <= MAX_TEMPLATE_CLAIM_VALUE_LEN);
+    }
+
+    // SECURITY (FIND-R50-008): Algorithm mapping uses explicit enum match.
+    #[test]
+    fn test_key_algorithm_to_algorithm_explicit_mapping() {
+        assert_eq!(
+            key_algorithm_to_algorithm(&KeyAlgorithm::RS256),
+            Some(Algorithm::RS256)
+        );
+        assert_eq!(
+            key_algorithm_to_algorithm(&KeyAlgorithm::ES256),
+            Some(Algorithm::ES256)
+        );
+        assert_eq!(
+            key_algorithm_to_algorithm(&KeyAlgorithm::PS256),
+            Some(Algorithm::PS256)
+        );
+        assert_eq!(
+            key_algorithm_to_algorithm(&KeyAlgorithm::EdDSA),
+            Some(Algorithm::EdDSA)
+        );
+        // Encryption-only returns None
+        assert_eq!(key_algorithm_to_algorithm(&KeyAlgorithm::RSA1_5), None);
+    }
+
     #[test]
     fn test_status_reports_anchors() {
         let config = test_config();
@@ -886,6 +1230,7 @@ mod tests {
             }],
             jwks_cache_ttl_secs: 300,
             jwks_fetch_timeout_secs: 10,
+            expected_audience: None,
         };
         let client = reqwest::Client::new();
         let resolver = FederationResolver::new(&config, client).expect("valid config");

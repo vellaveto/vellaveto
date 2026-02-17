@@ -5004,7 +5004,7 @@ fn test_federation_config_validation_ttl_too_low() {
     let mut config = AbacConfig::default();
     config.enabled = true;
     config.federation.enabled = true;
-    config.federation.jwks_cache_ttl_secs = 5; // below min 10
+    config.federation.jwks_cache_ttl_secs = 5; // below min 60 (FIND-R50-017)
     let result = config.validate();
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("jwks_cache_ttl_secs"));
