@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-#### Round 57 Adversarial Audit (100 P4, ~82 fixed)
+#### Round 57 Adversarial Audit (100 P4, ~84 fixed)
 
 - **Code deduplication**: `glob_match`/`glob_match_bytes` extracted into shared `vellaveto-mcp/src/util.rs` from 4 duplicate copies (transparency, extension_registry, capability_token, nl_policy); `html_escape` deduplicated — `dashboard::html_escape` made `pub(crate)`, setup_wizard delegates; `FORWARDED_HEADERS`/`MAX_RESPONSE_BODY_BYTES` centralized in `proxy/mod.rs`; `validate_path_param_core` extracted in routes
 - **thiserror migration**: `AttestationError`, `NamespaceError`, `SamplingDenied` migrated from manual `Display`+`Error` impls to `#[derive(thiserror::Error)]`
@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SDK fixes**: Python `format` → `export_format` parameter in `soc2_access_review`; async client docstrings; TypeScript format validation in `soc2AccessReview`; Go `EvaluateOrError` doc comment
 - **Documentation**: Comprehensive doc comments on `Action`, `Verdict`, `Policy`, `PolicyType`, `McpServer` struct + all handler methods, `ToolSignature` fields, `PermissionTracker` fields, `TransportCircuitStats` fields, `AgentAccumulator` fields, `VersionDriftAlert` fields, `NhiBehavioralDeviation`, `MemorySecurityStats` fields, `NamespaceSharingRequest.approved` tri-state, `TransportAttempt.error`, `projector.rs` module, `routes/mod.rs` module (27 submodules), `is_loopback_addr`, `LimitsConfig` TOML example (all 11 fields)
 - **Config improvements**: `FipsConfig::validate()` checking `signature_algorithm`; `GatewayConfig`/`GrpcTransportConfig` doc comments explaining validation patterns; `LimitsConfig` TOML example updated
+- **Timestamp parsing dedup**: New `vellaveto-types/src/time_util.rs` module with shared `parse_iso8601_secs()`, replacing duplicated ISO 8601 parsing in `minja.rs` (11 new tests)
+- **Rate limiter dedup**: Extracted `governor_check_to_retry_after()` in `vellaveto-server/src/lib.rs`, eliminating ~20 lines of duplicated match arms across `PerIpRateLimiter` and `PerKeyRateLimiter`
 - **Naming fixes**: `_trace` → `trace` in evaluation.rs; `_path` → `path` in setup_wizard; log_trace helper extracted; stale comments updated in schema_poisoning; consistent tracing target
 
 #### Round 56 Adversarial Audit (91 P3, ~72 fixed)
