@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+#### Round 53 Adversarial Audit (2 P0, 8 P1)
+
+- **FIND-R53-P0-1 (P0):** `constant_time_eq` in licensing HMAC verification vulnerable to compiler optimization — `std::hint::black_box` added to accumulator preventing LLVM early-exit optimization
+- **FIND-R53-P0-2 (P0):** `tier_override` silently bypasses license key validation — now logs at `warn!` level with explicit bypass message
+- **FIND-R53-P1-1 (P1):** `LicensingConfig` `derive(Debug)` leaks `license_key` — custom Debug impl redacts to `[REDACTED]`
+- **FIND-R53-P1-2 (P1):** `SystemTime` failure in license expiry sets `now=0` (fail-open: all keys appear valid) — changed to `u64::MAX` (fail-closed: expired)
+- **FIND-R53-P1-3 (P1):** `generate_license_key` exposed as `pub` in non-test builds — restricted to `#[cfg(test)]`
+- **FIND-R53-P1-4 (P1):** Webhook signature timestamp replay attack — added 300s tolerance window for both Paddle and Stripe
+- **FIND-R53-P1-5 (P1):** Billing webhook routes missing rate limiting — rate limiter applied to `/api/billing/paddle/webhook` and `/api/billing/stripe/webhook`
+- **FIND-R53-P1-6 (P1):** `BillingConfig::validate()` and `LicensingConfig::validate()` not wired into `PolicyConfig::validate()` — both now called during config load
+- **FIND-R53-P1-7 (P1):** Landing page missing Content-Security-Policy meta tag — CSP added to Base.astro
+- **FIND-R53-P1-8 (P1):** Email addresses in site HTML not entity-encoded — HTML entity encoding across 3 site files
+- Also: `#[serde(deny_unknown_fields)]` added to `BillingConfig`, `PaddleConfig`, `StripeConfig`, `LicensingConfig`, `TierLimits`
+- Also: `LicensingConfig::validate()` added with license_key length bound (256) and control character rejection (C0/C1/DEL)
+- Also: 9 new edge case tests for licensing validation (null bytes, newlines, tabs, C1 control chars, oversized keys, deny_unknown_fields)
+
 #### Round 52 Adversarial Audit (8 P1, 18 P2, 11 P3)
 
 - **FIND-R52-001 (P1):** `EvaluationContext.previous_actions` missing control character validation — allows ForbiddenActionSequence bypass via null byte injection (`"read_secret\x00"` does not match compiled `"read_secret"`)

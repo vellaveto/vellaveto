@@ -2,10 +2,20 @@
 
 Thank you for your interest in contributing to Vellaveto.
 
+## Contributor License Agreement (CLA)
+
+All contributors must sign the [Individual Contributor License Agreement](CLA.md) before their first contribution can be merged. This is a one-time process.
+
+**Why a CLA?** Vellaveto is dual-licensed (AGPL-3.0 + commercial). The CLA grants the maintainer the right to distribute your contributions under both licenses, enabling the project's sustainability model.
+
+**How to sign:**
+1. **Automatic:** When you open your first pull request, the CLA Assistant bot will prompt you to sign electronically.
+2. **Manual:** Email **paolovella1993@gmail.com** with subject "CLA Signature — Vellaveto" containing your full name, GitHub username, and the statement: "I have read and agree to the Vellaveto Individual Contributor License Agreement."
+
 ## License
 
 Vellaveto is dual-licensed under [AGPL-3.0](LICENSE) and a commercial license.
-By submitting a contribution, you agree to the terms in [LICENSING.md](LICENSING.md).
+By submitting a contribution, you agree to the terms in [LICENSING.md](LICENSING.md) and [CLA.md](CLA.md).
 
 ## Getting Started
 
