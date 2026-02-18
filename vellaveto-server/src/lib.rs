@@ -64,6 +64,22 @@ pub struct RateLimits {
 /// and cannot track new IPs/keys. Asks the client to back off.
 const CAPACITY_EXCEEDED_RETRY_SECS: u64 = 60;
 
+/// Convert a governor rate limiter check result to an optional retry-after duration.
+///
+/// Returns `None` if the request is allowed, or `Some(retry_after_secs)` with
+/// a minimum of 1 second if rate-limited.
+fn governor_check_to_retry_after(
+    result: Result<(), governor::NotUntil<governor::clock::QuantaInstant>>,
+) -> Option<u64> {
+    match result {
+        Ok(()) => None,
+        Err(not_until) => {
+            let wait = not_until.wait_time_from(governor::clock::DefaultClock::default().now());
+            Some(wait.as_secs().max(1))
+        }
+    }
+}
+
 /// Per-IP rate limiter using DashMap for lock-free concurrent access.
 ///
 /// Each unique client IP gets its own governor bucket. Stale entries
@@ -141,28 +157,14 @@ impl PerIpRateLimiter {
         match self.buckets.entry(ip) {
             dashmap::mapref::entry::Entry::Occupied(mut entry) => {
                 entry.get_mut().1 = now;
-                match entry.get().0.check() {
-                    Ok(()) => None,
-                    Err(not_until) => {
-                        let wait = not_until
-                            .wait_time_from(governor::clock::DefaultClock::default().now());
-                        Some(wait.as_secs().max(1))
-                    }
-                }
+                governor_check_to_retry_after(entry.get().0.check())
             }
             dashmap::mapref::entry::Entry::Vacant(vacancy) => {
                 if at_capacity {
                     return Some(CAPACITY_EXCEEDED_RETRY_SECS);
                 }
                 let limiter = RateLimiter::direct(self.quota);
-                let result = match limiter.check() {
-                    Ok(()) => None,
-                    Err(not_until) => {
-                        let wait = not_until
-                            .wait_time_from(governor::clock::DefaultClock::default().now());
-                        Some(wait.as_secs().max(1))
-                    }
-                };
+                let result = governor_check_to_retry_after(limiter.check());
                 vacancy.insert((limiter, now));
                 result
             }
@@ -271,28 +273,14 @@ impl PerKeyRateLimiter {
         match self.buckets.entry(key) {
             dashmap::mapref::entry::Entry::Occupied(mut entry) => {
                 entry.get_mut().1 = now;
-                match entry.get().0.check() {
-                    Ok(()) => None,
-                    Err(not_until) => {
-                        let wait = not_until
-                            .wait_time_from(governor::clock::DefaultClock::default().now());
-                        Some(wait.as_secs().max(1))
-                    }
-                }
+                governor_check_to_retry_after(entry.get().0.check())
             }
             dashmap::mapref::entry::Entry::Vacant(vacancy) => {
                 if at_capacity {
                     return Some(CAPACITY_EXCEEDED_RETRY_SECS);
                 }
                 let limiter = RateLimiter::direct(self.quota);
-                let result = match limiter.check() {
-                    Ok(()) => None,
-                    Err(not_until) => {
-                        let wait = not_until
-                            .wait_time_from(governor::clock::DefaultClock::default().now());
-                        Some(wait.as_secs().max(1))
-                    }
-                };
+                let result = governor_check_to_retry_after(limiter.check());
                 vacancy.insert((limiter, now));
                 result
             }

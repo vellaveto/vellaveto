@@ -16,6 +16,7 @@ pub mod nhi;
 pub mod projector;
 pub mod task;
 pub mod threat;
+pub mod time_util;
 pub mod transport;
 pub mod unicode;
 pub mod verification;

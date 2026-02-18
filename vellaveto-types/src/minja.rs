@@ -266,33 +266,13 @@ impl MemoryEntry {
 
     /// Parse an ISO 8601 timestamp to Unix seconds (approximate).
     ///
+    /// Delegates to the shared `time_util::parse_iso8601_secs` to avoid
+    /// duplicating validation logic across modules.
+    ///
     /// SECURITY (FIND-P1-6): Validates that month >= 1, day >= 1, and
     /// year >= 1970 to prevent underflow in the epoch calculation.
     fn parse_timestamp(ts: &str) -> Option<u64> {
-        // Simplified parsing: YYYY-MM-DDTHH:MM:SSZ
-        if ts.len() < 19 {
-            return None;
-        }
-        let year: u64 = ts.get(0..4)?.parse().ok()?;
-        let month: u64 = ts.get(5..7)?.parse().ok()?;
-        let day: u64 = ts.get(8..10)?.parse().ok()?;
-        let hour: u64 = ts.get(11..13)?.parse().ok()?;
-        let min: u64 = ts.get(14..16)?.parse().ok()?;
-        let sec: u64 = ts.get(17..19)?.parse().ok()?;
-
-        // SECURITY (FIND-P1-6): Reject invalid month/day/year values that
-        // would cause underflow or produce nonsensical results.
-        if year < 1970 || month == 0 || month > 12 || day == 0 || day > 31 {
-            return None;
-        }
-        if hour > 23 || min > 59 || sec > 60 {
-            // sec == 60 is valid for leap seconds in ISO 8601, but > 60 is not
-            return None;
-        }
-
-        // Approximate calculation (ignores leap years, etc.)
-        let days_since_epoch = (year - 1970) * 365 + (month - 1) * 30 + day;
-        Some(days_since_epoch * 86400 + hour * 3600 + min * 60 + sec)
+        crate::time_util::parse_iso8601_secs(ts).ok()
     }
 }
 
