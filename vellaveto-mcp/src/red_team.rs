@@ -283,6 +283,11 @@ impl MutationEngine {
 // Red Team Runner
 // ═══════════════════════════════════════════════════════════════════
 
+/// Maximum number of bypass findings to collect before stopping.
+/// SECURITY (FIND-R55-MCP-005): Prevents unbounded Vec growth when many
+/// payloads bypass policies (e.g., permissive engine configuration).
+const MAX_BYPASS_FINDINGS: usize = 500;
+
 /// Runs mutated attack payloads against a `PolicyEngine` and collects results.
 pub struct RedTeamRunner {
     engine: PolicyEngine,
@@ -417,17 +422,26 @@ impl RedTeamRunner {
                     entry.1 += 1;
                 } else if result.verdict.is_some() {
                     bypassed += 1;
-                    bypass_findings.push(BypassFinding {
-                        original_scenario_id: scenario.id.clone(),
-                        mutation_type: payload
-                            .tags
-                            .iter()
-                            .find(|t| t.starts_with("mutation:"))
-                            .cloned()
-                            .unwrap_or_else(|| "none".to_string()),
-                        payload: payload.clone(),
-                        verdict: result.verdict.unwrap_or_default(),
-                    });
+                    // SECURITY (FIND-R55-MCP-005): Cap bypass findings to prevent
+                    // unbounded Vec growth when many payloads bypass policies.
+                    if bypass_findings.len() >= MAX_BYPASS_FINDINGS {
+                        tracing::warn!(
+                            "Red team bypass findings capped at {}; additional bypasses are counted but not stored",
+                            MAX_BYPASS_FINDINGS
+                        );
+                    } else {
+                        bypass_findings.push(BypassFinding {
+                            original_scenario_id: scenario.id.clone(),
+                            mutation_type: payload
+                                .tags
+                                .iter()
+                                .find(|t| t.starts_with("mutation:"))
+                                .cloned()
+                                .unwrap_or_else(|| "none".to_string()),
+                            payload: payload.clone(),
+                            verdict: result.verdict.unwrap_or_default(),
+                        });
+                    }
                 } else {
                     errors += 1;
                 }

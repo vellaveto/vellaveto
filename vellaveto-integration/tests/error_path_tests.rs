@@ -106,6 +106,8 @@ fn make_test_state(tmp: &TempDir) -> AppState {
                 reason: "test default".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     }
 }
 

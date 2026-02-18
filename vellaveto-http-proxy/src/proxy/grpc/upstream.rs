@@ -13,6 +13,10 @@ use serde_json::Value;
 
 use super::ProxyState;
 
+/// SECURITY (FIND-R55-GRPC-008): Maximum response body size for gRPC-to-HTTP fallback.
+/// Matches the smart_fallback chain's MAX_RESPONSE_BODY_BYTES (16 MB).
+const MAX_GRPC_HTTP_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+
 /// Errors from upstream forwarding.
 #[derive(Debug, thiserror::Error)]
 pub enum UpstreamError {
@@ -90,10 +94,39 @@ impl UpstreamForwarder {
             .map_err(|e| UpstreamError::HttpError(format!("HTTP request failed: {}", e)))?;
 
         let status = response.status();
-        let response_bytes = response
-            .bytes()
+
+        // SECURITY (FIND-R55-GRPC-008): Bounded response body read.
+        // Prevents OOM from oversized upstream responses. Fast-reject via
+        // Content-Length, then chunked accumulation with size check.
+        if let Some(len) = response.content_length() {
+            if len as usize > MAX_GRPC_HTTP_RESPONSE_BYTES {
+                return Err(UpstreamError::HttpError(format!(
+                    "response body too large: {} bytes (max {})",
+                    len, MAX_GRPC_HTTP_RESPONSE_BYTES
+                )));
+            }
+        }
+
+        let capacity = std::cmp::min(
+            response.content_length().unwrap_or(8192) as usize,
+            MAX_GRPC_HTTP_RESPONSE_BYTES,
+        );
+        let mut response_body = Vec::with_capacity(capacity);
+        let mut response_mut = response;
+        while let Some(chunk) = response_mut
+            .chunk()
             .await
-            .map_err(|e| UpstreamError::HttpError(format!("Failed to read response: {}", e)))?;
+            .map_err(|e| UpstreamError::HttpError(format!("Failed to read response chunk: {}", e)))?
+        {
+            if response_body.len() + chunk.len() > MAX_GRPC_HTTP_RESPONSE_BYTES {
+                return Err(UpstreamError::HttpError(format!(
+                    "response body too large: >{} bytes (max {})",
+                    MAX_GRPC_HTTP_RESPONSE_BYTES, MAX_GRPC_HTTP_RESPONSE_BYTES
+                )));
+            }
+            response_body.extend_from_slice(&chunk);
+        }
+        let response_bytes = bytes::Bytes::from(response_body);
 
         if !status.is_success() {
             // Try to parse error body as JSON, fall back to status code

@@ -62,7 +62,7 @@ pub async fn add_policy(
             Json(json!({"error": "Policy id must be non-empty"})),
         );
     }
-    if policy.id.len() > 256 || policy.id.chars().any(|c| c.is_control()) {
+    if policy.id.len() > 256 || policy.id.chars().any(|c| crate::routes::is_unsafe_char(c)) {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "Policy id contains invalid characters or exceeds 256 chars"})),
@@ -76,7 +76,7 @@ pub async fn add_policy(
             Json(json!({"error": "Policy name must be non-empty"})),
         );
     }
-    if policy.name.len() > 256 || policy.name.chars().any(|c| c.is_control()) {
+    if policy.name.len() > 256 || policy.name.chars().any(|c| crate::routes::is_unsafe_char(c)) {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "Policy name contains invalid characters or exceeds 256 chars"})),
@@ -203,7 +203,7 @@ pub async fn remove_policy(
     Path(id): Path<String>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     // SECURITY (R23-SRV-4): Validate the path param (same rules as add_policy).
-    if id.is_empty() || id.len() > 256 || id.chars().any(|c| c.is_control()) {
+    if id.is_empty() || id.len() > 256 || id.chars().any(|c| crate::routes::is_unsafe_char(c)) {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "Invalid policy id"})),

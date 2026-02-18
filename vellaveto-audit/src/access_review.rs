@@ -89,7 +89,7 @@ pub fn generate_access_review(
             continue;
         }
 
-        processed += 1;
+        processed = processed.saturating_add(1);
 
         // Extract agent_id from metadata, falling back to tool name
         let agent_id = entry
@@ -132,8 +132,10 @@ pub fn generate_access_review(
         if acc.session_ids.len() < MAX_PER_AGENT_SET_SIZE {
             acc.session_ids.insert(session_id);
         }
-        acc.total_evaluations += 1;
-        total_evaluations += 1;
+        // SECURITY (FIND-R55-AUDIT-001): Use saturating_add to prevent wrapping overflow
+        // on u64 counters, which could reset counts and produce misleading reports.
+        acc.total_evaluations = acc.total_evaluations.saturating_add(1);
+        total_evaluations = total_evaluations.saturating_add(1);
 
         // Update timestamps
         if entry.timestamp < acc.first_access {
@@ -144,11 +146,21 @@ pub fn generate_access_review(
         }
 
         // Count verdict types
+        // SECURITY (FIND-R55-AUDIT-001): Use saturating_add on all verdict counters.
         match &entry.verdict {
-            vellaveto_types::Verdict::Allow => acc.allow_count += 1,
-            vellaveto_types::Verdict::Deny { .. } => acc.deny_count += 1,
-            vellaveto_types::Verdict::RequireApproval { .. } => acc.require_approval_count += 1,
-            _ => acc.deny_count += 1, // Fail-closed: unknown verdicts count as deny
+            vellaveto_types::Verdict::Allow => {
+                acc.allow_count = acc.allow_count.saturating_add(1);
+            }
+            vellaveto_types::Verdict::Deny { .. } => {
+                acc.deny_count = acc.deny_count.saturating_add(1);
+            }
+            vellaveto_types::Verdict::RequireApproval { .. } => {
+                acc.require_approval_count = acc.require_approval_count.saturating_add(1);
+            }
+            _ => {
+                // Fail-closed: unknown verdicts count as deny
+                acc.deny_count = acc.deny_count.saturating_add(1);
+            }
         }
 
         if acc.tools_accessed.len() < MAX_PER_AGENT_SET_SIZE {
@@ -183,11 +195,20 @@ pub fn generate_access_review(
                 recommendation,
             ) = if let Some(la) = la_report {
                 let rec = format!("{:?}", la.recommendation);
+                // SECURITY (FIND-R55-AUDIT-001): Use saturating_add on recommendation counters.
                 match la.recommendation {
-                    vellaveto_types::AgencyRecommendation::Optimal => optimal_count += 1,
-                    vellaveto_types::AgencyRecommendation::ReviewGrants => review_grants_count += 1,
-                    vellaveto_types::AgencyRecommendation::NarrowScope => narrow_scope_count += 1,
-                    vellaveto_types::AgencyRecommendation::Critical => critical_count += 1,
+                    vellaveto_types::AgencyRecommendation::Optimal => {
+                        optimal_count = optimal_count.saturating_add(1);
+                    }
+                    vellaveto_types::AgencyRecommendation::ReviewGrants => {
+                        review_grants_count = review_grants_count.saturating_add(1);
+                    }
+                    vellaveto_types::AgencyRecommendation::NarrowScope => {
+                        narrow_scope_count = narrow_scope_count.saturating_add(1);
+                    }
+                    vellaveto_types::AgencyRecommendation::Critical => {
+                        critical_count = critical_count.saturating_add(1);
+                    }
                 }
                 (
                     la.granted_permissions,

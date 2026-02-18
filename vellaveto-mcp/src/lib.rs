@@ -76,21 +76,38 @@ pub enum McpError {
     Validation(#[from] ValidationError),
 }
 
+/// Maximum length for McpRequest.id to prevent unbounded allocation.
+/// SECURITY (FIND-R55-MCP-010): Reject requests with IDs longer than this.
+pub const MAX_REQUEST_ID_LENGTH: usize = 256;
+
+// SECURITY (FIND-R55-MCP-001): deny_unknown_fields prevents attacker-injected
+// fields from being silently accepted in deserialized MCP protocol messages.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct McpRequest {
+    /// JSON-RPC protocol version (optional for backward compatibility).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jsonrpc: Option<String>,
     pub id: String,
     pub method: String,
     pub params: serde_json::Value,
 }
 
+// SECURITY (FIND-R55-MCP-001): deny_unknown_fields on MCP protocol messages.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct McpResponse {
+    /// JSON-RPC protocol version (optional for backward compatibility).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jsonrpc: Option<String>,
     pub id: String,
     pub result: Option<serde_json::Value>,
     pub error: Option<McpErrorResponse>,
 }
 
+// SECURITY (FIND-R55-MCP-001): deny_unknown_fields on MCP protocol messages.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct McpErrorResponse {
     pub code: i32,
     pub message: String,
@@ -132,6 +149,16 @@ impl McpServer {
         }
 
         let request: McpRequest = serde_json::from_str(request_data)?;
+
+        // SECURITY (FIND-R55-MCP-010): Reject requests with unbounded IDs to
+        // prevent memory exhaustion and log injection via oversized request IDs.
+        if request.id.len() > MAX_REQUEST_ID_LENGTH {
+            return Err(McpError::InvalidRequest(format!(
+                "Request ID exceeds maximum length of {} bytes",
+                MAX_REQUEST_ID_LENGTH
+            )));
+        }
+
         let response = self.process_request(request).await;
         Ok(serde_json::to_string(&response)?)
     }
@@ -147,11 +174,13 @@ impl McpServer {
 
         match result {
             Ok(value) => McpResponse {
+                jsonrpc: None,
                 id: request.id,
                 result: Some(value),
                 error: None,
             },
             Err(e) => McpResponse {
+                jsonrpc: None,
                 id: request.id,
                 result: None,
                 error: Some(McpErrorResponse {

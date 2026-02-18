@@ -30,10 +30,40 @@ pub struct LeastAgencyTracker {
 }
 
 impl LeastAgencyTracker {
+    /// Sanitize narrow_threshold to [0.0, 1.0], clamping invalid values with a warning.
+    ///
+    /// SECURITY (FIND-R55-CORE-009): NaN/Infinity in narrow_threshold would cause
+    /// `recommend_narrowing()` comparisons to always return false (NaN) or produce
+    /// incorrect results (Infinity), effectively disabling scope narrowing enforcement.
+    fn sanitize_threshold(raw: f64) -> f64 {
+        if !raw.is_finite() {
+            tracing::warn!(
+                raw_value = %raw,
+                "LeastAgencyTracker narrow_threshold is not finite, clamping to 0.0 (fail-closed)"
+            );
+            return 0.0;
+        }
+        if raw < 0.0 {
+            tracing::warn!(
+                raw_value = %raw,
+                "LeastAgencyTracker narrow_threshold is negative, clamping to 0.0"
+            );
+            return 0.0;
+        }
+        if raw > 1.0 {
+            tracing::warn!(
+                raw_value = %raw,
+                "LeastAgencyTracker narrow_threshold exceeds 1.0, clamping to 1.0"
+            );
+            return 1.0;
+        }
+        raw
+    }
+
     /// Create a new tracker with the given narrowing threshold (monitor-only mode).
     pub fn new(narrow_threshold: f64) -> Self {
         Self {
-            narrow_threshold,
+            narrow_threshold: Self::sanitize_threshold(narrow_threshold),
             enforcement_mode: EnforcementMode::Monitor,
             auto_revoke_after_secs: 3600,
             trackers: RwLock::new(HashMap::new()),
@@ -47,7 +77,7 @@ impl LeastAgencyTracker {
         auto_revoke_after_secs: u64,
     ) -> Self {
         Self {
-            narrow_threshold,
+            narrow_threshold: Self::sanitize_threshold(narrow_threshold),
             enforcement_mode,
             auto_revoke_after_secs,
             trackers: RwLock::new(HashMap::new()),

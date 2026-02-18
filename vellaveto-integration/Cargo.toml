@@ -22,6 +22,7 @@ tempfile = "3.0"
 arc-swap = "1"
 axum = "0.8"
 tower = "0.5"
+dashmap = "6"
 
 [dev-dependencies]
 flate2 = "1.1"

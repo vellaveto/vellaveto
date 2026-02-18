@@ -25,6 +25,7 @@ pub enum DeploymentMode {
 /// The leader performs coordination tasks (e.g., audit log rotation,
 /// stale approval expiry) while followers defer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LeaderElectionConfig {
     /// Enable leader election. Default: false.
     #[serde(default)]
@@ -110,6 +111,7 @@ pub enum ServiceDiscoveryMode {
 
 /// Configuration for service discovery.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ServiceDiscoveryConfig {
     /// Discovery mode. Default: Static.
     #[serde(default)]
@@ -229,6 +231,7 @@ pub const MAX_INSTANCE_ID_LEN: usize = 253;
 
 /// Top-level deployment configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DeploymentConfig {
     /// Deployment mode. Default: Standalone.
     #[serde(default)]

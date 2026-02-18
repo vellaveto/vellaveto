@@ -502,7 +502,11 @@ func (c *Client) ProjectorModels(ctx context.Context) (*ProjectorModelsResponse,
 }
 
 // ProjectSchema projects a canonical tool schema for a given model family.
+// SECURITY (FIND-R55-SDK-007): Validates modelFamily is non-empty.
 func (c *Client) ProjectSchema(ctx context.Context, schema CanonicalToolSchema, modelFamily string) (*ProjectorTransformResponse, error) {
+	if strings.TrimSpace(modelFamily) == "" {
+		return nil, fmt.Errorf("vellaveto: modelFamily must not be empty")
+	}
 	reqBody := ProjectorTransformRequest{
 		Schema:      schema,
 		ModelFamily: modelFamily,
@@ -570,6 +574,12 @@ func (c *Client) ZkCommitments(ctx context.Context, from, to uint64) (*ZkCommitm
 func (c *Client) Soc2AccessReview(ctx context.Context, period, format, agentID string) (*AccessReviewReport, error) {
 	if len(agentID) > 128 {
 		return nil, &VellavetoError{Message: "agent_id exceeds max length (128)"}
+	}
+	// SECURITY (FIND-R55-SDK-005): Reject control chars. Parity with FederationTrustAnchors.
+	for _, ch := range agentID {
+		if ch < ' ' || (ch >= 0x7F && ch <= 0x9F) {
+			return nil, &VellavetoError{Message: "agent_id contains control characters"}
+		}
 	}
 	q := url.Values{}
 	if period != "" {

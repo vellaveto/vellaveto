@@ -57,6 +57,7 @@ pub type HmacSha256 = Hmac<Sha256>;
 
 /// Query parameters for POST /mcp.
 #[derive(Debug, serde::Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct McpQueryParams {
     /// When true, include evaluation trace in the response.
     #[serde(default)]

@@ -48,12 +48,15 @@ static GRPC_REQUESTS_TOTAL: AtomicU64 = AtomicU64::new(0);
 static GRPC_MESSAGES_TOTAL: AtomicU64 = AtomicU64::new(0);
 
 fn record_grpc_request() {
-    GRPC_REQUESTS_TOTAL.fetch_add(1, Ordering::Relaxed);
+    // SECURITY (FIND-R55-GRPC-012): SeqCst on security-adjacent metrics counters
+    // to ensure visibility across threads for rate limiting and audit decisions.
+    GRPC_REQUESTS_TOTAL.fetch_add(1, Ordering::SeqCst);
     metrics::counter!("vellaveto_grpc_requests_total").increment(1);
 }
 
 fn record_grpc_message(direction: &str) {
-    GRPC_MESSAGES_TOTAL.fetch_add(1, Ordering::Relaxed);
+    // SECURITY (FIND-R55-GRPC-012): SeqCst on security-adjacent metrics counters.
+    GRPC_MESSAGES_TOTAL.fetch_add(1, Ordering::SeqCst);
     metrics::counter!(
         "vellaveto_grpc_messages_total",
         "direction" => direction.to_string()
@@ -71,12 +74,19 @@ pub(crate) fn grpc_requests_count() -> u64 {
 pub struct McpGrpcService {
     state: Arc<ProxyState>,
     upstream: UpstreamForwarder,
+    /// SECURITY (FIND-R55-GRPC-010): Per-stream message rate limit (messages/sec).
+    /// 0 means unlimited.
+    stream_message_rate_limit: u32,
 }
 
 impl McpGrpcService {
-    pub fn new(state: Arc<ProxyState>) -> Self {
+    pub fn new(state: Arc<ProxyState>, stream_message_rate_limit: u32) -> Self {
         let upstream = UpstreamForwarder::new(state.clone());
-        Self { state, upstream }
+        Self {
+            state,
+            upstream,
+            stream_message_rate_limit,
+        }
     }
 
     /// Evaluate a single JSON-RPC request through the policy pipeline.
@@ -222,6 +232,36 @@ impl McpGrpcService {
                 make_proto_error_response(proto_req, -32600, reason)
             }
             MessageType::PassThrough => {
+                // SECURITY (FIND-R55-GRPC-005): Audit log PassThrough messages.
+                // Parity with HTTP handler (handlers.rs:1731-1757) and WS handler
+                // (websocket/mod.rs:1809-1838). PassThrough bypasses policy evaluation
+                // but must have an audit trail for observability.
+                let method_name = json_req
+                    .get("method")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("unknown");
+                let action = Action::new(
+                    "passthrough",
+                    method_name,
+                    json!({}),
+                );
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Allow,
+                        json!({
+                            "source": "grpc_proxy",
+                            "session": session_id,
+                            "transport": "grpc",
+                            "event": "pass_through_forwarded",
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit gRPC pass-through: {}", e);
+                }
                 self.forward_and_scan(proto_req, &json_req, session_id)
                     .await
             }
@@ -782,10 +822,17 @@ impl McpGrpcService {
             }
         };
 
+        // SECURITY (FIND-R55-GRPC-002): Track whether DLP or injection findings
+        // were detected, to skip memory_tracker recording for tainted responses.
+        // Parity with HTTP handler (inspection.rs:638-641).
+        let mut dlp_found = false;
+        let mut injection_found = false;
+
         // DLP scan response
         if self.state.response_dlp_enabled {
             let dlp_findings = scan_response_for_secrets(&response_json);
             if !dlp_findings.is_empty() {
+                dlp_found = true;
                 for finding in &dlp_findings {
                     record_dlp_finding(&finding.pattern_name);
                 }
@@ -863,6 +910,7 @@ impl McpGrpcService {
                     };
 
                 if !injection_matches.is_empty() {
+                    injection_found = true;
                     tracing::warn!(
                         "SECURITY: Injection in gRPC response! Session: {}, Patterns: {:?}",
                         session_id,
@@ -913,6 +961,16 @@ impl McpGrpcService {
                         );
                     }
                 }
+            }
+        }
+
+        // SECURITY (FIND-R55-GRPC-002): Record response for memory poisoning tracking.
+        // Parity with HTTP handler (inspection.rs:638-641) and WS handler (relay.rs:2398).
+        // Skip recording when injection or DLP findings were detected (even in log-only
+        // mode) to avoid poisoning the tracker with known-malicious data.
+        if !injection_found && !dlp_found {
+            if let Some(mut session) = self.state.sessions.get_mut(session_id) {
+                session.memory_tracker.record_response(&response_json);
             }
         }
 
@@ -1402,12 +1460,53 @@ impl McpService for McpGrpcService {
 
         let state = self.state.clone();
         let upstream = self.upstream.clone();
+        let stream_rate_limit = self.stream_message_rate_limit;
 
         tokio::spawn(async move {
-            let svc = McpGrpcService { state, upstream };
+            let svc = McpGrpcService {
+                state,
+                upstream,
+                stream_message_rate_limit: stream_rate_limit,
+            };
+
+            // SECURITY (FIND-R55-GRPC-010): Per-message rate limiting for streaming RPCs.
+            // Uses a counter-per-second window matching the WS handler's check_rate_limit
+            // (websocket/mod.rs:2507). SeqCst ordering for security-critical counter.
+            let rate_counter = AtomicU64::new(0);
+            let rate_window_start = std::sync::Mutex::new(std::time::Instant::now());
 
             while let Ok(Some(proto_req)) = stream.message().await {
                 record_grpc_message("stream_request");
+
+                // SECURITY (FIND-R55-GRPC-010): Check per-message rate limit.
+                if stream_rate_limit > 0 {
+                    let now = std::time::Instant::now();
+                    let mut start = rate_window_start
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    let within_limit =
+                        if now.duration_since(*start) >= std::time::Duration::from_secs(1) {
+                            *start = now;
+                            rate_counter.store(1, Ordering::SeqCst);
+                            true
+                        } else {
+                            let count = rate_counter.fetch_add(1, Ordering::SeqCst).saturating_add(1);
+                            count <= stream_rate_limit as u64
+                        };
+                    if !within_limit {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            limit = stream_rate_limit,
+                            "SECURITY: gRPC stream rate limit exceeded, closing stream"
+                        );
+                        let _ = tx
+                            .send(Err(Status::resource_exhausted(
+                                "Stream rate limit exceeded",
+                            )))
+                            .await;
+                        break;
+                    }
+                }
 
                 // SECURITY (FIND-R54-GRPC-003): Per-message OAuth token expiry check.
                 {

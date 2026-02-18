@@ -12,6 +12,11 @@ use unicode_normalization::UnicodeNormalization;
 // IMP-002: Use shared max scan depth from scanner_base module.
 use super::scanner_base::MAX_SCAN_DEPTH;
 
+/// Maximum number of injection matches to collect before stopping.
+/// SECURITY (FIND-R55-MCP-002): Prevents unbounded Vec growth when scanning
+/// large payloads with many injection pattern matches.
+const MAX_SCAN_MATCHES: usize = 1000;
+
 /// Default prompt injection patterns for response inspection (OWASP MCP06).
 ///
 /// These patterns are case-insensitively matched against tool response text
@@ -258,11 +263,27 @@ impl InjectionScanner {
             .map(|m| self.patterns[m.pattern().as_usize()].as_str())
             .collect();
 
+        // SECURITY (FIND-R55-MCP-002): Cap collected matches to prevent unbounded growth.
+        if all_matches.len() >= MAX_SCAN_MATCHES {
+            tracing::warn!(
+                "Injection scan matches capped at {} for InjectionScanner::inspect",
+                MAX_SCAN_MATCHES
+            );
+            return all_matches;
+        }
+
         // SECURITY (FIND-075): Also scan with invisible chars fully stripped
         let stripped = sanitize_stripped(text);
         let stripped_lower = stripped.to_lowercase();
         if stripped_lower != lower {
             for m in self.automaton.find_iter(&stripped_lower) {
+                if all_matches.len() >= MAX_SCAN_MATCHES {
+                    tracing::warn!(
+                        "Injection scan matches capped at {} for InjectionScanner::inspect (stripped pass)",
+                        MAX_SCAN_MATCHES
+                    );
+                    return all_matches;
+                }
                 let pattern = self.patterns[m.pattern().as_usize()].as_str();
                 if !all_matches.contains(&pattern) {
                     all_matches.push(pattern);
@@ -274,6 +295,13 @@ impl InjectionScanner {
         if let Some(phonetic_decoded) = decode_phonetic(&lower) {
             let phonetic_lower = phonetic_decoded.to_lowercase();
             for m in self.automaton.find_iter(&phonetic_lower) {
+                if all_matches.len() >= MAX_SCAN_MATCHES {
+                    tracing::warn!(
+                        "Injection scan matches capped at {} for InjectionScanner::inspect (phonetic pass)",
+                        MAX_SCAN_MATCHES
+                    );
+                    return all_matches;
+                }
                 let pattern = self.patterns[m.pattern().as_usize()].as_str();
                 if !all_matches.contains(&pattern) {
                     all_matches.push(pattern);
@@ -285,6 +313,13 @@ impl InjectionScanner {
         if let Some(emoji_decoded) = decode_emoji(&lower) {
             let emoji_lower = emoji_decoded.to_lowercase();
             for m in self.automaton.find_iter(&emoji_lower) {
+                if all_matches.len() >= MAX_SCAN_MATCHES {
+                    tracing::warn!(
+                        "Injection scan matches capped at {} for InjectionScanner::inspect (emoji pass)",
+                        MAX_SCAN_MATCHES
+                    );
+                    return all_matches;
+                }
                 let pattern = self.patterns[m.pattern().as_usize()].as_str();
                 if !all_matches.contains(&pattern) {
                     all_matches.push(pattern);
@@ -309,6 +344,11 @@ impl InjectionScanner {
 
         if let Some(items) = content {
             for item in items {
+                // SECURITY (FIND-R55-MCP-002): Cap scan matches.
+                if all_matches.len() >= MAX_SCAN_MATCHES {
+                    tracing::warn!("Injection scan_response matches capped at {}", MAX_SCAN_MATCHES);
+                    return all_matches;
+                }
                 if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
                     all_matches.extend(self.inspect(text));
                 }
@@ -331,6 +371,12 @@ impl InjectionScanner {
                     all_matches.extend(self.inspect(&raw));
                 }
             }
+        }
+
+        // SECURITY (FIND-R55-MCP-002): Cap scan matches.
+        if all_matches.len() >= MAX_SCAN_MATCHES {
+            tracing::warn!("Injection scan_response matches capped at {}", MAX_SCAN_MATCHES);
+            return all_matches;
         }
 
         // SECURITY (R32-MCP-3): Scan instructionsForUser and _meta
@@ -357,6 +403,10 @@ impl InjectionScanner {
 
         // Scan error fields — injection can be embedded in error messages
         if let Some(error) = response.get("error") {
+            if all_matches.len() >= MAX_SCAN_MATCHES {
+                tracing::warn!("Injection scan_response matches capped at {}", MAX_SCAN_MATCHES);
+                return all_matches;
+            }
             if let Some(message) = error.get("message").and_then(|m| m.as_str()) {
                 all_matches.extend(self.inspect(message));
             }
@@ -386,6 +436,12 @@ impl InjectionScanner {
         // injection scanning must match.
         if let Some(method) = notification.get("method").and_then(|m| m.as_str()) {
             all_matches.extend(self.inspect(method));
+        }
+
+        // SECURITY (FIND-R55-MCP-002): Cap scan matches.
+        if all_matches.len() >= MAX_SCAN_MATCHES {
+            tracing::warn!("Injection scan_notification matches capped at {}", MAX_SCAN_MATCHES);
+            return all_matches;
         }
 
         if let Some(params) = notification.get("params") {
@@ -769,6 +825,15 @@ pub fn inspect_for_injection(text: &str) -> Vec<&'static str> {
         .map(|m| DEFAULT_INJECTION_PATTERNS[m.pattern().as_usize()])
         .collect();
 
+    // SECURITY (FIND-R55-MCP-002): Cap collected matches to prevent unbounded growth.
+    if all_matches.len() >= MAX_SCAN_MATCHES {
+        tracing::warn!(
+            "Injection scan matches capped at {} for inspect_for_injection",
+            MAX_SCAN_MATCHES
+        );
+        return all_matches;
+    }
+
     // SECURITY (FIND-075): Also scan with invisible chars fully stripped (not
     // replaced with space). This catches intra-word evasion like
     // "i\u{200B}g\u{200B}n\u{200B}o\u{200B}r\u{200B}e" → "ignore".
@@ -776,6 +841,13 @@ pub fn inspect_for_injection(text: &str) -> Vec<&'static str> {
     let stripped_lower = stripped.to_lowercase();
     if stripped_lower != lower {
         for m in automaton.find_iter(&stripped_lower) {
+            if all_matches.len() >= MAX_SCAN_MATCHES {
+                tracing::warn!(
+                    "Injection scan matches capped at {} for inspect_for_injection (stripped pass)",
+                    MAX_SCAN_MATCHES
+                );
+                return all_matches;
+            }
             let pattern = DEFAULT_INJECTION_PATTERNS[m.pattern().as_usize()];
             if !all_matches.contains(&pattern) {
                 all_matches.push(pattern);
@@ -787,6 +859,13 @@ pub fn inspect_for_injection(text: &str) -> Vec<&'static str> {
     if let Some(phonetic_decoded) = decode_phonetic(&lower) {
         let phonetic_lower = phonetic_decoded.to_lowercase();
         for m in automaton.find_iter(&phonetic_lower) {
+            if all_matches.len() >= MAX_SCAN_MATCHES {
+                tracing::warn!(
+                    "Injection scan matches capped at {} for inspect_for_injection (phonetic pass)",
+                    MAX_SCAN_MATCHES
+                );
+                return all_matches;
+            }
             let pattern = DEFAULT_INJECTION_PATTERNS[m.pattern().as_usize()];
             if !all_matches.contains(&pattern) {
                 all_matches.push(pattern);
@@ -798,6 +877,13 @@ pub fn inspect_for_injection(text: &str) -> Vec<&'static str> {
     if let Some(emoji_decoded) = decode_emoji(&lower) {
         let emoji_lower = emoji_decoded.to_lowercase();
         for m in automaton.find_iter(&emoji_lower) {
+            if all_matches.len() >= MAX_SCAN_MATCHES {
+                tracing::warn!(
+                    "Injection scan matches capped at {} for inspect_for_injection (emoji pass)",
+                    MAX_SCAN_MATCHES
+                );
+                return all_matches;
+            }
             let pattern = DEFAULT_INJECTION_PATTERNS[m.pattern().as_usize()];
             if !all_matches.contains(&pattern) {
                 all_matches.push(pattern);
@@ -838,8 +924,20 @@ pub fn scan_response_for_injection(response: &serde_json::Value) -> Vec<&'static
     // - result.structuredContent, result.instructionsForUser, result._meta
     // - error.message, error.data
     super::scanner_base::extract_response_text(response, &mut |_location, text| {
+        // SECURITY (FIND-R55-MCP-002): Cap scan matches to prevent unbounded Vec growth.
+        if all_matches.len() >= MAX_SCAN_MATCHES {
+            return;
+        }
         all_matches.extend(inspect_for_injection(text));
     });
+
+    if all_matches.len() >= MAX_SCAN_MATCHES {
+        tracing::warn!(
+            "Injection scan_response_for_injection matches capped at {}",
+            MAX_SCAN_MATCHES
+        );
+        all_matches.truncate(MAX_SCAN_MATCHES);
+    }
 
     all_matches
 }
@@ -871,9 +969,21 @@ pub fn scan_notification_for_injection(notification: &serde_json::Value) -> Vec<
             params,
             "params",
             &mut |_path, text| {
+                // SECURITY (FIND-R55-MCP-002): Cap scan matches to prevent unbounded Vec growth.
+                if all_matches.len() >= MAX_SCAN_MATCHES {
+                    return;
+                }
                 all_matches.extend(inspect_for_injection(text));
             },
         );
+    }
+
+    if all_matches.len() >= MAX_SCAN_MATCHES {
+        tracing::warn!(
+            "Injection scan_notification_for_injection matches capped at {}",
+            MAX_SCAN_MATCHES
+        );
+        all_matches.truncate(MAX_SCAN_MATCHES);
     }
 
     all_matches

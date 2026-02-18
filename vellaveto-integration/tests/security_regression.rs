@@ -425,6 +425,8 @@ mod server_auth {
                     reason: "test default".to_string(),
                 },
             }),
+            setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            wizard_sessions: Arc::new(dashmap::DashMap::new()),
         };
         (state, tmp)
     }
@@ -595,6 +597,8 @@ mod server_auth {
                     reason: "test default".to_string(),
                 },
             }),
+            setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            wizard_sessions: Arc::new(dashmap::DashMap::new()),
         };
         let app = routes::build_router(state);
 
@@ -1232,6 +1236,8 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
                 reason: "test default".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     let app = routes::build_router(state);
@@ -1368,6 +1374,8 @@ async fn finding_12_approval_creation_failure_denies_request() {
                 reason: "test default".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     let app = routes::build_router(state);
@@ -1847,6 +1855,8 @@ async fn find_r46_it003_malformed_json_request_body_rejected() {
                 reason: "test default".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     // Test 1: Completely invalid JSON

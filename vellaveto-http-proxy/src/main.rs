@@ -935,6 +935,7 @@ async fn main() -> Result<()> {
                 max_message_size: args.grpc_max_message_size,
                 upstream_grpc_url: args.upstream_grpc_url.clone(),
                 health_enabled: true,
+                stream_message_rate_limit: 100,
             };
 
             let grpc_state = grpc_proxy_state.clone();

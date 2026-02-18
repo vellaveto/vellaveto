@@ -457,6 +457,95 @@ impl PrincipalContext {
     pub fn is_expired(&self, now: u64) -> bool {
         self.delegation_expires.is_some_and(|exp| now >= exp)
     }
+
+    /// Maximum number of allowed_tools entries.
+    const MAX_ALLOWED_TOOLS: usize = 1000;
+    /// Maximum length for principal/tool name strings (bytes).
+    const MAX_PRINCIPAL_LEN: usize = 256;
+
+    /// Validate structural invariants of a `PrincipalContext`.
+    ///
+    /// SECURITY (FIND-R55-CORE-006): Bounds `allowed_tools` count and per-entry length,
+    /// validates `original_principal` and `delegated_to` for control/format characters
+    /// and length, and validates `expires_at` (if present) is non-zero.
+    pub fn validate(&self) -> Result<(), String> {
+        // Validate original_principal
+        if self.original_principal.is_empty() {
+            return Err("PrincipalContext original_principal must not be empty".to_string());
+        }
+        if self.original_principal.len() > Self::MAX_PRINCIPAL_LEN {
+            return Err(format!(
+                "PrincipalContext original_principal length {} exceeds max {}",
+                self.original_principal.len(),
+                Self::MAX_PRINCIPAL_LEN,
+            ));
+        }
+        if self
+            .original_principal
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "PrincipalContext original_principal contains control or format characters"
+                    .to_string(),
+            );
+        }
+
+        // Validate delegated_to
+        if let Some(ref delegated) = self.delegated_to {
+            if delegated.is_empty() {
+                return Err(
+                    "PrincipalContext delegated_to is present but empty".to_string(),
+                );
+            }
+            if delegated.len() > Self::MAX_PRINCIPAL_LEN {
+                return Err(format!(
+                    "PrincipalContext delegated_to length {} exceeds max {}",
+                    delegated.len(),
+                    Self::MAX_PRINCIPAL_LEN,
+                ));
+            }
+            if delegated
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(
+                    "PrincipalContext delegated_to contains control or format characters"
+                        .to_string(),
+                );
+            }
+        }
+
+        // Validate allowed_tools count and per-entry length
+        if self.allowed_tools.len() > Self::MAX_ALLOWED_TOOLS {
+            return Err(format!(
+                "PrincipalContext allowed_tools has {} entries, max {}",
+                self.allowed_tools.len(),
+                Self::MAX_ALLOWED_TOOLS,
+            ));
+        }
+        for (i, tool) in self.allowed_tools.iter().enumerate() {
+            if tool.len() > Self::MAX_PRINCIPAL_LEN {
+                return Err(format!(
+                    "PrincipalContext allowed_tools[{}] length {} exceeds max {}",
+                    i,
+                    tool.len(),
+                    Self::MAX_PRINCIPAL_LEN,
+                ));
+            }
+        }
+
+        // Validate delegation_expires if present (non-zero guard)
+        if let Some(expires) = self.delegation_expires {
+            if expires == 0 {
+                return Err(
+                    "PrincipalContext delegation_expires must be non-zero if present".to_string(),
+                );
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Statistics for sampling request rate limiting.

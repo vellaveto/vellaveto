@@ -20,6 +20,21 @@ const MAX_TARGETS: usize = 256;
 /// while still bounding memory usage per-action.
 const MAX_PARAMETERS_SIZE: usize = 1_048_576;
 
+/// Returns true if the character is a Unicode format character (category Cf)
+/// that could cause identity confusion or log injection.
+///
+/// SECURITY (FIND-R55-CORE-001): Covers zero-width chars, bidi overrides, and BOM.
+/// Mirrors `EvaluationContext::is_unicode_format_char()` from identity.rs for use
+/// in core validation where EvaluationContext is not accessible.
+pub(crate) fn is_unicode_format_char(c: char) -> bool {
+    matches!(c,
+        '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
+        '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
+        '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
+        '\u{FEFF}'                  // BOM / zero-width no-break space
+    )
+}
+
 /// Validate a single name field (tool or function).
 ///
 /// This is `pub(crate)` intentionally — external callers should use
@@ -46,9 +61,13 @@ pub(crate) fn validate_name(value: &str, field: &'static str) -> Result<(), Vali
     if value.trim().is_empty() {
         return Err(ValidationError::EmptyField { field });
     }
-    // SECURITY (R16-TYPES-1): Use distinct variant for control characters
-    // so error messages accurately describe the issue.
-    if value.chars().any(|c| c.is_control() && c != '\0') {
+    // SECURITY (R16-TYPES-1, FIND-R55-CORE-001): Reject control characters
+    // and Unicode format characters (zero-width, bidi overrides, BOM) that
+    // could cause identity confusion or bypass pattern matching.
+    if value
+        .chars()
+        .any(|c| (c.is_control() && c != '\0') || is_unicode_format_char(c))
+    {
         return Err(ValidationError::ControlCharacter { field });
     }
     Ok(())
@@ -302,23 +321,65 @@ pub struct Policy {
     pub network_rules: Option<NetworkRules>,
 }
 
+/// Maximum length for policy id (bytes).
+/// SECURITY (FIND-R55-CORE-012): Bounds policy identifier length.
+const MAX_POLICY_ID_LEN: usize = 256;
+/// Maximum length for policy name (bytes).
+/// SECURITY (FIND-R55-CORE-012): Bounds policy display name length.
+const MAX_POLICY_NAME_LEN: usize = 512;
+
 impl Policy {
     /// Validate structural invariants of a `Policy`.
     ///
     /// Checks:
-    /// - `id` is not empty
-    /// - `name` is not empty
+    /// - `id` is not empty, max 256 bytes, no control/format chars
+    /// - `name` is not empty, max 512 bytes, no control/format chars
     /// - `priority` is non-negative (>= 0)
     ///
     /// SECURITY (FIND-P2-008): Policies with empty IDs could collide in
     /// lookups; empty names hamper audit legibility; negative priorities
     /// could invert evaluation ordering expectations.
+    /// SECURITY (FIND-R55-CORE-012): Validate id and name for control characters,
+    /// Unicode format characters, and length bounds to prevent log injection
+    /// and memory abuse via oversized policy identifiers.
     pub fn validate(&self) -> Result<(), String> {
         if self.id.is_empty() {
             return Err("Policy id must not be empty".to_string());
         }
+        if self.id.len() > MAX_POLICY_ID_LEN {
+            return Err(format!(
+                "Policy id length {} exceeds max {}",
+                self.id.len(),
+                MAX_POLICY_ID_LEN
+            ));
+        }
+        if self
+            .id
+            .chars()
+            .any(|c| c.is_control() || is_unicode_format_char(c))
+        {
+            return Err("Policy id contains control or format characters".to_string());
+        }
         if self.name.is_empty() {
             return Err(format!("Policy '{}' name must not be empty", self.id));
+        }
+        if self.name.len() > MAX_POLICY_NAME_LEN {
+            return Err(format!(
+                "Policy '{}' name length {} exceeds max {}",
+                self.id,
+                self.name.len(),
+                MAX_POLICY_NAME_LEN
+            ));
+        }
+        if self
+            .name
+            .chars()
+            .any(|c| c.is_control() || is_unicode_format_char(c))
+        {
+            return Err(format!(
+                "Policy '{}' name contains control or format characters",
+                self.id
+            ));
         }
         if self.priority < 0 {
             return Err(format!(

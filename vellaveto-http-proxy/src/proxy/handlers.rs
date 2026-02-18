@@ -261,6 +261,12 @@ pub async fn handle_mcp_post(
         }
     }
 
+    // SECURITY (FIND-R55-HTTP-002): Touch session to update last_activity timestamp
+    // and increment request_count. Parity with GET handler (line 3015) and WS handler.
+    if let Some(mut session) = state.sessions.get_mut(&session_id) {
+        session.touch();
+    }
+
     // OWASP ASI07: Store agent identity in session for context-aware evaluation
     if let Some(ref identity) = agent_identity {
         if let Some(mut session) = state.sessions.get_mut(&session_id) {
@@ -2448,7 +2454,7 @@ pub async fn handle_mcp_post(
                         "id": id,
                         "error": {
                             "code": -32001,
-                            "message": format!("Denied by policy: {}", reason)
+                            "message": "Denied by policy"
                         }
                     });
                     attach_session_header(
@@ -2553,6 +2559,32 @@ pub async fn handle_mcp_delete(
 
             if state.sessions.remove(id) {
                 tracing::info!("Session terminated: {}", id);
+                // SECURITY (FIND-R55-HTTP-004): Audit session termination for SOC 2 CC6.1.
+                {
+                    let audit_action = vellaveto_types::Action {
+                        tool: "session".to_string(),
+                        function: "terminate".to_string(),
+                        parameters: serde_json::Value::Object(serde_json::Map::new()),
+                        target_paths: Vec::new(),
+                        target_domains: Vec::new(),
+                        resolved_ips: Vec::new(),
+                    };
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &audit_action,
+                            &vellaveto_types::Verdict::Allow,
+                            serde_json::json!({
+                                "session_id": id,
+                                "transport": "http",
+                                "event": "session_terminated",
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit session termination: {}", e);
+                    }
+                }
                 // MCP spec: 204 No Content on successful session termination
                 StatusCode::NO_CONTENT.into_response()
             } else {

@@ -81,7 +81,7 @@ pub async fn federation_trust_anchors(
                 }),
             ));
         }
-        if org_id.chars().any(|c| c.is_control()) {
+        if org_id.chars().any(|c| crate::routes::is_unsafe_char(c)) {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {

@@ -128,8 +128,20 @@ impl DiscoveryEngine {
             // Compute schema hash
             let schema_hash = compute_schema_hash(&input_schema);
 
-            // Estimate token cost (rough heuristic: 1 token ≈ 4 chars of JSON)
-            let schema_str = serde_json::to_string(&input_schema).unwrap_or_default();
+            // Estimate token cost (rough heuristic: 1 token ~ 4 chars of JSON)
+            // SECURITY (FIND-R55-MCP-009): Log warning on serialization failure instead
+            // of silently using empty string for token cost estimation.
+            let schema_str = match serde_json::to_string(&input_schema) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!(
+                        "ingest_tools_list: failed to serialize input_schema for token cost of '{}': {}",
+                        name,
+                        e
+                    );
+                    String::new()
+                }
+            };
             let token_cost = (schema_str.len() + name.len() + description.len()) / 4;
 
             let metadata = ToolMetadata {
@@ -187,9 +199,22 @@ pub struct IndexStats {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /// Compute SHA-256 hash of a JSON value (canonical form).
+///
+/// SECURITY (FIND-R55-MCP-009): Logs a warning on serialization failure instead
+/// of silently using an empty string, which would produce identical hashes for
+/// all failing schemas (collision risk).
 fn compute_schema_hash(schema: &Value) -> String {
     use sha2::{Digest, Sha256};
-    let canonical = serde_json::to_string(schema).unwrap_or_default();
+    let canonical = match serde_json::to_string(schema) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(
+                "compute_schema_hash: failed to serialize schema: {}; using empty canonical form",
+                e
+            );
+            String::new()
+        }
+    };
     let hash = Sha256::digest(canonical.as_bytes());
     hex::encode(hash)
 }

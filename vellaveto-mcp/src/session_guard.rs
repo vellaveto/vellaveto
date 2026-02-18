@@ -144,7 +144,10 @@ pub enum SessionGuardError {
 // ═══════════════════════════════════════════════════════════════════
 
 /// Configuration for the session guard.
+// SECURITY (FIND-R55-MCP-003): deny_unknown_fields prevents attacker-injected
+// fields from being silently accepted in security-critical configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SessionGuardConfig {
     /// Anomaly count before transitioning Active→Suspicious.
     #[serde(default = "default_suspicious_threshold")]

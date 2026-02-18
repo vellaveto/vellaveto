@@ -61,7 +61,19 @@ fn extract_json_from_code_block(text: &str) -> Result<Value, ProjectorError> {
     let mut cleaned = text.to_string();
 
     // Remove <think>...</think> blocks
+    // SECURITY (FIND-R55-MCP-007): Bound iteration count to prevent DoS via
+    // crafted input with many nested/repeated <think> tags.
+    const MAX_THINK_TAG_ITERATIONS: usize = 100;
+    let mut think_iterations = 0usize;
     while let Some(start) = cleaned.find("<think>") {
+        think_iterations += 1;
+        if think_iterations > MAX_THINK_TAG_ITERATIONS {
+            tracing::warn!(
+                "extract_json_from_code_block: exceeded {} think-tag removal iterations, breaking",
+                MAX_THINK_TAG_ITERATIONS
+            );
+            break;
+        }
         if let Some(end) = cleaned[start..].find("</think>") {
             let end_abs = start + end + "</think>".len();
             cleaned.replace_range(start..end_abs, "");

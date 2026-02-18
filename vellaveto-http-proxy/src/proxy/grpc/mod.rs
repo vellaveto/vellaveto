@@ -29,7 +29,9 @@ use tokio_util::sync::CancellationToken;
 use super::ProxyState;
 
 /// Configuration for the gRPC transport server.
+/// SECURITY (FIND-R55-GRPC-007): deny_unknown_fields prevents config injection.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GrpcConfig {
     /// Socket address to listen on (default: 127.0.0.1:50051).
     #[serde(default = "default_grpc_addr")]
@@ -47,6 +49,12 @@ pub struct GrpcConfig {
     /// Enable gRPC health checking service (default: true).
     #[serde(default = "default_health_enabled")]
     pub health_enabled: bool,
+
+    /// Maximum messages per second per stream connection (default: 100).
+    /// SECURITY (FIND-R55-GRPC-010): Per-message rate limiting for streaming RPCs.
+    /// Set to 0 for unlimited (not recommended in production).
+    #[serde(default = "default_stream_message_rate_limit")]
+    pub stream_message_rate_limit: u32,
 }
 
 fn default_grpc_addr() -> SocketAddr {
@@ -61,6 +69,10 @@ fn default_health_enabled() -> bool {
     true
 }
 
+fn default_stream_message_rate_limit() -> u32 {
+    100
+}
+
 impl Default for GrpcConfig {
     fn default() -> Self {
         Self {
@@ -68,6 +80,7 @@ impl Default for GrpcConfig {
             max_message_size: default_max_message_size(),
             upstream_grpc_url: None,
             health_enabled: true,
+            stream_message_rate_limit: default_stream_message_rate_limit(),
         }
     }
 }
@@ -87,7 +100,7 @@ pub async fn start_grpc_server(
     use service::McpGrpcService;
 
     let state = Arc::new(state);
-    let svc = McpGrpcService::new(state.clone());
+    let svc = McpGrpcService::new(state.clone(), config.stream_message_rate_limit);
 
     // SECURITY (FIND-R54-001): Wire auth + rate limit interceptors into gRPC server.
     // Previously McpServiceServer::new(svc) was used, making AuthInterceptor and

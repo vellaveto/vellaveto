@@ -6,7 +6,9 @@
 use serde::{Deserialize, Serialize};
 
 /// Configuration for gRPC transport.
+/// SECURITY (FIND-R55-GRPC-007): deny_unknown_fields prevents config injection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GrpcTransportConfig {
     /// Enable the gRPC transport server.
     #[serde(default)]

@@ -537,6 +537,17 @@ export class VellavetoClient {
     ) {
       throw new VellavetoError("action.parameters must be an object if provided");
     }
+    // SECURITY (FIND-R55-SDK-006): Bound target_paths/target_domains count. Parity with Go SDK (100).
+    if (action.target_paths && action.target_paths.length > 100) {
+      throw new VellavetoError(
+        `action.target_paths has ${action.target_paths.length} entries, max 100`
+      );
+    }
+    if (action.target_domains && action.target_domains.length > 100) {
+      throw new VellavetoError(
+        `action.target_domains has ${action.target_domains.length} entries, max 100`
+      );
+    }
     const path = trace ? "/api/evaluate?trace=true" : "/api/evaluate";
     const body: Record<string, unknown> = {
       tool: action.tool,
@@ -773,6 +784,10 @@ export class VellavetoClient {
     schema: CanonicalToolSchema,
     modelFamily: string
   ): Promise<ProjectorTransformResponse> {
+    // SECURITY (FIND-R55-SDK-007): Validate model_family non-empty.
+    if (typeof modelFamily !== "string" || modelFamily.trim().length === 0) {
+      throw new VellavetoError("modelFamily must be a non-empty string");
+    }
     const body = {
       schema,
       model_family: modelFamily,
@@ -840,6 +855,10 @@ export class VellavetoClient {
     if (agentId) {
       if (agentId.length > 128) {
         throw new VellavetoError("agent_id exceeds max length (128)");
+      }
+      // SECURITY (FIND-R55-SDK-004): Reject control chars. Parity with federationTrustAnchors.
+      if (/[\x00-\x1f\x7f-\x9f]/.test(agentId)) {
+        throw new VellavetoError("agent_id contains control characters");
       }
       params.set("agent_id", agentId);
     }

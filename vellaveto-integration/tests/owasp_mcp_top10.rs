@@ -939,6 +939,8 @@ mod owasp_mcp07_auth {
                     reason: "test default".to_string(),
                 },
             }),
+            setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            wizard_sessions: Arc::new(dashmap::DashMap::new()),
         };
         (state, tmp)
     }
@@ -1381,6 +1383,8 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
                     reason: "test default".to_string(),
                 },
             }),
+            setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            wizard_sessions: Arc::new(dashmap::DashMap::new()),
         };
 
         let app = routes::build_router(state);
@@ -1674,6 +1678,8 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
                 reason: "test default".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1918,6 +1924,8 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
                 reason: "test default".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

@@ -41,7 +41,7 @@ fn validate_approval_id(id: &str) -> Result<(), (StatusCode, Json<ErrorResponse>
         ));
     }
     // SECURITY (R16-APPR-2): Reject control characters in approval IDs
-    if id.chars().any(|c| c.is_control()) {
+    if id.chars().any(|c| crate::routes::is_unsafe_char(c)) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
@@ -56,7 +56,10 @@ fn validate_approval_id(id: &str) -> Result<(), (StatusCode, Json<ErrorResponse>
 /// SECURITY (R16-APPR-2): Prevents stored XSS via audit trail if
 /// rendered in a web UI, and prevents log injection with newlines/tabs.
 fn sanitize_resolved_by(value: &str) -> String {
-    value.chars().filter(|c| !c.is_control()).collect()
+    value
+        .chars()
+        .filter(|c| !crate::routes::is_unsafe_char(*c))
+        .collect()
 }
 
 /// Derive the resolver identity from the authenticated principal.
@@ -83,7 +86,7 @@ pub fn derive_resolver_identity(headers: &HeaderMap, client_value: &str) -> Stri
                     // to prevent log injection via approval requested_by field.
                     let sanitized: String = client_value
                         .chars()
-                        .filter(|c| !c.is_control())
+                        .filter(|c| !crate::routes::is_unsafe_char(*c))
                         .take(256)
                         .collect();
                     return format!("{} (note: {})", principal, sanitized);

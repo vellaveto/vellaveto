@@ -112,6 +112,7 @@ pub(crate) fn ws_messages_count() -> u64 {
 
 /// Query parameters for the WebSocket upgrade endpoint.
 #[derive(Debug, serde::Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct WsQueryParams {
     /// Optional session ID for session resumption.
     #[serde(default)]
@@ -167,8 +168,15 @@ pub async fn handle_ws_upgrade(
         Err(response) => return response,
     };
 
+    // SECURITY (FIND-R55-WS-004): Validate session_id length from query parameter.
+    // Parity with HTTP DELETE handler's FIND-R44-053 validation (max 128 chars).
+    let ws_session_id = query
+        .session_id
+        .as_deref()
+        .filter(|id| !id.is_empty() && id.len() <= 128);
+
     // 3. Get or create session
-    let session_id = state.sessions.get_or_create(query.session_id.as_deref());
+    let session_id = state.sessions.get_or_create(ws_session_id);
 
     // SECURITY (FIND-R53-WS-003): Session ownership binding — prevent session fixation.
     // Parity with HTTP GET (handlers.rs:2914-2953).
@@ -784,7 +792,9 @@ async fn relay_client_to_upstream(
                         // Matches HTTP handler's DLP check to maintain security parity.
                         {
                             let dlp_findings = scan_parameters_for_secrets(arguments);
-                            if !dlp_findings.is_empty() && state.injection_blocking {
+                            // SECURITY (FIND-R55-WS-001): DLP on request params always blocks,
+                            // matching HTTP handler. Previously gated on injection_blocking flag.
+                            if !dlp_findings.is_empty() {
                                 for finding in &dlp_findings {
                                     record_dlp_finding(&finding.pattern_name);
                                 }
@@ -1529,16 +1539,19 @@ async fn relay_client_to_upstream(
                                 {
                                     tracing::warn!("Failed to audit WS task deny: {}", e);
                                 }
-                                let denial = extractor::make_denial_response(id, &deny_reason);
+                                // SECURITY (FIND-R55-WS-005): Generic denial message to prevent
+                                // leaking policy names/details. Detailed reason is in audit log.
+                                let denial = make_ws_error_response(Some(id), -32001, "Denied by policy");
                                 let denial_text = serde_json::to_string(&denial)
                                     .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Denied"}}"#.to_string());
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(denial_text.into())).await;
                             }
                             _ => {
-                                let denial = extractor::make_denial_response(
-                                    id,
-                                    "Unknown verdict — fail-closed",
+                                let denial = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "Denied by policy",
                                 );
                                 let denial_text = serde_json::to_string(&denial)
                                     .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Denied"}}"#.to_string());
@@ -1782,11 +1795,11 @@ async fn relay_client_to_upstream(
                                         e
                                     );
                                 }
-                                // SECURITY (FIND-R46-012): Generic message to client.
+                                // SECURITY (FIND-R46-012, FIND-R55-WS-006): Generic message to client.
                                 let error = make_ws_error_response(
                                     Some(id),
                                     -32001,
-                                    "elicitation/create blocked by policy",
+                                    "Denied by policy",
                                 );
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(error.into())).await;
@@ -2506,10 +2519,11 @@ fn check_rate_limit(
     if now.duration_since(*start) >= Duration::from_secs(1) {
         // Reset window
         *start = now;
-        counter.store(1, Ordering::Relaxed);
+        // SECURITY (FIND-R55-WS-003): Use SeqCst for security-critical rate limit counter.
+        counter.store(1, Ordering::SeqCst);
         true
     } else {
-        let count = counter.fetch_add(1, Ordering::Relaxed) + 1;
+        let count = counter.fetch_add(1, Ordering::SeqCst) + 1;
         count <= max_per_sec as u64
     }
 }

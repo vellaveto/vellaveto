@@ -277,12 +277,23 @@ impl EvaluationContext {
         }
         // SECURITY (FIND-R52-006): Bound individual call_counts key length
         // to prevent memory amplification via oversized HashMap keys.
+        // SECURITY (FIND-R55-CORE-013): Reject control and Unicode format characters
+        // in call_counts keys to prevent pattern matching bypass (matching the
+        // previous_actions validation pattern from FIND-R52-008).
         for key in self.call_counts.keys() {
             if key.len() > Self::MAX_ACTION_NAME_LEN {
                 return Err(format!(
                     "EvaluationContext call_counts key length {} exceeds max {}",
                     key.len(),
                     Self::MAX_ACTION_NAME_LEN,
+                ));
+            }
+            if key
+                .chars()
+                .any(|c| c.is_control() || Self::is_unicode_format_char(c))
+            {
+                return Err(format!(
+                    "EvaluationContext call_counts key contains control or format characters",
                 ));
             }
         }
@@ -313,6 +324,14 @@ impl EvaluationContext {
                     i,
                 ));
             }
+        }
+
+        // SECURITY (FIND-R55-CORE-002): Validate nested AgentIdentity bounds
+        // (claims count cap) to prevent memory exhaustion via oversized identity payloads.
+        if let Some(ref identity) = self.agent_identity {
+            identity
+                .validate()
+                .map_err(|e| format!("EvaluationContext agent_identity: {e}"))?;
         }
 
         Ok(())

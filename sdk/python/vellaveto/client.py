@@ -107,8 +107,18 @@ def _validate_evaluate_inputs(
         raise VellavetoError("parameters must be a dict or None")
     if target_paths is not None and not isinstance(target_paths, list):
         raise VellavetoError("target_paths must be a list or None")
+    # SECURITY (FIND-R55-SDK-006): Bound target_paths count. Parity with Go SDK (100).
+    if target_paths is not None and len(target_paths) > 100:
+        raise VellavetoError(
+            f"target_paths has {len(target_paths)} entries, max 100"
+        )
     if target_domains is not None and not isinstance(target_domains, list):
         raise VellavetoError("target_domains must be a list or None")
+    # SECURITY (FIND-R55-SDK-006): Bound target_domains count. Parity with Go SDK (100).
+    if target_domains is not None and len(target_domains) > 100:
+        raise VellavetoError(
+            f"target_domains has {len(target_domains)} entries, max 100"
+        )
 
 
 def _build_evaluate_payload(
@@ -517,6 +527,9 @@ class VellavetoClient:
         Returns:
             Discovery result with ranked tools, total candidates, and policy-filtered count
         """
+        # SECURITY (FIND-R55-SDK-001): Validate query non-empty. Parity with TS/Go.
+        if not isinstance(query, str) or not query.strip():
+            raise VellavetoError("discovery query must not be empty")
         payload: Dict[str, Any] = {
             "query": query,
             "max_results": max_results,
@@ -597,6 +610,9 @@ class VellavetoClient:
         Returns:
             Dictionary with projected_schema, token_estimate, and model_family
         """
+        # SECURITY (FIND-R55-SDK-007): Validate model_family non-empty.
+        if not isinstance(model_family, str) or not model_family.strip():
+            raise VellavetoError("model_family must be a non-empty string")
         payload = {
             "schema": schema,
             "model_family": model_family,
@@ -643,6 +659,9 @@ class VellavetoClient:
         Returns:
             Dictionary with valid, batch_id, entry_range, verified_at, and error
         """
+        # SECURITY (FIND-R55-SDK-002): Validate batch_id non-empty. Parity with TS/Go.
+        if not isinstance(batch_id, str) or not batch_id.strip():
+            raise VellavetoError("batch_id must not be empty")
         return self._request(
             "POST", "/api/zk-audit/verify", json_data={"batch_id": batch_id}
         )
@@ -687,6 +706,9 @@ class VellavetoClient:
                 raise VellavetoError("agent_id must be a string")
             if len(agent_id) > 128:
                 raise VellavetoError("agent_id exceeds max length (128)")
+            # SECURITY (FIND-R55-SDK-003): Reject control chars. Parity with federation_trust_anchors.
+            if any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in agent_id):
+                raise VellavetoError("agent_id contains control characters")
         params: Dict[str, Any] = {"period": period, "format": format}
         if agent_id is not None:
             params["agent_id"] = agent_id
@@ -1006,6 +1028,9 @@ class AsyncVellavetoClient:
         token_budget: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Search the tool discovery index for matching tools (async)."""
+        # SECURITY (FIND-R55-SDK-001): Validate query non-empty.
+        if not isinstance(query, str) or not query.strip():
+            raise VellavetoError("discovery query must not be empty")
         payload: Dict[str, Any] = {
             "query": query,
             "max_results": max_results,
@@ -1053,6 +1078,9 @@ class AsyncVellavetoClient:
         model_family: str,
     ) -> Dict[str, Any]:
         """Project a canonical tool schema for a given model family (async)."""
+        # SECURITY (FIND-R55-SDK-007): Validate model_family non-empty.
+        if not isinstance(model_family, str) or not model_family.strip():
+            raise VellavetoError("model_family must be a non-empty string")
         payload = {
             "schema": schema,
             "model_family": model_family,
@@ -1078,6 +1106,9 @@ class AsyncVellavetoClient:
 
     async def zk_verify(self, batch_id: str) -> Dict[str, Any]:
         """Verify a stored ZK batch proof (async)."""
+        # SECURITY (FIND-R55-SDK-002): Validate batch_id non-empty.
+        if not isinstance(batch_id, str) or not batch_id.strip():
+            raise VellavetoError("batch_id must not be empty")
         return await self._request(
             "POST", "/api/zk-audit/verify", json_data={"batch_id": batch_id}
         )
@@ -1105,6 +1136,9 @@ class AsyncVellavetoClient:
                 raise VellavetoError("agent_id must be a string")
             if len(agent_id) > 128:
                 raise VellavetoError("agent_id exceeds max length (128)")
+            # SECURITY (FIND-R55-SDK-003): Reject control chars.
+            if any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in agent_id):
+                raise VellavetoError("agent_id contains control characters")
         params: Dict[str, Any] = {"period": period, "format": format}
         if agent_id is not None:
             params["agent_id"] = agent_id

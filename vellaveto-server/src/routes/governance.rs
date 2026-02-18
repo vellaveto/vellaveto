@@ -112,7 +112,12 @@ pub async fn least_agency_report(
             }),
         ));
     }
-    if agent_id.chars().any(|c| c.is_control()) || session_id.chars().any(|c| c.is_control()) {
+    if agent_id
+        .chars()
+        .any(|c| crate::routes::is_unsafe_char(c))
+        || session_id
+            .chars()
+            .any(|c| crate::routes::is_unsafe_char(c)) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {

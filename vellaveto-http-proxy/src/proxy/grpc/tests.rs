@@ -19,6 +19,7 @@ fn test_grpc_config_defaults() {
     assert_eq!(config.max_message_size, 4 * 1024 * 1024);
     assert!(config.upstream_grpc_url.is_none());
     assert!(config.health_enabled);
+    assert_eq!(config.stream_message_rate_limit, 100);
 }
 
 #[test]
@@ -28,6 +29,7 @@ fn test_grpc_config_custom_values() {
         max_message_size: 8 * 1024 * 1024,
         upstream_grpc_url: Some("http://upstream:50051".to_string()),
         health_enabled: false,
+        stream_message_rate_limit: 200,
     };
     assert_eq!(config.listen_addr.port(), 9090);
     assert_eq!(config.max_message_size, 8 * 1024 * 1024);
@@ -36,6 +38,7 @@ fn test_grpc_config_custom_values() {
         Some("http://upstream:50051")
     );
     assert!(!config.health_enabled);
+    assert_eq!(config.stream_message_rate_limit, 200);
 }
 
 #[test]
@@ -45,6 +48,7 @@ fn test_grpc_config_serde_roundtrip() {
         max_message_size: 4194304,
         upstream_grpc_url: None,
         health_enabled: true,
+        stream_message_rate_limit: 100,
     };
     let json = serde_json::to_string(&config).unwrap();
     let parsed: GrpcConfig = serde_json::from_str(&json).unwrap();
@@ -52,6 +56,10 @@ fn test_grpc_config_serde_roundtrip() {
     assert_eq!(config.max_message_size, parsed.max_message_size);
     assert_eq!(config.upstream_grpc_url, parsed.upstream_grpc_url);
     assert_eq!(config.health_enabled, parsed.health_enabled);
+    assert_eq!(
+        config.stream_message_rate_limit,
+        parsed.stream_message_rate_limit
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════

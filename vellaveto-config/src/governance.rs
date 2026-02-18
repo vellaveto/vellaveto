@@ -29,6 +29,7 @@ pub const MAX_DISCOVERY_WINDOW_SECS: u64 = 86_400;
 
 /// Governance configuration for shadow AI discovery and least agency enforcement.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct GovernanceConfig {
     /// Enable shadow AI discovery (passive traffic analysis).
     /// Default: false.

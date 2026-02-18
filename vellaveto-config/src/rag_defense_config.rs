@@ -53,6 +53,7 @@ use crate::default_true;
 /// alert_threshold = 0.8
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RagDefenseConfig {
     /// Enable RAG defense. Default: false.
     #[serde(default)]
@@ -123,6 +124,7 @@ impl Default for RagDefenseConfig {
 ///
 /// Controls trust scoring and verification of documents in the knowledge base.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct DocumentVerificationConfig {
     /// Enable document verification. Default: true (when parent enabled).
     #[serde(default = "default_true")]
@@ -178,6 +180,7 @@ impl Default for DocumentVerificationConfig {
 ///
 /// Controls inspection and filtering of retrieval results.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RetrievalSecurityConfig {
     /// Enable retrieval security. Default: true (when parent enabled).
     #[serde(default = "default_true")]
@@ -230,6 +233,7 @@ impl Default for RetrievalSecurityConfig {
 ///
 /// Detects adversarial embedding perturbations by comparing against baseline.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct EmbeddingAnomalyConfig {
     /// Enable embedding anomaly detection. Default: true (when parent enabled).
     #[serde(default = "default_true")]
@@ -281,6 +285,7 @@ impl Default for EmbeddingAnomalyConfig {
 ///
 /// Prevents context window flooding by enforcing token budgets.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ContextBudgetConfig {
     /// Enable context budget enforcement. Default: true (when parent enabled).
     #[serde(default = "default_true")]
@@ -353,6 +358,7 @@ impl Default for ContextBudgetConfig {
 /// lexical_overlap_threshold = 0.3
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct GroundingConfig {
     /// Enable grounding validation. Default: false.
     #[serde(default)]
@@ -402,6 +408,82 @@ fn default_grounding_max_claims() -> usize {
 
 fn default_grounding_lexical_threshold() -> f32 {
     0.3
+}
+
+/// Valid enforcement modes for RagDefenseConfig.
+const VALID_RAG_ENFORCEMENTS: &[&str] = &["warn", "block", "require_approval"];
+/// Valid enforcement modes for ContextBudgetConfig.
+const VALID_BUDGET_ENFORCEMENTS: &[&str] = &["truncate", "reject", "warn"];
+/// Valid enforcement modes for GroundingConfig.
+const VALID_GROUNDING_ENFORCEMENTS: &[&str] = &["warn", "block", "annotate"];
+
+impl RagDefenseConfig {
+    /// Validate all float fields are finite and in [0.0, 1.0], and enforcement strings are known.
+    /// SECURITY (FIND-R55-CFG-001, FIND-R55-CFG-005): NaN/Infinity bypass threshold comparisons;
+    /// unknown enforcement strings fall through match arms to permissive defaults.
+    pub fn validate(&self) -> Result<(), String> {
+        if !VALID_RAG_ENFORCEMENTS.contains(&self.enforcement.as_str()) {
+            return Err(format!(
+                "rag_defense.enforcement must be one of {:?}, got {:?}",
+                VALID_RAG_ENFORCEMENTS, self.enforcement
+            ));
+        }
+        let trust = self.document_verification.require_trust_score;
+        if !trust.is_finite() || !(0.0..=1.0).contains(&trust) {
+            return Err(format!(
+                "rag_defense.document_verification.require_trust_score must be finite and in [0.0, 1.0], got {}",
+                trust
+            ));
+        }
+        let sim = self.retrieval_security.similarity_threshold;
+        if !sim.is_finite() || !(0.0..=1.0).contains(&sim) {
+            return Err(format!(
+                "rag_defense.retrieval_security.similarity_threshold must be finite and in [0.0, 1.0], got {}",
+                sim
+            ));
+        }
+        let emb = self.embedding_anomaly.threshold;
+        if !emb.is_finite() || !(0.0..=1.0).contains(&emb) {
+            return Err(format!(
+                "rag_defense.embedding_anomaly.threshold must be finite and in [0.0, 1.0], got {}",
+                emb
+            ));
+        }
+        if !VALID_BUDGET_ENFORCEMENTS.contains(&self.context_budget.enforcement.as_str()) {
+            return Err(format!(
+                "rag_defense.context_budget.enforcement must be one of {:?}, got {:?}",
+                VALID_BUDGET_ENFORCEMENTS, self.context_budget.enforcement
+            ));
+        }
+        let alert = self.context_budget.alert_threshold;
+        if !alert.is_finite() || !(0.0..=1.0).contains(&alert) {
+            return Err(format!(
+                "rag_defense.context_budget.alert_threshold must be finite and in [0.0, 1.0], got {}",
+                alert
+            ));
+        }
+        if !VALID_GROUNDING_ENFORCEMENTS.contains(&self.grounding.enforcement.as_str()) {
+            return Err(format!(
+                "rag_defense.grounding.enforcement must be one of {:?}, got {:?}",
+                VALID_GROUNDING_ENFORCEMENTS, self.grounding.enforcement
+            ));
+        }
+        let min_score = self.grounding.min_score;
+        if !min_score.is_finite() || !(0.0..=1.0).contains(&min_score) {
+            return Err(format!(
+                "rag_defense.grounding.min_score must be finite and in [0.0, 1.0], got {}",
+                min_score
+            ));
+        }
+        let lex = self.grounding.lexical_overlap_threshold;
+        if !lex.is_finite() || !(0.0..=1.0).contains(&lex) {
+            return Err(format!(
+                "rag_defense.grounding.lexical_overlap_threshold must be finite and in [0.0, 1.0], got {}",
+                lex
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Default for GroundingConfig {

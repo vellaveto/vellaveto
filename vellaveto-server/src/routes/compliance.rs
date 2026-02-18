@@ -318,7 +318,7 @@ pub async fn soc2_evidence(
     let tracked_categories = if let Some(ref cat_filter) = params.category {
         // SECURITY (FIND-R49-005): Validate length and reject control characters
         // before using the filter value, and never echo user input in errors.
-        if cat_filter.len() > 16 || cat_filter.chars().any(|c| c.is_control()) {
+        if cat_filter.len() > 16 || cat_filter.chars().any(|c| crate::routes::is_unsafe_char(c)) {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
@@ -584,7 +584,7 @@ pub async fn soc2_access_review(
                 }),
             ));
         }
-        if aid.chars().any(|c| c.is_control()) {
+        if aid.chars().any(|c| crate::routes::is_unsafe_char(c)) {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
