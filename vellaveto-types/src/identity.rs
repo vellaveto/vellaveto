@@ -304,9 +304,10 @@ impl EvaluationContext {
                 .chars()
                 .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
             {
-                return Err(format!(
-                    "EvaluationContext call_counts key contains control or format characters",
-                ));
+                return Err(
+                    "EvaluationContext call_counts key contains control or format characters"
+                        .to_string(),
+                );
             }
         }
         if self.call_chain.len() > Self::MAX_CALL_CHAIN {
