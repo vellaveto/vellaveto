@@ -3,7 +3,9 @@
 //! These interceptors run before the `McpGrpcService` handler, providing
 //! the same auth and rate-limiting guarantees as the HTTP/WS transports.
 
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use tonic::{service::Interceptor, Request, Status};
 
@@ -125,4 +127,59 @@ pub fn extract_or_generate_request_id(metadata: &tonic::metadata::MetadataMap) -
         .filter(|s| s.len() <= 128 && !s.chars().any(|c| c.is_control()))
         .map(|s| s.to_string())
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+}
+
+/// Default gRPC rate limit: requests per second.
+const DEFAULT_GRPC_RATE_LIMIT: u64 = 100;
+
+/// Rate limiting interceptor for gRPC requests.
+///
+/// SECURITY (FIND-R53-GRPC-005): Provides per-service rate limiting for
+/// gRPC calls, matching the WS transport's `message_rate_limit` (websocket/mod.rs:54).
+/// Uses a simple counter-per-second window like the WS handler.
+#[derive(Clone)]
+pub struct RateLimitInterceptor {
+    counter: Arc<AtomicU64>,
+    window_start: Arc<Mutex<Instant>>,
+    limit: u64,
+}
+
+impl RateLimitInterceptor {
+    pub fn new(limit: Option<u64>) -> Self {
+        Self {
+            counter: Arc::new(AtomicU64::new(0)),
+            window_start: Arc::new(Mutex::new(Instant::now())),
+            limit: limit.unwrap_or(DEFAULT_GRPC_RATE_LIMIT),
+        }
+    }
+}
+
+impl Interceptor for RateLimitInterceptor {
+    fn call(&mut self, request: Request<()>) -> Result<Request<()>, Status> {
+        // Check/reset window — fail-closed on poisoned lock
+        let should_reset = self
+            .window_start
+            .lock()
+            .map(|start| start.elapsed().as_secs() >= 1)
+            .unwrap_or(true);
+
+        if should_reset {
+            self.counter.store(0, Ordering::SeqCst);
+            if let Ok(mut start) = self.window_start.lock() {
+                *start = Instant::now();
+            }
+        }
+
+        let count = self.counter.fetch_add(1, Ordering::SeqCst);
+        if count >= self.limit {
+            tracing::warn!(
+                "gRPC rate limit exceeded: {} requests in window (limit: {})",
+                count,
+                self.limit
+            );
+            return Err(Status::resource_exhausted("Rate limit exceeded"));
+        }
+
+        Ok(request)
+    }
 }

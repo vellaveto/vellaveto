@@ -524,6 +524,137 @@ class TestAsyncVellavetoClient:
         with pytest.raises(ImportError, match="httpx"):
             AsyncVellavetoClient()
 
+    @pytest.mark.asyncio
+    async def test_async_reload_policies(self, httpx_mock):
+        """FIND-R53-SDK-001: Async reload_policies parity with sync."""
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/policies/reload",
+            json={"reloaded": True, "policy_count": 5},
+        )
+
+        async with AsyncVellavetoClient() as client:
+            result = await client.reload_policies()
+            assert result["reloaded"] is True
+            assert result["policy_count"] == 5
+
+    @pytest.mark.asyncio
+    async def test_async_get_pending_approvals(self, httpx_mock):
+        """FIND-R53-SDK-002: Async get_pending_approvals parity with sync."""
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/approvals/pending",
+            json=[{"id": "apr-1", "tool": "database", "status": "pending"}],
+        )
+
+        async with AsyncVellavetoClient() as client:
+            result = await client.get_pending_approvals()
+            assert len(result) == 1
+            assert result[0]["id"] == "apr-1"
+
+    @pytest.mark.asyncio
+    async def test_async_resolve_approval_approve(self, httpx_mock):
+        """FIND-R53-SDK-003: Async resolve_approval approve parity with sync."""
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/approvals/apr-1/approve",
+            json={"resolved": True},
+        )
+
+        async with AsyncVellavetoClient() as client:
+            result = await client.resolve_approval("apr-1", approved=True, reason="Verified")
+            assert result["resolved"] is True
+
+        request = httpx_mock.get_request()
+        body = json.loads(request.content)
+        assert body["reason"] == "Verified"
+
+    @pytest.mark.asyncio
+    async def test_async_resolve_approval_deny(self, httpx_mock):
+        """FIND-R53-SDK-004: Async resolve_approval deny parity with sync."""
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/approvals/apr-1/deny",
+            json={"resolved": True},
+        )
+
+        async with AsyncVellavetoClient() as client:
+            result = await client.resolve_approval("apr-1", approved=False, reason="Rejected")
+            assert result["resolved"] is True
+
+        request = httpx_mock.get_request()
+        body = json.loads(request.content)
+        assert body["reason"] == "Rejected"
+
+    @pytest.mark.asyncio
+    async def test_async_resolve_approval_no_reason(self, httpx_mock):
+        """FIND-R53-SDK-005: Async resolve_approval without reason."""
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/approvals/apr-1/approve",
+            json={"resolved": True},
+        )
+
+        async with AsyncVellavetoClient() as client:
+            result = await client.resolve_approval("apr-1", approved=True)
+            assert result["resolved"] is True
+
+        request = httpx_mock.get_request()
+        assert request.content == b""
+
+    @pytest.mark.asyncio
+    async def test_async_resolve_approval_invalid_id(self):
+        """FIND-R53-SDK-006: Async resolve_approval rejects invalid approval_id."""
+        async with AsyncVellavetoClient() as client:
+            with pytest.raises(VellavetoError, match="Invalid approval_id"):
+                await client.resolve_approval("../../etc/passwd", approved=True)
+
+    @pytest.mark.asyncio
+    async def test_async_discover(self, httpx_mock):
+        """FIND-R53-SDK-007: Async discover method test."""
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/discovery/search",
+            json={"tools": [{"name": "test_tool"}], "total": 1},
+        )
+
+        async with AsyncVellavetoClient() as client:
+            result = await client.discover(query="test")
+            assert result["total"] == 1
+
+    @pytest.mark.asyncio
+    async def test_async_federation_status(self, httpx_mock):
+        """FIND-R53-SDK-008: Async federation_status test."""
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/federation/status",
+            json={"enabled": False, "trust_anchor_count": 0},
+        )
+
+        async with AsyncVellavetoClient() as client:
+            result = await client.federation_status()
+            assert result["enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_async_soc2_access_review(self, httpx_mock):
+        """FIND-R53-SDK-009: Async soc2_access_review test."""
+        httpx_mock.add_response(
+            url=httpx.URL(
+                "http://localhost:3000/api/compliance/soc2/access-review",
+                params={"period": "30d", "format": "json"},
+            ),
+            json={"generated_at": "2026-02-18T00:00:00Z", "total_agents": 0},
+        )
+
+        async with AsyncVellavetoClient() as client:
+            result = await client.soc2_access_review()
+            assert "generated_at" in result
+
+    @pytest.mark.asyncio
+    async def test_async_projector_models(self, httpx_mock):
+        """FIND-R53-SDK-010: Async projector_models test."""
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/projector/models",
+            json={"models": ["claude", "openai"]},
+        )
+
+        async with AsyncVellavetoClient() as client:
+            result = await client.projector_models()
+            assert "models" in result
+
 
 class TestZkAuditSync:
     """Tests for VellavetoClient ZK audit methods (Phase 37)."""

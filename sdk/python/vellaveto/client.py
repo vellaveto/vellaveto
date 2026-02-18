@@ -962,6 +962,43 @@ class AsyncVellavetoClient:
     async def list_policies(self) -> List[Dict[str, Any]]:
         return await self._request("GET", "/api/policies")
 
+    async def reload_policies(self) -> Dict[str, Any]:
+        """Reload policies from configuration (async)."""
+        return await self._request("POST", "/api/policies/reload")
+
+    async def get_pending_approvals(self) -> List[Dict[str, Any]]:
+        """Get list of pending approval requests (async)."""
+        return await self._request("GET", "/api/approvals/pending")
+
+    async def resolve_approval(
+        self,
+        approval_id: str,
+        approved: bool,
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Resolve a pending approval request (async).
+
+        Args:
+            approval_id: ID of the approval request
+            approved: Whether to approve or deny
+            reason: Optional reason for the decision
+        """
+        # SECURITY (FIND-SDK-011): Validate approval_id to prevent path injection
+        if not _APPROVAL_ID_RE.match(approval_id):
+            raise VellavetoError(
+                "Invalid approval_id: must contain only alphanumeric, dash, or underscore characters"
+            )
+        action = "approve" if approved else "deny"
+        json_data: Optional[Dict[str, Any]] = None
+        if reason is not None:
+            json_data = {"reason": reason}
+        return await self._request(
+            method="POST",
+            path=f"/api/approvals/{approval_id}/{action}",
+            json_data=json_data,
+        )
+
     async def discover(
         self,
         query: str,

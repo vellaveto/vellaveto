@@ -34,7 +34,7 @@ use vellaveto_mcp::inspection::{
 use vellaveto_mcp::output_validation::ValidationResult;
 use vellaveto_types::{Action, EvaluationContext, Verdict};
 
-use super::auth::validate_api_key;
+use super::auth::{validate_agent_identity, validate_api_key, validate_oauth};
 use super::call_chain::{
     check_privilege_escalation, sync_session_call_chain_from_headers, take_tracked_tool_call,
     track_pending_tool_call,
@@ -139,8 +139,66 @@ pub async fn handle_ws_upgrade(
         return resp;
     }
 
+    // SECURITY (FIND-R53-WS-001): Validate OAuth token at upgrade time.
+    // Parity with HTTP POST (handlers.rs:154) and GET (handlers.rs:2864).
+    // Without this, WS connections bypass token expiry checks.
+    let oauth_claims = match validate_oauth(
+        &state,
+        &headers,
+        "GET",
+        &super::auth::build_effective_request_uri(
+            &headers,
+            state.bind_addr,
+            &axum::http::Uri::from_static("/mcp/ws"),
+            false,
+        ),
+        query.session_id.as_deref(),
+    )
+    .await
+    {
+        Ok(claims) => claims,
+        Err(response) => return response,
+    };
+
+    // SECURITY (FIND-R53-WS-002): Validate agent identity at upgrade time.
+    // Parity with HTTP POST (handlers.rs:160) and GET (handlers.rs:2871).
+    let _agent_identity = match validate_agent_identity(&state, &headers).await {
+        Ok(identity) => identity,
+        Err(response) => return response,
+    };
+
     // 3. Get or create session
     let session_id = state.sessions.get_or_create(query.session_id.as_deref());
+
+    // SECURITY (FIND-R53-WS-003): Session ownership binding — prevent session fixation.
+    // Parity with HTTP GET (handlers.rs:2914-2953).
+    if let Some(ref claims) = oauth_claims {
+        if let Some(mut session) = state.sessions.get_mut(&session_id) {
+            match &session.oauth_subject {
+                Some(owner) if owner != &claims.sub => {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        owner = %owner,
+                        requester = %claims.sub,
+                        "WS upgrade rejected: session owned by different principal"
+                    );
+                    return axum::response::IntoResponse::into_response((
+                        axum::http::StatusCode::FORBIDDEN,
+                        axum::Json(json!({
+                            "error": "Session belongs to another principal"
+                        })),
+                    ));
+                }
+                None => {
+                    // Bind session to this OAuth subject
+                    session.oauth_subject = Some(claims.sub.clone());
+                }
+                _ => {
+                    // Already owned by this principal — OK
+                }
+            }
+        }
+    }
 
     // SECURITY (FIND-R46-006): Validate and extract call chain from upgrade headers.
     // The call chain is synced once during upgrade and reused for all messages
@@ -466,6 +524,29 @@ async fn relay_client_to_upstream(
                         })))
                         .await;
                     break;
+                }
+
+                // SECURITY (FIND-R53-WS-004): Reject WS messages with control characters.
+                // Parity with HTTP GET event_id validation (handlers.rs:2899).
+                // Control chars in JSON-RPC messages can be used for log injection
+                // or to bypass string-based security checks.
+                if text.chars().any(|c| {
+                    // Allow standard JSON whitespace (\t, \n, \r) but reject other
+                    // ASCII control chars and Unicode format chars
+                    c.is_control() && c != '\n' && c != '\r' && c != '\t'
+                }) {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        "SECURITY: Rejected WS message with control characters"
+                    );
+                    let error = make_ws_error_response(
+                        None,
+                        -32600,
+                        "Message contains control characters",
+                    );
+                    let mut sink = client_sink.lock().await;
+                    let _ = sink.send(Message::Text(error.into())).await;
+                    continue;
                 }
 
                 // Parse JSON

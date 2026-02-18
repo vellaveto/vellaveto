@@ -19,7 +19,10 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 
 use vellaveto_mcp::extractor::{self, MessageType};
-use vellaveto_mcp::inspection::{inspect_for_injection, scan_response_for_secrets};
+use vellaveto_mcp::inspection::{
+    inspect_for_injection, scan_parameters_for_secrets, scan_response_for_secrets,
+};
+use vellaveto_mcp::output_validation::ValidationResult;
 use vellaveto_types::{Action, EvaluationContext, Verdict};
 
 use super::convert::{
@@ -173,6 +176,152 @@ impl McpGrpcService {
         tool_name: &str,
         arguments: &Value,
     ) -> JsonRpcResponse {
+        // SECURITY (FIND-R53-GRPC-001): DLP scan parameters for secret exfiltration.
+        // Parity with HTTP handler (handlers.rs:457) and WS (websocket/mod.rs:700).
+        let dlp_findings = scan_parameters_for_secrets(arguments);
+        if !dlp_findings.is_empty() {
+            for finding in &dlp_findings {
+                record_dlp_finding(&finding.pattern_name);
+            }
+
+            let patterns: Vec<String> = dlp_findings
+                .iter()
+                .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                .collect();
+
+            tracing::warn!(
+                "SECURITY: Secrets in gRPC tool call parameters! Session: {}, Tool: {}, Findings: {:?}",
+                session_id,
+                tool_name,
+                patterns,
+            );
+
+            let action = extractor::extract_action(tool_name, arguments);
+            let verdict = Verdict::Deny {
+                reason: format!("DLP blocked: secret detected in parameters: {:?}", patterns),
+            };
+            if let Err(e) = self
+                .state
+                .audit
+                .log_entry(
+                    &action,
+                    &verdict,
+                    json!({
+                        "source": "grpc_proxy",
+                        "session": session_id,
+                        "transport": "grpc",
+                        "event": "grpc_parameter_dlp_alert",
+                        "findings": patterns,
+                    }),
+                )
+                .await
+            {
+                tracing::warn!("Failed to audit gRPC parameter DLP: {}", e);
+            }
+
+            return make_proto_denial_response(
+                proto_req,
+                &format!("DLP blocked: secret detected in parameters: {:?}", patterns),
+            );
+        }
+
+        // SECURITY (FIND-R53-GRPC-002): Rug-pull detection — block calls to tools
+        // with changed annotations since initial tools/list.
+        // Parity with HTTP handler (handlers.rs:404-434) and WS (websocket/mod.rs:682).
+        let is_flagged = self
+            .state
+            .sessions
+            .get_mut(session_id)
+            .map(|s| s.flagged_tools.contains(tool_name))
+            .unwrap_or(false);
+
+        if is_flagged {
+            let action = extractor::extract_action(tool_name, arguments);
+            let verdict = Verdict::Deny {
+                reason: format!(
+                    "Tool '{}' blocked: annotations changed since initial tools/list (rug-pull detected)",
+                    tool_name
+                ),
+            };
+            if let Err(e) = self
+                .state
+                .audit
+                .log_entry(
+                    &action,
+                    &verdict,
+                    json!({
+                        "source": "grpc_proxy",
+                        "session": session_id,
+                        "transport": "grpc",
+                        "event": "rug_pull_tool_blocked",
+                        "tool": tool_name,
+                    }),
+                )
+                .await
+            {
+                tracing::warn!("Failed to audit gRPC rug-pull block: {}", e);
+            }
+
+            return make_proto_denial_response(
+                proto_req,
+                &format!(
+                    "Tool '{}' blocked: annotations changed since initial tools/list (rug-pull detected)",
+                    tool_name
+                ),
+            );
+        }
+
+        // SECURITY (FIND-R53-GRPC-003): Memory poisoning detection — block requests
+        // when replayed response data is detected in parameters.
+        // Parity with HTTP handler (handlers.rs:512-570) and WS (websocket/mod.rs:751-810).
+        if let Some(mut session) = self.state.sessions.get_mut(session_id) {
+            let poisoning_matches = session.memory_tracker.check_parameters(arguments);
+            if !poisoning_matches.is_empty() {
+                for m in &poisoning_matches {
+                    tracing::warn!(
+                        "SECURITY: Memory poisoning detected in gRPC tool '{}' (session {}): \
+                         param '{}' contains replayed data (fingerprint: {})",
+                        tool_name,
+                        session_id,
+                        m.param_location,
+                        m.fingerprint
+                    );
+                }
+                let action = extractor::extract_action(tool_name, arguments);
+                let deny_reason = format!(
+                    "Memory poisoning detected: {} replayed data fragment(s) in tool '{}'",
+                    poisoning_matches.len(),
+                    tool_name
+                );
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Deny {
+                            reason: deny_reason.clone(),
+                        },
+                        json!({
+                            "source": "grpc_proxy",
+                            "session": session_id,
+                            "transport": "grpc",
+                            "event": "memory_poisoning_detected",
+                            "matches": poisoning_matches.len(),
+                            "tool": tool_name,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit gRPC memory poisoning: {}", e);
+                }
+
+                // Drop session borrow before returning
+                drop(session);
+
+                return make_proto_denial_response(proto_req, &deny_reason);
+            }
+        }
+
         let action = extractor::extract_action(tool_name, arguments);
         let ctx = self.build_evaluation_context(session_id);
 
@@ -512,6 +661,74 @@ impl McpGrpcService {
                             -32001,
                             "Response blocked: injection detected",
                         );
+                    }
+                }
+            }
+        }
+
+        // SECURITY (FIND-R53-GRPC-004): Output schema validation.
+        // Parity with WS handler (websocket/mod.rs:2327-2370).
+        if let Some(method) = json_req.get("method").and_then(|m| m.as_str()) {
+            if method == "tools/call" {
+                let tool_name = json_req
+                    .get("params")
+                    .and_then(|p| p.get("name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("");
+                if !tool_name.is_empty() {
+                    match self
+                        .state
+                        .output_schema_registry
+                        .validate(tool_name, &response_json)
+                    {
+                        ValidationResult::Invalid { violations } => {
+                            tracing::warn!(
+                                "SECURITY: gRPC output schema violation for tool '{}': {:?}",
+                                tool_name,
+                                violations,
+                            );
+
+                            let action = Action::new(
+                                "vellaveto",
+                                "output_schema_violation",
+                                json!({
+                                    "tool": tool_name,
+                                    "violations": violations,
+                                    "session": session_id,
+                                    "transport": "grpc",
+                                }),
+                            );
+                            if let Err(e) = self
+                                .state
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &Verdict::Deny {
+                                        reason: format!(
+                                            "gRPC structuredContent validation failed: {:?}",
+                                            violations
+                                        ),
+                                    },
+                                    json!({
+                                        "source": "grpc_proxy",
+                                        "event": "output_schema_violation_grpc",
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    "Failed to audit gRPC output schema violation: {}",
+                                    e
+                                );
+                            }
+                        }
+                        ValidationResult::Valid => {
+                            tracing::debug!(
+                                "gRPC structuredContent validated for tool '{}'",
+                                tool_name
+                            );
+                        }
+                        ValidationResult::NoSchema => {}
                     }
                 }
             }
