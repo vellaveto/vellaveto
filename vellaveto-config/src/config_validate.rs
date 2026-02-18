@@ -880,6 +880,15 @@ impl PolicyConfig {
         self.licensing.validate()?;
         self.billing.validate()?;
 
+        // Extension registry configuration bounds
+        self.extension.validate()?;
+
+        // MCP Streamable HTTP configuration bounds (Phase 30)
+        self.streamable_http.validate()?;
+
+        // RAG defense configuration bounds
+        self.rag_defense.validate()?;
+
         Ok(())
     }
 

@@ -137,6 +137,7 @@ pub(crate) fn default_true() -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PolicyConfig {
     pub policies: Vec<PolicyRule>,
 
