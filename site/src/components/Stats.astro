@@ -1,22 +1,34 @@
 ---
 ---
-<section>
+<section class="stats-section">
   <div class="wrap">
     <h2 class="section-title">By the numbers</h2>
     <div class="stats-grid">
-      <div class="stat">
+      <div class="card stat">
+        <div class="stat-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        </div>
+        <div class="num">6,330+</div>
+        <div class="desc">Tests passing</div>
+      </div>
+      <div class="card stat">
+        <div class="stat-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+        </div>
+        <div class="num">53</div>
+        <div class="desc">Adversarial audit rounds</div>
+      </div>
+      <div class="card stat">
+        <div class="stat-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
         <div class="num">&lt;5ms</div>
         <div class="desc">P99 evaluation latency</div>
       </div>
-      <div class="stat">
-        <div class="num">6,293+</div>
-        <div class="desc">Tests passing</div>
-      </div>
-      <div class="stat">
-        <div class="num">52</div>
-        <div class="desc">Adversarial audit rounds</div>
-      </div>
-      <div class="stat">
+      <div class="card stat">
+        <div class="stat-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        </div>
         <div class="num">20</div>
         <div class="desc">Formally verified properties</div>
       </div>
@@ -25,10 +37,16 @@
 </section>
 
 <style>
+  .stats-section{position:relative}
+  .stats-section::before{content:'';position:absolute;inset:0;
+    background:linear-gradient(135deg,rgba(167,139,250,.05),rgba(20,184,166,.05));
+    pointer-events:none}
+  .stats-section .wrap{position:relative;z-index:1}
   .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
     gap:1.5rem;margin-top:2.5rem;text-align:center}
-  .stat{background:var(--surface);border:1px solid var(--border);
-    border-radius:.5rem;padding:1.75rem 1rem}
+  .stat{padding:1.75rem 1rem;display:flex;flex-direction:column;align-items:center}
+  .stat-icon{width:44px;height:44px;display:flex;align-items:center;justify-content:center;
+    border-radius:.5rem;background:var(--accent-dim);color:var(--accent);margin-bottom:1rem}
   .num{font-size:1.75rem;font-weight:800;
     background:var(--grad);-webkit-background-clip:text;
     -webkit-text-fill-color:transparent}

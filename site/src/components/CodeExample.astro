@@ -4,31 +4,73 @@
   <div class="wrap">
     <h2 class="section-title">Try it</h2>
     <p class="section-sub">Evaluate a tool call with a single request.</p>
-    <div class="code-block">
-      <span class="comment"># Evaluate an MCP tool call against your policy</span><br>
-      <span class="cmd">curl</span> -X POST http://localhost:3000/api/evaluate \<br>
-      &nbsp;&nbsp;-H <span class="str">"Content-Type: application/json"</span> \<br>
-      &nbsp;&nbsp;-d <span class="str">'</span>&#123;<br>
-      &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"tool"</span>: <span class="str">"filesystem.write"</span>,<br>
-      &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"arguments"</span>: &#123;<br>
-      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"path"</span>: <span class="str">"/etc/passwd"</span>,<br>
-      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"content"</span>: <span class="str">"..."</span><br>
-      &nbsp;&nbsp;&nbsp;&nbsp;&#125;,<br>
-      &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"context"</span>: &#123; <span class="key">"agent"</span>: <span class="str">"coding-assistant"</span> &#125;<br>
-      &nbsp;&nbsp;&#125;<span class="str">'</span><br>
-      <br>
-      <span class="comment"># Response: &#123; "decision": "deny", "reason": "write to sensitive system path", ... &#125;</span>
+    <div class="terminal-container">
+      <div class="terminal-panel">
+        <div class="terminal-chrome">
+          <span class="dot dot-red"></span>
+          <span class="dot dot-yellow"></span>
+          <span class="dot dot-green"></span>
+          <span class="terminal-title">Request</span>
+        </div>
+        <div class="terminal-body">
+          <span class="comment"># Evaluate an MCP tool call against your policy</span><br>
+          <span class="cmd">curl</span> -X POST http://localhost:3000/api/evaluate \<br>
+          &nbsp;&nbsp;-H <span class="str">"Content-Type: application/json"</span> \<br>
+          &nbsp;&nbsp;-d <span class="str">'</span>&#123;<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"tool"</span>: <span class="str">"filesystem.write"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"arguments"</span>: &#123;<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"path"</span>: <span class="str">"/etc/passwd"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"content"</span>: <span class="str">"..."</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&#125;,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"context"</span>: &#123; <span class="key">"agent"</span>: <span class="str">"coding-assistant"</span> &#125;<br>
+          &nbsp;&nbsp;&#125;<span class="str">'</span>
+        </div>
+      </div>
+      <div class="terminal-panel">
+        <div class="terminal-chrome">
+          <span class="dot dot-red"></span>
+          <span class="dot dot-yellow"></span>
+          <span class="dot dot-green"></span>
+          <span class="terminal-title">Response</span>
+        </div>
+        <div class="terminal-body">
+          &#123;<br>
+          &nbsp;&nbsp;<span class="key">"decision"</span>: <span class="deny">"DENY"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"reason"</span>: <span class="str">"write to sensitive system path"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"policy"</span>: <span class="str">"filesystem-protection"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"risk_score"</span>: <span class="num-val">0.95</span>,<br>
+          &nbsp;&nbsp;<span class="key">"audit_id"</span>: <span class="str">"a7f3...c812"</span><br>
+          &#125;
+        </div>
+      </div>
     </div>
   </div>
 </section>
 
 <style>
-  .code-block{background:#0d1117;border:1px solid var(--border);
-    border-radius:.5rem;padding:1.25rem 1.5rem;overflow-x:auto;
-    font-family:var(--mono);font-size:.8rem;line-height:1.8;
-    color:#c9d1d9;margin-top:2rem;max-width:640px}
+  .terminal-container{display:grid;grid-template-columns:1fr 1fr;gap:1rem;
+    margin-top:2rem;max-width:960px}
+  .terminal-panel{border-radius:.75rem;overflow:hidden;
+    border:1px solid var(--border);box-shadow:var(--shadow-md)}
+  .terminal-chrome{display:flex;align-items:center;gap:.5rem;
+    padding:.6rem 1rem;background:#161b22;border-bottom:1px solid var(--border);
+    background-size:200% auto;animation:shimmer 3s linear infinite;
+    background-image:linear-gradient(90deg,#161b22 0%,#1c2230 50%,#161b22 100%)}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .dot-red{background:#ff5f57}
+  .dot-yellow{background:#febc2e}
+  .dot-green{background:#28c840}
+  .terminal-title{font-size:.7rem;color:var(--muted);margin-left:.5rem;
+    font-family:var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+  .terminal-body{background:#0d1117;padding:1.25rem 1.5rem;
+    font-family:var(--mono);font-size:.8rem;line-height:1.8;color:#c9d1d9}
   .comment{color:#6e7681}
   .str{color:#a5d6ff}
   .key{color:#7ee787}
   .cmd{color:#f0883e}
+  .deny{color:var(--rose);font-weight:700}
+  .num-val{color:var(--amber)}
+  @media(max-width:700px){
+    .terminal-container{grid-template-columns:1fr}
+  }
 </style>

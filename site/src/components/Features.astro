@@ -5,19 +5,31 @@
     <h2 class="section-title">What it does</h2>
     <p class="section-sub">Four pillars of runtime protection for autonomous AI systems.</p>
     <div class="pillars-grid">
-      <div class="pillar">
+      <div class="card pillar">
+        <div class="pillar-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
         <h3>Intercept</h3>
         <p>Sits between your AI agent and its tools. Every MCP call passes through Vellaveto before execution.</p>
       </div>
-      <div class="pillar">
+      <div class="card pillar">
+        <div class="pillar-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </div>
         <h3>Evaluate</h3>
         <p>Policy engine scores each request against configurable rules &mdash; scope, sensitivity, blast radius.</p>
       </div>
-      <div class="pillar">
+      <div class="card pillar">
+        <div class="pillar-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </div>
         <h3>Enforce</h3>
         <p>Allow, deny, or require human approval in real time. No tool call runs without clearance.</p>
       </div>
-      <div class="pillar">
+      <div class="card pillar">
+        <div class="pillar-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="15" y2="16"/></svg>
+        </div>
         <h3>Audit</h3>
         <p>Tamper-evident trail with SHA-256 chains, Merkle proofs, and Ed25519 checkpoints for compliance and forensics.</p>
       </div>
@@ -28,8 +40,12 @@
 <style>
   .pillars-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
     gap:1.5rem;margin-top:2.5rem}
-  .pillar{background:var(--surface);border:1px solid var(--border);
-    border-radius:.5rem;padding:1.75rem}
-  .pillar h3{font-size:1rem;margin-bottom:.5rem;color:var(--accent)}
+  .pillar{padding:1.75rem}
+  .pillar-icon{width:44px;height:44px;display:flex;align-items:center;justify-content:center;
+    border-radius:.5rem;background:var(--accent-dim);color:var(--accent);
+    margin-bottom:1rem;transition:color .2s,background .2s}
+  .pillar:hover .pillar-icon{color:var(--teal);background:rgba(20,184,166,.12)}
+  .pillar h3{font-size:1rem;margin-bottom:.5rem;color:var(--accent);transition:color .2s}
+  .pillar:hover h3{color:var(--teal)}
   .pillar p{font-size:.875rem;color:var(--muted);line-height:1.6}
 </style>

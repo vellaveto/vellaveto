@@ -6,6 +6,14 @@ import Base from '../layouts/Base.astro';
     <div class="wrap">
       <h1>Compliance Mapping</h1>
       <p class="section-sub">Detailed mapping of Vellaveto features to European regulatory requirements.</p>
+      <div class="framework-pills">
+        <span class="pill pill-purple">EU AI Act</span>
+        <span class="pill pill-teal">NIS2</span>
+        <span class="pill pill-amber">DORA</span>
+        <span class="pill pill-emerald">ISO 42001</span>
+        <span class="pill pill-rose">SOC 2</span>
+        <span class="pill pill-accent">OWASP</span>
+      </div>
     </div>
   </section>
 
@@ -137,19 +145,19 @@ import Base from '../layouts/Base.astro';
     <div class="wrap">
       <h2 class="section-title">Additional Frameworks</h2>
       <div class="frameworks-grid">
-        <div class="fw-card">
+        <div class="card fw-card">
           <h3>SOC 2 Type II</h3>
           <p>Automated access review reports with CC6 evidence generation. Trust services criteria mapped to Vellaveto controls. HTML and JSON report export.</p>
         </div>
-        <div class="fw-card">
+        <div class="card fw-card">
           <h3>ISO 42001</h3>
           <p>AI management system controls mapped to policy engine features. Risk assessment, monitoring, and continuous improvement evidence.</p>
         </div>
-        <div class="fw-card">
+        <div class="card fw-card">
           <h3>OWASP Top 10 Agentic 2026</h3>
           <p>All 10 risks mitigated: prompt injection (ASI01), tool poisoning (ASI02), insecure output (ASI03), rug pull (ASI04), memory poisoning (ASI05), and more.</p>
         </div>
-        <div class="fw-card">
+        <div class="card fw-card">
           <h3>CoSAI Landscape</h3>
           <p>38/38 CoSAI controls implemented. Adversa TOP 25: 25/25. 7-framework gap analysis with remediation guidance.</p>
         </div>
@@ -172,10 +180,26 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <style>
-  .page-hero{padding:8rem 0 3rem;text-align:center}
+  .page-hero{padding:8rem 0 3rem;text-align:center;position:relative;overflow:hidden}
+  .page-hero::before{content:'';position:absolute;inset:0;
+    background:
+      radial-gradient(ellipse 50% 40% at 30% 30%,rgba(167,139,250,.1),transparent),
+      radial-gradient(ellipse 50% 40% at 70% 70%,rgba(20,184,166,.08),transparent);
+    pointer-events:none}
+  .page-hero .wrap{position:relative;z-index:1}
   .page-hero h1{font-size:2.5rem;font-weight:800;
     background:var(--grad);-webkit-background-clip:text;
     -webkit-text-fill-color:transparent;margin-bottom:.5rem}
+
+  .framework-pills{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center;margin-top:1.25rem}
+  .pill{display:inline-block;padding:.3rem .75rem;border-radius:1rem;
+    font-size:.75rem;font-weight:600;letter-spacing:.03em}
+  .pill-purple{background:rgba(167,139,250,.15);color:var(--purple)}
+  .pill-teal{background:rgba(20,184,166,.15);color:var(--teal)}
+  .pill-amber{background:rgba(251,191,36,.15);color:var(--amber)}
+  .pill-emerald{background:rgba(52,211,153,.15);color:var(--emerald)}
+  .pill-rose{background:rgba(251,113,133,.15);color:var(--rose)}
+  .pill-accent{background:rgba(56,189,248,.15);color:var(--accent)}
 
   .compliance-table{overflow-x:auto;margin-top:1.5rem}
   .compliance-table table{width:100%;border-collapse:collapse;font-size:.85rem}
@@ -189,8 +213,7 @@ import Base from '../layouts/Base.astro';
 
   .frameworks-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
     gap:1.25rem;margin-top:2rem}
-  .fw-card{background:var(--surface);border:1px solid var(--border);
-    border-radius:.5rem;padding:1.5rem}
+  .fw-card{padding:1.5rem}
   .fw-card h3{font-size:1rem;font-weight:700;color:var(--accent);margin-bottom:.5rem}
   .fw-card p{font-size:.85rem;color:var(--muted);line-height:1.6}
 </style>

@@ -2,9 +2,13 @@
 ---
 <section class="hero">
   <div class="wrap">
-    <h1><span>Vellaveto</span> &mdash; Runtime Security for AI Agents</h1>
+    <h1 class="hero-h1"><span>Stop AI agents</span> from doing the wrong thing</h1>
     <p class="tagline">The MCP firewall that intercepts, evaluates, and enforces policy on every AI agent tool call.</p>
-    <p class="compliance">EU AI Act + NIS2 + DORA compliant</p>
+    <div class="hero-ctas">
+      <a href="#install" class="btn btn-primary">Get Started</a>
+      <a href="https://github.com/paolovella/vellaveto" class="btn btn-outline" target="_blank" rel="noopener noreferrer">View on GitHub</a>
+    </div>
+    <p class="trust-strip">EU AI Act compliant &middot; NIS2 ready &middot; 6,330+ tests &middot; &lt;5ms overhead</p>
     <div class="install" id="install">
       <span class="label">Quick start</span>
       <code>docker run -p 3000:3000 ghcr.io/paolovella/vellaveto:v4.0.0</code>
@@ -13,23 +17,40 @@
 </section>
 
 <style>
-  .hero{padding:9rem 0 5rem;text-align:center}
-  .hero h1{font-size:clamp(2rem,5vw,3.25rem);font-weight:800;
-    line-height:1.15;margin-bottom:1rem}
-  .hero h1 span{background:var(--grad);-webkit-background-clip:text;
+  .hero{padding:9rem 0 5rem;text-align:center;position:relative;overflow:hidden}
+  .hero::before{content:'';position:absolute;inset:0;
+    background:
+      radial-gradient(ellipse 60% 50% at 20% 20%,rgba(167,139,250,.15),transparent),
+      radial-gradient(ellipse 60% 50% at 80% 80%,rgba(20,184,166,.12),transparent);
+    pointer-events:none}
+  .hero::after{content:'';position:absolute;inset:0;
+    background-image:radial-gradient(circle 1px at center,rgba(255,255,255,.03) 1px,transparent 1px);
+    background-size:40px 40px;pointer-events:none}
+  .hero .wrap{position:relative;z-index:1}
+  .hero-h1{font-size:clamp(2rem,5vw,3.25rem);font-weight:800;
+    line-height:1.15;margin-bottom:1rem;
+    animation:fadeInUp .6s ease both}
+  .hero-h1 span{background:var(--grad);-webkit-background-clip:text;
     -webkit-text-fill-color:transparent}
-  .tagline{font-size:1.125rem;color:var(--muted);margin-bottom:.5rem}
-  .compliance{font-size:.95rem;color:var(--teal);font-weight:600;
-    margin-bottom:2.5rem}
+  .tagline{font-size:1.125rem;color:var(--muted);margin-bottom:1.5rem;
+    max-width:600px;margin-left:auto;margin-right:auto;
+    animation:fadeInUp .6s ease .1s both}
+  .hero-ctas{display:flex;gap:1rem;justify-content:center;margin-bottom:1.5rem;
+    animation:fadeInUp .6s ease .2s both}
+  .trust-strip{font-size:.85rem;color:var(--muted);margin-bottom:2.5rem;
+    animation:fadeInUp .6s ease .3s both}
   .install{background:var(--surface);border:1px solid var(--border);
     border-radius:.5rem;padding:1rem 1.25rem;max-width:640px;margin:0 auto;
     display:flex;align-items:center;justify-content:space-between;gap:1rem;
-    font-family:var(--mono);font-size:.875rem;overflow-x:auto}
+    font-family:var(--mono);font-size:.875rem;overflow-x:auto;
+    box-shadow:var(--shadow-md);
+    animation:fadeInUp .6s ease .4s both}
   .install code{white-space:nowrap;color:var(--accent)}
   .label{color:var(--muted);font-size:.75rem;font-family:var(--sans);flex-shrink:0}
   @media(max-width:600px){
     .hero{padding:7rem 0 3.5rem}
-    .hero h1{font-size:1.75rem}
+    .hero-h1{font-size:1.75rem}
     .install{flex-direction:column;align-items:flex-start}
+    .hero-ctas{flex-direction:column;align-items:center}
   }
 </style>

@@ -51,7 +51,13 @@ import EnterprisePricing from '../components/EnterprisePricing.astro';
 </Base>
 
 <style>
-  .page-hero{padding:8rem 0 3rem;text-align:center}
+  .page-hero{padding:8rem 0 3rem;text-align:center;position:relative;overflow:hidden}
+  .page-hero::before{content:'';position:absolute;inset:0;
+    background:
+      radial-gradient(ellipse 50% 40% at 30% 30%,rgba(167,139,250,.1),transparent),
+      radial-gradient(ellipse 50% 40% at 70% 70%,rgba(20,184,166,.08),transparent);
+    pointer-events:none}
+  .page-hero .wrap{position:relative;z-index:1}
   .page-hero h1{font-size:2.5rem;font-weight:800;
     background:var(--grad);-webkit-background-clip:text;
     -webkit-text-fill-color:transparent;margin-bottom:.5rem}

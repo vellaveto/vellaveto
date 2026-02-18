@@ -31,6 +31,7 @@ const { title, description = 'MCP firewall for AI agent tool calls. Intercept, e
         <a href="/pricing">Pricing</a>
         <a href="/compliance">Compliance</a>
         <a href="https://github.com/paolovella/vellaveto" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="#install" class="btn btn-primary btn-sm nav-cta">Get Started</a>
       </div>
     </div>
   </nav>
@@ -39,8 +40,37 @@ const { title, description = 'MCP firewall for AI agent tool calls. Intercept, e
 
   <footer>
     <div class="wrap">
-      <p>Built by <strong>Paolo Vella</strong> &mdash; <a href="&#109;&#97;&#105;&#108;&#116;&#111;&#58;paolovella1993&#64;gmail&#46;com">paolovella1993&#64;gmail&#46;com</a></p>
-      <p class="copy">Vellaveto is licensed under AGPL-3.0. Commercial licenses available. Made in Italy.</p>
+      <div class="footer-grid">
+        <div class="footer-col">
+          <h4>Product</h4>
+          <a href="/#features">Features</a>
+          <a href="/pricing">Pricing</a>
+          <a href="/compliance">Compliance</a>
+          <a href="https://github.com/paolovella/vellaveto/tree/main/docs" target="_blank" rel="noopener noreferrer">Documentation</a>
+        </div>
+        <div class="footer-col">
+          <h4>Resources</h4>
+          <a href="https://github.com/paolovella/vellaveto" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <a href="https://github.com/paolovella/vellaveto/tree/main/docs" target="_blank" rel="noopener noreferrer">Quickstart</a>
+          <a href="https://github.com/paolovella/vellaveto/tree/main/docs" target="_blank" rel="noopener noreferrer">API Reference</a>
+          <a href="https://github.com/paolovella/vellaveto/tree/main/docs/SECURITY_MODEL.md" target="_blank" rel="noopener noreferrer">Security Model</a>
+        </div>
+        <div class="footer-col">
+          <h4>Legal</h4>
+          <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License (AGPL-3.0)</a>
+          <a href="https://github.com/paolovella/vellaveto/blob/main/CLA.md" target="_blank" rel="noopener noreferrer">CLA</a>
+          <a href="/compliance">Privacy Policy</a>
+        </div>
+        <div class="footer-col">
+          <h4>Company</h4>
+          <p>Made in Italy</p>
+          <a href="&#109;&#97;&#105;&#108;&#116;&#111;&#58;paolovella1993&#64;gmail&#46;com">paolovella1993&#64;gmail.com</a>
+          <p class="copy">Built by <strong>Paolo Vella</strong></p>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>&copy; 2026 Vellaveto. Licensed under AGPL-3.0. Commercial licenses available.</p>
+      </div>
     </div>
   </footer>
 </body>
@@ -53,22 +83,35 @@ const { title, description = 'MCP firewall for AI agent tool calls. Intercept, e
   nav{position:fixed;top:0;left:0;right:0;z-index:100;
     background:rgba(10,14,23,.85);backdrop-filter:blur(12px);
     border-bottom:1px solid var(--border)}
+  nav::after{content:'';position:absolute;bottom:-1px;left:0;right:0;
+    height:1px;background:var(--grad);opacity:.5}
   nav .wrap{display:flex;align-items:center;justify-content:space-between;
     height:3.5rem}
   .logo{font-weight:700;font-size:1.1rem;letter-spacing:.04em;
     background:var(--grad);-webkit-background-clip:text;
     -webkit-text-fill-color:transparent}
+  .nav-links{display:flex;align-items:center}
   .nav-links a{margin-left:1.5rem;font-size:.875rem;color:var(--muted)}
   .nav-links a:hover{color:var(--text)}
+  .nav-cta{margin-left:1.5rem;color:#0a0e17 !important}
 
   /* Footer */
-  footer{border-top:1px solid var(--border);padding:2.5rem 0;
-    text-align:center;font-size:.85rem;color:var(--muted)}
-  footer a{color:var(--muted)}
-  footer a:hover{color:var(--accent)}
-  footer .copy{margin-top:.5rem;font-size:.75rem}
+  footer{border-top:1px solid var(--border);padding:3.5rem 0 2rem;
+    font-size:.85rem;color:var(--muted)}
+  .footer-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:2rem}
+  .footer-col{display:flex;flex-direction:column;gap:.5rem}
+  .footer-col h4{color:var(--text);font-size:.8rem;font-weight:600;
+    text-transform:uppercase;letter-spacing:.06em;margin-bottom:.25rem}
+  .footer-col a{color:var(--muted);font-size:.85rem}
+  .footer-col a:hover{color:var(--accent)}
+  .footer-col p{font-size:.85rem}
+  .footer-col .copy{margin-top:.25rem;font-size:.75rem}
+  .footer-bottom{margin-top:2.5rem;padding-top:1.5rem;
+    border-top:1px solid var(--border);text-align:center;font-size:.75rem}
 
   @media(max-width:600px){
     .nav-links a{margin-left:.75rem;font-size:.8rem}
+    .nav-cta{display:none}
+    .footer-grid{grid-template-columns:repeat(2,1fr);gap:1.5rem}
   }
 </style>
