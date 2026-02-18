@@ -10,38 +10,27 @@
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
-use std::fmt;
 use subtle::ConstantTimeEq;
+use thiserror::Error;
 use uuid::Uuid;
 use vellaveto_types::{AccountabilityAttestation, AttestationVerificationResult};
 
 /// Errors from attestation operations.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum AttestationError {
     /// The signing key is invalid (not valid hex or wrong length).
+    #[error("Invalid key: {0}")]
     InvalidKey(String),
     /// Signing failed.
+    #[error("Signing failed: {0}")]
     SigningFailed(String),
     /// Verification failed.
+    #[error("Verification failed: {0}")]
     VerificationFailed(String),
     /// The attestation has expired.
+    #[error("Attestation has expired")]
     Expired,
 }
-
-impl fmt::Display for AttestationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AttestationError::InvalidKey(msg) => write!(f, "Invalid key: {}", msg),
-            AttestationError::SigningFailed(msg) => write!(f, "Signing failed: {}", msg),
-            AttestationError::VerificationFailed(msg) => {
-                write!(f, "Verification failed: {}", msg)
-            }
-            AttestationError::Expired => write!(f, "Attestation has expired"),
-        }
-    }
-}
-
-impl std::error::Error for AttestationError {}
 
 /// Sign an accountability attestation.
 ///

@@ -296,6 +296,8 @@ func (c *Client) Evaluate(ctx context.Context, action Action, evalCtx *Evaluatio
 }
 
 // EvaluateOrError is like Evaluate but returns typed errors for Deny and RequireApproval verdicts.
+// On Allow, nil is returned and the EvaluationResult is discarded. Use Evaluate directly
+// if you need access to the full result (policy_id, trace, etc.) on Allow verdicts.
 func (c *Client) EvaluateOrError(ctx context.Context, action Action, evalCtx *EvaluationContext) error {
 	result, err := c.Evaluate(ctx, action, evalCtx, false)
 	if err != nil {

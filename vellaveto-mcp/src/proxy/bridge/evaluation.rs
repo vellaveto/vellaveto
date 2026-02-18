@@ -12,6 +12,17 @@ use crate::proxy::types::ProxyDecision;
 use serde_json::{json, Value};
 use vellaveto_types::{EvaluationContext, EvaluationTrace, Verdict};
 
+/// Log evaluation trace details at debug level.
+fn log_trace(label: &str, trace: &EvaluationTrace) {
+    tracing::debug!(
+        "Trace ({}): {} policies checked, {} matched, {}us",
+        label,
+        trace.policies_checked,
+        trace.policies_matched,
+        trace.duration_us
+    );
+}
+
 impl ProxyBridge {
     /// Evaluate an action against policies, optionally producing a trace.
     ///
@@ -64,23 +75,13 @@ impl ProxyBridge {
                     }
                 }
                 if let Some(ref t) = trace {
-                    tracing::debug!(
-                        "Trace: {} policies checked, {} matched, {}μs",
-                        t.policies_checked,
-                        t.policies_matched,
-                        t.duration_us
-                    );
+                    log_trace("allow", t);
                 }
                 (ProxyDecision::Forward, trace)
             }
             Ok((Verdict::Deny { reason }, trace)) => {
                 if let Some(ref t) = trace {
-                    tracing::debug!(
-                        "Trace (deny): {} policies checked, {} matched, {}μs",
-                        t.policies_checked,
-                        t.policies_matched,
-                        t.duration_us
-                    );
+                    log_trace("deny", t);
                 }
                 let response = make_denial_response(id, &reason);
                 (
@@ -90,12 +91,7 @@ impl ProxyBridge {
             }
             Ok((Verdict::RequireApproval { reason }, trace)) => {
                 if let Some(ref t) = trace {
-                    tracing::debug!(
-                        "Trace (approval): {} policies checked, {} matched, {}μs",
-                        t.policies_checked,
-                        t.policies_matched,
-                        t.duration_us
-                    );
+                    log_trace("approval", t);
                 }
                 let response = make_approval_response(id, &reason);
                 (
@@ -155,13 +151,9 @@ impl ProxyBridge {
         let action = extract_resource_action(uri);
 
         match self.evaluate_action_inner(&action, context) {
-            Ok((Verdict::Allow, _trace)) => {
-                if let Some(t) = _trace {
-                    tracing::debug!(
-                        "Trace (resource_read allow): {} policies checked, {}μs",
-                        t.policies_checked,
-                        t.duration_us
-                    );
+            Ok((Verdict::Allow, trace)) => {
+                if let Some(ref t) = trace {
+                    log_trace("resource_read allow", t);
                 }
                 ProxyDecision::Forward
             }

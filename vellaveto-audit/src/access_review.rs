@@ -35,14 +35,23 @@ const MAX_PER_AGENT_SET_SIZE: usize = 10_000;
 /// to produce the final `AccessReviewEntry` with usage ratios and
 /// recommendations per CC6 control.
 struct AgentAccumulator {
+    /// Distinct session IDs observed for this agent (bounded by `MAX_PER_AGENT_SET_SIZE`).
     session_ids: BTreeSet<String>,
+    /// RFC 3339 timestamp of the earliest audit entry for this agent in the review period.
     first_access: String,
+    /// RFC 3339 timestamp of the most recent audit entry for this agent in the review period.
     last_access: String,
+    /// Total number of policy evaluations for this agent.
     total_evaluations: u64,
+    /// Number of evaluations that resulted in an `Allow` verdict.
     allow_count: u64,
+    /// Number of evaluations that resulted in a `Deny` verdict.
     deny_count: u64,
+    /// Number of evaluations that resulted in a `RequireApproval` verdict.
     require_approval_count: u64,
+    /// Distinct tool names accessed by this agent (bounded by `MAX_PER_AGENT_SET_SIZE`).
     tools_accessed: BTreeSet<String>,
+    /// Distinct function names called by this agent (bounded by `MAX_PER_AGENT_SET_SIZE`).
     functions_called: BTreeSet<String>,
 }
 
@@ -291,7 +300,7 @@ pub fn generate_access_review(
 }
 
 /// Escape a string for safe HTML embedding.
-fn html_escape(s: &str) -> String {
+pub(crate) fn html_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         match c {

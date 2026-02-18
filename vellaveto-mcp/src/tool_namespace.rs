@@ -74,27 +74,18 @@ pub struct SelectionError {
 }
 
 /// Error for registration.
-#[derive(Debug, Clone)]
+#[derive(thiserror::Error, Debug, Clone)]
 pub enum NamespaceError {
     /// Name collision detected.
+    #[error("Namespace collision: {}", .0.description)]
     Collision(Box<CollisionAlert>),
     /// Maximum tools exceeded.
+    #[error("Maximum tool capacity exceeded")]
     CapacityExceeded,
     /// Invalid tool name.
+    #[error("Invalid tool name: {0}")]
     InvalidName(String),
 }
-
-impl std::fmt::Display for NamespaceError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Collision(alert) => write!(f, "Namespace collision: {}", alert.description),
-            Self::CapacityExceeded => write!(f, "Maximum tool capacity exceeded"),
-            Self::InvalidName(name) => write!(f, "Invalid tool name: {}", name),
-        }
-    }
-}
-
-impl std::error::Error for NamespaceError {}
 
 /// Configuration for namespace registry.
 #[derive(Debug, Clone)]

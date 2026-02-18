@@ -64,12 +64,6 @@ fn record_grpc_message(direction: &str) {
     .increment(1);
 }
 
-#[cfg(test)]
-#[allow(dead_code)]
-pub(crate) fn grpc_requests_count() -> u64 {
-    GRPC_REQUESTS_TOTAL.load(Ordering::Relaxed)
-}
-
 /// The MCP gRPC service implementation.
 pub struct McpGrpcService {
     state: Arc<ProxyState>,

@@ -66,7 +66,12 @@ pub struct TransportAttempt {
     pub succeeded: bool,
     /// Wall-clock duration of this attempt in milliseconds.
     pub duration_ms: u64,
-    /// Error message if the attempt failed.
+    /// Human-readable error message if the attempt failed (`succeeded == false`).
+    ///
+    /// `None` when the attempt succeeded. Contains transport-level error details
+    /// (e.g., connection refused, timeout, TLS handshake failure) for audit trail
+    /// and debugging purposes. Sensitive details (credentials, internal IPs) are
+    /// redacted before population.
     pub error: Option<String>,
 }
 
@@ -99,9 +104,9 @@ pub struct SdkCapabilities {
 
 impl SdkCapabilities {
     /// Maximum number of individual capability strings.
-    const MAX_CAPABILITIES: usize = 100;
+    pub const MAX_CAPABILITIES: usize = 100;
     /// Maximum number of supported protocol versions.
-    const MAX_VERSIONS: usize = 20;
+    pub const MAX_VERSIONS: usize = 20;
 
     /// Validate structural bounds on `SdkCapabilities`.
     ///

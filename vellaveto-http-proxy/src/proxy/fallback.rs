@@ -51,20 +51,7 @@ pub struct FallbackResult {
     pub negotiation_history: Option<FallbackNegotiationHistory>,
 }
 
-/// Maximum response body size from upstream (16 MB). FIND-R42-020.
-const MAX_RESPONSE_BODY_BYTES: usize = 16 * 1024 * 1024;
-
-/// SECURITY (FIND-041-008): Allowlist of headers forwarded to upstream.
-/// Only these headers are forwarded to prevent leaking internal/sensitive
-/// headers (e.g., authorization, cookies) to upstream backends.
-const FORWARDED_HEADERS: &[&str] = &[
-    "content-type",
-    "accept",
-    "user-agent",
-    "traceparent",
-    "tracestate",
-    "x-request-id",
-];
+use super::{FORWARDED_HEADERS, MAX_RESPONSE_BODY_BYTES};
 
 /// Forward a request to the upstream with timeout-based retry.
 ///

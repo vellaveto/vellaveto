@@ -43,6 +43,10 @@ const MAX_MAP_LEN: usize = 50;
 /// SECURITY (FIND-R43-019, FIND-R44-055): Detect control characters AND Unicode format
 /// characters (ZWSP, bidi overrides, invisible operators, TAG characters, soft hyphen)
 /// that can bypass simple `is_control()` checks.
+///
+/// NOTE: This is a local copy mirroring the canonical `is_unsafe_char` in
+/// `routes/mod.rs`. Kept local to avoid changing the validate_field helper
+/// signature chain in this module. Any updates MUST be applied to all copies.
 fn is_unsafe_char(c: char) -> bool {
     let cp = c as u32;
     c.is_control()

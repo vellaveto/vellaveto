@@ -434,7 +434,10 @@ fn pattern_matches(pattern: &str, value: &str) -> bool {
     glob_match(pattern.as_bytes(), value.as_bytes())
 }
 
-/// Recursive glob matching for `*` and `?`.
+/// Case-insensitive glob matching for `*` and `?` on byte slices.
+///
+/// Unlike the shared `crate::util::glob_match_bytes`, this version performs
+/// case-insensitive comparison (used for capability grant pattern matching).
 fn glob_match(pattern: &[u8], value: &[u8]) -> bool {
     let mut pi = 0;
     let mut vi = 0;

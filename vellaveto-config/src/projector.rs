@@ -1,3 +1,5 @@
+//! Model projector configuration (Phase 35).
+
 use serde::{Deserialize, Serialize};
 
 /// Model projector configuration (Phase 35).
@@ -63,6 +65,7 @@ impl Default for ProjectorConfig {
 }
 
 impl ProjectorConfig {
+    /// Validate projector configuration bounds.
     pub fn validate(&self) -> Result<(), String> {
         if !VALID_FAMILIES.contains(&self.default_model_family.as_str())
             && !self.default_model_family.starts_with("custom:")

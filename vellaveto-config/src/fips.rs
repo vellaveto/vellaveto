@@ -16,7 +16,8 @@ fn default_signature_algorithm() -> String {
 /// - HMAC-SHA-256 for message authentication
 ///
 /// Requires the `fips` feature flag on `vellaveto-mcp`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct FipsConfig {
     /// Whether FIPS 140-3 compliance mode is enabled.
     /// When true, non-FIPS algorithms (Ed25519, ChaCha20, Blake2) are rejected.
@@ -28,6 +29,27 @@ pub struct FipsConfig {
     /// - `"ecdsa-p256"` (FIPS-approved)
     #[serde(default = "default_signature_algorithm")]
     pub signature_algorithm: String,
+}
+
+/// Allowed signature algorithms in FIPS mode.
+const ALLOWED_FIPS_ALGORITHMS: &[&str] = &["ed25519", "ecdsa-p256"];
+
+impl FipsConfig {
+    /// Validate FIPS configuration.
+    ///
+    /// When enabled, checks that `signature_algorithm` is one of the
+    /// recognized values (`"ed25519"` or `"ecdsa-p256"`).
+    pub fn validate(&self) -> Result<(), String> {
+        if self.enabled
+            && !ALLOWED_FIPS_ALGORITHMS.contains(&self.signature_algorithm.as_str())
+        {
+            return Err(format!(
+                "fips.signature_algorithm must be one of {:?} when enabled, got '{}'",
+                ALLOWED_FIPS_ALGORITHMS, self.signature_algorithm
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Default for FipsConfig {

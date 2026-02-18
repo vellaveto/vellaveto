@@ -70,7 +70,13 @@ impl std::fmt::Display for PoisoningAlert {
     }
 }
 
+// PoisoningAlert retains manual Display + Error impls because thiserror's
+// `#[error(...)]` attribute would need complex formatting that is clearer inline.
 impl std::error::Error for PoisoningAlert {}
+
+/// Multiplicative factor applied to `trust_score` when a schema change is observed.
+/// A value of 0.5 halves the trust on each schema mutation.
+const TRUST_DECAY_FACTOR: f32 = 0.5;
 
 /// Tracks schema lineage for poisoning detection.
 #[derive(Debug)]
@@ -117,7 +123,10 @@ impl SchemaLineageTracker {
     /// Compute SHA-256 hash of a schema.
     fn hash_schema(schema: &Value) -> String {
         // Canonicalize by serializing without whitespace
-        let canonical = serde_json::to_string(schema).unwrap_or_default();
+        let canonical = serde_json::to_string(schema).unwrap_or_else(|e| {
+            tracing::warn!(target: "vellaveto::security", error = %e, "Schema serialization failed in hash_schema, using empty string");
+            String::new()
+        });
         let mut hasher = Sha256::new();
         hasher.update(canonical.as_bytes());
         hex::encode(hasher.finalize())
@@ -130,8 +139,14 @@ impl SchemaLineageTracker {
     /// could be added later.
     fn calculate_similarity(old_schema: &Value, new_schema: &Value) -> f32 {
         // Simple approach: compare JSON structure
-        let old_str = serde_json::to_string(old_schema).unwrap_or_default();
-        let new_str = serde_json::to_string(new_schema).unwrap_or_default();
+        let old_str = serde_json::to_string(old_schema).unwrap_or_else(|e| {
+            tracing::warn!(target: "vellaveto::security", error = %e, "Schema serialization failed in calculate_similarity (old), using empty string");
+            String::new()
+        });
+        let new_str = serde_json::to_string(new_schema).unwrap_or_else(|e| {
+            tracing::warn!(target: "vellaveto::security", error = %e, "Schema serialization failed in calculate_similarity (new), using empty string");
+            String::new()
+        });
 
         if old_str == new_str {
             return 1.0;
@@ -256,13 +271,16 @@ impl SchemaLineageTracker {
             record.last_seen = now;
 
             // SECURITY (R33-006): Store new schema content if under size limit
-            let schema_str = serde_json::to_string(schema).unwrap_or_default();
+            let schema_str = serde_json::to_string(schema).unwrap_or_else(|e| {
+                tracing::warn!(target: "vellaveto::security", error = %e, "Schema serialization failed in observe_schema, using empty string");
+                String::new()
+            });
             if schema_str.len() <= SchemaRecord::MAX_SCHEMA_SIZE {
                 record.schema_content = Some(schema.clone());
             }
 
             // Decay trust on change
-            record.trust_score = (record.trust_score * 0.5).max(0.0);
+            record.trust_score = (record.trust_score * TRUST_DECAY_FACTOR).max(0.0);
 
             if similarity < 1.0 - self.mutation_threshold {
                 ObservationResult::MajorChange {
@@ -291,6 +309,7 @@ impl SchemaLineageTracker {
             );
 
             tracing::debug!(
+                target: "vellaveto::security",
                 tool = %tool,
                 "First schema observation recorded"
             );
@@ -301,13 +320,14 @@ impl SchemaLineageTracker {
 
     /// Evict the oldest (least recently seen) schema.
     fn evict_oldest_internal(&self, schemas: &mut HashMap<String, SchemaRecord>) {
-        if let Some((oldest_tool, _)) = schemas
+        if let Some(oldest_tool) = schemas
             .iter()
             .min_by_key(|(_, r)| r.last_seen)
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .map(|(k, _)| k.clone())
         {
             schemas.remove(&oldest_tool);
             tracing::debug!(
+                target: "vellaveto::security",
                 tool = %oldest_tool,
                 "Evicted oldest schema to make room"
             );
@@ -355,8 +375,9 @@ impl SchemaLineageTracker {
             return Ok(());
         }
 
-        // Calculate how different the new schema is
-        // Since we don't store the actual schema, use a heuristic based on trust
+        // Calculate how different the new schema is.
+        // Uses trust_score as a proxy when schema_content is unavailable from observe_schema;
+        // when schema_content is stored, observe_schema performs field-level comparison directly.
         let similarity = record.trust_score;
 
         if similarity < 1.0 - self.mutation_threshold {

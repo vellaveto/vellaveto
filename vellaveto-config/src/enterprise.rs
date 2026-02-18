@@ -57,6 +57,7 @@ pub enum TlsKexPolicy {
 /// kex_policy = "hybrid_preferred"
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TlsConfig {
     /// TLS mode: none, tls, or mtls. Default: none.
     #[serde(default)]
@@ -145,6 +146,7 @@ impl Default for TlsConfig {
 /// ]
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SpiffeConfig {
     /// Enable SPIFFE identity extraction. Default: false.
     #[serde(default)]
@@ -193,6 +195,7 @@ fn default_svid_cache_ttl() -> u64 {
 /// require_https = true
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct OpaConfig {
     /// Enable OPA integration. Default: false.
     #[serde(default)]
@@ -339,6 +342,7 @@ pub enum ThreatIntelProvider {
 /// cache_ttl_secs = 86400
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ThreatIntelConfig {
     /// Enable threat intelligence integration. Default: false.
     #[serde(default)]
@@ -414,6 +418,7 @@ fn default_threat_confidence() -> u8 {
 /// allowed_elevations = ["admin", "operator"]
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct JitAccessConfig {
     /// Enable JIT access. Default: false.
     #[serde(default)]

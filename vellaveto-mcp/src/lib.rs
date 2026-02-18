@@ -52,6 +52,7 @@ pub mod token_security;
 pub mod tool_namespace;
 pub mod tool_registry;
 pub mod transparency;
+pub(crate) mod util;
 pub mod workflow_tracker;
 
 use serde::{Deserialize, Serialize};
@@ -113,6 +114,11 @@ pub struct McpErrorResponse {
     pub message: String,
 }
 
+/// MCP JSON-RPC server that evaluates tool-call actions against a policy engine.
+///
+/// Provides `evaluate_action`, `add_policy`, `list_policies`, and `remove_policy`
+/// methods over a JSON-RPC transport. Policies are compiled on mutation using
+/// the compile-first pattern to maintain engine consistency.
 pub struct McpServer {
     /// The policy evaluation engine, behind RwLock so it can be recompiled
     /// when policies change at runtime.
@@ -146,6 +152,10 @@ impl McpServer {
         self.max_path_decode_iterations = Some(max);
     }
 
+    /// Parse and dispatch a JSON-RPC request string, returning a JSON-RPC response string.
+    ///
+    /// Enforces maximum request size and request ID length before dispatching
+    /// to the appropriate handler method.
     pub async fn handle_request(&self, request_data: &str) -> Result<String, McpError> {
         // Size protection
         if request_data.len() > self.max_request_size {
@@ -167,6 +177,7 @@ impl McpServer {
         Ok(serde_json::to_string(&response)?)
     }
 
+    /// Route an MCP request to the appropriate handler and wrap the result as a response.
     async fn process_request(&self, request: McpRequest) -> McpResponse {
         let result = match request.method.as_str() {
             "evaluate_action" => self.handle_evaluate_action(request.params).await,
@@ -195,6 +206,7 @@ impl McpServer {
         }
     }
 
+    /// Evaluate a tool-call action against all loaded policies and return the verdict.
     async fn handle_evaluate_action(
         &self,
         params: serde_json::Value,
@@ -212,6 +224,7 @@ impl McpServer {
         Ok(serde_json::to_value(verdict)?)
     }
 
+    /// Add a policy, recompile the engine, and return success.
     async fn handle_add_policy(
         &self,
         params: serde_json::Value,
@@ -251,11 +264,13 @@ impl McpServer {
         Ok(serde_json::Value::Bool(true))
     }
 
+    /// Return all currently loaded policies as a JSON array.
     async fn handle_list_policies(&self) -> Result<serde_json::Value, McpError> {
         let policies = self.policies.read().await;
         Ok(serde_json::to_value(&*policies)?)
     }
 
+    /// Remove a policy by ID, recompile the engine, and return whether a policy was removed.
     async fn handle_remove_policy(
         &self,
         params: serde_json::Value,

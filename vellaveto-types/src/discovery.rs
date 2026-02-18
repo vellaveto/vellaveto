@@ -122,11 +122,11 @@ pub struct DiscoveredTool {
 }
 
 impl DiscoveredTool {
-    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    /// Validate structural invariants: finite score, range check.
     ///
     /// SECURITY (FIND-P2-007): Non-finite relevance_score could cause
     /// incorrect ranking or bypass score threshold checks.
-    pub fn validate_finite(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), String> {
         if !self.relevance_score.is_finite() {
             return Err(format!(
                 "DiscoveredTool '{}' has non-finite relevance_score: {}",
@@ -141,5 +141,11 @@ impl DiscoveredTool {
             ));
         }
         Ok(())
+    }
+
+    /// Deprecated alias for [`DiscoveredTool::validate()`].
+    #[deprecated(since = "4.0.1", note = "renamed to validate()")]
+    pub fn validate_finite(&self) -> Result<(), String> {
+        self.validate()
     }
 }

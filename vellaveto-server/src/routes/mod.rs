@@ -7,20 +7,30 @@
 //! - `approval` - Human-in-the-loop approval workflow handlers
 //! - `audit` - Audit log and checkpoint handlers
 //! - `auth_level` - Step-up authentication level handlers
+//! - `billing` - Billing webhook handlers
 //! - `circuit_breaker` - Circuit breaker handlers (OWASP ASI08)
+//! - `compliance` - Compliance framework handlers (EU AI Act, SOC 2, etc.)
+//! - `deployment` - Deployment info and leader status handlers (Phase 27)
 //! - `deputy` - Deputy validation handlers (OWASP ASI02)
+//! - `discovery` - Tool discovery API handlers (Phase 34)
 //! - `etdi` - ETDI cryptographic tool security handlers
 //! - `exec_graph` - Execution graph export handlers (Phase 6)
+//! - `federation` - Agent identity federation handlers (Phase 39)
+//! - `governance` - Shadow AI governance handlers (Phase 26)
+//! - `main` - Core evaluate/health/status handlers
 //! - `memory` - Memory Injection Defense (MINJA) handlers
 //! - `nhi` - Non-Human Identity (NHI) lifecycle handlers
 //! - `observability` - AI observability platform handlers (Phase 15)
 //! - `policy` - Policy CRUD and hot-reload handlers
+//! - `projector` - Model projector API handlers (Phase 35)
 //! - `registry` - Tool registry management handlers
 //! - `sampling` - Sampling detection handlers
 //! - `schema_lineage` - Schema lineage tracking handlers (OWASP ASI05)
 //! - `shadow_agent` - Shadow agent detection handlers
+//! - `simulator` - Policy simulator API handlers (Phase 22)
 //! - `task_state` - MCP async task state handlers
 //! - `tenant` - Tenant management handlers (Phase 3)
+//! - `zk_audit` - Zero-knowledge audit trail handlers (Phase 37)
 
 pub mod approval;
 pub mod audit;
@@ -71,6 +81,22 @@ pub(crate) fn is_unsafe_char(c: char) -> bool {
         || cp == 0x00AD
 }
 
+/// Core path parameter validation: rejects values that are too long or
+/// contain control/format characters.  Returns `Ok(())` on success or
+/// `Err(error_message)` on failure.
+///
+/// SECURITY (FIND-R51-005): All path parameters from external input must
+/// pass through this check before use.
+fn validate_path_param_core(value: &str, field_name: &str) -> Result<(), String> {
+    if value.len() > MAX_PATH_PARAM_LEN {
+        return Err(format!("{} exceeds maximum length", field_name));
+    }
+    if value.chars().any(is_unsafe_char) {
+        return Err(format!("{} contains invalid characters", field_name));
+    }
+    Ok(())
+}
+
 /// SECURITY (FIND-R51-005): Validate a path parameter — reject if too long
 /// or contains control/format characters. Returns a `BAD_REQUEST` error
 /// compatible with `(StatusCode, Json<ErrorResponse>)`.
@@ -78,23 +104,12 @@ pub fn validate_path_param(
     value: &str,
     field_name: &str,
 ) -> Result<(), (axum::http::StatusCode, axum::Json<ErrorResponse>)> {
-    if value.len() > MAX_PATH_PARAM_LEN {
-        return Err((
+    validate_path_param_core(value, field_name).map_err(|msg| {
+        (
             axum::http::StatusCode::BAD_REQUEST,
-            axum::Json(ErrorResponse {
-                error: format!("{} exceeds maximum length", field_name),
-            }),
-        ));
-    }
-    if value.chars().any(is_unsafe_char) {
-        return Err((
-            axum::http::StatusCode::BAD_REQUEST,
-            axum::Json(ErrorResponse {
-                error: format!("{} contains invalid characters", field_name),
-            }),
-        ));
-    }
-    Ok(())
+            axum::Json(ErrorResponse { error: msg }),
+        )
+    })
 }
 
 /// SECURITY (FIND-R51-005): Validate a path parameter — same logic but
@@ -104,21 +119,10 @@ pub fn validate_path_param_json(
     value: &str,
     field_name: &str,
 ) -> Result<(), (axum::http::StatusCode, axum::Json<serde_json::Value>)> {
-    if value.len() > MAX_PATH_PARAM_LEN {
-        return Err((
+    validate_path_param_core(value, field_name).map_err(|msg| {
+        (
             axum::http::StatusCode::BAD_REQUEST,
-            axum::Json(serde_json::json!({
-                "error": format!("{} exceeds maximum length", field_name)
-            })),
-        ));
-    }
-    if value.chars().any(is_unsafe_char) {
-        return Err((
-            axum::http::StatusCode::BAD_REQUEST,
-            axum::Json(serde_json::json!({
-                "error": format!("{} contains invalid characters", field_name)
-            })),
-        ));
-    }
-    Ok(())
+            axum::Json(serde_json::json!({ "error": msg })),
+        )
+    })
 }

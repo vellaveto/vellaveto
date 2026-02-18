@@ -8,6 +8,10 @@ use axum::{
 use serde_json::json;
 use std::net::SocketAddr;
 
+/// Returns `true` if the socket address is bound to a loopback interface
+/// (IPv4 `127.0.0.0/8` or IPv6 `::1`).  Used to determine whether
+/// automatic localhost-only origin validation should be applied when
+/// `allowed_origins` is empty.
 pub fn is_loopback_addr(addr: &SocketAddr) -> bool {
     match addr {
         SocketAddr::V4(v4) => v4.ip().is_loopback(),

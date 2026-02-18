@@ -52,12 +52,12 @@ impl UnregisteredAgent {
     /// Maximum number of tools tracked per unregistered agent.
     const MAX_TOOLS_USED: usize = 1000;
 
-    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    /// Validate structural invariants: finite scores, range checks, collection bounds.
     ///
     /// SECURITY (FIND-P2-007): Non-finite risk_score could bypass threshold
     /// comparisons (NaN comparisons always return false).
     /// SECURITY (FIND-R49-008): Bound inner HashSet to prevent memory abuse.
-    pub fn validate_finite(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), String> {
         if !self.risk_score.is_finite() {
             return Err(format!(
                 "UnregisteredAgent '{}' has non-finite risk_score: {}",
@@ -80,6 +80,12 @@ impl UnregisteredAgent {
             ));
         }
         Ok(())
+    }
+
+    /// Deprecated alias for [`UnregisteredAgent::validate()`].
+    #[deprecated(since = "4.0.1", note = "renamed to validate()")]
+    pub fn validate_finite(&self) -> Result<(), String> {
+        self.validate()
     }
 }
 
@@ -154,12 +160,13 @@ impl ShadowAiReport {
     /// Maximum number of unknown servers (matches runtime cap).
     const MAX_UNKNOWN_SERVERS: usize = 100;
 
-    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    /// Validate structural invariants: finite scores, range checks, collection bounds,
+    /// and nested element validation.
     ///
     /// SECURITY (FIND-P2-007): Non-finite total_risk_score could bypass
     /// threshold comparisons. Also validates nested UnregisteredAgent scores.
     /// SECURITY (FIND-R49-007): Validate collection bounds matching runtime caps.
-    pub fn validate_finite(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), String> {
         if !self.total_risk_score.is_finite() {
             return Err(format!(
                 "ShadowAiReport has non-finite total_risk_score: {}",
@@ -194,6 +201,7 @@ impl ShadowAiReport {
                 Self::MAX_UNKNOWN_SERVERS
             ));
         }
+        #[allow(deprecated)]
         for agent in &self.unregistered_agents {
             agent.validate_finite()?;
         }
@@ -204,5 +212,11 @@ impl ShadowAiReport {
             server.validate()?;
         }
         Ok(())
+    }
+
+    /// Deprecated alias for [`ShadowAiReport::validate()`].
+    #[deprecated(since = "4.0.1", note = "renamed to validate()")]
+    pub fn validate_finite(&self) -> Result<(), String> {
+        self.validate()
     }
 }

@@ -38,6 +38,19 @@ pub struct InjectionAlert {
     pub description: String,
 }
 
+impl std::fmt::Display for InjectionAlert {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Injection alert: {} (confidence: {:.0}%, source: {}, intermediary: {})",
+            self.description,
+            self.confidence * 100.0,
+            self.source_agent,
+            self.intermediary_agent,
+        )
+    }
+}
+
 /// Types of second-order injection attacks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InjectionType {
@@ -132,6 +145,13 @@ struct AnalysisCache {
     timestamp: Instant,
 }
 
+/// Maximum number of entries in the content analysis cache before triggering eviction.
+const MAX_ANALYSIS_CACHE_SIZE: usize = 10_000;
+
+/// Suspicion saturation count: the number of incidents at which the pair suspicion
+/// score saturates to 1.0. Used as the denominator for suspicion normalization.
+const SUSPICION_SATURATION_COUNT: f32 = 10.0;
+
 /// Detects cross-agent privilege escalation attacks.
 pub struct EscalationDetector {
     /// Reference to the agent trust graph.
@@ -144,6 +164,17 @@ pub struct EscalationDetector {
     analysis_cache: RwLock<HashMap<u64, AnalysisCache>>,
     /// Suspicious agent pairs (source -> intermediary) with count.
     suspicious_pairs: RwLock<HashMap<(String, String), u32>>,
+}
+
+impl std::fmt::Debug for EscalationDetector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EscalationDetector")
+            .field("config", &self.config)
+            .field("patterns_count", &self.patterns.len())
+            .field("analysis_cache", &"[REDACTED]")
+            .field("suspicious_pairs", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl EscalationDetector {
@@ -567,7 +598,7 @@ impl EscalationDetector {
         let mut cache = self.analysis_cache.write().await;
 
         // Limit cache size
-        if cache.len() > 10000 {
+        if cache.len() > MAX_ANALYSIS_CACHE_SIZE {
             // Remove expired entries
             let now = Instant::now();
             cache.retain(|_, v| now.duration_since(v.timestamp) < self.config.cache_ttl);
@@ -590,14 +621,15 @@ impl EscalationDetector {
             .get(&(source.to_string(), intermediary.to_string()))
             .copied()
             .unwrap_or(0);
-        (count as f32 / 10.0).min(1.0)
+        (count as f32 / SUSPICION_SATURATION_COUNT).min(1.0)
     }
 
     /// Record a suspicious agent pair.
     async fn record_suspicious_pair(&self, source: &str, intermediary: &str) {
         let mut pairs = self.suspicious_pairs.write().await;
         let key = (source.to_string(), intermediary.to_string());
-        *pairs.entry(key).or_insert(0) += 1;
+        let counter = pairs.entry(key).or_insert(0);
+        *counter = counter.saturating_add(1);
     }
 
     /// Clear suspicious pair history (for testing or admin reset).

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Configuration for gRPC transport.
 /// SECURITY (FIND-R55-GRPC-007): deny_unknown_fields prevents config injection.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GrpcTransportConfig {
     /// Enable the gRPC transport server.
@@ -62,6 +62,10 @@ impl Default for GrpcTransportConfig {
 
 impl GrpcTransportConfig {
     /// Validate gRPC transport configuration bounds.
+    ///
+    /// NOTE: This method is not called from `PolicyConfig::validate()` because
+    /// gRPC transport config lives outside the main `PolicyConfig` struct.
+    /// Callers (e.g., server startup) are responsible for invoking it explicitly.
     pub fn validate(&self) -> Result<(), String> {
         if self.max_message_size_bytes == 0 || self.max_message_size_bytes > MAX_GRPC_MESSAGE_SIZE {
             return Err(format!(

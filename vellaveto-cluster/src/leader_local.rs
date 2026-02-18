@@ -7,8 +7,6 @@ use async_trait::async_trait;
 use std::sync::atomic::{AtomicBool, Ordering};
 use vellaveto_types::LeaderStatus;
 
-use tracing;
-
 use crate::leader::LeaderElection;
 use crate::ClusterError;
 

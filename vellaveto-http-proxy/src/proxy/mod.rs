@@ -7,7 +7,9 @@
 mod auth;
 pub mod call_chain;
 pub mod discovery;
-#[allow(dead_code)] // Used by gateway health checker; wired in gateway mode (Phase 20)
+// TODO(Phase 20): `forward_with_fallback` is not yet wired into the gateway
+// health-checker path. Remove `#[allow(dead_code)]` once it is integrated.
+#[allow(dead_code)]
 mod fallback;
 pub mod gateway;
 #[cfg(feature = "grpc")]
@@ -295,13 +297,11 @@ const MCP_PROTOCOL_VERSION_VALUE: &str = "2025-11-25";
 
 /// Supported MCP protocol versions for incoming requests.
 /// The proxy accepts these versions for backwards compatibility.
-/// `2026-06` is a placeholder for the upcoming MCP June 2026 specification.
-const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2026-06", "2025-11-25", "2025-06-18", "2025-03-26"];
+const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26"];
 
 /// Header for client transport preference negotiation (MCP June 2026).
 /// Clients may send a comma-separated list of preferred transports.
 /// Used in request handling when transport-preference-aware routing is active.
-#[allow(dead_code)] // Reserved for transport-preference-aware routing (Phase 20 MCP Gateway)
 const MCP_TRANSPORT_PREFERENCE_HEADER: &str = "mcp-transport-preference";
 
 /// OWASP ASI08: Header for tracking upstream agents in multi-hop MCP scenarios.
@@ -309,6 +309,25 @@ const MCP_TRANSPORT_PREFERENCE_HEADER: &str = "mcp-transport-preference";
 /// This header is added by Vellaveto when forwarding requests downstream
 /// and read when receiving requests from upstream.
 pub const X_UPSTREAM_AGENTS: &str = "x-upstream-agents";
+
+/// SECURITY (FIND-R41-001): Allowlist of headers forwarded to upstream.
+/// Only these headers are forwarded to prevent leaking internal/sensitive
+/// headers (e.g., authorization, cookies) to upstream backends.
+/// Shared by `fallback.rs` and `smart_fallback.rs`.
+pub(crate) const FORWARDED_HEADERS: &[&str] = &[
+    "content-type",
+    "accept",
+    "user-agent",
+    "traceparent",
+    "tracestate",
+    "x-request-id",
+];
+
+/// Maximum response body size from upstream (16 MB).
+/// SECURITY (FIND-R41-004, FIND-R42-020): Prevents unbounded memory
+/// allocation from malicious upstream responses.
+/// Shared by `fallback.rs` and `smart_fallback.rs`.
+pub(crate) const MAX_RESPONSE_BODY_BYTES: usize = 16 * 1024 * 1024;
 
 /// OWASP ASI07: Header for cryptographically attested agent identity.
 /// Contains a signed JWT with claims identifying the agent (issuer, subject, custom claims).

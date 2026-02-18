@@ -704,7 +704,7 @@ class VellavetoClient:
     def soc2_access_review(
         self,
         period: str = "30d",
-        format: str = "json",
+        export_format: str = "json",
         agent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
@@ -712,7 +712,7 @@ class VellavetoClient:
 
         Args:
             period: Review period duration (e.g. "30d", "7d", "90d")
-            format: Export format ("json" or "html")
+            export_format: Export format ("json" or "html")
             agent_id: Optional agent ID filter (max 128 chars)
 
         Returns:
@@ -726,7 +726,7 @@ class VellavetoClient:
             # SECURITY (FIND-R55-SDK-003): Reject control chars. Parity with federation_trust_anchors.
             if any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in agent_id):
                 raise VellavetoError("agent_id contains control characters")
-        params: Dict[str, Any] = {"period": period, "format": format}
+        params: Dict[str, Any] = {"period": period, "format": export_format}
         if agent_id is not None:
             params["agent_id"] = agent_id
         return self._request("GET", "/api/compliance/soc2/access-review", params=params)
@@ -1003,9 +1003,11 @@ class AsyncVellavetoClient:
         return result
 
     async def health(self) -> Dict[str, Any]:
+        """Check Vellaveto server health (async)."""
         return await self._request("GET", "/health")
 
     async def list_policies(self) -> List[Dict[str, Any]]:
+        """List all configured policies (async)."""
         return await self._request("GET", "/api/policies")
 
     async def reload_policies(self) -> Dict[str, Any]:
@@ -1150,10 +1152,19 @@ class AsyncVellavetoClient:
     async def soc2_access_review(
         self,
         period: str = "30d",
-        format: str = "json",
+        export_format: str = "json",
         agent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Generate a SOC 2 Type II access review report (async)."""
+        """Generate a SOC 2 Type II access review report (async).
+
+        Args:
+            period: Review period duration (e.g. "30d", "7d", "90d")
+            export_format: Export format ("json" or "html")
+            agent_id: Optional agent ID filter (max 128 chars)
+
+        Returns:
+            Access review report as dictionary (JSON) or raw HTML string
+        """
         if agent_id is not None:
             if not isinstance(agent_id, str):
                 raise VellavetoError("agent_id must be a string")
@@ -1162,7 +1173,7 @@ class AsyncVellavetoClient:
             # SECURITY (FIND-R55-SDK-003): Reject control chars.
             if any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in agent_id):
                 raise VellavetoError("agent_id contains control characters")
-        params: Dict[str, Any] = {"period": period, "format": format}
+        params: Dict[str, Any] = {"period": period, "format": export_format}
         if agent_id is not None:
             params["agent_id"] = agent_id
         return await self._request(

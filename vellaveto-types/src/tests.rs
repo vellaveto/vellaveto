@@ -3418,6 +3418,7 @@ fn test_memory_entry_validate_finite_accepts_normal() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_nhi_behavioral_baseline_validate_finite_rejects_nan() {
     let baseline = NhiBehavioralBaseline {
         avg_request_interval_secs: f64::NAN,
@@ -3427,6 +3428,7 @@ fn test_nhi_behavioral_baseline_validate_finite_rejects_nan() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_nhi_behavioral_baseline_validate_finite_rejects_infinity_in_map() {
     let mut baseline = NhiBehavioralBaseline::default();
     baseline
@@ -3436,6 +3438,7 @@ fn test_nhi_behavioral_baseline_validate_finite_rejects_infinity_in_map() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_nhi_behavioral_baseline_validate_finite_accepts_normal() {
     let baseline = NhiBehavioralBaseline {
         avg_request_interval_secs: 5.0,
@@ -4769,6 +4772,7 @@ fn test_nhi_behavioral_check_anomaly_score_range_rejects_negative() {
         deviations: vec![],
         recommendation: NhiBehavioralRecommendation::Allow,
     };
+    #[allow(deprecated)]
     let err = check.validate_finite().unwrap_err();
     assert!(err.contains("must be in [0.0, 1.0]"));
 }
@@ -4781,6 +4785,7 @@ fn test_nhi_behavioral_check_anomaly_score_range_rejects_above_one() {
         deviations: vec![],
         recommendation: NhiBehavioralRecommendation::Revoke,
     };
+    #[allow(deprecated)]
     let err = check.validate_finite().unwrap_err();
     assert!(err.contains("must be in [0.0, 1.0]"));
 }
@@ -4793,7 +4798,9 @@ fn test_nhi_behavioral_check_anomaly_score_range_accepts_valid() {
         deviations: vec![],
         recommendation: NhiBehavioralRecommendation::AllowWithLogging,
     };
-    assert!(check.validate_finite().is_ok());
+    #[allow(deprecated)]
+    let result = check.validate_finite();
+    assert!(result.is_ok());
 }
 
 #[test]
@@ -4802,6 +4809,7 @@ fn test_nhi_behavioral_baseline_confidence_range_rejects_negative() {
         confidence: -0.01,
         ..Default::default()
     };
+    #[allow(deprecated)]
     let err = baseline.validate_finite().unwrap_err();
     assert!(err.contains("confidence must be in [0.0, 1.0]"));
 }
@@ -4812,6 +4820,7 @@ fn test_nhi_behavioral_baseline_confidence_range_rejects_above_one() {
         confidence: 1.001,
         ..Default::default()
     };
+    #[allow(deprecated)]
     let err = baseline.validate_finite().unwrap_err();
     assert!(err.contains("confidence must be in [0.0, 1.0]"));
 }
@@ -4822,7 +4831,9 @@ fn test_nhi_behavioral_baseline_confidence_range_accepts_valid() {
         confidence: 0.95,
         ..Default::default()
     };
-    assert!(baseline.validate_finite().is_ok());
+    #[allow(deprecated)]
+    let result = baseline.validate_finite();
+    assert!(result.is_ok());
 }
 
 #[test]
@@ -4878,6 +4889,7 @@ fn test_unregistered_agent_risk_score_range_rejects_negative() {
         tools_used: std::collections::HashSet::new(),
         risk_score: -0.1,
     };
+    #[allow(deprecated)]
     let err = agent.validate_finite().unwrap_err();
     assert!(err.contains("must be in [0.0, 1.0]"));
 }
@@ -4892,6 +4904,7 @@ fn test_unregistered_agent_risk_score_range_rejects_above_one() {
         tools_used: std::collections::HashSet::new(),
         risk_score: 5.0,
     };
+    #[allow(deprecated)]
     let err = agent.validate_finite().unwrap_err();
     assert!(err.contains("must be in [0.0, 1.0]"));
 }
@@ -4904,6 +4917,7 @@ fn test_shadow_ai_report_total_risk_score_range_rejects_above_one() {
         unknown_servers: vec![],
         total_risk_score: 1.5,
     };
+    #[allow(deprecated)]
     let err = report.validate_finite().unwrap_err();
     assert!(err.contains("total_risk_score must be in [0.0, 1.0]"));
 }
@@ -4916,7 +4930,9 @@ fn test_shadow_ai_report_total_risk_score_range_accepts_valid() {
         unknown_servers: vec![],
         total_risk_score: 0.3,
     };
-    assert!(report.validate_finite().is_ok());
+    #[allow(deprecated)]
+    let result = report.validate_finite();
+    assert!(result.is_ok());
 }
 
 #[test]
@@ -4936,6 +4952,7 @@ fn test_discovered_tool_relevance_score_range_rejects_above_one() {
         relevance_score: 1.1,
         ttl_secs: 60,
     };
+    #[allow(deprecated)]
     let err = tool.validate_finite().unwrap_err();
     assert!(err.contains("must be in [0.0, 1.0]"));
 }
@@ -4957,6 +4974,7 @@ fn test_discovered_tool_relevance_score_range_rejects_negative() {
         relevance_score: -0.01,
         ttl_secs: 60,
     };
+    #[allow(deprecated)]
     let err = tool.validate_finite().unwrap_err();
     assert!(err.contains("must be in [0.0, 1.0]"));
 }
@@ -4978,7 +4996,9 @@ fn test_discovered_tool_relevance_score_range_accepts_valid() {
         relevance_score: 0.85,
         ttl_secs: 60,
     };
-    assert!(tool.validate_finite().is_ok());
+    #[allow(deprecated)]
+    let result = tool.validate_finite();
+    assert!(result.is_ok());
 }
 
 // ═══════════════════════════════════════════════════════════════════

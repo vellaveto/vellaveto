@@ -75,6 +75,15 @@ pub(crate) fn validate_name(value: &str, field: &'static str) -> Result<(), Vali
     Ok(())
 }
 
+/// A tool-call action submitted for policy evaluation.
+///
+/// Represents a single invocation of a tool function with its parameters
+/// and optional target paths/domains. This is the primary input to the
+/// policy engine's `evaluate()` method.
+///
+/// Use [`Action::validated`] or [`Action::validate`] at trust boundaries
+/// (MCP extractor, HTTP proxy) to enforce structural invariants before
+/// evaluation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Action {
     pub tool: String,
@@ -148,6 +157,14 @@ impl Action {
     /// Checks tool/function names, parameters size, and
     /// `target_paths`/`target_domains` for null bytes, excessive length,
     /// and total count.
+    ///
+    /// # Error type
+    ///
+    /// Returns [`ValidationError`] (a structured enum) rather than `String`
+    /// so callers can programmatically match on specific failure kinds
+    /// (e.g., `NullByte`, `TooLong`, `ParametersTooLarge`). Other `validate()`
+    /// methods in this crate return `Result<(), String>` because they were
+    /// added later and their errors are purely diagnostic.
     pub fn validate(&self) -> Result<(), ValidationError> {
         validate_name(&self.tool, "tool")?;
         validate_name(&self.function, "function")?;
@@ -242,6 +259,13 @@ impl Action {
     }
 }
 
+/// Result of policy evaluation for an [`Action`].
+///
+/// - `Allow` — the action is permitted.
+/// - `Deny` — the action is blocked, with a human-readable reason.
+/// - `RequireApproval` — the action needs explicit operator approval before proceeding.
+///
+/// Marked `#[non_exhaustive]` to allow future variants without breaking downstream matches.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
 pub enum Verdict {
@@ -250,6 +274,15 @@ pub enum Verdict {
     RequireApproval { reason: String },
 }
 
+/// The disposition of a [`Policy`] — whether it allows, denies, or conditionally
+/// gates actions.
+///
+/// - `Allow` — matching actions are permitted.
+/// - `Deny` — matching actions are blocked.
+/// - `Conditional` — matching actions are evaluated against a JSON condition tree
+///   (see context-aware policy evaluation in the engine).
+///
+/// Marked `#[non_exhaustive]` to allow future variants without breaking downstream matches.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
 pub enum PolicyType {
@@ -313,6 +346,17 @@ pub struct IpRules {
     pub allowed_cidrs: Vec<String>,
 }
 
+/// A security policy that governs whether an [`Action`] is allowed, denied,
+/// or requires approval.
+///
+/// Policies are matched against actions by the engine in priority order
+/// (higher `priority` value = evaluated first). Each policy may include
+/// optional [`PathRules`] and [`NetworkRules`] for fine-grained access control.
+///
+/// # Validation
+///
+/// Call [`Policy::validate()`] after deserialization to enforce structural
+/// invariants (non-empty id/name, non-negative priority, bounded conditions).
 // SECURITY (FIND-R48-011): deny_unknown_fields catches typos like "network_rule"
 // that would silently result in missing security rules.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -341,7 +385,7 @@ const MAX_POLICY_NAME_LEN: usize = 512;
 ///
 /// SECURITY (FIND-R49-003, FIND-R56-CORE-003): Prevents memory exhaustion
 /// via deeply nested or excessively large JSON condition values.
-pub const MAX_CONDITIONS_SIZE: usize = 65_536;
+const MAX_CONDITIONS_SIZE: usize = 65_536;
 
 impl Policy {
     /// Validate structural invariants of a `Policy`.

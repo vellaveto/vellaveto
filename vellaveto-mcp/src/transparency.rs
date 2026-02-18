@@ -90,32 +90,10 @@ pub fn inject_decision_explanation(
 }
 
 /// Simple glob matching supporting `*` and `?`.
+///
+/// Delegates to the shared implementation in `crate::util`.
 fn glob_match(pattern: &str, text: &str) -> bool {
-    let p: Vec<char> = pattern.chars().collect();
-    let t: Vec<char> = text.chars().collect();
-    let (plen, tlen) = (p.len(), t.len());
-
-    let mut dp = vec![vec![false; tlen + 1]; plen + 1];
-    dp[0][0] = true;
-
-    // Handle leading `*` patterns
-    for i in 1..=plen {
-        if p[i - 1] == '*' {
-            dp[i][0] = dp[i - 1][0];
-        }
-    }
-
-    for i in 1..=plen {
-        for j in 1..=tlen {
-            if p[i - 1] == '*' {
-                dp[i][j] = dp[i - 1][j] || dp[i][j - 1];
-            } else if p[i - 1] == '?' || p[i - 1] == t[j - 1] {
-                dp[i][j] = dp[i - 1][j - 1];
-            }
-        }
-    }
-
-    dp[plen][tlen]
+    crate::util::glob_match(pattern, text)
 }
 
 #[cfg(test)]

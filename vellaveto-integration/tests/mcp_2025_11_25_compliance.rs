@@ -171,7 +171,7 @@ fn test_policy_config_without_streamable_http_uses_defaults() {
 fn test_protocol_version_2025_11_25_recognized() {
     // This version string should be accepted by the proxy.
     // We verify that the constant is correctly defined in the types/config.
-    let supported = ["2026-06", "2025-11-25", "2025-06-18", "2025-03-26"];
+    let supported = ["2025-11-25", "2025-06-18", "2025-03-26"];
     assert!(supported.contains(&"2025-11-25"));
 }
 

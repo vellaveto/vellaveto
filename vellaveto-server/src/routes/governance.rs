@@ -129,7 +129,7 @@ pub async fn least_agency_report(
         })?;
 
     // Also check for auto-revocation candidates
-    let auto_revoke_candidates = tracker.check_auto_revoke(&agent_id, &session_id);
+    let auto_revoke_candidates = tracker.revoke_stale_permissions(&agent_id, &session_id);
 
     Ok(Json(json!({
         "report": report,

@@ -21,42 +21,21 @@ use std::sync::RwLock;
 use vellaveto_types::SamplingStats;
 
 /// Reason for denying a sampling request.
-#[derive(Debug, Clone)]
+#[derive(thiserror::Error, Debug, Clone)]
 pub enum SamplingDenied {
     /// Rate limit exceeded.
+    #[error("Rate limit exceeded: {count} requests (limit: {limit})")]
     RateLimitExceeded { count: u32, limit: u32 },
     /// Prompt is too long.
+    #[error("Prompt too long: {length} characters (max: {max})")]
     PromptTooLong { length: usize, max: usize },
     /// Sensitive content detected.
+    #[error("Sensitive content detected: {patterns:?}")]
     SensitiveContent { patterns: Vec<String> },
     /// Model is not in the allowed list.
+    #[error("Model not allowed: {model}")]
     ModelNotAllowed { model: String },
 }
-
-impl std::fmt::Display for SamplingDenied {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SamplingDenied::RateLimitExceeded { count, limit } => {
-                write!(
-                    f,
-                    "Rate limit exceeded: {} requests (limit: {})",
-                    count, limit
-                )
-            }
-            SamplingDenied::PromptTooLong { length, max } => {
-                write!(f, "Prompt too long: {} characters (max: {})", length, max)
-            }
-            SamplingDenied::SensitiveContent { patterns } => {
-                write!(f, "Sensitive content detected: {:?}", patterns)
-            }
-            SamplingDenied::ModelNotAllowed { model } => {
-                write!(f, "Model not allowed: {}", model)
-            }
-        }
-    }
-}
-
-impl std::error::Error for SamplingDenied {}
 
 /// DLP match in sampling content.
 #[derive(Debug, Clone)]

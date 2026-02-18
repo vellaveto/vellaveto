@@ -692,7 +692,10 @@ pub struct NamespaceSharingRequest {
     pub access_type: NamespaceAccessType,
     /// ISO 8601 timestamp of the request.
     pub requested_at: String,
-    /// Whether the request has been approved.
+    /// Tri-state approval status:
+    /// - `None` — pending (not yet reviewed by an operator).
+    /// - `Some(true)` — approved (access granted, ACL updated).
+    /// - `Some(false)` — denied (access rejected, requester notified).
     #[serde(default)]
     pub approved: Option<bool>,
     /// ISO 8601 timestamp when the request was resolved.
@@ -722,23 +725,29 @@ impl fmt::Display for NamespaceAccessType {
     }
 }
 
-/// Statistics for memory security operations.
+/// Aggregate statistics for MINJA memory security operations.
+///
+/// Exposed via the `/api/health` and governance endpoints.
+/// All counters use `u64` and are incremented with `saturating_add`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct MemorySecurityStats {
-    /// Total entries tracked.
+    /// Total [`MemoryEntry`] records currently tracked across all namespaces.
     pub total_entries: u64,
-    /// Entries currently quarantined.
+    /// Entries currently in quarantine (blocked from use in tool parameters).
     pub quarantined_entries: u64,
-    /// Total provenance nodes.
+    /// Total [`ProvenanceNode`] records in the provenance DAG.
     pub provenance_nodes: u64,
-    /// Namespaces created.
+    /// Number of [`MemoryNamespace`] instances created (including defaults).
     pub namespaces: u64,
-    /// Injection patterns detected.
+    /// Cumulative count of injection patterns detected in memory content
+    /// (matched by Aho-Corasick + NFKC normalization).
     pub injections_detected: u64,
-    /// Cross-session replays blocked.
+    /// Cumulative count of cross-session data replays blocked by the
+    /// session guard (prevents data exfiltration via session pivoting).
     pub cross_session_blocked: u64,
-    /// Low-trust access denials.
+    /// Cumulative count of access denials due to trust score below the
+    /// configured `trust_threshold` after time-based decay.
     pub low_trust_denials: u64,
-    /// Sharing approvals pending.
+    /// Number of [`NamespaceSharingRequest`] records awaiting operator approval.
     pub pending_shares: u64,
 }

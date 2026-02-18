@@ -880,6 +880,9 @@ impl PolicyConfig {
         self.licensing.validate()?;
         self.billing.validate()?;
 
+        // FIPS configuration validation (P4-001)
+        self.fips.validate()?;
+
         // Extension registry configuration bounds
         self.extension.validate()?;
 

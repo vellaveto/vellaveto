@@ -17,6 +17,7 @@ use crate::default_true;
 /// disabled_patterns = ["pretend you are"]
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct InjectionConfig {
     /// Master toggle for injection scanning. Defaults to `true`.
     #[serde(default = "default_true")]
@@ -70,6 +71,7 @@ impl Default for InjectionConfig {
 /// disabled_patterns = ["generic_api_key"]
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct DlpConfig {
     /// Master toggle for DLP scanning. Defaults to `true`.
     #[serde(default = "default_true")]
@@ -155,6 +157,7 @@ impl Default for DlpConfig {
 /// per_principal_burst = 10
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RateLimitConfig {
     /// Max sustained requests/sec for `/evaluate` endpoints.
     pub evaluate_rps: Option<u32>,
@@ -194,6 +197,7 @@ pub struct RateLimitConfig {
 /// pattern = "EMP-\\d{6}"
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct CustomPiiPattern {
     /// Human-readable name for this pattern (used in diagnostics).
     pub name: String,
@@ -214,6 +218,7 @@ pub struct CustomPiiPattern {
 /// pattern = "EMP-\\d{6}"
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AuditConfig {
     /// Redaction level for audit log entries.
     /// - `"Off"`: no redaction
@@ -243,6 +248,7 @@ pub struct AuditConfig {
 /// block_on_match = false
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct MemoryTrackingConfig {
     /// Enable cross-request data flow tracking. Default: false.
     #[serde(default)]
@@ -266,6 +272,7 @@ pub struct MemoryTrackingConfig {
 /// batch_size = 10
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AuditExportConfig {
     /// Export format: "cef" or "jsonl". Default: "jsonl".
     #[serde(default = "default_export_format")]
@@ -319,6 +326,7 @@ impl Default for AuditExportConfig {
 /// blocked_content_types = []
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct MultimodalPolicyConfig {
     /// Enable multimodal scanning. Default: false.
     #[serde(default)]

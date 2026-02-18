@@ -12,10 +12,10 @@ use vellaveto_types::TransportProtocol;
 pub const MAX_BACKENDS: usize = 64;
 
 /// Maximum length for a backend ID (FIND-R43-004).
-const MAX_BACKEND_ID_LEN: usize = 128;
+pub const MAX_BACKEND_ID_LEN: usize = 128;
 
 /// Maximum length for a single tool_prefix entry (FIND-R43-005).
-const MAX_TOOL_PREFIX_LEN: usize = 256;
+pub const MAX_TOOL_PREFIX_LEN: usize = 256;
 
 fn default_health_check_interval_secs() -> u64 {
     15
@@ -35,6 +35,7 @@ fn default_weight() -> u8 {
 
 /// Gateway configuration for multi-backend MCP routing.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct GatewayConfig {
     /// Whether gateway mode is enabled. When false, Vellaveto uses the
     /// single upstream URL from `--upstream`.
@@ -74,6 +75,11 @@ impl Default for GatewayConfig {
 
 impl GatewayConfig {
     /// Validate the gateway configuration.
+    ///
+    /// Returns `Ok(())` immediately when disabled — validation of backend URLs,
+    /// IDs, and thresholds is only meaningful when the gateway is active. This
+    /// avoids noisy errors during development when the gateway block exists in
+    /// config but is toggled off.
     pub fn validate(&self) -> Result<(), String> {
         if !self.enabled {
             return Ok(());
@@ -237,6 +243,7 @@ impl GatewayConfig {
 
 /// Configuration for a single upstream backend.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct BackendConfig {
     /// Unique identifier for this backend.
     pub id: String,

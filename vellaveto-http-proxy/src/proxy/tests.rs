@@ -1741,13 +1741,13 @@ use super::discovery::{
 use vellaveto_types::{SdkTier, TransportEndpoint, TransportProtocol};
 
 #[test]
-fn test_supported_protocol_versions_includes_2026_06() {
+fn test_supported_protocol_versions_highest_is_2025_11_25() {
     assert!(
-        SUPPORTED_PROTOCOL_VERSIONS.contains(&"2026-06"),
-        "2026-06 placeholder must be in SUPPORTED_PROTOCOL_VERSIONS"
+        SUPPORTED_PROTOCOL_VERSIONS.contains(&"2025-11-25"),
+        "2025-11-25 must be in SUPPORTED_PROTOCOL_VERSIONS"
     );
     // Must be the first (highest priority) entry
-    assert_eq!(SUPPORTED_PROTOCOL_VERSIONS[0], "2026-06");
+    assert_eq!(SUPPORTED_PROTOCOL_VERSIONS[0], "2025-11-25");
 }
 
 #[test]
@@ -1851,7 +1851,7 @@ fn test_sdk_capabilities_tier() {
     let caps = build_sdk_capabilities();
     assert_eq!(caps.tier, SdkTier::Extended);
     assert!(caps.capabilities.len() >= 8);
-    assert!(caps.supported_versions.contains(&"2026-06".to_string()));
+    assert!(caps.supported_versions.contains(&"2025-11-25".to_string()));
 }
 
 #[test]

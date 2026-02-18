@@ -8,20 +8,7 @@ use std::time::{Duration, Instant};
 use vellaveto_types::{FallbackNegotiationHistory, TransportAttempt, TransportProtocol};
 
 use super::transport_health::TransportHealthTracker;
-
-/// SECURITY (FIND-R41-001): Allowlist of headers forwarded to upstream.
-/// Shared with `fallback.rs` to prevent leaking internal/sensitive headers.
-const FORWARDED_HEADERS: &[&str] = &[
-    "content-type",
-    "accept",
-    "user-agent",
-    "traceparent",
-    "tracestate",
-    "x-request-id",
-];
-
-/// Maximum response body size from upstream (16 MB). FIND-R41-004.
-const MAX_RESPONSE_BODY_BYTES: usize = 16 * 1024 * 1024;
+use super::{FORWARDED_HEADERS, MAX_RESPONSE_BODY_BYTES};
 
 /// Maximum stderr capture from stdio subprocess (4 KB). FIND-R41-010.
 const MAX_STDERR_BYTES: usize = 4096;

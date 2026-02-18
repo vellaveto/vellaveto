@@ -16,6 +16,7 @@
 //! - [`dlp`] - Data Loss Prevention / secret scanning
 //! - [`tool_description`] - Tool description injection scanning
 //! - [`multimodal`] - Image/document injection detection (feature-gated)
+//! - [`util`] - Shared utilities (base64 decoding, transformations)
 
 pub mod dlp;
 pub mod injection;

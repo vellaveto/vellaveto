@@ -25,10 +25,21 @@ pub enum TransportCircuitState {
 /// Statistics for a single (upstream, transport) circuit.
 #[derive(Debug, Clone)]
 struct TransportCircuitStats {
+    /// Current circuit breaker state (Closed / Open / HalfOpen).
     state: TransportCircuitState,
+    /// Consecutive failures recorded while the circuit is Closed.
+    /// Reset to 0 on a successful response or when transitioning to Open.
     failure_count: u32,
+    /// Consecutive successes recorded while the circuit is HalfOpen.
+    /// Reset to 0 on failure. When it reaches `success_threshold` the
+    /// circuit transitions back to Closed.
     success_count: u32,
+    /// Unix timestamp (seconds) of the most recent state transition.
+    /// Used together with `open_duration_secs` to decide when an Open
+    /// circuit should transition to HalfOpen.
     last_state_change: u64,
+    /// Number of times this circuit has tripped (Closed -> Open).
+    /// Used for exponential backoff on the open duration.
     trip_count: u32,
     /// Whether a half-open probe request is currently in flight (FIND-R42-010).
     half_open_in_flight: bool,

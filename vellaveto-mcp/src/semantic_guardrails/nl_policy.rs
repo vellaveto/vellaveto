@@ -173,66 +173,16 @@ impl CompiledPattern {
     }
 }
 
-/// Simple glob matching (supports * wildcard only).
+/// Case-insensitive glob matching (supports `*` and `?` wildcards).
+///
+/// Lowercases both sides and delegates to the shared `crate::util::glob_match`.
 fn glob_match(pattern: &str, text: &str) -> bool {
     if pattern == "*" {
         return true;
     }
-
-    let pattern = pattern.to_lowercase();
-    let text = text.to_lowercase();
-
-    if !pattern.contains('*') {
-        return pattern == text;
-    }
-
-    let parts: Vec<&str> = pattern.split('*').collect();
-
-    if parts.len() == 2 {
-        // Simple prefix/suffix/contains
-        let prefix = parts[0];
-        let suffix = parts[1];
-
-        if prefix.is_empty() && suffix.is_empty() {
-            return true;
-        }
-        if prefix.is_empty() {
-            return text.ends_with(suffix);
-        }
-        if suffix.is_empty() {
-            return text.starts_with(prefix);
-        }
-        return text.starts_with(prefix) && text.ends_with(suffix);
-    }
-
-    // Complex pattern: check if all parts appear in order
-    let mut remaining = text.as_str();
-    for (i, part) in parts.iter().enumerate() {
-        if part.is_empty() {
-            continue;
-        }
-        if i == 0 {
-            // First part must be a prefix
-            if !remaining.starts_with(*part) {
-                return false;
-            }
-            remaining = &remaining[part.len()..];
-        } else if i == parts.len() - 1 {
-            // Last part must be a suffix
-            if !remaining.ends_with(*part) {
-                return false;
-            }
-        } else {
-            // Middle parts just need to be present
-            if let Some(pos) = remaining.find(*part) {
-                remaining = &remaining[pos + part.len()..];
-            } else {
-                return false;
-            }
-        }
-    }
-
-    true
+    let pattern_lower = pattern.to_lowercase();
+    let text_lower = text.to_lowercase();
+    crate::util::glob_match(&pattern_lower, &text_lower)
 }
 
 // ═══════════════════════════════════════════════════

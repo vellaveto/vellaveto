@@ -212,11 +212,11 @@ impl NhiBehavioralBaseline {
     /// Maximum entries in `active_hours`.
     pub const MAX_ACTIVE_HOURS: usize = 24;
 
-    /// Validate that all f64 fields are finite (not NaN or Infinity)
-    /// and collection sizes are bounded.
+    /// Validate structural invariants: finite scores, range checks, collection bounds,
+    /// and active hour validity.
     ///
     /// SECURITY (FIND-R48-009): Also check collection size bounds.
-    pub fn validate_finite(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), String> {
         if self.tool_call_patterns.len() > Self::MAX_TOOL_CALL_PATTERNS {
             return Err(format!(
                 "NhiBehavioralBaseline has {} tool_call_patterns (max {})",
@@ -286,6 +286,12 @@ impl NhiBehavioralBaseline {
         }
         Ok(())
     }
+
+    /// Deprecated alias for [`NhiBehavioralBaseline::validate()`].
+    #[deprecated(since = "4.0.1", note = "renamed to validate()")]
+    pub fn validate_finite(&self) -> Result<(), String> {
+        self.validate()
+    }
 }
 
 impl Default for NhiBehavioralBaseline {
@@ -321,11 +327,11 @@ pub struct NhiBehavioralCheckResult {
 }
 
 impl NhiBehavioralCheckResult {
-    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    /// Validate structural invariants: finite scores, range checks, deviation bounds.
     ///
     /// SECURITY (FIND-P2-007): Non-finite anomaly_score could bypass
     /// threshold comparisons that determine whether to allow or block.
-    pub fn validate_finite(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), String> {
         if !self.anomaly_score.is_finite() {
             return Err(format!(
                 "NhiBehavioralCheckResult has non-finite anomaly_score: {}",
@@ -358,18 +364,32 @@ impl NhiBehavioralCheckResult {
         }
         Ok(())
     }
+
+    /// Deprecated alias for [`NhiBehavioralCheckResult::validate()`].
+    #[deprecated(since = "4.0.1", note = "renamed to validate()")]
+    pub fn validate_finite(&self) -> Result<(), String> {
+        self.validate()
+    }
 }
 
-/// A specific behavioral deviation from the baseline.
+/// A specific behavioral deviation from the established baseline.
+///
+/// Describes a single anomalous observation relative to an agent's
+/// [`NhiBehavioralBaseline`]. Multiple deviations may be reported
+/// in a single [`NhiBehavioralCheckResult`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct NhiBehavioralDeviation {
-    /// Type of deviation.
+    /// Category of deviation (e.g., `"request_interval"`, `"tool_frequency"`,
+    /// `"source_ip"`, `"active_hours"`).
     pub deviation_type: String,
-    /// Observed value.
+    /// The actual value observed during the current request/session
+    /// (e.g., `"1200ms"`, `"10.0.0.1"`, `"23"`).
     pub observed: String,
-    /// Expected value or range.
+    /// The expected value or range from the baseline
+    /// (e.g., `"300-500ms"`, `"192.168.1.0/24"`, `"9-17"`).
     pub expected: String,
-    /// Severity (0.0 - 1.0).
+    /// How severe this deviation is, from 0.0 (negligible) to 1.0 (extreme).
+    /// Validated to be in `[0.0, 1.0]` by [`NhiBehavioralCheckResult::validate()`].
     pub severity: f64,
 }
 
@@ -586,6 +606,20 @@ pub struct NhiStats {
     pub dpop_verifications_last_hour: u64,
 }
 
+impl NhiStats {
+    /// Validate structural invariants.
+    ///
+    /// Currently a no-op since all fields are bounded integer types,
+    /// but provided for forward-compatibility with future string fields.
+    pub fn validate(&self) -> Result<(), String> {
+        // All fields are u64 — no string bounds to check.
+        // total_identities should be >= sum of sub-counts, but this is
+        // a consistency check rather than a security bound, so we only
+        // enforce it as a warning-level audit finding, not a hard reject.
+        Ok(())
+    }
+}
+
 /// Credential rotation event for audit.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct NhiCredentialRotation {
@@ -602,4 +636,64 @@ pub struct NhiCredentialRotation {
     pub trigger: String,
     /// New expiration time.
     pub new_expires_at: String,
+}
+
+impl NhiCredentialRotation {
+    /// Maximum length for `agent_id`.
+    const MAX_AGENT_ID_LEN: usize = 256;
+    /// Maximum length for thumbprint strings.
+    const MAX_THUMBPRINT_LEN: usize = 512;
+    /// Maximum length for ISO 8601 timestamp strings.
+    const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for `trigger`.
+    const MAX_TRIGGER_LEN: usize = 128;
+
+    /// Validate structural bounds on string fields.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.agent_id.len() > Self::MAX_AGENT_ID_LEN {
+            return Err(format!(
+                "NhiCredentialRotation agent_id length {} exceeds max {}",
+                self.agent_id.len(),
+                Self::MAX_AGENT_ID_LEN,
+            ));
+        }
+        if let Some(ref pt) = self.previous_thumbprint {
+            if pt.len() > Self::MAX_THUMBPRINT_LEN {
+                return Err(format!(
+                    "NhiCredentialRotation previous_thumbprint length {} exceeds max {}",
+                    pt.len(),
+                    Self::MAX_THUMBPRINT_LEN,
+                ));
+            }
+        }
+        if self.new_thumbprint.len() > Self::MAX_THUMBPRINT_LEN {
+            return Err(format!(
+                "NhiCredentialRotation new_thumbprint length {} exceeds max {}",
+                self.new_thumbprint.len(),
+                Self::MAX_THUMBPRINT_LEN,
+            ));
+        }
+        if self.rotated_at.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "NhiCredentialRotation rotated_at length {} exceeds max {}",
+                self.rotated_at.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        if self.trigger.len() > Self::MAX_TRIGGER_LEN {
+            return Err(format!(
+                "NhiCredentialRotation trigger length {} exceeds max {}",
+                self.trigger.len(),
+                Self::MAX_TRIGGER_LEN,
+            ));
+        }
+        if self.new_expires_at.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "NhiCredentialRotation new_expires_at length {} exceeds max {}",
+                self.new_expires_at.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        Ok(())
+    }
 }

@@ -40,6 +40,43 @@ pub struct ServiceEndpoint {
     pub healthy: bool,
 }
 
+impl ServiceEndpoint {
+    /// Maximum length for endpoint `id`.
+    const MAX_ID_LEN: usize = 256;
+    /// Maximum length for endpoint `url`.
+    const MAX_URL_LEN: usize = 2048;
+    /// Maximum number of labels per endpoint.
+    const MAX_LABELS: usize = 100;
+
+    /// Validate structural bounds on deserialized data.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id.len() > Self::MAX_ID_LEN {
+            return Err(format!(
+                "ServiceEndpoint id length {} exceeds max {}",
+                self.id.len(),
+                Self::MAX_ID_LEN,
+            ));
+        }
+        if self.url.len() > Self::MAX_URL_LEN {
+            return Err(format!(
+                "ServiceEndpoint '{}' url length {} exceeds max {}",
+                self.id,
+                self.url.len(),
+                Self::MAX_URL_LEN,
+            ));
+        }
+        if self.labels.len() > Self::MAX_LABELS {
+            return Err(format!(
+                "ServiceEndpoint '{}' labels count {} exceeds max {}",
+                self.id,
+                self.labels.len(),
+                Self::MAX_LABELS,
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Events emitted by service discovery watchers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
@@ -79,4 +116,32 @@ pub struct DeploymentInfo {
     pub uptime_secs: u64,
     /// Deployment mode (standalone, clustered, kubernetes).
     pub mode: String,
+}
+
+impl DeploymentInfo {
+    /// Maximum length for `instance_id`.
+    const MAX_INSTANCE_ID_LEN: usize = 256;
+    /// Maximum length for `mode`.
+    const MAX_MODE_LEN: usize = 64;
+
+    /// Validate structural bounds on deserialized data.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(ref id) = self.instance_id {
+            if id.len() > Self::MAX_INSTANCE_ID_LEN {
+                return Err(format!(
+                    "DeploymentInfo instance_id length {} exceeds max {}",
+                    id.len(),
+                    Self::MAX_INSTANCE_ID_LEN,
+                ));
+            }
+        }
+        if self.mode.len() > Self::MAX_MODE_LEN {
+            return Err(format!(
+                "DeploymentInfo mode length {} exceeds max {}",
+                self.mode.len(),
+                Self::MAX_MODE_LEN,
+            ));
+        }
+        Ok(())
+    }
 }

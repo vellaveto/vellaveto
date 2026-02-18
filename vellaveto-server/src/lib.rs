@@ -60,6 +60,10 @@ pub struct RateLimits {
     pub endpoint_limits: std::collections::HashMap<String, governor::DefaultDirectRateLimiter>,
 }
 
+/// Retry-After value (seconds) returned when the rate limiter is at capacity
+/// and cannot track new IPs/keys. Asks the client to back off.
+const CAPACITY_EXCEEDED_RETRY_SECS: u64 = 60;
+
 /// Per-IP rate limiter using DashMap for lock-free concurrent access.
 ///
 /// Each unique client IP gets its own governor bucket. Stale entries
@@ -148,7 +152,7 @@ impl PerIpRateLimiter {
             }
             dashmap::mapref::entry::Entry::Vacant(vacancy) => {
                 if at_capacity {
-                    return Some(60); // Ask client to retry in 60s
+                    return Some(CAPACITY_EXCEEDED_RETRY_SECS);
                 }
                 let limiter = RateLimiter::direct(self.quota);
                 let result = match limiter.check() {
@@ -278,7 +282,7 @@ impl PerKeyRateLimiter {
             }
             dashmap::mapref::entry::Entry::Vacant(vacancy) => {
                 if at_capacity {
-                    return Some(60); // Ask client to retry in 60s
+                    return Some(CAPACITY_EXCEEDED_RETRY_SECS);
                 }
                 let limiter = RateLimiter::direct(self.quota);
                 let result = match limiter.check() {

@@ -11,16 +11,19 @@ use serde::{Deserialize, Serialize};
 ///
 /// ```toml
 /// [limits]
-/// max_response_body_bytes = 10485760  # 10 MB
-/// max_sse_event_bytes = 1048576       # 1 MB
-/// max_jsonrpc_line_bytes = 1048576    # 1 MB
+/// max_response_body_bytes = 10485760   # 10 MB
+/// max_sse_event_bytes = 1048576        # 1 MB
+/// max_jsonrpc_line_bytes = 1048576     # 1 MB
 /// max_call_chain_length = 20
-/// call_chain_max_age_secs = 300       # 5 minutes
+/// call_chain_max_age_secs = 300        # 5 minutes
 /// request_timeout_secs = 30
 /// max_action_history = 100
 /// max_pending_tool_calls = 256
+/// max_call_chain_header_bytes = 8192   # 8 KB
+/// max_trace_header_bytes = 4096        # 4 KB
+/// max_jsonrpc_id_key_len = 256
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct LimitsConfig {
     /// Maximum response body size in bytes. Default: 10 MB.

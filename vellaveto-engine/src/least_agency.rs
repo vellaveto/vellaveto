@@ -27,11 +27,18 @@ const THRESHOLD_NARROW: f64 = 0.2;
 const DEFAULT_AUTO_REVOKE_SECS: u64 = 3600;
 
 /// Per-agent-session permission tracker.
+///
+/// Tracks the set of granted policy IDs and which of them have been exercised,
+/// enabling unused-permission detection and auto-revocation of stale grants.
 struct PermissionTracker {
+    /// Set of policy IDs granted to this agent session (bounded by `MAX_GRANTS_PER_SESSION`).
     granted: HashSet<String>,
-    /// Tracks when each granted permission was last used (or grant time if never used).
+    /// Monotonic timestamp of the last usage (or grant time) for each granted permission.
+    /// Used by [`LeastAgencyTracker::revoke_stale_permissions()`] to detect staleness.
     granted_last_used: HashMap<String, Instant>,
+    /// Permissions that have been exercised, keyed by policy ID, with usage details.
     used: HashMap<String, PermissionUsage>,
+    /// Monotonic timestamp when the session was first registered.
     session_start: Instant,
 }
 
@@ -156,7 +163,14 @@ impl LeastAgencyTracker {
         }
     }
 
-    /// Record that a permission was exercised.
+    /// Record that a permission was exercised by an agent in a session.
+    ///
+    /// Updates the `used_count` for the given `policy_id` and refreshes its
+    /// `last_used` timestamp (both the wall-clock RFC 3339 value for audit
+    /// and the monotonic `Instant` for auto-revocation staleness checks).
+    ///
+    /// If the session has not been registered via [`Self::register_grants()`],
+    /// this is a no-op (the policy_id is silently ignored).
     pub fn record_usage(
         &self,
         agent_id: &str,
@@ -357,12 +371,22 @@ impl LeastAgencyTracker {
         }
     }
 
-    /// Backward-compatible alias for `revoke_stale_permissions`.
+    /// Backward-compatible alias for [`LeastAgencyTracker::revoke_stale_permissions()`].
+    ///
+    /// Prefer `revoke_stale_permissions()` which has a clearer name reflecting
+    /// its behavior in both `Monitor` and `Enforce` modes.
+    #[deprecated(since = "4.0.1", note = "use revoke_stale_permissions() instead")]
     pub fn check_auto_revoke(&self, agent_id: &str, session_id: &str) -> Vec<String> {
         self.revoke_stale_permissions(agent_id, session_id)
     }
 
-    /// Suggest policy IDs that could be revoked (unused permissions below threshold).
+    /// Suggest policy IDs that could be revoked because the session's usage ratio
+    /// is below `narrow_threshold`.
+    ///
+    /// Returns `Some(unused_policy_ids)` when the agent's `usage_ratio` (used/granted)
+    /// is below the configured threshold, indicating over-provisioning.
+    /// Returns `None` if the session is not tracked or usage is above the threshold
+    /// (i.e., scope is appropriately sized).
     pub fn recommend_narrowing(&self, agent_id: &str, session_id: &str) -> Option<Vec<String>> {
         let report = self.generate_report(agent_id, session_id)?;
         if report.usage_ratio < self.narrow_threshold {
@@ -512,6 +536,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_check_auto_revoke_no_session() {
         let tracker = LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 1);
         // No session registered — should return empty
@@ -520,6 +545,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_check_auto_revoke_recently_granted() {
         let tracker = LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 3600);
         tracker.register_grants("agent-1", "sess-1", &["p1".to_string(), "p2".to_string()]);
@@ -529,6 +555,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_check_auto_revoke_with_zero_threshold() {
         // With auto_revoke_after_secs = 0, any elapsed time > 0 triggers revocation.
         // Config validation prevents 0 in production, but the tracker itself handles it.

@@ -28,17 +28,17 @@ fn test_backward_compat_2025_03_26_version() {
 }
 
 #[test]
-fn test_forward_compat_2026_06_version() {
-    // The 2026-06 placeholder must be advertised.
+fn test_highest_supported_version_is_2025_11_25() {
+    // The highest supported version must be 2025-11-25.
     let caps = vellaveto_http_proxy::proxy::discovery::build_sdk_capabilities();
     assert!(
-        caps.supported_versions.contains(&"2026-06".to_string()),
-        "2026-06 placeholder must be in supported_versions"
+        caps.supported_versions.contains(&"2025-11-25".to_string()),
+        "2025-11-25 must be in supported_versions"
     );
     // It should be the first (highest priority) entry.
     assert_eq!(
-        caps.supported_versions[0], "2026-06",
-        "2026-06 should be the first supported version"
+        caps.supported_versions[0], "2025-11-25",
+        "2025-11-25 should be the first supported version"
     );
 }
 

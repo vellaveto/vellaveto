@@ -143,53 +143,77 @@ impl ToolSignature {
     /// Maximum serialized size of `rekor_entry` in bytes.
     pub const MAX_REKOR_ENTRY_SIZE: usize = 65_536;
 
+    /// Maximum length for `signature_id` (bytes).
+    const MAX_SIGNATURE_ID_LEN: usize = 256;
+    /// Maximum length for `signature` hex string (bytes).
+    const MAX_SIGNATURE_LEN: usize = 512;
+    /// Maximum length for `public_key` hex string (bytes).
+    const MAX_PUBLIC_KEY_LEN: usize = 512;
+    /// Maximum length for ISO 8601 timestamp fields (`signed_at`, `expires_at`).
+    const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for `key_fingerprint` (bytes).
+    const MAX_KEY_FINGERPRINT_LEN: usize = 256;
+    /// Maximum length for `signer_spiffe_id` URI (bytes).
+    const MAX_SPIFFE_ID_LEN: usize = 2048;
+
+    /// Validate structural bounds on all string fields.
+    ///
+    /// SECURITY (FIND-R52-002): Prevents memory exhaustion from oversized
+    /// signature payloads deserialized from untrusted input.
     pub fn validate(&self) -> Result<(), String> {
         // SECURITY (FIND-R52-002): Validate all string field lengths.
-        if self.signature_id.len() > 256 {
+        if self.signature_id.len() > Self::MAX_SIGNATURE_ID_LEN {
             return Err(format!(
-                "ToolSignature signature_id length {} exceeds max 256",
-                self.signature_id.len()
+                "ToolSignature signature_id length {} exceeds max {}",
+                self.signature_id.len(),
+                Self::MAX_SIGNATURE_ID_LEN,
             ));
         }
-        if self.signature.len() > 512 {
+        if self.signature.len() > Self::MAX_SIGNATURE_LEN {
             return Err(format!(
-                "ToolSignature signature length {} exceeds max 512",
-                self.signature.len()
+                "ToolSignature signature length {} exceeds max {}",
+                self.signature.len(),
+                Self::MAX_SIGNATURE_LEN,
             ));
         }
-        if self.public_key.len() > 512 {
+        if self.public_key.len() > Self::MAX_PUBLIC_KEY_LEN {
             return Err(format!(
-                "ToolSignature public_key length {} exceeds max 512",
-                self.public_key.len()
+                "ToolSignature public_key length {} exceeds max {}",
+                self.public_key.len(),
+                Self::MAX_PUBLIC_KEY_LEN,
             ));
         }
-        if self.signed_at.len() > 64 {
+        if self.signed_at.len() > Self::MAX_TIMESTAMP_LEN {
             return Err(format!(
-                "ToolSignature signed_at length {} exceeds max 64",
-                self.signed_at.len()
+                "ToolSignature signed_at length {} exceeds max {}",
+                self.signed_at.len(),
+                Self::MAX_TIMESTAMP_LEN,
             ));
         }
         if let Some(ref ea) = self.expires_at {
-            if ea.len() > 64 {
+            if ea.len() > Self::MAX_TIMESTAMP_LEN {
                 return Err(format!(
-                    "ToolSignature expires_at length {} exceeds max 64",
-                    ea.len()
+                    "ToolSignature expires_at length {} exceeds max {}",
+                    ea.len(),
+                    Self::MAX_TIMESTAMP_LEN,
                 ));
             }
         }
         if let Some(ref kf) = self.key_fingerprint {
-            if kf.len() > 256 {
+            if kf.len() > Self::MAX_KEY_FINGERPRINT_LEN {
                 return Err(format!(
-                    "ToolSignature key_fingerprint length {} exceeds max 256",
-                    kf.len()
+                    "ToolSignature key_fingerprint length {} exceeds max {}",
+                    kf.len(),
+                    Self::MAX_KEY_FINGERPRINT_LEN,
                 ));
             }
         }
         if let Some(ref spiffe) = self.signer_spiffe_id {
-            if spiffe.len() > 2048 {
+            if spiffe.len() > Self::MAX_SPIFFE_ID_LEN {
                 return Err(format!(
-                    "ToolSignature signer_spiffe_id length {} exceeds max 2048",
-                    spiffe.len()
+                    "ToolSignature signer_spiffe_id length {} exceeds max {}",
+                    spiffe.len(),
+                    Self::MAX_SPIFFE_ID_LEN,
                 ));
             }
         }
@@ -292,6 +316,84 @@ impl ToolAttestation {
     /// Maximum attestation chain depth to prevent DoS during chain traversal.
     pub const MAX_ATTESTATION_CHAIN_DEPTH: usize = 64;
 
+    /// Maximum length for `attestation_id`.
+    const MAX_ATTESTATION_ID_LEN: usize = 256;
+    /// Maximum length for `attestation_type`.
+    const MAX_ATTESTATION_TYPE_LEN: usize = 128;
+    /// Maximum length for `attester`.
+    const MAX_ATTESTER_LEN: usize = 512;
+    /// Maximum length for ISO 8601 timestamp fields.
+    const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for `tool_hash` (hex-encoded SHA-256 = 64 chars).
+    const MAX_TOOL_HASH_LEN: usize = 256;
+    /// Maximum length for `previous_attestation` ID.
+    const MAX_PREV_ATTESTATION_LEN: usize = 256;
+    /// Maximum length for `transparency_log_entry` reference.
+    const MAX_LOG_ENTRY_LEN: usize = 2048;
+
+    /// Validate structural bounds on string fields and the nested signature.
+    ///
+    /// SECURITY: Prevents memory exhaustion from oversized attestation payloads
+    /// deserialized from untrusted input. Delegates to [`ToolSignature::validate()`]
+    /// for the inner signature.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.attestation_id.len() > Self::MAX_ATTESTATION_ID_LEN {
+            return Err(format!(
+                "ToolAttestation attestation_id length {} exceeds max {}",
+                self.attestation_id.len(),
+                Self::MAX_ATTESTATION_ID_LEN,
+            ));
+        }
+        if self.attestation_type.len() > Self::MAX_ATTESTATION_TYPE_LEN {
+            return Err(format!(
+                "ToolAttestation attestation_type length {} exceeds max {}",
+                self.attestation_type.len(),
+                Self::MAX_ATTESTATION_TYPE_LEN,
+            ));
+        }
+        if self.attester.len() > Self::MAX_ATTESTER_LEN {
+            return Err(format!(
+                "ToolAttestation attester length {} exceeds max {}",
+                self.attester.len(),
+                Self::MAX_ATTESTER_LEN,
+            ));
+        }
+        if self.timestamp.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "ToolAttestation timestamp length {} exceeds max {}",
+                self.timestamp.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        if self.tool_hash.len() > Self::MAX_TOOL_HASH_LEN {
+            return Err(format!(
+                "ToolAttestation tool_hash length {} exceeds max {}",
+                self.tool_hash.len(),
+                Self::MAX_TOOL_HASH_LEN,
+            ));
+        }
+        if let Some(ref prev) = self.previous_attestation {
+            if prev.len() > Self::MAX_PREV_ATTESTATION_LEN {
+                return Err(format!(
+                    "ToolAttestation previous_attestation length {} exceeds max {}",
+                    prev.len(),
+                    Self::MAX_PREV_ATTESTATION_LEN,
+                ));
+            }
+        }
+        if let Some(ref entry) = self.transparency_log_entry {
+            if entry.len() > Self::MAX_LOG_ENTRY_LEN {
+                return Err(format!(
+                    "ToolAttestation transparency_log_entry length {} exceeds max {}",
+                    entry.len(),
+                    Self::MAX_LOG_ENTRY_LEN,
+                ));
+            }
+        }
+        self.signature.validate()?;
+        Ok(())
+    }
+
     /// Returns true if this is the first attestation in the chain.
     pub fn is_initial(&self) -> bool {
         self.previous_attestation.is_none()
@@ -340,11 +442,18 @@ impl ToolVersionPin {
 pub struct VersionDriftAlert {
     /// Name of the tool with drift.
     pub tool: String,
-    /// Expected version or hash from the pin.
+    /// Expected version string or definition hash from the pin.
+    ///
+    /// When `drift_type` is `"version_mismatch"`, this holds the pinned semver
+    /// version (e.g., `"1.2.3"`). When `drift_type` is `"hash_mismatch"`, this
+    /// holds the pinned SHA-256 definition hash.
     pub expected_version: String,
-    /// Actual version or hash observed.
+    /// Actual version string or definition hash observed at evaluation time.
+    ///
+    /// Interpretation depends on `drift_type` — see [`Self::expected_version`].
     pub actual_version: String,
-    /// Type of drift detected (e.g., "version_mismatch", "hash_mismatch").
+    /// Type of drift detected: `"version_mismatch"` (semver changed) or
+    /// `"hash_mismatch"` (definition content changed while version stayed the same).
     pub drift_type: String,
     /// Whether this drift should block the tool from being used.
     pub blocking: bool,

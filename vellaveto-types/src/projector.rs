@@ -1,3 +1,10 @@
+//! Model Projector types for cross-model tool schema translation (Phase 35).
+//!
+//! Defines the canonical (model-agnostic) tool schema representation and
+//! the per-model projected call/schema types. The projector translates
+//! between model-specific formats (Claude, OpenAI, DeepSeek, Qwen, Generic)
+//! and the canonical form used by the policy engine.
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

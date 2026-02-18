@@ -37,6 +37,10 @@ const MAX_ORIGINS: usize = 20;
 /// Maximum length for audit export target URL.
 const MAX_EXPORT_TARGET_LEN: usize = 512;
 
+/// Maximum number of form fields accepted in a single POST body.
+/// Prevents hash-collision DoS and excessive memory allocation.
+const MAX_FORM_FIELDS: usize = 100;
+
 // ═══════════════════════════════════════════════════════════════════
 // Data Structures
 // ═══════════════════════════════════════════════════════════════════
@@ -58,7 +62,7 @@ impl PolicyPreset {
         }
     }
 
-    fn from_str(s: &str) -> Option<Self> {
+    fn parse_preset(s: &str) -> Option<Self> {
         match s {
             "strict" => Some(PolicyPreset::Strict),
             "balanced" => Some(PolicyPreset::Balanced),
@@ -291,19 +295,9 @@ pre { background: #161b22; border: 1px solid #30363d; border-radius: 6px; paddin
 // HTML Helpers
 // ═══════════════════════════════════════════════════════════════════
 
+/// Delegates to `dashboard::html_escape` which includes `/` escaping per OWASP.
 fn html_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#x27;"),
-            _ => out.push(ch),
-        }
-    }
-    out
+    crate::dashboard::html_escape(s)
 }
 
 fn checked(val: bool) -> &'static str {
@@ -323,13 +317,14 @@ fn selected(val: bool) -> &'static str {
 }
 
 fn render_head(title: &str) -> String {
+    let escaped_title = html_escape(title);
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} — Vellaveto Setup</title>
+<title>{escaped_title} — Vellaveto Setup</title>
 <style>{WIZARD_CSS}</style>
 </head>
 <body>
@@ -405,7 +400,8 @@ fn session_cookie(session_id: &str) -> String {
 }
 
 fn cleanup_expired_sessions(state: &AppState) {
-    // Bounded iteration — only remove expired entries.
+    // Iterates all wizard sessions (bounded by MAX_WIZARD_SESSIONS) and removes
+    // entries whose TTL has elapsed. Two-pass to avoid holding an iterator across removal.
     let mut to_remove = Vec::new();
     for entry in state.wizard_sessions.iter() {
         if entry.value().is_expired() {
@@ -444,6 +440,13 @@ fn parse_form(body: &[u8]) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
     let body_str = String::from_utf8_lossy(body);
     for pair in body_str.split('&') {
+        if map.len() >= MAX_FORM_FIELDS {
+            tracing::warn!(
+                "parse_form: exceeded {} field limit, ignoring remaining fields",
+                MAX_FORM_FIELDS
+            );
+            break;
+        }
         if let Some((key, value)) = pair.split_once('=') {
             let key = percent_decode(key);
             let value = percent_decode(value);
@@ -742,7 +745,7 @@ pub async fn step_policies_post(State(state): State<AppState>, req: Request) -> 
     }
 
     let preset_str = form.get("policy_preset").cloned().unwrap_or_default();
-    let preset = PolicyPreset::from_str(&preset_str).unwrap_or(PolicyPreset::Balanced);
+    let preset = PolicyPreset::parse_preset(&preset_str).unwrap_or(PolicyPreset::Balanced);
 
     if let Some(mut session) = state.wizard_sessions.get_mut(&session_id) {
         session.policy_preset = preset;
@@ -1722,10 +1725,12 @@ fn escape_toml_string(s: &str) -> String {
 // Helpers
 // ═══════════════════════════════════════════════════════════════════
 
-fn error_redirect(_path: &str, _msg: &str) -> Response {
+fn error_redirect(path: &str, _msg: &str) -> Response {
     // For simplicity in a no-JS environment, just redirect back.
     // The user will see their previous values preserved.
-    Redirect::to(_path).into_response()
+    // `_msg` is currently unused but kept in the signature for future
+    // flash-message support (e.g., cookie-based error banners).
+    Redirect::to(path).into_response()
 }
 
 /// Compute the path for the `.setup-complete` marker file.
@@ -1786,10 +1791,10 @@ mod tests {
             PolicyPreset::Permissive,
         ] {
             let s = preset.as_str();
-            let parsed = PolicyPreset::from_str(s).expect("should parse");
+            let parsed = PolicyPreset::parse_preset(s).expect("should parse");
             assert_eq!(&parsed, preset);
         }
-        assert!(PolicyPreset::from_str("invalid").is_none());
+        assert!(PolicyPreset::parse_preset("invalid").is_none());
     }
 
     #[test]

@@ -22,6 +22,9 @@ pub struct ArchiveConfig {
     /// Whether to compress rotated audit logs. Default: true.
     pub compress: bool,
     /// Retention period in days. Archives older than this are deleted.
+    /// Valid range: 1..=36500 (up to ~100 years). A value of 0 is treated as
+    /// "keep forever" by `enforce_retention` since no file can be older than
+    /// the cutoff.
     pub retention_days: u32,
 }
 
@@ -138,7 +141,7 @@ pub async fn enforce_retention(
             Err(e) => return Err(AuditError::Io(e)),
         };
 
-        let modified = metadata.modified().map_err(|e| AuditError::Io(e))?;
+        let modified = metadata.modified().map_err(AuditError::Io)?;
 
         let modified_dt: chrono::DateTime<chrono::Utc> = modified.into();
 

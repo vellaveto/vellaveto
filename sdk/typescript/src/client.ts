@@ -850,6 +850,12 @@ export class VellavetoClient {
     format?: string,
     agentId?: string
   ): Promise<AccessReviewReport> {
+    // SECURITY (P4-025): Client-side format validation to fail fast on invalid values.
+    if (format !== undefined && format !== "json" && format !== "html") {
+      throw new VellavetoError(
+        `Invalid format "${format}": must be "json" or "html"`
+      );
+    }
     const params = new URLSearchParams();
     if (period) params.set("period", period);
     if (format) params.set("format", format);

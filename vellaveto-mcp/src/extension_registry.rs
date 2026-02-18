@@ -369,38 +369,10 @@ fn verify_extension_signature(
 }
 
 /// Simple glob matching supporting `*` (any characters) and `?` (single character).
+///
+/// Delegates to the shared implementation in `crate::util`.
 fn glob_match(pattern: &str, text: &str) -> bool {
-    let pattern_bytes = pattern.as_bytes();
-    let text_bytes = text.as_bytes();
-    let mut pi = 0;
-    let mut ti = 0;
-    let mut star_pi = usize::MAX;
-    let mut star_ti = 0;
-
-    while ti < text_bytes.len() {
-        if pi < pattern_bytes.len()
-            && (pattern_bytes[pi] == b'?' || pattern_bytes[pi] == text_bytes[ti])
-        {
-            pi += 1;
-            ti += 1;
-        } else if pi < pattern_bytes.len() && pattern_bytes[pi] == b'*' {
-            star_pi = pi;
-            star_ti = ti;
-            pi += 1;
-        } else if star_pi != usize::MAX {
-            pi = star_pi + 1;
-            star_ti += 1;
-            ti = star_ti;
-        } else {
-            return false;
-        }
-    }
-
-    while pi < pattern_bytes.len() && pattern_bytes[pi] == b'*' {
-        pi += 1;
-    }
-
-    pi == pattern_bytes.len()
+    crate::util::glob_match(pattern, text)
 }
 
 #[cfg(test)]

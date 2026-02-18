@@ -37,6 +37,7 @@ use vellaveto_types::SignatureAlgorithm;
 /// auto_pin = false
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct EtdiConfig {
     /// Enable ETDI signature verification. Default: false.
     #[serde(default)]
@@ -75,6 +76,7 @@ pub struct EtdiConfig {
 /// When both fingerprints and SPIFFE IDs are empty, no signers are trusted
 /// (all signatures verify but are marked as "untrusted signer").
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AllowedSignersConfig {
     /// Hex-encoded SHA-256 fingerprints of trusted public keys.
     #[serde(default)]
@@ -107,6 +109,7 @@ impl AllowedSignersConfig {
 
 /// Configuration for attestation chains (provenance tracking).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AttestationConfig {
     /// Enable attestation chain tracking. Default: false.
     #[serde(default)]
@@ -125,6 +128,7 @@ pub struct AttestationConfig {
 
 /// Configuration for version pinning.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct VersionPinningConfig {
     /// Enable version pinning. Default: false.
     #[serde(default)]

@@ -41,6 +41,7 @@ impl fmt::Debug for PedersenCommitment {
 /// and that their Pedersen commitments match, without revealing the
 /// entry contents.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ZkBatchProof {
     /// Hex-encoded Groth16 proof bytes.
     pub proof: String,
@@ -60,8 +61,70 @@ pub struct ZkBatchProof {
     pub entry_count: usize,
 }
 
+impl ZkBatchProof {
+    /// Maximum length for hex-encoded proof bytes.
+    const MAX_PROOF_LEN: usize = 65_536;
+    /// Maximum length for batch_id (UUID string).
+    const MAX_BATCH_ID_LEN: usize = 256;
+    /// Maximum length for hex-encoded hash strings.
+    const MAX_HASH_LEN: usize = 256;
+    /// Maximum length for ISO 8601 timestamp strings.
+    const MAX_TIMESTAMP_LEN: usize = 64;
+
+    /// Validate structural bounds on string fields.
+    ///
+    /// SECURITY: Prevents memory exhaustion from oversized proof payloads
+    /// deserialized from untrusted API input.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.proof.len() > Self::MAX_PROOF_LEN {
+            return Err(format!(
+                "ZkBatchProof proof length {} exceeds max {}",
+                self.proof.len(),
+                Self::MAX_PROOF_LEN,
+            ));
+        }
+        if self.batch_id.len() > Self::MAX_BATCH_ID_LEN {
+            return Err(format!(
+                "ZkBatchProof batch_id length {} exceeds max {}",
+                self.batch_id.len(),
+                Self::MAX_BATCH_ID_LEN,
+            ));
+        }
+        if self.merkle_root.len() > Self::MAX_HASH_LEN {
+            return Err(format!(
+                "ZkBatchProof merkle_root length {} exceeds max {}",
+                self.merkle_root.len(),
+                Self::MAX_HASH_LEN,
+            ));
+        }
+        if self.first_prev_hash.len() > Self::MAX_HASH_LEN {
+            return Err(format!(
+                "ZkBatchProof first_prev_hash length {} exceeds max {}",
+                self.first_prev_hash.len(),
+                Self::MAX_HASH_LEN,
+            ));
+        }
+        if self.final_entry_hash.len() > Self::MAX_HASH_LEN {
+            return Err(format!(
+                "ZkBatchProof final_entry_hash length {} exceeds max {}",
+                self.final_entry_hash.len(),
+                Self::MAX_HASH_LEN,
+            ));
+        }
+        if self.created_at.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "ZkBatchProof created_at length {} exceeds max {}",
+                self.created_at.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Result of verifying a ZK batch proof.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ZkVerifyResult {
     /// Whether the proof is valid.
     pub valid: bool,
@@ -76,8 +139,46 @@ pub struct ZkVerifyResult {
     pub error: Option<String>,
 }
 
+impl ZkVerifyResult {
+    /// Maximum length for batch_id.
+    const MAX_BATCH_ID_LEN: usize = 256;
+    /// Maximum length for ISO 8601 timestamp.
+    const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for error messages.
+    const MAX_ERROR_LEN: usize = 4096;
+
+    /// Validate structural bounds on string fields.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.batch_id.len() > Self::MAX_BATCH_ID_LEN {
+            return Err(format!(
+                "ZkVerifyResult batch_id length {} exceeds max {}",
+                self.batch_id.len(),
+                Self::MAX_BATCH_ID_LEN,
+            ));
+        }
+        if self.verified_at.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "ZkVerifyResult verified_at length {} exceeds max {}",
+                self.verified_at.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        if let Some(ref err) = self.error {
+            if err.len() > Self::MAX_ERROR_LEN {
+                return Err(format!(
+                    "ZkVerifyResult error length {} exceeds max {}",
+                    err.len(),
+                    Self::MAX_ERROR_LEN,
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Status of the ZK audit scheduler.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ZkSchedulerStatus {
     /// Whether the batch prover is active.
     pub active: bool,
@@ -91,4 +192,23 @@ pub struct ZkSchedulerStatus {
     /// ISO 8601 timestamp of the last batch proof.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_proof_at: Option<String>,
+}
+
+impl ZkSchedulerStatus {
+    /// Maximum length for ISO 8601 timestamp.
+    const MAX_TIMESTAMP_LEN: usize = 64;
+
+    /// Validate structural bounds on string fields.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(ref ts) = self.last_proof_at {
+            if ts.len() > Self::MAX_TIMESTAMP_LEN {
+                return Err(format!(
+                    "ZkSchedulerStatus last_proof_at length {} exceeds max {}",
+                    ts.len(),
+                    Self::MAX_TIMESTAMP_LEN,
+                ));
+            }
+        }
+        Ok(())
+    }
 }
