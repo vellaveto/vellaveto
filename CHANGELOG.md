@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Interactive Setup Wizard** (`/setup`): Web-based 7-step configuration wizard for first-time users (Welcome → Security → Policies → Detection → Audit → Compliance → Review/Apply). Server-side rendered HTML, CSRF protection, bounded session management, TOML config generation with hot-reload. Guard middleware locks wizard after initial setup via `.setup-complete` marker file.
+- **Cloudflare Pages deployment** for [www.vellaveto.online](https://www.vellaveto.online): `deploy-site.yml` workflow, `_redirects` (apex → www), `_headers` (security headers), Astro site URL updated from `vellaveto.dev`.
+
 ### Security
+
+#### Round 55 Adversarial Audit
+
+- SDK input validation hardening (Go `ProjectSchema` modelFamily, Python/TypeScript parity)
+- gRPC transport parity fixes for injection/DLP/behavioral detection
+- RAG defense config validation with bounds
+- Least-agency tracker bounds enforcement
+- Injection detection improvements
+- Route handler hardening across server endpoints
 
 #### Round 53 Adversarial Audit (2 P0, 8 P1)
 

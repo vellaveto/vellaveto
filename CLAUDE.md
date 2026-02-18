@@ -1,12 +1,13 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 complete, 53 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 complete, 55 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
 > **Tests:** 6,330+ Rust tests + 316 Python SDK tests + 40 Go SDK tests + 64 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
-> **CI workflows:** 11 (15 jobs)
+> **CI workflows:** 12 (16 jobs)
+> **Domain:** [www.vellaveto.online](https://www.vellaveto.online) (Cloudflare Pages)
 > **Updated:** 2026-02-18
 
 ---
@@ -140,6 +141,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | ZK Audit API routes (status, proofs, verify, commitments) | `vellaveto-server/src/routes/zk_audit.rs` |
 | SOC 2 Access Review route (JSON/HTML) | `vellaveto-server/src/routes/compliance.rs` |
 | Dashboard | `vellaveto-server/src/dashboard.rs` |
+| Setup wizard | `vellaveto-server/src/setup_wizard.rs` |
 | **Other** | |
 | Stdio proxy | `vellaveto-proxy/src/main.rs` |
 | Cluster backend | `vellaveto-cluster/src/lib.rs` |
@@ -199,6 +201,8 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - **SOC 2 Type II Access Review Reports (Phase 38):** Dynamic report generation scanning audit entries and cross-referencing with least-agency data. Types: `AttestationStatus`, `ReviewerAttestation`, `AccessReviewEntry`, `Cc6Evidence`, `AccessReviewReport`, `ReviewSchedule`, `ReportExportFormat`. `Soc2AccessReviewConfig` with schedule (Daily/Weekly/Monthly), period bounds (1–366 days), reviewer validation. `generate_access_review()` with memory bounds (1M entries, 10K agents), deterministic BTreeMap ordering, CC6 evidence by recommendation tier. HTML renderer with escaped user data. REST API: `GET /api/compliance/soc2/access-review` (JSON/HTML, period/agent_id filters). Scheduled report generation (tokio interval task). SDK methods: Python (sync+async), TypeScript, Go with input validation. ~75 new tests across Rust + SDKs.
 - **Agent Identity Federation (Phase 39, placeholder):** `FederationResolver` type with config/status methods, `FederationConfig` with trust anchor validation, dashboard federation section, server/proxy federation API routes (`/api/federation/status`, `/api/federation/trust-anchors`), SDK methods (Python/TypeScript/Go), audit events for federation lifecycle
 - **Workflow-Level Policy Constraints (Phase 40):** Three new `CompiledContextCondition` variants in vellaveto-engine: `RequiredActionSequence` (ordered/unordered multi-tool prerequisites, max 20 steps, fail-closed on short history), `ForbiddenActionSequence` (ordered/unordered forbidden pattern detection for exfiltration — e.g. read_secret→http_request), `WorkflowTemplate` (DAG-based tool transition enforcement with Kahn's algorithm cycle detection at compile time, entry point validation, strict/warn modes, max 50 steps). Case-insensitive matching. TLA+ spec (S8 WorkflowPredecessor, S9 AcyclicDAG). 55 new tests.
+- **Interactive Setup Wizard:** Web-based 7-step configuration wizard at `/setup` (Welcome → Security → Policies → Detection → Audit → Compliance → Review/Apply). Server-side rendered HTML matching dashboard dark theme, POST/redirect/GET forms, CSRF protection, bounded session management (MAX_WIZARD_SESSIONS=100, 1hr TTL), TOML config generation with live apply and hot-reload. Guard middleware locks wizard after initial configuration via `.setup-complete` marker file. 28 unit tests.
+- **Cloudflare Pages Deployment:** Site at [www.vellaveto.online](https://www.vellaveto.online), Astro static build deployed via `deploy-site.yml` workflow, `_redirects` (apex → www 301), `_headers` (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)
 - **Docs:** Quickstart guides, security model, benchmarks, 5 policy presets
 
 ---
