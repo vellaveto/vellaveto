@@ -8,6 +8,7 @@ const MAX_ENV_VAR_NAME_LEN: usize = 128;
 
 /// Top-level billing configuration.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BillingConfig {
     /// Whether billing webhooks are enabled.
     #[serde(default)]
@@ -27,6 +28,7 @@ pub struct BillingConfig {
 /// Webhook secret is read from an environment variable at runtime —
 /// NEVER stored in config files.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PaddleConfig {
     /// Name of the environment variable holding the Paddle webhook secret.
     /// Default: `VELLAVETO_PADDLE_WEBHOOK_SECRET`
@@ -61,6 +63,7 @@ impl PaddleConfig {
 /// Webhook secret is read from an environment variable at runtime —
 /// NEVER stored in config files.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StripeConfig {
     /// Name of the environment variable holding the Stripe webhook secret.
     /// Default: `VELLAVETO_STRIPE_WEBHOOK_SECRET`

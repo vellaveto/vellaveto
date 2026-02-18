@@ -876,6 +876,10 @@ impl PolicyConfig {
         // ZK audit configuration bounds (Phase 37)
         self.zk_audit.validate()?;
 
+        // Licensing and billing configuration bounds
+        self.licensing.validate()?;
+        self.billing.validate()?;
+
         Ok(())
     }
 

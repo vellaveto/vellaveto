@@ -26,6 +26,13 @@ use crate::AppState;
 /// Maximum webhook payload size (256 KB — well under the server's 1MB limit).
 const MAX_WEBHOOK_PAYLOAD: usize = 262_144;
 
+/// Maximum age for webhook timestamps (5 minutes).
+///
+/// SECURITY (P1-4): Prevents replay attacks by rejecting webhook events
+/// with timestamps older than this tolerance. Both Paddle and Stripe include
+/// timestamps in their signature headers.
+const MAX_WEBHOOK_TIMESTAMP_AGE_SECS: u64 = 300;
+
 /// Response returned to webhook callers.
 #[derive(Debug, Serialize)]
 pub struct WebhookResponse {
@@ -134,6 +141,24 @@ fn verify_paddle_signature(signature_header: &str, body: &[u8], secret: &str) ->
     }
 
     if ts_value.is_empty() || h1_value.is_empty() {
+        return false;
+    }
+
+    // SECURITY (P1-4): Reject stale timestamps to prevent replay attacks.
+    if let Ok(ts) = ts_value.parse::<u64>() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(u64::MAX);
+        if now.abs_diff(ts) > MAX_WEBHOOK_TIMESTAMP_AGE_SECS {
+            tracing::warn!(
+                ts,
+                now,
+                "Paddle webhook timestamp too old or too far in the future"
+            );
+            return false;
+        }
+    } else {
         return false;
     }
 
@@ -255,6 +280,24 @@ fn verify_stripe_signature(signature_header: &str, body: &[u8], secret: &str) ->
         return false;
     }
 
+    // SECURITY (P1-4): Reject stale timestamps to prevent replay attacks.
+    if let Ok(ts) = t_value.parse::<u64>() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(u64::MAX);
+        if now.abs_diff(ts) > MAX_WEBHOOK_TIMESTAMP_AGE_SECS {
+            tracing::warn!(
+                ts,
+                now,
+                "Stripe webhook timestamp too old or too far in the future"
+            );
+            return false;
+        }
+    } else {
+        return false;
+    }
+
     // Compute HMAC-SHA256 over "timestamp.body"
     let mut signed_payload = Vec::with_capacity(t_value.len() + 1 + body.len());
     signed_payload.extend_from_slice(t_value.as_bytes());
@@ -311,6 +354,9 @@ fn compute_hmac_sha256(key: &[u8], message: &[u8]) -> String {
 }
 
 /// Constant-time byte comparison.
+///
+/// SECURITY: Uses `std::hint::black_box` to prevent the compiler from
+/// optimizing the accumulator loop into an early-exit comparison.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -319,7 +365,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     for (x, y) in a.iter().zip(b.iter()) {
         diff |= x ^ y;
     }
-    diff == 0
+    std::hint::black_box(diff) == 0
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -351,11 +397,19 @@ pub async fn license_info(State(state): State<AppState>) -> Json<LicenseInfoResp
 mod tests {
     use super::*;
 
+    fn current_ts() -> String {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+            .to_string()
+    }
+
     #[test]
     fn test_verify_paddle_signature_valid() {
         let secret = "pdl_test_secret";
         let body = b"{\"event_type\":\"subscription.created\"}";
-        let ts = "1234567890";
+        let ts = current_ts();
 
         // Compute expected HMAC
         let mut signed = Vec::new();
@@ -372,22 +426,44 @@ mod tests {
     fn test_verify_paddle_signature_invalid() {
         let secret = "pdl_test_secret";
         let body = b"{\"event_type\":\"subscription.created\"}";
-        let header = "ts=1234567890;h1=deadbeef";
-        assert!(!verify_paddle_signature(header, body, secret));
+        let ts = current_ts();
+        let header = format!("ts={};h1=deadbeef", ts);
+        assert!(!verify_paddle_signature(&header, body, secret));
     }
 
     #[test]
     fn test_verify_paddle_signature_missing_parts() {
         assert!(!verify_paddle_signature("", b"body", "secret"));
-        assert!(!verify_paddle_signature("ts=123", b"body", "secret"));
+        let ts = current_ts();
+        assert!(!verify_paddle_signature(
+            &format!("ts={}", ts),
+            b"body",
+            "secret"
+        ));
         assert!(!verify_paddle_signature("h1=abc", b"body", "secret"));
+    }
+
+    #[test]
+    fn test_verify_paddle_signature_stale_timestamp() {
+        let secret = "pdl_test_secret";
+        let body = b"{\"event_type\":\"subscription.created\"}";
+        let stale_ts = "1234567890"; // 2009 — way too old
+
+        let mut signed = Vec::new();
+        signed.extend_from_slice(stale_ts.as_bytes());
+        signed.push(b':');
+        signed.extend_from_slice(body);
+        let hmac = compute_hmac_sha256(secret.as_bytes(), &signed);
+
+        let header = format!("ts={};h1={}", stale_ts, hmac);
+        assert!(!verify_paddle_signature(&header, body, secret));
     }
 
     #[test]
     fn test_verify_stripe_signature_valid() {
         let secret = "whsec_test_secret";
         let body = b"{\"type\":\"invoice.paid\"}";
-        let ts = "1234567890";
+        let ts = current_ts();
 
         let mut signed = Vec::new();
         signed.extend_from_slice(ts.as_bytes());
@@ -403,21 +479,42 @@ mod tests {
     fn test_verify_stripe_signature_invalid() {
         let secret = "whsec_test_secret";
         let body = b"{\"type\":\"invoice.paid\"}";
-        let header = "t=1234567890,v1=deadbeef";
-        assert!(!verify_stripe_signature(header, body, secret));
+        let ts = current_ts();
+        let header = format!("t={},v1=deadbeef", ts);
+        assert!(!verify_stripe_signature(&header, body, secret));
     }
 
     #[test]
     fn test_verify_stripe_signature_missing_parts() {
         assert!(!verify_stripe_signature("", b"body", "secret"));
-        assert!(!verify_stripe_signature("t=123", b"body", "secret"));
+        let ts = current_ts();
+        assert!(!verify_stripe_signature(
+            &format!("t={}", ts),
+            b"body",
+            "secret"
+        ));
         assert!(!verify_stripe_signature("v1=abc", b"body", "secret"));
+    }
+
+    #[test]
+    fn test_verify_stripe_signature_stale_timestamp() {
+        let body = b"{\"type\":\"invoice.paid\"}";
+        let stale_ts = "1234567890"; // 2009 — way too old
+
+        let mut signed = Vec::new();
+        signed.extend_from_slice(stale_ts.as_bytes());
+        signed.push(b'.');
+        signed.extend_from_slice(body);
+        let hmac = compute_hmac_sha256(b"whsec_test_secret", &signed);
+
+        let header = format!("t={},v1={}", stale_ts, hmac);
+        assert!(!verify_stripe_signature(&header, body, "whsec_test_secret"));
     }
 
     #[test]
     fn test_verify_stripe_signature_wrong_secret() {
         let body = b"{\"type\":\"invoice.paid\"}";
-        let ts = "1234567890";
+        let ts = current_ts();
 
         let mut signed = Vec::new();
         signed.extend_from_slice(ts.as_bytes());

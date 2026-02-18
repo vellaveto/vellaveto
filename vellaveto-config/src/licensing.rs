@@ -113,6 +113,7 @@ impl std::fmt::Display for LicenseTier {
 
 /// Feature limits for a given license tier.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TierLimits {
     pub max_mcp_servers: Option<u32>,
     pub max_users: Option<u32>,
@@ -128,12 +129,27 @@ pub struct TierLimits {
 }
 
 /// Licensing configuration section of PolicyConfig.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+///
+/// SECURITY: Custom Debug impl redacts license_key to prevent secret leakage.
+#[derive(Default, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LicensingConfig {
     #[serde(default)]
     pub license_key: Option<String>,
     #[serde(default)]
     pub tier_override: Option<LicenseTier>,
+}
+
+impl std::fmt::Debug for LicensingConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LicensingConfig")
+            .field(
+                "license_key",
+                &self.license_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("tier_override", &self.tier_override)
+            .finish()
+    }
 }
 
 /// Result of license key validation.
@@ -145,10 +161,33 @@ pub struct LicenseValidation {
 }
 
 impl LicensingConfig {
+    /// Validate licensing configuration bounds.
+    ///
+    /// SECURITY: Rejects oversized or control-char-injected license keys
+    /// at config load time (fail-closed).
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(ref key) = self.license_key {
+            if key.len() > MAX_LICENSE_KEY_LEN {
+                return Err(format!(
+                    "licensing.license_key length {} exceeds max {}",
+                    key.len(),
+                    MAX_LICENSE_KEY_LEN,
+                ));
+            }
+            if key
+                .bytes()
+                .any(|b| b < 0x20 || b == 0x7F || (0x80..=0x9F).contains(&b))
+            {
+                return Err("licensing.license_key contains control characters".to_string());
+            }
+        }
+        Ok(())
+    }
+
     /// Resolve the effective license tier. Fail-closed to Community.
     pub fn resolve(&self) -> LicenseValidation {
         if let Some(tier) = self.tier_override {
-            tracing::info!(tier = %tier, "License tier override active");
+            tracing::warn!(tier = %tier, "License tier override active — bypasses key validation");
             return LicenseValidation {
                 tier,
                 limits: tier.limits(),
@@ -230,7 +269,10 @@ fn validate_license_key(key: &str, secret: &str) -> LicenseValidation {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .unwrap_or_else(|_| {
+            tracing::warn!("SystemTime before UNIX_EPOCH; treating license as expired");
+            u64::MAX
+        });
 
     if now >= expiry {
         return LicenseValidation {
@@ -288,6 +330,10 @@ pub(crate) fn compute_hmac_sha256(key: &[u8], message: &[u8]) -> String {
     hex::encode(outer_hasher.finalize())
 }
 
+/// Constant-time byte comparison.
+///
+/// SECURITY: Uses `std::hint::black_box` to prevent the compiler from
+/// optimizing the accumulator loop into an early-exit comparison.
 pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -296,11 +342,12 @@ pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     for (x, y) in a.iter().zip(b.iter()) {
         diff |= x ^ y;
     }
-    diff == 0
+    std::hint::black_box(diff) == 0
 }
 
-/// Generate a license key for a given tier and expiry.
-pub fn generate_license_key(tier: LicenseTier, expiry_epoch: u64, secret: &str) -> String {
+/// Generate a license key for a given tier and expiry (test utility).
+#[cfg(test)]
+fn generate_license_key(tier: LicenseTier, expiry_epoch: u64, secret: &str) -> String {
     let tier_segment = tier.as_key_segment();
     let message = format!("VLV-{}-{}", tier_segment, expiry_epoch);
     let hmac = compute_hmac_sha256(secret.as_bytes(), message.as_bytes());
@@ -434,6 +481,89 @@ mod tests {
     fn test_no_key_returns_community() {
         let config = LicensingConfig::default();
         let result = config.resolve();
+        assert_eq!(result.tier, LicenseTier::Community);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // LicensingConfig::validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_licensing_config_validate_ok() {
+        let config = LicensingConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_licensing_config_validate_ok_with_key() {
+        let config = LicensingConfig {
+            license_key: Some("VLV-PRO-12345-abcdef".to_string()),
+            tier_override: None,
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_licensing_config_validate_oversized_key() {
+        let config = LicensingConfig {
+            license_key: Some("K".repeat(MAX_LICENSE_KEY_LEN + 1)),
+            tier_override: None,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("exceeds max"));
+    }
+
+    #[test]
+    fn test_licensing_config_validate_null_byte_in_key() {
+        let config = LicensingConfig {
+            license_key: Some("VLV-PRO-123\x00-abc".to_string()),
+            tier_override: None,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control characters"));
+    }
+
+    #[test]
+    fn test_licensing_config_validate_newline_in_key() {
+        let config = LicensingConfig {
+            license_key: Some("VLV-PRO-123\n-abc".to_string()),
+            tier_override: None,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control characters"));
+    }
+
+    #[test]
+    fn test_licensing_config_validate_tab_in_key() {
+        let config = LicensingConfig {
+            license_key: Some("VLV\t-PRO-123-abc".to_string()),
+            tier_override: None,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control characters"));
+    }
+
+    #[test]
+    fn test_licensing_config_validate_c1_control_in_key() {
+        let config = LicensingConfig {
+            license_key: Some("VLV-PRO-\u{0085}-abc".to_string()),
+            tier_override: None,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control characters"));
+    }
+
+    #[test]
+    fn test_licensing_config_deny_unknown_fields() {
+        let json = r#"{"license_key": "test", "unknown_field": true}"#;
+        let result: Result<LicensingConfig, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_oversized_key_returns_community() {
+        let key = "K".repeat(MAX_LICENSE_KEY_LEN + 1);
+        let result = validate_license_key(&key, TEST_SECRET);
         assert_eq!(result.tier, LicenseTier::Community);
     }
 }

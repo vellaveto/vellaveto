@@ -19,7 +19,7 @@ pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
     for (x, y) in a.as_bytes().iter().zip(b.as_bytes().iter()) {
         diff |= x ^ y;
     }
-    diff == 0
+    std::hint::black_box(diff) == 0
 }
 
 /// Supply chain verification configuration.

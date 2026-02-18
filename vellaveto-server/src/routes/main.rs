@@ -540,6 +540,7 @@ pub fn build_router(state: AppState) -> Router {
         .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit));
 
     // Billing webhook routes — bypass API key auth (use provider-specific signatures).
+    // SECURITY (P1-5): Rate limiting applied to prevent webhook flood attacks.
     let billing = if state.billing_config.enabled {
         Router::new()
             .route(
@@ -550,6 +551,7 @@ pub fn build_router(state: AppState) -> Router {
                 "/api/billing/stripe/webhook",
                 post(super::billing::stripe_webhook),
             )
+            .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit))
     } else {
         Router::new()
     };
