@@ -180,7 +180,7 @@ volumes:
 
 ```bash
 # Add the Helm repository (if published)
-# helm repo add vellaveto https://charts.vellaveto.dev
+# helm repo add vellaveto https://charts.vellaveto.online
 # helm repo update
 
 # Or install from local chart

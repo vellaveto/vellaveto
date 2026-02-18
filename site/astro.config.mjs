@@ -1,7 +1,7 @@
 import { defineConfig } from 'astro/config';
 
 export default defineConfig({
-  site: 'https://vellaveto.dev',
+  site: 'https://www.vellaveto.online',
   output: 'static',
   build: {
     assets: '_assets',
