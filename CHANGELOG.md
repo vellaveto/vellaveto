@@ -14,6 +14,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+#### Round 56 Adversarial Audit (91 P3, ~72 fixed)
+
+- **deny_unknown_fields** added to 20+ config structs: `DiscoveryConfig`, `ProjectorConfig`, `ZkAuditConfig`, `AbacConfig`, `LeastAgencyConfig`, `FederationConfig`, `ContinuousAuthConfig`, 6 compliance structs, `LimitsConfig`, `TransportConfig`, `MultimodalConfig`
+- **Custom Debug impls** redacting secrets on 6 types: `AgentFingerprint` (jwt_sub/jwt_iss/client_id), `SessionGuardConfig` (admin_unlock_token), `SessionEvent` (admin_token), `FederationResolver`, `BillingState`, `WizardSession` (api_key/csrf_token)
+- **Code deduplication**: `is_unicode_format_char` single source in `core.rs` (removed from EvaluationContext), `derive_resolver_identity` single source, `default_true()` deduplicated in governance config
+- **Constant extraction**: `MAX_CONDITIONS_SIZE=65536`, `MAX_TIMESTAMP_LEN=64`, `MAX_CALL_CHAIN_FIELD_LEN=512`, `MAX_REQUEST_BODY_SIZE=1048576`, `MAX_SESSION_ID_LENGTH=128`, `THRESHOLD_OPTIMAL=0.8`/`THRESHOLD_REVIEW=0.5`/`THRESHOLD_NARROW=0.2`, `DEFAULT_AUTO_REVOKE_SECS=3600`
+- **Bounds enforcement**: `MAX_DLP_FINDINGS=1000` cap in DLP scanner, `MAX_SESSIONS=100000` in sampling detector, `MultimodalConfig.validate()` with min_ocr_confidence [0.0,1.0] range
+- **Safety improvements**: Safe `u128→u64` conversions in red_team (4) and multimodal (3) via `u64::try_from().unwrap_or(u64::MAX)`, `saturating_add` on tool_namespace access_count
+- **API correctness**: `#[must_use]` on `evaluate_action`/`evaluate_action_with_context`/`evaluate_action_traced_with_context`, `#[non_exhaustive]` on `AbacDecision`, `pub(crate)` tightening on `TrustedProxyContext.from_trusted_proxy`
+- **Validation**: `GrpcTransportConfig.validate()` with `MAX_GRPC_MESSAGE_SIZE=256MB`, `validate_path_param()` in governance routes, `previous_actions` format char check, federation failure events use `Verdict::Deny`
+- **OWASP**: `html_escape` now escapes `/` to `&#x2F;`, CORS `allow_methods` includes PUT
+- **SDK alignment**: Default timeout aligned to 10s across Python/TypeScript/Go, Python approval ID validation aligned (non-empty + max 256 + no control chars), `AsyncVellavetoClient.__repr__`, Go `Client.String()`
+- **Documentation**: Security doc comments on `Action.resolved_ips`, `EntityStore`, `compute_risk_score()`, `McpServer` fields, `AgentAccumulator`, `MAX_JSON_DEPTH`, cluster/approval types
+
 #### Round 55 Adversarial Audit
 
 - SDK input validation hardening (Go `ProjectSchema` modelFamily, Python/TypeScript parity)
