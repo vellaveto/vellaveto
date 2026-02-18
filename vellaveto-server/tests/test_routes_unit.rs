@@ -181,6 +181,8 @@ fn test_state() -> (AppState, TempDir) {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     (state, tmp)
 }
@@ -577,6 +579,8 @@ async fn health_not_rate_limited() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     // Rapid /health requests must all succeed despite strict rate limit
@@ -674,6 +678,8 @@ async fn rate_limit_429_includes_retry_after() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -865,6 +871,8 @@ async fn per_ip_rate_limit_throttles_single_ip() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1004,6 +1012,8 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1116,6 +1126,8 @@ async fn per_ip_health_exempt_from_rate_limit() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     // Multiple health checks from same IP should all succeed
@@ -1220,6 +1232,8 @@ async fn per_ip_rate_limit_ipv6_addresses() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1359,6 +1373,8 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1482,6 +1498,8 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1604,6 +1622,8 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1724,6 +1744,8 @@ async fn per_ip_rate_limit_429_response_body_format() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1855,6 +1877,8 @@ async fn health_returns_degraded_when_cluster_unhealthy() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     let app = routes::build_router(state);

@@ -711,7 +711,7 @@ async fn cmd_serve(
             compliance_config: policy_config.compliance.clone(),
         })),
         audit: audit.clone(),
-        config_path: Arc::new(config),
+        config_path: Arc::new(config.clone()),
         approvals: approvals.clone(),
         api_key,
         rate_limits,
@@ -1085,6 +1085,22 @@ async fn cmd_serve(
                 licensing_validation,
             })
         },
+
+        // Setup wizard state
+        setup_completed: {
+            let marker = vellaveto_server::setup_wizard::setup_complete_marker_path(&config);
+            let completed = marker.exists();
+            if completed {
+                tracing::info!("Setup wizard: previously completed (marker found at {:?})", marker);
+            } else {
+                tracing::warn!(
+                    "Setup wizard: not yet completed — visit http://{}:{}/setup to configure",
+                    bind, port
+                );
+            }
+            Arc::new(std::sync::atomic::AtomicBool::new(completed))
+        },
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     tracing::info!("Audit log: {}", audit_path.display());

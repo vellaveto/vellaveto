@@ -129,6 +129,8 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     (state, tmp)
 }

@@ -104,6 +104,8 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     }
 }
 
@@ -371,6 +373,8 @@ async fn regression_38_prometheus_metrics_rate_limited() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     // First request should succeed

@@ -106,7 +106,7 @@ RUN apk add --no-cache ca-certificates tzdata
 
 # Create config and data directories
 RUN mkdir -p /etc/vellaveto /var/lib/vellaveto /var/log/vellaveto \
-    && chown -R vellaveto:vellaveto /var/lib/vellaveto /var/log/vellaveto
+    && chown -R vellaveto:vellaveto /etc/vellaveto /var/lib/vellaveto /var/log/vellaveto
 
 # Copy binaries from builder
 COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/vellaveto /usr/local/bin/

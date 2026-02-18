@@ -103,6 +103,8 @@ fn make_state() -> (AppState, TempDir) {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     (state, tmp)
 }
@@ -179,6 +181,8 @@ fn make_empty_state() -> (AppState, TempDir) {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     (state, tmp)
 }
@@ -639,6 +643,8 @@ priority = 1
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -782,6 +788,8 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     let app = routes::build_router(state);
 
@@ -1046,6 +1054,8 @@ async fn test_find004_metrics_require_auth_true_blocks_unauthenticated() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     let app = routes::build_router(state);
 
@@ -1133,6 +1143,8 @@ async fn test_find004_metrics_require_auth_false_allows_unauthenticated() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     let app = routes::build_router(state);
 

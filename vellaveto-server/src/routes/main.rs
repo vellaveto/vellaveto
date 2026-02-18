@@ -556,9 +556,43 @@ pub fn build_router(state: AppState) -> Router {
         Router::new()
     };
 
+    // Setup wizard routes — unauthenticated (before API key middleware).
+    // Protected by the setup_guard middleware which returns 403 after setup is completed.
+    let wizard = Router::new()
+        .route("/setup", get(crate::setup_wizard::step_welcome))
+        .route(
+            "/setup/security",
+            get(crate::setup_wizard::step_security).post(crate::setup_wizard::step_security_post),
+        )
+        .route(
+            "/setup/policies",
+            get(crate::setup_wizard::step_policies).post(crate::setup_wizard::step_policies_post),
+        )
+        .route(
+            "/setup/detection",
+            get(crate::setup_wizard::step_detection)
+                .post(crate::setup_wizard::step_detection_post),
+        )
+        .route(
+            "/setup/audit",
+            get(crate::setup_wizard::step_audit).post(crate::setup_wizard::step_audit_post),
+        )
+        .route(
+            "/setup/compliance",
+            get(crate::setup_wizard::step_compliance)
+                .post(crate::setup_wizard::step_compliance_post),
+        )
+        .route("/setup/review", get(crate::setup_wizard::step_review))
+        .route("/setup/apply", post(crate::setup_wizard::step_apply))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::setup_wizard::setup_guard,
+        ));
+
     Router::new()
         .merge(authenticated)
         .merge(billing)
+        .merge(wizard)
         .layer(middleware::from_fn(request_id))
         .layer(middleware::from_fn_with_state(
             state.clone(),

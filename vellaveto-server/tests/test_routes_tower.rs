@@ -104,6 +104,8 @@ fn make_state() -> (AppState, TempDir) {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     (state, tmp)
 }
@@ -180,6 +182,8 @@ fn make_empty_state() -> (AppState, TempDir) {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     (state, tmp)
 }
@@ -1304,6 +1308,8 @@ priority = 1
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     let app = routes::build_router(state.clone());
 
@@ -1445,6 +1451,8 @@ fn make_approval_state() -> (AppState, TempDir) {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     (state, tmp)
 }
@@ -1947,6 +1955,8 @@ fn make_authed_state() -> (AppState, TempDir) {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     (state, tmp)
 }
@@ -2473,6 +2483,8 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     (state, tmp)
 }
@@ -3200,6 +3212,8 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     (state, tmp)
 }

@@ -105,6 +105,8 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
     (state, tmp)
 }
@@ -493,6 +495,8 @@ async fn regression_24_error_message_does_not_leak_architecture() {
                 reason: "test".to_string(),
             },
         }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

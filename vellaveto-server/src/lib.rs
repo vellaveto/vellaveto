@@ -6,6 +6,7 @@ pub mod observability;
 pub mod opa;
 pub mod rbac;
 pub mod routes;
+pub mod setup_wizard;
 pub mod telemetry;
 pub mod tenant;
 pub mod threat_intel;
@@ -856,6 +857,15 @@ pub struct AppState {
     // ═══════════════════════════════════════════════════════════════════
     /// Billing configuration (Paddle/Stripe webhook settings).
     pub billing_config: Arc<BillingState>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Setup Wizard
+    // ═══════════════════════════════════════════════════════════════════
+    /// Whether initial setup has been completed. Once true, the wizard is locked.
+    pub setup_completed: Arc<std::sync::atomic::AtomicBool>,
+
+    /// Active wizard sessions (bounded by MAX_WIZARD_SESSIONS).
+    pub wizard_sessions: Arc<dashmap::DashMap<String, setup_wizard::WizardSession>>,
 }
 
 /// Error type for cluster-dispatched approval operations.
