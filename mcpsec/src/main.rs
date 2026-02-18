@@ -57,7 +57,10 @@ async fn main() {
     };
 
     if let Some(path) = cli.output {
-        std::fs::write(&path, &output).expect("Failed to write output file");
+        if let Err(e) = std::fs::write(&path, &output) {
+            eprintln!("Failed to write output file '{path}': {e}");
+            std::process::exit(1);
+        }
         eprintln!("Results written to {path}");
     } else {
         println!("{output}");

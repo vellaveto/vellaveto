@@ -40,9 +40,7 @@ impl FipsConfig {
     /// When enabled, checks that `signature_algorithm` is one of the
     /// recognized values (`"ed25519"` or `"ecdsa-p256"`).
     pub fn validate(&self) -> Result<(), String> {
-        if self.enabled
-            && !ALLOWED_FIPS_ALGORITHMS.contains(&self.signature_algorithm.as_str())
-        {
+        if self.enabled && !ALLOWED_FIPS_ALGORITHMS.contains(&self.signature_algorithm.as_str()) {
             return Err(format!(
                 "fips.signature_algorithm must be one of {:?} when enabled, got '{}'",
                 ALLOWED_FIPS_ALGORITHMS, self.signature_algorithm

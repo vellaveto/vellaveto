@@ -22,9 +22,7 @@ pub(crate) fn glob_match_bytes(pattern: &[u8], text: &[u8]) -> bool {
     let mut star_ti = 0;
 
     while ti < text.len() {
-        if pi < pattern.len()
-            && (pattern[pi] == b'?' || pattern[pi] == text[ti])
-        {
+        if pi < pattern.len() && (pattern[pi] == b'?' || pattern[pi] == text[ti]) {
             pi += 1;
             ti += 1;
         } else if pi < pattern.len() && pattern[pi] == b'*' {

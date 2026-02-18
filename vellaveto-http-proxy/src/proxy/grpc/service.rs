@@ -39,7 +39,7 @@ use super::proto::{
 use super::upstream::UpstreamForwarder;
 use super::ProxyState;
 use crate::proxy::call_chain::{
-    build_current_agent_entry, check_privilege_escalation, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+    check_privilege_escalation, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
 };
 use crate::proxy_metrics::record_dlp_finding;
 
@@ -383,7 +383,7 @@ impl McpGrpcService {
         // SECURITY (FIND-R53-GRPC-003): Memory poisoning detection — block requests
         // when replayed response data is detected in parameters.
         // Parity with HTTP handler (handlers.rs:512-570) and WS (websocket/mod.rs:751-810).
-        if let Some(mut session) = self.state.sessions.get_mut(session_id) {
+        if let Some(session) = self.state.sessions.get_mut(session_id) {
             let poisoning_matches = session.memory_tracker.check_parameters(arguments);
             if !poisoning_matches.is_empty() {
                 for m in &poisoning_matches {
@@ -1362,6 +1362,7 @@ impl McpService for McpGrpcService {
                             } else {
                                 Some(claims.sub.clone())
                             },
+                            audience: claims.aud.clone(),
                             claims: Default::default(),
                         };
                         if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
@@ -1425,6 +1426,7 @@ impl McpService for McpGrpcService {
                             } else {
                                 Some(claims.sub.clone())
                             },
+                            audience: claims.aud.clone(),
                             claims: Default::default(),
                         };
                         if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
@@ -1476,8 +1478,8 @@ impl McpService for McpGrpcService {
                 // SECURITY (FIND-R55-GRPC-010): Check per-message rate limit.
                 if stream_rate_limit > 0 {
                     let now = std::time::Instant::now();
-                    let mut start = rate_window_start.lock().unwrap_or_else(|e| e.into_inner());
-                    let within_limit =
+                    let within_limit = {
+                        let mut start = rate_window_start.lock().unwrap_or_else(|e| e.into_inner());
                         if now.duration_since(*start) >= std::time::Duration::from_secs(1) {
                             *start = now;
                             rate_counter.store(1, Ordering::SeqCst);
@@ -1487,7 +1489,8 @@ impl McpService for McpGrpcService {
                                 .fetch_add(1, Ordering::SeqCst)
                                 .saturating_add(1);
                             count <= stream_rate_limit as u64
-                        };
+                        }
+                    };
                     if !within_limit {
                         tracing::warn!(
                             session_id = %session_id,

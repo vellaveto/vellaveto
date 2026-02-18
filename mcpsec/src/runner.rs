@@ -48,12 +48,28 @@ struct EvaluateResponse {
 
 /// Run all attack tests against the gateway.
 pub async fn run_all(config: &GatewayConfig, timeout_secs: u64) -> Vec<AttackResult> {
-    let client = reqwest::Client::builder()
+    let all_tests = attacks::all_tests();
+    let client = match reqwest::Client::builder()
         .danger_accept_invalid_certs(false)
         .build()
-        .expect("Failed to build HTTP client");
+    {
+        Ok(client) => client,
+        Err(e) => {
+            let details = format!("HTTP client initialization failed: {e}");
+            return all_tests
+                .iter()
+                .map(|test| AttackResult {
+                    attack_id: test.id.to_string(),
+                    name: test.name.to_string(),
+                    class: test.class.to_string(),
+                    passed: false,
+                    latency_ns: 0,
+                    details: details.clone(),
+                })
+                .collect();
+        }
+    };
 
-    let all_tests = attacks::all_tests();
     let mut results = Vec::with_capacity(all_tests.len());
 
     for test in &all_tests {

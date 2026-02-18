@@ -304,6 +304,9 @@ impl SiemExporter for SplunkExporter {
 
         let mut retries = 0;
         let mut backoff = Duration::from_secs(self.config.common.retry_backoff_secs);
+        // SECURITY (FIND-R46-004): Cap exponential backoff to prevent
+        // adversarial or misconfigured upstreams from stalling exports indefinitely.
+        const MAX_BACKOFF_SECS: u64 = 300;
 
         loop {
             let result = self
@@ -352,8 +355,6 @@ impl SiemExporter for SplunkExporter {
                         continue;
                     }
 
-                    // SECURITY (FIND-R46-004): Cap server error backoff at 300 seconds.
-                    const MAX_BACKOFF_SECS: u64 = 300;
                     if status.is_server_error() && retries < self.config.common.max_retries {
                         let capped_backoff = backoff.min(Duration::from_secs(MAX_BACKOFF_SECS));
                         tracing::warn!(
@@ -1720,7 +1721,10 @@ mod tests {
         };
         let result = SplunkExporter::new(config);
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = match result {
+            Ok(_) => panic!("expected SplunkExporter::new to fail for non-http scheme"),
+            Err(e) => e.to_string(),
+        };
         assert!(err.contains("http://") || err.contains("https://"));
     }
 

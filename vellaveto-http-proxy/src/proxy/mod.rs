@@ -7,9 +7,6 @@
 mod auth;
 pub mod call_chain;
 pub mod discovery;
-// TODO(Phase 20): `forward_with_fallback` is not yet wired into the gateway
-// health-checker path. Remove `#[allow(dead_code)]` once it is integrated.
-#[allow(dead_code)]
 mod fallback;
 pub mod gateway;
 #[cfg(feature = "grpc")]

@@ -13,6 +13,7 @@
 //! - **No rewrite of forwarding**: The router only resolves "which URL" — the
 //!   existing `forward_to_upstream()` function handles the actual HTTP request.
 
+use super::fallback;
 use std::collections::HashMap;
 use std::sync::RwLock;
 use vellaveto_config::{BackendConfig, GatewayConfig};
@@ -392,29 +393,60 @@ pub fn spawn_health_checker(
             };
 
             for (backend_id, url) in &backends {
-                let ping_body = serde_json::json!({
+                let ping_payload = serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": "health",
                     "method": "ping"
                 });
+                let ping_body = match serde_json::to_vec(&ping_payload) {
+                    Ok(body) => body,
+                    Err(e) => {
+                        tracing::error!(
+                            backend = %backend_id,
+                            error = %e,
+                            "Gateway health check: failed to serialize ping payload"
+                        );
+                        gateway.record_failure(backend_id);
+                        continue;
+                    }
+                };
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(
+                    reqwest::header::CONTENT_TYPE,
+                    reqwest::header::HeaderValue::from_static("application/json"),
+                );
 
-                let result = client
-                    .post(url)
-                    .header("content-type", "application/json")
-                    .json(&ping_body)
-                    .timeout(std::time::Duration::from_secs(5))
-                    .send()
-                    .await;
+                let result = fallback::forward_with_fallback(
+                    &client,
+                    url,
+                    bytes::Bytes::from(ping_body),
+                    &headers,
+                    0,
+                    std::time::Duration::from_secs(5),
+                )
+                .await;
 
                 match result {
-                    Ok(resp) if resp.status().is_success() || resp.status().is_client_error() => {
+                    Ok(resp)
+                        if (200..300).contains(&resp.status)
+                            || (400..500).contains(&resp.status) =>
+                    {
+                        tracing::debug!(
+                            backend = %backend_id,
+                            status = resp.status,
+                            transport = ?resp.transport_used,
+                            fallback_attempts = resp.fallback_attempts,
+                            response_bytes = resp.response.len(),
+                            has_negotiation_history = resp.negotiation_history.is_some(),
+                            "Gateway health check: backend reachable"
+                        );
                         // 2xx or 4xx = server is alive (even if it rejects the ping method)
                         gateway.record_success(backend_id);
                     }
                     Ok(resp) => {
                         tracing::debug!(
                             backend = %backend_id,
-                            status = %resp.status(),
+                            status = resp.status,
                             "Gateway health check: server error"
                         );
                         gateway.record_failure(backend_id);

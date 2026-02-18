@@ -67,6 +67,10 @@ pub async fn forward_with_fallback(
     max_retries: u32,
     timeout: std::time::Duration,
 ) -> Result<FallbackResult, FallbackError> {
+    if upstream_url.trim().is_empty() {
+        return Err(FallbackError::NoFallback);
+    }
+
     let mut last_error = String::new();
 
     for attempt in 0..=max_retries {

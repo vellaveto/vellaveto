@@ -2091,8 +2091,10 @@ async fn evaluate(
             .attribute("tenant_id", json!(tenant_ctx.tenant_id));
 
         // Phase 28: Add agent identity attributes for GenAI semantic conventions
-        if let Some(ref agent_id) = context.agent_id {
-            builder = builder.attribute("gen_ai.agent.id", json!(agent_id));
+        if let Some(ref eval_context) = context {
+            if let Some(ref agent_id) = eval_context.agent_id {
+                builder = builder.attribute("gen_ai.agent.id", json!(agent_id));
+            }
         }
 
         // Set parent span if provided

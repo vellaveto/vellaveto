@@ -122,7 +122,7 @@ pub async fn start_grpc_server(
     let mcp_server = McpServiceServer::new(svc)
         .max_decoding_message_size(config.max_message_size)
         .max_encoding_message_size(config.max_message_size);
-    let intercepted = tonic::service::InterceptedService::new(mcp_server, interceptor);
+    let intercepted = tonic::service::interceptor::InterceptedService::new(mcp_server, interceptor);
 
     let router = if config.health_enabled {
         let (health_reporter, health_service) = tonic_health::server::health_reporter();

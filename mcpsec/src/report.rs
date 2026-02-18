@@ -4,7 +4,16 @@ use crate::BenchmarkResult;
 
 /// Generate a JSON report string.
 pub fn to_json(result: &BenchmarkResult) -> String {
-    serde_json::to_string_pretty(result).expect("Failed to serialize benchmark result")
+    match serde_json::to_string_pretty(result) {
+        Ok(json) => json,
+        Err(e) => {
+            let escaped = e.to_string().replace('\\', "\\\\").replace('"', "\\\"");
+            format!(
+                "{{\"error\":\"failed to serialize benchmark result\",\"details\":\"{}\"}}",
+                escaped
+            )
+        }
+    }
 }
 
 /// Generate a Markdown report string.

@@ -51,6 +51,24 @@ struct PaddleWebhookPayload {
     event_type: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WebhookDisposition {
+    /// Event can be safely acknowledged without changing runtime billing state.
+    Acknowledge,
+    /// Event would change license/subscription state and must not be acknowledged
+    /// until billing state synchronization is implemented.
+    RequiresStateSync,
+}
+
+fn classify_paddle_event(event_type: &str) -> WebhookDisposition {
+    match event_type {
+        // Provider connectivity checks (no billing state mutation).
+        "webhook.ping" | "webhook.health_check" | "event.test" => WebhookDisposition::Acknowledge,
+        // Fail closed for all business events (known and unknown) until sync is wired.
+        _ => WebhookDisposition::RequiresStateSync,
+    }
+}
+
 /// `POST /api/billing/paddle/webhook`
 ///
 /// Receives Paddle webhook events. Validates the signature using
@@ -115,11 +133,13 @@ pub async fn paddle_webhook(
         "Paddle webhook received"
     );
 
-    // TODO: Process subscription events and update license tier
-    // - subscription.created → generate license key, store subscription mapping
-    // - subscription.updated → update tier if plan changed
-    // - subscription.canceled → downgrade to Community
-    // - subscription.past_due → log warning, grace period
+    if classify_paddle_event(&payload.event_type) == WebhookDisposition::RequiresStateSync {
+        tracing::warn!(
+            event_type = %payload.event_type,
+            "Paddle webhook validated but not applied: billing state sync not configured"
+        );
+        return (StatusCode::OK, Json(WebhookResponse { received: false }));
+    }
 
     (StatusCode::OK, Json(WebhookResponse { received: true }))
 }
@@ -191,6 +211,15 @@ struct StripeWebhookPayload {
     event_type: String,
 }
 
+fn classify_stripe_event(event_type: &str) -> WebhookDisposition {
+    match event_type {
+        // Provider connectivity checks (no billing state mutation).
+        "webhook_endpoint.ping" => WebhookDisposition::Acknowledge,
+        // Fail closed for all business events (known and unknown) until sync is wired.
+        _ => WebhookDisposition::RequiresStateSync,
+    }
+}
+
 /// `POST /api/billing/stripe/webhook`
 ///
 /// Receives Stripe webhook events. Validates the signature using
@@ -252,11 +281,13 @@ pub async fn stripe_webhook(
         "Stripe webhook received"
     );
 
-    // TODO: Process invoice/subscription events and update license tier
-    // - invoice.paid → generate/renew license key
-    // - customer.subscription.updated → update tier
-    // - customer.subscription.deleted → downgrade to Community
-    // - invoice.payment_failed → log warning, send notification
+    if classify_stripe_event(&payload.event_type) == WebhookDisposition::RequiresStateSync {
+        tracing::warn!(
+            event_type = %payload.event_type,
+            "Stripe webhook validated but not applied: billing state sync not configured"
+        );
+        return (StatusCode::OK, Json(WebhookResponse { received: false }));
+    }
 
     (StatusCode::OK, Json(WebhookResponse { received: true }))
 }
@@ -526,6 +557,38 @@ mod tests {
 
         let header = format!("t={},v1={}", ts, hmac);
         assert!(!verify_stripe_signature(&header, body, "wrong_secret"));
+    }
+
+    #[test]
+    fn test_classify_paddle_probe_event_acknowledged() {
+        assert_eq!(
+            classify_paddle_event("webhook.ping"),
+            WebhookDisposition::Acknowledge
+        );
+    }
+
+    #[test]
+    fn test_classify_paddle_subscription_event_requires_state_sync() {
+        assert_eq!(
+            classify_paddle_event("subscription.updated"),
+            WebhookDisposition::RequiresStateSync
+        );
+    }
+
+    #[test]
+    fn test_classify_stripe_probe_event_acknowledged() {
+        assert_eq!(
+            classify_stripe_event("webhook_endpoint.ping"),
+            WebhookDisposition::Acknowledge
+        );
+    }
+
+    #[test]
+    fn test_classify_stripe_invoice_event_requires_state_sync() {
+        assert_eq!(
+            classify_stripe_event("invoice.paid"),
+            WebhookDisposition::RequiresStateSync
+        );
     }
 
     #[test]
