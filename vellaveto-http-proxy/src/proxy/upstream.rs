@@ -25,7 +25,7 @@ use super::inspection::{
 };
 use vellaveto_mcp::output_validation::ValidationResult;
 
-use super::{ProxyState, MCP_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION_HEADER, MCP_SESSION_ID};
+use super::{ProxyState, MCP_PROTOCOL_VERSION_HEADER, MCP_PROTOCOL_VERSION_VALUE, MCP_SESSION_ID};
 use crate::proxy_metrics::record_dlp_finding;
 
 /// If canonicalize mode is enabled, re-serialize the parsed JSON to canonical
@@ -110,7 +110,7 @@ pub(super) async fn forward_get_to_upstream(
         .get(&state.upstream_url)
         .header("accept", "text/event-stream")
         .header(MCP_SESSION_ID, session_id)
-        .header(MCP_PROTOCOL_VERSION_HEADER, MCP_PROTOCOL_VERSION);
+        .header(MCP_PROTOCOL_VERSION_HEADER, MCP_PROTOCOL_VERSION_VALUE);
 
     // Forward Authorization header in OAuth pass-through mode
     if let Some(auth) = auth_header {
@@ -334,7 +334,7 @@ pub(super) async fn forward_to_upstream_url(
         .post(upstream_url)
         .header("content-type", "application/json")
         .header(MCP_SESSION_ID, session_id)
-        .header(MCP_PROTOCOL_VERSION_HEADER, MCP_PROTOCOL_VERSION);
+        .header(MCP_PROTOCOL_VERSION_HEADER, MCP_PROTOCOL_VERSION_VALUE);
 
     // Forward Authorization header in OAuth pass-through mode
     if let Some(auth) = auth_header {

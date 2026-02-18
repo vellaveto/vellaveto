@@ -1,17 +1,32 @@
 use serde::{Deserialize, Serialize};
 
+/// Model projector configuration (Phase 35).
+///
+/// Controls automatic tool schema transformation for different model families,
+/// schema compression, and malformed call repair.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectorConfig {
+    /// Enable the model projector. Default: false.
     #[serde(default)]
     pub enabled: bool,
+    /// Default model family for schema projection.
+    /// Must be one of the `VALID_FAMILIES` or `"custom:<name>"`.
+    /// Default: `"generic"`.
     #[serde(default = "default_model_family")]
     pub default_model_family: String,
+    /// Automatically detect the model family from request headers.
+    /// Default: true.
     #[serde(default = "default_auto_detect")]
     pub auto_detect_model: bool,
+    /// Enable progressive schema compression. Default: false.
     #[serde(default)]
     pub compress_schemas: bool,
+    /// Optional token budget for projected schemas. Default: None (no limit).
+    /// Range: [1, 1_000_000].
     #[serde(default)]
     pub max_schema_tokens: Option<usize>,
+    /// Enable automatic repair of malformed tool calls. Default: true.
     #[serde(default = "default_repair")]
     pub repair_malformed_calls: bool,
 }
@@ -28,8 +43,11 @@ fn default_repair() -> bool {
     true
 }
 
-const MAX_SCHEMA_TOKENS: usize = 1_000_000;
-const VALID_FAMILIES: &[&str] = &["claude", "openai", "deepseek", "qwen", "generic"];
+/// Maximum token budget for projected schemas (1 million tokens).
+pub const MAX_SCHEMA_TOKENS: usize = 1_000_000;
+
+/// Recognized model family identifiers for built-in projections.
+pub const VALID_FAMILIES: &[&str] = &["claude", "openai", "deepseek", "qwen", "generic"];
 
 impl Default for ProjectorConfig {
     fn default() -> Self {

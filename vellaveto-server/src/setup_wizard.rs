@@ -85,6 +85,9 @@ impl PolicyPreset {
 }
 
 /// Wizard session state persisted across steps.
+///
+/// FIND-R56-SRV-020: Custom `Debug` impl redacts `api_key` and `csrf_token`
+/// to prevent accidental credential leakage in logs or error messages.
 pub struct WizardSession {
     pub created_at: std::time::Instant,
     pub csrf_token: String,
@@ -111,6 +114,20 @@ pub struct WizardSession {
     pub dora: bool,
     pub soc2: bool,
     pub iso42001: bool,
+}
+
+impl std::fmt::Debug for WizardSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WizardSession")
+            .field("created_at", &self.created_at)
+            .field("csrf_token", &"[REDACTED]")
+            .field("api_key", &"[REDACTED]")
+            .field("allow_anonymous", &self.allow_anonymous)
+            .field("policy_preset", &self.policy_preset)
+            .field("injection_enabled", &self.injection_enabled)
+            .field("dlp_enabled", &self.dlp_enabled)
+            .finish()
+    }
 }
 
 impl WizardSession {
@@ -290,11 +307,19 @@ fn html_escape(s: &str) -> String {
 }
 
 fn checked(val: bool) -> &'static str {
-    if val { "checked" } else { "" }
+    if val {
+        "checked"
+    } else {
+        ""
+    }
 }
 
 fn selected(val: bool) -> &'static str {
-    if val { "selected" } else { "" }
+    if val {
+        "selected"
+    } else {
+        ""
+    }
 }
 
 fn render_head(title: &str) -> String {
@@ -313,7 +338,15 @@ fn render_head(title: &str) -> String {
 }
 
 fn render_steps(current: usize) -> String {
-    let labels = ["Welcome", "Security", "Policies", "Detection", "Audit", "Compliance", "Review"];
+    let labels = [
+        "Welcome",
+        "Security",
+        "Policies",
+        "Detection",
+        "Audit",
+        "Compliance",
+        "Review",
+    ];
     let mut html = String::from("<ol class=\"steps\">");
     for (i, label) in labels.iter().enumerate() {
         let step = i + 1;
@@ -339,7 +372,10 @@ fn render_footer() -> &'static str {
 }
 
 fn render_csrf(token: &str) -> String {
-    format!(r#"<input type="hidden" name="csrf_token" value="{}">"#, html_escape(token))
+    format!(
+        r#"<input type="hidden" name="csrf_token" value="{}">"#,
+        html_escape(token)
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -386,11 +422,7 @@ fn cleanup_expired_sessions(state: &AppState) {
 // ═══════════════════════════════════════════════════════════════════
 
 /// Middleware that blocks access to the wizard after setup is completed.
-pub async fn setup_guard(
-    State(state): State<AppState>,
-    req: Request,
-    next: Next,
-) -> Response {
+pub async fn setup_guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
     if state.setup_completed.load(Ordering::Acquire) {
         return (
             StatusCode::FORBIDDEN,
@@ -432,9 +464,7 @@ fn percent_decode(s: &str) -> String {
 // ═══════════════════════════════════════════════════════════════════
 
 /// Step 1 — Welcome page (GET /setup)
-pub async fn step_welcome(
-    State(state): State<AppState>,
-) -> Response {
+pub async fn step_welcome(State(state): State<AppState>) -> Response {
     // Create a new session
     if state.wizard_sessions.len() >= MAX_WIZARD_SESSIONS {
         cleanup_expired_sessions(&state);
@@ -442,7 +472,8 @@ pub async fn step_welcome(
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Html("<h1>Too many active sessions</h1><p>Please try again later.</p>".to_string()),
-            ).into_response();
+            )
+                .into_response();
         }
     }
 
@@ -454,7 +485,9 @@ pub async fn step_welcome(
     let mut html = render_head("Welcome");
     html.push_str(&render_steps(1));
 
-    let _ = write!(html, r#"
+    let _ = write!(
+        html,
+        r#"
 <h1>Welcome to Vellaveto Setup</h1>
 <div class="card">
 <p>Vellaveto is a runtime security engine for AI agent tool calls. This wizard will walk you through configuring:</p>
@@ -470,21 +503,20 @@ pub async fn step_welcome(
 <div class="btn-row">
 <a href="/setup/security" class="btn btn-primary">Start Setup &rarr;</a>
 </div>
-"#);
+"#
+    );
     html.push_str(render_footer());
 
     (
         StatusCode::OK,
         [(header::SET_COOKIE, session_cookie(&session_id))],
         Html(html),
-    ).into_response()
+    )
+        .into_response()
 }
 
 /// Step 2 — Security (GET /setup/security)
-pub async fn step_security(
-    State(state): State<AppState>,
-    req: Request,
-) -> Response {
+pub async fn step_security(State(state): State<AppState>, req: Request) -> Response {
     let session_id = match get_session_id(&req) {
         Some(id) => id,
         None => return Redirect::to("/setup").into_response(),
@@ -502,7 +534,9 @@ pub async fn step_security(
     let anon_checked = checked(session.allow_anonymous);
     let csrf = render_csrf(&session.csrf_token);
 
-    let _ = write!(html, r#"
+    let _ = write!(
+        html,
+        r#"
 <h1>Security Settings</h1>
 <form method="POST" action="/setup/security">
 {csrf}
@@ -540,16 +574,14 @@ pub async fn step_security(
 <button type="submit" class="btn btn-primary">Next &rarr;</button>
 </div>
 </form>
-"#);
+"#
+    );
     html.push_str(render_footer());
     Html(html).into_response()
 }
 
 /// Step 2 — Security (POST /setup/security)
-pub async fn step_security_post(
-    State(state): State<AppState>,
-    req: Request,
-) -> Response {
+pub async fn step_security_post(State(state): State<AppState>, req: Request) -> Response {
     let session_id = match get_session_id(&req) {
         Some(id) => id,
         None => return Redirect::to("/setup").into_response(),
@@ -614,10 +646,7 @@ pub async fn step_security_post(
 }
 
 /// Step 3 — Policies (GET /setup/policies)
-pub async fn step_policies(
-    State(state): State<AppState>,
-    req: Request,
-) -> Response {
+pub async fn step_policies(State(state): State<AppState>, req: Request) -> Response {
     let session_id = match get_session_id(&req) {
         Some(id) => id,
         None => return Redirect::to("/setup").into_response(),
@@ -631,24 +660,37 @@ pub async fn step_policies(
     html.push_str(&render_steps(3));
 
     let csrf = render_csrf(&session.csrf_token);
-    let presets = [PolicyPreset::Strict, PolicyPreset::Balanced, PolicyPreset::Permissive];
+    let presets = [
+        PolicyPreset::Strict,
+        PolicyPreset::Balanced,
+        PolicyPreset::Permissive,
+    ];
 
-    let _ = write!(html, r#"
+    let _ = write!(
+        html,
+        r#"
 <h1>Policy Preset</h1>
 <p>Choose a starting policy preset. You can customize individual policies later by editing the config file.</p>
 <form method="POST" action="/setup/policies">
 {csrf}
 <div class="radio-group">
-"#);
+"#
+    );
 
     for preset in &presets {
         let is_selected = *preset == session.policy_preset;
-        let card_class = if is_selected { "radio-card selected" } else { "radio-card" };
+        let card_class = if is_selected {
+            "radio-card selected"
+        } else {
+            "radio-card"
+        };
         let checked_attr = checked(is_selected);
         let label = preset.label();
         let desc = preset.description();
         let value = preset.as_str();
-        let _ = write!(html, r#"
+        let _ = write!(
+            html,
+            r#"
 <label class="{card_class}">
 <input type="radio" name="policy_preset" value="{value}" {checked_attr}>
 <div class="radio-content">
@@ -656,26 +698,27 @@ pub async fn step_policies(
 <div class="radio-desc">{desc}</div>
 </div>
 </label>
-"#);
+"#
+        );
     }
 
-    let _ = write!(html, r#"
+    let _ = write!(
+        html,
+        r#"
 </div>
 <div class="btn-row">
 <a href="/setup/security" class="btn btn-secondary">&larr; Back</a>
 <button type="submit" class="btn btn-primary">Next &rarr;</button>
 </div>
 </form>
-"#);
+"#
+    );
     html.push_str(render_footer());
     Html(html).into_response()
 }
 
 /// Step 3 — Policies (POST /setup/policies)
-pub async fn step_policies_post(
-    State(state): State<AppState>,
-    req: Request,
-) -> Response {
+pub async fn step_policies_post(State(state): State<AppState>, req: Request) -> Response {
     let session_id = match get_session_id(&req) {
         Some(id) => id,
         None => return Redirect::to("/setup").into_response(),
@@ -709,10 +752,7 @@ pub async fn step_policies_post(
 }
 
 /// Step 4 — Detection (GET /setup/detection)
-pub async fn step_detection(
-    State(state): State<AppState>,
-    req: Request,
-) -> Response {
+pub async fn step_detection(State(state): State<AppState>, req: Request) -> Response {
     let session_id = match get_session_id(&req) {
         Some(id) => id,
         None => return Redirect::to("/setup").into_response(),
@@ -732,7 +772,9 @@ pub async fn step_detection(
     let dlp_blocking = checked(session.dlp_blocking);
     let beh_enabled = checked(session.behavioral_enabled);
 
-    let _ = write!(html, r#"
+    let _ = write!(
+        html,
+        r#"
 <h1>Detection Settings</h1>
 <p>Configure which security detection systems to enable. Alert-only mode logs detections without blocking requests.</p>
 <form method="POST" action="/setup/detection">
@@ -776,16 +818,14 @@ pub async fn step_detection(
 <button type="submit" class="btn btn-primary">Next &rarr;</button>
 </div>
 </form>
-"#);
+"#
+    );
     html.push_str(render_footer());
     Html(html).into_response()
 }
 
 /// Step 4 — Detection (POST /setup/detection)
-pub async fn step_detection_post(
-    State(state): State<AppState>,
-    req: Request,
-) -> Response {
+pub async fn step_detection_post(State(state): State<AppState>, req: Request) -> Response {
     let session_id = match get_session_id(&req) {
         Some(id) => id,
         None => return Redirect::to("/setup").into_response(),
@@ -820,10 +860,7 @@ pub async fn step_detection_post(
 }
 
 /// Step 5 — Audit (GET /setup/audit)
-pub async fn step_audit(
-    State(state): State<AppState>,
-    req: Request,
-) -> Response {
+pub async fn step_audit(State(state): State<AppState>, req: Request) -> Response {
     let session_id = match get_session_id(&req) {
         Some(id) => id,
         None => return Redirect::to("/setup").into_response(),
@@ -842,7 +879,9 @@ pub async fn step_audit(
     let export_target = html_escape(&session.audit_export_target);
     let cp_interval = session.checkpoint_interval_secs;
 
-    let _ = write!(html, r#"
+    let _ = write!(
+        html,
+        r#"
 <h1>Audit Settings</h1>
 <p>Configure how audit data is recorded, redacted, and exported.</p>
 <form method="POST" action="/setup/audit">
@@ -912,10 +951,7 @@ pub async fn step_audit(
 }
 
 /// Step 5 — Audit (POST /setup/audit)
-pub async fn step_audit_post(
-    State(state): State<AppState>,
-    req: Request,
-) -> Response {
+pub async fn step_audit_post(State(state): State<AppState>, req: Request) -> Response {
     let session_id = match get_session_id(&req) {
         Some(id) => id,
         None => return Redirect::to("/setup").into_response(),
@@ -938,7 +974,10 @@ pub async fn step_audit_post(
         }
     }
 
-    let redaction_level = form.get("redaction_level").cloned().unwrap_or_else(|| "KeysAndPatterns".to_string());
+    let redaction_level = form
+        .get("redaction_level")
+        .cloned()
+        .unwrap_or_else(|| "KeysAndPatterns".to_string());
     let valid_levels = ["Off", "KeysOnly", "KeysAndPatterns", "Full"];
     let redaction_level = if valid_levels.contains(&redaction_level.as_str()) {
         redaction_level
@@ -946,7 +985,10 @@ pub async fn step_audit_post(
         "KeysAndPatterns".to_string()
     };
 
-    let export_format = form.get("audit_export_format").cloned().unwrap_or_else(|| "none".to_string());
+    let export_format = form
+        .get("audit_export_format")
+        .cloned()
+        .unwrap_or_else(|| "none".to_string());
     let valid_formats = ["none", "cef", "jsonl", "webhook"];
     let export_format = if valid_formats.contains(&export_format.as_str()) {
         export_format
@@ -982,10 +1024,7 @@ pub async fn step_audit_post(
 }
 
 /// Step 6 — Compliance (GET /setup/compliance)
-pub async fn step_compliance(
-    State(state): State<AppState>,
-    req: Request,
-) -> Response {
+pub async fn step_compliance(State(state): State<AppState>, req: Request) -> Response {
     let session_id = match get_session_id(&req) {
         Some(id) => id,
         None => return Redirect::to("/setup").into_response(),
@@ -1000,7 +1039,9 @@ pub async fn step_compliance(
 
     let csrf = render_csrf(&session.csrf_token);
 
-    let _ = write!(html, r#"
+    let _ = write!(
+        html,
+        r#"
 <h1>Compliance Frameworks</h1>
 <p>Enable compliance features for your regulatory requirements. Each framework adds specific audit events, reports, and evidence collection.</p>
 <form method="POST" action="/setup/compliance">
@@ -1076,10 +1117,7 @@ pub async fn step_compliance(
 }
 
 /// Step 6 — Compliance (POST /setup/compliance)
-pub async fn step_compliance_post(
-    State(state): State<AppState>,
-    req: Request,
-) -> Response {
+pub async fn step_compliance_post(State(state): State<AppState>, req: Request) -> Response {
     let session_id = match get_session_id(&req) {
         Some(id) => id,
         None => return Redirect::to("/setup").into_response(),
@@ -1114,10 +1152,7 @@ pub async fn step_compliance_post(
 }
 
 /// Step 7 — Review (GET /setup/review)
-pub async fn step_review(
-    State(state): State<AppState>,
-    req: Request,
-) -> Response {
+pub async fn step_review(State(state): State<AppState>, req: Request) -> Response {
     let session_id = match get_session_id(&req) {
         Some(id) => id,
         None => return Redirect::to("/setup").into_response(),
@@ -1138,7 +1173,7 @@ pub async fn step_review(
     } else {
         let key = &session.api_key;
         if key.len() > 8 {
-            format!("{}...{}", &key[..4], &key[key.len()-4..])
+            format!("{}...{}", &key[..4], &key[key.len() - 4..])
         } else {
             "****".to_string()
         }
@@ -1155,7 +1190,11 @@ pub async fn step_review(
 
     let inj_display = detection_display(session.injection_enabled, session.injection_blocking);
     let dlp_display = detection_display(session.dlp_enabled, session.dlp_blocking);
-    let beh_display = if session.behavioral_enabled { "Enabled" } else { "Disabled" };
+    let beh_display = if session.behavioral_enabled {
+        "Enabled"
+    } else {
+        "Disabled"
+    };
 
     let redaction_display = match session.redaction_level.as_str() {
         "Off" => "None",
@@ -1174,11 +1213,21 @@ pub async fn step_review(
     };
 
     let mut frameworks = Vec::new();
-    if session.eu_ai_act { frameworks.push("EU AI Act"); }
-    if session.nis2 { frameworks.push("NIS2"); }
-    if session.dora { frameworks.push("DORA"); }
-    if session.soc2 { frameworks.push("SOC 2"); }
-    if session.iso42001 { frameworks.push("ISO 42001"); }
+    if session.eu_ai_act {
+        frameworks.push("EU AI Act");
+    }
+    if session.nis2 {
+        frameworks.push("NIS2");
+    }
+    if session.dora {
+        frameworks.push("DORA");
+    }
+    if session.soc2 {
+        frameworks.push("SOC 2");
+    }
+    if session.iso42001 {
+        frameworks.push("ISO 42001");
+    }
     let compliance_display = if frameworks.is_empty() {
         "None".to_string()
     } else {
@@ -1187,7 +1236,9 @@ pub async fn step_review(
 
     let toml_preview = html_escape(&generate_config_toml(&session));
 
-    let _ = write!(html, r#"
+    let _ = write!(
+        html,
+        r#"
 <h1>Review Configuration</h1>
 <p>Review your settings before applying. Click &ldquo;Apply Configuration&rdquo; to write the config file and activate it.</p>
 
@@ -1264,10 +1315,7 @@ fn detection_display(enabled: bool, blocking: bool) -> &'static str {
 }
 
 /// Step 7 — Apply (POST /setup/apply)
-pub async fn step_apply(
-    State(state): State<AppState>,
-    req: Request,
-) -> Response {
+pub async fn step_apply(State(state): State<AppState>, req: Request) -> Response {
     let session_id = match get_session_id(&req) {
         Some(id) => id,
         None => return Redirect::to("/setup").into_response(),
@@ -1296,14 +1344,18 @@ pub async fn step_apply(
     if let Err(e) = vellaveto_config::PolicyConfig::from_toml(&toml_content) {
         let mut html = render_head("Error");
         html.push_str(&render_steps(7));
-        let _ = write!(html, r#"
+        let _ = write!(
+            html,
+            r#"
 <h1>Configuration Error</h1>
 <div class="banner banner-error">Failed to validate generated configuration: {}</div>
 <p>Please go back and adjust your settings.</p>
 <div class="btn-row">
 <a href="/setup/review" class="btn btn-secondary">&larr; Back to Review</a>
 </div>
-"#, html_escape(&e.to_string()));
+"#,
+            html_escape(&e.to_string())
+        );
         html.push_str(render_footer());
         return Html(html).into_response();
     }
@@ -1313,14 +1365,18 @@ pub async fn step_apply(
     if let Err(e) = std::fs::write(config_path, &toml_content) {
         let mut html = render_head("Error");
         html.push_str(&render_steps(7));
-        let _ = write!(html, r#"
+        let _ = write!(
+            html,
+            r#"
 <h1>Write Error</h1>
 <div class="banner banner-error">Failed to write configuration file: {}</div>
 <p>Check that the server has write permissions to the config directory.</p>
 <div class="btn-row">
 <a href="/setup/review" class="btn btn-secondary">&larr; Back to Review</a>
 </div>
-"#, html_escape(&e.to_string()));
+"#,
+            html_escape(&e.to_string())
+        );
         html.push_str(render_footer());
         return Html(html).into_response();
     }
@@ -1328,10 +1384,16 @@ pub async fn step_apply(
     // Reload policies from the new config
     match crate::reload_policies_from_file(&state, "setup_wizard").await {
         Ok(count) => {
-            tracing::info!("Setup wizard: applied configuration with {} policies", count);
+            tracing::info!(
+                "Setup wizard: applied configuration with {} policies",
+                count
+            );
         }
         Err(e) => {
-            tracing::warn!("Setup wizard: policy reload failed after config write: {}", e);
+            tracing::warn!(
+                "Setup wizard: policy reload failed after config write: {}",
+                e
+            );
             // Config was written successfully, but reload failed.
             // The config will take effect on next server restart.
         }
@@ -1340,7 +1402,11 @@ pub async fn step_apply(
     // Write the .setup-complete marker file
     let marker_path = setup_complete_marker_path(config_path);
     if let Err(e) = std::fs::write(&marker_path, "setup completed\n") {
-        tracing::warn!("Failed to write setup-complete marker at {:?}: {}", marker_path, e);
+        tracing::warn!(
+            "Failed to write setup-complete marker at {:?}: {}",
+            marker_path,
+            e
+        );
     }
 
     // Lock the wizard
@@ -1355,7 +1421,8 @@ pub async fn step_apply(
         // Session was already removed, but we can read from the TOML
         api_key_instruction = if toml_content.contains("# API key configured via wizard") {
             r#"<p>Set the API key as an environment variable before starting the server:</p>
-<pre>export VELLAVETO_API_KEY=&lt;your-api-key&gt;</pre>"#.to_string()
+<pre>export VELLAVETO_API_KEY=&lt;your-api-key&gt;</pre>"#
+                .to_string()
         } else {
             String::new()
         };
@@ -1363,7 +1430,9 @@ pub async fn step_apply(
 
     // Success page
     let mut html = render_head("Complete");
-    let _ = write!(html, r#"
+    let _ = write!(
+        html,
+        r#"
 <div style="text-align: center; padding: 40px 0;">
 <h1 style="font-size: 2rem; margin-bottom: 16px;">Setup Complete</h1>
 <div class="banner banner-success">Configuration has been written and applied successfully.</div>
@@ -1404,15 +1473,21 @@ fn generate_config_toml(session: &WizardSession) -> String {
 
     // API key note (the key itself is set via env var, not in the config)
     if !session.api_key.is_empty() {
-        toml.push_str("# API key configured via wizard — set VELLAVETO_API_KEY environment variable\n\n");
+        toml.push_str(
+            "# API key configured via wizard — set VELLAVETO_API_KEY environment variable\n\n",
+        );
     }
 
     // CORS origins
     if !session.cors_origins.is_empty() {
-        toml.push_str("# Allowed CORS origins (also settable via VELLAVETO_CORS_ORIGINS env var)\n");
+        toml.push_str(
+            "# Allowed CORS origins (also settable via VELLAVETO_CORS_ORIGINS env var)\n",
+        );
         toml.push_str("allowed_origins = [");
         for (i, origin) in session.cors_origins.iter().enumerate() {
-            if i > 0 { toml.push_str(", "); }
+            if i > 0 {
+                toml.push_str(", ");
+            }
             let _ = write!(toml, "\"{}\"", escape_toml_string(origin));
         }
         toml.push_str("]\n\n");
@@ -1448,21 +1523,34 @@ fn generate_config_toml(session: &WizardSession) -> String {
     // Audit
     toml.push_str("# ─── Audit ──────────────────────────────────────────────────\n\n");
     toml.push_str("[audit]\n");
-    let _ = writeln!(toml, "redaction_level = \"{}\"", escape_toml_string(&session.redaction_level));
+    let _ = writeln!(
+        toml,
+        "redaction_level = \"{}\"",
+        escape_toml_string(&session.redaction_level)
+    );
     toml.push('\n');
 
     // Audit export
     if session.audit_export_format != "none" {
         toml.push_str("[audit_export]\n");
-        let _ = writeln!(toml, "format = \"{}\"", escape_toml_string(&session.audit_export_format));
+        let _ = writeln!(
+            toml,
+            "format = \"{}\"",
+            escape_toml_string(&session.audit_export_format)
+        );
         if !session.audit_export_target.is_empty() {
-            let _ = writeln!(toml, "target = \"{}\"", escape_toml_string(&session.audit_export_target));
+            let _ = writeln!(
+                toml,
+                "target = \"{}\"",
+                escape_toml_string(&session.audit_export_target)
+            );
         }
         toml.push('\n');
     }
 
     // Compliance
-    let has_compliance = session.eu_ai_act || session.nis2 || session.dora || session.soc2 || session.iso42001;
+    let has_compliance =
+        session.eu_ai_act || session.nis2 || session.dora || session.soc2 || session.iso42001;
     if has_compliance {
         toml.push_str("# ─── Compliance ─────────────────────────────────────────────\n\n");
         toml.push_str("[compliance]\n");
@@ -1482,10 +1570,14 @@ fn generate_config_toml(session: &WizardSession) -> String {
         }
         // NIS2 and DORA are noted as compliance targets in comments
         if session.nis2 {
-            toml.push_str("\n# NIS2 compliance enabled — incident reporting and supply chain checks active\n");
+            toml.push_str(
+                "\n# NIS2 compliance enabled — incident reporting and supply chain checks active\n",
+            );
         }
         if session.dora {
-            toml.push_str("\n# DORA compliance enabled — ICT risk management and incident tracking active\n");
+            toml.push_str(
+                "\n# DORA compliance enabled — ICT risk management and incident tracking active\n",
+            );
         }
         toml.push('\n');
     }
@@ -1527,7 +1619,9 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("tool = \"*\"\n");
             toml.push_str("function = \"*\"\n\n");
             toml.push_str("[policies.network_rules]\n");
-            toml.push_str("blocked_domains = [\"*.pastebin.com\", \"*.transfer.sh\", \"*.ngrok.io\"]\n\n");
+            toml.push_str(
+                "blocked_domains = [\"*.pastebin.com\", \"*.transfer.sh\", \"*.ngrok.io\"]\n\n",
+            );
 
             // Require approval for destructive commands
             toml.push_str("[[policies]]\n");
@@ -1613,7 +1707,9 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("tool = \"*\"\n");
             toml.push_str("function = \"*\"\n\n");
             toml.push_str("[policies.network_rules]\n");
-            toml.push_str("blocked_domains = [\"*.pastebin.com\", \"*.transfer.sh\", \"*.ngrok.io\"]\n\n");
+            toml.push_str(
+                "blocked_domains = [\"*.pastebin.com\", \"*.transfer.sh\", \"*.ngrok.io\"]\n\n",
+            );
         }
     }
 }
@@ -1677,13 +1773,18 @@ mod tests {
         let mut session = WizardSession::new();
         assert!(!session.is_expired());
         // Simulate old session
-        session.created_at = std::time::Instant::now() - std::time::Duration::from_secs(WIZARD_SESSION_TTL_SECS + 1);
+        session.created_at =
+            std::time::Instant::now() - std::time::Duration::from_secs(WIZARD_SESSION_TTL_SECS + 1);
         assert!(session.is_expired());
     }
 
     #[test]
     fn test_policy_preset_roundtrip() {
-        for preset in &[PolicyPreset::Strict, PolicyPreset::Balanced, PolicyPreset::Permissive] {
+        for preset in &[
+            PolicyPreset::Strict,
+            PolicyPreset::Balanced,
+            PolicyPreset::Permissive,
+        ] {
             let s = preset.as_str();
             let parsed = PolicyPreset::from_str(s).expect("should parse");
             assert_eq!(&parsed, preset);
@@ -1784,7 +1885,10 @@ mod tests {
     #[test]
     fn test_setup_complete_marker_path() {
         let path = setup_complete_marker_path("/etc/vellaveto/config.toml");
-        assert_eq!(path, std::path::PathBuf::from("/etc/vellaveto/.setup-complete"));
+        assert_eq!(
+            path,
+            std::path::PathBuf::from("/etc/vellaveto/.setup-complete")
+        );
     }
 
     #[test]
@@ -1877,7 +1981,9 @@ mod tests {
             "https://admin.example.com".to_string(),
         ];
         let toml = generate_config_toml(&session);
-        assert!(toml.contains("allowed_origins = [\"https://app.example.com\", \"https://admin.example.com\"]"));
+        assert!(toml.contains(
+            "allowed_origins = [\"https://app.example.com\", \"https://admin.example.com\"]"
+        ));
     }
 
     #[test]

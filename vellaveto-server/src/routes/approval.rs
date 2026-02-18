@@ -41,7 +41,7 @@ fn validate_approval_id(id: &str) -> Result<(), (StatusCode, Json<ErrorResponse>
         ));
     }
     // SECURITY (R16-APPR-2): Reject control characters in approval IDs
-    if id.chars().any(|c| crate::routes::is_unsafe_char(c)) {
+    if id.chars().any(crate::routes::is_unsafe_char) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {

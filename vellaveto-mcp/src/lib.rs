@@ -114,13 +114,17 @@ pub struct McpErrorResponse {
 }
 
 pub struct McpServer {
-    // SECURITY (R13-LEG-5): Engine is behind RwLock so it can be recompiled
-    // when policies change. Without recompilation, the engine has empty
+    /// The policy evaluation engine, behind RwLock so it can be recompiled
+    /// when policies change at runtime.
+    // SECURITY (R13-LEG-5): Without recompilation, the engine has empty
     // compiled_policies and silently falls back to the legacy path, which
     // bypasses path_rules, network_rules, and context_conditions.
     engine: RwLock<PolicyEngine>,
+    /// Currently loaded policies that the engine evaluates against.
     policies: RwLock<Vec<Policy>>,
+    /// Maximum allowed request body size in bytes (default: 1MB).
     max_request_size: usize,
+    /// When true, unknown tools are denied by default (fail-closed).
     strict_mode: bool,
     /// Custom path decode iteration limit (None = default 20).
     max_path_decode_iterations: Option<u32>,

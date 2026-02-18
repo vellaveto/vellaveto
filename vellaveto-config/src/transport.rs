@@ -8,31 +8,31 @@ use std::collections::HashMap;
 use vellaveto_types::TransportProtocol;
 
 /// Maximum fallback retries to prevent retry storms.
-const MAX_FALLBACK_RETRIES: u32 = 10;
+pub const MAX_FALLBACK_RETRIES: u32 = 10;
 
 /// Minimum fallback timeout in seconds.
-const MIN_FALLBACK_TIMEOUT_SECS: u64 = 1;
+pub const MIN_FALLBACK_TIMEOUT_SECS: u64 = 1;
 
 /// Maximum fallback timeout in seconds.
-const MAX_FALLBACK_TIMEOUT_SECS: u64 = 120;
+pub const MAX_FALLBACK_TIMEOUT_SECS: u64 = 120;
 
 /// Maximum number of transport override entries (FIND-R41-009).
-const MAX_TRANSPORT_OVERRIDES: usize = 100;
+pub const MAX_TRANSPORT_OVERRIDES: usize = 100;
 
 /// Maximum length for a transport override glob key (FIND-R41-014).
-const MAX_GLOB_KEY_LEN: usize = 256;
+pub const MAX_GLOB_KEY_LEN: usize = 256;
 
 /// Minimum circuit breaker failure threshold.
-const MIN_CB_FAILURE_THRESHOLD: u32 = 1;
+pub const MIN_CB_FAILURE_THRESHOLD: u32 = 1;
 
 /// Maximum circuit breaker failure threshold.
-const MAX_CB_FAILURE_THRESHOLD: u32 = 50;
+pub const MAX_CB_FAILURE_THRESHOLD: u32 = 50;
 
 /// Minimum circuit breaker open duration in seconds.
-const MIN_CB_OPEN_DURATION_SECS: u64 = 1;
+pub const MIN_CB_OPEN_DURATION_SECS: u64 = 1;
 
 /// Maximum circuit breaker open duration in seconds.
-const MAX_CB_OPEN_DURATION_SECS: u64 = 600;
+pub const MAX_CB_OPEN_DURATION_SECS: u64 = 600;
 
 fn default_discovery_enabled() -> bool {
     true
@@ -63,6 +63,7 @@ fn default_cb_open_duration_secs() -> u64 {
 /// Controls the `/.well-known/mcp-transport` discovery endpoint, upstream
 /// transport priorities, and transport restrictions.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TransportConfig {
     /// Enable the `/.well-known/mcp-transport` discovery endpoint.
     /// Default: true.

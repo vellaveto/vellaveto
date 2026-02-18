@@ -22,7 +22,10 @@ const MAX_DNS_RESULTS: usize = 256;
 /// resolved socket address as a `ServiceEndpoint`.  The port in `dns_name` is
 /// required by `tokio::net::lookup_host`.
 pub struct DnsServiceDiscovery {
+    /// DNS host:port name to resolve (e.g., `"vellaveto-headless:8080"`).
+    /// Must include a port for `tokio::net::lookup_host` compatibility.
     dns_name: String,
+    /// Interval between periodic re-resolution attempts in the watch loop.
     refresh_interval: std::time::Duration,
 }
 
@@ -183,10 +186,13 @@ impl ServiceDiscovery for DnsServiceDiscovery {
             // SECURITY (FIND-R44-043): Track consecutive DNS errors for logging.
             let mut consecutive_errors: u32 = 0;
 
+            // FIND-R56-CLUSTER-003: Construct the resolver once before the loop
+            // instead of recreating it on every tick.
+            let resolver = DnsServiceDiscovery::new(dns_name, interval);
+
             loop {
                 tick.tick().await;
 
-                let resolver = DnsServiceDiscovery::new(dns_name.clone(), interval);
                 let current = match resolver.resolve().await {
                     Ok(eps) => {
                         // Reset error counter on success.
@@ -198,7 +204,7 @@ impl ServiceDiscovery for DnsServiceDiscovery {
                         consecutive_errors = consecutive_errors.saturating_add(1);
                         if consecutive_errors == 1 || consecutive_errors.is_multiple_of(10) {
                             tracing::warn!(
-                                dns_name = %dns_name,
+                                dns_name = %resolver.dns_name,
                                 consecutive_errors = consecutive_errors,
                                 error = %e,
                                 "DNS watch resolution failed"

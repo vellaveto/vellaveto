@@ -75,7 +75,7 @@ pub struct GovernanceConfig {
 
     /// Emit audit events for least agency reports and auto-revocations.
     /// Default: true.
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub emit_agency_audit_events: bool,
 }
 
@@ -85,10 +85,6 @@ fn default_discovery_window() -> u64 {
 
 fn default_auto_revoke() -> u64 {
     3600
-}
-
-fn default_true() -> bool {
-    true
 }
 
 impl Default for GovernanceConfig {

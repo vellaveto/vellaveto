@@ -30,7 +30,7 @@ fn validate_agent_id(agent_id: &str) -> Result<(), &'static str> {
     if trimmed.len() > MAX_AGENT_ID_LEN {
         return Err("agent_id is too long");
     }
-    if trimmed.chars().any(|c| crate::routes::is_unsafe_char(c)) {
+    if trimmed.chars().any(crate::routes::is_unsafe_char) {
         return Err("agent_id contains control characters");
     }
     Ok(())

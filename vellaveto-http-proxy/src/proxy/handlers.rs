@@ -41,6 +41,10 @@ use crate::proxy_metrics::record_dlp_finding;
 // via state.limits.max_response_body_bytes and state.limits.max_sse_event_bytes.
 // See vellaveto_config::LimitsConfig for documentation and defaults.
 
+/// FIND-R56-HTTP-007: Maximum length for MCP session IDs.
+/// Server-generated IDs are UUIDs (36 chars); anything over 128 is suspicious.
+const MAX_SESSION_ID_LENGTH: usize = 128;
+
 /// Main POST /mcp handler.
 ///
 /// Implements the Streamable HTTP transport:
@@ -906,6 +910,11 @@ pub async fn handle_mcp_post(
                             }
                             vellaveto_engine::abac::AbacDecision::NoMatch => {
                                 // Fall through — existing Allow verdict stands
+                            }
+                            #[allow(unreachable_patterns)] // AbacDecision is #[non_exhaustive]
+                            _ => {
+                                // Future variants — fail-closed (deny)
+                                tracing::warn!("Unknown AbacDecision variant — fail-closed");
                             }
                         }
                     }
@@ -2503,11 +2512,11 @@ pub async fn handle_mcp_delete(
 
     // SECURITY (FIND-R44-053): Reject oversized session IDs to prevent
     // memory abuse or hash-flooding attacks. Server-generated IDs are UUIDs
-    // (36 chars); anything over 128 is suspicious.
+    // (36 chars); anything over MAX_SESSION_ID_LENGTH is suspicious.
     let session_id = headers
         .get(MCP_SESSION_ID)
         .and_then(|v| v.to_str().ok())
-        .filter(|id| id.len() <= 128);
+        .filter(|id| id.len() <= MAX_SESSION_ID_LENGTH);
 
     // If the header was present but filtered out due to length, return 400.
     if headers.get(MCP_SESSION_ID).is_some() && session_id.is_none() {

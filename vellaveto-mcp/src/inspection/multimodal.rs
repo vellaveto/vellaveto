@@ -141,7 +141,10 @@ impl ContentType {
 }
 
 /// Configuration for multimodal scanning.
+// SECURITY (FIND-R56-MCP-013): deny_unknown_fields prevents attacker-injected
+// fields from being silently accepted in security-critical configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MultimodalConfig {
     /// Enable multimodal scanning. Default: false.
     #[serde(default)]
@@ -231,6 +234,35 @@ impl Default for MultimodalConfig {
             content_types: default_content_types(),
             blocked_content_types: vec![],
         }
+    }
+}
+
+impl MultimodalConfig {
+    /// Validate configuration fields.
+    ///
+    /// SECURITY (FIND-R56-MCP-012): Ensures `min_ocr_confidence` is finite and
+    /// in `[0.0, 1.0]`, and that size fields are > 0 to prevent misconfiguration
+    /// that could bypass scanning or cause division-by-zero.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.min_ocr_confidence.is_finite() {
+            return Err("min_ocr_confidence must be finite".to_string());
+        }
+        if !(0.0..=1.0).contains(&self.min_ocr_confidence) {
+            return Err(format!(
+                "min_ocr_confidence must be in [0.0, 1.0], got {}",
+                self.min_ocr_confidence
+            ));
+        }
+        if self.max_image_size == 0 {
+            return Err("max_image_size must be > 0".to_string());
+        }
+        if self.max_audio_size == 0 {
+            return Err("max_audio_size must be > 0".to_string());
+        }
+        if self.max_video_size == 0 {
+            return Err("max_video_size must be > 0".to_string());
+        }
+        Ok(())
     }
 }
 
@@ -406,7 +438,7 @@ impl MultimodalScanner {
                 ocr_confidence: None,
                 injection_findings: vec![],
                 stego_indicators: vec![],
-                scan_duration_ms: start.elapsed().as_millis() as u64,
+                scan_duration_ms: u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
             });
         }
 
@@ -423,7 +455,7 @@ impl MultimodalScanner {
                 ocr_confidence: None,
                 injection_findings: vec![],
                 stego_indicators: vec![],
-                scan_duration_ms: start.elapsed().as_millis() as u64,
+                scan_duration_ms: u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
             });
         }
 
@@ -471,7 +503,7 @@ impl MultimodalScanner {
             ocr_confidence,
             injection_findings,
             stego_indicators,
-            scan_duration_ms: start.elapsed().as_millis() as u64,
+            scan_duration_ms: u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
         })
     }
 

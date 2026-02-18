@@ -80,6 +80,7 @@ const MAX_MEMBERSHIP_DEPTH: usize = 16;
 
 /// Result of ABAC policy evaluation.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum AbacDecision {
     /// An ABAC permit policy matched — allow the action.
     Allow { policy_id: String },
@@ -164,6 +165,13 @@ struct CompiledAbacPolicy {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /// In-memory entity store for ABAC principal/resource attributes.
+///
+/// # Security
+///
+/// This store is the authority for group membership lookups used by ABAC
+/// principal matching. Membership queries (`is_member_of`) are bounded
+/// by [`MAX_MEMBERSHIP_DEPTH`] and use a visited set to prevent cycles
+/// and exponential blowup in diamond-shaped group hierarchies.
 pub struct EntityStore {
     /// Entities keyed by "Type::id".
     entities: HashMap<String, AbacEntity>,

@@ -16,6 +16,7 @@ pub const MAX_ZK_BATCH_INTERVAL_SECS: u64 = 86_400;
 
 /// Zero-Knowledge Audit Trail configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ZkAuditConfig {
     /// Enable the ZK audit trail.
     /// Default: false.

@@ -365,7 +365,9 @@ impl ToolNamespaceRegistry {
 
         // Update access stats
         entry.last_accessed = Instant::now();
-        entry.access_count += 1;
+        // SECURITY (FIND-R56-MCP-008): Use saturating_add to prevent wrapping
+        // overflow on the access counter, which could reset rate-limit tracking.
+        entry.access_count = entry.access_count.saturating_add(1);
 
         // Check if selection matches primary source
         if entry.primary_source.server == selected_source {

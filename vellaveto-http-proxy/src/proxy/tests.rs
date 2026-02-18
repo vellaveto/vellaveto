@@ -991,7 +991,7 @@ fn test_injection_in_error_data_json_object() {
 
 #[test]
 fn test_mcp_protocol_version_constants() {
-    assert_eq!(MCP_PROTOCOL_VERSION, "2025-11-25");
+    assert_eq!(MCP_PROTOCOL_VERSION_VALUE, "2025-11-25");
     assert_eq!(MCP_PROTOCOL_VERSION_HEADER, "mcp-protocol-version");
     // Verify all supported versions are documented
     assert!(SUPPORTED_PROTOCOL_VERSIONS.contains(&"2025-11-25"));
@@ -1010,7 +1010,10 @@ fn test_attach_session_header_includes_protocol_version() {
 
     let proto_hdr = response.headers().get(MCP_PROTOCOL_VERSION_HEADER);
     assert!(proto_hdr.is_some());
-    assert_eq!(proto_hdr.unwrap().to_str().unwrap(), MCP_PROTOCOL_VERSION);
+    assert_eq!(
+        proto_hdr.unwrap().to_str().unwrap(),
+        MCP_PROTOCOL_VERSION_VALUE
+    );
 }
 
 // --- R38-PROXY-1: extract_text_from_result scans full annotations ---

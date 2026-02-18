@@ -346,7 +346,10 @@ impl InjectionScanner {
             for item in items {
                 // SECURITY (FIND-R55-MCP-002): Cap scan matches.
                 if all_matches.len() >= MAX_SCAN_MATCHES {
-                    tracing::warn!("Injection scan_response matches capped at {}", MAX_SCAN_MATCHES);
+                    tracing::warn!(
+                        "Injection scan_response matches capped at {}",
+                        MAX_SCAN_MATCHES
+                    );
                     return all_matches;
                 }
                 if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
@@ -375,7 +378,10 @@ impl InjectionScanner {
 
         // SECURITY (FIND-R55-MCP-002): Cap scan matches.
         if all_matches.len() >= MAX_SCAN_MATCHES {
-            tracing::warn!("Injection scan_response matches capped at {}", MAX_SCAN_MATCHES);
+            tracing::warn!(
+                "Injection scan_response matches capped at {}",
+                MAX_SCAN_MATCHES
+            );
             return all_matches;
         }
 
@@ -404,7 +410,10 @@ impl InjectionScanner {
         // Scan error fields — injection can be embedded in error messages
         if let Some(error) = response.get("error") {
             if all_matches.len() >= MAX_SCAN_MATCHES {
-                tracing::warn!("Injection scan_response matches capped at {}", MAX_SCAN_MATCHES);
+                tracing::warn!(
+                    "Injection scan_response matches capped at {}",
+                    MAX_SCAN_MATCHES
+                );
                 return all_matches;
             }
             if let Some(message) = error.get("message").and_then(|m| m.as_str()) {
@@ -440,7 +449,10 @@ impl InjectionScanner {
 
         // SECURITY (FIND-R55-MCP-002): Cap scan matches.
         if all_matches.len() >= MAX_SCAN_MATCHES {
-            tracing::warn!("Injection scan_notification matches capped at {}", MAX_SCAN_MATCHES);
+            tracing::warn!(
+                "Injection scan_notification matches capped at {}",
+                MAX_SCAN_MATCHES
+            );
             return all_matches;
         }
 

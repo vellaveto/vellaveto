@@ -255,6 +255,7 @@ impl PolicyEngine {
     ///
     /// The first matching policy determines the verdict.
     /// If no policy matches, the default is Deny (fail-closed).
+    #[must_use = "security verdicts must not be discarded"]
     pub fn evaluate_action(
         &self,
         action: &Action,
@@ -336,6 +337,7 @@ impl PolicyEngine {
     /// When `context` is `Some`, context conditions (time windows, call limits,
     /// agent identity, action history) are evaluated. When `None`, behaves
     /// identically to `evaluate_action`.
+    #[must_use = "security verdicts must not be discarded"]
     pub fn evaluate_action_with_context(
         &self,
         action: &Action,
@@ -376,6 +378,7 @@ impl PolicyEngine {
     }
 
     /// Evaluate an action with full decision trace and optional session context.
+    #[must_use = "security verdicts must not be discarded"]
     pub fn evaluate_action_traced_with_context(
         &self,
         action: &Action,
@@ -922,6 +925,12 @@ impl PolicyEngine {
     const MAX_SCAN_VALUES: usize = 500;
 
     /// Maximum nesting depth for recursive parameter scanning.
+    ///
+    /// 32 levels is sufficient for any reasonable MCP tool parameter structure
+    /// (typical JSON has 3-5 levels; 32 provides ample headroom). Objects or
+    /// arrays nested beyond this depth are silently skipped — their string
+    /// values will not be collected for constraint evaluation or DLP scanning.
+    /// This prevents stack/memory exhaustion from attacker-crafted deeply nested JSON.
     const MAX_JSON_DEPTH: usize = 32;
 
     /// Recursively collect all string values from a JSON structure.

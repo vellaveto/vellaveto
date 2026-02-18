@@ -25,6 +25,7 @@ pub const MAX_DOMAIN_TAGS_PER_TOOL: usize = 20;
 
 /// Discovery service configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct DiscoveryConfig {
     /// Enable the tool discovery service.
     /// Default: false.

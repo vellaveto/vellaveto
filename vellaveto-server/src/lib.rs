@@ -546,9 +546,21 @@ pub struct PolicySnapshot {
 ///
 /// Currently a placeholder — runtime JWKS resolution will be implemented
 /// in subsequent Phase 39 tasks.
-#[derive(Debug, Clone)]
+///
+/// FIND-R56-SRV-012: Custom `Debug` impl shows only `enabled` and anchor count
+/// to avoid leaking JWKS URIs, issuer patterns, and identity mappings.
+#[derive(Clone)]
 pub struct FederationResolver {
     config: vellaveto_config::abac::FederationConfig,
+}
+
+impl std::fmt::Debug for FederationResolver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FederationResolver")
+            .field("enabled", &self.config.enabled)
+            .field("trust_anchor_count", &self.config.trust_anchors.len())
+            .finish()
+    }
 }
 
 impl FederationResolver {
@@ -624,7 +636,10 @@ pub struct FederationAnchorStatus {
 }
 
 /// Billing and licensing state resolved at server startup.
-#[derive(Debug, Clone)]
+///
+/// FIND-R56-SRV-013: Custom `Debug` impl shows only `enabled` to avoid leaking
+/// webhook secrets, Stripe/Paddle signing keys, and license validation details.
+#[derive(Clone)]
 pub struct BillingState {
     /// Paddle webhook configuration.
     pub paddle: vellaveto_config::billing::PaddleConfig,
@@ -634,6 +649,14 @@ pub struct BillingState {
     pub enabled: bool,
     /// Resolved license validation result.
     pub licensing_validation: vellaveto_config::LicenseValidation,
+}
+
+impl std::fmt::Debug for BillingState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BillingState")
+            .field("enabled", &self.enabled)
+            .finish()
+    }
 }
 
 /// Shared application state for axum handlers.
@@ -781,6 +804,11 @@ pub struct AppState {
     // ═══════════════════════════════════════════════════════════════════
     /// When true, `/metrics` and `/api/metrics` require authentication (FIND-004).
     /// Default: true (secure by default).
+    ///
+    /// **WARNING (FIND-R56-SRV-007):** Setting this to `false` exposes policy count
+    /// and evaluation statistics (allow/deny/error counters) to unauthenticated
+    /// clients. Only disable in trusted networks or behind a reverse proxy that
+    /// handles authentication for the metrics path.
     pub metrics_require_auth: bool,
 
     /// Strict audit mode (FIND-005): When true, audit logging failures cause

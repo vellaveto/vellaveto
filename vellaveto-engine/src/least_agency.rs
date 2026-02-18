@@ -12,6 +12,20 @@ const MAX_TRACKED_SESSIONS: usize = 4096;
 /// Maximum granted permissions per session to bound memory (FIND-R44-018).
 const MAX_GRANTS_PER_SESSION: usize = 1_000;
 
+/// Agency recommendation threshold: above this usage ratio, scope is optimal.
+/// SECURITY (FIND-R56-ENGINE-005): Named constant for clarity and auditability.
+const THRESHOLD_OPTIMAL: f64 = 0.8;
+/// Agency recommendation threshold: above this, a review of grants is recommended.
+const THRESHOLD_REVIEW: f64 = 0.5;
+/// Agency recommendation threshold: above this, scope narrowing is recommended.
+/// Below this, the recommendation is Critical.
+const THRESHOLD_NARROW: f64 = 0.2;
+
+/// Default auto-revocation period in seconds (1 hour).
+/// SECURITY (FIND-R56-ENGINE-006): Named constant for clarity. Permissions
+/// unused for this duration are candidates for automatic revocation.
+const DEFAULT_AUTO_REVOKE_SECS: u64 = 3600;
+
 /// Per-agent-session permission tracker.
 struct PermissionTracker {
     granted: HashSet<String>,
@@ -65,7 +79,7 @@ impl LeastAgencyTracker {
         Self {
             narrow_threshold: Self::sanitize_threshold(narrow_threshold),
             enforcement_mode: EnforcementMode::Monitor,
-            auto_revoke_after_secs: 3600,
+            auto_revoke_after_secs: DEFAULT_AUTO_REVOKE_SECS,
             trackers: RwLock::new(HashMap::new()),
         }
     }
@@ -238,11 +252,11 @@ impl LeastAgencyTracker {
         } else {
             1.0
         };
-        let recommendation = if ratio > 0.8 {
+        let recommendation = if ratio > THRESHOLD_OPTIMAL {
             AgencyRecommendation::Optimal
-        } else if ratio >= 0.5 {
+        } else if ratio >= THRESHOLD_REVIEW {
             AgencyRecommendation::ReviewGrants
-        } else if ratio >= 0.2 {
+        } else if ratio >= THRESHOLD_NARROW {
             AgencyRecommendation::NarrowScope
         } else {
             AgencyRecommendation::Critical

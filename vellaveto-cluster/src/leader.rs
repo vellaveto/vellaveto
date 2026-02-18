@@ -16,26 +16,52 @@ use crate::ClusterError;
 ///
 /// **Fail-closed contract:** If the backend is unreachable, `try_acquire` and
 /// `renew` return `Err`, and `is_leader` returns `false`.
+///
+/// # Lifecycle
+///
+/// ```text
+/// try_acquire() --> is_leader()=true --> renew() (periodic) --> release()
+///       |                                     |
+///       v                                     v
+///  Err => is_leader()=false             Err => lost leadership
+/// ```
 #[async_trait]
 pub trait LeaderElection: Send + Sync {
     /// Attempt to acquire the leader lease.
-    /// Returns `true` if this instance became the leader.
+    ///
+    /// Returns `Ok(true)` if this instance became the leader, `Ok(false)` if
+    /// another instance holds the lease. Returns `Err` if the backend is
+    /// unreachable (fail-closed: caller must not assume leadership).
     async fn try_acquire(&self) -> Result<bool, ClusterError>;
 
-    /// Renew the leader lease (must already be leader).
-    /// Returns `true` if renewal succeeded.
+    /// Renew the leader lease. Must already be the leader.
+    ///
+    /// Returns `Ok(true)` if renewal succeeded, `Ok(false)` if the lease was
+    /// lost (e.g., expired before renewal). Returns `Err` on backend failure.
+    /// On `Err` or `Ok(false)`, the caller should stop performing leader duties.
     async fn renew(&self) -> Result<bool, ClusterError>;
 
-    /// Release the leader lease voluntarily (graceful shutdown).
+    /// Release the leader lease voluntarily (e.g., during graceful shutdown).
+    ///
+    /// After release, `is_leader()` returns `false`. Other instances can
+    /// immediately acquire the lease without waiting for expiry.
     async fn release(&self) -> Result<(), ClusterError>;
 
     /// Check if this instance currently holds the leader lease.
-    /// This is a local check (no network call).
+    ///
+    /// This is a local, non-blocking check (no network call). Returns the
+    /// cached leadership state; use `renew()` to refresh from the backend.
     fn is_leader(&self) -> bool;
 
-    /// Get the current leader election status.
+    /// Get the current leader election status with metadata.
+    ///
+    /// Returns `LeaderStatus::Leader { since }` when this instance is leader,
+    /// or `LeaderStatus::Follower { leader_id }` when it is not.
     fn current_status(&self) -> LeaderStatus;
 
     /// Get the current leader's instance ID, if known.
+    ///
+    /// Returns `Some(id)` when the leader identity is known (including self),
+    /// or `None` if no leader has been elected or the information is stale.
     fn current_leader_id(&self) -> Option<String>;
 }

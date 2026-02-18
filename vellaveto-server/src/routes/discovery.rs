@@ -90,7 +90,7 @@ pub async fn discovery_search(
             }),
         ));
     }
-    if body.query.chars().any(|c| crate::routes::is_unsafe_char(c)) {
+    if body.query.chars().any(crate::routes::is_unsafe_char) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
@@ -315,7 +315,7 @@ pub async fn discovery_tools(
                 }),
             ));
         }
-        if sid.chars().any(|c| crate::routes::is_unsafe_char(c)) {
+        if sid.chars().any(crate::routes::is_unsafe_char) {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
@@ -327,7 +327,7 @@ pub async fn discovery_tools(
 
     // SECURITY (FIND-R48-005): Validate sensitivity parameter length before reflecting.
     if let Some(ref s) = params.sensitivity {
-        if s.len() > 32 || s.chars().any(|c| crate::routes::is_unsafe_char(c)) {
+        if s.len() > 32 || s.chars().any(crate::routes::is_unsafe_char) {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {

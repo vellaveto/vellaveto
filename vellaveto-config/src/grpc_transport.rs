@@ -45,6 +45,9 @@ fn default_health_enabled() -> bool {
     true
 }
 
+/// Maximum allowed gRPC message size (256 MB).
+pub const MAX_GRPC_MESSAGE_SIZE: usize = 268_435_456;
+
 impl Default for GrpcTransportConfig {
     fn default() -> Self {
         Self {
@@ -54,5 +57,26 @@ impl Default for GrpcTransportConfig {
             upstream_grpc_url: None,
             health_enabled: true,
         }
+    }
+}
+
+impl GrpcTransportConfig {
+    /// Validate gRPC transport configuration bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.max_message_size_bytes == 0 || self.max_message_size_bytes > MAX_GRPC_MESSAGE_SIZE {
+            return Err(format!(
+                "grpc.max_message_size_bytes must be in [1, {}] (256 MB), got {}",
+                MAX_GRPC_MESSAGE_SIZE, self.max_message_size_bytes
+            ));
+        }
+        let addr = self.listen_address.trim();
+        if addr.is_empty() {
+            return Err("grpc.listen_address must not be empty".to_string());
+        }
+        // SECURITY: Reject control characters in listen_address (including C1 range 0x80-0x9F).
+        if addr.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+            return Err("grpc.listen_address contains control characters".to_string());
+        }
+        Ok(())
     }
 }

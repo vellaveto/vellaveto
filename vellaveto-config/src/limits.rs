@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 /// max_pending_tool_calls = 256
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct LimitsConfig {
     /// Maximum response body size in bytes. Default: 10 MB.
     /// Responses exceeding this are rejected to prevent OOM.
@@ -120,6 +121,15 @@ fn default_max_jsonrpc_id_key_len() -> usize {
     256
 }
 
+/// 1 GB -- generous upper bound for any byte-size limit.
+pub const MAX_BYTES_LIMIT: usize = 1024 * 1024 * 1024;
+
+/// 1 hour -- generous upper bound for timeout/age fields.
+pub const MAX_TIMEOUT_SECS: u64 = 3600;
+
+/// 1 million -- generous upper bound for count limits.
+pub const MAX_COUNT_LIMIT: usize = 1_000_000;
+
 impl LimitsConfig {
     /// Validate that limits are within safe bounds.
     ///
@@ -130,13 +140,6 @@ impl LimitsConfig {
     /// SECURITY (FIND-036): Excessively large values could cause OOM via
     /// `Vec::with_capacity()` or disable rate protections.
     pub fn validate(&self) -> Result<(), String> {
-        /// 1 GB — generous upper bound for any byte-size limit.
-        const MAX_BYTES_LIMIT: usize = 1024 * 1024 * 1024;
-        /// 1 hour — generous upper bound for timeout/age fields.
-        const MAX_TIMEOUT_SECS: u64 = 3600;
-        /// 1 million — generous upper bound for count limits.
-        const MAX_COUNT_LIMIT: usize = 1_000_000;
-
         if self.max_response_body_bytes == 0 || self.max_response_body_bytes > MAX_BYTES_LIMIT {
             return Err(format!(
                 "limits.max_response_body_bytes must be between 1 and {} (1 GB)",

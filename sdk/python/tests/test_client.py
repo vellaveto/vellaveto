@@ -598,11 +598,25 @@ class TestAsyncVellavetoClient:
         assert request.content == b""
 
     @pytest.mark.asyncio
-    async def test_async_resolve_approval_invalid_id(self):
-        """FIND-R53-SDK-006: Async resolve_approval rejects invalid approval_id."""
+    async def test_async_resolve_approval_invalid_id_empty(self):
+        """FIND-R56-SDK-001: Async resolve_approval rejects empty approval_id."""
         async with AsyncVellavetoClient() as client:
             with pytest.raises(VellavetoError, match="Invalid approval_id"):
-                await client.resolve_approval("../../etc/passwd", approved=True)
+                await client.resolve_approval("", approved=True)
+
+    @pytest.mark.asyncio
+    async def test_async_resolve_approval_invalid_id_control_chars(self):
+        """FIND-R56-SDK-001: Async resolve_approval rejects control chars in approval_id."""
+        async with AsyncVellavetoClient() as client:
+            with pytest.raises(VellavetoError, match="Invalid approval_id"):
+                await client.resolve_approval("apr-\x00-inject", approved=True)
+
+    @pytest.mark.asyncio
+    async def test_async_resolve_approval_invalid_id_too_long(self):
+        """FIND-R56-SDK-001: Async resolve_approval rejects oversized approval_id."""
+        async with AsyncVellavetoClient() as client:
+            with pytest.raises(VellavetoError, match="Invalid approval_id"):
+                await client.resolve_approval("a" * 257, approved=True)
 
     @pytest.mark.asyncio
     async def test_async_discover(self, httpx_mock):

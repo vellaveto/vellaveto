@@ -23,9 +23,9 @@ const MAX_PARAMETERS_SIZE: usize = 1_048_576;
 /// Returns true if the character is a Unicode format character (category Cf)
 /// that could cause identity confusion or log injection.
 ///
-/// SECURITY (FIND-R55-CORE-001): Covers zero-width chars, bidi overrides, and BOM.
-/// Mirrors `EvaluationContext::is_unicode_format_char()` from identity.rs for use
-/// in core validation where EvaluationContext is not accessible.
+/// SECURITY (FIND-R55-CORE-001, FIND-R56-CORE-001): Covers zero-width chars,
+/// bidi overrides, and BOM. Canonical implementation — identity.rs and threat.rs
+/// call this via `crate::core::is_unicode_format_char()`.
 pub(crate) fn is_unicode_format_char(c: char) -> bool {
     matches!(c,
         '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
@@ -64,6 +64,8 @@ pub(crate) fn validate_name(value: &str, field: &'static str) -> Result<(), Vali
     // SECURITY (R16-TYPES-1, FIND-R55-CORE-001): Reject control characters
     // and Unicode format characters (zero-width, bidi overrides, BOM) that
     // could cause identity confusion or bypass pattern matching.
+    // Note: '\0' is excluded from the control char check here because null
+    // bytes are caught above with the specific NullByte error variant (FIND-R56-CORE-005).
     if value
         .chars()
         .any(|c| (c.is_control() && c != '\0') || is_unicode_format_char(c))
@@ -86,6 +88,13 @@ pub struct Action {
     pub target_domains: Vec<String>,
     /// IP addresses resolved from `target_domains` (populated by proxy layer).
     /// Used by the engine for DNS rebinding protection when [`IpRules`] are configured.
+    ///
+    /// # Security
+    ///
+    /// This field MUST only be set by the proxy layer after performing DNS resolution.
+    /// If set by an untrusted client, an attacker could provide fake resolved IPs to
+    /// bypass IP-based access controls (e.g., claiming a private IP is a public one).
+    /// The proxy layer should always overwrite any client-supplied `resolved_ips`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resolved_ips: Vec<String>,
 }
@@ -328,6 +337,12 @@ const MAX_POLICY_ID_LEN: usize = 256;
 /// SECURITY (FIND-R55-CORE-012): Bounds policy display name length.
 const MAX_POLICY_NAME_LEN: usize = 512;
 
+/// Maximum serialized size of `Conditional` conditions in bytes (64 KiB).
+///
+/// SECURITY (FIND-R49-003, FIND-R56-CORE-003): Prevents memory exhaustion
+/// via deeply nested or excessively large JSON condition values.
+pub const MAX_CONDITIONS_SIZE: usize = 65_536;
+
 impl Policy {
     /// Validate structural invariants of a `Policy`.
     ///
@@ -396,10 +411,11 @@ impl Policy {
                     self.id, e
                 )
             })?;
-            if serialized.len() > 65536 {
+            if serialized.len() > MAX_CONDITIONS_SIZE {
                 return Err(format!(
-                    "Policy '{}' Conditional conditions exceed 65536 bytes (got {})",
+                    "Policy '{}' Conditional conditions exceed {} bytes (got {})",
                     self.id,
+                    MAX_CONDITIONS_SIZE,
                     serialized.len()
                 ));
             }

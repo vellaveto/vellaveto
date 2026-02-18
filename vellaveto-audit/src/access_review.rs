@@ -28,6 +28,12 @@ pub const MAX_AGENTS_PER_REPORT: usize = 10_000;
 const MAX_PER_AGENT_SET_SIZE: usize = 10_000;
 
 /// Per-agent accumulator used during report generation.
+///
+/// Collects session IDs, timestamps, verdict counts, and tool/function usage
+/// for a single agent across all audit entries in the review period. These
+/// aggregated statistics are then cross-referenced with least-agency data
+/// to produce the final `AccessReviewEntry` with usage ratios and
+/// recommendations per CC6 control.
 struct AgentAccumulator {
     session_ids: BTreeSet<String>,
     first_access: String,

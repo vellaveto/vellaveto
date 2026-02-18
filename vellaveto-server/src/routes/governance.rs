@@ -103,28 +103,9 @@ pub async fn least_agency_report(
     State(state): State<AppState>,
     Path((agent_id, session_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    // Validate input lengths
-    if agent_id.len() > 128 || session_id.len() > 128 {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "agent_id or session_id too long (max 128)".to_string(),
-            }),
-        ));
-    }
-    if agent_id
-        .chars()
-        .any(|c| crate::routes::is_unsafe_char(c))
-        || session_id
-            .chars()
-            .any(|c| crate::routes::is_unsafe_char(c)) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "agent_id or session_id contains control characters".to_string(),
-            }),
-        ));
-    }
+    // FIND-R56-SRV-011: Use standard validate_path_param for consistent validation.
+    crate::routes::validate_path_param(&agent_id, "agent_id")?;
+    crate::routes::validate_path_param(&session_id, "session_id")?;
 
     let tracker = state.least_agency_tracker.as_ref().ok_or_else(|| {
         (

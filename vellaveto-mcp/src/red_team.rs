@@ -503,7 +503,7 @@ impl RedTeamRunner {
                 overall_block_rate,
                 gap_categories,
             },
-            duration_us: start.elapsed().as_micros() as u64,
+            duration_us: u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX),
         }
     }
 
@@ -534,7 +534,7 @@ impl RedTeamRunner {
                     blocked: false,
                     verdict: None,
                     reason: Some("Unsupported payload type for evaluation".to_string()),
-                    duration_us: start.elapsed().as_micros() as u64,
+                    duration_us: u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX),
                     metadata: HashMap::new(),
                 };
             }
@@ -560,7 +560,7 @@ impl RedTeamRunner {
                     blocked,
                     verdict: Some(verdict_str),
                     reason,
-                    duration_us: start.elapsed().as_micros() as u64,
+                    duration_us: u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX),
                     metadata: HashMap::new(),
                 }
             }
@@ -570,7 +570,7 @@ impl RedTeamRunner {
                 blocked: false,
                 verdict: None,
                 reason: Some(format!("Evaluation error: {}", e)),
-                duration_us: start.elapsed().as_micros() as u64,
+                duration_us: u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX),
                 metadata: HashMap::new(),
             },
         }

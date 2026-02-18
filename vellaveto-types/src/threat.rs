@@ -169,7 +169,11 @@ impl Default for CircuitStats {
 ///
 /// Used to detect when an unknown agent claims to be a known agent,
 /// indicating potential shadow agent attack.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+///
+/// SECURITY (FIND-R56-CORE-006): Custom `Debug` implementation redacts
+/// `jwt_sub`, `jwt_iss`, and `client_id` as these may contain sensitive
+/// identity information that should not appear in logs.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
 pub struct AgentFingerprint {
     /// JWT subject claim, if present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -183,6 +187,17 @@ pub struct AgentFingerprint {
     /// Hashed IP address for privacy-preserving fingerprinting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ip_hash: Option<String>,
+}
+
+impl fmt::Debug for AgentFingerprint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AgentFingerprint")
+            .field("jwt_sub", &self.jwt_sub.as_ref().map(|_| "[REDACTED]"))
+            .field("jwt_iss", &self.jwt_iss.as_ref().map(|_| "[REDACTED]"))
+            .field("client_id", &self.client_id.as_ref().map(|_| "[REDACTED]"))
+            .field("ip_hash", &self.ip_hash)
+            .finish()
+    }
 }
 
 impl AgentFingerprint {
@@ -222,7 +237,8 @@ impl AgentFingerprint {
 /// instead of byte slicing, which panics on multi-byte UTF-8.
 /// SECURITY (FIND-R48-014): Guard against max_len < 4 where the "..." suffix
 /// would exceed the requested maximum.
-fn truncate_for_log(s: &str, max_len: usize) -> String {
+/// SECURITY (FIND-R56-CORE-009): pub(crate) for reuse by other modules in this crate.
+pub(crate) fn truncate_for_log(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         return s.to_string();
     }
@@ -494,9 +510,7 @@ impl PrincipalContext {
         // Validate delegated_to
         if let Some(ref delegated) = self.delegated_to {
             if delegated.is_empty() {
-                return Err(
-                    "PrincipalContext delegated_to is present but empty".to_string(),
-                );
+                return Err("PrincipalContext delegated_to is present but empty".to_string());
             }
             if delegated.len() > Self::MAX_PRINCIPAL_LEN {
                 return Err(format!(

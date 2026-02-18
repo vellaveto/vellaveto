@@ -1126,6 +1126,14 @@ async fn relay_client_to_upstream(
                                         vellaveto_engine::abac::AbacDecision::NoMatch => {
                                             // Fall through — existing Allow stands
                                         }
+                                        #[allow(unreachable_patterns)]
+                                        // AbacDecision is #[non_exhaustive]
+                                        _ => {
+                                            // Future variants — fail-closed (deny)
+                                            tracing::warn!(
+                                                "Unknown AbacDecision variant — fail-closed"
+                                            );
+                                        }
                                     }
                                 }
 
@@ -1541,18 +1549,16 @@ async fn relay_client_to_upstream(
                                 }
                                 // SECURITY (FIND-R55-WS-005): Generic denial message to prevent
                                 // leaking policy names/details. Detailed reason is in audit log.
-                                let denial = make_ws_error_response(Some(id), -32001, "Denied by policy");
+                                let denial =
+                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
                                 let denial_text = serde_json::to_string(&denial)
                                     .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Denied"}}"#.to_string());
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(denial_text.into())).await;
                             }
                             _ => {
-                                let denial = make_ws_error_response(
-                                    Some(id),
-                                    -32001,
-                                    "Denied by policy",
-                                );
+                                let denial =
+                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
                                 let denial_text = serde_json::to_string(&denial)
                                     .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Denied"}}"#.to_string());
                                 let mut sink = client_sink.lock().await;
@@ -1796,11 +1802,8 @@ async fn relay_client_to_upstream(
                                     );
                                 }
                                 // SECURITY (FIND-R46-012, FIND-R55-WS-006): Generic message to client.
-                                let error = make_ws_error_response(
-                                    Some(id),
-                                    -32001,
-                                    "Denied by policy",
-                                );
+                                let error =
+                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(error.into())).await;
                             }

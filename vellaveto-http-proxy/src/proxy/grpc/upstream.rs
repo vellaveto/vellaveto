@@ -113,11 +113,9 @@ impl UpstreamForwarder {
         );
         let mut response_body = Vec::with_capacity(capacity);
         let mut response_mut = response;
-        while let Some(chunk) = response_mut
-            .chunk()
-            .await
-            .map_err(|e| UpstreamError::HttpError(format!("Failed to read response chunk: {}", e)))?
-        {
+        while let Some(chunk) = response_mut.chunk().await.map_err(|e| {
+            UpstreamError::HttpError(format!("Failed to read response chunk: {}", e))
+        })? {
             if response_body.len() + chunk.len() > MAX_GRPC_HTTP_RESPONSE_BYTES {
                 return Err(UpstreamError::HttpError(format!(
                     "response body too large: >{} bytes (max {})",

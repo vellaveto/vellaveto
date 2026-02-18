@@ -285,6 +285,11 @@ pub fn scan_parameters_for_secrets(parameters: &serde_json::Value) -> Vec<DlpFin
 // IMP-002: Use shared max scan depth from scanner_base module.
 use super::scanner_base::MAX_SCAN_DEPTH;
 
+/// Maximum number of DLP findings per scan to prevent unbounded Vec growth.
+/// SECURITY (FIND-R56-MCP-005): Caps findings to prevent OOM from adversarial
+/// inputs that trigger many patterns across deeply nested JSON structures.
+const MAX_DLP_FINDINGS: usize = 1000;
+
 fn scan_value_for_secrets(
     value: &serde_json::Value,
     path: &str,
@@ -296,18 +301,29 @@ fn scan_value_for_secrets(
         return;
     }
 
+    // SECURITY (FIND-R56-MCP-005): Cap findings to prevent unbounded Vec growth.
+    if findings.len() >= MAX_DLP_FINDINGS {
+        return;
+    }
+
     match value {
         serde_json::Value::String(s) => {
             scan_string_for_secrets(s, path, regexes, findings);
         }
         serde_json::Value::Object(map) => {
             for (key, val) in map {
+                if findings.len() >= MAX_DLP_FINDINGS {
+                    break;
+                }
                 let child_path = format!("{path}.{key}");
                 scan_value_for_secrets(val, &child_path, regexes, findings, depth + 1);
             }
         }
         serde_json::Value::Array(arr) => {
             for (i, val) in arr.iter().enumerate() {
+                if findings.len() >= MAX_DLP_FINDINGS {
+                    break;
+                }
                 let child_path = format!("{path}[{i}]");
                 scan_value_for_secrets(val, &child_path, regexes, findings, depth + 1);
             }

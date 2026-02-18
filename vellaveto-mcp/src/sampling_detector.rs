@@ -69,6 +69,11 @@ pub struct DlpMatch {
     pub length: usize,
 }
 
+/// Maximum tracked sessions before new insertions are rejected (fail-closed).
+/// SECURITY (FIND-R56-MCP-011): Prevents unbounded HashMap growth from many
+/// unique session IDs, which could cause OOM.
+const MAX_SESSIONS: usize = 100_000;
+
 /// Detects and prevents sampling request abuse.
 #[derive(Debug)]
 pub struct SamplingDetector {
@@ -192,6 +197,25 @@ impl SamplingDetector {
             }
         };
 
+        // SECURITY (FIND-R56-MCP-011): If at capacity and session is new, try
+        // to evict expired sessions first; if still at capacity, fail-closed.
+        if !stats.contains_key(session_id) && stats.len() >= MAX_SESSIONS {
+            // Evict expired sessions to reclaim capacity
+            let cutoff = now.saturating_sub(self.window_secs * 2);
+            stats.retain(|_, s| s.last_request >= cutoff);
+
+            if stats.len() >= MAX_SESSIONS {
+                tracing::warn!(
+                    "SamplingDetector: session capacity reached ({}) — denying new session (fail-closed)",
+                    MAX_SESSIONS
+                );
+                return Err(SamplingDenied::RateLimitExceeded {
+                    count: self.max_requests,
+                    limit: self.max_requests,
+                });
+            }
+        }
+
         let session_stats = stats
             .entry(session_id.to_string())
             .or_insert_with(|| SamplingStats::new(now));
@@ -224,6 +248,15 @@ impl SamplingDetector {
                 return;
             }
         };
+
+        // SECURITY (FIND-R56-MCP-011): Skip recording if at capacity and session is new.
+        if !stats.contains_key(session_id) && stats.len() >= MAX_SESSIONS {
+            tracing::warn!(
+                "SamplingDetector: session capacity reached ({}) — skipping record for new session",
+                MAX_SESSIONS
+            );
+            return;
+        }
 
         let session_stats = stats
             .entry(session_id.to_string())

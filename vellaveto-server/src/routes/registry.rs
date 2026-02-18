@@ -33,7 +33,7 @@ fn validate_tool_name(name: &str) -> Result<(), (StatusCode, Json<ErrorResponse>
             }),
         ));
     }
-    if name.chars().any(|c| crate::routes::is_unsafe_char(c)) {
+    if name.chars().any(crate::routes::is_unsafe_char) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {

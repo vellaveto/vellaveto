@@ -44,6 +44,7 @@ fn default_reevaluation_interval_secs() -> u64 {
 
 /// Top-level ABAC configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AbacConfig {
     /// When false (default), ABAC evaluation is skipped entirely.
     #[serde(default)]
@@ -67,6 +68,7 @@ pub struct AbacConfig {
 
 /// Least-agency enforcement configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct LeastAgencyConfig {
     /// When false (default), least-agency tracking is disabled.
     #[serde(default)]
@@ -91,6 +93,7 @@ impl Default for LeastAgencyConfig {
 
 /// Identity federation configuration for cross-org identity mapping.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct FederationConfig {
     /// When false (default), federation is disabled.
     #[serde(default)]
@@ -133,6 +136,7 @@ impl Default for FederationConfig {
 
 /// Continuous authorization configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ContinuousAuthConfig {
     /// When false (default), continuous authorization is disabled.
     #[serde(default)]

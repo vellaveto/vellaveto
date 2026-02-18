@@ -12,7 +12,12 @@ use tracing;
 use crate::leader::LeaderElection;
 use crate::ClusterError;
 
-/// Local leader election: the single instance is always the leader.
+/// Local leader election for standalone (single-instance) deployments.
+///
+/// In local mode, `try_acquire()` always succeeds and `is_leader()` always
+/// returns `true` once acquired. This is the default implementation used
+/// when deployment mode is `Standalone`. No network calls are made; all
+/// operations complete synchronously via in-memory state.
 ///
 /// SECURITY (FIND-R46-009): Uses `std::sync::Mutex` (not `tokio::sync::Mutex`)
 /// intentionally. The critical section is trivially short (one `Option<String>`

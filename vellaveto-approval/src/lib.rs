@@ -14,28 +14,59 @@ use vellaveto_types::Action;
 
 #[derive(Error, Debug)]
 pub enum ApprovalError {
+    /// The requested approval ID does not exist in the store.
     #[error("Approval not found: {0}")]
     NotFound(String),
+    /// The approval has already been approved, denied, or expired and cannot be
+    /// resolved again.
     #[error("Approval already resolved: {0}")]
     AlreadyResolved(String),
+    /// The approval's TTL has elapsed. It was marked as expired atomically
+    /// and can no longer be approved or denied.
     #[error("Approval expired: {0}")]
     Expired(String),
+    /// The store has reached `max_pending` capacity. The caller should treat
+    /// this as a Deny verdict (fail-closed).
     #[error("Approval store at capacity ({0} max pending)")]
     CapacityExceeded(usize),
+    /// Input validation failed (e.g., identity too long, self-approval attempt,
+    /// reason exceeding max length).
     #[error("Validation error: {0}")]
     Validation(String),
+    /// File system I/O error during persistence operations.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    /// JSON serialization/deserialization error.
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 }
 
+/// Status of an approval request through its lifecycle.
+///
+/// State transitions:
+/// ```text
+/// Pending --> Approved  (via approve())
+/// Pending --> Denied    (via deny())
+/// Pending --> Expired   (via expire_stale() or on-access TTL check)
+/// ```
+/// Once resolved (Approved/Denied/Expired), the status is terminal and
+/// cannot be changed. Attempting to resolve an already-resolved approval
+/// returns `ApprovalError::AlreadyResolved`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
 pub enum ApprovalStatus {
+    /// The approval is awaiting resolution by a human reviewer.
+    /// This is the initial state after `create()`.
     Pending,
+    /// The approval was approved by a reviewer. The `resolved_by` and
+    /// `resolved_at` fields on `PendingApproval` are populated.
     Approved,
+    /// The approval was denied by a reviewer. The `resolved_by` and
+    /// `resolved_at` fields on `PendingApproval` are populated.
     Denied,
+    /// The approval's TTL elapsed before resolution. Set either by
+    /// `expire_stale()` during periodic cleanup or by `approve()`/`deny()`
+    /// when they detect the TTL has passed.
     Expired,
 }
 
@@ -132,12 +163,26 @@ fn compute_dedup_key(
 }
 
 /// In-memory approval store with file-based persistence.
+///
+/// Manages the lifecycle of pending tool-call approvals: creation, deduplication,
+/// resolution (approve/deny), and expiration. State is persisted to an append-only
+/// JSONL file for crash recovery.
 pub struct ApprovalStore {
+    /// Map of approval ID to `PendingApproval`. Contains both pending and
+    /// recently-resolved entries (resolved entries older than 1 hour are evicted
+    /// by `expire_stale()`).
     pending: RwLock<HashMap<String, PendingApproval>>,
-    /// Maps dedup_key (SHA-256 of action+reason) to approval_id for pending entries.
+    /// Maps dedup_key (SHA-256 of action+reason+requested_by) to approval_id
+    /// for pending entries only. Enables O(1) deduplication of identical
+    /// approval requests.
     dedup_index: RwLock<HashMap<String, String>>,
+    /// Path to the append-only JSONL persistence file.
     log_path: PathBuf,
+    /// Default time-to-live for new approvals. Pending approvals that exceed
+    /// this TTL are marked as expired during `expire_stale()`.
     default_ttl: std::time::Duration,
+    /// Maximum number of pending approvals allowed. When reached, new
+    /// `create()` calls return `CapacityExceeded` (fail-closed).
     max_pending: usize,
 }
 

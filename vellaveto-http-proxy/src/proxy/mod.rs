@@ -260,9 +260,26 @@ pub struct ProxyState {
 }
 
 /// Per-request trust signal for forwarded-header handling.
+///
+/// FIND-R56-HTTP-002: `from_trusted_proxy` is `pub(crate)` to prevent external
+/// code from constructing a `TrustedProxyContext { from_trusted_proxy: true }`
+/// and injecting it as a spoofed trust signal. Use `is_from_trusted_proxy()`
+/// for read access from outside the crate.
 #[derive(Clone, Copy, Debug)]
 pub struct TrustedProxyContext {
-    pub from_trusted_proxy: bool,
+    pub(crate) from_trusted_proxy: bool,
+}
+
+impl TrustedProxyContext {
+    /// Create a new `TrustedProxyContext`.
+    pub fn new(from_trusted_proxy: bool) -> Self {
+        Self { from_trusted_proxy }
+    }
+
+    /// Returns whether the request came from a trusted reverse proxy.
+    pub fn is_from_trusted_proxy(&self) -> bool {
+        self.from_trusted_proxy
+    }
 }
 
 /// MCP Session ID header name.
@@ -271,8 +288,10 @@ const MCP_SESSION_ID: &str = "mcp-session-id";
 /// MCP protocol version header (MCP 2025-06-18 spec requirement).
 const MCP_PROTOCOL_VERSION_HEADER: &str = "mcp-protocol-version";
 
-/// The protocol version this proxy speaks.
-const MCP_PROTOCOL_VERSION: &str = "2025-11-25";
+/// The protocol version value this proxy speaks.
+/// FIND-R56-HTTP-006: Renamed from `MCP_PROTOCOL_VERSION` to avoid confusion
+/// with `MCP_PROTOCOL_VERSION_HEADER` (the header name).
+const MCP_PROTOCOL_VERSION_VALUE: &str = "2025-11-25";
 
 /// Supported MCP protocol versions for incoming requests.
 /// The proxy accepts these versions for backwards compatibility.

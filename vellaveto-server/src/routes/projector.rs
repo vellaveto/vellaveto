@@ -138,7 +138,7 @@ pub async fn projector_transform(
             }),
         ));
     }
-    if body.model_family.chars().any(|c| crate::routes::is_unsafe_char(c)) {
+    if body.model_family.chars().any(crate::routes::is_unsafe_char) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
@@ -168,7 +168,7 @@ pub async fn projector_transform(
             }),
         ));
     }
-    if body.schema.name.chars().any(|c| crate::routes::is_unsafe_char(c)) {
+    if body.schema.name.chars().any(crate::routes::is_unsafe_char) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {

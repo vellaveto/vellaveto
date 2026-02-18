@@ -260,47 +260,9 @@ impl DeploymentConfig {
         self.leader_election.validate()?;
         self.service_discovery.validate()?;
 
-        // Validate instance_id if provided
+        // FIND-R56-CFG-015: Delegate to standalone validate_instance_id() to avoid duplication.
         if let Some(ref id) = self.instance_id {
-            if id.len() > MAX_INSTANCE_ID_LEN {
-                return Err(format!(
-                    "deployment.instance_id must be at most {} characters, got {}",
-                    MAX_INSTANCE_ID_LEN,
-                    id.len()
-                ));
-            }
-            if id.is_empty() {
-                return Err("deployment.instance_id must not be empty".to_string());
-            }
-            // DNS-safe: lowercase alphanumeric + hyphens, no leading/trailing hyphen
-            if !id
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')
-            {
-                return Err(format!(
-                    "deployment.instance_id must be DNS-safe (lowercase alphanumeric, hyphens, dots), got '{}'",
-                    id
-                ));
-            }
-            if id.starts_with('-') || id.ends_with('-') {
-                return Err(format!(
-                    "deployment.instance_id must not start or end with a hyphen, got '{}'",
-                    id
-                ));
-            }
-            // SECURITY (FIND-P27-007): Reject leading/trailing dots and consecutive dots.
-            if id.starts_with('.') || id.ends_with('.') {
-                return Err(format!(
-                    "deployment.instance_id must not start or end with a dot, got '{}'",
-                    id
-                ));
-            }
-            if id.contains("..") {
-                return Err(format!(
-                    "deployment.instance_id must not contain consecutive dots, got '{}'",
-                    id
-                ));
-            }
+            validate_instance_id(id).map_err(|e| format!("deployment.{}", e))?;
         }
 
         // Kubernetes mode requires leader election

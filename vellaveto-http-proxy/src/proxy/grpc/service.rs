@@ -240,11 +240,7 @@ impl McpGrpcService {
                     .get("method")
                     .and_then(|m| m.as_str())
                     .unwrap_or("unknown");
-                let action = Action::new(
-                    "passthrough",
-                    method_name,
-                    json!({}),
-                );
+                let action = Action::new("passthrough", method_name, json!({}));
                 if let Err(e) = self
                     .state
                     .audit
@@ -620,6 +616,11 @@ impl McpGrpcService {
                         }
                         vellaveto_engine::abac::AbacDecision::NoMatch => {
                             // Fall through — existing Allow stands
+                        }
+                        #[allow(unreachable_patterns)] // AbacDecision is #[non_exhaustive]
+                        _ => {
+                            // Future variants — fail-closed (deny)
+                            tracing::warn!("Unknown AbacDecision variant — fail-closed");
                         }
                     }
                 }
@@ -1481,16 +1482,16 @@ impl McpService for McpGrpcService {
                 // SECURITY (FIND-R55-GRPC-010): Check per-message rate limit.
                 if stream_rate_limit > 0 {
                     let now = std::time::Instant::now();
-                    let mut start = rate_window_start
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner());
+                    let mut start = rate_window_start.lock().unwrap_or_else(|e| e.into_inner());
                     let within_limit =
                         if now.duration_since(*start) >= std::time::Duration::from_secs(1) {
                             *start = now;
                             rate_counter.store(1, Ordering::SeqCst);
                             true
                         } else {
-                            let count = rate_counter.fetch_add(1, Ordering::SeqCst).saturating_add(1);
+                            let count = rate_counter
+                                .fetch_add(1, Ordering::SeqCst)
+                                .saturating_add(1);
                             count <= stream_rate_limit as u64
                         };
                     if !within_limit {

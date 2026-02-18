@@ -229,6 +229,13 @@ impl EvaluationContext {
     const MAX_CALL_CHAIN: usize = 100;
     /// SECURITY (FIND-R50-064): Maximum byte length per `previous_actions` entry.
     const MAX_ACTION_NAME_LEN: usize = 256;
+    /// Maximum byte length for call_chain timestamp fields.
+    /// SECURITY (FIND-R56-CORE-007): ISO 8601 timestamps with timezone are typically
+    /// 25-35 bytes; 64 provides ample headroom while bounding memory.
+    const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum byte length for call_chain entry fields (agent_id, tool, function).
+    /// SECURITY (FIND-R56-CORE-008): Prevents memory abuse via oversized call chain fields.
+    const MAX_CALL_CHAIN_FIELD_LEN: usize = 512;
 
     pub fn validate(&self) -> Result<(), String> {
         Self::validate_optional_id_field(&self.agent_id, "agent_id")?;
@@ -263,14 +270,19 @@ impl EvaluationContext {
                     Self::MAX_ACTION_NAME_LEN,
                 ));
             }
-            // SECURITY (FIND-R52-008): Reject control characters in previous_actions entries.
+            // SECURITY (FIND-R52-008, FIND-R56-CORE-002): Reject control characters
+            // and Unicode format characters in previous_actions entries.
             // Compiled sequences reject control characters at compile time, so a history
             // entry with embedded control characters (e.g., "read_secret\x00") would
             // never match a compiled sequence entry via eq_ignore_ascii_case, allowing
-            // ForbiddenActionSequence bypass.
-            if action.chars().any(|c| c.is_control()) {
+            // ForbiddenActionSequence bypass. Format characters (zero-width, bidi) are
+            // rejected for parity with call_counts key validation.
+            if action
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
                 return Err(format!(
-                    "EvaluationContext previous_actions[{}] contains control characters",
+                    "EvaluationContext previous_actions[{}] contains control or format characters",
                     i,
                 ));
             }
@@ -290,7 +302,7 @@ impl EvaluationContext {
             }
             if key
                 .chars()
-                .any(|c| c.is_control() || Self::is_unicode_format_char(c))
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
             {
                 return Err(format!(
                     "EvaluationContext call_counts key contains control or format characters",
@@ -311,11 +323,12 @@ impl EvaluationContext {
             Self::validate_call_chain_field(&entry.agent_id, "agent_id", i)?;
             Self::validate_call_chain_field(&entry.tool, "tool", i)?;
             Self::validate_call_chain_field(&entry.function, "function", i)?;
-            if entry.timestamp.len() > 64 {
+            if entry.timestamp.len() > Self::MAX_TIMESTAMP_LEN {
                 return Err(format!(
-                    "EvaluationContext call_chain[{}].timestamp length {} exceeds max 64",
+                    "EvaluationContext call_chain[{}].timestamp length {} exceeds max {}",
                     i,
                     entry.timestamp.len(),
+                    Self::MAX_TIMESTAMP_LEN,
                 ));
             }
             if entry.timestamp.chars().any(|c| c.is_control()) {
@@ -337,7 +350,7 @@ impl EvaluationContext {
         Ok(())
     }
 
-    /// Validate a call_chain entry field: reject control chars, enforce max 512 chars.
+    /// Validate a call_chain entry field: reject control/format chars, enforce max length.
     ///
     /// SECURITY (FIND-R51-005): Prevents log injection via control characters
     /// and memory abuse via oversized call chain fields.
@@ -346,12 +359,13 @@ impl EvaluationContext {
         field_name: &str,
         index: usize,
     ) -> Result<(), String> {
-        if value.len() > 512 {
+        if value.len() > Self::MAX_CALL_CHAIN_FIELD_LEN {
             return Err(format!(
-                "EvaluationContext call_chain[{}].{} length {} exceeds max 512",
+                "EvaluationContext call_chain[{}].{} length {} exceeds max {}",
                 index,
                 field_name,
                 value.len(),
+                Self::MAX_CALL_CHAIN_FIELD_LEN,
             ));
         }
         // SECURITY (FIND-R52-005): Also reject Unicode format characters (category Cf)
@@ -359,7 +373,7 @@ impl EvaluationContext {
         // U+2066-U+2069), and BOM (U+FEFF). These can cause identity confusion in logs.
         if value
             .chars()
-            .any(|c| c.is_control() || Self::is_unicode_format_char(c))
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
         {
             return Err(format!(
                 "EvaluationContext call_chain[{}].{} contains control or format characters",
@@ -367,19 +381,6 @@ impl EvaluationContext {
             ));
         }
         Ok(())
-    }
-
-    /// Returns true if the character is a Unicode format character (category Cf)
-    /// that could cause identity confusion or log injection.
-    ///
-    /// SECURITY (FIND-R52-005): Covers zero-width chars, bidi overrides, and BOM.
-    fn is_unicode_format_char(c: char) -> bool {
-        matches!(c,
-            '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
-            '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
-            '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
-            '\u{FEFF}'                  // BOM / zero-width no-break space
-        )
     }
 
     /// Validate a single optional identity field: if present, must be non-empty
@@ -394,7 +395,7 @@ impl EvaluationContext {
             }
             if value
                 .chars()
-                .any(|c| c.is_control() || Self::is_unicode_format_char(c))
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
             {
                 return Err(format!(
                     "EvaluationContext {name} contains control or format characters"

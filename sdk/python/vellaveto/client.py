@@ -7,12 +7,11 @@ Provides synchronous and asynchronous HTTP client for the Vellaveto API.
 import asyncio
 import json
 import logging
-import re
 import time
 import unicodedata
 import warnings
 from typing import Optional, Dict, Any, List
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 try:
     import httpx
@@ -33,8 +32,8 @@ logger = logging.getLogger(__name__)
 # Maximum response body size (10 MB) — prevents OOM on malicious/runaway responses
 _MAX_RESPONSE_BYTES = 10 * 1024 * 1024
 
-# Regex for safe approval IDs — only alphanumeric, dash, underscore
-_APPROVAL_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+# Maximum length for approval IDs — aligned with Go/TypeScript SDKs
+_MAX_APPROVAL_ID_LENGTH = 256
 
 
 class VellavetoError(Exception):
@@ -75,6 +74,25 @@ _TRANSIENT_STATUS_CODES = frozenset({502, 503, 504})
 
 # Maximum length for tool name, function name, and similar string inputs
 _MAX_INPUT_STRING_LEN = 1024
+
+
+def _validate_approval_id(approval_id: str) -> None:
+    """Validate approval_id format — shared by sync and async clients.
+
+    SECURITY (FIND-R56-SDK-001): Aligned with Go/TypeScript SDKs.
+    Rejects empty, oversized (>256), and control-character-containing IDs.
+
+    Raises:
+        VellavetoError: If approval_id is invalid.
+    """
+    if not isinstance(approval_id, str) or not approval_id.strip():
+        raise VellavetoError("Invalid approval_id: must be a non-empty string")
+    if len(approval_id) > _MAX_APPROVAL_ID_LENGTH:
+        raise VellavetoError(
+            f"Invalid approval_id: exceeds max length ({_MAX_APPROVAL_ID_LENGTH})"
+        )
+    if any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in approval_id):
+        raise VellavetoError("Invalid approval_id: contains control characters")
 
 
 def _validate_evaluate_inputs(
@@ -173,7 +191,7 @@ class VellavetoClient:
         self,
         url: str = "http://localhost:3000",
         api_key: Optional[str] = None,
-        timeout: float = 30.0,
+        timeout: float = 10.0,
         verify_ssl: bool = True,
         redactor: Optional["ParameterRedactor"] = None,
         max_retries: int = 1,
@@ -184,7 +202,7 @@ class VellavetoClient:
         Args:
             url: Base URL of the Vellaveto server
             api_key: API key for authentication
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (default: 10.0, aligned with Go/TS SDKs)
             verify_ssl: Whether to verify SSL certificates
             redactor: Optional ParameterRedactor for client-side secret stripping
             max_retries: Maximum number of retries for transient failures
@@ -495,18 +513,17 @@ class VellavetoClient:
             approved: Whether to approve or deny
             reason: Optional reason for the decision
         """
-        # SECURITY (FIND-SDK-011): Validate approval_id to prevent path injection
-        if not _APPROVAL_ID_RE.match(approval_id):
-            raise VellavetoError(
-                f"Invalid approval_id: must contain only alphanumeric, dash, or underscore characters"
-            )
+        # SECURITY (FIND-R56-SDK-001): Validate approval_id — aligned with Go/TS SDKs.
+        _validate_approval_id(approval_id)
         action = "approve" if approved else "deny"
         json_data: Optional[Dict[str, Any]] = None
         if reason is not None:
             json_data = {"reason": reason}
+        # SECURITY: URL-encode approval_id to prevent path injection (parity with Go/TS).
+        encoded_id = quote(approval_id, safe="")
         return self._request(
             method="POST",
-            path=f"/api/approvals/{approval_id}/{action}",
+            path=f"/api/approvals/{encoded_id}/{action}",
             json_data=json_data,
         )
 
@@ -775,7 +792,7 @@ class AsyncVellavetoClient:
         self,
         url: str = "http://localhost:3000",
         api_key: Optional[str] = None,
-        timeout: float = 30.0,
+        timeout: float = 10.0,
         verify_ssl: bool = True,
         redactor: Optional["ParameterRedactor"] = None,
         max_retries: int = 1,
@@ -786,7 +803,7 @@ class AsyncVellavetoClient:
         Args:
             url: Base URL of the Vellaveto server
             api_key: API key for authentication
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (default: 10.0, aligned with Go/TS SDKs)
             verify_ssl: Whether to verify SSL certificates
             redactor: Optional ParameterRedactor for client-side secret stripping
             max_retries: Maximum number of retries for transient failures
@@ -816,6 +833,13 @@ class AsyncVellavetoClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self._client:
             await self._client.aclose()
+
+    def __repr__(self) -> str:
+        """SECURITY (FIND-R56-SDK-002): Redact api_key in repr, matching sync client."""
+        return (
+            f"AsyncVellavetoClient(base_url={self.url!r}, api_key=***, "
+            f"timeout={self.timeout}, max_retries={self.max_retries})"
+        )
 
     def _headers(self) -> Dict[str, str]:
         headers = {
@@ -1006,18 +1030,17 @@ class AsyncVellavetoClient:
             approved: Whether to approve or deny
             reason: Optional reason for the decision
         """
-        # SECURITY (FIND-SDK-011): Validate approval_id to prevent path injection
-        if not _APPROVAL_ID_RE.match(approval_id):
-            raise VellavetoError(
-                "Invalid approval_id: must contain only alphanumeric, dash, or underscore characters"
-            )
+        # SECURITY (FIND-R56-SDK-001): Validate approval_id — aligned with Go/TS SDKs.
+        _validate_approval_id(approval_id)
         action = "approve" if approved else "deny"
         json_data: Optional[Dict[str, Any]] = None
         if reason is not None:
             json_data = {"reason": reason}
+        # SECURITY: URL-encode approval_id to prevent path injection (parity with Go/TS).
+        encoded_id = quote(approval_id, safe="")
         return await self._request(
             method="POST",
-            path=f"/api/approvals/{approval_id}/{action}",
+            path=f"/api/approvals/{encoded_id}/{action}",
             json_data=json_data,
         )
 

@@ -112,7 +112,7 @@ pub async fn audit_export(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // SECURITY (FIND-R49-005): Validate `since` and `format` query parameters
     if let Some(ref since) = query.since {
-        if since.len() > 64 || since.chars().any(|c| crate::routes::is_unsafe_char(c)) {
+        if since.len() > 64 || since.chars().any(crate::routes::is_unsafe_char) {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
@@ -122,7 +122,7 @@ pub async fn audit_export(
         }
     }
     if let Some(ref fmt) = query.format {
-        if fmt.len() > 16 || fmt.chars().any(|c| crate::routes::is_unsafe_char(c)) {
+        if fmt.len() > 16 || fmt.chars().any(crate::routes::is_unsafe_char) {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {

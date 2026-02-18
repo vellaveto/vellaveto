@@ -88,7 +88,14 @@ pub fn hash_leaf(data: &[u8]) -> [u8; 32] {
 /// Compute an internal node hash with RFC 6962 domain separation.
 ///
 /// `hash_internal(left, right) = SHA-256(0x01 || left || right)`
-fn hash_internal(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
+///
+/// The `0x01` prefix is the RFC 6962 domain separation byte for internal
+/// (non-leaf) nodes. This prevents second-preimage attacks where an
+/// attacker tries to reinterpret a leaf as an internal node or vice versa.
+///
+/// This function is public so that external verifiers can reconstruct
+/// Merkle proofs independently using the same domain-separated hash.
+pub fn hash_internal(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update([INTERNAL_PREFIX]);
     hasher.update(left);
@@ -517,7 +524,7 @@ impl MerkleTree {
     }
 
     /// Return the path to the leaf file.
-    pub fn leaf_file_path(&self) -> &PathBuf {
+    pub fn leaf_file_path(&self) -> &std::path::Path {
         &self.leaf_file_path
     }
 }

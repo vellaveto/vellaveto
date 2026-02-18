@@ -49,8 +49,9 @@ pub(crate) const REDACTED: &str = "[REDACTED]";
 
 /// Pre-compiled PII detection regexes (email, SSN, US phone numbers).
 ///
-/// Patterns that fail to compile are silently dropped. Since all patterns are
-/// hardcoded constants, compilation failure indicates a bug in the source.
+/// Patterns that fail to compile are logged at error level and dropped.
+/// Since all patterns are hardcoded constants, compilation failure indicates
+/// a bug in the source and degrades PII redaction coverage.
 pub(crate) static PII_REGEXES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     [
         // Email addresses
@@ -61,7 +62,20 @@ pub(crate) static PII_REGEXES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
         r"\b(?:\+1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b",
     ]
     .into_iter()
-    .filter_map(|p| Regex::new(p).ok())
+    .filter_map(|p| match Regex::new(p) {
+        Ok(re) => Some(re),
+        Err(e) => {
+            // SECURITY (FIND-R56-AUDIT-001): Log at error level when a PII regex
+            // fails to compile — this degrades redaction coverage and is a bug.
+            tracing::error!(
+                "CRITICAL: Failed to compile PII regex '{}': {}. \
+                 This pattern will be SKIPPED — PII redaction degraded.",
+                p,
+                e
+            );
+            None
+        }
+    })
     .collect()
 });
 

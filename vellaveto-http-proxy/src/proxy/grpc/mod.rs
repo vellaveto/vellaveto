@@ -57,8 +57,15 @@ pub struct GrpcConfig {
     pub stream_message_rate_limit: u32,
 }
 
+/// FIND-R56-HTTP-005: Replaced runtime `.expect()` with a compile-time const
+/// to eliminate panic potential in library code.
+const DEFAULT_GRPC_ADDR: SocketAddr = SocketAddr::new(
+    std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+    50051,
+);
+
 fn default_grpc_addr() -> SocketAddr {
-    "127.0.0.1:50051".parse().expect("valid default addr")
+    DEFAULT_GRPC_ADDR
 }
 
 fn default_max_message_size() -> usize {

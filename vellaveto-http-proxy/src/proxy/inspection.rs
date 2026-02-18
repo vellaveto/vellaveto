@@ -12,7 +12,7 @@ use vellaveto_types::{Action, EvaluationTrace, Verdict};
 
 use super::call_chain::take_tracked_tool_call;
 use super::helpers::{extract_annotations_from_response, verify_manifest_from_response};
-use super::{ProxyState, MCP_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION_HEADER, MCP_SESSION_ID};
+use super::{ProxyState, MCP_PROTOCOL_VERSION_HEADER, MCP_PROTOCOL_VERSION_VALUE, MCP_SESSION_ID};
 use crate::proxy_metrics::record_dlp_finding;
 
 /// Extract text content from an MCP result for injection inspection.
@@ -809,7 +809,7 @@ pub(super) fn attach_session_header(mut response: Response, session_id: &str) ->
     if let Ok(value) = session_id.parse() {
         response.headers_mut().insert(MCP_SESSION_ID, value);
     }
-    if let Ok(value) = MCP_PROTOCOL_VERSION.parse() {
+    if let Ok(value) = MCP_PROTOCOL_VERSION_VALUE.parse() {
         response
             .headers_mut()
             .insert(MCP_PROTOCOL_VERSION_HEADER, value);

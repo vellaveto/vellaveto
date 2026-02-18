@@ -543,13 +543,24 @@ impl AuditLogger {
     /// - `validation_failed` — JWT validation failed for matched anchor
     /// - `jwks_refreshed` — JWKS cache refreshed for an anchor
     /// - `jwks_fetch_failed` — JWKS endpoint unreachable
+    /// - `token_expired` — federated token expired
+    /// - `anchor_removed` — trust anchor removed from configuration
     pub async fn log_federation_event(
         &self,
         event_type: &str,
         details: serde_json::Value,
     ) -> Result<(), AuditError> {
         let action = Action::new("vellaveto", "federation", serde_json::json!({}));
-        let verdict = Verdict::Allow;
+        // SECURITY (FIND-R56-AUDIT-005): Federation failure events must use Deny
+        // verdict so they are flagged in audit trails and compliance reports.
+        let verdict = match event_type {
+            "validation_failed" | "jwks_fetch_failed" | "token_expired" | "anchor_removed" => {
+                Verdict::Deny {
+                    reason: format!("Federation event: {}", event_type),
+                }
+            }
+            _ => Verdict::Allow,
+        };
         let mut metadata = serde_json::json!({
             "event": format!("federation.{}", event_type),
         });

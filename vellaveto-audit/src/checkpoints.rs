@@ -29,11 +29,15 @@ impl AuditLogger {
 
     /// Get the path to the checkpoint file (derived from the audit log path).
     pub(crate) fn checkpoint_path(&self) -> PathBuf {
+        // Safe: file_stem() returns None only for ".." or empty paths, which
+        // are never valid audit log paths. unwrap_or_default yields "" as fallback.
         let stem = self
             .log_path
             .file_stem()
             .unwrap_or_default()
             .to_string_lossy();
+        // Safe: parent() returns None only for root path "/". Audit log paths
+        // are always within a directory, so "." is a safe fallback.
         let parent = self.log_path.parent().unwrap_or(Path::new("."));
         parent.join(format!("{stem}.checkpoints.jsonl"))
     }

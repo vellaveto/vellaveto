@@ -26,6 +26,7 @@ pub const MAX_SOC2_CATEGORIES: usize = 9;
 
 /// EU AI Act compliance configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EuAiActConfig {
     /// Enable EU AI Act compliance evidence generation.
     #[serde(default = "super::default_true")]
@@ -93,6 +94,7 @@ impl Default for EuAiActConfig {
 
 /// SOC 2 compliance configuration.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Soc2Config {
     /// Enable SOC 2 compliance evidence generation.
     #[serde(default)]
@@ -132,6 +134,7 @@ pub const MAX_REVIEWER_NAME_LEN: usize = 256;
 
 /// Configuration for automated SOC 2 Type II access review report generation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Soc2AccessReviewConfig {
     /// Enable access review report generation.
     #[serde(default)]
@@ -169,6 +172,7 @@ impl Default for Soc2AccessReviewConfig {
 
 /// Per-tool data governance mapping.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ToolDataMapping {
     /// Tool name or glob pattern.
     pub tool_pattern: String,
@@ -186,6 +190,7 @@ pub struct ToolDataMapping {
 
 /// Art 10 data governance configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DataGovernanceConfig {
     /// Enable data governance record keeping.
     #[serde(default)]
@@ -216,6 +221,7 @@ impl Default for DataGovernanceConfig {
 
 /// Top-level compliance evidence configuration.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ComplianceConfig {
     /// EU AI Act compliance configuration.
     #[serde(default)]
@@ -277,7 +283,9 @@ impl ComplianceConfig {
                     MAX_REVIEWER_NAME_LEN,
                 ));
             }
-            if name.chars().any(|c| c.is_control()) {
+            // SECURITY (FIND-R56-CFG-011): Byte-level control char check matching
+            // governance.rs pattern — includes C1 controls (0x80-0x9F).
+            if name.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
                 return Err(format!(
                     "soc2.access_review.reviewers[{}] contains control characters",
                     i,

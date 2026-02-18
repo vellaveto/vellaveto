@@ -43,7 +43,7 @@ export interface VellavetoClientOptions {
   baseUrl: string;
   /** API key for authentication. */
   apiKey?: string;
-  /** Request timeout in milliseconds (default: 5000). */
+  /** Request timeout in milliseconds (default: 10000, aligned with Python/Go SDKs). */
   timeout?: number;
   /** Additional headers to include in every request. */
   headers?: Record<string, string>;
@@ -355,7 +355,8 @@ export class VellavetoClient {
 
     this.baseUrl = trimmedUrl;
     this.apiKey = options.apiKey;
-    this.timeout = options.timeout ?? 5000;
+    // SECURITY (FIND-R56-SDK-003): Aligned default timeout across all SDKs (Python/Go/TS = 10s).
+    this.timeout = options.timeout ?? 10000;
     this.extraHeaders = options.headers ?? {};
   }
 

@@ -1058,7 +1058,7 @@ async fn trusted_proxy_context(
     let from_trusted_proxy = is_connection_from_trusted_proxy(&request, &trusted_proxies);
     request
         .extensions_mut()
-        .insert(proxy::TrustedProxyContext { from_trusted_proxy });
+        .insert(proxy::TrustedProxyContext::new(from_trusted_proxy));
     next.run(request).await
 }
 
@@ -1229,7 +1229,7 @@ async fn security_headers(request: Request, next: Next) -> Response {
     let from_trusted_proxy = request
         .extensions()
         .get::<proxy::TrustedProxyContext>()
-        .map(|ctx| ctx.from_trusted_proxy)
+        .map(|ctx| ctx.is_from_trusted_proxy())
         .unwrap_or(false);
     let has_forwarded_proto = request.headers().contains_key("x-forwarded-proto");
     let forwarded_proto_https = request

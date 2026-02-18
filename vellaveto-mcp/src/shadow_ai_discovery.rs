@@ -377,7 +377,20 @@ impl ShadowAiDiscovery {
 
     /// Compute risk score for an unregistered agent.
     ///
-    /// Heuristic: `min(1.0, request_count * tools_count / 100.0)`
+    /// Scoring heuristic: `min(1.0, request_count * tools_count / 100.0)`
+    ///
+    /// The raw score is the product of request volume and tool breadth,
+    /// normalized by dividing by 100 so that moderate activity stays in
+    /// the `[0.0, 1.0]` range, and clamped to 1.0 as the maximum.
+    ///
+    /// Risk bands:
+    /// - **Low** (`< 0.1`): Single-digit requests with few tools — likely
+    ///   exploratory or misconfigured, not yet actionable.
+    /// - **Medium** (`0.1 – 0.5`): Sustained activity across several tools —
+    ///   warrants investigation and possible registration.
+    /// - **High** (`0.5 – 1.0`): Heavy, broad-spectrum usage — strong
+    ///   indicator of an active unregistered agent that should be blocked
+    ///   or registered immediately.
     fn compute_risk_score(request_count: u64, tools_count: usize) -> f64 {
         let raw = request_count as f64 * tools_count as f64 / 100.0;
         raw.min(1.0)

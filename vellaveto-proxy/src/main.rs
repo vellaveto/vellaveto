@@ -119,10 +119,15 @@ async fn main() -> Result<()> {
         .spawn()
         .context(format!("Failed to spawn child MCP server: {}", child_cmd))?;
 
-    let child_pid = child.id().unwrap_or(0);
+    // FIND-R56-PROXY-002: Use descriptive string instead of PID 0 when child.id()
+    // returns None (possible on some platforms before the child has started).
+    let child_pid_display = child
+        .id()
+        .map(|pid| pid.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
     tracing::info!(
         "Spawned child MCP server (PID {}): {} {:?}",
-        child_pid,
+        child_pid_display,
         child_cmd,
         child_args
     );
@@ -135,14 +140,14 @@ async fn main() -> Result<()> {
             anyhow::bail!(
                 "Child MCP server exited immediately (PID {}, status: {}). \
                  Check that '{}' is a valid executable.",
-                child_pid,
+                child_pid_display,
                 status,
                 child_cmd
             );
         }
         Ok(None) => {
             // Still running — good
-            tracing::debug!("Child process {} is running", child_pid);
+            tracing::debug!("Child process {} is running", child_pid_display);
         }
         Err(e) => {
             tracing::warn!("Could not check child process status: {}", e);

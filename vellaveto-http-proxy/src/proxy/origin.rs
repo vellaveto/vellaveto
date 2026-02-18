@@ -78,7 +78,7 @@ pub fn validate_origin(
             origin = %origin,
             "DNS rebinding defense: rejected request with Origin not in allowed_origins"
         );
-        return Err(make_origin_rejection_response(origin));
+        return Err(make_origin_rejection_response());
     }
 
     // No explicit allowlist — use automatic detection based on bind address
@@ -96,7 +96,7 @@ pub fn validate_origin(
             bind_addr = %bind_addr,
             "DNS rebinding defense: rejected non-localhost Origin on loopback-bound proxy"
         );
-        return Err(make_origin_rejection_response(origin));
+        return Err(make_origin_rejection_response());
     }
 
     // Non-loopback bind: fall back to same-origin check (Origin host must match Host header)
@@ -128,7 +128,7 @@ pub fn validate_origin(
         host = %host_raw,
         "CSRF protection: rejected request with mismatched Origin and Host"
     );
-    Err(make_origin_rejection_response(origin))
+    Err(make_origin_rejection_response())
 }
 
 /// Build a 403 Forbidden response with a JSON-RPC error body for origin rejection.
@@ -138,7 +138,10 @@ pub fn validate_origin(
 /// the format `{ "jsonrpc": "2.0", "error": { "code": <int>, "message": <string> } }`.
 /// Code `-32001` is a server-defined error in the JSON-RPC reserved range
 /// (`-32000` to `-32099`), used here for origin/CSRF rejections.
-pub fn make_origin_rejection_response(_origin: &str) -> Response {
+///
+/// FIND-R56-HTTP-004: Removed unused `origin` parameter — the origin value is
+/// intentionally NOT included in the response body to prevent information leakage.
+pub fn make_origin_rejection_response() -> Response {
     (
         StatusCode::FORBIDDEN,
         Json(json!({

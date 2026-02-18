@@ -57,7 +57,8 @@ pub enum AnomalySeverity {
 }
 
 /// Events that trigger state transitions.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// SECURITY (FIND-R56-MCP-002): Custom Debug impl redacts admin_token in AdminUnlock.
+#[derive(Clone, Serialize, Deserialize)]
 pub enum SessionEvent {
     /// First action received (Init→Active).
     FirstAction,
@@ -87,6 +88,39 @@ pub enum SessionEvent {
     },
     /// Session timeout or explicit end.
     SessionEnd,
+}
+
+// SECURITY (FIND-R56-MCP-002): Custom Debug impl redacts admin_token in AdminUnlock
+// variant to prevent credential leakage in logs and Debug output.
+impl std::fmt::Debug for SessionEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SessionEvent::FirstAction => write!(f, "FirstAction"),
+            SessionEvent::NormalAction => write!(f, "NormalAction"),
+            SessionEvent::AnomalyDetected {
+                severity,
+                description,
+            } => f
+                .debug_struct("AnomalyDetected")
+                .field("severity", severity)
+                .field("description", description)
+                .finish(),
+            SessionEvent::PolicyViolation { reason } => f
+                .debug_struct("PolicyViolation")
+                .field("reason", reason)
+                .finish(),
+            SessionEvent::RepeatedViolation { count } => f
+                .debug_struct("RepeatedViolation")
+                .field("count", count)
+                .finish(),
+            SessionEvent::CooldownElapsed => write!(f, "CooldownElapsed"),
+            SessionEvent::AdminUnlock { .. } => f
+                .debug_struct("AdminUnlock")
+                .field("admin_token", &"[REDACTED]")
+                .finish(),
+            SessionEvent::SessionEnd => write!(f, "SessionEnd"),
+        }
+    }
 }
 
 /// Result of a state transition.
@@ -146,7 +180,9 @@ pub enum SessionGuardError {
 /// Configuration for the session guard.
 // SECURITY (FIND-R55-MCP-003): deny_unknown_fields prevents attacker-injected
 // fields from being silently accepted in security-critical configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// SECURITY (FIND-R56-MCP-002): Custom Debug impl redacts admin_unlock_token
+// to prevent credential leakage in logs, error messages, and Debug output.
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SessionGuardConfig {
     /// Anomaly count before transitioning Active→Suspicious.
@@ -173,6 +209,23 @@ pub struct SessionGuardConfig {
     /// session, resetting violation counters to zero.
     #[serde(default)]
     pub admin_unlock_token: Option<String>,
+}
+
+// SECURITY (FIND-R56-MCP-002): Custom Debug impl redacts admin_unlock_token.
+impl std::fmt::Debug for SessionGuardConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionGuardConfig")
+            .field("suspicious_threshold", &self.suspicious_threshold)
+            .field("lock_threshold", &self.lock_threshold)
+            .field("cooldown_secs", &self.cooldown_secs)
+            .field("max_session_duration_secs", &self.max_session_duration_secs)
+            .field("max_sessions", &self.max_sessions)
+            .field(
+                "admin_unlock_token",
+                &self.admin_unlock_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 fn default_suspicious_threshold() -> u32 {

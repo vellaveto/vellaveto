@@ -18,7 +18,8 @@ import (
 // response body allows a malicious server to cause OOM.
 const maxResponseBodySize = 10 * 1024 * 1024 // 10 MB
 
-const defaultTimeout = 5 * time.Second
+// SECURITY (FIND-R56-SDK-003): Aligned default timeout across all SDKs (Python/Go/TS = 10s).
+const defaultTimeout = 10 * time.Second
 
 // Client is the Vellaveto API client.
 //
@@ -104,6 +105,12 @@ func NewClient(baseURL string, opts ...Option) (*Client, error) {
 		opt(c)
 	}
 	return c, nil
+}
+
+// String returns a human-readable representation of the client with the API key redacted.
+// SECURITY (FIND-R56-SDK-005): Prevents API key leakage in logs and debug output.
+func (c *Client) String() string {
+	return fmt.Sprintf("vellaveto.Client{baseURL: %q, apiKey: ***}", c.baseURL)
 }
 
 // do executes an HTTP request and returns the response body.

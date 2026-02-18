@@ -21,6 +21,10 @@ use crate::rbac::{rbac_middleware, RbacState};
 use crate::tenant::{tenant_middleware, TenantContext, TenantState};
 use crate::AppState;
 
+/// Maximum allowed request body size in bytes (1 MB).
+/// FIND-R56-SRV-005: Extracted from inline magic number for clarity.
+const MAX_REQUEST_BODY_SIZE: usize = 1_048_576;
+
 // Phase 15: Observability integration
 #[cfg(feature = "observability-exporters")]
 use vellaveto_audit::observability::{SecuritySpan, SpanKind, TraceContext};
@@ -417,9 +421,6 @@ pub fn build_router(state: AppState) -> Router {
             post(super::simulator::simulate_red_team),
         )
         // ═══════════════════════════════════════════════════════════════════
-        // Phase 26: Shadow AI Detection & Governance Visibility
-        // ═══════════════════════════════════════════════════════════════════
-        // ═══════════════════════════════════════════════════════════════════
         // Phase 27: Kubernetes-Native Deployment
         // ═══════════════════════════════════════════════════════════════════
         .route(
@@ -570,8 +571,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/setup/detection",
-            get(crate::setup_wizard::step_detection)
-                .post(crate::setup_wizard::step_detection_post),
+            get(crate::setup_wizard::step_detection).post(crate::setup_wizard::step_detection_post),
         )
         .route(
             "/setup/audit",
@@ -603,7 +603,7 @@ pub fn build_router(state: AppState) -> Router {
             state.clone(),
             csrf_referer_check,
         ))
-        .layer(DefaultBodyLimit::max(1_048_576)) // 1 MB max request body
+        .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY_SIZE))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state)
@@ -611,7 +611,13 @@ pub fn build_router(state: AppState) -> Router {
 
 fn build_cors_layer(origins: &[String]) -> CorsLayer {
     let base = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
         .max_age(std::time::Duration::from_secs(3600)); // Cache preflight for 1 hour
 
@@ -712,7 +718,7 @@ async fn request_id(request: Request, next: Next) -> Response {
         .and_then(|v| v.to_str().ok())
         // SECURITY (R31-SRV-6): Reject control characters (including TAB) in
         // client-supplied request IDs to prevent log injection attacks.
-        .filter(|s| s.len() <= 128 && !s.chars().any(|c| c.is_control()))
+        .filter(|s| s.len() <= 128 && !s.chars().any(crate::routes::is_unsafe_char))
         .map(|s| s.to_string());
 
     let mut response = next.run(request).await;
@@ -1307,40 +1313,8 @@ fn looks_like_relative_path(s: &str) -> bool {
         || d == "~"
 }
 
-/// Derive the resolver identity from the authenticated principal.
-///
-/// SECURITY (R11-APPR-4): The `resolved_by` field in approval resolution must
-/// reflect the actual authenticated identity, not a client-supplied string.
-/// If a Bearer token is present, derive the identity from the token hash.
-/// The client-supplied value is appended as a note but cannot override the
-/// authenticated identity.
-fn derive_resolver_identity(headers: &HeaderMap, client_value: &str) -> String {
-    if let Some(auth) = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-    {
-        if auth.len() > 7 && auth[..7].eq_ignore_ascii_case("bearer ") {
-            let token = &auth[7..];
-            if !token.is_empty() {
-                use sha2::{Digest, Sha256};
-                let hash = Sha256::digest(token.as_bytes());
-                let principal = format!("bearer:{}", hex::encode(&hash[..16]));
-                if client_value != "anonymous" {
-                    // SECURITY (R34-SRV-7): Strip control characters from client value
-                    // to prevent log injection via approval requested_by field.
-                    let sanitized: String = client_value
-                        .chars()
-                        .filter(|c| !c.is_control())
-                        .take(256)
-                        .collect();
-                    return format!("{} (note: {})", principal, sanitized);
-                }
-                return principal;
-            }
-        }
-    }
-    client_value.to_string()
-}
+// FIND-R56-SRV-001: Removed private derive_resolver_identity duplicate.
+// Use crate::routes::approval::derive_resolver_identity instead.
 
 /// Negotiated TLS metadata carried from an upstream TLS terminator/reverse proxy.
 ///
@@ -1409,7 +1383,7 @@ fn sanitize_tls_metadata_token(value: &str, max_len: usize) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty()
         || trimmed.len() > max_len
-        || trimmed.chars().any(|c| c.is_control())
+        || trimmed.chars().any(crate::routes::is_unsafe_char)
         || !is_valid_tls_metadata_token(trimmed)
     {
         return None;
@@ -1564,7 +1538,7 @@ fn sanitize_context(
                         Some(ref client_id) => {
                             let sanitized: String = client_id
                                 .chars()
-                                .filter(|c| !c.is_control())
+                                .filter(|c| !crate::routes::is_unsafe_char(*c))
                                 .take(256)
                                 .collect();
                             format!("{} (note: {})", principal, sanitized)
@@ -1787,7 +1761,8 @@ async fn evaluate(
                 // Deny, not RequireApproval. Recording both double-counts.
 
                 // Create pending approval if store available
-                let requester = derive_resolver_identity(&headers, "anonymous");
+                let requester =
+                    crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
                 let requested_by = if requester != "anonymous" {
                     Some(requester)
                 } else {
@@ -1873,7 +1848,8 @@ async fn evaluate(
                 };
                 // SECURITY (R30-SRV-3): Defer metrics until after approval creation
 
-                let requester = derive_resolver_identity(&headers, "anonymous");
+                let requester =
+                    crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
                 let requested_by = if requester != "anonymous" {
                     Some(requester)
                 } else {
@@ -2002,7 +1978,7 @@ async fn evaluate(
     let (verdict, approval_id) = if let Verdict::RequireApproval { ref reason } = verdict {
         // SECURITY (R9-2): Record the requester identity so the approval endpoint
         // can enforce separation of privilege (different principal must approve).
-        let requester = derive_resolver_identity(&headers, "anonymous");
+        let requester = crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
         let requested_by = if requester != "anonymous" {
             Some(requester)
         } else {
@@ -2411,7 +2387,7 @@ fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]
         {
             if !principal.is_empty()
                 && principal.len() <= MAX_PRINCIPAL_LEN
-                && !principal.chars().any(|c| c.is_control())
+                && !principal.chars().any(crate::routes::is_unsafe_char)
             {
                 return format!("principal:{}", principal);
             }
@@ -2952,14 +2928,14 @@ mod tests {
             header::AUTHORIZATION,
             "Bearer my-secret-token".parse().unwrap(),
         );
-        let result = derive_resolver_identity(&headers, "anonymous");
+        let result = crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
         assert!(
             result.starts_with("bearer:"),
             "Expected bearer: prefix, got: {}",
             result
         );
         // Should be deterministic
-        let result2 = derive_resolver_identity(&headers, "anonymous");
+        let result2 = crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
         assert_eq!(result, result2);
     }
 
@@ -2970,7 +2946,7 @@ mod tests {
             header::AUTHORIZATION,
             "Bearer my-secret-token".parse().unwrap(),
         );
-        let result = derive_resolver_identity(&headers, "admin-alice");
+        let result = crate::routes::approval::derive_resolver_identity(&headers, "admin-alice");
         assert!(result.contains("bearer:"), "Should contain bearer hash");
         assert!(
             result.contains("(note: admin-alice)"),
@@ -2986,7 +2962,7 @@ mod tests {
             header::AUTHORIZATION,
             "BEARER my-secret-token".parse().unwrap(),
         );
-        let result = derive_resolver_identity(&headers, "anonymous");
+        let result = crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
         assert!(
             result.starts_with("bearer:"),
             "Should handle uppercase BEARER: {}",
@@ -2997,7 +2973,7 @@ mod tests {
     #[test]
     fn test_derive_resolver_identity_no_auth_falls_back() {
         let headers = HeaderMap::new();
-        let result = derive_resolver_identity(&headers, "some-user");
+        let result = crate::routes::approval::derive_resolver_identity(&headers, "some-user");
         assert_eq!(result, "some-user");
     }
 
@@ -3005,7 +2981,7 @@ mod tests {
     fn test_derive_resolver_identity_non_bearer_auth_falls_back() {
         let mut headers = HeaderMap::new();
         headers.insert(header::AUTHORIZATION, "Basic dXNlcjpwYXNz".parse().unwrap());
-        let result = derive_resolver_identity(&headers, "some-user");
+        let result = crate::routes::approval::derive_resolver_identity(&headers, "some-user");
         assert_eq!(result, "some-user");
     }
 
@@ -3018,7 +2994,7 @@ mod tests {
             header::AUTHORIZATION,
             "Bearer test-token-123".parse().unwrap(),
         );
-        let identity = derive_resolver_identity(&headers, "anonymous");
+        let identity = crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
         // Should be "bearer:" + 32 hex chars (16 bytes = 128 bits)
         assert!(identity.starts_with("bearer:"));
         let hex_part = &identity[7..];
@@ -3054,7 +3030,8 @@ mod tests {
     fn test_derive_resolver_identity_strips_control_chars() {
         let mut headers = HeaderMap::new();
         headers.insert(header::AUTHORIZATION, "Bearer mytoken".parse().unwrap());
-        let identity = derive_resolver_identity(&headers, "user\x00\x0a\x0dname");
+        let identity =
+            crate::routes::approval::derive_resolver_identity(&headers, "user\x00\x0a\x0dname");
         assert!(!identity.contains('\x00'));
         assert!(!identity.contains('\x0a'));
         assert!(!identity.contains('\x0d'));

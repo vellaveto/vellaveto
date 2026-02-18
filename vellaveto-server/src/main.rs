@@ -1091,11 +1091,15 @@ async fn cmd_serve(
             let marker = vellaveto_server::setup_wizard::setup_complete_marker_path(&config);
             let completed = marker.exists();
             if completed {
-                tracing::info!("Setup wizard: previously completed (marker found at {:?})", marker);
+                tracing::info!(
+                    "Setup wizard: previously completed (marker found at {:?})",
+                    marker
+                );
             } else {
                 tracing::warn!(
                     "Setup wizard: not yet completed — visit http://{}:{}/setup to configure",
-                    bind, port
+                    bind,
+                    port
                 );
             }
             Arc::new(std::sync::atomic::AtomicBool::new(completed))

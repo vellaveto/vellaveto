@@ -70,7 +70,7 @@ pub async fn list_graphs(
                 }),
             ));
         }
-        if tool_filter.chars().any(|c| crate::routes::is_unsafe_char(c)) {
+        if tool_filter.chars().any(crate::routes::is_unsafe_char) {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
@@ -127,7 +127,7 @@ pub async fn get_graph(
     Path(session): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     // SECURITY (FIND-R48-003): Validate session path parameter length and control chars.
-    if session.len() > 128 || session.chars().any(|c| crate::routes::is_unsafe_char(c)) {
+    if session.len() > 128 || session.chars().any(crate::routes::is_unsafe_char) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
@@ -174,7 +174,7 @@ pub async fn get_graph_dot(
     Path(session): Path<String>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     // SECURITY (FIND-R48-003): Validate session path parameter.
-    if session.len() > 128 || session.chars().any(|c| crate::routes::is_unsafe_char(c)) {
+    if session.len() > 128 || session.chars().any(crate::routes::is_unsafe_char) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
@@ -219,7 +219,7 @@ pub async fn get_graph_stats(
     Path(session): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     // SECURITY (FIND-R48-003): Validate session path parameter.
-    if session.len() > 128 || session.chars().any(|c| crate::routes::is_unsafe_char(c)) {
+    if session.len() > 128 || session.chars().any(crate::routes::is_unsafe_char) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {

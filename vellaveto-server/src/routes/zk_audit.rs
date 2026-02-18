@@ -224,7 +224,7 @@ pub async fn zk_audit_verify(
             }),
         ));
     }
-    if body.batch_id.chars().any(|c| crate::routes::is_unsafe_char(c)) {
+    if body.batch_id.chars().any(crate::routes::is_unsafe_char) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {

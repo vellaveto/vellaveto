@@ -22,7 +22,8 @@ const MAX_LOADED_ENTRIES: usize = 500_000;
 // HTML ESCAPING (XSS prevention)
 // ═══════════════════════════════════════════════════
 
-/// HTML-escape a string to prevent XSS. Handles the five critical characters.
+/// HTML-escape a string to prevent XSS. Handles the six critical characters
+/// per OWASP recommendation (including `/` to prevent closing tags).
 fn html_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
@@ -32,6 +33,7 @@ fn html_escape(s: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&#x27;"),
+            '/' => out.push_str("&#x2F;"),
             _ => out.push(ch),
         }
     }
