@@ -29,13 +29,18 @@ use super::convert::{
     json_to_proto_response, make_proto_denial_response, make_proto_error_response,
     proto_request_to_json,
 };
-use super::interceptors::{extract_or_generate_request_id, extract_session_id};
+use super::interceptors::{
+    contains_dangerous_chars, extract_or_generate_request_id, extract_session_id,
+};
 use super::proto::{
     mcp_service_server::McpService, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
     SubscribeRequest,
 };
 use super::upstream::UpstreamForwarder;
 use super::ProxyState;
+use crate::proxy::call_chain::{
+    build_current_agent_entry, check_privilege_escalation, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+};
 use crate::proxy_metrics::record_dlp_finding;
 
 /// Global gRPC metrics counters.
@@ -93,6 +98,20 @@ impl McpGrpcService {
             }
         };
 
+        // SECURITY (FIND-R54-004): Reject gRPC messages with control/Unicode format
+        // characters. Parity with HTTP body check and WS frame check (FIND-R53-WS-004).
+        if json_contains_dangerous_chars(&json_req, 0) {
+            tracing::warn!(
+                session_id = %session_id,
+                "SECURITY: Rejected gRPC message with control/Unicode format characters"
+            );
+            return make_proto_error_response(
+                proto_req,
+                -32600,
+                "Message contains control characters",
+            );
+        }
+
         // 2. Classify
         let classified = extractor::classify_message(&json_req);
 
@@ -117,7 +136,50 @@ impl McpGrpcService {
                 self.forward_and_scan(proto_req, &json_req, session_id)
                     .await
             }
-            MessageType::ElicitationRequest { .. } | MessageType::ProgressNotification { .. } => {
+            MessageType::ElicitationRequest { .. } => {
+                // SECURITY (FIND-R54-GRPC-007): Inspect elicitation requests.
+                // Parity with HTTP handler's elicitation interception (handlers.rs:1843).
+                let params = json_req.get("params").cloned().unwrap_or(json!({}));
+                let elicitation_verdict = {
+                    let mut session_ref = self.state.sessions.get_mut(session_id);
+                    let current_count = session_ref
+                        .as_ref()
+                        .map(|s| s.elicitation_count)
+                        .unwrap_or(0);
+                    let verdict = vellaveto_mcp::elicitation::inspect_elicitation(
+                        &params,
+                        &self.state.elicitation_config,
+                        current_count,
+                    );
+                    if matches!(
+                        verdict,
+                        vellaveto_mcp::elicitation::ElicitationVerdict::Allow
+                    ) {
+                        if let Some(ref mut s) = session_ref {
+                            s.elicitation_count = s.elicitation_count.saturating_add(1);
+                        }
+                    }
+                    verdict
+                };
+                match elicitation_verdict {
+                    vellaveto_mcp::elicitation::ElicitationVerdict::Allow => {
+                        self.forward_and_scan(proto_req, &json_req, session_id)
+                            .await
+                    }
+                    vellaveto_mcp::elicitation::ElicitationVerdict::Deny { reason } => {
+                        tracing::warn!(
+                            "Blocked elicitation/create in gRPC session {}: {}",
+                            session_id,
+                            reason
+                        );
+                        make_proto_denial_response(
+                            proto_req,
+                            "elicitation/create blocked by policy",
+                        )
+                    }
+                }
+            }
+            MessageType::ProgressNotification { .. } => {
                 self.forward_and_scan(proto_req, &json_req, session_id)
                     .await
             }
@@ -176,6 +238,23 @@ impl McpGrpcService {
         tool_name: &str,
         arguments: &Value,
     ) -> JsonRpcResponse {
+        // SECURITY (FIND-R54-005): Strict MCP tool name validation.
+        // Parity with HTTP handler (handlers.rs:354).
+        if self.state.streamable_http.strict_tool_name_validation {
+            if let Err(e) = vellaveto_types::validate_mcp_tool_name(tool_name) {
+                tracing::warn!(
+                    "SECURITY: Rejecting invalid gRPC tool name '{}': {}",
+                    tool_name,
+                    e
+                );
+                return make_proto_error_response(
+                    proto_req,
+                    -32602,
+                    &format!("Invalid tool name: {}", e),
+                );
+            }
+        }
+
         // SECURITY (FIND-R53-GRPC-001): DLP scan parameters for secret exfiltration.
         // Parity with HTTP handler (handlers.rs:457) and WS (websocket/mod.rs:700).
         let dlp_findings = scan_parameters_for_secrets(arguments);
@@ -323,6 +402,105 @@ impl McpGrpcService {
         }
 
         let action = extractor::extract_action(tool_name, arguments);
+
+        // SECURITY (FIND-R54-006): Circuit breaker check.
+        // Parity with HTTP handler (handlers.rs:576) and WS (websocket/mod.rs:892).
+        if let Some(ref circuit_breaker) = self.state.circuit_breaker {
+            if let Err(reason) = circuit_breaker.can_proceed(tool_name) {
+                tracing::warn!(
+                    "SECURITY: gRPC circuit breaker open for tool '{}' in session {}: {}",
+                    tool_name,
+                    session_id,
+                    reason
+                );
+                let verdict = Verdict::Deny {
+                    reason: format!("Circuit breaker open: {}", reason),
+                };
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "grpc_proxy",
+                            "session": session_id,
+                            "transport": "grpc",
+                            "event": "circuit_breaker_rejected",
+                            "tool": tool_name,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit gRPC circuit breaker rejection: {}", e);
+                }
+                return make_proto_denial_response(
+                    proto_req,
+                    "Service temporarily unavailable — circuit breaker open",
+                );
+            }
+        }
+
+        // SECURITY (FIND-R54-007): Tool registry trust check.
+        // Parity with HTTP handler (handlers.rs:621) and WS (websocket/mod.rs:936).
+        if let Some(ref registry) = self.state.tool_registry {
+            let trust = registry.check_trust_level(tool_name).await;
+            match trust {
+                vellaveto_mcp::tool_registry::TrustLevel::Unknown => {
+                    registry.register_unknown(tool_name).await;
+                    let verdict = Verdict::Deny {
+                        reason: "Unknown tool requires approval".to_string(),
+                    };
+                    if let Err(e) = self
+                        .state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            json!({
+                                "source": "grpc_proxy",
+                                "session": session_id,
+                                "transport": "grpc",
+                                "registry": "unknown_tool",
+                                "tool": tool_name,
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit gRPC unknown tool: {}", e);
+                    }
+                    return make_proto_denial_response(proto_req, "Approval required");
+                }
+                vellaveto_mcp::tool_registry::TrustLevel::Untrusted { score: _ } => {
+                    let verdict = Verdict::Deny {
+                        reason: "Untrusted tool requires approval".to_string(),
+                    };
+                    if let Err(e) = self
+                        .state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            json!({
+                                "source": "grpc_proxy",
+                                "session": session_id,
+                                "transport": "grpc",
+                                "registry": "untrusted_tool",
+                                "tool": tool_name,
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit gRPC untrusted tool: {}", e);
+                    }
+                    return make_proto_denial_response(proto_req, "Approval required");
+                }
+                vellaveto_mcp::tool_registry::TrustLevel::Trusted => {
+                    // Trusted — proceed to engine evaluation
+                }
+            }
+        }
+
         let ctx = self.build_evaluation_context(session_id);
 
         let verdict = match self.state.engine.evaluate_action_with_context(
@@ -406,9 +584,81 @@ impl McpGrpcService {
                     }
                 }
 
-                // Touch session
+                // SECURITY (FIND-R54-002): Privilege escalation check.
+                // Parity with HTTP handler (handlers.rs:762).
+                let call_chain = self
+                    .state
+                    .sessions
+                    .get_mut(session_id)
+                    .map(|s| s.current_call_chain.clone())
+                    .unwrap_or_default();
+                if !call_chain.is_empty() {
+                    let current_agent_id = ctx.agent_id.as_deref();
+                    let priv_check = check_privilege_escalation(
+                        &self.state.engine,
+                        &self.state.policies,
+                        &action,
+                        &call_chain,
+                        current_agent_id,
+                    );
+                    if priv_check.escalation_detected {
+                        let internal_reason = format!(
+                            "Privilege escalation detected: agent '{}' would be denied ({})",
+                            priv_check
+                                .escalating_from_agent
+                                .as_deref()
+                                .unwrap_or("unknown"),
+                            priv_check
+                                .upstream_deny_reason
+                                .as_deref()
+                                .unwrap_or("unknown reason")
+                        );
+                        if let Err(e) = self
+                            .state
+                            .audit
+                            .log_entry(
+                                &action,
+                                &Verdict::Deny {
+                                    reason: internal_reason,
+                                },
+                                json!({
+                                    "source": "grpc_proxy",
+                                    "session": session_id,
+                                    "transport": "grpc",
+                                    "event": "privilege_escalation_blocked",
+                                    "escalating_from_agent": priv_check.escalating_from_agent,
+                                    "upstream_deny_reason": priv_check.upstream_deny_reason,
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit gRPC privilege escalation: {}", e);
+                        }
+                        return make_proto_denial_response(
+                            proto_req,
+                            "Denied by policy: privilege escalation detected",
+                        );
+                    }
+                }
+
+                // Touch session and update call_counts/action_history
                 if let Some(mut session) = self.state.sessions.get_mut(session_id) {
                     session.touch();
+                    // SECURITY (FIND-R54-003): Update call_counts and action_history on Allow.
+                    // Without this, context-aware policies (max_calls_in_window,
+                    // ForbiddenActionSequence) are ineffective on the gRPC transport.
+                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                        || session.call_counts.contains_key(tool_name)
+                    {
+                        *session
+                            .call_counts
+                            .entry(tool_name.to_string())
+                            .or_insert(0) += 1;
+                    }
+                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                        session.action_history.pop_front();
+                    }
+                    session.action_history.push_back(tool_name.to_string());
                 }
 
                 // Audit the allow
@@ -921,6 +1171,11 @@ impl McpGrpcService {
     }
 
     /// Build an EvaluationContext for policy evaluation.
+    ///
+    /// SECURITY (FIND-R54-002): Now includes `agent_identity` and `call_chain`
+    /// from the session, matching the HTTP handler's `build_evaluation_context`
+    /// (call_chain.rs:82). Without these, context-aware policies that check
+    /// agent identity or call chain depth are ineffective on gRPC.
     fn build_evaluation_context(&self, session_id: &str) -> EvaluationContext {
         let mut ctx = EvaluationContext::default();
 
@@ -930,9 +1185,33 @@ impl McpGrpcService {
             if let Some(ref agent_id) = session.oauth_subject {
                 ctx.agent_id = Some(agent_id.clone());
             }
+            ctx.agent_identity = session.agent_identity.clone();
+            ctx.call_chain = session.current_call_chain.clone();
         }
 
         ctx
+    }
+}
+
+/// SECURITY (FIND-R54-004): Recursively check a JSON value for control or
+/// Unicode format characters in string values and object keys.
+/// Bounded by depth to prevent stack overflow on deeply nested inputs.
+fn json_contains_dangerous_chars(val: &Value, depth: usize) -> bool {
+    if depth > 64 {
+        return true; // fail-closed on excessive nesting
+    }
+    match val {
+        Value::String(s) => contains_dangerous_chars(s),
+        Value::Array(arr) => arr
+            .iter()
+            .any(|v| json_contains_dangerous_chars(v, depth + 1)),
+        Value::Object(map) => {
+            map.keys().any(|k| contains_dangerous_chars(k))
+                || map
+                    .values()
+                    .any(|v| json_contains_dangerous_chars(v, depth + 1))
+        }
+        _ => false,
     }
 }
 
@@ -984,6 +1263,78 @@ impl McpService for McpGrpcService {
             .unwrap_or_else(|| self.state.sessions.get_or_create(None));
         let _request_id = extract_or_generate_request_id(&metadata);
 
+        // SECURITY (FIND-R54-GRPC-003): Per-request OAuth token expiry check.
+        // Matches WS handler's per-message token expiry check (websocket/mod.rs:443).
+        {
+            let token_expired = self
+                .state
+                .sessions
+                .get_mut(&session_id)
+                .and_then(|s| {
+                    s.token_expires_at.map(|exp| {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        now >= exp
+                    })
+                })
+                .unwrap_or(false);
+            if token_expired {
+                tracing::warn!(
+                    session_id = %session_id,
+                    "SECURITY: OAuth token expired during gRPC session"
+                );
+                return Err(Status::unauthenticated("Token expired"));
+            }
+        }
+
+        // SECURITY (FIND-R54-GRPC-005): Extract and validate agent identity.
+        // Parity with HTTP handler's validate_agent_identity (auth.rs:345).
+        if let Some(identity_token) = super::interceptors::extract_agent_identity_token(&metadata) {
+            if let Some(ref oauth_validator) = self.state.oauth {
+                match oauth_validator
+                    .validate_token(&format!("Bearer {}", identity_token))
+                    .await
+                {
+                    Ok(claims) => {
+                        let identity = vellaveto_types::AgentIdentity {
+                            issuer: if claims.iss.is_empty() {
+                                None
+                            } else {
+                                Some(claims.iss.clone())
+                            },
+                            subject: if claims.sub.is_empty() {
+                                None
+                            } else {
+                                Some(claims.sub.clone())
+                            },
+                            claims: Default::default(),
+                        };
+                        if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
+                            session.agent_identity = Some(identity);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("gRPC agent identity JWT validation failed: {}", e);
+                        return Err(Status::unauthenticated("Invalid agent identity token"));
+                    }
+                }
+            }
+        }
+
+        // SECURITY (FIND-R54-002): Sync call chain from metadata to session.
+        // Parity with HTTP handler's sync_session_call_chain_from_headers.
+        {
+            let upstream_chain = super::interceptors::extract_call_chain_from_metadata(
+                &metadata,
+                &self.state.limits,
+            );
+            if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
+                session.current_call_chain = upstream_chain;
+            }
+        }
+
         let proto_req = request.into_inner();
         let response = self.evaluate_request(&proto_req, &session_id).await;
 
@@ -1002,6 +1353,50 @@ impl McpService for McpGrpcService {
         let session_id = extract_session_id(&metadata)
             .unwrap_or_else(|| self.state.sessions.get_or_create(None));
 
+        // SECURITY (FIND-R54-GRPC-005): Extract agent identity at stream start.
+        if let Some(identity_token) = super::interceptors::extract_agent_identity_token(&metadata) {
+            if let Some(ref oauth_validator) = self.state.oauth {
+                match oauth_validator
+                    .validate_token(&format!("Bearer {}", identity_token))
+                    .await
+                {
+                    Ok(claims) => {
+                        let identity = vellaveto_types::AgentIdentity {
+                            issuer: if claims.iss.is_empty() {
+                                None
+                            } else {
+                                Some(claims.iss.clone())
+                            },
+                            subject: if claims.sub.is_empty() {
+                                None
+                            } else {
+                                Some(claims.sub.clone())
+                            },
+                            claims: Default::default(),
+                        };
+                        if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
+                            session.agent_identity = Some(identity);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("gRPC stream agent identity JWT validation failed: {}", e);
+                        return Err(Status::unauthenticated("Invalid agent identity token"));
+                    }
+                }
+            }
+        }
+
+        // SECURITY (FIND-R54-002): Sync call chain from metadata at stream start.
+        {
+            let upstream_chain = super::interceptors::extract_call_chain_from_metadata(
+                &metadata,
+                &self.state.limits,
+            );
+            if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
+                session.current_call_chain = upstream_chain;
+            }
+        }
+
         let mut stream = request.into_inner();
         let (tx, rx) = mpsc::channel(32);
 
@@ -1013,6 +1408,32 @@ impl McpService for McpGrpcService {
 
             while let Ok(Some(proto_req)) = stream.message().await {
                 record_grpc_message("stream_request");
+
+                // SECURITY (FIND-R54-GRPC-003): Per-message OAuth token expiry check.
+                {
+                    let token_expired = svc
+                        .state
+                        .sessions
+                        .get_mut(&session_id)
+                        .and_then(|s| {
+                            s.token_expires_at.map(|exp| {
+                                let now = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs();
+                                now >= exp
+                            })
+                        })
+                        .unwrap_or(false);
+                    if token_expired {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            "SECURITY: OAuth token expired during gRPC stream"
+                        );
+                        let _ = tx.send(Err(Status::unauthenticated("Token expired"))).await;
+                        break;
+                    }
+                }
 
                 let response = svc.evaluate_request(&proto_req, &session_id).await;
                 record_grpc_message("stream_response");

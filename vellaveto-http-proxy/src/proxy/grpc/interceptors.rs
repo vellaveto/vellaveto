@@ -11,6 +11,30 @@ use tonic::{service::Interceptor, Request, Status};
 
 use super::super::ProxyState;
 
+/// SECURITY (FIND-R54-009, FIND-R54-010): Check for Unicode format characters
+/// that could bypass identity/session checks via invisible chars.
+/// Mirrors `EvaluationContext::is_unicode_format_char()` from vellaveto-types.
+pub(crate) fn is_unicode_format_char(c: char) -> bool {
+    matches!(c,
+        '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
+        '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
+        '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
+        '\u{FEFF}'                  // BOM / zero-width no-break space
+    )
+}
+
+/// Check if a string contains ASCII control characters (excluding JSON whitespace)
+/// or Unicode format characters.
+///
+/// SECURITY: Rejects both ASCII controls (NUL, BEL, ESC, etc.) and Unicode
+/// format chars (zero-width, bidi overrides, BOM) that could bypass security
+/// checks via invisible character injection.
+pub(crate) fn contains_dangerous_chars(s: &str) -> bool {
+    s.chars().any(|c| {
+        (c.is_control() && c != '\n' && c != '\r' && c != '\t') || is_unicode_format_char(c)
+    })
+}
+
 /// gRPC metadata key names (matching HTTP header semantics).
 pub const METADATA_AUTHORIZATION: &str = "authorization";
 pub const METADATA_MCP_SESSION_ID: &str = "mcp-session-id";
@@ -72,12 +96,13 @@ impl Interceptor for AuthInterceptor {
 
 /// Extract the MCP session ID from gRPC metadata.
 ///
-/// Returns `None` if the metadata key is not present or not valid UTF-8.
+/// Returns `None` if the metadata key is not present, not valid UTF-8,
+/// or contains control/Unicode format characters (FIND-R54-009).
 pub fn extract_session_id(metadata: &tonic::metadata::MetadataMap) -> Option<String> {
     metadata
         .get(METADATA_MCP_SESSION_ID)
         .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty() && s.len() <= 256)
+        .filter(|s| !s.is_empty() && s.len() <= 256 && !contains_dangerous_chars(s))
         .map(|s| s.to_string())
 }
 
@@ -120,11 +145,14 @@ pub fn extract_trace_context_from_metadata(
 }
 
 /// Extract the request ID from gRPC metadata, or generate one.
+///
+/// SECURITY (FIND-R54-010): Rejects IDs with control characters AND Unicode
+/// format characters (zero-width, bidi overrides, BOM).
 pub fn extract_or_generate_request_id(metadata: &tonic::metadata::MetadataMap) -> String {
     metadata
         .get(METADATA_REQUEST_ID)
         .and_then(|v| v.to_str().ok())
-        .filter(|s| s.len() <= 128 && !s.chars().any(|c| c.is_control()))
+        .filter(|s| s.len() <= 128 && !contains_dangerous_chars(s))
         .map(|s| s.to_string())
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
 }
@@ -156,21 +184,27 @@ impl RateLimitInterceptor {
 
 impl Interceptor for RateLimitInterceptor {
     fn call(&mut self, request: Request<()>) -> Result<Request<()>, Status> {
-        // Check/reset window — fail-closed on poisoned lock
-        let should_reset = self
-            .window_start
-            .lock()
-            .map(|start| start.elapsed().as_secs() >= 1)
-            .unwrap_or(true);
-
-        if should_reset {
-            self.counter.store(0, Ordering::SeqCst);
-            if let Ok(mut start) = self.window_start.lock() {
-                *start = Instant::now();
+        // SECURITY (FIND-R54-008): Hold mutex across window check + counter reset
+        // to prevent TOCTOU race. Without this, two threads could both see
+        // should_reset=true, both reset the counter, and lose requests between them.
+        // Fail-closed on poisoned lock.
+        let mut window = match self.window_start.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                tracing::error!("gRPC rate limiter mutex poisoned — fail-closed");
+                return Err(Status::resource_exhausted("Rate limit exceeded"));
             }
+        };
+
+        if window.elapsed().as_secs() >= 1 {
+            self.counter.store(0, Ordering::SeqCst);
+            *window = Instant::now();
         }
 
+        // Increment under lock to prevent TOCTOU between reset and count check.
         let count = self.counter.fetch_add(1, Ordering::SeqCst);
+        drop(window);
+
         if count >= self.limit {
             tracing::warn!(
                 "gRPC rate limit exceeded: {} requests in window (limit: {})",
@@ -182,4 +216,89 @@ impl Interceptor for RateLimitInterceptor {
 
         Ok(request)
     }
+}
+
+/// Combined interceptor that runs authentication then rate limiting.
+///
+/// SECURITY (FIND-R54-001): Chains `AuthInterceptor` and `RateLimitInterceptor`
+/// into a single interceptor for use with `McpServiceServer`. Auth runs first —
+/// unauthenticated requests are rejected before consuming rate limit budget.
+#[derive(Clone)]
+pub struct CombinedInterceptor {
+    auth: AuthInterceptor,
+    rate_limit: RateLimitInterceptor,
+}
+
+impl CombinedInterceptor {
+    pub fn new(auth: AuthInterceptor, rate_limit: RateLimitInterceptor) -> Self {
+        Self { auth, rate_limit }
+    }
+}
+
+impl Interceptor for CombinedInterceptor {
+    fn call(&mut self, request: Request<()>) -> Result<Request<()>, Status> {
+        let request = self.auth.call(request)?;
+        self.rate_limit.call(request)
+    }
+}
+
+/// Maximum size of x-upstream-agents metadata value in bytes.
+const MAX_UPSTREAM_AGENTS_METADATA_BYTES: usize = 32768;
+
+/// Extract the upstream call chain from gRPC metadata.
+///
+/// Parses the `x-upstream-agents` metadata key as a JSON array of
+/// `CallChainEntry` objects, applying the same size and entry limits
+/// as the HTTP header equivalent (call_chain.rs).
+pub fn extract_call_chain_from_metadata(
+    metadata: &tonic::metadata::MetadataMap,
+    limits: &vellaveto_config::LimitsConfig,
+) -> Vec<vellaveto_types::CallChainEntry> {
+    let raw = match metadata
+        .get(METADATA_UPSTREAM_AGENTS)
+        .and_then(|v| v.to_str().ok())
+    {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+
+    let max_bytes = limits
+        .max_call_chain_header_bytes
+        .min(MAX_UPSTREAM_AGENTS_METADATA_BYTES);
+    if raw.len() > max_bytes {
+        tracing::warn!(
+            len = raw.len(),
+            max = max_bytes,
+            "gRPC x-upstream-agents metadata exceeds size limit"
+        );
+        return Vec::new();
+    }
+
+    match serde_json::from_str::<Vec<vellaveto_types::CallChainEntry>>(raw) {
+        Ok(entries) if entries.len() <= limits.max_call_chain_length => entries,
+        Ok(entries) => {
+            tracing::warn!(
+                count = entries.len(),
+                max = limits.max_call_chain_length,
+                "gRPC x-upstream-agents metadata exceeds entry limit"
+            );
+            Vec::new()
+        }
+        Err(e) => {
+            tracing::warn!("gRPC x-upstream-agents metadata is not valid JSON: {}", e);
+            Vec::new()
+        }
+    }
+}
+
+/// Extract the agent identity token from gRPC metadata.
+///
+/// Returns the raw JWT token string, or None if not present.
+/// SECURITY (FIND-R54-GRPC-005): Rejects tokens with control/Unicode format chars.
+pub fn extract_agent_identity_token(metadata: &tonic::metadata::MetadataMap) -> Option<String> {
+    metadata
+        .get(METADATA_AGENT_IDENTITY)
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty() && s.len() <= 8192 && !contains_dangerous_chars(s))
+        .map(|s| s.to_string())
 }

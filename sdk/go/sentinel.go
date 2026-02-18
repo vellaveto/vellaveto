@@ -231,6 +231,11 @@ type evaluateRaw struct {
 // (not nested under an "action" key) because the Rust server uses #[serde(flatten)].
 // The trace flag is passed as a query parameter (?trace=true).
 func (c *Client) Evaluate(ctx context.Context, action Action, evalCtx *EvaluationContext, trace bool) (*EvaluationResult, error) {
+	// SECURITY (FIND-R54-SDK-008): Validate action fields before sending to server.
+	if err := action.Validate(); err != nil {
+		return nil, err
+	}
+
 	reqBody := EvaluateRequest{
 		Tool:          action.Tool,
 		Function:      action.Function,
@@ -389,20 +394,53 @@ func (c *Client) ListPendingApprovals(ctx context.Context) ([]Approval, error) {
 	return approvals, nil
 }
 
+// maxApprovalIDLength is the maximum allowed length for an approval ID.
+const maxApprovalIDLength = 256
+
+// validateApprovalID checks that an approval ID is non-empty, within length
+// bounds, and contains no control or Unicode format characters.
+// SECURITY (FIND-R54-SDK-003): Prevents empty/oversized/malicious approval IDs.
+func validateApprovalID(id string) error {
+	if id == "" {
+		return fmt.Errorf("vellaveto: approval ID must not be empty")
+	}
+	if len(id) > maxApprovalIDLength {
+		return fmt.Errorf("vellaveto: approval ID exceeds max length %d", maxApprovalIDLength)
+	}
+	for _, c := range id {
+		if c < ' ' || (c >= 0x7F && c <= 0x9F) {
+			return fmt.Errorf("vellaveto: approval ID contains control characters")
+		}
+	}
+	return nil
+}
+
 // ApproveApproval approves a pending approval by ID.
 // SECURITY (FIND-R46-GO-002): URL-encode the approval ID to prevent path injection.
+// SECURITY (FIND-R54-SDK-003): Validate approval ID format before sending.
 func (c *Client) ApproveApproval(ctx context.Context, id string) error {
+	if err := validateApprovalID(id); err != nil {
+		return err
+	}
 	return c.doJSON(ctx, http.MethodPost, "/api/approvals/"+url.PathEscape(id)+"/approve", nil, nil)
 }
 
 // DenyApproval denies a pending approval by ID.
 // SECURITY (FIND-R46-GO-002): URL-encode the approval ID to prevent path injection.
+// SECURITY (FIND-R54-SDK-003): Validate approval ID format before sending.
 func (c *Client) DenyApproval(ctx context.Context, id string) error {
+	if err := validateApprovalID(id); err != nil {
+		return err
+	}
 	return c.doJSON(ctx, http.MethodPost, "/api/approvals/"+url.PathEscape(id)+"/deny", nil, nil)
 }
 
 // Discover searches the tool discovery index for tools matching a query.
+// SECURITY (FIND-R54-SDK-017): Validates query is non-empty before sending.
 func (c *Client) Discover(ctx context.Context, query string, maxResults int, tokenBudget *int) (*DiscoveryResult, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, fmt.Errorf("vellaveto: discovery query must not be empty")
+	}
 	reqBody := DiscoverRequest{
 		Query:       query,
 		MaxResults:  maxResults,
@@ -500,7 +538,11 @@ func (c *Client) ZkProofs(ctx context.Context, limit, offset int) (*ZkProofsResp
 }
 
 // ZkVerify verifies a stored ZK batch proof by batch ID.
+// SECURITY (FIND-R54-SDK-017): Validates batchID is non-empty before sending.
 func (c *Client) ZkVerify(ctx context.Context, batchID string) (*ZkVerifyResult, error) {
+	if strings.TrimSpace(batchID) == "" {
+		return nil, fmt.Errorf("vellaveto: batchID must not be empty")
+	}
 	reqBody := ZkVerifyRequest{BatchID: batchID}
 	var resp ZkVerifyResult
 	if err := c.doJSON(ctx, http.MethodPost, "/api/zk-audit/verify", reqBody, &resp); err != nil {

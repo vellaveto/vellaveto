@@ -82,16 +82,27 @@ pub async fn start_grpc_server(
     config: GrpcConfig,
     shutdown: CancellationToken,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use interceptors::{AuthInterceptor, CombinedInterceptor, RateLimitInterceptor};
     use proto::mcp_service_server::McpServiceServer;
     use service::McpGrpcService;
 
-    let svc = McpGrpcService::new(Arc::new(state));
+    let state = Arc::new(state);
+    let svc = McpGrpcService::new(state.clone());
+
+    // SECURITY (FIND-R54-001): Wire auth + rate limit interceptors into gRPC server.
+    // Previously McpServiceServer::new(svc) was used, making AuthInterceptor and
+    // RateLimitInterceptor dead code — the entire gRPC transport was unauthenticated
+    // and unrate-limited.
+    let interceptor =
+        CombinedInterceptor::new(AuthInterceptor::new(state), RateLimitInterceptor::new(None));
 
     let mut server_builder = tonic::transport::Server::builder();
 
+    // Apply size limits first, then wrap with interceptor.
     let mcp_server = McpServiceServer::new(svc)
         .max_decoding_message_size(config.max_message_size)
         .max_encoding_message_size(config.max_message_size);
+    let intercepted = tonic::service::InterceptedService::new(mcp_server, interceptor);
 
     let router = if config.health_enabled {
         let (health_reporter, health_service) = tonic_health::server::health_reporter();
@@ -100,9 +111,9 @@ pub async fn start_grpc_server(
             .await;
         server_builder
             .add_service(health_service)
-            .add_service(mcp_server)
+            .add_service(intercepted)
     } else {
-        server_builder.add_service(mcp_server)
+        server_builder.add_service(intercepted)
     };
 
     tracing::info!(

@@ -532,18 +532,23 @@ async fn relay_client_to_upstream(
                 // or to bypass string-based security checks.
                 if text.chars().any(|c| {
                     // Allow standard JSON whitespace (\t, \n, \r) but reject other
-                    // ASCII control chars and Unicode format chars
-                    c.is_control() && c != '\n' && c != '\r' && c != '\t'
+                    // ASCII control chars and Unicode format chars (FIND-R54-011).
+                    // SECURITY: Also detect zero-width, bidi overrides, BOM
+                    // that could bypass string-based security checks.
+                    (c.is_control() && c != '\n' && c != '\r' && c != '\t')
+                        || matches!(c,
+                            '\u{200B}'..='\u{200F}' |
+                            '\u{202A}'..='\u{202E}' |
+                            '\u{2060}'..='\u{2069}' |
+                            '\u{FEFF}'
+                        )
                 }) {
                     tracing::warn!(
                         session_id = %session_id,
                         "SECURITY: Rejected WS message with control characters"
                     );
-                    let error = make_ws_error_response(
-                        None,
-                        -32600,
-                        "Message contains control characters",
-                    );
+                    let error =
+                        make_ws_error_response(None, -32600, "Message contains control characters");
                     let mut sink = client_sink.lock().await;
                     let _ = sink.send(Message::Text(error.into())).await;
                     continue;
@@ -1119,9 +1124,28 @@ async fn relay_client_to_upstream(
                                     registry.record_call(tool_name).await;
                                 }
 
-                                // Touch session
+                                // Touch session and update call_counts/action_history
                                 if let Some(mut session) = state.sessions.get_mut(&session_id) {
                                     session.touch();
+                                    // SECURITY (FIND-R54-003): Update call_counts and action_history
+                                    // on Allow. Without this, context-aware policies
+                                    // (max_calls_in_window, ForbiddenActionSequence) are
+                                    // ineffective on the WebSocket transport.
+                                    use crate::proxy::call_chain::{
+                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+                                    };
+                                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                                        || session.call_counts.contains_key(tool_name)
+                                    {
+                                        *session
+                                            .call_counts
+                                            .entry(tool_name.to_string())
+                                            .or_insert(0) += 1;
+                                    }
+                                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                                        session.action_history.pop_front();
+                                    }
+                                    session.action_history.push_back(tool_name.to_string());
                                 }
 
                                 // Audit the allow

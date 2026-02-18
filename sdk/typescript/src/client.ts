@@ -513,6 +513,30 @@ export class VellavetoClient {
     context?: EvaluationContext,
     trace?: boolean
   ): Promise<EvaluationResult> {
+    // SECURITY (FIND-R54-SDK-007): Validate action before sending.
+    if (!action || typeof action !== "object") {
+      throw new VellavetoError("action must be a non-null object");
+    }
+    if (typeof action.tool !== "string" || action.tool.trim().length === 0) {
+      throw new VellavetoError("action.tool must be a non-empty string");
+    }
+    if (action.tool.length > 256) {
+      throw new VellavetoError("action.tool exceeds max length (256)");
+    }
+    if (
+      action.function !== undefined &&
+      action.function !== null &&
+      typeof action.function !== "string"
+    ) {
+      throw new VellavetoError("action.function must be a string if provided");
+    }
+    if (
+      action.parameters !== undefined &&
+      action.parameters !== null &&
+      typeof action.parameters !== "object"
+    ) {
+      throw new VellavetoError("action.parameters must be an object if provided");
+    }
     const path = trace ? "/api/evaluate?trace=true" : "/api/evaluate";
     const body: Record<string, unknown> = {
       tool: action.tool,
@@ -669,11 +693,15 @@ export class VellavetoClient {
 
   /** Approve a pending approval by ID. */
   async approveApproval(id: string): Promise<void> {
+    // SECURITY (FIND-R54-SDK-003): Validate approval ID format.
+    validateApprovalId(id);
     await this.request<unknown>("POST", `/api/approvals/${encodeURIComponent(id)}/approve`);
   }
 
   /** Deny a pending approval by ID. */
   async denyApproval(id: string): Promise<void> {
+    // SECURITY (FIND-R54-SDK-003): Validate approval ID format.
+    validateApprovalId(id);
     await this.request<unknown>("POST", `/api/approvals/${encodeURIComponent(id)}/deny`);
   }
 
@@ -687,6 +715,10 @@ export class VellavetoClient {
     maxResults?: number,
     tokenBudget?: number
   ): Promise<DiscoveryResult> {
+    // SECURITY (FIND-R54-SDK-017): Reject empty query strings.
+    if (typeof query !== "string" || query.trim().length === 0) {
+      throw new VellavetoError("query must be a non-empty string");
+    }
     const body: DiscoverySearchRequest = {
       query,
       max_results: maxResults,
@@ -773,6 +805,10 @@ export class VellavetoClient {
 
   /** Verify a stored ZK batch proof by batch ID. */
   async zkVerify(batchId: string): Promise<ZkVerifyResult> {
+    // SECURITY (FIND-R54-SDK-017): Reject empty batch IDs.
+    if (typeof batchId !== "string" || batchId.trim().length === 0) {
+      throw new VellavetoError("batchId must be a non-empty string");
+    }
     return this.request<ZkVerifyResult>("POST", "/api/zk-audit/verify", {
       batch_id: batchId,
     });
@@ -866,6 +902,22 @@ function extractVerdictReason(v: unknown): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * SECURITY (FIND-R54-SDK-003): Validate approval ID format.
+ * Rejects empty, oversized, and control-character-containing IDs.
+ */
+function validateApprovalId(id: string): void {
+  if (typeof id !== "string" || id.trim().length === 0) {
+    throw new VellavetoError("approval ID must be a non-empty string");
+  }
+  if (id.length > 256) {
+    throw new VellavetoError("approval ID exceeds max length (256)");
+  }
+  if (/[\x00-\x1f\x7f-\x9f]/.test(id)) {
+    throw new VellavetoError("approval ID contains control characters");
+  }
 }
 
 /** Parse a verdict string into the Verdict enum. */
