@@ -92,7 +92,7 @@ change — use the ones relevant to what you modified.
 
 ## 3. The 17 Assumption Traps
 
-These are the most common mistakes from 52 audit rounds. Each one has caused
+These are the most common mistakes from 57 audit rounds. Each one has caused
 real CI failures or security findings. Read them. Memorize them.
 
 ### Trap 1: Wrong constant for the domain

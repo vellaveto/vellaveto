@@ -14,6 +14,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+#### Round 57 Adversarial Audit (100 P4, ~82 fixed)
+
+- **Code deduplication**: `glob_match`/`glob_match_bytes` extracted into shared `vellaveto-mcp/src/util.rs` from 4 duplicate copies (transparency, extension_registry, capability_token, nl_policy); `html_escape` deduplicated — `dashboard::html_escape` made `pub(crate)`, setup_wizard delegates; `FORWARDED_HEADERS`/`MAX_RESPONSE_BODY_BYTES` centralized in `proxy/mod.rs`; `validate_path_param_core` extracted in routes
+- **thiserror migration**: `AttestationError`, `NamespaceError`, `SamplingDenied` migrated from manual `Display`+`Error` impls to `#[derive(thiserror::Error)]`
+- **deny_unknown_fields**: Added to ~25 config structs — `GatewayConfig`/`BackendConfig`/`FipsConfig` + 8 detection + 5 enterprise + 4 ETDI structs
+- **New validate() methods**: `ZkBatchProof`, `ZkVerifyResult`, `ZkSchedulerStatus`, `DeploymentInfo`, `ServiceEndpoint`, `NhiStats`, `NhiCredentialRotation`, `ToolAttestation`, `FipsConfig` (wired into `PolicyConfig::validate()`)
+- **Method normalization**: `validate_finite()` → `validate()` on `UnregisteredAgent`, `ShadowAiReport`, `NhiBehavioralBaseline`, `NhiBehavioralCheckResult`, `DiscoveredTool` with `#[deprecated]` aliases for backward compatibility
+- **Named constants**: `MAX_SIGNATURE_ID_LEN=256`, `MAX_SIGNATURE_LEN=512`, `MAX_PUBLIC_KEY_LEN=512`, `MAX_ANALYSIS_CACHE_SIZE=10_000`, `SUSPICION_SATURATION_COUNT=10.0`, `TRUST_DECAY_FACTOR=0.5`, `CAPACITY_EXCEEDED_RETRY_SECS=60`, `MAX_FORM_FIELDS=100`
+- **Deprecations**: `check_auto_revoke` deprecated in favor of `revoke_stale_permissions()`; server call site updated
+- **Safety**: Custom `Debug` on `EscalationDetector` redacting analysis cache; `saturating_add` on suspicious pair counter; `Display` for `InjectionAlert`; `.map_err(AuditError::Io)` idiomatic conversion
+- **Derive additions**: `PartialEq`+`Eq` on `FipsConfig`, `GrpcTransportConfig`, `LimitsConfig`; `Eq` on `LimitsConfig`
+- **Visibility tightening**: `MAX_CONDITIONS_SIZE` made private; `html_escape` `pub(crate)` in dashboard/access_review; `SdkCapabilities::MAX_CAPABILITIES`/`MAX_VERSIONS` made `pub`; `MAX_BACKEND_ID_LEN`/`MAX_TOOL_PREFIX_LEN` made `pub`
+- **Removed dead code**: Placeholder `"2026-06"` protocol version removed from `SUPPORTED_PROTOCOL_VERSIONS` (+ 3 test files updated); unused `grpc_requests_count()` removed; `#[allow(dead_code)]` on `MCP_TRANSPORT_PREFERENCE_HEADER` removed
+- **SDK fixes**: Python `format` → `export_format` parameter in `soc2_access_review`; async client docstrings; TypeScript format validation in `soc2AccessReview`; Go `EvaluateOrError` doc comment
+- **Documentation**: Comprehensive doc comments on `Action`, `Verdict`, `Policy`, `PolicyType`, `McpServer` struct + all handler methods, `ToolSignature` fields, `PermissionTracker` fields, `TransportCircuitStats` fields, `AgentAccumulator` fields, `VersionDriftAlert` fields, `NhiBehavioralDeviation`, `MemorySecurityStats` fields, `NamespaceSharingRequest.approved` tri-state, `TransportAttempt.error`, `projector.rs` module, `routes/mod.rs` module (27 submodules), `is_loopback_addr`, `LimitsConfig` TOML example (all 11 fields)
+- **Config improvements**: `FipsConfig::validate()` checking `signature_algorithm`; `GatewayConfig`/`GrpcTransportConfig` doc comments explaining validation patterns; `LimitsConfig` TOML example updated
+- **Naming fixes**: `_trace` → `trace` in evaluation.rs; `_path` → `path` in setup_wizard; log_trace helper extracted; stale comments updated in schema_poisoning; consistent tracing target
+
 #### Round 56 Adversarial Audit (91 P3, ~72 fixed)
 
 - **deny_unknown_fields** added to 20+ config structs: `DiscoveryConfig`, `ProjectorConfig`, `ZkAuditConfig`, `AbacConfig`, `LeastAgencyConfig`, `FederationConfig`, `ContinuousAuthConfig`, 6 compliance structs, `LimitsConfig`, `TransportConfig`, `MultimodalConfig`
