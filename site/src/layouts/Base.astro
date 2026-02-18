@@ -15,16 +15,22 @@ const { title, description = 'MCP firewall for AI agent tool calls. Intercept, e
   <meta name="description" content={description}>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'">
+  <meta property="og:title" content={title}>
+  <meta property="og:description" content={description}>
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content={title}>
+  <meta name="twitter:description" content={description}>
 </head>
 <body>
-  <nav>
+  <nav aria-label="Main navigation">
     <div class="wrap">
       <a href="/" class="logo">VELLAVETO</a>
       <div class="nav-links">
         <a href="/#features">Features</a>
         <a href="/pricing">Pricing</a>
         <a href="/compliance">Compliance</a>
-        <a href="https://github.com/paolovella/vellaveto">GitHub</a>
+        <a href="https://github.com/paolovella/vellaveto" target="_blank" rel="noopener noreferrer">GitHub</a>
       </div>
     </div>
   </nav>

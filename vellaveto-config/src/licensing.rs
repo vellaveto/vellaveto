@@ -220,6 +220,20 @@ impl LicensingConfig {
             };
         }
 
+        // SECURITY (P2-3): Validate env-var key against control characters,
+        // matching the same check performed on config-file keys in validate().
+        if key
+            .bytes()
+            .any(|b| b < 0x20 || b == 0x7F || (0x80..=0x9F).contains(&b))
+        {
+            tracing::warn!("License key contains control characters, defaulting to Community tier");
+            return LicenseValidation {
+                tier: LicenseTier::Community,
+                limits: LicenseTier::Community.limits(),
+                reason: "key contains control characters".to_string(),
+            };
+        }
+
         let secret = match std::env::var("VELLAVETO_LICENSE_SECRET") {
             Ok(s) if !s.is_empty() && s.len() <= MAX_HMAC_SECRET_LEN => s,
             Ok(s) if s.is_empty() => {
@@ -230,8 +244,16 @@ impl LicensingConfig {
                     reason: "empty license secret".to_string(),
                 };
             }
-            _ => {
-                tracing::warn!("VELLAVETO_LICENSE_SECRET not set or too long");
+            Ok(_) => {
+                tracing::warn!("VELLAVETO_LICENSE_SECRET exceeds maximum length");
+                return LicenseValidation {
+                    tier: LicenseTier::Community,
+                    limits: LicenseTier::Community.limits(),
+                    reason: "license secret too long".to_string(),
+                };
+            }
+            Err(_) => {
+                tracing::warn!("VELLAVETO_LICENSE_SECRET not set");
                 return LicenseValidation {
                     tier: LicenseTier::Community,
                     limits: LicenseTier::Community.limits(),
@@ -265,6 +287,12 @@ fn validate_license_key(key: &str, secret: &str) -> LicenseValidation {
         Ok(e) => e,
         Err(_) => return community(),
     };
+
+    // SECURITY (P2-4): HMAC-SHA256 hex is always 64 chars. Reject early
+    // to avoid unnecessary allocation in to_ascii_lowercase().
+    if parts[3].len() != 64 {
+        return community();
+    }
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

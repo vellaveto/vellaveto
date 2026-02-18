@@ -96,6 +96,15 @@ impl StripeConfig {
 impl BillingConfig {
     /// Validate the billing configuration.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (P2-2): Reject empty env var names — std::env::var("")
+        // fails silently on most platforms, causing the webhook handler to
+        // accept all unsigned traffic.
+        if self.paddle.webhook_secret_env.is_empty() {
+            return Err("paddle.webhook_secret_env must not be empty".to_string());
+        }
+        if self.stripe.webhook_secret_env.is_empty() {
+            return Err("stripe.webhook_secret_env must not be empty".to_string());
+        }
         if self.paddle.webhook_secret_env.len() > MAX_ENV_VAR_NAME_LEN {
             return Err("paddle.webhook_secret_env exceeds maximum length".to_string());
         }
@@ -145,6 +154,32 @@ mod tests {
     fn test_billing_config_validate_ok() {
         let config = BillingConfig::default();
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_billing_config_validate_empty_env_name_paddle() {
+        let config = BillingConfig {
+            enabled: true,
+            paddle: PaddleConfig {
+                webhook_secret_env: String::new(),
+            },
+            stripe: StripeConfig::default(),
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("must not be empty"));
+    }
+
+    #[test]
+    fn test_billing_config_validate_empty_env_name_stripe() {
+        let config = BillingConfig {
+            enabled: true,
+            paddle: PaddleConfig::default(),
+            stripe: StripeConfig {
+                webhook_secret_env: String::new(),
+            },
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("must not be empty"));
     }
 
     #[test]

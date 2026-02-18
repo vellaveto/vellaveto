@@ -8,7 +8,7 @@
 // SECURITY:
 // - Webhooks bypass API key auth (they use provider-specific signatures)
 // - Secrets read from env vars only (never config files)
-// - Unknown/invalid payloads return 200 OK (to prevent retry storms)
+// - Signature failures return 200 OK with received:false (prevents retries)
 // - No secrets logged — only event type and subscription ID
 // - Request body size bounded by server's DefaultBodyLimit (1MB)
 
@@ -49,10 +49,6 @@ struct PaddleWebhookPayload {
     /// Event type (e.g., "subscription.created", "subscription.updated").
     #[serde(default)]
     event_type: String,
-    /// Subscription data (nested). Kept for future event processing.
-    #[serde(default)]
-    #[allow(dead_code)]
-    data: serde_json::Value,
 }
 
 /// `POST /api/billing/paddle/webhook`
@@ -67,13 +63,17 @@ pub async fn paddle_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> (StatusCode, Json<WebhookResponse>) {
-    // Bound check
+    // SECURITY (P2-4): Return 413 for oversized payloads — this is not a
+    // legitimate provider event and should not be acknowledged as received.
     if body.len() > MAX_WEBHOOK_PAYLOAD {
         tracing::warn!(
             size = body.len(),
             "Paddle webhook payload exceeds size limit"
         );
-        return (StatusCode::OK, Json(WebhookResponse { received: true }));
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(WebhookResponse { received: false }),
+        );
     }
 
     // Read webhook secret from billing config env var
@@ -83,7 +83,7 @@ pub async fn paddle_webhook(
         Ok(s) if !s.is_empty() => s,
         _ => {
             tracing::warn!("Paddle webhook secret not configured, ignoring event");
-            return (StatusCode::OK, Json(WebhookResponse { received: true }));
+            return (StatusCode::OK, Json(WebhookResponse { received: false }));
         }
     };
 
@@ -93,9 +93,11 @@ pub async fn paddle_webhook(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
+    // SECURITY (P2-5): Return received:false on signature failure so the
+    // provider's dashboard reflects that the event was not processed.
     if !verify_paddle_signature(signature, &body, &secret) {
         tracing::warn!("Paddle webhook signature verification failed");
-        return (StatusCode::OK, Json(WebhookResponse { received: true }));
+        return (StatusCode::OK, Json(WebhookResponse { received: false }));
     }
 
     // Parse payload
@@ -103,7 +105,7 @@ pub async fn paddle_webhook(
         Ok(p) => p,
         Err(e) => {
             tracing::warn!(error = %e, "Failed to parse Paddle webhook payload");
-            return (StatusCode::OK, Json(WebhookResponse { received: true }));
+            return (StatusCode::OK, Json(WebhookResponse { received: false }));
         }
     };
 
@@ -187,10 +189,6 @@ struct StripeWebhookPayload {
     /// Event type (e.g., "invoice.paid", "customer.subscription.updated").
     #[serde(default, rename = "type")]
     event_type: String,
-    /// Event data (nested). Kept for future event processing.
-    #[serde(default)]
-    #[allow(dead_code)]
-    data: serde_json::Value,
 }
 
 /// `POST /api/billing/stripe/webhook`
@@ -204,13 +202,16 @@ pub async fn stripe_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> (StatusCode, Json<WebhookResponse>) {
-    // Bound check
+    // SECURITY (P2-4): Return 413 for oversized payloads.
     if body.len() > MAX_WEBHOOK_PAYLOAD {
         tracing::warn!(
             size = body.len(),
             "Stripe webhook payload exceeds size limit"
         );
-        return (StatusCode::OK, Json(WebhookResponse { received: true }));
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(WebhookResponse { received: false }),
+        );
     }
 
     // Read webhook secret from billing config env var
@@ -220,7 +221,7 @@ pub async fn stripe_webhook(
         Ok(s) if !s.is_empty() => s,
         _ => {
             tracing::warn!("Stripe webhook secret not configured, ignoring event");
-            return (StatusCode::OK, Json(WebhookResponse { received: true }));
+            return (StatusCode::OK, Json(WebhookResponse { received: false }));
         }
     };
 
@@ -230,9 +231,10 @@ pub async fn stripe_webhook(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
+    // SECURITY (P2-5): Return received:false on signature failure.
     if !verify_stripe_signature(signature, &body, &secret) {
         tracing::warn!("Stripe webhook signature verification failed");
-        return (StatusCode::OK, Json(WebhookResponse { received: true }));
+        return (StatusCode::OK, Json(WebhookResponse { received: false }));
     }
 
     // Parse payload
@@ -240,7 +242,7 @@ pub async fn stripe_webhook(
         Ok(p) => p,
         Err(e) => {
             tracing::warn!(error = %e, "Failed to parse Stripe webhook payload");
-            return (StatusCode::OK, Json(WebhookResponse { received: true }));
+            return (StatusCode::OK, Json(WebhookResponse { received: false }));
         }
     };
 
