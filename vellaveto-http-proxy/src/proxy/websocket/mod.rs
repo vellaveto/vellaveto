@@ -28,8 +28,8 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use vellaveto_mcp::extractor::{self, MessageType};
 use vellaveto_mcp::inspection::{
-    inspect_for_injection, scan_parameters_for_secrets, scan_response_for_secrets,
-    scan_text_for_secrets,
+    inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
+    scan_response_for_secrets, scan_text_for_secrets,
 };
 use vellaveto_mcp::output_validation::ValidationResult;
 use vellaveto_types::{Action, EvaluationContext, Verdict};
@@ -1638,6 +1638,127 @@ async fn relay_client_to_upstream(
                         ref task_method,
                         ref task_id,
                     } => {
+                        // SECURITY (FIND-R76-001): Memory poisoning detection on task params.
+                        // Parity with HTTP handler (handlers.rs:2027-2084). Agents could
+                        // exfiltrate poisoned data via task management operations.
+                        {
+                            let task_params = parsed.get("params").cloned().unwrap_or(json!({}));
+                            let poisoning_detected = state
+                                .sessions
+                                .get_mut(&session_id)
+                                .and_then(|session| {
+                                    let matches =
+                                        session.memory_tracker.check_parameters(&task_params);
+                                    if !matches.is_empty() {
+                                        for m in &matches {
+                                            tracing::warn!(
+                                                "SECURITY: Memory poisoning detected in WS task '{}' (session {}): \
+                                                 param '{}' contains replayed data (fingerprint: {})",
+                                                task_method,
+                                                session_id,
+                                                m.param_location,
+                                                m.fingerprint
+                                            );
+                                        }
+                                        Some(matches.len())
+                                    } else {
+                                        None
+                                    }
+                                });
+                            if let Some(match_count) = poisoning_detected {
+                                let poison_action =
+                                    extractor::extract_task_action(task_method, task_id.as_deref());
+                                let deny_reason = format!(
+                                    "Memory poisoning detected: {} replayed data fragment(s) in task '{}'",
+                                    match_count, task_method
+                                );
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &poison_action,
+                                        &Verdict::Deny {
+                                            reason: deny_reason,
+                                        },
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "event": "memory_poisoning_detected",
+                                            "matches": match_count,
+                                            "task_method": task_method,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!("Failed to audit WS task memory poisoning: {}", e);
+                                }
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "Request blocked: security policy violation",
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                                continue;
+                            }
+                        }
+
+                        // SECURITY (FIND-R76-001): DLP scan task request parameters.
+                        // Parity with HTTP handler (handlers.rs:2086-2145). Agents could
+                        // embed secrets in task_id or params to exfiltrate them.
+                        {
+                            let task_params = parsed.get("params").cloned().unwrap_or(json!({}));
+                            let dlp_findings = scan_parameters_for_secrets(&task_params);
+                            if !dlp_findings.is_empty() {
+                                for finding in &dlp_findings {
+                                    record_dlp_finding(&finding.pattern_name);
+                                }
+                                let patterns: Vec<String> = dlp_findings
+                                    .iter()
+                                    .map(|f| format!("{} at {}", f.pattern_name, f.location))
+                                    .collect();
+                                tracing::warn!(
+                                    "SECURITY: DLP blocking WS task '{}' in session {}: {:?}",
+                                    task_method,
+                                    session_id,
+                                    patterns
+                                );
+                                let dlp_action =
+                                    extractor::extract_task_action(task_method, task_id.as_deref());
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &dlp_action,
+                                        &Verdict::Deny {
+                                            reason: format!(
+                                                "DLP: secrets detected in task request: {:?}",
+                                                patterns
+                                            ),
+                                        },
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "event": "dlp_secret_detected_task",
+                                            "task_method": task_method,
+                                            "findings": patterns,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!("Failed to audit WS task DLP: {}", e);
+                                }
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "Request blocked: security policy violation",
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                                continue;
+                            }
+                        }
+
                         // Policy-evaluate task requests (async operations)
                         let action =
                             extractor::extract_task_action(task_method, task_id.as_deref());
@@ -2066,6 +2187,66 @@ async fn relay_client_to_upstream(
                         }
                     }
                     MessageType::PassThrough | MessageType::ProgressNotification { .. } => {
+                        // SECURITY (FIND-R76-003): DLP scan PassThrough params for secrets.
+                        // Parity with HTTP handler (handlers.rs:1795-1859). Agents could
+                        // exfiltrate secrets via prompts/get, completion/complete, or any
+                        // PassThrough method's parameters.
+                        if state.response_dlp_enabled && parsed.get("method").is_some() {
+                            let dlp_findings = scan_notification_for_secrets(&parsed);
+                            if !dlp_findings.is_empty() {
+                                for finding in &dlp_findings {
+                                    record_dlp_finding(&finding.pattern_name);
+                                }
+                                let patterns: Vec<String> = dlp_findings
+                                    .iter()
+                                    .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                                    .collect();
+                                tracing::warn!(
+                                    "SECURITY: Secrets in WS passthrough params! Session: {}, Findings: {:?}",
+                                    session_id,
+                                    patterns
+                                );
+                                let n_action = Action::new(
+                                    "vellaveto",
+                                    "notification_dlp_scan",
+                                    json!({
+                                        "findings": patterns,
+                                        "session": session_id,
+                                        "transport": "websocket",
+                                    }),
+                                );
+                                let verdict = if state.response_dlp_blocking {
+                                    Verdict::Deny {
+                                        reason: format!(
+                                            "Notification blocked: secrets detected ({:?})",
+                                            patterns
+                                        ),
+                                    }
+                                } else {
+                                    Verdict::Allow
+                                };
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &n_action,
+                                        &verdict,
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "event": "notification_dlp_alert",
+                                            "blocked": state.response_dlp_blocking,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!("Failed to audit WS passthrough DLP: {}", e);
+                                }
+                                if state.response_dlp_blocking {
+                                    // Drop the message silently (passthrough has no id to respond to)
+                                    continue;
+                                }
+                            }
+                        }
+
                         // SECURITY (FIND-R46-WS-004): Audit log forwarded passthrough/notification messages
                         let msg_type = match &classified {
                             MessageType::ProgressNotification { .. } => "progress_notification",

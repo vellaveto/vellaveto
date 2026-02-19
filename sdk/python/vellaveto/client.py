@@ -243,7 +243,7 @@ class VellavetoClient:
         timeout: float = 10.0,
         verify_ssl: bool = True,
         redactor: Optional["ParameterRedactor"] = None,
-        max_retries: int = 1,
+        max_retries: int = 3,
     ):
         """
         Initialize the Vellaveto client.
@@ -255,7 +255,7 @@ class VellavetoClient:
             verify_ssl: Whether to verify SSL certificates
             redactor: Optional ParameterRedactor for client-side secret stripping
             max_retries: Maximum number of retries for transient failures
-                (connection errors, 502/503/504). Default 1.
+                (connection errors, 502/503/504). Default 3 (aligned with Go/TS SDKs).
         """
         # SECURITY (FIND-R73-SDK-002): Validate base URL — parity with Go/TS SDKs.
         self.url = _validate_base_url(url)
@@ -850,7 +850,7 @@ class AsyncVellavetoClient:
         timeout: float = 10.0,
         verify_ssl: bool = True,
         redactor: Optional["ParameterRedactor"] = None,
-        max_retries: int = 1,
+        max_retries: int = 3,
     ):
         """
         Initialize the async Vellaveto client.
@@ -862,7 +862,7 @@ class AsyncVellavetoClient:
             verify_ssl: Whether to verify SSL certificates
             redactor: Optional ParameterRedactor for client-side secret stripping
             max_retries: Maximum number of retries for transient failures
-                (connection errors, 502/503/504). Default 1.
+                (connection errors, 502/503/504). Default 3 (aligned with Go/TS SDKs).
         """
         if not HAS_HTTPX:
             raise ImportError(
