@@ -2350,11 +2350,13 @@ pub async fn handle_mcp_post(
             {
                 tracing::warn!("Failed to audit batch rejection: {}", e);
             }
+            // SECURITY (FIND-R92-001): Use BATCH_NOT_ALLOWED for parity with
+            // make_batch_error_response() and correct semantic error code.
             let response = json!({
                 "jsonrpc": "2.0",
                 "id": null,
                 "error": {
-                    "code": -32600,
+                    "code": vellaveto_types::json_rpc::BATCH_NOT_ALLOWED,
                     "message": "JSON-RPC batching is not supported (MCP 2025-06-18)"
                 }
             });

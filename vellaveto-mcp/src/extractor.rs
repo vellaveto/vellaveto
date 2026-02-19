@@ -505,11 +505,14 @@ pub fn extract_extension_action(extension_id: &str, method: &str, params: &Value
 /// Uses `id: null` since batch messages don't have a single ID.
 pub fn make_batch_error_response() -> Value {
     use vellaveto_types::json_rpc;
+    // SECURITY (FIND-R92-001): Use BATCH_NOT_ALLOWED (-32010) instead of
+    // INVALID_REQUEST (-32600). Batch rejection is a policy decision, not a
+    // malformed request — using the correct code prevents fingerprinting.
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": null,
         "error": {
-            "code": json_rpc::INVALID_REQUEST,
+            "code": json_rpc::BATCH_NOT_ALLOWED,
             "message": "JSON-RPC batching is not supported (MCP 2025-06-18)"
         }
     })
@@ -1229,7 +1232,8 @@ mod tests {
         let resp = make_batch_error_response();
         assert_eq!(resp["jsonrpc"], "2.0");
         assert!(resp["id"].is_null());
-        assert_eq!(resp["error"]["code"], -32600);
+        // FIND-R92-001: Updated from -32600 (INVALID_REQUEST) to -32010 (BATCH_NOT_ALLOWED)
+        assert_eq!(resp["error"]["code"], -32010);
         assert!(resp["error"]["message"]
             .as_str()
             .is_some_and(|m| m.contains("batching")));

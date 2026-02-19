@@ -475,6 +475,22 @@ impl ProxyBridge {
                 // MCP 2025-06-18: batching removed from spec.
                 let response = make_batch_error_response();
                 tracing::warn!("Rejected JSON-RPC batch request");
+                // SECURITY (FIND-R92-002): Audit batch rejection for parity with
+                // HTTP proxy (handlers.rs:2331-2351).
+                let batch_action = extract_action("vellaveto", &json!({"event": "batch_rejected"}));
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &batch_action,
+                        &Verdict::Deny {
+                            reason: "JSON-RPC batching not supported".to_string(),
+                        },
+                        json!({"source": "proxy", "event": "batch_rejected"}),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit batch rejection: {}", e);
+                }
                 write_message(io.agent, &response)
                     .await
                     .map_err(ProxyError::Framing)
