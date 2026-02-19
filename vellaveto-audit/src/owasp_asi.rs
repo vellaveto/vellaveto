@@ -19,6 +19,17 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+// ── Validation Constants ────────────────────────────────────────────────────
+
+/// Maximum number of ASI controls (current spec: 33).
+const MAX_ASI_CONTROLS: usize = 100;
+
+/// Maximum number of ASI categories (current spec: 10).
+const MAX_ASI_CATEGORIES: usize = 20;
+
+/// Maximum mitigations per control.
+const MAX_MITIGATIONS_PER_CONTROL: usize = 50;
+
 use crate::atlas::VellavetoDetection;
 
 /// OWASP Agentic Security Index categories (ASI01–ASI10).
@@ -115,6 +126,51 @@ pub struct AsiCoverageReport {
     pub category_coverage: Vec<CategoryCoverage>,
     /// Coverage matrix: one row per control.
     pub control_matrix: Vec<ControlMatrixRow>,
+}
+
+impl AsiCoverageReport {
+    /// Validate bounds on deserialized data (FIND-R82-007).
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.coverage_percent.is_finite() || self.coverage_percent < 0.0 || self.coverage_percent > 100.0 {
+            return Err(format!(
+                "coverage_percent out of range: {}",
+                self.coverage_percent
+            ));
+        }
+        if self.category_coverage.len() > MAX_ASI_CATEGORIES {
+            return Err(format!(
+                "category_coverage has {} entries, max is {}",
+                self.category_coverage.len(),
+                MAX_ASI_CATEGORIES,
+            ));
+        }
+        if self.control_matrix.len() > MAX_ASI_CONTROLS {
+            return Err(format!(
+                "control_matrix has {} entries, max is {}",
+                self.control_matrix.len(),
+                MAX_ASI_CONTROLS,
+            ));
+        }
+        for cc in &self.category_coverage {
+            if !cc.coverage_percent.is_finite() || cc.coverage_percent < 0.0 || cc.coverage_percent > 100.0 {
+                return Err(format!(
+                    "category_coverage[{}].coverage_percent out of range: {}",
+                    cc.category_name, cc.coverage_percent
+                ));
+            }
+        }
+        for row in &self.control_matrix {
+            if row.mitigations.len() > MAX_MITIGATIONS_PER_CONTROL {
+                return Err(format!(
+                    "control_matrix[{}].mitigations has {} entries, max is {}",
+                    row.id,
+                    row.mitigations.len(),
+                    MAX_MITIGATIONS_PER_CONTROL,
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// A single row in the control coverage matrix.
@@ -1081,5 +1137,41 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ── FIND-R82-007: AsiCoverageReport validate() ──────────────────────────
+
+    #[test]
+    fn test_report_validate_passes_for_valid_report() {
+        let registry = OwaspAsiRegistry::new();
+        let report = registry.generate_coverage_report();
+        assert!(report.validate().is_ok());
+    }
+
+    #[test]
+    fn test_report_validate_rejects_nan_coverage() {
+        let registry = OwaspAsiRegistry::new();
+        let mut report = registry.generate_coverage_report();
+        report.coverage_percent = f32::NAN;
+        let err = report.validate().unwrap_err();
+        assert!(err.contains("coverage_percent"), "err: {}", err);
+    }
+
+    #[test]
+    fn test_report_validate_rejects_negative_coverage() {
+        let registry = OwaspAsiRegistry::new();
+        let mut report = registry.generate_coverage_report();
+        report.coverage_percent = -1.0;
+        let err = report.validate().unwrap_err();
+        assert!(err.contains("coverage_percent"), "err: {}", err);
+    }
+
+    #[test]
+    fn test_report_validate_rejects_over_100_coverage() {
+        let registry = OwaspAsiRegistry::new();
+        let mut report = registry.generate_coverage_report();
+        report.coverage_percent = 101.0;
+        let err = report.validate().unwrap_err();
+        assert!(err.contains("coverage_percent"), "err: {}", err);
     }
 }
