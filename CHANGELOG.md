@@ -9,10 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **OWASP Agentic Security Index (Phase 41):** 10-category, 33-control compliance registry mapping ASI01–ASI10 to Vellaveto detection capabilities. `GET /api/compliance/owasp-agentic` endpoint with 60s cache TTL, gated on `OwaspAsiConfig.enabled`. Integrated into gap analysis (8 frameworks), compliance status summary, and dashboard. SDK methods: Python `owasp_asi_coverage()` (sync+async), TypeScript `owaspAsiCoverage()` (typed response), Go `OwaspAsiCoverage()` (with nested types). `OwaspAsiConfig` with `deny_unknown_fields` and `validate()`. `AsiCoverageReport::validate()` with bounds on collections and `f32` range checks.
 - **Interactive Setup Wizard** (`/setup`): Web-based 7-step configuration wizard for first-time users (Welcome → Security → Policies → Detection → Audit → Compliance → Review/Apply). Server-side rendered HTML, CSRF protection, bounded session management, TOML config generation with hot-reload. Guard middleware locks wizard after initial setup via `.setup-complete` marker file.
 - **Cloudflare Pages deployment** for [www.vellaveto.online](https://www.vellaveto.online): `deploy-site.yml` workflow, `_redirects` (apex → www), `_headers` (security headers), Astro site URL updated from `vellaveto.dev`.
 
 ### Security
+
+#### Round 82 Adversarial Audit (9 findings — 4 P2 + 5 P3)
+
+**P2 — High:**
+- **UTF-8 truncation panic in `SchemaRecord::push_version()`** (`vellaveto-types/src/threat.rs`): Byte-slice `hash[..MAX_HASH_LEN]` panicked on multi-byte UTF-8 character boundaries. Fixed with `is_char_boundary()` guard.
+- **UTF-8 truncation panic in `SamplingStats::reset_window()`** (`vellaveto-types/src/threat.rs`): `String::truncate(MAX_PATTERN_ENTRY_LEN)` panicked on multi-byte boundaries. Fixed with char boundary search.
+- **`owasp_asi.enabled` config flag was no-op** (`vellaveto-server/src/routes/compliance.rs`): `GET /api/compliance/owasp-agentic` and `compliance_status()` ignored the config flag. Now gates on `OwaspAsiConfig.enabled`, matching other compliance endpoints.
+- **Python SDK `soc2_access_review()` missing period validation** (`sdk/python/vellaveto/client.py`): Added max length (32), character set (`[a-zA-Z0-9\-:]`), and non-empty checks matching TS SDK.
+
+**P3 — Low:**
+- Added `deny_unknown_fields` to `AsiControl`, `CategoryCoverage`, `AsiCoverageReport`, `ControlMatrixRow`
+- Added `AsiCoverageReport::validate()` with bounds on collections and `f32` range checks
+- TypeScript SDK: typed `OwaspAsiCoverageResponse` interface replacing `Record<string, unknown>`
+- Go SDK: `AsiCategoryCoverage`, `AsiControlMatrixRow` nested types for full report access
 
 #### Round 58 Adversarial Audit (78 findings — 3 P1 + 24 P2 + 18 P3 + 11 P4)
 
