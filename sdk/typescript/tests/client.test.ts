@@ -329,6 +329,46 @@ describe("VellavetoClient", () => {
     warnSpy.mockRestore();
   });
 
+  // ── FIND-R67-SDK-004: CRLF header injection ──────
+
+  test("extraHeaders with CRLF in key throws VellavetoError", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", headers: { "X-Bad\r\nHeader": "value" } })
+    ).toThrow("Header names and values must not contain CR or LF characters");
+  });
+
+  test("extraHeaders with CRLF in value throws VellavetoError", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", headers: { "X-Custom": "val\r\nue" } })
+    ).toThrow("Header names and values must not contain CR or LF characters");
+  });
+
+  // ── FIND-R67-SDK-TS-001: Content-Type override blocking ──
+
+  test("extraHeaders with Content-Type throws VellavetoError", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", headers: { "Content-Type": "text/xml" } })
+    ).toThrow("Content-Type header cannot be overridden via extraHeaders");
+  });
+
+  test("extraHeaders with content-type (lowercase) throws VellavetoError", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", headers: { "content-type": "text/plain" } })
+    ).toThrow("Content-Type header cannot be overridden via extraHeaders");
+  });
+
+  test("extraHeaders with CONTENT-TYPE (uppercase) throws VellavetoError", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", headers: { "CONTENT-TYPE": "application/xml" } })
+    ).toThrow("Content-Type header cannot be overridden via extraHeaders");
+  });
+
+  test("extraHeaders with non-Content-Type headers accepted", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", headers: { "X-Custom": "value", "X-Request-Id": "abc" } })
+    ).not.toThrow();
+  });
+
   // ── P1-10: evaluate extracts reason, policy_id, policy_name ──
 
   test("evaluate extracts reason from top-level field", async () => {

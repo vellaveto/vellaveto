@@ -1335,6 +1335,85 @@ func TestNewClient_WSScheme(t *testing.T) {
 	}
 }
 
+// ── FIND-R67-SDK-003: Reject credentials in baseURL ─────────
+
+func TestNewClient_RejectsUserinfo(t *testing.T) {
+	_, err := NewClient("http://user:password@localhost:3000")
+	if err == nil {
+		t.Fatal("expected error for URL with credentials")
+	}
+	if !strings.Contains(err.Error(), "credentials") {
+		t.Errorf("error = %q, want contains 'credentials'", err.Error())
+	}
+}
+
+func TestNewClient_RejectsUserinfoNoPassword(t *testing.T) {
+	_, err := NewClient("http://user@localhost:3000")
+	if err == nil {
+		t.Fatal("expected error for URL with username-only userinfo")
+	}
+	if !strings.Contains(err.Error(), "credentials") {
+		t.Errorf("error = %q, want contains 'credentials'", err.Error())
+	}
+}
+
+func TestNewClient_RejectsHTTPSUserinfo(t *testing.T) {
+	_, err := NewClient("https://admin:secret@api.example.com")
+	if err == nil {
+		t.Fatal("expected error for HTTPS URL with credentials")
+	}
+	if !strings.Contains(err.Error(), "userinfo") {
+		t.Errorf("error = %q, want contains 'userinfo'", err.Error())
+	}
+}
+
+// ── FIND-R67-SDK-GO-001: Soc2AccessReview format validation ──
+
+func TestSoc2AccessReview_InvalidFormat(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	_, err := c.Soc2AccessReview(context.Background(), "30d", "xml", "")
+	if err == nil {
+		t.Fatal("expected error for invalid format 'xml'")
+	}
+	if !strings.Contains(err.Error(), "format must be") {
+		t.Errorf("error = %q, want contains 'format must be'", err.Error())
+	}
+}
+
+func TestSoc2AccessReview_EmptyFormatAllowed(t *testing.T) {
+	srv := testServer(t, "GET", "/api/compliance/soc2/access-review", 200, AccessReviewReport{
+		GeneratedAt: "2026-02-16T00:00:00Z",
+		TotalAgents: 0,
+		Entries:     []AccessReviewEntry{},
+		CC6Evidence: Cc6Evidence{},
+		Attestation: ReviewerAttestation{Status: "pending"},
+	})
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	_, err := c.Soc2AccessReview(context.Background(), "", "", "")
+	if err != nil {
+		t.Fatalf("Soc2AccessReview() error: %v (empty format should be allowed)", err)
+	}
+}
+
+func TestSoc2AccessReview_HTMLFormatAllowed(t *testing.T) {
+	srv := testServer(t, "GET", "/api/compliance/soc2/access-review", 200, AccessReviewReport{
+		GeneratedAt: "2026-02-16T00:00:00Z",
+		TotalAgents: 0,
+		Entries:     []AccessReviewEntry{},
+		CC6Evidence: Cc6Evidence{},
+		Attestation: ReviewerAttestation{Status: "pending"},
+	})
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	_, err := c.Soc2AccessReview(context.Background(), "", "html", "")
+	if err != nil {
+		t.Fatalf("Soc2AccessReview() error: %v (html format should be allowed)", err)
+	}
+}
+
 // ── FIND-GAP-010: Discovery and Projector method tests ──────
 
 func TestDiscoverySearch(t *testing.T) {

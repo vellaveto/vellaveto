@@ -346,7 +346,8 @@ impl WorkflowTracker {
         }
         session.recent_tools.push_back(action.tool.clone());
 
-        session.total_steps += 1;
+        // SECURITY (FIND-R67-P3-004): Use saturating_add to prevent counter overflow.
+        session.total_steps = session.total_steps.saturating_add(1);
 
         // Check budget
         let budget = workflow.custom_budget.unwrap_or(self.config.step_budget);
@@ -410,7 +411,9 @@ impl WorkflowTracker {
         for workflow in session.workflows.values() {
             for action in &workflow.actions {
                 for resource in &action.resources {
-                    *all_resources.entry(resource.clone()).or_insert(0) += 1;
+                    // SECURITY (FIND-R67-P3-004): Use saturating_add to prevent counter overflow.
+                    let count = all_resources.entry(resource.clone()).or_insert(0);
+                    *count = count.saturating_add(1);
                 }
             }
         }

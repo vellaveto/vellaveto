@@ -92,6 +92,11 @@ func NewClient(baseURL string, opts ...Option) (*Client, error) {
 	if parsed.Host == "" {
 		return nil, fmt.Errorf("vellaveto: baseURL must have a host")
 	}
+	// SECURITY (FIND-R67-SDK-003): Reject URLs containing credentials (userinfo).
+	// Credentials in the URL leak into logs, HTTP headers, and error messages.
+	if parsed.User != nil {
+		return nil, fmt.Errorf("vellaveto: baseURL must not contain credentials (userinfo)")
+	}
 
 	c := &Client{
 		baseURL: trimmed,
@@ -122,7 +127,9 @@ func (c *Client) String() string {
 	return fmt.Sprintf("vellaveto.Client{baseURL: %q, apiKey: ***}", c.baseURL)
 }
 
-// do executes an HTTP request and returns the response body.
+// do executes a single HTTP request and returns the response body.
+// NOTE (FIND-R67-SDK-GO-002): This method does not retry. Use doJSON for
+// automatic retry with exponential backoff on transient failures (429/502/503/504).
 func (c *Client) do(ctx context.Context, method, path string, body interface{}) ([]byte, int, error) {
 	var reqBody io.Reader
 	if body != nil {
@@ -613,6 +620,10 @@ func (c *Client) ZkCommitments(ctx context.Context, from, to uint64) (*ZkCommitm
 func (c *Client) Soc2AccessReview(ctx context.Context, period, format, agentID string) (*AccessReviewReport, error) {
 	if len(agentID) > 128 {
 		return nil, &VellavetoError{Message: "agent_id exceeds max length (128)"}
+	}
+	// SECURITY (FIND-R67-SDK-GO-001): Validate format parameter.
+	if format != "" && format != "json" && format != "html" {
+		return nil, &VellavetoError{Message: fmt.Sprintf("format must be \"json\" or \"html\", got %q", format)}
 	}
 	// SECURITY (FIND-R55-SDK-005): Reject control chars. Parity with FederationTrustAnchors.
 	for _, ch := range agentID {

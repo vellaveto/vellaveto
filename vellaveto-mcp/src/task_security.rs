@@ -42,6 +42,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use vellaveto_types::{
@@ -273,8 +274,12 @@ impl SecureTaskManager {
             return Err(TaskSecurityError::ReplayDetected);
         }
 
-        // Verify resume token (compare directly, no lock needed since we have task)
-        let token_valid = task.resume_token.as_deref() == Some(&request.resume_token);
+        // SECURITY (FIND-R67-P3-003): Constant-time comparison to prevent
+        // timing side-channels on resume token verification.
+        let token_valid = match task.resume_token.as_deref() {
+            Some(stored) => constant_time_str_eq(stored, &request.resume_token),
+            None => false,
+        };
         if !token_valid {
             return Ok(TaskResumeResult {
                 authorized: false,
@@ -576,13 +581,15 @@ impl SecureTaskManager {
     }
 
     fn verify_resume_token(&self, task_id: &str, token: &str) -> bool {
-        // For verification, we check that the token was generated with our key
-        // by checking if it's a valid HMAC (we store the full token, so we compare directly)
-        // In production, you'd store a hash of the token and compare
+        // SECURITY (FIND-R67-P3-003): Constant-time comparison to prevent
+        // timing side-channels on resume token verification.
         let tasks = self.tasks.try_read();
         if let Ok(tasks) = tasks {
             if let Some(task) = tasks.get(task_id) {
-                return task.resume_token.as_deref() == Some(token);
+                return match task.resume_token.as_deref() {
+                    Some(stored) => constant_time_str_eq(stored, token),
+                    None => false,
+                };
             }
         }
         false
@@ -686,6 +693,18 @@ impl SecureTaskManager {
             failure_reason: None,
         }
     }
+}
+
+/// Constant-time string comparison for security-sensitive tokens.
+///
+/// Returns `false` for length mismatch (leaks length, which is acceptable
+/// for fixed-length hex-encoded HMAC tokens). Uses `subtle::ConstantTimeEq`
+/// for the byte comparison to prevent timing side-channels.
+fn constant_time_str_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.as_bytes().ct_eq(b.as_bytes()).into()
 }
 
 #[cfg(test)]

@@ -237,13 +237,20 @@ impl NhiManager {
                 stats.expired_identities = stats.expired_identities.saturating_sub(1)
             }
         }
+        // SECURITY (FIND-R67-P3-002): Use saturating_add to prevent counter overflow.
         match new_status {
             NhiIdentityStatus::Active | NhiIdentityStatus::Probationary => {
-                stats.active_identities += 1
+                stats.active_identities = stats.active_identities.saturating_add(1)
             }
-            NhiIdentityStatus::Suspended => stats.suspended_identities += 1,
-            NhiIdentityStatus::Revoked => stats.revoked_identities += 1,
-            NhiIdentityStatus::Expired => stats.expired_identities += 1,
+            NhiIdentityStatus::Suspended => {
+                stats.suspended_identities = stats.suspended_identities.saturating_add(1)
+            }
+            NhiIdentityStatus::Revoked => {
+                stats.revoked_identities = stats.revoked_identities.saturating_add(1)
+            }
+            NhiIdentityStatus::Expired => {
+                stats.expired_identities = stats.expired_identities.saturating_add(1)
+            }
         }
 
         Ok(())
@@ -303,11 +310,12 @@ impl NhiManager {
             .get_mut(id)
             .ok_or_else(|| NhiError::IdentityNotFound(id.to_string()))?;
 
-        identity.auth_count += 1;
+        // SECURITY (FIND-R67-P3-002): Use saturating_add to prevent counter overflow.
+        identity.auth_count = identity.auth_count.saturating_add(1);
         identity.last_auth = Some(chrono::Utc::now().to_rfc3339());
 
         let mut stats = self.stats.write().await;
-        stats.auths_last_hour += 1;
+        stats.auths_last_hour = stats.auths_last_hour.saturating_add(1);
 
         Ok(())
     }
@@ -348,7 +356,8 @@ impl NhiManager {
                     active_hours: Vec::new(),
                 });
 
-        baseline.observation_count += 1;
+        // SECURITY (FIND-R67-P3-002): Use saturating_add to prevent counter overflow.
+        baseline.observation_count = baseline.observation_count.saturating_add(1);
         baseline.last_updated = now.to_rfc3339();
 
         // Update tool call frequency (exponential moving average)
@@ -662,7 +671,8 @@ impl NhiManager {
 
         // Update stats
         let mut stats = self.stats.write().await;
-        stats.dpop_verifications_last_hour += 1;
+        // SECURITY (FIND-R67-P3-002): Use saturating_add to prevent counter overflow.
+        stats.dpop_verifications_last_hour = stats.dpop_verifications_last_hour.saturating_add(1);
 
         // Note: Actual cryptographic verification (signature check, key extraction)
         // should be done by the caller using a proper JWT library.

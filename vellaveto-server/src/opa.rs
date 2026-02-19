@@ -27,6 +27,10 @@ const FALLBACK_CACHE_SIZE: usize = 1000;
 /// Maximum serialized size for OPA input context JSON (1 MB).
 const MAX_OPA_CONTEXT_SIZE: usize = 1_048_576;
 
+/// SECURITY (FIND-R70-002): Maximum TTL for OPA cache (7 days) to prevent
+/// `Instant::now() + Duration` overflow panic on extreme config values.
+const MAX_OPA_CACHE_TTL_SECS: u64 = 7 * 24 * 3600;
+
 /// Errors that can occur during OPA evaluation.
 #[derive(Debug, Error)]
 pub enum OpaError {
@@ -279,7 +283,9 @@ impl OpaClient {
                 cache_key,
                 CachedDecision {
                     decision: decision.clone(),
-                    expires_at: Instant::now() + Duration::from_secs(self.config.cache_ttl_secs),
+                    // SECURITY (FIND-R70-002): Cap TTL to prevent Instant overflow.
+                    expires_at: Instant::now()
+                        + Duration::from_secs(self.config.cache_ttl_secs.min(MAX_OPA_CACHE_TTL_SECS)),
                 },
             );
         }

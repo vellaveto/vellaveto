@@ -25,6 +25,9 @@ pub const MIN_RETENTION_DAYS: u32 = 30;
 /// Maximum SOC 2 tracked categories.
 pub const MAX_SOC2_CATEGORIES: usize = 9;
 
+/// Maximum length for compliance string fields (deployer_name, system_id, etc.).
+pub const MAX_COMPLIANCE_STRING_LEN: usize = 512;
+
 // ── EU AI Act Configuration ───────────────────────────────────────────────────
 
 /// EU AI Act compliance configuration.
@@ -242,6 +245,14 @@ pub struct ComplianceConfig {
 impl ComplianceConfig {
     /// Validate compliance configuration bounds.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R67-P3-001): Validate string fields for control characters
+        // and length bounds to prevent injection and memory abuse.
+        Self::validate_compliance_string("eu_ai_act.deployer_name", &self.eu_ai_act.deployer_name)?;
+        Self::validate_compliance_string("eu_ai_act.system_id", &self.eu_ai_act.system_id)?;
+        Self::validate_compliance_string("soc2.organization_name", &self.soc2.organization_name)?;
+        Self::validate_compliance_string("soc2.period_start", &self.soc2.period_start)?;
+        Self::validate_compliance_string("soc2.period_end", &self.soc2.period_end)?;
+
         if self.eu_ai_act.human_oversight_tools.len() > MAX_HUMAN_OVERSIGHT_TOOLS {
             return Err(format!(
                 "eu_ai_act.human_oversight_tools has {} entries, max is {}",
@@ -286,6 +297,18 @@ impl ComplianceConfig {
                 MAX_ACCESS_REVIEW_REVIEWERS,
             ));
         }
+        // Validate human_oversight_tools entries for control characters
+        for (i, tool) in self.eu_ai_act.human_oversight_tools.iter().enumerate() {
+            if tool.len() > MAX_COMPLIANCE_STRING_LEN {
+                return Err(format!(
+                    "eu_ai_act.human_oversight_tools[{}] length {} exceeds max {}",
+                    i,
+                    tool.len(),
+                    MAX_COMPLIANCE_STRING_LEN,
+                ));
+            }
+        }
+
         for (i, name) in ar.reviewers.iter().enumerate() {
             if name.len() > MAX_REVIEWER_NAME_LEN {
                 return Err(format!(
@@ -303,6 +326,24 @@ impl ComplianceConfig {
                     i,
                 ));
             }
+        }
+        Ok(())
+    }
+
+    /// Validate a compliance string field for control characters and length.
+    fn validate_compliance_string(field_name: &str, value: &str) -> Result<(), String> {
+        if value.len() > MAX_COMPLIANCE_STRING_LEN {
+            return Err(format!(
+                "{} length {} exceeds max {}",
+                field_name,
+                value.len(),
+                MAX_COMPLIANCE_STRING_LEN,
+            ));
+        }
+        // SECURITY: Byte-level control char check matching governance.rs pattern —
+        // includes C1 controls (0x80-0x9F).
+        if value.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+            return Err(format!("{} contains control characters", field_name));
         }
         Ok(())
     }
@@ -577,6 +618,83 @@ reviewers = ["Alice"]
         // access_review should default to disabled
         assert!(!config.soc2.access_review.enabled);
         // Overall validation should still pass
+        assert!(config.validate().is_ok());
+    }
+
+    // ── FIND-R67-P3-001: Compliance string field validation ─────────────────
+
+    #[test]
+    fn test_deployer_name_control_chars_rejected() {
+        let mut config = ComplianceConfig::default();
+        config.eu_ai_act.deployer_name = "Acme\x00Corp".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("eu_ai_act.deployer_name"));
+        assert!(err.contains("control characters"));
+    }
+
+    #[test]
+    fn test_deployer_name_too_long_rejected() {
+        let mut config = ComplianceConfig::default();
+        config.eu_ai_act.deployer_name = "a".repeat(513);
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("eu_ai_act.deployer_name"));
+        assert!(err.contains("exceeds max"));
+    }
+
+    #[test]
+    fn test_system_id_control_chars_rejected() {
+        let mut config = ComplianceConfig::default();
+        config.eu_ai_act.system_id = "sys\x1Fid".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("eu_ai_act.system_id"));
+        assert!(err.contains("control characters"));
+    }
+
+    #[test]
+    fn test_system_id_too_long_rejected() {
+        let mut config = ComplianceConfig::default();
+        config.eu_ai_act.system_id = "x".repeat(513);
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("eu_ai_act.system_id"));
+        assert!(err.contains("exceeds max"));
+    }
+
+    #[test]
+    fn test_organization_name_control_chars_rejected() {
+        let mut config = ComplianceConfig::default();
+        config.soc2.organization_name = "Org\x7FName".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("soc2.organization_name"));
+        assert!(err.contains("control characters"));
+    }
+
+    #[test]
+    fn test_period_start_control_chars_rejected() {
+        let mut config = ComplianceConfig::default();
+        config.soc2.period_start = "2026\x00-01-01".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("soc2.period_start"));
+        assert!(err.contains("control characters"));
+    }
+
+    #[test]
+    fn test_period_end_c1_control_rejected() {
+        let mut config = ComplianceConfig::default();
+        // C1 control character (0x85 = NEL)
+        config.soc2.period_end = "2026\u{0085}12-31".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("soc2.period_end"));
+        assert!(err.contains("control characters"));
+    }
+
+    #[test]
+    fn test_valid_strings_pass() {
+        let mut config = ComplianceConfig::default();
+        config.eu_ai_act.deployer_name = "Acme Corp".to_string();
+        config.eu_ai_act.system_id = "vellaveto-001".to_string();
+        config.soc2.organization_name = "Acme".to_string();
+        config.soc2.period_start = "2026-01-01".to_string();
+        config.soc2.period_end = "2026-12-31".to_string();
         assert!(config.validate().is_ok());
     }
 }

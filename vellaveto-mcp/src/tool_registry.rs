@@ -69,7 +69,9 @@ pub enum TrustLevel {
 }
 
 /// A single tool entry in the registry.
+/// SECURITY (FIND-R70-001): deny_unknown_fields on deserialized registry entry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ToolEntry {
     /// Tool name (identifier).
     pub tool_id: String,

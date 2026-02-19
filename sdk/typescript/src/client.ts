@@ -365,11 +365,18 @@ export class VellavetoClient {
 
     // SECURITY (FIND-R67-SDK-004): Reject header names/values containing CR or LF
     // to prevent CRLF header injection attacks.
+    // SECURITY (FIND-R67-SDK-TS-001): Block Content-Type override via extraHeaders.
+    // All requests use application/json; allowing override could bypass server parsing.
     const rawHeaders = options.headers ?? {};
     for (const [key, value] of Object.entries(rawHeaders)) {
       if (/[\r\n]/.test(key) || /[\r\n]/.test(value)) {
         throw new VellavetoError(
           "Header names and values must not contain CR or LF characters"
+        );
+      }
+      if (key.toLowerCase() === "content-type") {
+        throw new VellavetoError(
+          "Content-Type header cannot be overridden via extraHeaders"
         );
       }
     }

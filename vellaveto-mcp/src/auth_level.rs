@@ -140,7 +140,14 @@ impl AuthLevelTracker {
             return;
         }
 
-        let expires_at = expires.or(self.default_expiry).map(|d| Instant::now() + d);
+        // SECURITY (FIND-R70-002): Use checked_add to prevent Instant overflow on extreme Duration.
+        // Fallback to 24h expiry if overflow occurs (fail-closed: session expires sooner, not never).
+        let expires_at = expires.or(self.default_expiry).map(|d| {
+            Instant::now().checked_add(d).unwrap_or_else(|| {
+                tracing::warn!("Auth level expiry overflow, using 24h fallback");
+                Instant::now() + Duration::from_secs(86400)
+            })
+        });
 
         sessions.insert(
             session_id.to_string(),

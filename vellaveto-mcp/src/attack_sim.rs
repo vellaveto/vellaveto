@@ -106,7 +106,9 @@ pub enum AttackSeverity {
 }
 
 /// An individual attack payload/variant.
+/// SECURITY (FIND-R70-001): deny_unknown_fields on externally loaded attack data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AttackPayload {
     /// Unique identifier for this payload variant
     pub id: String,
@@ -160,6 +162,7 @@ pub enum AttackContent {
 
 /// A step in a multi-step attack sequence.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AttackStep {
     /// Step number (1-indexed)
     pub step: u32,
@@ -173,6 +176,7 @@ pub struct AttackStep {
 
 /// An attack scenario containing multiple payloads.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AttackScenario {
     /// Unique identifier
     pub id: String,
