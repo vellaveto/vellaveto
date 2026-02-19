@@ -14,6 +14,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+#### Round 58 Adversarial Audit (78 findings — 3 P1 + 24 P2 + 18 P3 + 11 P4)
+
+**P1 — Critical:**
+- **Redis self-approval homoglyph bypass** (`vellaveto-cluster/src/redis_backend.rs`): `approval_approve()` applied NFKC + case folding but NOT `normalize_homoglyphs()`. Cyrillic homoglyphs (e.g., U+0430 for Latin 'a') bypassed the self-approval check, allowing an attacker to approve their own request when the Redis backend was used.
+- **Redis self-denial prevention absent** (`vellaveto-cluster/src/redis_backend.rs`): `approval_deny()` had NO self-denial check at all, breaking the separation-of-privilege contract that the local `ApprovalStore` enforces.
+- **TypeScript SDK `Action` missing `resolved_ips`** (`sdk/typescript/src/types.ts`): SDK parity gap — Python and Go SDKs included `resolved_ips` but TypeScript did not, preventing DNS rebinding defense for TS clients.
+
+**P2 — High:**
+- Engine: `from_snapshot()` unbounded agents/tools OOM, `validate_regex_safety` negative paren_depth bypass
+- MCP: `session_baselines`/`session_contexts` unbounded HashMaps capped (MAX 100K), `DataFlowConfig` deny_unknown_fields + upper bounds, `request_count`/`sample_count`/`total_tokens` saturating_add (4 counters), division-by-zero guard in `detect_homoglyph_stego`
+- Config: `deny_unknown_fields` on ~28 config structs (A2A, cluster, 6 observability, 5 memory/NHI, 10 threat-detection, tool registry), `A2aConfig`/`ClusterConfig` validate() with bounds
+- SDK: Go retry with exponential backoff on 429/502/503/504
+
+**P3 — Medium:**
+- Config: `MemorySecurityConfig`/`ToolRegistryConfig`/`GoalTrackerConfig`/`TokenSecurityConfig`/`OutputSecurityConfig` validate() with float threshold validation (NaN/Infinity/range), `BehavioralDetectionConfig`/`SemanticDetectionConfig`/`SchemaPoisoningConfig`/`CrossAgentConfig` validate(), `ObservabilityConfig` sample_rate NaN check
+- Engine: unclosed parentheses detection, circuit_breaker/traced counters saturating_add, ABAC Forbid early return, RwLock recovery documentation, case-sensitivity contract documentation
+- MCP: GoalTracker post-cleanup capacity re-check, budget==0 fail-closed guard
+- Server: Tenant validate() with RFC 3339 timestamps + control chars + metadata bounds, JIT control char validation, OPA context 1MB limit
+- SDK: TypeScript retry with exponential backoff (parity with Python)
+
+**P4 — Low:**
+- MCP: Homoglyph detection OnceLock+HashSet for O(1) lookup, export.rs error JSON on serialization failure, SteganographyAlert confidence invariant documented, GoalFingerprint hash type documented
+- Server: ThreatIndicator tags bounded (MAX 50), TelemetryConfig validate() wired, validate_origin comment corrected, IdempotencyStore eviction documented
+- Config: Compliance structs PartialEq derive, MultimodalPolicyConfig ocr_confidence wired to PolicyConfig validate()
+- Engine: thundering herd comment on cache.clear(), time window/circuit breaker no-op already correct
+
 #### 2026-02-19 Hardening Follow-up
 
 - **Config loading fail-closed**: `PolicyConfig::load_file` now rejects empty/whitespace-only files and accepts only `.toml` and `.json` config extensions.
