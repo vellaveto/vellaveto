@@ -260,6 +260,12 @@ result = client.evaluate(
 | `reload_policies()` | Reload policies from config |
 | `get_pending_approvals()` | Get pending approval requests |
 | `resolve_approval()` | Approve or deny a request |
+| `discover()` | Search the tool discovery index |
+| `discovery_stats()` | Get discovery index statistics |
+| `discovery_reindex()` | Rebuild discovery IDF weights |
+| `discovery_tools()` | List indexed tools with optional filters |
+| `projector_models()` | List supported projector model families |
+| `project_schema()` | Project canonical schema for a model family |
 
 ### Types
 

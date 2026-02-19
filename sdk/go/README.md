@@ -80,6 +80,12 @@ func main() {
 | `ListPendingApprovals(ctx)` | List pending approvals |
 | `ApproveApproval(ctx, id)` | Approve by ID |
 | `DenyApproval(ctx, id)` | Deny by ID |
+| `Discover(ctx, query, maxResults, tokenBudget)` | Search the tool discovery index |
+| `DiscoveryStats(ctx)` | Get discovery index statistics |
+| `DiscoveryReindex(ctx)` | Rebuild discovery IDF weights |
+| `DiscoveryTools(ctx, serverID, sensitivity)` | List indexed tools with optional filters |
+| `ProjectorModels(ctx)` | List supported projector model families |
+| `ProjectSchema(ctx, schema, modelFamily)` | Project canonical schema for a model family |
 
 ## Client Options
 

@@ -14,6 +14,7 @@ This document provides a complete reference for the Vellaveto HTTP API.
   - [Approvals](#approvals)
   - [Audit](#audit)
   - [Tool Registry](#tool-registry)
+  - [Tool Discovery & Model Projector](#tool-discovery--model-projector)
   - [Tenants](#tenants)
   - [Security Managers](#security-managers)
   - [Execution Graphs](#execution-graphs)
@@ -827,6 +828,214 @@ Revoke tool approval.
   "tool": "dangerous_tool"
 }
 ```
+
+---
+
+### Tool Discovery & Model Projector
+
+These endpoints power natural-language tool search and model-specific schema projection.
+
+All endpoints in this section require authentication and return `404` when the related feature
+is disabled at runtime.
+
+#### POST /api/discovery/search
+
+Search indexed MCP tools using a natural-language query.
+
+**Request Body:**
+
+```json
+{
+  "query": "read config file",
+  "max_results": 5,
+  "token_budget": 4000
+}
+```
+
+**Request Fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `query` | string | Yes | Search text (max 1024 chars, no control chars) |
+| `max_results` | integer | No | Max result count (default 5, capped at 20) |
+| `token_budget` | integer | No | Optional schema token budget (max 1,000,000) |
+
+**Response:**
+
+```json
+{
+  "tools": [
+    {
+      "metadata": {
+        "tool_id": "filesystem:file_read",
+        "name": "file_read",
+        "description": "Read a file from disk",
+        "server_id": "filesystem",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" }
+          },
+          "required": ["path"]
+        },
+        "schema_hash": "abc123...",
+        "sensitivity": "high",
+        "domain_tags": ["filesystem"],
+        "token_cost": 42
+      },
+      "relevance_score": 0.91,
+      "ttl_secs": 300
+    }
+  ],
+  "query": "read config file",
+  "total_candidates": 7,
+  "policy_filtered": 2
+}
+```
+
+---
+
+#### GET /api/discovery/index/stats
+
+Return discovery index status and capacity.
+
+**Response:**
+
+```json
+{
+  "total_tools": 128,
+  "max_capacity": 10000,
+  "config_enabled": true
+}
+```
+
+---
+
+#### POST /api/discovery/reindex
+
+Trigger a full IDF rebuild for discovery scoring.
+
+**Response:**
+
+```json
+{
+  "status": "ok",
+  "total_tools": 128
+}
+```
+
+---
+
+#### GET /api/discovery/tools
+
+List indexed tools with optional filtering.
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `server_id` | string | - | Filter by MCP server ID (max 256 chars) |
+| `sensitivity` | string | - | `low`, `medium`, or `high` |
+
+**Response:**
+
+```json
+{
+  "tools": [
+    {
+      "tool_id": "filesystem:file_read",
+      "name": "file_read",
+      "description": "Read a file from disk",
+      "server_id": "filesystem",
+      "input_schema": { "type": "object" },
+      "schema_hash": "abc123...",
+      "sensitivity": "high",
+      "domain_tags": ["filesystem"],
+      "token_cost": 42
+    }
+  ],
+  "total": 1
+}
+```
+
+Notes:
+- Results are capped to 100 tools per request.
+- Invalid `sensitivity` values return `400 Bad Request`.
+
+---
+
+#### GET /api/projector/models
+
+List model families available in the projector registry.
+
+**Response:**
+
+```json
+{
+  "model_families": ["claude", "openai", "deepseek", "qwen", "generic"]
+}
+```
+
+---
+
+#### POST /api/projector/transform
+
+Project a canonical schema into a model-specific format.
+
+**Request Body:**
+
+```json
+{
+  "schema": {
+    "name": "file_read",
+    "description": "Read file content",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" }
+      },
+      "required": ["path"]
+    },
+    "output_schema": null
+  },
+  "model_family": "openai"
+}
+```
+
+**Request Fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `schema` | object | Yes | Canonical tool schema |
+| `schema.name` | string | Yes | Tool name (max 256 chars, no control chars) |
+| `schema.description` | string | Yes | Tool description (max 4096 chars) |
+| `schema.input_schema` | object | Yes | Input schema JSON (max depth 32) |
+| `schema.output_schema` | object/null | No | Output schema JSON (max depth 32) |
+| `model_family` | string | Yes | Target family (`claude`, `openai`, `deepseek`, `qwen`, `generic`, or `custom:*`) |
+
+**Response:**
+
+```json
+{
+  "projected_schema": {
+    "name": "file_read",
+    "description": "Read file content",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" }
+      },
+      "required": ["path"]
+    }
+  },
+  "token_estimate": 37,
+  "model_family": "openai"
+}
+```
+
+Notes:
+- Unsupported model families return `400 Bad Request`.
+- Deeply nested schemas beyond the configured limit return `400 Bad Request`.
 
 ---
 
