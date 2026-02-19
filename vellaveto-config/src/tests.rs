@@ -5913,3 +5913,119 @@ fn test_a2a_validate_accepts_valid_config() {
     let config = crate::a2a::A2aConfig::default();
     assert!(config.validate().is_ok());
 }
+
+// ═══════════════════════════════════════════════════════
+// FIND-R83-004: Unicode format char validation for allowed_auth_methods
+// ═══════════════════════════════════════════════════════
+
+#[test]
+fn test_allowed_auth_methods_rejects_control_chars() {
+    // Zero-width space (\u{200B}) embedded in an auth method name.
+    // The byte-level a2a_contains_control_chars check fires first (UTF-8 continuation
+    // bytes 0x80-0x9F match the C1 range). The Unicode format char check provides
+    // defense-in-depth for when the byte-level check is refined.
+    let mut config = crate::a2a::A2aConfig::default();
+    config.allowed_auth_methods = vec![format!("bear\u{200B}er")];
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("control characters") || err.contains("Unicode format characters"),
+        "expected control/format char rejection, got: {}",
+        err
+    );
+
+    // Bidi override (\u{202E}) embedded in an auth method name
+    let mut config2 = crate::a2a::A2aConfig::default();
+    config2.allowed_auth_methods = vec![format!("oauth2\u{202E}")];
+    let err2 = config2.validate().unwrap_err();
+    assert!(
+        err2.contains("control characters") || err2.contains("Unicode format characters"),
+        "expected control/format char rejection, got: {}",
+        err2
+    );
+
+    // BOM (\u{FEFF}) at the start of an auth method name
+    let mut config3 = crate::a2a::A2aConfig::default();
+    config3.allowed_auth_methods = vec![format!("\u{FEFF}bearer")];
+    let err3 = config3.validate().unwrap_err();
+    assert!(
+        err3.contains("control characters") || err3.contains("Unicode format characters"),
+        "expected control/format char rejection, got: {}",
+        err3
+    );
+
+    // ASCII control character (tab) in an auth method name
+    let mut config4 = crate::a2a::A2aConfig::default();
+    config4.allowed_auth_methods = vec!["bear\ter".to_string()];
+    let err4 = config4.validate().unwrap_err();
+    assert!(
+        err4.contains("control characters"),
+        "expected control char rejection for tab, got: {}",
+        err4
+    );
+}
+
+// ═══════════════════════════════════════════════════════
+// FIND-R83-002: label_selector validation in deployment config
+// ═══════════════════════════════════════════════════════
+
+#[test]
+fn test_label_selector_rejects_control_chars() {
+    // ASCII control character (tab) in label_selector
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.label_selector = Some("app=foo\tbar".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("ASCII control characters"),
+        "expected ASCII control char rejection, got: {}",
+        err
+    );
+
+    // Unicode format character (zero-width space) in label_selector
+    let mut config2 = crate::DeploymentConfig::default();
+    config2.service_discovery.label_selector =
+        Some(format!("app=vellaveto\u{200B}"));
+    let err2 = config2.validate().unwrap_err();
+    assert!(
+        err2.contains("Unicode format characters"),
+        "expected Unicode format char rejection, got: {}",
+        err2
+    );
+
+    // Bidi override in label_selector
+    let mut config3 = crate::DeploymentConfig::default();
+    config3.service_discovery.label_selector =
+        Some(format!("app=\u{202E}evil"));
+    let err3 = config3.validate().unwrap_err();
+    assert!(
+        err3.contains("Unicode format characters"),
+        "expected Unicode format char rejection, got: {}",
+        err3
+    );
+}
+
+#[test]
+fn test_label_selector_rejects_too_long() {
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.label_selector =
+        Some("a".repeat(crate::deployment::MAX_LABEL_SELECTOR_LEN + 1));
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("exceeds maximum"),
+        "expected length rejection, got: {}",
+        err
+    );
+    assert!(
+        err.contains("label_selector"),
+        "expected label_selector in error, got: {}",
+        err
+    );
+
+    // Exactly at the limit should be accepted
+    let mut config2 = crate::DeploymentConfig::default();
+    config2.service_discovery.label_selector =
+        Some("a".repeat(crate::deployment::MAX_LABEL_SELECTOR_LEN));
+    assert!(
+        config2.validate().is_ok(),
+        "label_selector at exactly MAX_LABEL_SELECTOR_LEN should be accepted"
+    );
+}

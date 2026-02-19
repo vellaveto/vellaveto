@@ -140,6 +140,7 @@ impl CachedEntry {
 
 /// Statistics about cache usage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CacheStats {
     /// Number of cache hits.
     pub hits: u64,

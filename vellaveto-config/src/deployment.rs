@@ -222,8 +222,49 @@ impl ServiceDiscoveryConfig {
                 );
             }
         }
+
+        // SECURITY (FIND-R83-002): Validate label_selector bounds and content.
+        if let Some(ref selector) = self.label_selector {
+            if selector.len() > MAX_LABEL_SELECTOR_LEN {
+                return Err(format!(
+                    "deployment.service_discovery.label_selector length {} exceeds maximum {}",
+                    selector.len(),
+                    MAX_LABEL_SELECTOR_LEN
+                ));
+            }
+            if selector.chars().any(|c| c.is_control()) {
+                return Err(
+                    "deployment.service_discovery.label_selector contains ASCII control characters"
+                        .to_string(),
+                );
+            }
+            if selector.chars().any(is_deployment_unicode_format_char) {
+                return Err(
+                    "deployment.service_discovery.label_selector contains Unicode format characters"
+                        .to_string(),
+                );
+            }
+        }
+
         Ok(())
     }
+}
+
+/// Maximum length for label_selector (Kubernetes label selector limit).
+pub const MAX_LABEL_SELECTOR_LEN: usize = 253;
+
+/// Check if a character is a Unicode format character that can be used for
+/// invisible text injection (zero-width chars, bidi overrides, BOM).
+///
+/// SECURITY (FIND-R83-002): Mirrors `vellaveto_types::core::is_unicode_format_char()`
+/// which is `pub(crate)` and not accessible from this crate.
+fn is_deployment_unicode_format_char(c: char) -> bool {
+    matches!(c,
+        '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
+        '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
+        '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
+        '\u{FEFF}'                  // BOM / zero-width no-break space
+    )
 }
 
 /// Maximum length for instance_id (DNS label safe).

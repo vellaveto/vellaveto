@@ -14,6 +14,7 @@ pub enum AuditError {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuditEntry {
     pub id: String,
     pub action: Action,
@@ -37,6 +38,7 @@ pub struct AuditEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuditReport {
     pub total_entries: usize,
     pub allow_count: usize,
@@ -46,6 +48,7 @@ pub struct AuditReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ErrorLogEntry {
     pub timestamp: String,
     pub error: String,
@@ -53,6 +56,7 @@ pub struct ErrorLogEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChainVerification {
     pub valid: bool,
     pub entries_checked: usize,
@@ -61,6 +65,7 @@ pub struct ChainVerification {
 
 /// Result of verifying chain integrity across rotated log files.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RotationVerification {
     /// Whether all rotated files pass verification.
     pub valid: bool,
@@ -77,6 +82,7 @@ pub struct RotationVerification {
 /// without the signing key. Checkpoints are stored in a separate JSONL file
 /// alongside the audit log.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Checkpoint {
     /// Unique checkpoint identifier.
     pub id: String,
@@ -134,6 +140,7 @@ impl Checkpoint {
 
 /// Result of verifying all checkpoints against the audit log.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CheckpointVerification {
     /// Whether all checkpoints are valid.
     pub valid: bool,

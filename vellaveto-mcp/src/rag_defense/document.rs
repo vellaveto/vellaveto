@@ -16,6 +16,7 @@ use super::error::RagDefenseError;
 
 /// Metadata for a document in the RAG knowledge base.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DocumentMetadata {
     /// Unique document identifier.
     pub id: String,

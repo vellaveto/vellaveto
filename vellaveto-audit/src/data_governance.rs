@@ -10,6 +10,7 @@ use vellaveto_types::compliance::{DataClassification, DataGovernanceRecord, Proc
 
 /// Summary of data governance records.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DataGovernanceSummary {
     /// Total number of tool mappings.
     pub total_mappings: usize,
