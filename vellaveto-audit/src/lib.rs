@@ -52,6 +52,9 @@ pub mod data_governance;
 pub mod gap_analysis;
 pub mod iso42001;
 
+// ── Phase 41: OWASP Agentic Security Index (ASI) registry ───────────────────
+pub mod owasp_asi;
+
 // ── Re-exports: preserve exact public API ────────────────────────────────────
 
 // Types

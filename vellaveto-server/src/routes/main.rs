@@ -80,6 +80,11 @@ pub fn build_router(state: AppState) -> Router {
             "/api/compliance/data-governance",
             get(super::compliance::data_governance_summary),
         )
+        // OWASP ASI coverage (Phase 41)
+        .route(
+            "/api/compliance/owasp-agentic",
+            get(super::compliance::owasp_asi_coverage),
+        )
         .route(
             "/api/audit/checkpoints",
             get(super::audit::list_checkpoints),

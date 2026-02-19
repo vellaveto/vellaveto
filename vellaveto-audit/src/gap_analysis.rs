@@ -1,7 +1,7 @@
 //! Cross-Framework Gap Analysis Report Generator.
 //!
 //! Queries all security framework registries (MITRE ATLAS, NIST AI RMF,
-//! ISO 27090, ISO 42001, EU AI Act, SOC 2, CoSAI, Adversa TOP 25) and produces a
+//! ISO 27090, ISO 42001, EU AI Act, SOC 2, CoSAI, Adversa TOP 25, OWASP ASI) and produces a
 //! consolidated gap analysis report with coverage percentages, identified
 //! gaps, and recommendations.
 //!
@@ -240,6 +240,26 @@ pub fn generate_gap_analysis() -> GapAnalysisReport {
         }
     }
 
+    // ── 8. OWASP Agentic Security Index ─────────────────────────────────
+    let asi = crate::owasp_asi::OwaspAsiRegistry::new();
+    let asi_report = asi.generate_coverage_report();
+    frameworks.push(FrameworkSummary {
+        name: "OWASP ASI".to_string(),
+        total_items: asi_report.total_controls,
+        covered_items: asi_report.covered_controls,
+        coverage_percent: asi_report.coverage_percent,
+    });
+    for row in &asi_report.control_matrix {
+        if !row.covered {
+            critical_gaps.push(Gap {
+                framework: "OWASP ASI".to_string(),
+                item_id: row.id.clone(),
+                description: format!("{} ({})", row.name, row.category),
+                severity: "High".to_string(),
+            });
+        }
+    }
+
     // ── Overall coverage (weighted average by item count) ────────────────
     let total_all: usize = frameworks.iter().map(|f| f.total_items).sum();
     let covered_all: usize = frameworks.iter().map(|f| f.covered_items).sum();
@@ -299,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn test_all_7_frameworks_present() {
+    fn test_all_8_frameworks_present() {
         let report = generate_gap_analysis();
         let names: Vec<&str> = report.frameworks.iter().map(|f| f.name.as_str()).collect();
 
@@ -310,6 +330,7 @@ mod tests {
         assert!(names.contains(&"EU AI Act"), "Missing EU AI Act");
         assert!(names.contains(&"CoSAI"), "Missing CoSAI");
         assert!(names.contains(&"Adversa TOP 25"), "Missing Adversa TOP 25");
+        assert!(names.contains(&"OWASP ASI"), "Missing OWASP ASI");
     }
 
     #[test]

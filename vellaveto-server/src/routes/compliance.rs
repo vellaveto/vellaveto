@@ -1,7 +1,7 @@
 //! Compliance evidence generation API routes.
 //!
 //! Provides endpoints for EU AI Act, SOC 2, ISO 42001, CoSAI, Adversa TOP 25,
-//! and cross-framework gap analysis reporting. These read-only endpoints generate
+//! OWASP ASI, and cross-framework gap analysis reporting. These read-only endpoints generate
 //! reports at request time using registry-based classification (read-time,
 //! not write-time).
 //!
@@ -81,6 +81,7 @@ impl ReportCache {
 static THREAT_COVERAGE_CACHE: ReportCache = ReportCache::new();
 static GAP_ANALYSIS_CACHE: ReportCache = ReportCache::new();
 static ISO42001_CACHE: ReportCache = ReportCache::new();
+static OWASP_ASI_CACHE: ReportCache = ReportCache::new();
 /// QUALITY (FIND-GAP-013): Cache for the compliance_status endpoint which
 /// regenerates EU AI Act, SOC 2, NIST RMF, ISO 27090, and ISO 42001 reports
 /// on every request. Keyed by (include_nist, include_iso) but simplified to
@@ -221,6 +222,17 @@ pub async fn compliance_status(
         "total_clauses": iso42001_report.total_clauses,
         "compliant_clauses": iso42001_report.compliant_clauses,
         "partial_clauses": iso42001_report.partial_clauses,
+    });
+
+    // OWASP ASI
+    let asi_registry = vellaveto_audit::owasp_asi::OwaspAsiRegistry::new();
+    let asi_report = asi_registry.generate_coverage_report();
+    response["owasp_asi"] = serde_json::json!({
+        "coverage_percent": asi_report.coverage_percent,
+        "total_controls": asi_report.total_controls,
+        "covered_controls": asi_report.covered_controls,
+        "total_categories": asi_report.total_categories,
+        "covered_categories": asi_report.covered_categories,
     });
 
     // QUALITY (FIND-GAP-013): Cache default-params response for future requests.
@@ -421,8 +433,8 @@ pub async fn threat_coverage() -> Result<Json<serde_json::Value>, (StatusCode, J
 
 /// `GET /api/compliance/gap-analysis` — Cross-framework gap analysis.
 ///
-/// Generates a consolidated gap analysis across all 7 security frameworks
-/// (ATLAS, NIST RMF, ISO 27090, ISO 42001, EU AI Act, CoSAI, Adversa TOP 25).
+/// Generates a consolidated gap analysis across all 8 security frameworks
+/// (ATLAS, NIST RMF, ISO 27090, ISO 42001, EU AI Act, CoSAI, Adversa TOP 25, OWASP ASI).
 #[tracing::instrument(name = "vellaveto.gap_analysis")]
 pub async fn gap_analysis() -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     // SECURITY (FIND-R46-010): Serve from cache if within TTL.
@@ -443,6 +455,35 @@ pub async fn gap_analysis() -> Result<Json<serde_json::Value>, (StatusCode, Json
     })?;
 
     GAP_ANALYSIS_CACHE.set(value.clone());
+    Ok(Json(value))
+}
+
+/// `GET /api/compliance/owasp-agentic` — OWASP Agentic Security Index coverage.
+///
+/// Returns ASI coverage report with per-category breakdown and control matrix.
+/// 10 categories (ASI01–ASI10), 33 controls, mapped to Vellaveto detections.
+#[tracing::instrument(name = "vellaveto.owasp_asi")]
+pub async fn owasp_asi_coverage(
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R46-010): Serve from cache if within TTL.
+    if let Some(cached) = OWASP_ASI_CACHE.get() {
+        return Ok(Json(cached));
+    }
+
+    let registry = vellaveto_audit::owasp_asi::OwaspAsiRegistry::new();
+    let report = registry.generate_coverage_report();
+
+    let value = serde_json::to_value(&report).map_err(|e| {
+        tracing::error!("Failed to serialize OWASP ASI report: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Failed to generate OWASP ASI report".to_string(),
+            }),
+        )
+    })?;
+
+    OWASP_ASI_CACHE.set(value.clone());
     Ok(Json(value))
 }
 
