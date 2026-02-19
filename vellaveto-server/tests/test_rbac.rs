@@ -519,7 +519,7 @@ async fn jwt_operator_can_evaluate() {
 }
 
 #[tokio::test]
-async fn jwt_invalid_token_uses_default_role() {
+async fn jwt_invalid_token_is_rejected() {
     let config = RbacConfig {
         enabled: true,
         allow_header_role: false,
@@ -553,8 +553,8 @@ async fn jwt_invalid_token_uses_default_role() {
         .await
         .unwrap();
 
-    // Invalid JWT falls back to default role (Viewer), which is denied
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    // Invalid JWT is rejected fail-closed; it must not fall back to default role.
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
 // ────────────────────────────────

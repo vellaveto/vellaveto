@@ -538,47 +538,40 @@ pub fn extract_jwt_claims(auth_header: &str, config: &JwtConfig) -> Result<RoleC
 pub fn extract_principal_from_request(
     headers: &axum::http::HeaderMap,
     config: &RbacConfig,
-) -> Principal {
+) -> Result<Principal, JwtError> {
     // Try JWT first if configured
     if let Some(ref jwt_config) = config.jwt_config {
         if let Some(auth_header) = headers
             .get(axum::http::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
         {
-            match extract_jwt_claims(auth_header, jwt_config) {
-                Ok(claims) => {
-                    let role = claims.effective_role().unwrap_or(config.default_role);
-                    return Principal {
-                        subject: claims.sub,
-                        role,
-                        role_source: RoleSource::Jwt,
-                    };
-                }
-                Err(e) => {
-                    tracing::debug!("JWT validation failed: {}", e);
-                    // Fall through to header/default
-                }
-            }
+            let claims = extract_jwt_claims(auth_header, jwt_config)?;
+            let role = claims.effective_role().unwrap_or(config.default_role);
+            return Ok(Principal {
+                subject: claims.sub,
+                role,
+                role_source: RoleSource::Jwt,
+            });
         }
     }
 
     // Try header role if allowed
     if config.allow_header_role {
         if let Some(role) = extract_role_from_header(headers) {
-            return Principal {
+            return Ok(Principal {
                 subject: None,
                 role,
                 role_source: RoleSource::Header,
-            };
+            });
         }
     }
 
     // Default role
-    Principal {
+    Ok(Principal {
         subject: None,
         role: config.default_role,
         role_source: RoleSource::Default,
-    }
+    })
 }
 
 /// Extract role from request headers (development/testing only).
@@ -681,8 +674,22 @@ pub async fn rbac_middleware(
         return next.run(request).await;
     }
 
-    // Extract principal from JWT, header, or use default
-    let principal = extract_principal_from_request(request.headers(), &rbac_state.config);
+    // Extract principal from JWT, header, or use default.
+    // SECURITY: If an Authorization header is present but JWT validation fails,
+    // fail closed with 401 instead of silently falling back to header/default roles.
+    let principal = match extract_principal_from_request(request.headers(), &rbac_state.config) {
+        Ok(principal) => principal,
+        Err(err) => {
+            tracing::warn!("RBAC JWT authentication failed: {}", err);
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({
+                    "error": "Invalid authentication token",
+                })),
+            )
+                .into_response();
+        }
+    };
 
     // Check permission for this endpoint
     let method = request.method().clone();
@@ -1285,7 +1292,8 @@ mod tests {
             HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
         );
 
-        let principal = extract_principal_from_request(&headers, &config);
+        let principal = extract_principal_from_request(&headers, &config)
+            .expect("valid JWT should extract principal");
         assert_eq!(principal.role, Role::Operator);
         assert_eq!(principal.role_source, RoleSource::Jwt);
         assert_eq!(principal.subject, Some("operator-user".into()));
@@ -1308,7 +1316,8 @@ mod tests {
             HeaderValue::from_static("auditor"),
         );
 
-        let principal = extract_principal_from_request(&headers, &config);
+        let principal = extract_principal_from_request(&headers, &config)
+            .expect("header role should extract principal");
         assert_eq!(principal.role, Role::Auditor);
         assert_eq!(principal.role_source, RoleSource::Header);
     }
@@ -1325,9 +1334,40 @@ mod tests {
         };
 
         let headers = HeaderMap::new();
-        let principal = extract_principal_from_request(&headers, &config);
+        let principal = extract_principal_from_request(&headers, &config)
+            .expect("missing auth should fall back to default role");
         assert_eq!(principal.role, Role::Viewer);
         assert_eq!(principal.role_source, RoleSource::Default);
+    }
+
+    #[test]
+    fn test_extract_principal_rejects_invalid_jwt_when_auth_header_present() {
+        use axum::http::{header, HeaderMap, HeaderValue};
+
+        let config = RbacConfig {
+            enabled: true,
+            allow_header_role: true,
+            default_role: Role::Viewer,
+            jwt_config: Some(JwtConfig {
+                key: JwtKey::Secret("test-secret".into()),
+                algorithms: vec![jsonwebtoken::Algorithm::HS256],
+                ..Default::default()
+            }),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer not-a-jwt"),
+        );
+        headers.insert(
+            axum::http::HeaderName::from_static("x-vellaveto-role"),
+            HeaderValue::from_static("admin"),
+        );
+
+        let err = extract_principal_from_request(&headers, &config)
+            .expect_err("invalid JWT must not fall back to header role");
+        assert!(matches!(err, JwtError::ValidationFailed(_)));
     }
 
     #[test]
