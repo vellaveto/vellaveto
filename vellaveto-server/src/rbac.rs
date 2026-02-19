@@ -674,6 +674,21 @@ pub async fn rbac_middleware(
         return next.run(request).await;
     }
 
+    let method = request.method().clone();
+    let path = request.uri().path().to_string();
+    let required_permission = match endpoint_permission(&method, &path) {
+        Some(permission) => permission,
+        None => {
+            // Public endpoints skip authentication checks.
+            request.extensions_mut().insert(Principal {
+                subject: None,
+                role: rbac_state.config.default_role,
+                role_source: RoleSource::Default,
+            });
+            return next.run(request).await;
+        }
+    };
+
     // Extract principal from JWT, header, or use default.
     // SECURITY: If an Authorization header is present but JWT validation fails,
     // fail closed with 401 instead of silently falling back to header/default roles.
@@ -691,28 +706,22 @@ pub async fn rbac_middleware(
         }
     };
 
-    // Check permission for this endpoint
-    let method = request.method().clone();
-    let path = request.uri().path().to_string();
-
-    if let Some(required_permission) = endpoint_permission(&method, &path) {
-        if !principal.has_permission(required_permission) {
-            // SECURITY (FIND-R51-002): Only return a generic error message.
-            // Do not leak required_permission, role, or path to the client.
-            tracing::warn!(
-                role = %principal.role,
-                permission = ?required_permission,
-                path = %path,
-                "RBAC middleware permission denied"
-            );
-            return (
-                StatusCode::FORBIDDEN,
-                Json(json!({
-                    "error": "Permission denied",
-                })),
-            )
-                .into_response();
-        }
+    if !principal.has_permission(required_permission) {
+        // SECURITY (FIND-R51-002): Only return a generic error message.
+        // Do not leak required_permission, role, or path to the client.
+        tracing::warn!(
+            role = %principal.role,
+            permission = ?required_permission,
+            path = %path,
+            "RBAC middleware permission denied"
+        );
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "Permission denied",
+            })),
+        )
+            .into_response();
     }
 
     // Store principal in extensions for handlers

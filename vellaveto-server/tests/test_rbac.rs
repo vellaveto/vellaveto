@@ -587,6 +587,38 @@ async fn health_always_accessible() {
     assert_eq!(response.status(), StatusCode::OK);
 }
 
+#[tokio::test]
+async fn health_accessible_even_with_invalid_jwt_header() {
+    let config = RbacConfig {
+        enabled: true,
+        allow_header_role: false,
+        default_role: Role::Viewer,
+        jwt_config: Some(JwtConfig {
+            key: JwtKey::Secret(TEST_SECRET.to_string()),
+            algorithms: vec![jsonwebtoken::Algorithm::HS256],
+            issuer: None,
+            audience: None,
+            leeway_seconds: 60,
+        }),
+    };
+    let (state, _tmp) = test_state_with_rbac(config);
+    let app = routes::build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/health")
+                .header("authorization", "Bearer invalid.jwt.token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
 // ────────────────────────────────
 // Permission Matrix Tests
 // ────────────────────────────────
