@@ -216,12 +216,15 @@ pub async fn quarantine_memory_entry(
         }))),
         Err(vellaveto_mcp::memory_security::MemorySecurityError::EntryNotFound(_)) => Err((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": format!("Entry '{}' not found", id)})),
+            Json(json!({"error": "Entry not found"})),
         )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )),
+        Err(e) => {
+            tracing::warn!(entry_id = %id, error = %e, "quarantine_memory_entry failed");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Internal error"})),
+            ))
+        }
     }
 }
 
@@ -240,16 +243,19 @@ pub async fn release_memory_entry(
     match manager.release_entry(&id).await {
         Ok(()) => Ok(Json(json!({
             "success": true,
-            "message": format!("Entry '{}' released from quarantine", id),
+            "message": "Entry released from quarantine",
         }))),
         Err(vellaveto_mcp::memory_security::MemorySecurityError::EntryNotFound(_)) => Err((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": format!("Entry '{}' not found", id)})),
+            Json(json!({"error": "Entry not found"})),
         )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )),
+        Err(e) => {
+            tracing::warn!(entry_id = %id, error = %e, "release_memory_entry failed");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Internal error"})),
+            ))
+        }
     }
 }
 
@@ -345,21 +351,25 @@ pub async fn create_memory_namespace(
             "success": true,
             "namespace": ns,
         }))),
-        Err(vellaveto_mcp::memory_security::MemorySecurityError::AlreadyExists(id)) => Err((
+        Err(vellaveto_mcp::memory_security::MemorySecurityError::AlreadyExists(_)) => Err((
             StatusCode::CONFLICT,
-            Json(json!({"error": format!("Namespace '{}' already exists", id)})),
+            Json(json!({"error": "Namespace already exists"})),
         )),
-        Err(vellaveto_mcp::memory_security::MemorySecurityError::CapacityExceeded(msg)) => {
-            Err((StatusCode::TOO_MANY_REQUESTS, Json(json!({"error": msg}))))
-        }
+        Err(vellaveto_mcp::memory_security::MemorySecurityError::CapacityExceeded(_)) => Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({"error": "Namespace capacity exceeded"})),
+        )),
         Err(vellaveto_mcp::memory_security::MemorySecurityError::NamespacesDisabled) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({"error": "Namespaces are disabled"})),
         )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )),
+        Err(e) => {
+            tracing::warn!(namespace = %body.name, error = %e, "create_namespace failed");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Internal error"})),
+            ))
+        }
     }
 }
 
@@ -467,10 +477,13 @@ pub async fn share_memory_namespace(
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({"error": "Namespaces are disabled"})),
         )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )),
+        Err(e) => {
+            tracing::warn!(namespace = %id, error = %e, "share_namespace failed");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Internal error"})),
+            ))
+        }
     }
 }
 

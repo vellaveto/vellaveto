@@ -223,19 +223,21 @@ pub async fn projector_transform(
     let family = parse_model_family(&body.model_family);
 
     let projection = registry.get(&family).map_err(|e| {
+        tracing::warn!(model_family = %body.model_family, error = %e, "Unsupported model family");
         (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("Unsupported model family '{}': {}", body.model_family, e),
+                error: "Unsupported model family".to_string(),
             }),
         )
     })?;
 
     let projected = projection.project_schema(&body.schema).map_err(|e| {
+        tracing::warn!(error = %e, "Schema projection failed");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Schema projection failed: {}", e),
+                error: "Schema projection failed".to_string(),
             }),
         )
     })?;

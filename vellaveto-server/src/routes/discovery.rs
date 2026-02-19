@@ -130,10 +130,11 @@ pub async fn discovery_search(
     let result = engine
         .discover(&body.query, max_results, body.token_budget, &|_| true)
         .map_err(|e| {
+            tracing::warn!(error = %e, "Discovery query failed");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: format!("Discovery error: {}", e),
+                    error: "Discovery query failed".to_string(),
                 }),
             )
         })?;

@@ -39,6 +39,8 @@ const MAX_FIELD_LEN: usize = 256;
 const MAX_ARRAY_LEN: usize = 100;
 /// Maximum number of entries in map fields (metadata).
 const MAX_MAP_LEN: usize = 50;
+/// Maximum TTL in seconds (1 year). Prevents Duration overflow on arithmetic.
+const MAX_TTL_SECS: u64 = 86400 * 365;
 
 /// SECURITY (FIND-R43-019, FIND-R44-055): Detect control characters AND Unicode format
 /// characters (ZWSP, bidi overrides, invisible operators, TAG characters, soft hyphen)
@@ -187,6 +189,14 @@ pub async fn register_nhi_agent(
         validate_string_field(s, "key_algorithm")?;
     }
     let ttl_secs = body["ttl_secs"].as_u64();
+    if let Some(secs) = ttl_secs {
+        if secs > MAX_TTL_SECS {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("ttl_secs must be <= {}", MAX_TTL_SECS)})),
+            ));
+        }
+    }
     let tags: Vec<String> = body["tags"]
         .as_array()
         .map(|arr| {
@@ -475,6 +485,12 @@ pub async fn create_nhi_delegation(
     validate_string_array(&scope_constraints, "scope_constraints")?;
 
     let ttl_secs = body["ttl_secs"].as_u64().unwrap_or(3600);
+    if ttl_secs > MAX_TTL_SECS {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("ttl_secs must be <= {}", MAX_TTL_SECS)})),
+        ));
+    }
     let reason = body["reason"].as_str().map(|s| s.to_string());
     if let Some(ref r) = reason {
         validate_string_field(r, "reason")?;
@@ -603,6 +619,14 @@ pub async fn rotate_nhi_credentials(
     // SECURITY (FIND-R43-021): Validate trigger field.
     validate_string_field(trigger, "trigger")?;
     let new_ttl_secs = body["new_ttl_secs"].as_u64();
+    if let Some(secs) = new_ttl_secs {
+        if secs > MAX_TTL_SECS {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("new_ttl_secs must be <= {}", MAX_TTL_SECS)})),
+            ));
+        }
+    }
 
     match manager
         .rotate_credentials(
