@@ -606,17 +606,26 @@ fn render_policy_pie_chart(html: &mut String, policies: &[vellaveto_types::Polic
 }
 
 /// Handle approval form submission from dashboard.
-pub async fn dashboard_approve(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+pub async fn dashboard_approve(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
     // Validate approval ID length (defense against oversized paths)
     if id.len() > 128 {
         return (StatusCode::BAD_REQUEST, "Invalid approval ID").into_response();
     }
-    // SECURITY (FIND-R49-009): Reject control characters in approval ID
-    if id.chars().any(|c| c.is_control()) {
+    // SECURITY (FIND-R49-009, FIND-R73-SRV-001): Reject control characters AND
+    // Unicode format characters in approval ID, matching API approval handler pattern.
+    if id.chars().any(crate::routes::is_unsafe_char) {
         return (StatusCode::BAD_REQUEST, "Invalid approval ID").into_response();
     }
 
-    match state.approve_approval(&id, "dashboard-admin").await {
+    // SECURITY (FIND-R73-SRV-012): Derive resolver identity from auth headers
+    // instead of hardcoding "dashboard-admin", matching the API approval pattern.
+    let resolver = crate::routes::approval::derive_resolver_identity(&headers, "dashboard-admin");
+
+    match state.approve_approval(&id, &resolver).await {
         Ok(_) => Redirect::to("/dashboard").into_response(),
         Err(e) => {
             // SECURITY (FIND-R49-006): Log error details server-side, return generic message
@@ -631,16 +640,25 @@ pub async fn dashboard_approve(State(state): State<AppState>, Path(id): Path<Str
 }
 
 /// Handle denial form submission from dashboard.
-pub async fn dashboard_deny(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+pub async fn dashboard_deny(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
     if id.len() > 128 {
         return (StatusCode::BAD_REQUEST, "Invalid approval ID").into_response();
     }
-    // SECURITY (FIND-R49-009): Reject control characters in approval ID
-    if id.chars().any(|c| c.is_control()) {
+    // SECURITY (FIND-R49-009, FIND-R73-SRV-001): Reject control characters AND
+    // Unicode format characters in approval ID, matching API approval handler pattern.
+    if id.chars().any(crate::routes::is_unsafe_char) {
         return (StatusCode::BAD_REQUEST, "Invalid approval ID").into_response();
     }
 
-    match state.deny_approval(&id, "dashboard-admin").await {
+    // SECURITY (FIND-R73-SRV-012): Derive resolver identity from auth headers
+    // instead of hardcoding "dashboard-admin", matching the API approval pattern.
+    let resolver = crate::routes::approval::derive_resolver_identity(&headers, "dashboard-admin");
+
+    match state.deny_approval(&id, &resolver).await {
         Ok(_) => Redirect::to("/dashboard").into_response(),
         Err(e) => {
             // SECURITY (FIND-R49-006): Log error details server-side, return generic message

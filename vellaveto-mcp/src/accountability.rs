@@ -15,6 +15,10 @@ use thiserror::Error;
 use uuid::Uuid;
 use vellaveto_types::{AccountabilityAttestation, AttestationVerificationResult};
 
+/// SECURITY (FIND-R73-004): Maximum TTL for attestations (1 year).
+/// Prevents `ttl_secs as i64` overflow on u64 values > i64::MAX.
+const MAX_ATTESTATION_TTL_SECS: u64 = 365 * 24 * 3600;
+
 /// Errors from attestation operations.
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum AttestationError {
@@ -56,6 +60,14 @@ pub fn sign_attestation(
     signing_key_hex: &str,
     ttl_secs: u64,
 ) -> Result<AccountabilityAttestation, AttestationError> {
+    // SECURITY (FIND-R73-004): Validate ttl_secs before casting to i64.
+    if ttl_secs > MAX_ATTESTATION_TTL_SECS {
+        return Err(AttestationError::SigningFailed(format!(
+            "ttl_secs {} exceeds maximum {} (1 year)",
+            ttl_secs, MAX_ATTESTATION_TTL_SECS
+        )));
+    }
+
     // SECURITY (FIND-068): Validate required fields are non-empty.
     // Empty agent_id or statement would produce valid but meaningless attestations.
     if agent_id.is_empty() {

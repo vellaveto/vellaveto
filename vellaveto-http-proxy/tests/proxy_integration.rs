@@ -6324,8 +6324,8 @@ async fn elicitation_deny_message_is_generic() {
 
 #[tokio::test]
 async fn oversized_session_id_gets_new_session() {
-    // R39-PROXY-7: A client-provided Mcp-Session-Id longer than 128 chars
-    // should be treated as invalid — the proxy creates a new session.
+    // R39-PROXY-7, FIND-R73-SRV-011: A client-provided Mcp-Session-Id longer
+    // than 128 chars is rejected with 400, matching the DELETE handler pattern.
     let Some(upstream_url) = start_mock_upstream().await else {
         return;
     };
@@ -6356,21 +6356,7 @@ async fn oversized_session_id_gets_new_session() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    // The response should have a Mcp-Session-Id header that is NOT the oversized one
-    let session_header = resp
-        .headers()
-        .get("Mcp-Session-Id")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    assert_ne!(
-        session_header, &oversized_id,
-        "Oversized session ID must not be accepted"
-    );
-    assert_eq!(
-        session_header.len(),
-        36,
-        "Should get a UUID-format session ID"
-    );
+    // FIND-R73-SRV-011: Oversized session IDs are now rejected with 400
+    // before OAuth validation, matching the DELETE handler pattern.
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }

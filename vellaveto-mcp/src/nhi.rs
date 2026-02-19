@@ -26,6 +26,10 @@ use vellaveto_types::{
 /// Maximum nonces to keep for DPoP replay prevention.
 const MAX_DPOP_NONCES: usize = 10000;
 
+/// SECURITY (FIND-R73-005): Maximum TTL for delegations (1 year).
+/// Prevents `ttl_secs as i64` overflow on u64 values > i64::MAX.
+const MAX_DELEGATION_TTL_SECS: u64 = 365 * 24 * 3600;
+
 /// Maximum behavioral baselines to store.
 ///
 /// SECURITY (FIND-R71-P3-003): Without a cap, an attacker registering
@@ -750,6 +754,14 @@ impl NhiManager {
             return Err(NhiError::IdentityNotFound(to_agent.to_string()));
         }
         drop(identities);
+
+        // SECURITY (FIND-R73-005): Validate ttl_secs before casting to i64.
+        if ttl_secs > MAX_DELEGATION_TTL_SECS {
+            return Err(NhiError::TtlExceedsMax {
+                requested: ttl_secs,
+                max: MAX_DELEGATION_TTL_SECS,
+            });
+        }
 
         // SECURITY (FIND-R43-020): Acquire write lock on delegations first,
         // then check capacity and insert atomically to close TOCTOU window.

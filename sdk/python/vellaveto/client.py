@@ -11,7 +11,7 @@ import time
 import unicodedata
 import warnings
 from typing import Optional, Dict, Any, List
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlparse
 
 try:
     import httpx
@@ -145,6 +145,47 @@ def _validate_evaluate_inputs(
         raise VellavetoError("resolved_ips exceeds max entries (100)")
 
 
+def _validate_base_url(url: str) -> str:
+    """Validate and normalize the base URL for the Vellaveto server.
+
+    SECURITY (FIND-R73-SDK-002): Validates URL before use, matching Go and
+    TypeScript SDK parity. Rejects empty URLs, non-http(s) schemes, and
+    URLs containing credentials (userinfo).
+
+    Args:
+        url: The base URL to validate.
+
+    Returns:
+        The normalized URL (trailing slashes stripped).
+
+    Raises:
+        VellavetoError: If the URL is invalid.
+    """
+    if not isinstance(url, str) or not url.strip():
+        raise VellavetoError("base_url must not be empty")
+
+    trimmed = url.strip().rstrip("/")
+
+    parsed = urlparse(trimmed)
+
+    if parsed.scheme not in ("http", "https"):
+        raise VellavetoError(
+            f"base_url must use http:// or https:// scheme, got {parsed.scheme!r}"
+        )
+
+    if not parsed.hostname:
+        raise VellavetoError("base_url must have a host")
+
+    # SECURITY: Reject credentials in URL (userinfo) — they leak into logs,
+    # HTTP headers, and error messages. Parity with Go/TS SDKs.
+    if parsed.username or parsed.password:
+        raise VellavetoError(
+            "base_url must not contain credentials (userinfo)"
+        )
+
+    return trimmed
+
+
 def _build_evaluate_payload(
     action: Action,
     context: Optional[EvaluationContext],
@@ -216,7 +257,8 @@ class VellavetoClient:
             max_retries: Maximum number of retries for transient failures
                 (connection errors, 502/503/504). Default 1.
         """
-        self.url = url.rstrip("/")
+        # SECURITY (FIND-R73-SDK-002): Validate base URL — parity with Go/TS SDKs.
+        self.url = _validate_base_url(url)
         self.api_key = api_key
         self.timeout = timeout
         self.verify_ssl = verify_ssl
@@ -828,7 +870,8 @@ class AsyncVellavetoClient:
                 "Install with: pip install httpx"
             )
 
-        self.url = url.rstrip("/")
+        # SECURITY (FIND-R73-SDK-002): Validate base URL — parity with Go/TS SDKs.
+        self.url = _validate_base_url(url)
         self.api_key = api_key
         self.timeout = timeout
         self.verify_ssl = verify_ssl

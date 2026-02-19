@@ -23,16 +23,14 @@ pub(crate) fn is_unicode_format_char(c: char) -> bool {
     )
 }
 
-/// Check if a string contains ASCII control characters (excluding JSON whitespace)
-/// or Unicode format characters.
+/// Check if a string contains ASCII control characters or Unicode format characters.
 ///
-/// SECURITY: Rejects both ASCII controls (NUL, BEL, ESC, etc.) and Unicode
-/// format chars (zero-width, bidi overrides, BOM) that could bypass security
-/// checks via invisible character injection.
+/// SECURITY (FIND-R73-SRV-004): Rejects ALL ASCII controls (including \n, \r, \t)
+/// and Unicode format chars (zero-width, bidi overrides, BOM). This matches the
+/// HTTP `is_unsafe_char` behavior — gRPC metadata values should not contain any
+/// control characters.
 pub(crate) fn contains_dangerous_chars(s: &str) -> bool {
-    s.chars().any(|c| {
-        (c.is_control() && c != '\n' && c != '\r' && c != '\t') || is_unicode_format_char(c)
-    })
+    s.chars().any(|c| c.is_control() || is_unicode_format_char(c))
 }
 
 /// gRPC metadata key names (matching HTTP header semantics).

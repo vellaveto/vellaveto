@@ -146,7 +146,21 @@ pub async fn handle_mcp_post(
         return response;
     }
 
-    let client_session_id = headers.get(MCP_SESSION_ID).and_then(|v| v.to_str().ok());
+    // SECURITY (FIND-R73-SRV-011): Validate session ID length and reject control/format
+    // characters before OAuth, matching the DELETE handler pattern.
+    let client_session_id = headers
+        .get(MCP_SESSION_ID)
+        .and_then(|v| v.to_str().ok())
+        .filter(|id| id.len() <= MAX_SESSION_ID_LENGTH && !id.chars().any(|c| c.is_control()));
+
+    // If the header was present but filtered out, return 400.
+    if headers.get(MCP_SESSION_ID).is_some() && client_session_id.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"jsonrpc": "2.0", "error": {"code": -32600, "message": "Invalid session ID"}, "id": null})),
+        )
+            .into_response();
+    }
 
     // OAuth 2.1 token validation (if configured)
     let from_trusted_proxy = proxy_ctx
@@ -2893,7 +2907,20 @@ pub async fn handle_mcp_get(
         return response;
     }
 
-    let client_session_id = headers.get(MCP_SESSION_ID).and_then(|v| v.to_str().ok());
+    // SECURITY (FIND-R73-SRV-011): Validate session ID length and reject control chars
+    // before OAuth, matching the DELETE and POST handler patterns.
+    let client_session_id = headers
+        .get(MCP_SESSION_ID)
+        .and_then(|v| v.to_str().ok())
+        .filter(|id| id.len() <= MAX_SESSION_ID_LENGTH && !id.chars().any(|c| c.is_control()));
+
+    if headers.get(MCP_SESSION_ID).is_some() && client_session_id.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid session ID"})),
+        )
+            .into_response();
+    }
 
     // OAuth 2.1 token validation (FIND-R45-001: extract claims for session binding)
     let from_trusted_proxy = proxy_ctx

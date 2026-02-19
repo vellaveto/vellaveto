@@ -565,7 +565,7 @@ Configure how the injection scanner handles detected prompt injection patterns:
 ```toml
 [injection]
 enabled = true
-block_on_injection = false   # true = block response, false = log only (default)
+block_on_injection = true    # true = block response (default), false = log only
 extra_patterns = ["transfer funds", "send bitcoin"]
 disabled_patterns = ["pretend you are"]
 ```

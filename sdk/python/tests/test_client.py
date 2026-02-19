@@ -1042,3 +1042,70 @@ class TestSoc2AccessReview:
         with pytest.raises(VellavetoError, match="agent_id exceeds max length"):
             client.soc2_access_review(agent_id="a" * 129)
         client.close()
+
+
+class TestBaseUrlValidation:
+    """Tests for FIND-R73-SDK-002: base_url validation in constructors."""
+
+    def test_empty_url_raises(self):
+        with pytest.raises(VellavetoError, match="base_url must not be empty"):
+            VellavetoClient(url="")
+
+    def test_whitespace_url_raises(self):
+        with pytest.raises(VellavetoError, match="base_url must not be empty"):
+            VellavetoClient(url="   ")
+
+    def test_non_http_scheme_raises(self):
+        with pytest.raises(VellavetoError, match="http:// or https://"):
+            VellavetoClient(url="ftp://example.com")
+
+    def test_no_scheme_raises(self):
+        with pytest.raises(VellavetoError, match="http:// or https://"):
+            VellavetoClient(url="example.com:3000")
+
+    def test_credentials_in_url_raises(self):
+        with pytest.raises(VellavetoError, match="must not contain credentials"):
+            VellavetoClient(url="http://user:pass@example.com")
+
+    def test_username_only_in_url_raises(self):
+        with pytest.raises(VellavetoError, match="must not contain credentials"):
+            VellavetoClient(url="http://admin@example.com")
+
+    def test_valid_http_url(self):
+        client = VellavetoClient(url="http://localhost:3000")
+        assert client.url == "http://localhost:3000"
+        client.close()
+
+    def test_valid_https_url(self):
+        client = VellavetoClient(url="https://api.vellaveto.example.com")
+        assert client.url == "https://api.vellaveto.example.com"
+        client.close()
+
+    def test_trailing_slashes_stripped(self):
+        client = VellavetoClient(url="http://localhost:3000///")
+        assert client.url == "http://localhost:3000"
+        client.close()
+
+
+class TestAsyncBaseUrlValidation:
+    """Tests for FIND-R73-SDK-002: base_url validation in async constructor."""
+
+    def test_async_empty_url_raises(self):
+        with pytest.raises(VellavetoError, match="base_url must not be empty"):
+            AsyncVellavetoClient(url="")
+
+    def test_async_non_http_scheme_raises(self):
+        with pytest.raises(VellavetoError, match="http:// or https://"):
+            AsyncVellavetoClient(url="ftp://example.com")
+
+    def test_async_credentials_in_url_raises(self):
+        with pytest.raises(VellavetoError, match="must not contain credentials"):
+            AsyncVellavetoClient(url="http://user:pass@example.com")
+
+    def test_async_valid_url(self):
+        client = AsyncVellavetoClient(url="http://localhost:3000")
+        assert client.url == "http://localhost:3000"
+
+    def test_async_trailing_slashes_stripped(self):
+        client = AsyncVellavetoClient(url="https://api.vellaveto.io/")
+        assert client.url == "https://api.vellaveto.io"

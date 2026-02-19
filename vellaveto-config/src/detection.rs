@@ -24,8 +24,8 @@ pub struct InjectionConfig {
     pub enabled: bool,
 
     /// When true, injection matches block the response instead of just logging.
-    /// Default: `false` (log-only mode, backward compatible).
-    #[serde(default)]
+    /// Default: `true` (fail-closed: block detected injections).
+    #[serde(default = "default_true")]
     pub block_on_injection: bool,
 
     /// Additional patterns appended to the default set.

@@ -264,6 +264,11 @@ impl Default for SessionGuardConfig {
 /// Maximum number of transitions stored per session to prevent unbounded growth.
 const MAX_TRANSITION_HISTORY: usize = 1000;
 
+/// SECURITY (FIND-R73-007): Maximum recursion depth for compute_transition().
+/// The Init catch-all arm recurses once to reprocess the event in Active state.
+/// This guard prevents infinite recursion if a bug causes a state loop.
+const MAX_COMPUTE_TRANSITION_DEPTH: u8 = 2;
+
 struct SessionContext {
     state: SessionState,
     anomaly_count: u32,
@@ -381,7 +386,7 @@ impl SessionGuard {
             .ok_or_else(|| SessionGuardError::SessionNotFound(session_id.to_string()))?;
 
         let previous = ctx.state;
-        let (new_state, action) = self.compute_transition(ctx, &event, now);
+        let (new_state, action) = self.compute_transition(ctx, &event, now, 0);
 
         if new_state != previous {
             ctx.record_transition(previous, new_state, now);
@@ -401,7 +406,25 @@ impl SessionGuard {
         ctx: &mut SessionContext,
         event: &SessionEvent,
         now: u64,
+        depth: u8,
     ) -> (SessionState, TransitionAction) {
+        // SECURITY (FIND-R73-007): Guard against infinite recursion.
+        if depth >= MAX_COMPUTE_TRANSITION_DEPTH {
+            tracing::error!(
+                target: "vellaveto::security",
+                depth = depth,
+                state = %ctx.state,
+                "compute_transition recursion depth exceeded — fail-closed"
+            );
+            return (
+                SessionState::Locked,
+                TransitionAction::DenyAll {
+                    reason: "Session state machine recursion depth exceeded — fail-closed"
+                        .to_string(),
+                },
+            );
+        }
+
         match (ctx.state, event) {
             // === Init state ===
             (SessionState::Init, SessionEvent::FirstAction) => (
@@ -423,7 +446,7 @@ impl SessionGuard {
                     ctx.transition_history
                         .push((SessionState::Init, SessionState::Active, now));
                 }
-                self.compute_transition(ctx, event, now)
+                self.compute_transition(ctx, event, now, depth.saturating_add(1))
             }
 
             // === Active state ===

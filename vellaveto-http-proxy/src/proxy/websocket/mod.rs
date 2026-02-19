@@ -200,9 +200,24 @@ pub async fn handle_ws_upgrade(
                 None => {
                     // Bind session to this OAuth subject
                     session.oauth_subject = Some(claims.sub.clone());
+                    // SECURITY (FIND-R73-SRV-006): Store token expiry, matching
+                    // HTTP POST handler pattern to enforce token lifetime.
+                    if claims.exp > 0 {
+                        session.token_expires_at = Some(claims.exp);
+                    }
                 }
                 _ => {
-                    // Already owned by this principal — OK
+                    // Already owned by this principal — use earliest expiry
+                    // SECURITY (FIND-R73-SRV-006): Parity with HTTP POST handler
+                    // (R23-PROXY-6) — prevent long-lived tokens from extending
+                    // sessions originally bound to short-lived tokens.
+                    if claims.exp > 0 {
+                        session.token_expires_at = Some(
+                            session
+                                .token_expires_at
+                                .map_or(claims.exp, |existing| existing.min(claims.exp)),
+                        );
+                    }
                 }
             }
         }

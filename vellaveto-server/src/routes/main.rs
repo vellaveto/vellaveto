@@ -668,7 +668,10 @@ async fn security_headers(State(state): State<AppState>, request: Request, next:
         tracing::warn!("Ignoring X-Forwarded-Proto from non-trusted connection");
         crate::metrics::increment_forwarded_header_rejections("x_forwarded_proto");
     }
-    let is_dashboard = request.uri().path().starts_with("/dashboard");
+    let path = request.uri().path();
+    // SECURITY (FIND-R73-SRV-015): Both /dashboard and /setup serve inline <style>
+    // CSS, so they need style-src 'unsafe-inline'. All other routes use strict CSP.
+    let needs_inline_style = path.starts_with("/dashboard") || path.starts_with("/setup");
 
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
@@ -680,9 +683,9 @@ async fn security_headers(State(state): State<AppState>, request: Request, next:
         header::HeaderName::from_static("x-frame-options"),
         HeaderValue::from_static("DENY"),
     );
-    // Dashboard serves inline <style> CSS, so it needs style-src 'unsafe-inline'.
+    // Dashboard and setup wizard serve inline <style> CSS, so they need style-src 'unsafe-inline'.
     // All other routes use the strictest CSP: default-src 'none'.
-    if is_dashboard {
+    if needs_inline_style {
         headers.insert(
             header::HeaderName::from_static("content-security-policy"),
             HeaderValue::from_static("default-src 'none'; style-src 'unsafe-inline'"),

@@ -258,6 +258,14 @@ impl GoalTracker {
             }
         };
 
+        // SECURITY (FIND-R73-006): Periodically clean up expired sessions.
+        // Only run cleanup when the sessions map exceeds 80% of max_sessions
+        // to avoid overhead on every call.
+        let cleanup_threshold = (self.config.max_sessions as f64 * 0.8) as usize;
+        if sessions.len() > cleanup_threshold {
+            self.cleanup_expired_sessions(&mut sessions);
+        }
+
         let state = match sessions.get_mut(session_id) {
             Some(s) => s,
             None => return GoalAlignmentResult::NoGoalRecorded,
