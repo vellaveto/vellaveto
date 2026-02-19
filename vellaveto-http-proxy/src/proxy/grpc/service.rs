@@ -20,7 +20,8 @@ use tonic::{Request, Response, Status, Streaming};
 
 use vellaveto_mcp::extractor::{self, MessageType};
 use vellaveto_mcp::inspection::{
-    inspect_for_injection, scan_parameters_for_secrets, scan_response_for_secrets,
+    inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
+    scan_response_for_secrets,
 };
 use vellaveto_mcp::output_validation::ValidationResult;
 use vellaveto_types::{Action, EvaluationContext, Verdict};
@@ -41,6 +42,7 @@ use super::ProxyState;
 use crate::proxy::call_chain::{
     check_privilege_escalation, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
 };
+use crate::proxy::helpers::resolve_domains;
 use crate::proxy_metrics::record_dlp_finding;
 
 /// Global gRPC metrics counters.
@@ -226,6 +228,70 @@ impl McpGrpcService {
                 make_proto_error_response(proto_req, -32600, reason)
             }
             MessageType::PassThrough => {
+                // SECURITY (FIND-R77-002): DLP scan PassThrough params for secrets.
+                // Parity with HTTP handler (handlers.rs:1795-1859) and WS handler.
+                // Agents could exfiltrate secrets via prompts/get, completion/complete,
+                // or any PassThrough method's parameters.
+                if self.state.response_dlp_enabled && json_req.get("method").is_some() {
+                    let dlp_findings = scan_notification_for_secrets(&json_req);
+                    if !dlp_findings.is_empty() {
+                        for finding in &dlp_findings {
+                            record_dlp_finding(&finding.pattern_name);
+                        }
+                        let patterns: Vec<String> = dlp_findings
+                            .iter()
+                            .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                            .collect();
+                        tracing::warn!(
+                            "SECURITY: Secrets in gRPC passthrough params! Session: {}, Findings: {:?}",
+                            session_id,
+                            patterns
+                        );
+                        let n_action = Action::new(
+                            "vellaveto",
+                            "notification_dlp_scan",
+                            json!({
+                                "findings": patterns,
+                                "session": session_id,
+                                "transport": "grpc",
+                            }),
+                        );
+                        let verdict = if self.state.response_dlp_blocking {
+                            Verdict::Deny {
+                                reason: format!(
+                                    "Notification blocked: secrets detected ({:?})",
+                                    patterns
+                                ),
+                            }
+                        } else {
+                            Verdict::Allow
+                        };
+                        if let Err(e) = self
+                            .state
+                            .audit
+                            .log_entry(
+                                &n_action,
+                                &verdict,
+                                json!({
+                                    "source": "grpc_proxy",
+                                    "event": "notification_dlp_alert",
+                                    "blocked": self.state.response_dlp_blocking,
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit gRPC passthrough DLP: {}", e);
+                        }
+                        if self.state.response_dlp_blocking {
+                            return make_proto_error_response(
+                                proto_req,
+                                -32002,
+                                "Notification blocked: secrets detected in parameters",
+                            );
+                        }
+                    }
+                }
+
                 // SECURITY (FIND-R55-GRPC-005): Audit log PassThrough messages.
                 // Parity with HTTP handler (handlers.rs:1731-1757) and WS handler
                 // (websocket/mod.rs:1809-1838). PassThrough bypasses policy evaluation
@@ -431,7 +497,14 @@ impl McpGrpcService {
             }
         }
 
-        let action = extractor::extract_action(tool_name, arguments);
+        let mut action = extractor::extract_action(tool_name, arguments);
+
+        // SECURITY (FIND-R77-001): DNS resolution for IP-based policy evaluation.
+        // Parity with HTTP handler (handlers.rs:717) and WS handler (websocket/mod.rs:710).
+        // Without this, policies using ip_rules are bypassed on the gRPC transport.
+        if self.state.engine.has_ip_rules() {
+            resolve_domains(&mut action).await;
+        }
 
         // SECURITY (FIND-R54-006): Circuit breaker check.
         // Parity with HTTP handler (handlers.rs:576) and WS (websocket/mod.rs:892).
@@ -965,18 +1038,9 @@ impl McpGrpcService {
             }
         }
 
-        // SECURITY (FIND-R55-GRPC-002): Record response for memory poisoning tracking.
-        // Parity with HTTP handler (inspection.rs:638-641) and WS handler (relay.rs:2398).
-        // Skip recording when injection or DLP findings were detected (even in log-only
-        // mode) to avoid poisoning the tracker with known-malicious data.
-        if !injection_found && !dlp_found {
-            if let Some(mut session) = self.state.sessions.get_mut(session_id) {
-                session.memory_tracker.record_response(&response_json);
-            }
-        }
-
         // SECURITY (FIND-R53-GRPC-004): Output schema validation.
         // Parity with WS handler (websocket/mod.rs:2327-2370).
+        let mut schema_violation_found = false;
         if let Some(method) = json_req.get("method").and_then(|m| m.as_str()) {
             if method == "tools/call" {
                 let tool_name = json_req
@@ -991,6 +1055,7 @@ impl McpGrpcService {
                         .validate(tool_name, &response_json)
                     {
                         ValidationResult::Invalid { violations } => {
+                            schema_violation_found = true;
                             tracing::warn!(
                                 "SECURITY: gRPC output schema violation for tool '{}': {:?}",
                                 tool_name,
@@ -1040,6 +1105,16 @@ impl McpGrpcService {
                         ValidationResult::NoSchema => {}
                     }
                 }
+            }
+        }
+
+        // SECURITY (FIND-R55-GRPC-002, FIND-R77-003): Record response for memory poisoning
+        // tracking. Parity with HTTP handler (inspection.rs:638-641). Skip recording when
+        // injection, DLP, or schema violation detected (even in log-only mode) to avoid
+        // poisoning the tracker with tainted data.
+        if !injection_found && !dlp_found && !schema_violation_found {
+            if let Some(mut session) = self.state.sessions.get_mut(session_id) {
+                session.memory_tracker.record_response(&response_json);
             }
         }
 
