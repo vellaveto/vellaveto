@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+#### 2026-02-19 Hardening Follow-up
+
+- **Config loading fail-closed**: `PolicyConfig::load_file` now rejects empty/whitespace-only files and accepts only `.toml` and `.json` config extensions.
+- **Config validation coverage expanded**: Added and tightened bounds/control-character checks for A2A, cluster, memory security, semantic templates, cross-agent trusted agents, and schema-poisoning observation thresholds.
+- **Sandbox-safe integration tests**: Local socket bind failures with `PermissionDenied` now trigger targeted test-path skips in restricted environments, while unexpected bind errors still fail tests.
+- **Webhook safety posture**: Billing webhook endpoints acknowledge probe events only; business events are validated but return `received=false` until billing state synchronization is implemented (fail-closed).
+- **Gateway/mcpsec robustness**: Gateway health-check fallback and mcpsec report/output paths now return explicit errors instead of panic-based failure behavior.
+
 #### Round 57 Adversarial Audit (100 P4, ~84 fixed)
 
 - **Code deduplication**: `glob_match`/`glob_match_bytes` extracted into shared `vellaveto-mcp/src/util.rs` from 4 duplicate copies (transparency, extension_registry, capability_token, nl_policy); `html_escape` deduplicated — `dashboard::html_escape` made `pub(crate)`, setup_wizard delegates; `FORWARDED_HEADERS`/`MAX_RESPONSE_BODY_BYTES` centralized in `proxy/mod.rs`; `validate_path_param_core` extracted in routes

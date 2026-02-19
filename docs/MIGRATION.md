@@ -64,6 +64,10 @@ evaluate = 0  # Disabled
 admin = 0     # Disabled
 ```
 
+> Current loader hardening (as of 2026-02-19): config files must be non-empty,
+> and only `.toml` or `.json` files are accepted by `PolicyConfig::load_file`.
+> Use `vellaveto check --config <file>` to validate before rollout.
+
 ---
 
 ## New Features

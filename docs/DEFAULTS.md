@@ -62,6 +62,14 @@ explicit opt-in. Silent insecurity is a bug.
 | `max_validation_depth` | **20** | JSON nesting depth limit. Prevents stack exhaustion. |
 | `max_path_decode_iterations` | **3** | Limits percent-decode/base64-decode passes. Prevents DoS via deeply nested encoding. |
 
+## Config Loading
+
+| Setting | Default | Rationale |
+|---------|---------|-----------|
+| Accepted config extensions | **`.toml`, `.json` only** | Rejects unknown formats instead of silently falling back to a parser that may misinterpret content. |
+| Empty/whitespace-only config file | **Rejected at load time** | Prevents accidental startup from empty mounts/files that would otherwise mask operator error. |
+| Max config file size | **10 MB** | Caps memory exposure from malicious or accidental oversized config files. |
+
 ## CORS
 
 | Setting | Default | Rationale |

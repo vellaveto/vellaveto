@@ -301,7 +301,7 @@ sudo systemctl status vellaveto
 sudo journalctl -u vellaveto -n 50 --no-pager
 
 # Validate configuration
-vellaveto validate --config /etc/vellaveto/config.toml
+vellaveto check --config /etc/vellaveto/config.toml
 
 # Check for port conflicts
 sudo lsof -i :3000
@@ -312,7 +312,9 @@ sudo lsof -i :3000
 | Error | Cause | Solution |
 |-------|-------|----------|
 | `Address already in use` | Port 3000 is taken | Change port or stop conflicting service |
-| `TOML parse error` | Invalid config syntax | Run `vellaveto validate` to find the issue |
+| `TOML parse error` | Invalid config syntax | Run `vellaveto check --config` to find the issue |
+| `Config file '...' is empty` | Empty or whitespace-only config file | Ensure the config file has content, then re-run `vellaveto check --config` |
+| `unsupported extension` | Config file is not `.toml` or `.json` | Rename/convert to `.toml` or `.json` and re-run `vellaveto check --config` |
 | `Policy compilation error` | Invalid regex/glob | Check policy patterns in config |
 | `Permission denied` | Wrong file permissions | Ensure vellaveto user can read config |
 
@@ -546,7 +548,7 @@ curl -s localhost:3000/metrics | grep vellaveto_policies_loaded
 
 ```bash
 # Validate first
-vellaveto validate --config /etc/vellaveto/config.toml
+vellaveto check --config /etc/vellaveto/config.toml
 
 # Restart
 sudo systemctl restart vellaveto
@@ -655,7 +657,7 @@ sudo mv vellaveto-linux-amd64 /usr/local/bin/vellaveto
 sudo chmod +x /usr/local/bin/vellaveto
 
 # 6. Validate config with new version
-vellaveto validate --config /etc/vellaveto/config.toml
+vellaveto check --config /etc/vellaveto/config.toml
 
 # 7. Start service
 sudo systemctl start vellaveto

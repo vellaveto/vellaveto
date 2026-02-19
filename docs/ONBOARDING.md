@@ -4,7 +4,7 @@ Every instance — agent, Claude Code session, or contributor — MUST follow th
 protocol before modifying any code. Compiling and running tests is necessary but
 not sufficient. You must **understand** before you **change**.
 
-This protocol exists because 52 adversarial audit rounds exposed a recurring
+This protocol exists because 57 adversarial audit rounds exposed a recurring
 pattern: breakage caused by assumptions rather than verified understanding.
 
 ---
@@ -255,6 +255,10 @@ find vellaveto-*/src/ -name '*.rs' \
 # 6. If you changed an error message, verify no test asserts on the old text
 grep -rn "<your_old_message_text>" vellaveto-*/src/tests.rs vellaveto-integration/tests/
 ```
+
+In restricted sandboxes/containers, local socket binds may fail with
+`PermissionDenied`. Integration tests that require `127.0.0.1:0` should skip
+only that path and still fail fast on any other bind error.
 
 If ANY gate fails, fix it before committing. Do not push with known failures.
 

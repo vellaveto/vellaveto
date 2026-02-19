@@ -490,6 +490,11 @@ WantedBy=multi-user.target
 
 Policies can be defined in the config file or loaded from a directory:
 
+> Loader guardrails (fail-closed):
+> - Config files must be non-empty (whitespace-only files are rejected).
+> - Supported extensions are `.toml` and `.json` only.
+> - Files larger than 10 MB are rejected before parsing.
+
 ```toml
 # In config.toml
 
@@ -659,7 +664,7 @@ fi
 echo "[OK] Config file exists"
 
 # Validate config
-if ! vellaveto validate --config /etc/vellaveto/config.toml; then
+if ! vellaveto check --config /etc/vellaveto/config.toml; then
     echo "[FAIL] Config validation failed"
     exit 1
 fi
