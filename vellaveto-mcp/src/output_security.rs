@@ -209,7 +209,17 @@ impl OutputSecurityAnalyzer {
     }
 
     /// Create a new analyzer with custom configuration.
+    ///
+    /// Logs a warning if validation fails but still constructs the analyzer,
+    /// since output security analysis is observational (not enforcement).
     pub fn with_config(config: OutputSecurityConfig) -> Self {
+        if let Err(e) = config.validate() {
+            tracing::warn!(
+                target: "vellaveto::security",
+                error = %e,
+                "OutputSecurityConfig validation failed — using config as-is"
+            );
+        }
         Self {
             config,
             session_baselines: RwLock::new(HashMap::new()),
@@ -842,8 +852,10 @@ mod tests {
 
     #[test]
     fn test_output_config_validate_nan_min() {
-        let mut config = OutputSecurityConfig::default();
-        config.min_entropy_threshold = f32::NAN;
+        let config = OutputSecurityConfig {
+            min_entropy_threshold: f32::NAN,
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("finite"));
@@ -851,8 +863,10 @@ mod tests {
 
     #[test]
     fn test_output_config_validate_nan_max() {
-        let mut config = OutputSecurityConfig::default();
-        config.max_entropy_threshold = f32::NAN;
+        let config = OutputSecurityConfig {
+            max_entropy_threshold: f32::NAN,
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("finite"));
@@ -860,22 +874,34 @@ mod tests {
 
     #[test]
     fn test_output_config_validate_min_out_of_range() {
-        let mut config = OutputSecurityConfig::default();
-        config.min_entropy_threshold = -1.0;
-        assert!(config.validate().is_err());
-        config.min_entropy_threshold = 9.0;
-        assert!(config.validate().is_err());
+        let low = OutputSecurityConfig {
+            min_entropy_threshold: -1.0,
+            ..Default::default()
+        };
+        assert!(low.validate().is_err());
+
+        let high = OutputSecurityConfig {
+            min_entropy_threshold: 9.0,
+            ..Default::default()
+        };
+        assert!(high.validate().is_err());
     }
 
     #[test]
     fn test_output_config_validate_min_ge_max() {
-        let mut config = OutputSecurityConfig::default();
-        config.min_entropy_threshold = 5.0;
-        config.max_entropy_threshold = 5.0;
-        assert!(config.validate().is_err());
-        config.min_entropy_threshold = 6.0;
-        config.max_entropy_threshold = 5.0;
-        assert!(config.validate().is_err());
+        let equal = OutputSecurityConfig {
+            min_entropy_threshold: 5.0,
+            max_entropy_threshold: 5.0,
+            ..Default::default()
+        };
+        assert!(equal.validate().is_err());
+
+        let greater = OutputSecurityConfig {
+            min_entropy_threshold: 6.0,
+            max_entropy_threshold: 5.0,
+            ..Default::default()
+        };
+        assert!(greater.validate().is_err());
     }
 
     #[test]
