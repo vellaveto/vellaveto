@@ -237,11 +237,34 @@ jobs:
       - name: Run benchmarks
         run: |
           set -euo pipefail
-          # CI smoke benchmark mode: keep coverage while reducing runtime/flakiness.
-          cargo bench --workspace --locked -- --quick || {
-            echo "First benchmark run failed; retrying once..."
-            cargo bench --workspace --locked -- --quick
+          # CI smoke benchmark mode: run Criterion targets directly to avoid
+          # forwarding `--quick` to non-Criterion test harnesses.
+          run_bench() {
+            local pkg="$1"
+            local bench="$2"
+            cargo bench -p "$pkg" --bench "$bench" --locked -- --quick || {
+              echo "First benchmark run failed for ${pkg}/${bench}; retrying once..."
+              cargo bench -p "$pkg" --bench "$bench" --locked -- --quick
+            }
           }
+
+          run_bench_with_features() {
+            local pkg="$1"
+            local bench="$2"
+            local features="$3"
+            cargo bench -p "$pkg" --bench "$bench" --features "$features" --locked -- --quick || {
+              echo "First benchmark run failed for ${pkg}/${bench} (features=${features}); retrying once..."
+              cargo bench -p "$pkg" --bench "$bench" --features "$features" --locked -- --quick
+            }
+          }
+
+          run_bench vellaveto-audit audit
+          run_bench vellaveto-engine evaluation
+          run_bench vellaveto-engine e2e_pipeline
+          run_bench vellaveto-http-proxy http_proxy
+          run_bench vellaveto-mcp inspection
+          run_bench vellaveto-mcp rug_pull
+          run_bench_with_features vellaveto-mcp semantic semantic-detection
 
       - name: Save benchmark baseline
         uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3

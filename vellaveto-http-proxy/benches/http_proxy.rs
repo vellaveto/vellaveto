@@ -319,30 +319,29 @@ fn bench_call_chain_parsing(c: &mut Criterion) {
 
 fn bench_privilege_escalation(c: &mut Criterion) {
     use vellaveto_engine::PolicyEngine;
-    use vellaveto_types::{Action, Policy};
+    use vellaveto_types::{Action, Policy, PolicyType};
 
     let mut group = c.benchmark_group("privilege_escalation");
 
     // Build a simple policy engine
     let engine = PolicyEngine::new(false);
     let policies: Vec<Policy> = vec![
-        serde_json::from_value(serde_json::json!({
-            "id": "deny-exec",
-            "name": "deny-exec",
-            "policy_type": "Deny",
-            "priority": 100,
-            "tool_patterns": ["exec*"],
-            "conditions": [{"agent_identity_match": {"agent_id_pattern": "restricted-*"}}]
-        }))
-        .unwrap(),
-        serde_json::from_value(serde_json::json!({
-            "id": "allow-all",
-            "name": "allow-all",
-            "policy_type": "Allow",
-            "priority": 1,
-            "tool_patterns": ["*"]
-        }))
-        .unwrap(),
+        Policy {
+            id: "deny-exec".to_string(),
+            name: "deny-exec".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        },
+        Policy {
+            id: "allow-all".to_string(),
+            name: "allow-all".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 1,
+            path_rules: None,
+            network_rules: None,
+        },
     ];
 
     let action = Action {
