@@ -32,6 +32,13 @@
 
 Vellaveto is a lightweight, high-performance firewall that sits between AI agents and their tools. It intercepts [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a [tamper-evident audit trail](docs/SECURITY_GUARANTEES.md#g3-audit-integrity-tamper-detection) with SHA-256 hash chains and Ed25519 checkpoint signatures. See [Security Guarantees](docs/SECURITY_GUARANTEES.md) for the full normative contract and [Assurance Case](docs/ASSURANCE_CASE.md) for the Claim → Evidence map.
 
+## Core Guarantees
+
+- **Complete mediation**: request and response paths are evaluated before tool execution and before model return.
+- **Fail-closed policy decisions**: no policy match, missing context, or evaluation error results in `Deny`.
+- **Tamper-evident audit trail**: SHA-256 hash chain + signed checkpoints with verification endpoints and CLI flows.
+- **Public security contract**: [Security Guarantees](docs/SECURITY_GUARANTEES.md) + [Assurance Case](docs/ASSURANCE_CASE.md) with reproducible evidence.
+
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>4.0.0-dev</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
@@ -1261,7 +1268,7 @@ kill -HUP $(pidof vellaveto-server)
 
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
-| 🧹 **CI** | push, PR | `cargo fmt`, `cargo check`, `cargo clippy`, `cargo test`, `unwrap()` hygiene, fuzz compilation, benchmarks, release build |
+| 🧹 **CI** | push, PR, manual | `cargo fmt`, `cargo check`, `cargo clippy`, `cargo test`, `unwrap()` hygiene, fuzz compilation, benchmarks, release build |
 | 🔐 **Security Audit** | push, PR, schedule | `cargo audit` for dependency CVEs |
 | 🚫 **Cargo Deny** | push, PR | License and advisory checks |
 | 📋 **Dependency Review** | PR | New dependency risk assessment |
@@ -1313,10 +1320,15 @@ Comprehensive documentation is available in the `docs/` directory:
 | Document | Description |
 |----------|-------------|
 | [Framework Quickstart](docs/QUICKSTART.md) | Integration guides for Anthropic, OpenAI, LangChain, LangGraph, MCP |
+| [15-Minute Secure Start](docs/SECURE_QUICKSTART_15_MIN.md) | End-to-end deny-by-default walkthrough with audit verification |
 | [Deployment Guide](docs/DEPLOYMENT.md) | Docker, Kubernetes (Helm), and bare metal installation |
 | [Operations Runbook](docs/OPERATIONS.md) | Monitoring, troubleshooting, and maintenance procedures |
 | [Security Model](docs/SECURITY_MODEL.md) | Trust boundaries, data flows, storage, and residual risks |
 | [Security Hardening](docs/SECURITY.md) | Security configuration best practices |
+| [Security Guarantees](docs/SECURITY_GUARANTEES.md) | Normative, falsifiable security contract |
+| [Assurance Case](docs/ASSURANCE_CASE.md) | Claim -> evidence -> reproduce map |
+| [Verify Release Artifacts](docs/VERIFY_RELEASE_ARTIFACTS.md) | Checksums, SBOM, and provenance verification playbook |
+| [Strategic Review](docs/STRATEGIC_REVIEW_POSITIONING_TRUST_GROWTH.md) | Positioning, trust, and growth execution plan |
 | [Quantum Migration Runbook](docs/quantum-migration.md) | Phased TLS PQ rollout and rollback gates |
 | [Benchmarks](docs/BENCHMARKS.md) | Reproducible performance benchmarks and methodology |
 | [API Reference](docs/API.md) | Complete HTTP API documentation |

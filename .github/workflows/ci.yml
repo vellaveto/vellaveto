@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -312,12 +313,12 @@ jobs:
           done
 
   # ───────────────────────────────────────────────────────
-  # 8. Supply chain audit (cargo-vet)
+  # 8. Supply chain audit (cargo-vet with cargo-deny fallback)
   # ───────────────────────────────────────────────────────
   supply-chain-audit:
     name: Supply Chain Audit (cargo-vet)
     runs-on: ubuntu-latest
-    continue-on-error: true
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -336,7 +337,9 @@ jobs:
       - name: Run supply chain audit
         run: |
           if [ ! -f supply-chain/config.toml ] || [ ! -f supply-chain/audits.toml ]; then
-            echo "No cargo-vet policy found at supply-chain/{config,audits}.toml; skipping."
+            echo "No cargo-vet policy found at supply-chain/{config,audits}.toml; falling back to cargo-deny."
+            cargo install cargo-deny --locked
+            cargo deny --locked check advisories bans sources licenses
             exit 0
           fi
           cargo vet --locked
