@@ -33,6 +33,10 @@ use std::time::{Duration, Instant};
 /// Header name for idempotency keys.
 pub const IDEMPOTENCY_KEY_HEADER: &str = "x-idempotency-key";
 
+/// Maximum cached response body size (1 MB). Bodies exceeding this limit are
+/// dropped with a warning to prevent memory exhaustion from large payloads.
+const MAX_CACHED_BODY_BYTES: usize = 1_048_576;
+
 /// Header indicating a cached response was returned.
 pub const IDEMPOTENCY_REPLAYED_HEADER: &str = "x-idempotency-replayed";
 
@@ -67,6 +71,27 @@ fn default_max_keys() -> usize {
 
 fn default_max_key_length() -> usize {
     256
+}
+
+impl IdempotencyConfig {
+    /// Validate configuration bounds.
+    ///
+    /// Enforces minimum values to prevent misconfiguration:
+    /// - `ttl_hours >= 1` (keys must live at least 1 hour)
+    /// - `max_key_length >= 16` (keys must allow at least UUID-short format)
+    /// - `max_keys >= 1` (must store at least one key)
+    pub fn validate(&self) -> Result<(), String> {
+        if self.ttl_hours < 1 {
+            return Err("idempotency.ttl_hours must be >= 1".to_string());
+        }
+        if self.max_key_length < 16 {
+            return Err("idempotency.max_key_length must be >= 16".to_string());
+        }
+        if self.max_keys < 1 {
+            return Err("idempotency.max_keys must be >= 1".to_string());
+        }
+        Ok(())
+    }
 }
 
 impl Default for IdempotencyConfig {
@@ -230,6 +255,10 @@ impl IdempotencyStore {
     }
 
     /// Complete a request and cache the response.
+    ///
+    /// SECURITY (FIND-R58-SRV-IDEM-001): If the response body exceeds
+    /// `MAX_CACHED_BODY_BYTES` (1 MB), the body is dropped and only the
+    /// status code is cached. This prevents memory exhaustion from large payloads.
     pub fn complete(
         &self,
         key: &str,
@@ -237,10 +266,22 @@ impl IdempotencyStore {
         body: Vec<u8>,
         content_type: Option<String>,
     ) {
+        let cached_body = if body.len() > MAX_CACHED_BODY_BYTES {
+            tracing::warn!(
+                key = key,
+                body_len = body.len(),
+                max = MAX_CACHED_BODY_BYTES,
+                "idempotency cached body exceeds size limit; dropping body"
+            );
+            Vec::new()
+        } else {
+            body
+        };
+
         let now = Instant::now();
         let response = CachedResponse {
             status,
-            body,
+            body: cached_body,
             content_type,
             created_at: now,
             expires_at: now + self.ttl(),
@@ -441,6 +482,71 @@ mod tests {
         // Can acquire again
         let result = store.try_acquire("key-1");
         assert!(matches!(result, Ok(None)));
+    }
+
+    // ── validate() tests ──
+
+    #[test]
+    fn test_validate_default_config_ok() {
+        assert!(IdempotencyConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_ttl_hours_zero_fails() {
+        let mut cfg = test_config();
+        cfg.ttl_hours = 0;
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("ttl_hours must be >= 1"));
+    }
+
+    #[test]
+    fn test_validate_max_key_length_too_small_fails() {
+        let mut cfg = test_config();
+        cfg.max_key_length = 15;
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("max_key_length must be >= 16"));
+    }
+
+    #[test]
+    fn test_validate_max_keys_zero_fails() {
+        let mut cfg = test_config();
+        cfg.max_keys = 0;
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("max_keys must be >= 1"));
+    }
+
+    // ── body size limit tests ──
+
+    #[test]
+    fn test_complete_oversized_body_drops_body() {
+        let store = IdempotencyStore::new(test_config());
+        let _ = store.try_acquire("big-key");
+
+        let large_body = vec![0u8; MAX_CACHED_BODY_BYTES + 1];
+        store.complete("big-key", StatusCode::OK, large_body, None);
+
+        let result = store.try_acquire("big-key");
+        if let Ok(Some(cached)) = result {
+            assert!(cached.body.is_empty(), "oversized body should be dropped");
+        } else {
+            panic!("expected completed cached response");
+        }
+    }
+
+    #[test]
+    fn test_complete_body_within_limit_preserved() {
+        let store = IdempotencyStore::new(test_config());
+        let _ = store.try_acquire("ok-key");
+
+        let body = vec![1u8; 100];
+        store.complete("ok-key", StatusCode::OK, body.clone(), None);
+
+        let result = store.try_acquire("ok-key");
+        if let Ok(Some(cached)) = result {
+            assert_eq!(cached.body, body);
+        } else {
+            panic!("expected completed cached response");
+        }
     }
 
     #[test]

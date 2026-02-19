@@ -361,6 +361,19 @@ export class VellavetoClient {
     this.baseUrl = trimmedUrl;
     this.apiKey = options.apiKey;
     // SECURITY (FIND-R56-SDK-003): Aligned default timeout across all SDKs (Python/Go/TS = 10s).
+    // SECURITY (FIND-R58-SDK-TS-001): Validate timeout range.
+    if (options.timeout !== undefined) {
+      if (
+        typeof options.timeout !== "number" ||
+        !Number.isFinite(options.timeout) ||
+        options.timeout < 100 ||
+        options.timeout > 300000
+      ) {
+        throw new VellavetoError(
+          "timeout must be a finite number between 100 and 300000 milliseconds"
+        );
+      }
+    }
     this.timeout = options.timeout ?? 10000;
 
     // SECURITY (FIND-R67-SDK-004): Reject header names/values containing CR or LF
@@ -795,6 +808,10 @@ export class VellavetoClient {
     if (typeof query !== "string" || query.trim().length === 0) {
       throw new VellavetoError("query must be a non-empty string");
     }
+    // SECURITY (FIND-R58-SDK-TS-003): Cap query length to prevent oversized requests.
+    if (query.length > 1024) {
+      throw new VellavetoError("query exceeds max length (1024)");
+    }
     const body: DiscoverySearchRequest = {
       query,
       max_results: maxResults,
@@ -899,6 +916,16 @@ export class VellavetoClient {
     fromSeq: number,
     toSeq: number
   ): Promise<ZkCommitmentsResponse> {
+    // SECURITY (FIND-R58-SDK-TS-002): Validate sequence range parameters.
+    if (!Number.isInteger(fromSeq) || fromSeq < 0) {
+      throw new VellavetoError("fromSeq must be a non-negative integer");
+    }
+    if (!Number.isInteger(toSeq) || toSeq < 0) {
+      throw new VellavetoError("toSeq must be a non-negative integer");
+    }
+    if (fromSeq > toSeq) {
+      throw new VellavetoError("fromSeq must be <= toSeq");
+    }
     const params = new URLSearchParams();
     params.set("from", String(fromSeq));
     params.set("to", String(toSeq));

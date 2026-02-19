@@ -20,6 +20,7 @@ use std::fmt;
 /// - Policies can match on issuer, subject, and custom claims
 /// - This provides stronger identity guarantees than the legacy `agent_id` field
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AgentIdentity {
     /// JWT issuer (`iss` claim). Identifies the identity provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -61,6 +62,9 @@ impl AgentIdentity {
     /// Maximum number of claims to prevent memory abuse.
     pub const MAX_CLAIMS: usize = 64;
 
+    /// Maximum number of audience entries to prevent memory abuse.
+    pub const MAX_AUDIENCE: usize = 64;
+
     /// SECURITY (FIND-R49-006): Validate AgentIdentity bounds.
     pub fn validate(&self) -> Result<(), String> {
         if self.claims.len() > Self::MAX_CLAIMS {
@@ -68,6 +72,13 @@ impl AgentIdentity {
                 "AgentIdentity claims count {} exceeds max {}",
                 self.claims.len(),
                 Self::MAX_CLAIMS
+            ));
+        }
+        if self.audience.len() > Self::MAX_AUDIENCE {
+            return Err(format!(
+                "AgentIdentity audience count {} exceeds max {}",
+                self.audience.len(),
+                Self::MAX_AUDIENCE
             ));
         }
         Ok(())
@@ -80,6 +91,7 @@ impl AgentIdentity {
 /// OWASP ASI08: Multi-agent communication monitoring requires tracking
 /// the full chain of tool calls to detect privilege escalation patterns.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct CallChainEntry {
     /// The agent that made this call (from X-Upstream-Agent header or OAuth subject).
     pub agent_id: String,
@@ -109,6 +121,7 @@ pub struct CallChainEntry {
 /// while Context = "session state" (from the proxy). This security boundary
 /// ensures agents don't control context fields like call counts or timestamps.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct EvaluationContext {
     /// ISO 8601 timestamp for the evaluation. When `None`, the engine uses
     /// the current wall-clock time. Providing an explicit timestamp enables
@@ -236,6 +249,9 @@ impl EvaluationContext {
     /// Maximum byte length for call_chain entry fields (agent_id, tool, function).
     /// SECURITY (FIND-R56-CORE-008): Prevents memory abuse via oversized call chain fields.
     const MAX_CALL_CHAIN_FIELD_LEN: usize = 512;
+    /// Maximum byte length for call_chain entry HMAC field.
+    /// HMAC-SHA256 is exactly 64 hex chars; 128 provides headroom for future algorithms.
+    const MAX_HMAC_LEN: usize = 128;
 
     pub fn validate(&self) -> Result<(), String> {
         Self::validate_optional_id_field(&self.agent_id, "agent_id")?;
@@ -337,6 +353,18 @@ impl EvaluationContext {
                     "EvaluationContext call_chain[{}].timestamp contains control characters",
                     i,
                 ));
+            }
+            // SECURITY: Validate HMAC field length if present.
+            // HMAC-SHA256 produces 64 hex chars; cap at 128 for future headroom.
+            if let Some(ref hmac) = entry.hmac {
+                if hmac.len() > Self::MAX_HMAC_LEN {
+                    return Err(format!(
+                        "EvaluationContext call_chain[{}].hmac length {} exceeds max {}",
+                        i,
+                        hmac.len(),
+                        Self::MAX_HMAC_LEN,
+                    ));
+                }
             }
         }
 
@@ -608,6 +636,7 @@ pub trait RequestContext: Send + Sync {
 /// serialization, signing, and verification logic will be implemented
 /// when the June 2026 MCP spec is finalized.
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StatelessContextBlob {
     /// Wire format version. Current: 1.
     pub version: u8,

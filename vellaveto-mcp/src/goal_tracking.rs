@@ -100,6 +100,13 @@ struct ActionSummary {
     timestamp: Instant,
 }
 
+/// Maximum number of manipulation keywords allowed in `GoalTrackerConfig`.
+/// Prevents memory exhaustion from excessively large keyword lists.
+const MAX_MANIPULATION_KEYWORDS: usize = 500;
+
+/// Maximum length of a single manipulation keyword (bytes).
+const MAX_MANIPULATION_KEYWORD_LEN: usize = 256;
+
 /// Configuration for goal tracking.
 // SECURITY (FIND-R63-MCP-006): deny_unknown_fields prevents attacker-injected
 // fields from being silently accepted in security-critical configuration.
@@ -151,6 +158,47 @@ impl GoalTrackerConfig {
         // triggering cleanup on every call and rejecting all new sessions.
         if self.max_sessions == 0 {
             return Err("max_sessions must be > 0".to_string());
+        }
+        // SECURITY: max_actions_per_session must be bounded to prevent unbounded
+        // action history growth per session.
+        if self.max_actions_per_session == 0 {
+            return Err("max_actions_per_session must be > 0".to_string());
+        }
+        if self.max_actions_per_session > 100_000 {
+            return Err(format!(
+                "max_actions_per_session must be <= 100000, got {}",
+                self.max_actions_per_session
+            ));
+        }
+        // SECURITY: session_ttl must be positive to prevent instant expiry.
+        if self.session_ttl == Duration::ZERO {
+            return Err("session_ttl must be > 0".to_string());
+        }
+        // SECURITY: Bound manipulation_keywords to prevent memory exhaustion.
+        if self.manipulation_keywords.len() > MAX_MANIPULATION_KEYWORDS {
+            return Err(format!(
+                "manipulation_keywords has {} entries, max is {}",
+                self.manipulation_keywords.len(),
+                MAX_MANIPULATION_KEYWORDS,
+            ));
+        }
+        for (i, kw) in self.manipulation_keywords.iter().enumerate() {
+            if kw.len() > MAX_MANIPULATION_KEYWORD_LEN {
+                return Err(format!(
+                    "manipulation_keywords[{}] length {} exceeds max {}",
+                    i,
+                    kw.len(),
+                    MAX_MANIPULATION_KEYWORD_LEN,
+                ));
+            }
+            // SECURITY: Reject control characters (C0 and C1 ranges) in keywords
+            // to prevent log injection and display manipulation.
+            if kw.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+                return Err(format!(
+                    "manipulation_keywords[{}] contains control characters",
+                    i,
+                ));
+            }
         }
         Ok(())
     }

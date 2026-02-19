@@ -165,6 +165,7 @@ impl std::fmt::Display for ProcessingPurpose {
 
 /// Data governance record for a tool (Art 10).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct DataGovernanceRecord {
     /// Tool name or pattern this record applies to.
     pub tool: String,
@@ -271,6 +272,7 @@ impl std::fmt::Display for AttestationStatus {
 
 /// Reviewer attestation on an access review report.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ReviewerAttestation {
     /// Name of the reviewer.
     pub reviewer_name: String,
@@ -373,6 +375,7 @@ impl ReviewerAttestation {
 
 /// Per-agent access review entry for SOC 2 Type II reporting.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AccessReviewEntry {
     /// Agent identifier.
     pub agent_id: String,
@@ -500,6 +503,7 @@ pub struct Cc6Evidence {
 
 /// SOC 2 Type II access review report.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AccessReviewReport {
     /// ISO 8601 timestamp when the report was generated.
     pub generated_at: String,

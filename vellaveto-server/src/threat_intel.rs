@@ -32,6 +32,16 @@ pub enum ThreatIntelError {
     UnsupportedProvider(String),
 }
 
+/// Maximum response body size from threat intel providers (16 MB).
+/// Prevents OOM from malicious or misconfigured provider responses.
+const MAX_THREAT_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Maximum number of STIX objects in a single TAXII response.
+const MAX_STIX_OBJECTS: usize = 10_000;
+
+/// Maximum number of MISP attributes in a single response.
+const MAX_MISP_ATTRIBUTES: usize = 10_000;
+
 /// Maximum tags per indicator (FIND-R58-SRV-008).
 const MAX_INDICATOR_TAGS: usize = 50;
 
@@ -272,6 +282,37 @@ impl ThreatIntelClient {
         }
     }
 
+    /// Read response body with size bound, returning bytes.
+    ///
+    /// SECURITY (FIND-R58-SRV-THREAT-001): Checks Content-Length header first
+    /// for early rejection, then enforces size on the actual body bytes.
+    async fn read_bounded_response(
+        response: reqwest::Response,
+        provider_name: &str,
+    ) -> Result<Vec<u8>, ThreatIntelError> {
+        // Early rejection via Content-Length header
+        if let Some(content_length) = response.content_length() {
+            if content_length > MAX_THREAT_RESPONSE_BYTES as u64 {
+                return Err(ThreatIntelError::InvalidResponse(format!(
+                    "{} response Content-Length {} exceeds limit {}",
+                    provider_name, content_length, MAX_THREAT_RESPONSE_BYTES
+                )));
+            }
+        }
+
+        let body_bytes = response.bytes().await?;
+        if body_bytes.len() > MAX_THREAT_RESPONSE_BYTES {
+            return Err(ThreatIntelError::InvalidResponse(format!(
+                "{} response body {} bytes exceeds limit {}",
+                provider_name,
+                body_bytes.len(),
+                MAX_THREAT_RESPONSE_BYTES
+            )));
+        }
+
+        Ok(body_bytes.to_vec())
+    }
+
     /// Query TAXII 2.x feed.
     async fn query_taxii(
         &self,
@@ -300,7 +341,10 @@ impl ThreatIntelClient {
             )));
         }
 
-        let body: serde_json::Value = response.json().await?;
+        let body_bytes = Self::read_bounded_response(response, "TAXII").await?;
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).map_err(|e| {
+            ThreatIntelError::InvalidResponse(format!("TAXII response JSON decode failed: {}", e))
+        })?;
         self.parse_stix_objects(&body)
     }
 
@@ -328,7 +372,10 @@ impl ThreatIntelClient {
             )));
         }
 
-        let body: serde_json::Value = response.json().await?;
+        let body_bytes = Self::read_bounded_response(response, "MISP").await?;
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).map_err(|e| {
+            ThreatIntelError::InvalidResponse(format!("MISP response JSON decode failed: {}", e))
+        })?;
         self.parse_misp_response(&body)
     }
 
@@ -350,9 +397,14 @@ impl ThreatIntelClient {
             )));
         }
 
-        let indicators: Vec<ThreatIndicator> = response.json().await.map_err(|e| {
-            ThreatIntelError::InvalidResponse(format!("custom provider JSON decode failed: {}", e))
-        })?;
+        let body_bytes = Self::read_bounded_response(response, "custom").await?;
+        let indicators: Vec<ThreatIndicator> =
+            serde_json::from_slice(&body_bytes).map_err(|e| {
+                ThreatIntelError::InvalidResponse(format!(
+                    "custom provider JSON decode failed: {}",
+                    e
+                ))
+            })?;
         Ok(indicators)
     }
 
@@ -369,6 +421,14 @@ impl ThreatIntelClient {
                     "TAXII response missing required 'objects' array".to_string(),
                 )
             })?;
+
+        if objects.len() > MAX_STIX_OBJECTS {
+            return Err(ThreatIntelError::InvalidResponse(format!(
+                "TAXII response contains {} objects, max {}",
+                objects.len(),
+                MAX_STIX_OBJECTS
+            )));
+        }
 
         let mut indicators = Vec::new();
         let mut saw_invalid_indicator = false;
@@ -437,6 +497,14 @@ impl ThreatIntelClient {
                     "MISP response missing required 'response.Attribute' array".to_string(),
                 )
             })?;
+
+        if attributes.len() > MAX_MISP_ATTRIBUTES {
+            return Err(ThreatIntelError::InvalidResponse(format!(
+                "MISP response contains {} attributes, max {}",
+                attributes.len(),
+                MAX_MISP_ATTRIBUTES
+            )));
+        }
 
         let mut indicators = Vec::new();
         let mut saw_invalid_attribute = false;
@@ -694,6 +762,30 @@ mod tests {
             .parse_misp_response(&json!({"response": {"Attribute": []}}))
             .expect("empty result should be valid");
         assert!(indicators.is_empty());
+    }
+
+    #[test]
+    fn test_parse_stix_objects_exceeds_max_objects() {
+        let client = test_client();
+        let objects: Vec<serde_json::Value> = (0..MAX_STIX_OBJECTS + 1)
+            .map(|i| {
+                json!({"type": "indicator", "pattern": format!("pattern-{}", i)})
+            })
+            .collect();
+        let result = client.parse_stix_objects(&json!({"objects": objects}));
+        assert!(matches!(result, Err(ThreatIntelError::InvalidResponse(ref msg)) if msg.contains("max")));
+    }
+
+    #[test]
+    fn test_parse_misp_response_exceeds_max_attributes() {
+        let client = test_client();
+        let attributes: Vec<serde_json::Value> = (0..MAX_MISP_ATTRIBUTES + 1)
+            .map(|i| json!({"value": format!("attr-{}", i)}))
+            .collect();
+        let result = client.parse_misp_response(&json!({
+            "response": { "Attribute": attributes }
+        }));
+        assert!(matches!(result, Err(ThreatIntelError::InvalidResponse(ref msg)) if msg.contains("max")));
     }
 
     #[test]

@@ -297,7 +297,7 @@ impl ComplianceConfig {
                 MAX_ACCESS_REVIEW_REVIEWERS,
             ));
         }
-        // Validate human_oversight_tools entries for control characters
+        // Validate human_oversight_tools entries for length and control characters
         for (i, tool) in self.eu_ai_act.human_oversight_tools.iter().enumerate() {
             if tool.len() > MAX_COMPLIANCE_STRING_LEN {
                 return Err(format!(
@@ -305,6 +305,14 @@ impl ComplianceConfig {
                     i,
                     tool.len(),
                     MAX_COMPLIANCE_STRING_LEN,
+                ));
+            }
+            // SECURITY: Byte-level control char check matching governance.rs pattern —
+            // includes C1 controls (0x80-0x9F).
+            if tool.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+                return Err(format!(
+                    "eu_ai_act.human_oversight_tools[{}] contains control characters",
+                    i,
                 ));
             }
         }

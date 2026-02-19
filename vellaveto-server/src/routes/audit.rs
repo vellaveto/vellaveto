@@ -78,7 +78,9 @@ pub async fn audit_entries(
         .limit
         .unwrap_or(DEFAULT_AUDIT_PAGE_SIZE)
         .min(MAX_AUDIT_PAGE_SIZE);
-    let offset = params.offset.unwrap_or(0);
+    // SECURITY (FIND-R58-SRV-AUDIT-001): Cap offset at total to prevent
+    // nonsensical skip values that waste iterator cycles.
+    let offset = params.offset.unwrap_or(0).min(total);
 
     // Return the most recent entries (tail of the list), paginated.
     let page: Vec<_> = entries.into_iter().rev().skip(offset).take(limit).collect();

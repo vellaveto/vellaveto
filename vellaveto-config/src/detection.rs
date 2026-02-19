@@ -121,6 +121,34 @@ fn default_dlp_max_string_size() -> usize {
     1024 * 1024 // 1 MB
 }
 
+impl DlpConfig {
+    /// Validate DLP configuration numeric bounds.
+    ///
+    /// SECURITY: Prevents misconfiguration that could disable scanning (zero values)
+    /// or cause excessive memory/CPU usage (unbounded values).
+    pub fn validate(&self) -> Result<(), String> {
+        if self.max_depth == 0 || self.max_depth > 64 {
+            return Err(format!(
+                "dlp.max_depth must be in [1, 64], got {}",
+                self.max_depth
+            ));
+        }
+        if self.time_budget_ms == 0 || self.time_budget_ms > 10_000 {
+            return Err(format!(
+                "dlp.time_budget_ms must be in [1, 10000], got {}",
+                self.time_budget_ms
+            ));
+        }
+        if self.max_string_size == 0 || self.max_string_size > 100 * 1024 * 1024 {
+            return Err(format!(
+                "dlp.max_string_size must be in [1, 104857600], got {}",
+                self.max_string_size
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl Default for DlpConfig {
     fn default() -> Self {
         Self {

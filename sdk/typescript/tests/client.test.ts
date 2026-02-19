@@ -1071,3 +1071,109 @@ describe("Federation (Phase 39)", () => {
     ).rejects.toThrow("org_id contains control characters");
   });
 });
+
+// ── FIND-R58-SDK-TS: Input validation hardening ──────────────
+
+describe("Input validation hardening", () => {
+  // ── Timeout validation ──
+
+  test("timeout below 100 throws VellavetoError", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", timeout: 50 })
+    ).toThrow("timeout must be a finite number between 100 and 300000");
+  });
+
+  test("timeout above 300000 throws VellavetoError", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", timeout: 400000 })
+    ).toThrow("timeout must be a finite number between 100 and 300000");
+  });
+
+  test("timeout NaN throws VellavetoError", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", timeout: NaN })
+    ).toThrow("timeout must be a finite number between 100 and 300000");
+  });
+
+  test("timeout Infinity throws VellavetoError", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", timeout: Infinity })
+    ).toThrow("timeout must be a finite number between 100 and 300000");
+  });
+
+  test("timeout 0 throws VellavetoError", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", timeout: 0 })
+    ).toThrow("timeout must be a finite number between 100 and 300000");
+  });
+
+  test("timeout exactly 100 accepted", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", timeout: 100 })
+    ).not.toThrow();
+  });
+
+  test("timeout exactly 300000 accepted", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", timeout: 300000 })
+    ).not.toThrow();
+  });
+
+  test("timeout undefined uses default (accepted)", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000" })
+    ).not.toThrow();
+  });
+
+  // ── zkCommitments validation ──
+
+  let client: VellavetoClient;
+  beforeAll(() => {
+    mockFetch.mockReset();
+    client = new VellavetoClient({
+      baseUrl: "http://localhost:3000",
+      apiKey: "test-key",
+      timeout: 1000,
+    });
+  });
+
+  test("zkCommitments rejects negative fromSeq", async () => {
+    await expect(client.zkCommitments(-1, 5)).rejects.toThrow(
+      "fromSeq must be a non-negative integer"
+    );
+  });
+
+  test("zkCommitments rejects non-integer fromSeq", async () => {
+    await expect(client.zkCommitments(1.5, 5)).rejects.toThrow(
+      "fromSeq must be a non-negative integer"
+    );
+  });
+
+  test("zkCommitments rejects negative toSeq", async () => {
+    await expect(client.zkCommitments(0, -1)).rejects.toThrow(
+      "toSeq must be a non-negative integer"
+    );
+  });
+
+  test("zkCommitments rejects fromSeq > toSeq", async () => {
+    await expect(client.zkCommitments(10, 5)).rejects.toThrow(
+      "fromSeq must be <= toSeq"
+    );
+  });
+
+  // ── discover() query length cap ──
+
+  test("discover rejects query longer than 1024 chars", async () => {
+    await expect(client.discover("x".repeat(1025))).rejects.toThrow(
+      "query exceeds max length (1024)"
+    );
+  });
+
+  test("discover accepts query of exactly 1024 chars", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ tools: [], query: "x", total_candidates: 0, policy_filtered: 0 })
+    );
+    // Should not throw
+    await client.discover("x".repeat(1024));
+  });
+});

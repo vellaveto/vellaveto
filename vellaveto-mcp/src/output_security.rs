@@ -579,7 +579,20 @@ impl OutputSecurityAnalyzer {
     }
 
     /// Update session baseline with new entropy sample.
+    ///
+    /// SECURITY: Rejects non-finite, negative, and >8.0 entropy values to prevent
+    /// NaN/Infinity from corrupting the running average baseline, which could
+    /// suppress future anomaly detection.
     pub fn update_baseline(&self, session_id: &str, entropy: f32) {
+        if !entropy.is_finite() || !(0.0..=8.0).contains(&entropy) {
+            tracing::warn!(
+                target: "vellaveto::security",
+                session_id = %session_id,
+                entropy = %entropy,
+                "update_baseline called with invalid entropy — ignoring"
+            );
+            return;
+        }
         let mut baselines = match self.session_baselines.write() {
             Ok(g) => g,
             Err(_) => {

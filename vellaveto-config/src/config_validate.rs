@@ -113,6 +113,9 @@ impl PolicyConfig {
                 return Err(format!("injection.extra_patterns[{}] must not be empty", i));
             }
         }
+        // SECURITY: Validate DLP numeric field bounds (max_depth, time_budget_ms, max_string_size).
+        self.dlp.validate()?;
+
         // SECURITY (FIND-R72-CFG-002): Validate dlp.disabled_patterns bounds.
         // Unbounded disabled_patterns can cause excessive memory usage during matching.
         const MAX_DLP_DISABLED_PATTERNS: usize = 100;
@@ -151,7 +154,27 @@ impl PolicyConfig {
         // SECURITY (FIND-063): Bound pattern length before regex compilation.
         // Unbounded patterns can cause ReDoS or excessive compile-time memory usage.
         const MAX_PATTERN_LEN: usize = 2048;
+        const MAX_DLP_PATTERN_NAME_LEN: usize = 256;
         for (i, (name, pattern)) in self.dlp.extra_patterns.iter().enumerate() {
+            // SECURITY: Validate DLP pattern name — reject empty, oversized,
+            // and control-character-containing names.
+            if name.is_empty() {
+                return Err(format!("dlp.extra_patterns[{}] name must not be empty", i));
+            }
+            if name.len() > MAX_DLP_PATTERN_NAME_LEN {
+                return Err(format!(
+                    "dlp.extra_patterns[{}] name exceeds max length ({} > {})",
+                    i,
+                    name.len(),
+                    MAX_DLP_PATTERN_NAME_LEN
+                ));
+            }
+            if name.chars().any(char::is_control) {
+                return Err(format!(
+                    "dlp.extra_patterns[{}] name contains control characters",
+                    i
+                ));
+            }
             if pattern.len() > MAX_PATTERN_LEN {
                 return Err(format!(
                     "dlp.extra_patterns[{}] '{}' exceeds max pattern length ({} > {})",

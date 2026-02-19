@@ -260,6 +260,11 @@ impl AbacEngine {
     pub fn new(policies: &[AbacPolicy], entities: &[AbacEntity]) -> Result<Self, String> {
         let mut compiled = Vec::with_capacity(policies.len());
         for policy in policies {
+            // SECURITY: Validate policy bounds before compiling to reject
+            // oversized conditions, patterns, or other bounded fields early.
+            policy
+                .validate()
+                .map_err(|e| format!("ABAC policy '{}' validation failed: {e}", policy.id))?;
             compiled.push(compile_policy(policy)?);
         }
         // Sort by priority descending (higher priority first)
@@ -402,6 +407,26 @@ fn compile_policy(policy: &AbacPolicy) -> Result<CompiledAbacPolicy, String> {
                 field = %c.field,
                 "ABAC condition references unknown field — will resolve to null at evaluation time"
             );
+        }
+        // SECURITY: For numeric comparison operators, validate that the condition
+        // value is a finite number. NaN/Infinity in the condition value causes all
+        // comparisons to return false, silently bypassing Forbid policies.
+        if matches!(c.op, AbacOp::Gt | AbacOp::Lt | AbacOp::Gte | AbacOp::Lte) {
+            match c.value.as_f64() {
+                Some(v) if !v.is_finite() => {
+                    return Err(format!(
+                        "ABAC policy '{}' condition on field '{}' has non-finite numeric value",
+                        policy.id, c.field
+                    ));
+                }
+                None => {
+                    return Err(format!(
+                        "ABAC policy '{}' condition on field '{}' uses numeric operator {:?} but value is not a number",
+                        policy.id, c.field, c.op
+                    ));
+                }
+                _ => {} // finite number, OK
+            }
         }
         conditions.push(CompiledCondition {
             field: c.field.clone(),
