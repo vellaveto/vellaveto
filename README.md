@@ -1329,6 +1329,7 @@ Comprehensive documentation is available in the `docs/` directory:
 | [Assurance Case](docs/ASSURANCE_CASE.md) | Claim -> evidence -> reproduce map |
 | [Verify Release Artifacts](docs/VERIFY_RELEASE_ARTIFACTS.md) | Checksums, SBOM, and provenance verification playbook |
 | [Strategic Review](docs/STRATEGIC_REVIEW_POSITIONING_TRUST_GROWTH.md) | Positioning, trust, and growth execution plan |
+| [Session Auth and Passkey Plan](docs/SESSION_AUTH_PASSKEY_PLAN.md) | Phased integration plan for OAuth sessions, secure token storage, and passkey onboarding |
 | [Quantum Migration Runbook](docs/quantum-migration.md) | Phased TLS PQ rollout and rollback gates |
 | [Benchmarks](docs/BENCHMARKS.md) | Reproducible performance benchmarks and methodology |
 | [API Reference](docs/API.md) | Complete HTTP API documentation |
