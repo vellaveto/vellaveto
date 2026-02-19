@@ -87,6 +87,7 @@ fn validate_required_field(
 
 /// Query parameters for listing memory entries.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ListMemoryEntriesQuery {
     pub session_id: Option<String>,
     pub quarantined_only: Option<bool>,

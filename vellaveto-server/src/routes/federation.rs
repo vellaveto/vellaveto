@@ -16,6 +16,7 @@ use crate::AppState;
 
 /// Query parameters for trust anchors listing.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FederationAnchorsQuery {
     /// Optional filter by org_id.
     #[serde(default)]

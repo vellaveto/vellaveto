@@ -64,6 +64,8 @@ pub async fn get_tenant(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
+    crate::routes::validate_path_param(&id, "id")?;
+
     let store = state.tenant_store.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_IMPLEMENTED,
@@ -143,6 +145,8 @@ pub async fn update_tenant(
     Path(id): Path<String>,
     Json(req): Json<TenantRequest>,
 ) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
+    crate::routes::validate_path_param(&id, "id")?;
+
     // Validate that path ID matches body ID
     if id != req.id {
         return Err((
@@ -202,6 +206,8 @@ pub async fn delete_tenant(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    crate::routes::validate_path_param(&id, "id")?;
+
     // Don't allow deleting the default tenant
     if id == DEFAULT_TENANT_ID {
         return Err((

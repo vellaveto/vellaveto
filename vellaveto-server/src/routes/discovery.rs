@@ -267,6 +267,7 @@ pub async fn discovery_reindex(
 
 /// Query parameters for `GET /api/discovery/tools`.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DiscoveryToolsQuery {
     /// Filter by originating MCP server ID.
     #[serde(default)]

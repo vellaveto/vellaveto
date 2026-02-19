@@ -29,6 +29,7 @@ const MAX_TOOL_FILTER_LEN: usize = 256;
 
 /// Query parameters for graph listing.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GraphListQuery {
     /// Filter by tool name.
     pub tool: Option<String>,

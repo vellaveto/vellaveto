@@ -1058,6 +1058,7 @@ struct EvaluateRequest {
 /// Query parameters for the evaluate endpoint.
 /// IMPROVEMENT_PLAN 10.4: Add ?trace=true for OPA-style decision logging.
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 struct EvaluateQuery {
     /// When true, return detailed evaluation trace with per-policy match info.
     #[serde(default)]
