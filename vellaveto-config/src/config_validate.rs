@@ -113,6 +113,34 @@ impl PolicyConfig {
                 return Err(format!("injection.extra_patterns[{}] must not be empty", i));
             }
         }
+        // SECURITY (FIND-R72-CFG-002): Validate dlp.disabled_patterns bounds.
+        // Unbounded disabled_patterns can cause excessive memory usage during matching.
+        const MAX_DLP_DISABLED_PATTERNS: usize = 100;
+        const MAX_DLP_DISABLED_PATTERN_LEN: usize = 1024;
+        if self.dlp.disabled_patterns.len() > MAX_DLP_DISABLED_PATTERNS {
+            return Err(format!(
+                "dlp.disabled_patterns has {} entries, max is {}",
+                self.dlp.disabled_patterns.len(),
+                MAX_DLP_DISABLED_PATTERNS
+            ));
+        }
+        for (i, pattern) in self.dlp.disabled_patterns.iter().enumerate() {
+            if pattern.is_empty() {
+                return Err(format!(
+                    "dlp.disabled_patterns[{}] must not be empty",
+                    i
+                ));
+            }
+            if pattern.len() > MAX_DLP_DISABLED_PATTERN_LEN {
+                return Err(format!(
+                    "dlp.disabled_patterns[{}] exceeds max length ({} > {})",
+                    i,
+                    pattern.len(),
+                    MAX_DLP_DISABLED_PATTERN_LEN
+                ));
+            }
+        }
+
         // FIND-002: Validate DLP extra_patterns compile as valid regex at config load time.
         // This ensures fail-closed behavior: invalid patterns are rejected upfront rather
         // than silently skipped at runtime.
@@ -220,6 +248,40 @@ impl PolicyConfig {
                 self.supply_chain.allowed_servers.len(),
                 MAX_ALLOWED_SERVERS
             ));
+        }
+
+        // SECURITY (FIND-R72-CFG-003): Validate allowed_origins bounds.
+        // Unbounded origins can cause excessive memory usage and CORS misconfiguration.
+        const MAX_ALLOWED_ORIGINS: usize = 100;
+        const MAX_ORIGIN_LEN: usize = 2048;
+        if self.allowed_origins.len() > MAX_ALLOWED_ORIGINS {
+            return Err(format!(
+                "allowed_origins has {} entries, max is {}",
+                self.allowed_origins.len(),
+                MAX_ALLOWED_ORIGINS
+            ));
+        }
+        for (i, origin) in self.allowed_origins.iter().enumerate() {
+            if origin.is_empty() {
+                return Err(format!(
+                    "allowed_origins[{}] must not be empty",
+                    i
+                ));
+            }
+            if origin.len() > MAX_ORIGIN_LEN {
+                return Err(format!(
+                    "allowed_origins[{}] exceeds max length ({} > {})",
+                    i,
+                    origin.len(),
+                    MAX_ORIGIN_LEN
+                ));
+            }
+            if contains_control_chars(origin) {
+                return Err(format!(
+                    "allowed_origins[{}] contains control characters",
+                    i
+                ));
+            }
         }
 
         // SECURITY (FIND-R63-CFG-001): Delegate to ToolRegistryConfig::validate()
@@ -432,6 +494,18 @@ impl PolicyConfig {
         // infinite loops or no-op exports.
         if self.audit_export.batch_size == 0 {
             return Err("audit_export.batch_size must be > 0".to_string());
+        }
+
+        // SECURITY (FIND-R72-CFG-006): Validate audit_export.format is a recognized value.
+        // Unrecognized values could cause silent export failures or unexpected behavior.
+        {
+            let valid_formats = ["cef", "jsonl"];
+            if !valid_formats.contains(&self.audit_export.format.as_str()) {
+                return Err(format!(
+                    "audit_export.format must be one of {:?}, got '{}'",
+                    valid_formats, self.audit_export.format
+                ));
+            }
         }
 
         // Validate behavioral detection config
@@ -827,6 +901,25 @@ impl PolicyConfig {
                     valid_enforcements, self.etdi.version_pinning.enforcement
                 ));
             }
+        }
+
+        // SECURITY (FIND-R72-CFG-005): Validate etdi.allowed_signers bounds.
+        // Unbounded fingerprint/SPIFFE ID lists can cause excessive memory usage.
+        const MAX_ETDI_ALLOWED_FINGERPRINTS: usize = 100;
+        const MAX_ETDI_ALLOWED_SPIFFE_IDS: usize = 100;
+        if self.etdi.allowed_signers.fingerprints.len() > MAX_ETDI_ALLOWED_FINGERPRINTS {
+            return Err(format!(
+                "etdi.allowed_signers.fingerprints has {} entries, max is {}",
+                self.etdi.allowed_signers.fingerprints.len(),
+                MAX_ETDI_ALLOWED_FINGERPRINTS
+            ));
+        }
+        if self.etdi.allowed_signers.spiffe_ids.len() > MAX_ETDI_ALLOWED_SPIFFE_IDS {
+            return Err(format!(
+                "etdi.allowed_signers.spiffe_ids has {} entries, max is {}",
+                self.etdi.allowed_signers.spiffe_ids.len(),
+                MAX_ETDI_ALLOWED_SPIFFE_IDS
+            ));
         }
 
         // OPA validation

@@ -116,7 +116,7 @@ impl UpstreamForwarder {
         while let Some(chunk) = response_mut.chunk().await.map_err(|e| {
             UpstreamError::HttpError(format!("Failed to read response chunk: {}", e))
         })? {
-            if response_body.len() + chunk.len() > MAX_GRPC_HTTP_RESPONSE_BYTES {
+            if response_body.len().saturating_add(chunk.len()) > MAX_GRPC_HTTP_RESPONSE_BYTES {
                 return Err(UpstreamError::HttpError(format!(
                     "response body too large: >{} bytes (max {})",
                     MAX_GRPC_HTTP_RESPONSE_BYTES, MAX_GRPC_HTTP_RESPONSE_BYTES

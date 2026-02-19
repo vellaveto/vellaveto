@@ -60,9 +60,21 @@ struct AgentAccumulator {
 /// # Arguments
 /// * `entries` — All audit entries (pre-loaded). Filtered to the review period internally.
 /// * `org_name` — Organization name for the report header.
-/// * `period_start` — Review period start (RFC 3339 UTC).
-/// * `period_end` — Review period end (RFC 3339 UTC).
+/// * `period_start` — Review period start (RFC 3339 UTC, e.g. `"2026-01-01T00:00:00Z"`).
+/// * `period_end` — Review period end (RFC 3339 UTC, e.g. `"2026-02-01T00:00:00Z"`).
 /// * `least_agency` — Map of `(agent_id, session_id)` → `LeastAgencyReport`.
+///
+/// # Timestamp comparison
+///
+/// Period filtering uses lexicographic string comparison on the normalized UTC
+/// timestamps. This is correct **only** when both `period_start`/`period_end` and
+/// every `AuditEntry.timestamp` are UTC ISO 8601 / RFC 3339 strings with identical
+/// formatting (e.g. `"2026-01-15T12:00:00Z"`). Timestamps with non-UTC offsets
+/// (e.g. `"+05:30"`) will NOT sort correctly and must be normalized to UTC `"Z"`
+/// suffix before calling this function. The `"+00:00"` variant is normalized
+/// internally, but no other offset is handled. Adding full timezone-aware parsing
+/// would require a datetime library (e.g. `chrono`) which is intentionally avoided
+/// to minimize dependencies.
 pub fn generate_access_review(
     entries: &[AuditEntry],
     org_name: &str,
@@ -99,7 +111,9 @@ pub fn generate_access_review(
             std::borrow::Cow::Borrowed(entry.timestamp.as_str())
         };
 
-        // Filter by period — RFC 3339 strings sort lexicographically for UTC timestamps
+        // Filter by period — RFC 3339 strings sort lexicographically for UTC timestamps.
+        // LIMITATION (FIND-R72-009): This comparison is only valid when all timestamps
+        // use UTC with identical formatting (e.g. "Z" suffix). See doc comment above.
         if ts.as_ref() < period_start || ts.as_ref() > period_end {
             continue;
         }

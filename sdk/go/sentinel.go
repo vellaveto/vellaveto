@@ -287,6 +287,10 @@ type evaluateRaw struct {
 // The server expects Action fields flattened at the root level of the JSON body
 // (not nested under an "action" key) because the Rust server uses #[serde(flatten)].
 // The trace flag is passed as a query parameter (?trace=true).
+//
+// SECURITY (FIND-R72-SDK-001): Retries on 429, 502, 503, 504 with exponential
+// backoff (500ms, 1s, 2s) matching doJSON() parity. Previous implementation used
+// c.do() directly without retry, unlike all other methods that use doJSON().
 func (c *Client) Evaluate(ctx context.Context, action Action, evalCtx *EvaluationContext, trace bool) (*EvaluationResult, error) {
 	// SECURITY (FIND-R54-SDK-008): Validate action fields before sending to server.
 	if err := action.Validate(); err != nil {
@@ -308,41 +312,59 @@ func (c *Client) Evaluate(ctx context.Context, action Action, evalCtx *Evaluatio
 		path += "?trace=true"
 	}
 
-	respBody, status, err := c.do(ctx, http.MethodPost, path, reqBody)
-	if err != nil {
-		return nil, err
-	}
-	if status < 200 || status >= 300 {
+	backoff := defaultInitialBackoff
+	var lastErr error
+
+	for attempt := 0; attempt <= defaultMaxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+		}
+
+		respBody, status, err := c.do(ctx, http.MethodPost, path, reqBody)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if status >= 200 && status < 300 {
+			var raw evaluateRaw
+			if err := json.Unmarshal(respBody, &raw); err != nil {
+				return nil, fmt.Errorf("vellaveto: decode response: %w", err)
+			}
+
+			verdict, objReason := parseVerdictField(raw.Verdict)
+			reason := raw.Reason
+			if reason == "" {
+				reason = objReason
+			}
+
+			return &EvaluationResult{
+				Verdict:    verdict,
+				Reason:     reason,
+				PolicyID:   raw.PolicyID,
+				PolicyName: raw.PolicyName,
+				ApprovalID: raw.ApprovalID,
+				Trace:      raw.Trace,
+			}, nil
+		}
 		// SECURITY (FIND-R46-GO-005): Truncate response body in error messages.
 		msg := string(respBody)
 		if len(msg) > maxErrorBodyDisplay {
 			msg = msg[:maxErrorBodyDisplay] + "...(truncated)"
 		}
-		return nil, &VellavetoError{
+		lastErr = &VellavetoError{
 			Message:    fmt.Sprintf("unexpected status: %s", msg),
 			StatusCode: status,
 		}
+		if !retryableStatus(status) {
+			return nil, lastErr
+		}
 	}
-
-	var raw evaluateRaw
-	if err := json.Unmarshal(respBody, &raw); err != nil {
-		return nil, fmt.Errorf("vellaveto: decode response: %w", err)
-	}
-
-	verdict, objReason := parseVerdictField(raw.Verdict)
-	reason := raw.Reason
-	if reason == "" {
-		reason = objReason
-	}
-
-	return &EvaluationResult{
-		Verdict:    verdict,
-		Reason:     reason,
-		PolicyID:   raw.PolicyID,
-		PolicyName: raw.PolicyName,
-		ApprovalID: raw.ApprovalID,
-		Trace:      raw.Trace,
-	}, nil
+	return nil, lastErr
 }
 
 // EvaluateOrError is like Evaluate but returns typed errors for Deny and RequireApproval verdicts.

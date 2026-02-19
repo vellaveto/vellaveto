@@ -21,6 +21,10 @@ use vellaveto_types::{
     MAX_DELEGATION_DEPTH, MAX_GRANTS,
 };
 
+/// SECURITY (FIND-R74-002): Maximum TTL for capability tokens (1 year).
+/// Prevents `ttl_secs as i64` overflow on u64 values > i64::MAX.
+const MAX_CAPABILITY_TTL_SECS: u64 = 365 * 24 * 3600;
+
 /// Issue a new root capability token.
 ///
 /// Creates a fresh token with the specified grants, signed by the issuer's
@@ -48,6 +52,13 @@ pub fn issue_capability_token(
         return Err(CapabilityError::SigningFailed(
             "grants must not be empty".to_string(),
         ));
+    }
+    // SECURITY (FIND-R74-002): Cap TTL to prevent `as i64` overflow.
+    if ttl_secs > MAX_CAPABILITY_TTL_SECS {
+        return Err(CapabilityError::SigningFailed(format!(
+            "ttl_secs {} exceeds maximum {} (1 year)",
+            ttl_secs, MAX_CAPABILITY_TTL_SECS
+        )));
     }
     if grants.len() > MAX_GRANTS {
         return Err(CapabilityError::SigningFailed(format!(
@@ -143,6 +154,13 @@ pub fn attenuate_capability_token(
         return Err(CapabilityError::SigningFailed(
             "new_grants must not be empty".to_string(),
         ));
+    }
+    // SECURITY (FIND-R74-002): Cap TTL to prevent `as i64` overflow.
+    if ttl_secs > MAX_CAPABILITY_TTL_SECS {
+        return Err(CapabilityError::SigningFailed(format!(
+            "ttl_secs {} exceeds maximum {} (1 year)",
+            ttl_secs, MAX_CAPABILITY_TTL_SECS
+        )));
     }
 
     // Verify grants are a subset of parent's grants

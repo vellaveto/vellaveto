@@ -180,45 +180,53 @@ impl IdempotencyStore {
     /// - `Ok(None)` if the key is new and we acquired the lock
     /// - `Ok(Some(response))` if the key exists and has a cached response
     /// - `Err(IdempotencyError::InProgress)` if another request is processing this key
+    ///
+    /// SECURITY (FIND-R72-SRV-002): Uses DashMap's `entry()` API for atomic
+    /// check-and-insert, eliminating the TOCTOU race between the previous
+    /// separate `get()` and `insert()` calls.
     pub fn try_acquire(&self, key: &str) -> Result<Option<CachedResponse>, IdempotencyError> {
         // First, check if we need to evict old entries
         self.maybe_evict();
 
-        // Try to get existing entry
-        if let Some(entry) = self.entries.get(key) {
-            match entry.value() {
-                IdempotencyState::InProgress { started_at } => {
-                    // Check if the in-progress request has timed out (5 minutes)
-                    if started_at.elapsed() > Duration::from_secs(300) {
-                        // Stale in-progress entry, allow retry
-                        drop(entry);
-                        self.entries.remove(key);
-                    } else {
-                        return Err(IdempotencyError::InProgress);
+        // Use entry() API for atomic check-and-insert
+        let entry = self.entries.entry(key.to_string());
+        match entry {
+            dashmap::Entry::Occupied(mut occupied) => {
+                match occupied.get() {
+                    IdempotencyState::InProgress { started_at } => {
+                        // Check if the in-progress request has timed out (5 minutes)
+                        if started_at.elapsed() > Duration::from_secs(300) {
+                            // Stale in-progress entry, replace with new in-progress marker
+                            occupied.insert(IdempotencyState::InProgress {
+                                started_at: Instant::now(),
+                            });
+                            Ok(None)
+                        } else {
+                            Err(IdempotencyError::InProgress)
+                        }
                     }
-                }
-                IdempotencyState::Completed(response) => {
-                    if response.is_expired() {
-                        // Expired entry, remove and allow retry
-                        drop(entry);
-                        self.entries.remove(key);
-                    } else {
-                        // Return cached response
-                        return Ok(Some(response.clone()));
+                    IdempotencyState::Completed(response) => {
+                        if response.is_expired() {
+                            // Expired entry, replace with new in-progress marker
+                            occupied.insert(IdempotencyState::InProgress {
+                                started_at: Instant::now(),
+                            });
+                            Ok(None)
+                        } else {
+                            // Return cached response
+                            Ok(Some(response.clone()))
+                        }
                     }
                 }
             }
+            dashmap::Entry::Vacant(vacant) => {
+                // New key — insert in-progress marker atomically
+                vacant.insert(IdempotencyState::InProgress {
+                    started_at: Instant::now(),
+                });
+                Ok(None)
+            }
         }
-
-        // Insert in-progress marker
-        self.entries.insert(
-            key.to_string(),
-            IdempotencyState::InProgress {
-                started_at: Instant::now(),
-            },
-        );
-
-        Ok(None)
     }
 
     /// Complete a request and cache the response.

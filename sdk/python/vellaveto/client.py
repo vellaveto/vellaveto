@@ -726,6 +726,11 @@ class VellavetoClient:
         Returns:
             Access review report as dictionary (JSON) or raw HTML string
         """
+        # SECURITY (FIND-R72-SDK-007): Validate format parameter. Parity with Go/TS SDKs.
+        if export_format not in ("json", "html"):
+            raise VellavetoError(
+                f'export_format must be "json" or "html", got {export_format!r}'
+            )
         if agent_id is not None:
             if not isinstance(agent_id, str):
                 raise VellavetoError("agent_id must be a string")
@@ -1173,6 +1178,11 @@ class AsyncVellavetoClient:
         Returns:
             Access review report as dictionary (JSON) or raw HTML string
         """
+        # SECURITY (FIND-R72-SDK-007): Validate format parameter. Parity with Go/TS SDKs.
+        if export_format not in ("json", "html"):
+            raise VellavetoError(
+                f'export_format must be "json" or "html", got {export_format!r}'
+            )
         if agent_id is not None:
             if not isinstance(agent_id, str):
                 raise VellavetoError("agent_id must be a string")

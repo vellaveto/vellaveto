@@ -179,7 +179,7 @@ impl ShadowAiDiscovery {
                     );
                 } else {
                     // FIND-R44-016: Log warning on capacity drop (every 100th drop)
-                    let count = self.unregistered_drop_count.fetch_add(1, Ordering::Relaxed);
+                    let count = self.unregistered_drop_count.fetch_add(1, Ordering::SeqCst);
                     if count.is_multiple_of(100) {
                         tracing::warn!(
                             "Shadow AI discovery: unregistered agents at capacity ({}), new entries dropped (total drops: {})",
@@ -220,7 +220,7 @@ impl ShadowAiDiscovery {
                     );
                 } else {
                     // FIND-R44-016: Log warning on capacity drop (every 100th drop)
-                    let count = self.unapproved_drop_count.fetch_add(1, Ordering::Relaxed);
+                    let count = self.unapproved_drop_count.fetch_add(1, Ordering::SeqCst);
                     if count.is_multiple_of(100) {
                         tracing::warn!(
                             "Shadow AI discovery: unapproved tools at capacity ({}), new entries dropped (total drops: {})",
@@ -265,7 +265,7 @@ impl ShadowAiDiscovery {
                         // FIND-R44-016: Log warning on capacity drop (every 100th drop)
                         let count = self
                             .unknown_servers_drop_count
-                            .fetch_add(1, Ordering::Relaxed);
+                            .fetch_add(1, Ordering::SeqCst);
                         if count.is_multiple_of(100) {
                             tracing::warn!(
                                 "Shadow AI discovery: unknown servers at capacity ({}), new entries dropped (total drops: {})",
@@ -783,7 +783,7 @@ mod tests {
         // Now overflow — should increment drop counter
         d.observe_request("overflow-agent-1", "tool", None);
         d.observe_request("overflow-agent-2", "tool", None);
-        assert_eq!(d.unregistered_drop_count.load(Ordering::Relaxed), 2);
+        assert_eq!(d.unregistered_drop_count.load(Ordering::SeqCst), 2);
         assert_eq!(d.unregistered_agent_count(), MAX_UNREGISTERED_AGENTS);
     }
 
@@ -801,7 +801,7 @@ mod tests {
 
         // Overflow
         d.observe_request("agent", "overflow-tool-1", None);
-        assert_eq!(d.unapproved_drop_count.load(Ordering::Relaxed), 1);
+        assert_eq!(d.unapproved_drop_count.load(Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -818,6 +818,6 @@ mod tests {
 
         // Overflow
         d.observe_request("agent", "tool", Some("overflow-srv-1"));
-        assert_eq!(d.unknown_servers_drop_count.load(Ordering::Relaxed), 1);
+        assert_eq!(d.unknown_servers_drop_count.load(Ordering::SeqCst), 1);
     }
 }

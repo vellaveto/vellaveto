@@ -20,6 +20,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use subtle::ConstantTimeEq;
 
 use crate::AppState;
 
@@ -429,17 +430,15 @@ fn compute_hmac_sha256(key: &[u8], message: &[u8]) -> String {
 
 /// Constant-time byte comparison.
 ///
-/// SECURITY: Uses `std::hint::black_box` to prevent the compiler from
-/// optimizing the accumulator loop into an early-exit comparison.
+/// SECURITY (FIND-R72-SRV-003): Uses `subtle::ConstantTimeEq` which provides
+/// a compiler-resistant constant-time comparison, replacing the previous
+/// `std::hint::black_box` approach which is not a guaranteed defense against
+/// compiler optimizations.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    std::hint::black_box(diff) == 0
+    bool::from(a.ct_eq(b))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

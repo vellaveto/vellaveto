@@ -114,7 +114,7 @@ pub async fn forward_with_fallback(
                 loop {
                     match resp.chunk().await {
                         Ok(Some(chunk)) => {
-                            if response_body.len() + chunk.len() > MAX_RESPONSE_BODY_BYTES {
+                            if response_body.len().saturating_add(chunk.len()) > MAX_RESPONSE_BODY_BYTES {
                                 last_error = format!(
                                     "response body too large: >{} bytes (max {})",
                                     MAX_RESPONSE_BODY_BYTES, MAX_RESPONSE_BODY_BYTES

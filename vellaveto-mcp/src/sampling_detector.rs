@@ -200,7 +200,7 @@ impl SamplingDetector {
             .or_insert_with(|| SamplingStats::new(now));
 
         // Reset window if expired
-        if now >= session_stats.window_start + self.window_secs {
+        if now >= session_stats.window_start.saturating_add(self.window_secs) {
             session_stats.reset_window(now);
         }
 
@@ -242,7 +242,7 @@ impl SamplingDetector {
             .or_insert_with(|| SamplingStats::new(now));
 
         // Reset window if expired
-        if now >= session_stats.window_start + self.window_secs {
+        if now >= session_stats.window_start.saturating_add(self.window_secs) {
             session_stats.reset_window(now);
         }
 
@@ -319,7 +319,7 @@ impl SamplingDetector {
 
         match stats.get(session_id) {
             Some(s) => {
-                if now >= s.window_start + self.window_secs {
+                if now >= s.window_start.saturating_add(self.window_secs) {
                     self.max_requests // Window expired, full quota
                 } else {
                     self.max_requests.saturating_sub(s.request_count)

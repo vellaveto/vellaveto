@@ -64,7 +64,8 @@ pub(super) async fn read_bounded_response(
     let mut body = Vec::with_capacity(capacity);
 
     while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
-        if body.len() + chunk.len() > max_size {
+        // SECURITY (FIND-R74-001): Use saturating_add to prevent theoretical overflow.
+        if body.len().saturating_add(chunk.len()) > max_size {
             return Err(format!("Response exceeded {} byte limit", max_size));
         }
         body.extend_from_slice(&chunk);

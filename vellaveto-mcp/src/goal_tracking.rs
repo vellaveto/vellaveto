@@ -581,12 +581,19 @@ fn is_stop_word(word: &str) -> bool {
     STOP_WORDS.contains(&word)
 }
 
-/// Truncate a string to a maximum length.
+/// Truncate a string to a maximum length, appending "..." if truncated.
+///
+/// Uses `is_char_boundary()` to avoid panicking on multi-byte UTF-8 characters.
 fn truncate_string(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
+        let target = max_len.saturating_sub(3);
+        let mut end = target;
+        while end > 0 && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &s[..end])
     }
 }
 

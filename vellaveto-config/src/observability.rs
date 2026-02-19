@@ -601,6 +601,34 @@ impl ObservabilityConfig {
             ));
         }
 
+        // SECURITY (FIND-R72-CFG-004): Validate redacted_fields bounds.
+        // Unbounded field lists can cause excessive memory usage during redaction.
+        const MAX_REDACTED_FIELDS: usize = 100;
+        const MAX_REDACTED_FIELD_LEN: usize = 256;
+        if self.redacted_fields.len() > MAX_REDACTED_FIELDS {
+            return Err(format!(
+                "observability.redacted_fields has {} entries, max is {}",
+                self.redacted_fields.len(),
+                MAX_REDACTED_FIELDS
+            ));
+        }
+        for (i, field) in self.redacted_fields.iter().enumerate() {
+            if field.is_empty() {
+                return Err(format!(
+                    "observability.redacted_fields[{}] must not be empty",
+                    i
+                ));
+            }
+            if field.len() > MAX_REDACTED_FIELD_LEN {
+                return Err(format!(
+                    "observability.redacted_fields[{}] exceeds max length ({} > {})",
+                    i,
+                    field.len(),
+                    MAX_REDACTED_FIELD_LEN
+                ));
+            }
+        }
+
         // Validate Langfuse config
         if self.langfuse.enabled {
             if self.langfuse.endpoint.is_empty() {
