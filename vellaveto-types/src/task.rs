@@ -359,11 +359,20 @@ impl SecureTask {
 
     /// Record a nonce as seen.
     /// Enforces `MAX_NONCES_CAP` regardless of `max_nonces` field value.
+    /// SECURITY (FIND-R60-007): Truncates nonce to `MAX_ENTRY_LEN` bytes at
+    /// runtime to match the `validate()` bound and prevent memory exhaustion
+    /// from attacker-controlled nonce values.
     pub fn record_nonce(&mut self, nonce: String) {
         let effective_max = self.max_nonces.min(MAX_NONCES_CAP);
         if self.seen_nonces.len() >= effective_max {
             self.seen_nonces.remove(0); // FIFO eviction
         }
+        // Enforce MAX_ENTRY_LEN at runtime, not just in validate()
+        let nonce = if nonce.len() > MAX_ENTRY_LEN {
+            nonce[..MAX_ENTRY_LEN].to_string()
+        } else {
+            nonce
+        };
         self.seen_nonces.push(nonce);
     }
 
@@ -441,6 +450,7 @@ impl fmt::Debug for SecureTask {
 /// Checkpoints are signed snapshots that can be used to verify
 /// task state integrity at a specific point in time.
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TaskCheckpoint {
     /// Unique checkpoint identifier.
     pub checkpoint_id: String,

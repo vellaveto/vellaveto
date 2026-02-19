@@ -256,6 +256,22 @@ impl AsyncTaskConfig {
                 MAX_ALLOW_CANCELLATION
             ));
         }
+        // SECURITY (FIND-R60-006): Reject control characters in allow_cancellation
+        // entries to prevent log injection and policy bypass via invisible chars.
+        for (i, entry) in self.allow_cancellation.iter().enumerate() {
+            if entry.chars().any(char::is_control) {
+                return Err(format!(
+                    "async_tasks.allow_cancellation[{}] contains control characters",
+                    i
+                ));
+            }
+            if entry.is_empty() {
+                return Err(format!(
+                    "async_tasks.allow_cancellation[{}] is empty",
+                    i
+                ));
+            }
+        }
         Ok(())
     }
 }

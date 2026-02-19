@@ -10,7 +10,7 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Json,
 };
 use serde_json::json;
@@ -116,8 +116,15 @@ pub async fn get_task(
 /// Cancel a task.
 ///
 /// POST /api/tasks/{id}/cancel
+///
+/// SECURITY (FIND-R60-001): Requires authorization via `can_cancel()`. The agent
+/// identity is derived from the Authorization header (Bearer token hash). Without
+/// auth, the agent_id is None which `can_cancel` handles per configuration:
+/// - `require_self_cancel`: denies when no requester identity is provided
+/// - `allow_cancellation`: denies when agent is not in the allowed list
 pub async fn cancel_task(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     // SECURITY (FIND-R51-005): Validate path parameter.
@@ -131,6 +138,55 @@ pub async fn cancel_task(
             }),
         )
     })?;
+
+    // SECURITY (FIND-R60-001): Extract agent identity from auth context for
+    // authorization. Derive from Bearer token hash to match approval route pattern.
+    let agent_id: Option<String> = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|auth| {
+            if auth.len() > 7 && auth[..7].eq_ignore_ascii_case("bearer ") {
+                let token = &auth[7..];
+                if !token.is_empty() {
+                    use sha2::{Digest, Sha256};
+                    let hash = Sha256::digest(token.as_bytes());
+                    Some(format!("bearer:{}", hex::encode(&hash[..16])))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+
+    // SECURITY (FIND-R60-001): Check can_cancel authorization before mutating state.
+    // This enforces require_self_cancel and allow_cancellation policies that were
+    // previously bypassed by calling update_status directly.
+    match manager.can_cancel(&id, agent_id.as_deref()).await {
+        Ok(true) => { /* authorized */ }
+        Ok(false) => {
+            tracing::warn!(
+                "Task cancellation denied: task_id={}, agent={:?}",
+                id,
+                agent_id
+            );
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "Not authorized to cancel this task".to_string(),
+                }),
+            ));
+        }
+        Err(e) => {
+            tracing::warn!("Task cancellation check failed: {}", e);
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "Task not found".to_string(),
+                }),
+            ));
+        }
+    }
 
     // SECURITY (FIND-R51-017): Generic error — do not leak state machine details.
     manager

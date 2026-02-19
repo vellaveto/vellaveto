@@ -208,6 +208,70 @@ async fn main() -> Result<()> {
         tracing::info!("MCP tool name validation: ENABLED (strict)");
     }
 
+    // SECURITY (GAP-R60-016): Wire ABAC engine for attribute-based access control.
+    // Without this, ABAC forbid-override policies are completely inactive in stdio mode,
+    // allowing actions that should be denied by ABAC rules.
+    if policy_config.abac.enabled {
+        match vellaveto_engine::abac::AbacEngine::new(
+            &policy_config.abac.policies,
+            &policy_config.abac.entities,
+        ) {
+            Ok(abac_engine) => {
+                tracing::info!(
+                    "ABAC engine: {} policies, {} entities",
+                    policy_config.abac.policies.len(),
+                    policy_config.abac.entities.len()
+                );
+                bridge = bridge.with_abac_engine(Arc::new(abac_engine));
+            }
+            Err(e) => {
+                // Fail-closed: invalid ABAC config prevents startup
+                anyhow::bail!("ABAC config error: {}", e);
+            }
+        }
+    }
+
+    // SECURITY (GAP-R60-017): Wire circuit breaker for cascading failure prevention (ASI08).
+    if policy_config.circuit_breaker.enabled {
+        let cb = vellaveto_engine::circuit_breaker::CircuitBreakerManager::with_config(
+            policy_config.circuit_breaker.failure_threshold,
+            policy_config.circuit_breaker.success_threshold,
+            policy_config.circuit_breaker.open_duration_secs,
+            policy_config.circuit_breaker.half_open_max_requests,
+        );
+        tracing::info!("Circuit breaker: ENABLED");
+        bridge = bridge.with_circuit_breaker(Arc::new(cb));
+    }
+
+    // SECURITY (GAP-R60-017): Wire deputy validator for confused deputy prevention (ASI02).
+    if policy_config.deputy.enabled {
+        let deputy = vellaveto_engine::deputy::DeputyValidator::new(
+            policy_config.deputy.max_delegation_depth,
+        );
+        tracing::info!("Deputy validator: ENABLED (max depth: {})", policy_config.deputy.max_delegation_depth);
+        bridge = bridge.with_deputy(Arc::new(deputy));
+    }
+
+    // SECURITY (GAP-R60-017): Wire schema lineage tracker for schema poisoning detection (ASI05).
+    if policy_config.schema_poisoning.enabled {
+        let tracker = vellaveto_mcp::schema_poisoning::SchemaLineageTracker::new(
+            policy_config.schema_poisoning.mutation_threshold,
+            policy_config.schema_poisoning.min_observations,
+            policy_config.schema_poisoning.max_tracked_schemas,
+        );
+        tracing::info!("Schema lineage tracker: ENABLED");
+        bridge = bridge.with_schema_lineage(Arc::new(tracker));
+    }
+
+    // SECURITY (GAP-R60-017): Wire shadow agent detector for rogue agent detection (ASI10).
+    if policy_config.shadow_agent.enabled {
+        let detector = vellaveto_mcp::shadow_agent::ShadowAgentDetector::new(
+            policy_config.shadow_agent.max_known_agents,
+        );
+        tracing::info!("Shadow agent detector: ENABLED (max known: {})", policy_config.shadow_agent.max_known_agents);
+        bridge = bridge.with_shadow_agent(Arc::new(detector));
+    }
+
     tracing::info!("Request timeout: {}s, trace: {}", cli.timeout, cli.trace);
 
     // Run the proxy

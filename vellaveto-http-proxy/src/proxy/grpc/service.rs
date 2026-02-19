@@ -1138,6 +1138,109 @@ impl McpGrpcService {
         task_method: &str,
         task_id: Option<&str>,
     ) -> JsonRpcResponse {
+        // SECURITY (FIND-R60-002): DLP scan task parameters for secret exfiltration.
+        // Parity with tools/call handler (service.rs:354) and WS (websocket/mod.rs:700).
+        // Task methods (tasks/send, tasks/sendSubscribe) carry a `message` parameter that
+        // may contain secrets — apply the same DLP scanning as tools/call.
+        let params = json_req.get("params").cloned().unwrap_or(json!({}));
+        let dlp_findings = scan_parameters_for_secrets(&params);
+        if !dlp_findings.is_empty() {
+            for finding in &dlp_findings {
+                record_dlp_finding(&finding.pattern_name);
+            }
+
+            let patterns: Vec<String> = dlp_findings
+                .iter()
+                .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                .collect();
+
+            tracing::warn!(
+                "SECURITY: Secrets in gRPC task request parameters! Session: {}, Method: {}, Findings: {:?}",
+                session_id,
+                task_method,
+                patterns,
+            );
+
+            let action = extractor::extract_task_action(task_method, task_id);
+            let verdict = Verdict::Deny {
+                reason: format!("DLP blocked: secret detected in task parameters: {:?}", patterns),
+            };
+            if let Err(e) = self
+                .state
+                .audit
+                .log_entry(
+                    &action,
+                    &verdict,
+                    json!({
+                        "source": "grpc_proxy",
+                        "session": session_id,
+                        "transport": "grpc",
+                        "event": "grpc_task_parameter_dlp_alert",
+                        "task_method": task_method,
+                        "findings": patterns,
+                    }),
+                )
+                .await
+            {
+                tracing::warn!("Failed to audit gRPC task parameter DLP: {}", e);
+            }
+
+            return make_proto_denial_response(
+                proto_req,
+                &format!("DLP blocked: secret detected in task parameters: {:?}", patterns),
+            );
+        }
+
+        // SECURITY (FIND-R60-002): Memory poisoning detection for task parameters.
+        // Parity with tools/call handler (service.rs:449-497) and WS (websocket/mod.rs:751-810).
+        if let Some(session) = self.state.sessions.get_mut(session_id) {
+            let poisoning_matches = session.memory_tracker.check_parameters(&params);
+            if !poisoning_matches.is_empty() {
+                for m in &poisoning_matches {
+                    tracing::warn!(
+                        "SECURITY: Memory poisoning detected in gRPC task '{}' (session {}): \
+                         param '{}' contains replayed data (fingerprint: {})",
+                        task_method,
+                        session_id,
+                        m.param_location,
+                        m.fingerprint
+                    );
+                }
+                let action = extractor::extract_task_action(task_method, task_id);
+                let deny_reason = format!(
+                    "Memory poisoning detected: {} replayed data fragment(s) in task '{}'",
+                    poisoning_matches.len(),
+                    task_method
+                );
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Deny {
+                            reason: deny_reason.clone(),
+                        },
+                        json!({
+                            "source": "grpc_proxy",
+                            "session": session_id,
+                            "transport": "grpc",
+                            "event": "memory_poisoning_detected",
+                            "matches": poisoning_matches.len(),
+                            "task_method": task_method,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit gRPC task memory poisoning: {}", e);
+                }
+
+                // Drop session borrow before returning
+                drop(session);
+
+                return make_proto_denial_response(proto_req, &deny_reason);
+            }
+        }
+
         let action = extractor::extract_task_action(task_method, task_id);
         let ctx = self.build_evaluation_context(session_id);
 

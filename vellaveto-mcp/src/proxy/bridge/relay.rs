@@ -2413,7 +2413,6 @@ impl ProxyBridge {
                             }
                         }
                         ValidationResult::Invalid { violations } => {
-                            schema_violation_found = true;
                             tracing::warn!(
                                 "SECURITY: structuredContent validation failed for tool '{}': {:?}",
                                 tool_name,
@@ -2459,6 +2458,10 @@ impl ProxyBridge {
                                     .map_err(ProxyError::Framing)?;
                                 return Ok(());
                             }
+                            // Set after early-return so the flag is only
+                            // read when execution continues to the
+                            // record_response guard below.
+                            schema_violation_found = true;
                         }
                     }
                 } else if self.output_schema_blocking {

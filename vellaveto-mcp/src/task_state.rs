@@ -185,6 +185,18 @@ impl TaskStateManager {
             .get_mut(task_id)
             .ok_or_else(|| format!("Task '{}' not found", task_id))?;
 
+        // SECURITY (FIND-R60-004): Enforce terminal state immutability.
+        // Once a task reaches Completed, Failed, Cancelled, or Expired, its state
+        // must not change. Without this check, a cancelled task could be un-cancelled
+        // or a completed task moved to Running, violating the MCP task lifecycle and
+        // undermining audit trail integrity.
+        if task.is_terminal() {
+            return Err(format!(
+                "Task '{}' is in terminal state and cannot be updated",
+                task_id
+            ));
+        }
+
         task.status = status;
         Ok(())
     }
