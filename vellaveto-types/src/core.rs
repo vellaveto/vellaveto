@@ -215,6 +215,18 @@ impl Action {
                     max: MAX_TARGET_LEN,
                 });
             }
+            // SECURITY (P3-CORE-002): Reject control characters and Unicode format
+            // characters (zero-width, bidi overrides, BOM) in target paths.
+            // A path like "/tmp/\x0Afoo" could bypass path-matching policies that
+            // do not expect control characters in the middle of a path string.
+            if path
+                .chars()
+                .any(|c| (c.is_control() && c != '\0') || is_unicode_format_char(c))
+            {
+                return Err(ValidationError::ControlCharacter {
+                    field: "target_paths",
+                });
+            }
         }
 
         // Validate individual target_domains
@@ -231,6 +243,17 @@ impl Action {
                     index: i,
                     len: domain.len(),
                     max: MAX_TARGET_LEN,
+                });
+            }
+            // SECURITY (P3-CORE-002): Reject control characters and Unicode format
+            // characters in target domains. A domain like "evil\x0ahost.com" could
+            // bypass domain-matching policies or cause log injection.
+            if domain
+                .chars()
+                .any(|c| (c.is_control() && c != '\0') || is_unicode_format_char(c))
+            {
+                return Err(ValidationError::ControlCharacter {
+                    field: "target_domains",
                 });
             }
         }
@@ -387,6 +410,25 @@ const MAX_POLICY_NAME_LEN: usize = 512;
 /// via deeply nested or excessively large JSON condition values.
 const MAX_CONDITIONS_SIZE: usize = 65_536;
 
+/// Maximum number of entries in `PathRules.allowed` or `PathRules.blocked`.
+///
+/// SECURITY (P3-CORE-001): Prevents memory exhaustion from operator-supplied
+/// configurations with pathologically many path rules.
+const MAX_PATH_RULES: usize = 1_000;
+
+/// Maximum number of entries in `NetworkRules.allowed_domains` or
+/// `NetworkRules.blocked_domains`.
+///
+/// SECURITY (P3-CORE-001): Prevents memory exhaustion from operator-supplied
+/// configurations with pathologically many domain rules.
+const MAX_DOMAIN_RULES: usize = 1_000;
+
+/// Maximum number of entries in `IpRules.blocked_cidrs` or `IpRules.allowed_cidrs`.
+///
+/// SECURITY (P3-CORE-001): Prevents memory exhaustion from operator-supplied
+/// configurations with pathologically many CIDR rules.
+const MAX_CIDR_RULES: usize = 500;
+
 impl Policy {
     /// Validate structural invariants of a `Policy`.
     ///
@@ -462,6 +504,64 @@ impl Policy {
                     MAX_CONDITIONS_SIZE,
                     serialized.len()
                 ));
+            }
+        }
+        // SECURITY (P3-CORE-001): Validate path_rules and network_rules collection sizes
+        // to prevent memory exhaustion from operator-supplied configurations with
+        // pathologically many rules. These checks are at validate() time (config load)
+        // so they do not affect hot-path evaluation latency.
+        if let Some(ref pr) = self.path_rules {
+            if pr.allowed.len() > MAX_PATH_RULES {
+                return Err(format!(
+                    "Policy '{}' path_rules.allowed exceeds {} entries (got {})",
+                    self.id,
+                    MAX_PATH_RULES,
+                    pr.allowed.len()
+                ));
+            }
+            if pr.blocked.len() > MAX_PATH_RULES {
+                return Err(format!(
+                    "Policy '{}' path_rules.blocked exceeds {} entries (got {})",
+                    self.id,
+                    MAX_PATH_RULES,
+                    pr.blocked.len()
+                ));
+            }
+        }
+        if let Some(ref nr) = self.network_rules {
+            if nr.allowed_domains.len() > MAX_DOMAIN_RULES {
+                return Err(format!(
+                    "Policy '{}' network_rules.allowed_domains exceeds {} entries (got {})",
+                    self.id,
+                    MAX_DOMAIN_RULES,
+                    nr.allowed_domains.len()
+                ));
+            }
+            if nr.blocked_domains.len() > MAX_DOMAIN_RULES {
+                return Err(format!(
+                    "Policy '{}' network_rules.blocked_domains exceeds {} entries (got {})",
+                    self.id,
+                    MAX_DOMAIN_RULES,
+                    nr.blocked_domains.len()
+                ));
+            }
+            if let Some(ref ip) = nr.ip_rules {
+                if ip.blocked_cidrs.len() > MAX_CIDR_RULES {
+                    return Err(format!(
+                        "Policy '{}' ip_rules.blocked_cidrs exceeds {} entries (got {})",
+                        self.id,
+                        MAX_CIDR_RULES,
+                        ip.blocked_cidrs.len()
+                    ));
+                }
+                if ip.allowed_cidrs.len() > MAX_CIDR_RULES {
+                    return Err(format!(
+                        "Policy '{}' ip_rules.allowed_cidrs exceeds {} entries (got {})",
+                        self.id,
+                        MAX_CIDR_RULES,
+                        ip.allowed_cidrs.len()
+                    ));
+                }
             }
         }
         Ok(())

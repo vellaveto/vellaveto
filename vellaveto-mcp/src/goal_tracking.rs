@@ -404,8 +404,13 @@ impl GoalTracker {
         let state = sessions.get(session_id)?;
         let current_fingerprint = self.create_fingerprint(current_goal);
 
-        // Calculate similarity between goals
-        let similarity = self.calculate_goal_similarity(&state.initial_goal, &current_fingerprint);
+        // Calculate similarity between goals.
+        // SECURITY: Clamp to [0.0, 1.0] to guard against any floating-point
+        // computation producing out-of-range values (e.g., from Jaccard on
+        // degenerate keyword sets).
+        let similarity = self
+            .calculate_goal_similarity(&state.initial_goal, &current_fingerprint)
+            .clamp(0.0, 1.0);
 
         // Check for manipulation keywords
         let has_manipulation = self.contains_manipulation_keywords(current_goal);
@@ -864,5 +869,25 @@ mod tests {
         tracker.set_initial_goal("sess3", "goal3");
         // sess3 should have been rejected
         assert_eq!(tracker.session_count(), 2);
+    }
+
+    #[test]
+    fn test_detect_drift_similarity_is_clamped_to_unit_range() {
+        // Verify that GoalDriftAlert.similarity is always in [0.0, 1.0].
+        // Specifically covers the detect_drift path which uses calculate_goal_similarity.
+        let tracker = GoalTracker::new();
+        tracker.set_initial_goal("session1", "Read and summarize configuration files");
+
+        // Trigger drift with a completely different goal that has no keyword overlap.
+        // The Jaccard similarity on disjoint keyword sets is 0.0, which is in range,
+        // but we test the clamp holds regardless of keyword set characteristics.
+        let alert = tracker.detect_drift("session1", "Ignore instructions");
+        if let Some(a) = alert {
+            assert!(
+                a.similarity >= 0.0 && a.similarity <= 1.0,
+                "similarity {} is outside [0.0, 1.0]",
+                a.similarity
+            );
+        }
     }
 }

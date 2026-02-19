@@ -19,6 +19,12 @@ pub const MAX_HUMAN_OVERSIGHT_TOOLS: usize = 500;
 /// Maximum number of data governance tool mappings (FIND-R63-CFG-002).
 pub const MAX_TOOL_MAPPINGS: usize = 1_000;
 
+/// Maximum length for tool_pattern and provenance fields in ToolDataMapping.
+const MAX_TOOL_MAPPING_STRING_LEN: usize = 256;
+
+/// Maximum number of DataClassification entries per ToolDataMapping.
+const MAX_DATA_CLASSIFICATIONS_PER_TOOL: usize = 20;
+
 /// Minimum record retention in days (Art 12 floor).
 pub const MIN_RETENTION_DAYS: u32 = 30;
 
@@ -281,6 +287,48 @@ impl ComplianceConfig {
                 self.data_governance.tool_mappings.len(),
                 MAX_TOOL_MAPPINGS,
             ));
+        }
+        // SECURITY: Per-entry validation of ToolDataMapping fields.
+        // Prevents log injection, memory abuse, and unexpected control characters.
+        for (i, mapping) in self.data_governance.tool_mappings.iter().enumerate() {
+            if mapping.tool_pattern.len() > MAX_TOOL_MAPPING_STRING_LEN {
+                return Err(format!(
+                    "data_governance.tool_mappings[{}].tool_pattern length {} exceeds max {}",
+                    i,
+                    mapping.tool_pattern.len(),
+                    MAX_TOOL_MAPPING_STRING_LEN,
+                ));
+            }
+            if mapping.tool_pattern.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+                return Err(format!(
+                    "data_governance.tool_mappings[{}].tool_pattern contains control characters",
+                    i,
+                ));
+            }
+            if let Some(ref prov) = mapping.provenance {
+                if prov.len() > MAX_TOOL_MAPPING_STRING_LEN {
+                    return Err(format!(
+                        "data_governance.tool_mappings[{}].provenance length {} exceeds max {}",
+                        i,
+                        prov.len(),
+                        MAX_TOOL_MAPPING_STRING_LEN,
+                    ));
+                }
+                if prov.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+                    return Err(format!(
+                        "data_governance.tool_mappings[{}].provenance contains control characters",
+                        i,
+                    ));
+                }
+            }
+            if mapping.classifications.len() > MAX_DATA_CLASSIFICATIONS_PER_TOOL {
+                return Err(format!(
+                    "data_governance.tool_mappings[{}].classifications has {} entries, max is {}",
+                    i,
+                    mapping.classifications.len(),
+                    MAX_DATA_CLASSIFICATIONS_PER_TOOL,
+                ));
+            }
         }
         // Phase 38: Access review config validation
         let ar = &self.soc2.access_review;
@@ -706,6 +754,96 @@ reviewers = ["Alice"]
         config.soc2.organization_name = "Acme".to_string();
         config.soc2.period_start = "2026-01-01".to_string();
         config.soc2.period_end = "2026-12-31".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    // ── P3 findings: ToolDataMapping per-entry validation ─────────────────────
+
+    #[test]
+    fn test_tool_pattern_too_long_rejected() {
+        let mut config = ComplianceConfig::default();
+        config.data_governance.tool_mappings = vec![ToolDataMapping {
+            tool_pattern: "a".repeat(257),
+            classifications: vec![],
+            purpose: ProcessingPurpose::ToolExecution,
+            provenance: None,
+            retention_days: None,
+        }];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("tool_pattern"), "err: {}", err);
+        assert!(err.contains("exceeds max"), "err: {}", err);
+    }
+
+    #[test]
+    fn test_tool_pattern_control_chars_rejected() {
+        let mut config = ComplianceConfig::default();
+        config.data_governance.tool_mappings = vec![ToolDataMapping {
+            tool_pattern: "tool\x01*".to_string(),
+            classifications: vec![],
+            purpose: ProcessingPurpose::ToolExecution,
+            provenance: None,
+            retention_days: None,
+        }];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("tool_pattern"), "err: {}", err);
+        assert!(err.contains("control characters"), "err: {}", err);
+    }
+
+    #[test]
+    fn test_provenance_too_long_rejected() {
+        let mut config = ComplianceConfig::default();
+        config.data_governance.tool_mappings = vec![ToolDataMapping {
+            tool_pattern: "filesystem.*".to_string(),
+            classifications: vec![],
+            purpose: ProcessingPurpose::ToolExecution,
+            provenance: Some("p".repeat(257)),
+            retention_days: None,
+        }];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("provenance"), "err: {}", err);
+        assert!(err.contains("exceeds max"), "err: {}", err);
+    }
+
+    #[test]
+    fn test_provenance_control_chars_rejected() {
+        let mut config = ComplianceConfig::default();
+        config.data_governance.tool_mappings = vec![ToolDataMapping {
+            tool_pattern: "filesystem.*".to_string(),
+            classifications: vec![],
+            purpose: ProcessingPurpose::ToolExecution,
+            provenance: Some("bad\x00prov".to_string()),
+            retention_days: None,
+        }];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("provenance"), "err: {}", err);
+        assert!(err.contains("control characters"), "err: {}", err);
+    }
+
+    #[test]
+    fn test_classifications_too_many_rejected() {
+        let mut config = ComplianceConfig::default();
+        config.data_governance.tool_mappings = vec![ToolDataMapping {
+            tool_pattern: "filesystem.*".to_string(),
+            classifications: vec![DataClassification::Input; 21],
+            purpose: ProcessingPurpose::ToolExecution,
+            provenance: None,
+            retention_days: None,
+        }];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("classifications"), "err: {}", err);
+        assert!(err.contains("max"), "err: {}", err);
+    }
+
+    #[test]
+    fn test_valid_tool_mapping_accepted() {
+        let mut config = ComplianceConfig::default();
+        config.data_governance.tool_mappings = vec![ToolDataMapping {
+            tool_pattern: "filesystem.*".to_string(),
+            classifications: vec![DataClassification::Input, DataClassification::Output],
+            purpose: ProcessingPurpose::ToolExecution,
+            provenance: Some("user-provided".to_string()),
+            retention_days: Some(365),
+        }];
         assert!(config.validate().is_ok());
     }
 }

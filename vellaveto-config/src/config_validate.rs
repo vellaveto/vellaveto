@@ -246,6 +246,29 @@ impl PolicyConfig {
                 MAX_KNOWN_TOOL_NAMES
             ));
         }
+        // SECURITY: Per-element validation of known_tool_names entries.
+        // Empty names, names exceeding 256 bytes, and names containing control
+        // characters are rejected to prevent squatting-detector bypass and log injection.
+        const MAX_KNOWN_TOOL_NAME_LEN: usize = 256;
+        for (i, name) in self.known_tool_names.iter().enumerate() {
+            if name.is_empty() {
+                return Err(format!("known_tool_names[{}] must not be empty", i));
+            }
+            if name.len() > MAX_KNOWN_TOOL_NAME_LEN {
+                return Err(format!(
+                    "known_tool_names[{}] exceeds max length ({} > {})",
+                    i,
+                    name.len(),
+                    MAX_KNOWN_TOOL_NAME_LEN,
+                ));
+            }
+            if contains_control_chars(name) {
+                return Err(format!(
+                    "known_tool_names[{}] contains control characters",
+                    i,
+                ));
+            }
+        }
         if self.elicitation.blocked_field_types.len() > MAX_BLOCKED_FIELD_TYPES {
             return Err(format!(
                 "elicitation.blocked_field_types has {} entries, max is {}",
@@ -485,6 +508,29 @@ impl PolicyConfig {
         // arbitrary system locations (e.g., /etc/cron.d/backdoor).
         {
             use std::path::{Component, Path};
+            // SECURITY: Reject null bytes and control characters in persistence_path
+            // to prevent filesystem confusion and log injection.
+            if self
+                .tool_registry
+                .persistence_path
+                .bytes()
+                .any(|b| b == 0x00 || b < 0x20 || (0x7F..=0x9F).contains(&b))
+            {
+                return Err(
+                    "tool_registry.persistence_path contains null bytes or control characters"
+                        .to_string(),
+                );
+            }
+            // SECURITY: Cap path length to prevent OS-level path length limit bypasses
+            // and memory abuse from excessively long paths.
+            const MAX_PERSISTENCE_PATH_LEN: usize = 4096;
+            if self.tool_registry.persistence_path.len() > MAX_PERSISTENCE_PATH_LEN {
+                return Err(format!(
+                    "tool_registry.persistence_path exceeds max length ({} > {})",
+                    self.tool_registry.persistence_path.len(),
+                    MAX_PERSISTENCE_PATH_LEN,
+                ));
+            }
             let p = Path::new(&self.tool_registry.persistence_path);
             if p.is_absolute() {
                 return Err(format!(

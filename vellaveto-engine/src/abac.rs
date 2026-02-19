@@ -401,6 +401,25 @@ fn compile_policy(policy: &AbacPolicy) -> Result<CompiledAbacPolicy, String> {
                 policy.id
             ));
         }
+        // SECURITY (P3-ENG-001): Reject control characters and Unicode format characters
+        // in condition field names. A field like "context.agent_id\x00suffix" would not
+        // match any known key (silently resolving to Null), which can bypass Forbid
+        // conditions that compare against expected values.
+        if c.field.chars().any(|ch| {
+            ch.is_control()
+                || matches!(ch,
+                    '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
+                    '\u{202A}'..='\u{202E}' |  // bidi overrides
+                    '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators
+                    '\u{FEFF}'                  // BOM
+                )
+        }) {
+            return Err(format!(
+                "ABAC policy '{}' has a condition with control or format characters in field name: {:?}",
+                policy.id,
+                c.field.escape_debug().to_string()
+            ));
+        }
         if !KNOWN_CONDITION_FIELDS.contains(&c.field.as_str()) && !c.field.starts_with("claims.") {
             tracing::warn!(
                 policy_id = %policy.id,

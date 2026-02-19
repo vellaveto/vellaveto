@@ -17,6 +17,10 @@ use std::sync::{OnceLock, RwLock};
 /// Prevents unbounded memory growth from attacker-controlled session IDs.
 const MAX_SESSION_BASELINES: usize = 100_000;
 
+/// Maximum byte length of a session_id key accepted by update_baseline / get_baseline.
+/// Mirrors MAX_SESSION_ID_LENGTH used elsewhere in the codebase (256 bytes).
+const MAX_SESSION_ID_LENGTH: usize = 256;
+
 /// Pre-compiled base64 detection regex.
 /// Performance (IMP-007): Compiled once at first use rather than per-call.
 fn get_base64_pattern() -> Option<&'static regex::Regex> {
@@ -584,6 +588,16 @@ impl OutputSecurityAnalyzer {
     /// NaN/Infinity from corrupting the running average baseline, which could
     /// suppress future anomaly detection.
     pub fn update_baseline(&self, session_id: &str, entropy: f32) {
+        // SECURITY: Reject oversized session IDs to prevent attacker-controlled
+        // strings from consuming unbounded memory as HashMap keys.
+        if session_id.len() > MAX_SESSION_ID_LENGTH {
+            tracing::warn!(
+                target: "vellaveto::security",
+                "update_baseline: session_id exceeds max length ({}), ignoring",
+                MAX_SESSION_ID_LENGTH
+            );
+            return;
+        }
         if !entropy.is_finite() || !(0.0..=8.0).contains(&entropy) {
             tracing::warn!(
                 target: "vellaveto::security",
@@ -631,6 +645,11 @@ impl OutputSecurityAnalyzer {
 
     /// Get baseline for a session.
     pub fn get_baseline(&self, session_id: &str) -> Option<(f32, f32)> {
+        // SECURITY: Reject oversized session IDs — they cannot have been stored
+        // (update_baseline rejects them), so we can return None immediately.
+        if session_id.len() > MAX_SESSION_ID_LENGTH {
+            return None;
+        }
         let baselines = match self.session_baselines.read() {
             Ok(g) => g,
             Err(_) => {
@@ -938,5 +957,23 @@ mod tests {
         analyzer.update_baseline("sess_0", 4.5);
         let baseline = analyzer.get_baseline("sess_0");
         assert!(baseline.is_some());
+    }
+
+    #[test]
+    fn test_update_baseline_rejects_oversized_session_id() {
+        let analyzer = OutputSecurityAnalyzer::new();
+        let long_id = "x".repeat(257);
+        // Should silently ignore — not panic, not store
+        analyzer.update_baseline(&long_id, 4.0);
+        assert!(analyzer.get_baseline(&long_id).is_none());
+    }
+
+    #[test]
+    fn test_get_baseline_returns_none_for_oversized_session_id() {
+        let analyzer = OutputSecurityAnalyzer::new();
+        // update with valid id, then try get with oversized — must not find it
+        analyzer.update_baseline("valid_session", 4.0);
+        let long_id = "v".repeat(257);
+        assert!(analyzer.get_baseline(&long_id).is_none());
     }
 }

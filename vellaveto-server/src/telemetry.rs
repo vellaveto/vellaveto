@@ -66,6 +66,35 @@ const MAX_OTLP_HEADERS: usize = 32;
 /// Maximum length for an OTLP header key or value.
 const MAX_OTLP_HEADER_FIELD_LEN: usize = 512;
 
+/// Returns `true` if `c` is a valid HTTP token character per RFC 7230 §3.2.6.
+///
+/// HTTP token = 1*tchar
+/// tchar = "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "." /
+///         "^" / "_" / "`" / "|" / "~" / DIGIT / ALPHA
+///
+/// SECURITY (P3): Header keys containing non-token characters may bypass
+/// validation in downstream HTTP libraries or inject header delimiters.
+fn is_http_token_char(c: char) -> bool {
+    c.is_ascii_alphanumeric()
+        || matches!(
+            c,
+            '!' | '#'
+                | '$'
+                | '%'
+                | '&'
+                | '\''
+                | '*'
+                | '+'
+                | '-'
+                | '.'
+                | '^'
+                | '_'
+                | '`'
+                | '|'
+                | '~'
+        )
+}
+
 /// SECURITY: Detect control characters AND Unicode format characters.
 fn is_unsafe_char_telemetry(c: char) -> bool {
     let cp = c as u32;
@@ -323,6 +352,14 @@ impl TelemetryConfig {
             if k.chars().any(is_unsafe_char_telemetry) || v.chars().any(is_unsafe_char_telemetry) {
                 return Err(TelemetryError::InvalidConfig(
                     "otlp header contains control/format characters".into(),
+                ));
+            }
+            // SECURITY (P3): Validate header key against HTTP token charset (RFC 7230 §3.2.6).
+            // Non-token characters in header names can bypass downstream validation or
+            // inject header delimiters (e.g., ':', '\r', '\n').
+            if k.is_empty() || !k.chars().all(is_http_token_char) {
+                return Err(TelemetryError::InvalidConfig(
+                    "otlp header key contains invalid characters (must be RFC 7230 token)".into(),
                 ));
             }
         }

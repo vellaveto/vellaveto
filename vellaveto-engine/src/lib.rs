@@ -832,6 +832,14 @@ impl PolicyEngine {
         // recompilation on the legacy (non-precompiled) path. For production,
         // use with_policies() to pre-compile patterns and avoid this cache entirely.
         if cache.len() >= MAX_GLOB_MATCHER_CACHE_ENTRIES {
+            // SECURITY (P3-ENG-004): Warn on cache eviction so cache thrashing is
+            // observable in logs. This indicates a policy set with more unique glob
+            // patterns than MAX_GLOB_MATCHER_CACHE_ENTRIES, which causes repeated
+            // recompilation and may indicate a misconfiguration or DoS attempt.
+            tracing::warn!(
+                capacity = MAX_GLOB_MATCHER_CACHE_ENTRIES,
+                "glob_matcher_cache capacity exceeded — clearing cache (cache thrashing possible; prefer with_policies() to pre-compile patterns)"
+            );
             cache.clear();
         }
         cache.insert(pattern.to_string(), matcher);

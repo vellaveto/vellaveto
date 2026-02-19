@@ -40,6 +40,13 @@ pub const DEFAULT_TENANT_ID: &str = "_default_";
 /// Maximum number of metadata entries per tenant.
 const MAX_TENANT_METADATA_ENTRIES: usize = 100;
 
+/// Maximum number of tenants returned by `list_tenants()` at the store level.
+///
+/// SECURITY: Prevents unbounded memory allocation when iterating over the
+/// tenant map. The route handler applies a tighter cap (1 K); this is a
+/// defence-in-depth guard at the storage layer.
+const MAX_TENANT_LIST: usize = 10_000;
+
 /// Maximum length for a metadata key.
 const MAX_TENANT_METADATA_KEY_LEN: usize = 128;
 
@@ -584,10 +591,17 @@ impl TenantStore for InMemoryTenantStore {
 
     fn list_tenants(&self) -> Vec<Tenant> {
         // SECURITY (FIND-025): Fail-closed on lock poisoning — return empty list.
+        // SECURITY: Cap at MAX_TENANT_LIST to prevent unbounded allocation.
         self.tenants
             .read()
             .ok()
-            .map(|guard| guard.values().cloned().collect())
+            .map(|guard| {
+                guard
+                    .values()
+                    .take(MAX_TENANT_LIST)
+                    .cloned()
+                    .collect()
+            })
             .unwrap_or_default()
     }
 

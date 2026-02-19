@@ -70,6 +70,7 @@ impl AuthLevel {
 /// MCP 2025-11-25 introduces capability negotiation. Clients declare their
 /// capabilities, and policies can require or block specific capabilities.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct McpCapability {
     /// Capability name (e.g., "tools", "resources", "sampling").
     pub name: String,
@@ -199,6 +200,7 @@ impl fmt::Display for CircuitState {
 
 /// Statistics for a circuit breaker instance.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct CircuitStats {
     /// Current state of the circuit.
     pub state: CircuitState,
@@ -239,6 +241,7 @@ impl Default for CircuitStats {
 /// `jwt_sub`, `jwt_iss`, and `client_id` as these may contain sensitive
 /// identity information that should not appear in logs.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[serde(deny_unknown_fields)]
 pub struct AgentFingerprint {
     /// JWT subject claim, if present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -374,6 +377,7 @@ impl TrustLevel {
 ///
 /// Tracks schema changes over time to detect malicious mutations.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SchemaRecord {
     /// Name of the tool this schema belongs to.
     pub tool_name: String,
@@ -404,6 +408,12 @@ impl SchemaRecord {
     /// SECURITY (FIND-R46-016): Enforced to prevent unbounded memory growth
     /// from rapidly mutating tool schemas (e.g., rug-pull attacks).
     pub const MAX_VERSION_HISTORY: usize = 10;
+
+    /// Maximum byte length for a single hash entry in `version_history` or `schema_hash`.
+    ///
+    /// SECURITY: Prevents memory exhaustion from excessively long hash strings
+    /// supplied by attacker-controlled payloads.
+    pub const MAX_HASH_LEN: usize = 128;
 
     /// Validate that all float fields are finite (not NaN or Infinity).
     pub fn validate_finite(&self) -> Result<(), String> {
@@ -463,15 +473,23 @@ impl SchemaRecord {
     /// if the history exceeds [`Self::MAX_VERSION_HISTORY`].
     ///
     /// SECURITY (FIND-R46-016): Prevents unbounded growth of version_history.
+    /// SECURITY: Truncates hash entries that exceed [`Self::MAX_HASH_LEN`].
     pub fn push_version(&mut self, hash: String) {
+        // Truncate entry if it exceeds the per-entry length limit.
+        let hash = if hash.len() > Self::MAX_HASH_LEN {
+            hash[..Self::MAX_HASH_LEN].to_string()
+        } else {
+            hash
+        };
         self.version_history.push(hash);
         while self.version_history.len() > Self::MAX_VERSION_HISTORY {
             self.version_history.remove(0);
         }
     }
 
-    /// Validate that version_history does not exceed the maximum allowed length.
-    /// Returns an error if the invariant is violated.
+    /// Validate that version_history does not exceed the maximum allowed length,
+    /// and that each entry does not exceed [`Self::MAX_HASH_LEN`].
+    /// Returns an error if any invariant is violated.
     pub fn validate_version_history(&self) -> Result<(), String> {
         if self.version_history.len() > Self::MAX_VERSION_HISTORY {
             return Err(format!(
@@ -480,6 +498,17 @@ impl SchemaRecord {
                 self.version_history.len(),
                 Self::MAX_VERSION_HISTORY,
             ));
+        }
+        for (i, entry) in self.version_history.iter().enumerate() {
+            if entry.len() > Self::MAX_HASH_LEN {
+                return Err(format!(
+                    "SchemaRecord '{}' version_history[{}] length {} exceeds max {}",
+                    self.tool_name,
+                    i,
+                    entry.len(),
+                    Self::MAX_HASH_LEN,
+                ));
+            }
         }
         Ok(())
     }
@@ -501,6 +530,7 @@ impl SchemaRecord {
 /// Tracks the delegation chain to prevent unauthorized tool access
 /// via confused deputy attacks (OWASP ASI02).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct PrincipalContext {
     /// The original principal that initiated the request.
     pub original_principal: String,
@@ -629,6 +659,7 @@ impl PrincipalContext {
 
 /// Statistics for sampling request rate limiting.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct SamplingStats {
     /// Number of sampling requests in the current window.
     pub request_count: u32,
@@ -655,12 +686,26 @@ impl SamplingStats {
     /// Maximum flagged patterns retained across window resets.
     const MAX_FLAGGED_PATTERNS: usize = 1000;
 
-    /// Reset the window, truncating flagged patterns if over limit.
+    /// Maximum byte length for a single entry in `flagged_patterns`.
+    ///
+    /// SECURITY: Prevents memory exhaustion from excessively long pattern
+    /// strings in deserialized or accumulated `flagged_patterns` vectors.
+    pub const MAX_PATTERN_ENTRY_LEN: usize = 1024;
+
+    /// Reset the window, truncating flagged patterns if over limit and
+    /// capping individual entry lengths.
     ///
     /// SECURITY (FIND-R48-010): Patterns accumulated without bound across resets.
+    /// SECURITY: Per-entry length cap prevents individual oversized entries.
     pub fn reset_window(&mut self, now: u64) {
         self.request_count = 0;
         self.window_start = now;
+        // Truncate individual entries that exceed the per-entry length limit.
+        for entry in &mut self.flagged_patterns {
+            if entry.len() > Self::MAX_PATTERN_ENTRY_LEN {
+                entry.truncate(Self::MAX_PATTERN_ENTRY_LEN);
+            }
+        }
         if self.flagged_patterns.len() > Self::MAX_FLAGGED_PATTERNS {
             self.flagged_patterns.truncate(Self::MAX_FLAGGED_PATTERNS);
         }

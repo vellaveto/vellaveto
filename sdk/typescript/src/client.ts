@@ -947,6 +947,22 @@ export class VellavetoClient {
         `Invalid format "${format}": must be "json" or "html"`
       );
     }
+    // SECURITY: Validate period parameter to prevent injection via query string.
+    // Allowed characters: alphanumeric, dashes, and colons (covers ISO date ranges
+    // like "2026-01-01:2026-02-01" and shorthand like "30d", "90d").
+    if (period !== undefined) {
+      if (typeof period !== "string" || period.length === 0) {
+        throw new VellavetoError("period must be a non-empty string");
+      }
+      if (period.length > 32) {
+        throw new VellavetoError("period exceeds max length (32)");
+      }
+      if (!/^[a-zA-Z0-9\-:]+$/.test(period)) {
+        throw new VellavetoError(
+          "period contains invalid characters: only alphanumeric, dashes, and colons are allowed"
+        );
+      }
+    }
     const params = new URLSearchParams();
     if (period) params.set("period", period);
     if (format) params.set("format", format);
@@ -999,6 +1015,14 @@ export class VellavetoClient {
       ? `/api/federation/trust-anchors?${qs}`
       : "/api/federation/trust-anchors";
     return this.request<FederationTrustAnchorsResponse>("GET", path);
+  }
+
+  /** Get OWASP Agentic Security Index (ASI) coverage report. */
+  async owaspAsiCoverage(): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>(
+      "GET",
+      "/api/compliance/owasp-agentic"
+    );
   }
 }
 

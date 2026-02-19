@@ -815,6 +815,82 @@ describe("SOC 2 Access Review (Phase 38)", () => {
     ).rejects.toThrow("agent_id exceeds max length");
   });
 
+  test("soc2AccessReview rejects period exceeding 32 chars", async () => {
+    await expect(
+      client.soc2AccessReview("a".repeat(33))
+    ).rejects.toThrow("period exceeds max length");
+  });
+
+  test("soc2AccessReview rejects period with invalid characters", async () => {
+    await expect(
+      client.soc2AccessReview("30d;rm -rf /")
+    ).rejects.toThrow("period contains invalid characters");
+  });
+
+  test("soc2AccessReview accepts valid period values", async () => {
+    const mockReport = {
+      generated_at: "2026-02-16T00:00:00Z",
+      organization_name: "Acme",
+      total_agents: 0,
+      total_evaluations: 0,
+      entries: [],
+      cc6_evidence: {
+        cc6_1_evidence: "",
+        cc6_2_evidence: "",
+        cc6_3_evidence: "",
+        optimal_count: 0,
+        review_grants_count: 0,
+        narrow_scope_count: 0,
+        critical_count: 0,
+      },
+      attestation: {
+        reviewer_name: "",
+        reviewer_title: "",
+        notes: "",
+        status: "pending",
+      },
+      period_start: "2026-01-01T00:00:00Z",
+      period_end: "2026-02-01T00:00:00Z",
+    };
+    mockFetch.mockResolvedValueOnce(jsonResponse(mockReport));
+    // ISO date range with colons and dashes should be accepted
+    const result = await client.soc2AccessReview("2026-01-01:2026-02-01");
+    expect(result.total_agents).toBe(0);
+  });
+
+});
+
+// ── Phase 41: OWASP ASI Coverage ──────────────
+
+describe("OWASP ASI Coverage (Phase 41)", () => {
+  let client: VellavetoClient;
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    client = new VellavetoClient({
+      baseUrl: "http://localhost:3000",
+      apiKey: "test-key",
+      timeout: 1000,
+    });
+  });
+
+  test("owaspAsiCoverage returns coverage data", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        total_categories: 10,
+        covered_categories: 10,
+        total_controls: 33,
+        covered_controls: 33,
+        coverage_percent: 100.0,
+      })
+    );
+    const result = await client.owaspAsiCoverage();
+    expect(result.total_categories).toBe(10);
+    expect(result.total_controls).toBe(33);
+    expect(result.coverage_percent).toBe(100.0);
+    const call = mockFetch.mock.calls[0];
+    expect(call[0]).toContain("/api/compliance/owasp-agentic");
+  });
 });
 
 // ── FIND-GAP-013: ParameterRedactor ──────────────
