@@ -707,7 +707,10 @@ fn render_governance_section(html: &mut String, state: &AppState) {
                 let id = html_escape(&truncate(&agent.agent_id, 40));
                 let first = html_escape(&truncate(&agent.first_seen, 19));
                 let tools_count = agent.tools_used.len();
-                let risk_cls = if agent.risk_score >= 0.7 {
+                // SECURITY (FIND-R62-SRV-001): NaN/Infinity risk_score must
+                // render as "red" — NaN comparisons all return false, which
+                // would fall through to "green" and mislead operators.
+                let risk_cls = if !agent.risk_score.is_finite() || agent.risk_score >= 0.7 {
                     "red"
                 } else if agent.risk_score >= 0.3 {
                     "yellow"
