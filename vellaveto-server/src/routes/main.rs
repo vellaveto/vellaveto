@@ -1650,7 +1650,7 @@ async fn apply_opa_runtime_verdict(
                     Some(json!({
                         "result": "error",
                         "fail_open": true,
-                        "error": err_msg,
+                        "error": "OPA evaluation failed",
                     })),
                 )
             } else {
@@ -1662,7 +1662,7 @@ async fn apply_opa_runtime_verdict(
                     Some(json!({
                         "result": "error",
                         "fail_open": false,
-                        "error": err_msg,
+                        "error": "OPA evaluation failed",
                     })),
                 )
             }

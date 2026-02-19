@@ -128,12 +128,15 @@ pub async fn create_tenant(
         TenantError::InvalidTenantId(msg) => {
             (StatusCode::CONFLICT, Json(ErrorResponse { error: msg }))
         }
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        ),
+        _ => {
+            tracing::warn!(error = %e, "create_tenant failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Failed to create tenant".to_string(),
+                }),
+            )
+        }
     })?;
 
     Ok((StatusCode::CREATED, Json(TenantResponse { tenant })))
@@ -190,10 +193,11 @@ pub async fn update_tenant(
     };
 
     store.update_tenant(tenant.clone()).map_err(|e| {
+        tracing::warn!(tenant_id = %id, error = %e, "update_tenant failed");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: e.to_string(),
+                error: "Failed to update tenant".to_string(),
             }),
         )
     })?;
@@ -238,12 +242,15 @@ pub async fn delete_tenant(
                 }),
             )
         }
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        ),
+        _ => {
+            tracing::warn!(tenant_id = %id, error = %e, "delete_tenant failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Failed to delete tenant".to_string(),
+                }),
+            )
+        }
     })?;
 
     Ok(StatusCode::NO_CONTENT)
