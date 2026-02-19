@@ -67,10 +67,16 @@ pub async fn list_registry_tools(
     let tools = registry.list().await;
     let threshold = registry.trust_threshold();
 
+    // SECURITY (FIND-R67-003): Cap response to prevent unbounded serialization.
+    const MAX_REGISTRY_TOOLS: usize = 1000;
+    let total = tools.len();
+    let bounded: Vec<_> = tools.into_iter().take(MAX_REGISTRY_TOOLS).collect();
+
     Ok(Json(json!({
-        "count": tools.len(),
+        "count": bounded.len(),
+        "total": total,
         "trust_threshold": threshold,
-        "tools": tools,
+        "tools": bounded,
     })))
 }
 

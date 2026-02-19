@@ -28,6 +28,9 @@ const MAX_RESOLVED_BY_LEN: usize = 1024;
 /// UUIDs are 36 chars; 128 gives ample margin while preventing log bloat.
 const MAX_APPROVAL_ID_LEN: usize = 128;
 
+/// SECURITY (FIND-R67-001): Maximum entries returned by pending approvals list.
+const MAX_PENDING_LIST: usize = 1000;
+
 /// Validate an approval ID from a URL path parameter.
 /// SECURITY (R16-APPR-1): Reject oversized or malformed IDs to prevent
 /// log bloat and provide clean error messages.
@@ -128,21 +131,34 @@ pub async fn list_pending_approvals(State(state): State<AppState>) -> Json<serde
     // SECURITY (R11-APPR-10): Redact sensitive parameters before returning.
     // The approval listing may contain API keys, credentials, or PII in the
     // action parameters. Apply the same redaction used by the audit logger.
+    // SECURITY (FIND-R67-001): Cap response to prevent unbounded serialization.
+    let total = pending.len();
     let redacted: Vec<serde_json::Value> = pending
         .iter()
-        .map(|a| {
-            let mut val = serde_json::to_value(a).unwrap_or_default();
-            if let Some(action) = val.get_mut("action") {
-                if let Some(params) = action.get("parameters") {
-                    let redacted_params = vellaveto_audit::redact_keys_and_patterns(params);
-                    action["parameters"] = redacted_params;
+        .take(MAX_PENDING_LIST)
+        .filter_map(|a| {
+            // SECURITY (FIND-R67-005): Handle serialization failure instead of
+            // silently producing empty objects via unwrap_or_default().
+            match serde_json::to_value(a) {
+                Ok(mut val) => {
+                    if let Some(action) = val.get_mut("action") {
+                        if let Some(params) = action.get("parameters") {
+                            let redacted_params =
+                                vellaveto_audit::redact_keys_and_patterns(params);
+                            action["parameters"] = redacted_params;
+                        }
+                    }
+                    Some(val)
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to serialize approval entry: {}", e);
+                    None
                 }
             }
-            val
         })
         .collect();
 
-    Json(json!({"count": redacted.len(), "approvals": redacted}))
+    Json(json!({"count": redacted.len(), "total": total, "truncated": total > MAX_PENDING_LIST, "approvals": redacted}))
 }
 
 /// Get a specific approval by ID.

@@ -46,6 +46,9 @@ fn default_true() -> bool {
     true
 }
 
+/// SECURITY (FIND-R67-002): Maximum entries returned by tenant list.
+const MAX_TENANTS_LIST: usize = 1000;
+
 /// List all tenants.
 ///
 /// Returns an empty list if no tenant store is configured.
@@ -56,7 +59,9 @@ pub async fn list_tenants(
         Some(store) => store.list_tenants(),
         None => vec![],
     };
-    Ok(Json(tenants))
+    // SECURITY (FIND-R67-002): Cap response to prevent unbounded serialization.
+    let bounded: Vec<_> = tenants.into_iter().take(MAX_TENANTS_LIST).collect();
+    Ok(Json(bounded))
 }
 
 /// Get a specific tenant by ID.
