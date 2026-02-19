@@ -141,6 +141,119 @@ impl ProxyBridge {
         meta
     }
 
+    /// Evaluate a tool call using a pre-built Action.
+    ///
+    /// Used when the action needs pre-processing (e.g., DNS resolution to
+    /// populate `resolved_ips`) before policy evaluation. This achieves parity
+    /// with the HTTP/WebSocket/gRPC proxy handlers.
+    ///
+    /// SECURITY (FIND-R78-001): Added for DNS rebinding protection in stdio proxy.
+    pub(super) fn evaluate_tool_call_with_action(
+        &self,
+        id: &Value,
+        action: &vellaveto_types::Action,
+        tool_name: &str,
+        annotations: Option<&ToolAnnotations>,
+        context: Option<&EvaluationContext>,
+    ) -> (ProxyDecision, Option<EvaluationTrace>) {
+        match self.evaluate_action_inner(action, context) {
+            Ok((Verdict::Allow, trace)) => {
+                if let Some(ann) = annotations {
+                    if ann.destructive_hint && !ann.read_only_hint {
+                        tracing::info!(
+                            "Allowing destructive tool '{}' (destructiveHint=true)",
+                            tool_name
+                        );
+                    }
+                }
+                if let Some(ref t) = trace {
+                    log_trace("allow", t);
+                }
+                (ProxyDecision::Forward, trace)
+            }
+            Ok((Verdict::Deny { reason }, trace)) => {
+                if let Some(ref t) = trace {
+                    log_trace("deny", t);
+                }
+                let response = make_denial_response(id, &reason);
+                (
+                    ProxyDecision::Block(response, Verdict::Deny { reason }),
+                    trace,
+                )
+            }
+            Ok((Verdict::RequireApproval { reason }, trace)) => {
+                if let Some(ref t) = trace {
+                    log_trace("approval", t);
+                }
+                let response = make_approval_response(id, &reason);
+                (
+                    ProxyDecision::Block(response, Verdict::RequireApproval { reason }),
+                    trace,
+                )
+            }
+            // Handle future Verdict variants - fail closed (deny)
+            Ok((_, trace)) => {
+                let reason = "Unknown verdict type - failing closed".to_string();
+                (
+                    ProxyDecision::Block(
+                        make_denial_response(id, &reason),
+                        Verdict::Deny { reason },
+                    ),
+                    trace,
+                )
+            }
+            Err(e) => {
+                tracing::error!("Policy evaluation error for tool '{}': {}", tool_name, e);
+                let reason = "Policy evaluation failed".to_string();
+                (
+                    ProxyDecision::Block(
+                        make_denial_response(id, &reason),
+                        Verdict::Deny { reason },
+                    ),
+                    None,
+                )
+            }
+        }
+    }
+
+    /// Evaluate a `resources/read` using a pre-built Action.
+    ///
+    /// SECURITY (FIND-R78-001): Added for DNS rebinding protection in stdio proxy.
+    pub(super) fn evaluate_resource_read_with_action(
+        &self,
+        id: &Value,
+        action: &vellaveto_types::Action,
+        uri: &str,
+        context: Option<&EvaluationContext>,
+    ) -> ProxyDecision {
+        match self.evaluate_action_inner(action, context) {
+            Ok((Verdict::Allow, trace)) => {
+                if let Some(ref t) = trace {
+                    log_trace("resource_read allow", t);
+                }
+                ProxyDecision::Forward
+            }
+            Ok((Verdict::Deny { reason }, _)) => {
+                let response = make_denial_response(id, &reason);
+                ProxyDecision::Block(response, Verdict::Deny { reason })
+            }
+            Ok((Verdict::RequireApproval { reason }, _)) => {
+                let response = make_approval_response(id, &reason);
+                ProxyDecision::Block(response, Verdict::RequireApproval { reason })
+            }
+            // Handle future Verdict variants - fail closed (deny)
+            Ok((_, _)) => {
+                let reason = "Unknown verdict type - failing closed".to_string();
+                ProxyDecision::Block(make_denial_response(id, &reason), Verdict::Deny { reason })
+            }
+            Err(e) => {
+                tracing::error!("Policy evaluation error for resource '{}': {}", uri, e);
+                let reason = "Policy evaluation failed".to_string();
+                ProxyDecision::Block(make_denial_response(id, &reason), Verdict::Deny { reason })
+            }
+        }
+    }
+
     /// Evaluate a `resources/read` request and decide whether to forward or block.
     pub fn evaluate_resource_read(
         &self,

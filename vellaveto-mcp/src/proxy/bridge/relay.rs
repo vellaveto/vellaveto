@@ -25,7 +25,41 @@ use std::time::{Duration, Instant};
 use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
 use vellaveto_config::ToolManifest;
-use vellaveto_types::{EvaluationContext, EvaluationTrace, Verdict};
+use vellaveto_types::{Action, EvaluationContext, EvaluationTrace, Verdict};
+
+/// Resolve target domains to IP addresses for DNS rebinding protection.
+///
+/// Populates `action.resolved_ips` with the IP addresses that each target domain
+/// resolves to. If DNS resolution fails for a domain, no IPs are added for it —
+/// the engine will deny the action fail-closed if IP rules are configured.
+///
+/// SECURITY (FIND-R78-001): Parity with HTTP/WS/gRPC proxy handlers.
+async fn resolve_domains(action: &mut Action) {
+    if action.target_domains.is_empty() {
+        return;
+    }
+    let mut resolved = Vec::new();
+    for domain in &action.target_domains {
+        // Strip port if present (domain might be "example.com:8080")
+        let host = domain.split(':').next().unwrap_or(domain);
+        match tokio::net::lookup_host((host, 0)).await {
+            Ok(addrs) => {
+                for addr in addrs {
+                    resolved.push(addr.ip().to_string());
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    domain = %domain,
+                    error = %e,
+                    "DNS resolution failed — resolved_ips will be empty for this domain"
+                );
+                // Fail-closed: engine will deny if ip_rules configured but no IPs resolved
+            }
+        }
+    }
+    action.resolved_ips = resolved;
+}
 
 /// SECURITY (R8-MCP-8): Maximum number of pending (in-flight) requests.
 /// Prevents OOM if an agent sends requests faster than the server responds.
@@ -801,16 +835,110 @@ impl ProxyBridge {
             }
         }
 
+        // SECURITY (FIND-R78-001): Build action early so we can resolve domains
+        // before policy evaluation, achieving parity with HTTP/WS/gRPC handlers.
+        let mut action = extract_action(&tool_name, &arguments);
+
+        // DNS rebinding protection: resolve target domains to IPs when any
+        // policy has ip_rules configured.
+        if self.engine.has_ip_rules() {
+            resolve_domains(&mut action).await;
+        }
+
         let ann = state.known_tool_annotations.get(&tool_name);
         let eval_ctx = state.evaluation_context();
         let (decision, eval_trace) =
-            self.evaluate_tool_call(&id, &tool_name, &arguments, ann, Some(&eval_ctx));
+            self.evaluate_tool_call_with_action(&id, &action, &tool_name, ann, Some(&eval_ctx));
         match decision {
             ProxyDecision::Forward => {
+                // SECURITY (FIND-R78-002): ABAC refinement — only runs when ABAC
+                // engine is configured. If the PolicyEngine allowed the action,
+                // ABAC may still deny it based on principal/action/resource/condition
+                // constraints. Parity with HTTP/WS/gRPC proxy handlers.
+                if let Some(ref abac) = self.abac_engine {
+                    let principal_id = eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
+                    let principal_type = eval_ctx
+                        .agent_identity
+                        .as_ref()
+                        .and_then(|id| id.claims.get("type"))
+                        .and_then(|v: &serde_json::Value| v.as_str())
+                        .unwrap_or("Agent");
+                    let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
+                        eval_ctx: &eval_ctx,
+                        principal_type,
+                        principal_id,
+                        risk_score: None, // No session risk score in stdio mode
+                    };
+
+                    match abac.evaluate(&action, &abac_ctx) {
+                        vellaveto_engine::abac::AbacDecision::Deny { policy_id, reason } => {
+                            let verdict = Verdict::Deny {
+                                reason: reason.clone(),
+                            };
+                            if let Err(e) = self
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &verdict,
+                                    json!({
+                                        "source": "proxy",
+                                        "event": "abac_deny",
+                                        "abac_policy_id": policy_id,
+                                        "tool": tool_name,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!("Audit log failed for ABAC deny: {}", e);
+                            }
+                            let response = make_denial_response(&id, &reason);
+                            write_message(agent_writer, &response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
+                        }
+                        vellaveto_engine::abac::AbacDecision::Allow { .. } => {
+                            // ABAC explicitly allowed — proceed
+                        }
+                        vellaveto_engine::abac::AbacDecision::NoMatch => {
+                            // No ABAC rule matched — existing Allow verdict stands
+                        }
+                        #[allow(unreachable_patterns)] // AbacDecision is #[non_exhaustive]
+                        _ => {
+                            // SECURITY: Future variants — fail-closed (deny).
+                            tracing::warn!("Unknown AbacDecision variant — fail-closed");
+                            let reason =
+                                "Access denied by policy (unknown ABAC decision)".to_string();
+                            let verdict = Verdict::Deny {
+                                reason: reason.clone(),
+                            };
+                            if let Err(e) = self
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &verdict,
+                                    json!({
+                                        "source": "proxy",
+                                        "event": "abac_unknown_variant_deny",
+                                        "tool": tool_name,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!("Audit log failed for ABAC deny: {}", e);
+                            }
+                            let response = make_denial_response(&id, &reason);
+                            write_message(agent_writer, &response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
+                        }
+                    }
+                }
+
                 // SECURITY (FIND-R52-009): Audit allowed tool calls for full observability.
                 // Compliance frameworks (EU AI Act Art 50, SOC 2) require tracking all
                 // decisions, not just denials.
-                let action = extract_action(&tool_name, &arguments);
                 let meta = Self::tool_call_audit_metadata(&tool_name, ann);
                 if let Err(e) = self.audit.log_entry(&action, &Verdict::Allow, meta).await {
                     tracing::warn!("Audit log failed for allowed tool call: {}", e);
@@ -826,7 +954,6 @@ impl ProxyBridge {
                     .map_err(ProxyError::Framing)?;
             }
             ProxyDecision::Block(mut response, verdict) => {
-                let action = extract_action(&tool_name, &arguments);
                 // If RequireApproval and we have an approval store,
                 // create a pending approval and inject the ID into
                 // the JSON-RPC error data.
@@ -982,11 +1109,16 @@ impl ProxyBridge {
             return Ok(());
         }
 
+        // SECURITY (FIND-R78-001): Build action early for DNS resolution.
+        let mut action = extract_resource_action(&uri);
+        if self.engine.has_ip_rules() {
+            resolve_domains(&mut action).await;
+        }
+
         let eval_ctx = state.evaluation_context();
-        match self.evaluate_resource_read(&id, &uri, Some(&eval_ctx)) {
+        match self.evaluate_resource_read_with_action(&id, &action, &uri, Some(&eval_ctx)) {
             ProxyDecision::Forward => {
                 // SECURITY (FIND-R52-009): Audit allowed resource reads for full observability.
-                let action = extract_resource_action(&uri);
                 if let Err(e) = self
                     .audit
                     .log_entry(
@@ -1006,7 +1138,6 @@ impl ProxyBridge {
                     .map_err(ProxyError::Framing)?;
             }
             ProxyDecision::Block(mut response, verdict) => {
-                let action = extract_resource_action(&uri);
                 if let Verdict::RequireApproval { ref reason } = verdict {
                     if let Some(ref store) = self.approval_store {
                         match store.create(action.clone(), reason.clone(), None).await {

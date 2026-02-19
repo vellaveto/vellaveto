@@ -257,6 +257,22 @@ impl ProxyBridge {
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // Phase 21: ABAC Attribute-Based Access Control
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// SECURITY (FIND-R78-002): Set the ABAC engine for attribute-based access
+    /// control refinement. When set, policy-engine Allow verdicts are further
+    /// evaluated against ABAC forbid-override rules, achieving parity with the
+    /// HTTP/WebSocket/gRPC proxy handlers.
+    pub fn with_abac_engine(
+        mut self,
+        engine: Arc<vellaveto_engine::abac::AbacEngine>,
+    ) -> Self {
+        self.abac_engine = Some(engine);
+        self
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // Phase 30: MCP 2025-11-25 Spec Compliance
     // ═══════════════════════════════════════════════════════════════════
 

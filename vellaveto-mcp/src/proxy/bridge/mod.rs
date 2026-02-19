@@ -141,6 +141,15 @@ pub struct ProxyBridge {
     explanation_verbosity: vellaveto_types::ExplanationVerbosity,
 
     // ═══════════════════════════════════════════════════════════════════
+    // Phase 21: ABAC Attribute-Based Access Control
+    // ═══════════════════════════════════════════════════════════════════
+    /// SECURITY (FIND-R78-002): Optional ABAC engine for attribute-based
+    /// access control refinement. When set, policy-engine Allow verdicts
+    /// are further evaluated against ABAC forbid-override rules, achieving
+    /// parity with the HTTP/WebSocket/gRPC proxy handlers.
+    abac_engine: Option<Arc<vellaveto_engine::abac::AbacEngine>>,
+
+    // ═══════════════════════════════════════════════════════════════════
     // Phase 30: MCP 2025-11-25 Spec Compliance
     // ═══════════════════════════════════════════════════════════════════
     /// SECURITY (FIND-R78-001): When true, validate tool names against MCP spec
@@ -190,6 +199,8 @@ impl ProxyBridge {
             human_oversight_tools: Vec::new(),
             // Phase 24: Art 50(2) explanations (default: disabled)
             explanation_verbosity: vellaveto_types::ExplanationVerbosity::None,
+            // Phase 21: ABAC (default: disabled)
+            abac_engine: None,
             // Phase 30: MCP 2025-11-25 tool name validation (default: disabled)
             strict_tool_name_validation: false,
         }
