@@ -329,7 +329,11 @@ impl ComplianceConfig {
                     MAX_TOOL_MAPPING_STRING_LEN,
                 ));
             }
-            if mapping.tool_pattern.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+            if mapping
+                .tool_pattern
+                .bytes()
+                .any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b))
+            {
                 return Err(format!(
                     "data_governance.tool_mappings[{}].tool_pattern contains control characters",
                     i,

@@ -266,10 +266,7 @@ impl AsyncTaskConfig {
                 ));
             }
             if entry.is_empty() {
-                return Err(format!(
-                    "async_tasks.allow_cancellation[{}] is empty",
-                    i
-                ));
+                return Err(format!("async_tasks.allow_cancellation[{}] is empty", i));
             }
         }
         Ok(())

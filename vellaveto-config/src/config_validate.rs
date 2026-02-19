@@ -945,10 +945,7 @@ impl PolicyConfig {
         }
         for (i, suite) in self.tls.cipher_suites.iter().enumerate() {
             if suite.is_empty() {
-                return Err(format!(
-                    "tls.cipher_suites[{}] is empty",
-                    i
-                ));
+                return Err(format!("tls.cipher_suites[{}] is empty", i));
             }
             if suite.len() > MAX_CIPHER_SUITE_LEN {
                 return Err(format!(
@@ -1029,9 +1026,7 @@ impl PolicyConfig {
                 .bytes()
                 .any(|b| b == 0x00 || b < 0x20 || (0x7F..=0x9F).contains(&b))
             {
-                return Err(
-                    "etdi.data_path contains null bytes or control characters".to_string(),
-                );
+                return Err("etdi.data_path contains null bytes or control characters".to_string());
             }
             if data_path.len() > MAX_ETDI_DATA_PATH_LEN {
                 return Err(format!(
@@ -1115,14 +1110,10 @@ impl PolicyConfig {
             let parsed = url::Url::parse(rekor_url)
                 .map_err(|e| format!("etdi.attestation.rekor_url must be a valid URL: {e}"))?;
             if parsed.scheme() != "https" {
-                return Err(
-                    "etdi.attestation.rekor_url must use https:// scheme".to_string(),
-                );
+                return Err("etdi.attestation.rekor_url must use https:// scheme".to_string());
             }
             if parsed.host_str().map(str::is_empty).unwrap_or(true) {
-                return Err(
-                    "etdi.attestation.rekor_url must include a host".to_string(),
-                );
+                return Err("etdi.attestation.rekor_url must include a host".to_string());
             }
         }
 

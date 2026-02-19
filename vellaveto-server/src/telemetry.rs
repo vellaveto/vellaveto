@@ -306,12 +306,10 @@ impl TelemetryConfig {
                     );
                     let is_private_v4 = mapped_ip.is_loopback()
                         || mapped_ip.octets()[0] == 10
-                        || (mapped_ip.octets()[0] == 172
-                            && (mapped_ip.octets()[1] & 0xf0) == 16)
+                        || (mapped_ip.octets()[0] == 172 && (mapped_ip.octets()[1] & 0xf0) == 16)
                         || (mapped_ip.octets()[0] == 192 && mapped_ip.octets()[1] == 168)
                         || (mapped_ip.octets()[0] == 169 && mapped_ip.octets()[1] == 254)
-                        || (mapped_ip.octets()[0] == 100
-                            && (mapped_ip.octets()[1] & 0xc0) == 64)
+                        || (mapped_ip.octets()[0] == 100 && (mapped_ip.octets()[1] & 0xc0) == 64)
                         || mapped_ip.octets()[0] == 0
                         || mapped_ip.is_broadcast();
                     if is_private_v4 {

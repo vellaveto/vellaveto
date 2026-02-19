@@ -248,7 +248,10 @@ async fn main() -> Result<()> {
         let deputy = vellaveto_engine::deputy::DeputyValidator::new(
             policy_config.deputy.max_delegation_depth,
         );
-        tracing::info!("Deputy validator: ENABLED (max depth: {})", policy_config.deputy.max_delegation_depth);
+        tracing::info!(
+            "Deputy validator: ENABLED (max depth: {})",
+            policy_config.deputy.max_delegation_depth
+        );
         bridge = bridge.with_deputy(Arc::new(deputy));
     }
 
@@ -268,7 +271,10 @@ async fn main() -> Result<()> {
         let detector = vellaveto_mcp::shadow_agent::ShadowAgentDetector::new(
             policy_config.shadow_agent.max_known_agents,
         );
-        tracing::info!("Shadow agent detector: ENABLED (max known: {})", policy_config.shadow_agent.max_known_agents);
+        tracing::info!(
+            "Shadow agent detector: ENABLED (max known: {})",
+            policy_config.shadow_agent.max_known_agents
+        );
         bridge = bridge.with_shadow_agent(Arc::new(detector));
     }
 

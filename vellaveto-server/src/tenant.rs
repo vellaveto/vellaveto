@@ -595,13 +595,7 @@ impl TenantStore for InMemoryTenantStore {
         self.tenants
             .read()
             .ok()
-            .map(|guard| {
-                guard
-                    .values()
-                    .take(MAX_TENANT_LIST)
-                    .cloned()
-                    .collect()
-            })
+            .map(|guard| guard.values().take(MAX_TENANT_LIST).cloned().collect())
             .unwrap_or_default()
     }
 

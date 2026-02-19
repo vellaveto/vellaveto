@@ -187,16 +187,13 @@ pub async fn handle_ws_upgrade(
     // handlers (handlers.rs:154, handlers.rs:2928) which reject control chars.
     // SECURITY (FIND-R81-WS-001): Also reject Unicode format characters (zero-width,
     // bidi overrides, BOM) that can bypass string-based security checks.
-    let ws_session_id = query
-        .session_id
-        .as_deref()
-        .filter(|id| {
-            !id.is_empty()
-                && id.len() <= 128
-                && !id.chars().any(|c| {
-                    c.is_control() || is_unicode_format_char_ws(c)
-                })
-        });
+    let ws_session_id = query.session_id.as_deref().filter(|id| {
+        !id.is_empty()
+            && id.len() <= 128
+            && !id
+                .chars()
+                .any(|c| c.is_control() || is_unicode_format_char_ws(c))
+    });
 
     // 3. Get or create session
     let session_id = state.sessions.get_or_create(ws_session_id);
@@ -1569,11 +1566,10 @@ async fn relay_client_to_upstream(
                         // verdict (enabled + model filter + tool output check),
                         // matching HTTP handler parity (handlers.rs:1681).
                         let params = parsed.get("params").cloned().unwrap_or(json!({}));
-                        let sampling_verdict =
-                            vellaveto_mcp::elicitation::inspect_sampling(
-                                &params,
-                                &state.sampling_config,
-                            );
+                        let sampling_verdict = vellaveto_mcp::elicitation::inspect_sampling(
+                            &params,
+                            &state.sampling_config,
+                        );
                         match sampling_verdict {
                             vellaveto_mcp::elicitation::SamplingVerdict::Allow => {
                                 // Forward allowed sampling request
@@ -1593,7 +1589,8 @@ async fn relay_client_to_upstream(
                                                 "Internal error",
                                             );
                                             let mut sink = client_sink.lock().await;
-                                            let _ = sink.send(Message::Text(error_resp.into())).await;
+                                            let _ =
+                                                sink.send(Message::Text(error_resp.into())).await;
                                             continue;
                                         }
                                     }
@@ -1712,7 +1709,10 @@ async fn relay_client_to_upstream(
                                     )
                                     .await
                                 {
-                                    tracing::warn!("Failed to audit WS task memory poisoning: {}", e);
+                                    tracing::warn!(
+                                        "Failed to audit WS task memory poisoning: {}",
+                                        e
+                                    );
                                 }
                                 let error = make_ws_error_response(
                                     Some(id),

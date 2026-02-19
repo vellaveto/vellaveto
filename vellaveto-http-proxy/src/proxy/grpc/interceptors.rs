@@ -30,7 +30,8 @@ pub(crate) fn is_unicode_format_char(c: char) -> bool {
 /// HTTP `is_unsafe_char` behavior — gRPC metadata values should not contain any
 /// control characters.
 pub(crate) fn contains_dangerous_chars(s: &str) -> bool {
-    s.chars().any(|c| c.is_control() || is_unicode_format_char(c))
+    s.chars()
+        .any(|c| c.is_control() || is_unicode_format_char(c))
 }
 
 /// gRPC metadata key names (matching HTTP header semantics).

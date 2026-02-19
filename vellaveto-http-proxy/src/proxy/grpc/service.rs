@@ -690,10 +690,7 @@ impl McpGrpcService {
                             // Must return denial, not fall through to Allow path.
                             // Parity with HTTP handler (handlers.rs) and WS handler (FIND-R74-002).
                             tracing::warn!("Unknown AbacDecision variant — fail-closed");
-                            return make_proto_denial_response(
-                                proto_req,
-                                "Denied by policy",
-                            );
+                            return make_proto_denial_response(proto_req, "Denied by policy");
                         }
                     }
                 }
@@ -1163,7 +1160,10 @@ impl McpGrpcService {
 
             let action = extractor::extract_task_action(task_method, task_id);
             let verdict = Verdict::Deny {
-                reason: format!("DLP blocked: secret detected in task parameters: {:?}", patterns),
+                reason: format!(
+                    "DLP blocked: secret detected in task parameters: {:?}",
+                    patterns
+                ),
             };
             if let Err(e) = self
                 .state
@@ -1187,7 +1187,10 @@ impl McpGrpcService {
 
             return make_proto_denial_response(
                 proto_req,
-                &format!("DLP blocked: secret detected in task parameters: {:?}", patterns),
+                &format!(
+                    "DLP blocked: secret detected in task parameters: {:?}",
+                    patterns
+                ),
             );
         }
 

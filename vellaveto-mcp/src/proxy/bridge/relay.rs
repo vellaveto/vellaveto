@@ -209,7 +209,10 @@ impl RelayState {
                 );
                 return None;
             }
-            if trimmed.chars().any(|c| c.is_control() || is_unicode_format_char(c)) {
+            if trimmed
+                .chars()
+                .any(|c| c.is_control() || is_unicode_format_char(c))
+            {
                 tracing::warn!(
                     "VELLAVETO_AGENT_ID contains control or Unicode format characters — ignoring"
                 );
@@ -1556,7 +1559,9 @@ impl ProxyBridge {
                         #[allow(unreachable_patterns)] // AbacDecision is #[non_exhaustive]
                         _ => {
                             // SECURITY: Future variants — fail-closed (deny).
-                            tracing::warn!("Unknown AbacDecision variant in task request — fail-closed");
+                            tracing::warn!(
+                                "Unknown AbacDecision variant in task request — fail-closed"
+                            );
                             let reason =
                                 "Access denied by policy (unknown ABAC decision)".to_string();
                             let verdict = Verdict::Deny {
@@ -1771,7 +1776,9 @@ impl ProxyBridge {
                         #[allow(unreachable_patterns)] // AbacDecision is #[non_exhaustive]
                         _ => {
                             // SECURITY: Future variants — fail-closed (deny).
-                            tracing::warn!("Unknown AbacDecision variant in extension method — fail-closed");
+                            tracing::warn!(
+                                "Unknown AbacDecision variant in extension method — fail-closed"
+                            );
                             let reason =
                                 "Access denied by policy (unknown ABAC decision)".to_string();
                             let verdict = Verdict::Deny {

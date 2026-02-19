@@ -65,8 +65,8 @@ pub use manifest::{
 
 pub use mcp_protocol::{
     AsyncTaskConfig, CimdConfig, ElicitationConfig, ResourceIndicatorConfig, SamplingConfig,
-    StepUpAuthConfig, StreamableHttpConfig, MAX_ALLOW_CANCELLATION, MAX_ALLOWED_MODELS,
-    MAX_ALLOWED_RESOURCES, MAX_BLOCKED_FIELD_TYPES, MAX_CAPABILITIES, MAX_TRIGGER_TOOLS,
+    StepUpAuthConfig, StreamableHttpConfig, MAX_ALLOWED_MODELS, MAX_ALLOWED_RESOURCES,
+    MAX_ALLOW_CANCELLATION, MAX_BLOCKED_FIELD_TYPES, MAX_CAPABILITIES, MAX_TRIGGER_TOOLS,
 };
 
 pub use etdi::{AllowedSignersConfig, AttestationConfig, EtdiConfig, VersionPinningConfig};

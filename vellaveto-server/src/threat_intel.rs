@@ -768,12 +768,12 @@ mod tests {
     fn test_parse_stix_objects_exceeds_max_objects() {
         let client = test_client();
         let objects: Vec<serde_json::Value> = (0..MAX_STIX_OBJECTS + 1)
-            .map(|i| {
-                json!({"type": "indicator", "pattern": format!("pattern-{}", i)})
-            })
+            .map(|i| json!({"type": "indicator", "pattern": format!("pattern-{}", i)}))
             .collect();
         let result = client.parse_stix_objects(&json!({"objects": objects}));
-        assert!(matches!(result, Err(ThreatIntelError::InvalidResponse(ref msg)) if msg.contains("max")));
+        assert!(
+            matches!(result, Err(ThreatIntelError::InvalidResponse(ref msg)) if msg.contains("max"))
+        );
     }
 
     #[test]
@@ -785,7 +785,9 @@ mod tests {
         let result = client.parse_misp_response(&json!({
             "response": { "Attribute": attributes }
         }));
-        assert!(matches!(result, Err(ThreatIntelError::InvalidResponse(ref msg)) if msg.contains("max")));
+        assert!(
+            matches!(result, Err(ThreatIntelError::InvalidResponse(ref msg)) if msg.contains("max"))
+        );
     }
 
     #[test]

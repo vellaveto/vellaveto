@@ -129,11 +129,7 @@ pub async fn audit_export(
         // SECURITY (P3, Trap 17): Validate basic ISO 8601 format — must start with
         // a 4-digit year. Rejects arbitrary strings used as lexicographic filters
         // that could never match valid timestamps, preventing logic confusion.
-        let year_digits = since
-            .chars()
-            .take(4)
-            .filter(|c| c.is_ascii_digit())
-            .count();
+        let year_digits = since.chars().take(4).filter(|c| c.is_ascii_digit()).count();
         if year_digits != 4 {
             return Err((
                 StatusCode::BAD_REQUEST,

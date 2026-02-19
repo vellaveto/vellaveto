@@ -131,7 +131,10 @@ pub struct AsiCoverageReport {
 impl AsiCoverageReport {
     /// Validate bounds on deserialized data (FIND-R82-007).
     pub fn validate(&self) -> Result<(), String> {
-        if !self.coverage_percent.is_finite() || self.coverage_percent < 0.0 || self.coverage_percent > 100.0 {
+        if !self.coverage_percent.is_finite()
+            || self.coverage_percent < 0.0
+            || self.coverage_percent > 100.0
+        {
             return Err(format!(
                 "coverage_percent out of range: {}",
                 self.coverage_percent
@@ -152,7 +155,10 @@ impl AsiCoverageReport {
             ));
         }
         for cc in &self.category_coverage {
-            if !cc.coverage_percent.is_finite() || cc.coverage_percent < 0.0 || cc.coverage_percent > 100.0 {
+            if !cc.coverage_percent.is_finite()
+                || cc.coverage_percent < 0.0
+                || cc.coverage_percent > 100.0
+            {
                 return Err(format!(
                     "category_coverage[{}].coverage_percent out of range: {}",
                     cc.category_name, cc.coverage_percent
@@ -232,17 +238,10 @@ impl OwaspAsiRegistry {
     }
 
     /// Get all controls mapped to a detection type.
-    pub fn get_controls_for_detection(
-        &self,
-        detection: VellavetoDetection,
-    ) -> Vec<&AsiControl> {
+    pub fn get_controls_for_detection(&self, detection: VellavetoDetection) -> Vec<&AsiControl> {
         self.detection_mappings
             .get(&detection)
-            .map(|ids| {
-                ids.iter()
-                    .filter_map(|id| self.controls.get(id))
-                    .collect()
-            })
+            .map(|ids| ids.iter().filter_map(|id| self.controls.get(id)).collect())
             .unwrap_or_default()
     }
 
@@ -263,8 +262,7 @@ impl OwaspAsiRegistry {
     /// Generate a coverage report.
     pub fn generate_coverage_report(&self) -> AsiCoverageReport {
         // Collect covered control IDs from detection mappings
-        let mut covered_ids: std::collections::HashSet<&str> =
-            std::collections::HashSet::new();
+        let mut covered_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for ids in self.detection_mappings.values() {
             for id in ids {
                 covered_ids.insert(id.as_str());
@@ -777,32 +775,14 @@ impl OwaspAsiRegistry {
             VellavetoDetection::PromptInjection,
             vec!["ASI01-C01", "ASI01-C04"],
         );
-        self.map_detection(
-            VellavetoDetection::IndirectInjection,
-            vec!["ASI01-C02"],
-        );
-        self.map_detection(
-            VellavetoDetection::SecondOrderInjection,
-            vec!["ASI01-C02"],
-        );
-        self.map_detection(
-            VellavetoDetection::UnicodeManipulation,
-            vec!["ASI01-C01"],
-        );
-        self.map_detection(
-            VellavetoDetection::DelimiterInjection,
-            vec!["ASI01-C01"],
-        );
-        self.map_detection(
-            VellavetoDetection::Steganography,
-            vec!["ASI01-C03"],
-        );
+        self.map_detection(VellavetoDetection::IndirectInjection, vec!["ASI01-C02"]);
+        self.map_detection(VellavetoDetection::SecondOrderInjection, vec!["ASI01-C02"]);
+        self.map_detection(VellavetoDetection::UnicodeManipulation, vec!["ASI01-C01"]);
+        self.map_detection(VellavetoDetection::DelimiterInjection, vec!["ASI01-C01"]);
+        self.map_detection(VellavetoDetection::Steganography, vec!["ASI01-C03"]);
 
         // ASI02: Confused Deputy
-        self.map_detection(
-            VellavetoDetection::ConfusedDeputy,
-            vec!["ASI02-C01"],
-        );
+        self.map_detection(VellavetoDetection::ConfusedDeputy, vec!["ASI02-C01"]);
         self.map_detection(
             VellavetoDetection::UnauthorizedDelegation,
             vec!["ASI02-C01", "ASI02-C02"],
@@ -813,52 +793,28 @@ impl OwaspAsiRegistry {
         );
 
         // ASI03: Tool Manipulation
-        self.map_detection(
-            VellavetoDetection::ToolAnnotationChange,
-            vec!["ASI03-C01"],
-        );
-        self.map_detection(
-            VellavetoDetection::ToolSquatting,
-            vec!["ASI03-C02"],
-        );
-        self.map_detection(
-            VellavetoDetection::ToolShadowing,
-            vec!["ASI03-C02"],
-        );
-        self.map_detection(
-            VellavetoDetection::SchemaPoisoning,
-            vec!["ASI03-C03"],
-        );
+        self.map_detection(VellavetoDetection::ToolAnnotationChange, vec!["ASI03-C01"]);
+        self.map_detection(VellavetoDetection::ToolSquatting, vec!["ASI03-C02"]);
+        self.map_detection(VellavetoDetection::ToolShadowing, vec!["ASI03-C02"]);
+        self.map_detection(VellavetoDetection::SchemaPoisoning, vec!["ASI03-C03"]);
 
         // ASI05: Insecure Tool Output
-        self.map_detection(
-            VellavetoDetection::SecretsInOutput,
-            vec!["ASI05-C01"],
-        );
+        self.map_detection(VellavetoDetection::SecretsInOutput, vec!["ASI05-C01"]);
         self.map_detection(
             VellavetoDetection::CovertChannel,
             vec!["ASI05-C01", "ASI05-C02"],
         );
 
         // ASI06: Memory Poisoning
-        self.map_detection(
-            VellavetoDetection::DataLaundering,
-            vec!["ASI06-C01"],
-        );
+        self.map_detection(VellavetoDetection::DataLaundering, vec!["ASI06-C01"]);
         self.map_detection(
             VellavetoDetection::MemoryInjection,
             vec!["ASI06-C01", "ASI06-C03"],
         );
-        self.map_detection(
-            VellavetoDetection::GoalDrift,
-            vec!["ASI06-C02"],
-        );
+        self.map_detection(VellavetoDetection::GoalDrift, vec!["ASI06-C02"]);
 
         // ASI07: Excessive Agency
-        self.map_detection(
-            VellavetoDetection::ExcessiveAgency,
-            vec!["ASI07-C01"],
-        );
+        self.map_detection(VellavetoDetection::ExcessiveAgency, vec!["ASI07-C01"]);
         self.map_detection(
             VellavetoDetection::WorkflowBudgetExceeded,
             vec!["ASI07-C02", "ASI07-C03"],
@@ -879,10 +835,7 @@ impl OwaspAsiRegistry {
         );
 
         // ASI09: Trust Boundary Violations
-        self.map_detection(
-            VellavetoDetection::PathTraversal,
-            vec!["ASI09-C01"],
-        );
+        self.map_detection(VellavetoDetection::PathTraversal, vec!["ASI09-C01"]);
         self.map_detection(
             VellavetoDetection::DnsRebinding,
             vec!["ASI09-C01", "ASI09-C02"],
@@ -905,18 +858,9 @@ impl OwaspAsiRegistry {
             VellavetoDetection::TokenSmuggling,
             vec!["ASI01-C01", "ASI09-C01"],
         );
-        self.map_detection(
-            VellavetoDetection::ContextFlooding,
-            vec!["ASI07-C03"],
-        );
-        self.map_detection(
-            VellavetoDetection::GlitchToken,
-            vec!["ASI01-C01"],
-        );
-        self.map_detection(
-            VellavetoDetection::SamplingAttack,
-            vec!["ASI07-C01"],
-        );
+        self.map_detection(VellavetoDetection::ContextFlooding, vec!["ASI07-C03"]);
+        self.map_detection(VellavetoDetection::GlitchToken, vec!["ASI01-C01"]);
+        self.map_detection(VellavetoDetection::SamplingAttack, vec!["ASI07-C01"]);
     }
 }
 
@@ -1088,8 +1032,7 @@ mod tests {
         let report = registry.generate_coverage_report();
 
         let json = serde_json::to_string(&report).expect("serialize");
-        let deserialized: AsiCoverageReport =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: AsiCoverageReport = serde_json::from_str(&json).expect("deserialize");
 
         assert_eq!(deserialized.total_controls, report.total_controls);
         assert_eq!(deserialized.covered_controls, report.covered_controls);
@@ -1101,10 +1044,7 @@ mod tests {
 
     #[test]
     fn test_category_display() {
-        assert_eq!(
-            AsiCategory::Asi01.to_string(),
-            "ASI01: Prompt Injection"
-        );
+        assert_eq!(AsiCategory::Asi01.to_string(), "ASI01: Prompt Injection");
         assert_eq!(
             AsiCategory::Asi10.to_string(),
             "ASI10: Shadow AI/Agent Operations"
@@ -1116,11 +1056,7 @@ mod tests {
         let registry = OwaspAsiRegistry::new();
         let mut seen = std::collections::HashSet::new();
         for id in registry.controls.keys() {
-            assert!(
-                seen.insert(id.clone()),
-                "Duplicate control ID: {}",
-                id
-            );
+            assert!(seen.insert(id.clone()), "Duplicate control ID: {}", id);
         }
     }
 

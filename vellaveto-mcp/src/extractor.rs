@@ -713,7 +713,10 @@ mod tests {
             "params": {"name": "bash", "arguments": ["cmd", "arg"]}
         });
         let mt = classify_message(&array_args);
-        assert!(matches!(mt, MessageType::Invalid { .. }), "array arguments should be rejected");
+        assert!(
+            matches!(mt, MessageType::Invalid { .. }),
+            "array arguments should be rejected"
+        );
 
         let string_args = json!({
             "jsonrpc": "2.0",
@@ -722,7 +725,10 @@ mod tests {
             "params": {"name": "bash", "arguments": "a string"}
         });
         let mt = classify_message(&string_args);
-        assert!(matches!(mt, MessageType::Invalid { .. }), "string arguments should be rejected");
+        assert!(
+            matches!(mt, MessageType::Invalid { .. }),
+            "string arguments should be rejected"
+        );
 
         let number_args = json!({
             "jsonrpc": "2.0",
@@ -731,7 +737,10 @@ mod tests {
             "params": {"name": "bash", "arguments": 42}
         });
         let mt = classify_message(&number_args);
-        assert!(matches!(mt, MessageType::Invalid { .. }), "number arguments should be rejected");
+        assert!(
+            matches!(mt, MessageType::Invalid { .. }),
+            "number arguments should be rejected"
+        );
 
         // Null and absent arguments are fine (default to empty object)
         let null_args = json!({
@@ -741,7 +750,10 @@ mod tests {
             "params": {"name": "bash", "arguments": null}
         });
         let mt = classify_message(&null_args);
-        assert!(matches!(mt, MessageType::ToolCall { .. }), "null arguments should be accepted");
+        assert!(
+            matches!(mt, MessageType::ToolCall { .. }),
+            "null arguments should be accepted"
+        );
 
         let absent_args = json!({
             "jsonrpc": "2.0",
@@ -750,7 +762,10 @@ mod tests {
             "params": {"name": "bash"}
         });
         let mt = classify_message(&absent_args);
-        assert!(matches!(mt, MessageType::ToolCall { .. }), "absent arguments should be accepted");
+        assert!(
+            matches!(mt, MessageType::ToolCall { .. }),
+            "absent arguments should be accepted"
+        );
     }
 
     #[test]

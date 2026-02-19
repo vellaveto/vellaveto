@@ -264,10 +264,7 @@ impl ProxyBridge {
     /// control refinement. When set, policy-engine Allow verdicts are further
     /// evaluated against ABAC forbid-override rules, achieving parity with the
     /// HTTP/WebSocket/gRPC proxy handlers.
-    pub fn with_abac_engine(
-        mut self,
-        engine: Arc<vellaveto_engine::abac::AbacEngine>,
-    ) -> Self {
+    pub fn with_abac_engine(mut self, engine: Arc<vellaveto_engine::abac::AbacEngine>) -> Self {
         self.abac_engine = Some(engine);
         self
     }
