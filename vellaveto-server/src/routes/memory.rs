@@ -32,6 +32,11 @@ const MAX_FIELD_LEN: usize = 256;
 /// Maximum number of permissions in a share request.
 const MAX_PERMISSIONS_COUNT: usize = 10;
 
+const _: () = {
+    assert!(MAX_PERMISSIONS_COUNT > 0);
+    assert!(MAX_PERMISSIONS_COUNT <= 100);
+};
+
 /// Validate an optional string field for length and control characters.
 fn validate_optional_field(
     value: &Option<String>,
@@ -584,11 +589,5 @@ mod tests {
     fn validate_optional_field_rejects_control_chars() {
         let result = validate_optional_field(&Some("foo\nbar".to_string()), "test_field");
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn share_namespace_permissions_count_bounded() {
-        assert!(MAX_PERMISSIONS_COUNT <= 100);
-        assert!(MAX_PERMISSIONS_COUNT > 0);
     }
 }
