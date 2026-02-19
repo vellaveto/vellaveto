@@ -78,6 +78,7 @@ impl fmt::Display for NhiIdentityStatus {
 /// - Behavioral baseline for continuous authentication
 /// - Credential rotation and expiration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct NhiAgentIdentity {
     /// Unique agent identifier.
     pub id: String,
@@ -171,6 +172,7 @@ impl NhiAgentIdentity {
 /// Tracks typical behavior patterns to detect anomalies that might
 /// indicate credential theft or impersonation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NhiBehavioralBaseline {
     /// Agent ID this baseline belongs to.
     pub agent_id: String,
@@ -340,6 +342,7 @@ impl Default for NhiBehavioralBaseline {
 
 /// Result of behavioral attestation check.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NhiBehavioralCheckResult {
     /// Whether the behavior is within acceptable bounds.
     pub within_baseline: bool,
@@ -404,6 +407,7 @@ impl NhiBehavioralCheckResult {
 /// [`NhiBehavioralBaseline`]. Multiple deviations may be reported
 /// in a single [`NhiBehavioralCheckResult`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NhiBehavioralDeviation {
     /// Category of deviation (e.g., `"request_interval"`, `"tool_frequency"`,
     /// `"source_ip"`, `"active_hours"`).
@@ -449,6 +453,7 @@ impl fmt::Display for NhiBehavioralRecommendation {
 
 /// A link in a delegation chain for NHI accountability.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NhiDelegationLink {
     /// Agent delegating permissions.
     pub from_agent: String,
@@ -522,6 +527,7 @@ fn default_true_nhi() -> bool {
 
 /// Full delegation chain for audit and accountability.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NhiDelegationChain {
     /// Ordered list of delegation links from origin to current agent.
     pub chain: Vec<NhiDelegationLink>,
@@ -661,6 +667,7 @@ impl NhiDpopProof {
 
 /// Result of DPoP proof verification.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NhiDpopVerificationResult {
     /// Whether the proof is valid.
     pub valid: bool,
@@ -677,6 +684,7 @@ pub struct NhiDpopVerificationResult {
 
 /// Statistics for NHI lifecycle management.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NhiStats {
     /// Total registered agent identities.
     pub total_identities: u64,
@@ -716,6 +724,7 @@ impl NhiStats {
 
 /// Credential rotation event for audit.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NhiCredentialRotation {
     /// Agent ID.
     pub agent_id: String,

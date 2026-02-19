@@ -110,6 +110,20 @@ pub(crate) fn ws_messages_count() -> u64 {
     WS_MESSAGES_TOTAL.load(Ordering::Relaxed)
 }
 
+/// Returns true if the character is a Unicode format character that can bypass
+/// string-based security checks (zero-width chars, bidi overrides, BOM).
+///
+/// SECURITY (FIND-R81-WS-001): Mirrors `vellaveto_types::core::is_unicode_format_char()`
+/// which is `pub(crate)` and not accessible from this crate.
+fn is_unicode_format_char_ws(c: char) -> bool {
+    matches!(c,
+        '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
+        '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
+        '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
+        '\u{FEFF}'                  // BOM / zero-width no-break space
+    )
+}
+
 /// Query parameters for the WebSocket upgrade endpoint.
 #[derive(Debug, serde::Deserialize, Default)]
 #[serde(deny_unknown_fields)]
@@ -169,12 +183,20 @@ pub async fn handle_ws_upgrade(
     };
 
     // SECURITY (FIND-R55-WS-004, FIND-R81-001): Validate session_id length and
-    // control characters from query parameter. Parity with HTTP POST/GET handlers
-    // (handlers.rs:154, handlers.rs:2928) which reject control chars.
+    // control/format characters from query parameter. Parity with HTTP POST/GET
+    // handlers (handlers.rs:154, handlers.rs:2928) which reject control chars.
+    // SECURITY (FIND-R81-WS-001): Also reject Unicode format characters (zero-width,
+    // bidi overrides, BOM) that can bypass string-based security checks.
     let ws_session_id = query
         .session_id
         .as_deref()
-        .filter(|id| !id.is_empty() && id.len() <= 128 && !id.chars().any(|c| c.is_control()));
+        .filter(|id| {
+            !id.is_empty()
+                && id.len() <= 128
+                && !id.chars().any(|c| {
+                    c.is_control() || is_unicode_format_char_ws(c)
+                })
+        });
 
     // 3. Get or create session
     let session_id = state.sessions.get_or_create(ws_session_id);

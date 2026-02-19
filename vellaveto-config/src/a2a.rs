@@ -183,6 +183,11 @@ impl A2aConfig {
             ));
         }
         for method in &self.allowed_auth_methods {
+            if method.is_empty() {
+                return Err(
+                    "a2a.allowed_auth_methods contains an empty string".to_string(),
+                );
+            }
             if method.len() > MAX_A2A_ENTRY_LENGTH {
                 return Err(format!(
                     "a2a.allowed_auth_methods entry length {} exceeds maximum {}",
@@ -236,6 +241,11 @@ impl A2aConfig {
             ));
         }
         for op in &self.allowed_task_operations {
+            if op.is_empty() {
+                return Err(
+                    "a2a.allowed_task_operations contains an empty string".to_string(),
+                );
+            }
             if op.len() > MAX_A2A_ENTRY_LENGTH {
                 return Err(format!(
                     "a2a.allowed_task_operations entry length {} exceeds maximum {}",

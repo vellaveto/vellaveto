@@ -5821,3 +5821,95 @@ fn test_persistence_path_too_long_rejected() {
     assert!(err.contains("persistence_path"), "err: {}", err);
     assert!(err.contains("exceeds max length"), "err: {}", err);
 }
+
+// ── FIND-R81-CFG-001: TlsConfig cipher_suites bounds ──────────────────────
+
+#[test]
+fn test_validate_rejects_too_many_cipher_suites() {
+    let mut config = minimal_config();
+    config.tls.cipher_suites = (0..65).map(|i| format!("TLS_SUITE_{}", i)).collect();
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("tls.cipher_suites") && err.contains("max is 64"),
+        "expected cipher_suites count error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_empty_cipher_suite_entry() {
+    let mut config = minimal_config();
+    config.tls.cipher_suites = vec![String::new()];
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("tls.cipher_suites[0]") && err.contains("is empty"),
+        "expected empty cipher suite error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_oversized_cipher_suite_entry() {
+    let mut config = minimal_config();
+    config.tls.cipher_suites = vec!["A".repeat(129)];
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("tls.cipher_suites[0]") && err.contains("exceeds maximum 128"),
+        "expected cipher suite length error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_cipher_suite_with_control_chars() {
+    let mut config = minimal_config();
+    config.tls.cipher_suites = vec!["TLS_AES_128\x00_GCM".to_string()];
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("tls.cipher_suites[0]") && err.contains("control characters"),
+        "expected cipher suite control char error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_accepts_valid_cipher_suites() {
+    let mut config = minimal_config();
+    config.tls.cipher_suites = vec![
+        "TLS_AES_128_GCM_SHA256".to_string(),
+        "TLS_AES_256_GCM_SHA384".to_string(),
+    ];
+    assert!(config.validate().is_ok());
+}
+
+// ── FIND-R81-CFG-002: A2A empty string validation ─────────────────────────
+
+#[test]
+fn test_a2a_validate_rejects_empty_auth_method() {
+    let mut config = crate::a2a::A2aConfig::default();
+    config.allowed_auth_methods = vec![String::new()];
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("allowed_auth_methods") && err.contains("empty string"),
+        "expected empty auth method error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_a2a_validate_rejects_empty_task_operation() {
+    let mut config = crate::a2a::A2aConfig::default();
+    config.allowed_task_operations = vec![String::new()];
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("allowed_task_operations") && err.contains("empty string"),
+        "expected empty task operation error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_a2a_validate_accepts_valid_config() {
+    let config = crate::a2a::A2aConfig::default();
+    assert!(config.validate().is_ok());
+}

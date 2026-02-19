@@ -932,6 +932,39 @@ impl PolicyConfig {
                 ));
             }
         }
+        // SECURITY (FIND-R81-CFG-001): Bound cipher_suites to prevent OOM
+        // and reject empty/oversized/control-char entries.
+        const MAX_CIPHER_SUITES: usize = 64;
+        const MAX_CIPHER_SUITE_LEN: usize = 128;
+        if self.tls.cipher_suites.len() > MAX_CIPHER_SUITES {
+            return Err(format!(
+                "tls.cipher_suites has {} entries, max is {}",
+                self.tls.cipher_suites.len(),
+                MAX_CIPHER_SUITES
+            ));
+        }
+        for (i, suite) in self.tls.cipher_suites.iter().enumerate() {
+            if suite.is_empty() {
+                return Err(format!(
+                    "tls.cipher_suites[{}] is empty",
+                    i
+                ));
+            }
+            if suite.len() > MAX_CIPHER_SUITE_LEN {
+                return Err(format!(
+                    "tls.cipher_suites[{}] length {} exceeds maximum {}",
+                    i,
+                    suite.len(),
+                    MAX_CIPHER_SUITE_LEN
+                ));
+            }
+            if contains_control_chars(suite) {
+                return Err(format!(
+                    "tls.cipher_suites[{}] contains control characters",
+                    i
+                ));
+            }
+        }
 
         // SPIFFE validation
         if self.spiffe.enabled && self.spiffe.trust_domain.is_none() {
