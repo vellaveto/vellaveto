@@ -1,10 +1,10 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 complete, 59 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 complete, 82 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 6,492 Rust tests + 316 Python SDK tests + 40 Go SDK tests + 71 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 6,593 Rust tests + 343 Python SDK tests + 106 Go SDK tests + 103 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
 > **CI workflows:** 12 (16 jobs)
 > **Domain:** [www.vellaveto.online](https://www.vellaveto.online) (Cloudflare Pages)
@@ -97,7 +97,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | **vellaveto-audit** | |
 | Module root + AuditLogger + rotation + verification | `vellaveto-audit/src/lib.rs` |
 | Redaction, checkpoints, Merkle proofs, events | `vellaveto-audit/src/*.rs` |
-| Compliance registries: EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, gap analysis | `vellaveto-audit/src/{eu_ai_act,soc2,cosai,adversa_top25,iso42001,gap_analysis}.rs` |
+| Compliance registries: EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, OWASP ASI, gap analysis | `vellaveto-audit/src/{eu_ai_act,soc2,cosai,adversa_top25,iso42001,owasp_asi,gap_analysis}.rs` |
 | Data governance registry (Art 10) | `vellaveto-audit/src/data_governance.rs` |
 | ZK audit: Pedersen commitments, witness store, Groth16 circuit, batch prover, scheduler | `vellaveto-audit/src/zk/{mod,pedersen,witness,circuit,prover,scheduler}.rs` |
 | Access review report generator + HTML renderer | `vellaveto-audit/src/access_review.rs` |
@@ -170,7 +170,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 implemented, tested, and hardened through 59 audit rounds. Details in CHANGELOG.md.
+All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 + Phase 41 implemented, tested, and hardened through 82 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
 - **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention
@@ -203,6 +203,7 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - **SOC 2 Type II Access Review Reports (Phase 38):** Dynamic report generation scanning audit entries and cross-referencing with least-agency data. Types: `AttestationStatus`, `ReviewerAttestation`, `AccessReviewEntry`, `Cc6Evidence`, `AccessReviewReport`, `ReviewSchedule`, `ReportExportFormat`. `Soc2AccessReviewConfig` with schedule (Daily/Weekly/Monthly), period bounds (1–366 days), reviewer validation. `generate_access_review()` with memory bounds (1M entries, 10K agents), deterministic BTreeMap ordering, CC6 evidence by recommendation tier. HTML renderer with escaped user data. REST API: `GET /api/compliance/soc2/access-review` (JSON/HTML, period/agent_id filters). Scheduled report generation (tokio interval task). SDK methods: Python (sync+async), TypeScript, Go with input validation. ~75 new tests across Rust + SDKs.
 - **Agent Identity Federation (Phase 39, placeholder):** `FederationResolver` type with config/status methods, `FederationConfig` with trust anchor validation, dashboard federation section, server/proxy federation API routes (`/api/federation/status`, `/api/federation/trust-anchors`), SDK methods (Python/TypeScript/Go), audit events for federation lifecycle
 - **Workflow-Level Policy Constraints (Phase 40):** Three new `CompiledContextCondition` variants in vellaveto-engine: `RequiredActionSequence` (ordered/unordered multi-tool prerequisites, max 20 steps, fail-closed on short history), `ForbiddenActionSequence` (ordered/unordered forbidden pattern detection for exfiltration — e.g. read_secret→http_request), `WorkflowTemplate` (DAG-based tool transition enforcement with Kahn's algorithm cycle detection at compile time, entry point validation, strict/warn modes, max 50 steps). Case-insensitive matching. TLA+ spec (S8 WorkflowPredecessor, S9 AcyclicDAG). 55 new tests.
+- **OWASP Agentic Security Index (Phase 41):** `OwaspAsiRegistry` with 10 categories (ASI01–ASI10), 33 controls, 100% coverage via `VellavetoDetection` mappings. `AsiCoverageReport` with per-category breakdown and control matrix. Wired as 8th framework in gap analysis. `OwaspAsiConfig` with `enabled` flag, `deny_unknown_fields`, `validate()`. `GET /api/compliance/owasp-agentic` endpoint with cache. SDK methods: Python (sync+async), TypeScript, Go with input validation. Dashboard compliance table includes OWASP ASI. ~30 new tests (Rust + SDKs).
 - **Interactive Setup Wizard:** Web-based 7-step configuration wizard at `/setup` (Welcome → Security → Policies → Detection → Audit → Compliance → Review/Apply). Server-side rendered HTML matching dashboard dark theme, POST/redirect/GET forms, CSRF protection, bounded session management (MAX_WIZARD_SESSIONS=100, 1hr TTL), TOML config generation with live apply and hot-reload. Guard middleware locks wizard after initial configuration via `.setup-complete` marker file. 28 unit tests.
 - **Cloudflare Pages Deployment:** Site at [www.vellaveto.online](https://www.vellaveto.online), Astro static build deployed via `deploy-site.yml` workflow, `_redirects` (apex → www 301), `_headers` (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)
 - **Docs:** Quickstart guides, security model, benchmarks, 5 policy presets
