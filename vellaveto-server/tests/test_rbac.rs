@@ -135,6 +135,15 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
     (state, tmp)
 }
 
+fn test_state_with_rbac_and_api_key(
+    rbac_config: RbacConfig,
+    api_key: Option<&str>,
+) -> (AppState, TempDir) {
+    let (mut state, tmp) = test_state_with_rbac(rbac_config);
+    state.api_key = api_key.map(|key| Arc::new(key.to_string()));
+    (state, tmp)
+}
+
 // ────────────────────────────────
 // RBAC Disabled Tests
 // ────────────────────────────────
@@ -515,6 +524,45 @@ async fn jwt_operator_can_evaluate() {
         .unwrap();
 
     // Should not be forbidden (operator has Evaluate permission)
+    assert_ne!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn jwt_operator_can_evaluate_when_api_key_is_configured() {
+    let config = RbacConfig {
+        enabled: true,
+        allow_header_role: false,
+        default_role: Role::Viewer,
+        jwt_config: Some(JwtConfig {
+            key: JwtKey::Secret(TEST_SECRET.to_string()),
+            algorithms: vec![jsonwebtoken::Algorithm::HS256],
+            issuer: None,
+            audience: None,
+            leeway_seconds: 60,
+        }),
+    };
+    let (state, _tmp) = test_state_with_rbac_and_api_key(config, Some("legacy-api-key"));
+    let app = routes::build_router(state);
+
+    let token = create_jwt("operator", TEST_SECRET);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/evaluate")
+                .header("authorization", format!("Bearer {}", token))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"tool":"test","function":"test","parameters":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // JWT-authenticated requests should not be blocked by API key middleware.
+    assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
     assert_ne!(response.status(), StatusCode::FORBIDDEN);
 }
 

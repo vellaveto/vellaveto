@@ -921,6 +921,13 @@ async fn require_api_key(State(state): State<AppState>, request: Request, next: 
         return next.run(request).await;
     }
 
+    // When RBAC JWT validation is enabled, authentication is enforced by the
+    // RBAC middleware using Authorization: Bearer <jwt>. In that mode, API key
+    // auth must not preempt JWT handling.
+    if state.rbac_config.enabled && state.rbac_config.jwt_config.is_some() {
+        return next.run(request).await;
+    }
+
     // Skip auth if no API key configured (development mode)
     let api_key = match &state.api_key {
         Some(key) => key.clone(),
