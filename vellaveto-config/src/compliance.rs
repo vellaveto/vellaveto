@@ -25,7 +25,7 @@ pub const MAX_SOC2_CATEGORIES: usize = 9;
 // ── EU AI Act Configuration ───────────────────────────────────────────────────
 
 /// EU AI Act compliance configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct EuAiActConfig {
     /// Enable EU AI Act compliance evidence generation.
@@ -93,7 +93,7 @@ impl Default for EuAiActConfig {
 // ── SOC 2 Configuration ──────────────────────────────────────────────────────
 
 /// SOC 2 compliance configuration.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Soc2Config {
     /// Enable SOC 2 compliance evidence generation.
@@ -133,7 +133,7 @@ pub const MAX_ACCESS_REVIEW_PERIOD_DAYS: u32 = 366;
 pub const MAX_REVIEWER_NAME_LEN: usize = 256;
 
 /// Configuration for automated SOC 2 Type II access review report generation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Soc2AccessReviewConfig {
     /// Enable access review report generation.
@@ -171,7 +171,7 @@ impl Default for Soc2AccessReviewConfig {
 // ── Data Governance Configuration (Art 10) ────────────────────────────────────
 
 /// Per-tool data governance mapping.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ToolDataMapping {
     /// Tool name or glob pattern.
@@ -189,7 +189,7 @@ pub struct ToolDataMapping {
 }
 
 /// Art 10 data governance configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DataGovernanceConfig {
     /// Enable data governance record keeping.

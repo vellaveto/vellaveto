@@ -372,6 +372,39 @@ pub struct MultimodalPolicyConfig {
     pub blocked_content_types: Vec<String>,
 }
 
+/// Maximum number of content type entries.
+const MAX_CONTENT_TYPES: usize = 20;
+
+impl MultimodalPolicyConfig {
+    /// Validate float fields and collection bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.min_ocr_confidence.is_finite()
+            || self.min_ocr_confidence < 0.0
+            || self.min_ocr_confidence > 1.0
+        {
+            return Err(format!(
+                "multimodal.min_ocr_confidence must be in [0.0, 1.0], got {}",
+                self.min_ocr_confidence
+            ));
+        }
+        if self.content_types.len() > MAX_CONTENT_TYPES {
+            return Err(format!(
+                "multimodal.content_types has {} entries, max is {}",
+                self.content_types.len(),
+                MAX_CONTENT_TYPES
+            ));
+        }
+        if self.blocked_content_types.len() > MAX_CONTENT_TYPES {
+            return Err(format!(
+                "multimodal.blocked_content_types has {} entries, max is {}",
+                self.blocked_content_types.len(),
+                MAX_CONTENT_TYPES
+            ));
+        }
+        Ok(())
+    }
+}
+
 fn default_max_image_size() -> usize {
     10 * 1024 * 1024
 }

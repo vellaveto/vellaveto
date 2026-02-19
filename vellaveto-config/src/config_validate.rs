@@ -1061,6 +1061,9 @@ impl PolicyConfig {
         // Supply chain configuration bounds
         self.supply_chain.validate()?;
 
+        // Multimodal policy configuration bounds
+        self.multimodal.validate()?;
+
         Ok(())
     }
 

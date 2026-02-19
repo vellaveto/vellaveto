@@ -38,6 +38,24 @@ fn default_registry_path() -> String {
     "tool_registry.jsonl".to_string()
 }
 
+impl ToolRegistryConfig {
+    /// Validate tool registry configuration (FIND-R58-CFG-022).
+    ///
+    /// Ensures trust_threshold is finite and in `[0.0, 1.0]`.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.trust_threshold.is_finite()
+            || self.trust_threshold < 0.0
+            || self.trust_threshold > 1.0
+        {
+            return Err(format!(
+                "tool_registry.trust_threshold must be in [0.0, 1.0], got {}",
+                self.trust_threshold
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl Default for ToolRegistryConfig {
     fn default() -> Self {
         Self {

@@ -85,6 +85,7 @@ pub async fn zk_audit_status(
 
 /// Query parameters for `GET /api/zk-audit/proofs`.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ZkProofsQuery {
     /// Maximum number of proofs to return (default: 20, max: 100).
     #[serde(default = "default_limit")]
@@ -311,6 +312,7 @@ pub async fn zk_audit_verify(
 
 /// Query parameters for `GET /api/zk-audit/commitments`.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ZkCommitmentsQuery {
     /// Start of the entry range (sequence number).
     pub from: u64,

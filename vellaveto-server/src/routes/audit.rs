@@ -33,6 +33,7 @@ const MAX_LOADED_ENTRIES: usize = 500_000;
 
 /// Query parameters for paginated audit entry listing.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuditEntriesQuery {
     /// Maximum number of entries to return (default 100, max 1000).
     #[serde(default)]
@@ -87,6 +88,7 @@ pub async fn audit_entries(
 
 /// Query parameters for the audit export endpoint.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuditExportQuery {
     /// Export format: "cef" or "jsonl". Default: "jsonl".
     pub format: Option<String>,

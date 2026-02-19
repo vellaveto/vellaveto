@@ -18,6 +18,8 @@ export interface Action {
   parameters?: Record<string, unknown>;
   target_paths?: string[];
   target_domains?: string[];
+  /** Pre-resolved IP addresses for DNS rebinding defense (FIND-R58-CFG-003). */
+  resolved_ips?: string[];
 }
 
 /** Result of a policy evaluation. */

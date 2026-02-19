@@ -102,6 +102,61 @@ pub struct SemanticGuardrailsConfig {
     pub nl_policies: Vec<NlPolicyConfig>,
 }
 
+/// Maximum number of natural language policies.
+const MAX_NL_POLICIES: usize = 100;
+
+/// Maximum length for fallback_on_timeout string.
+const MAX_FALLBACK_STRING_LEN: usize = 64;
+
+impl SemanticGuardrailsConfig {
+    /// Validate all float fields and collection bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        // min_confidence: must be finite and in [0.0, 1.0]
+        if !self.min_confidence.is_finite()
+            || self.min_confidence < 0.0
+            || self.min_confidence > 1.0
+        {
+            return Err(format!(
+                "semantic_guardrails.min_confidence must be in [0.0, 1.0], got {}",
+                self.min_confidence
+            ));
+        }
+        // intent_classification.confidence_threshold
+        if !self.intent_classification.confidence_threshold.is_finite()
+            || self.intent_classification.confidence_threshold < 0.0
+            || self.intent_classification.confidence_threshold > 1.0
+        {
+            return Err(format!(
+                "intent_classification.confidence_threshold must be in [0.0, 1.0], got {}",
+                self.intent_classification.confidence_threshold
+            ));
+        }
+        // jailbreak_detection.confidence_threshold
+        if !self.jailbreak_detection.confidence_threshold.is_finite()
+            || self.jailbreak_detection.confidence_threshold < 0.0
+            || self.jailbreak_detection.confidence_threshold > 1.0
+        {
+            return Err(format!(
+                "jailbreak_detection.confidence_threshold must be in [0.0, 1.0], got {}",
+                self.jailbreak_detection.confidence_threshold
+            ));
+        }
+        // fallback_on_timeout: bounded length, known values
+        if self.fallback_on_timeout.len() > MAX_FALLBACK_STRING_LEN {
+            return Err("semantic_guardrails.fallback_on_timeout too long".to_string());
+        }
+        // nl_policies: bounded count
+        if self.nl_policies.len() > MAX_NL_POLICIES {
+            return Err(format!(
+                "semantic_guardrails.nl_policies has {} entries, max is {}",
+                self.nl_policies.len(),
+                MAX_NL_POLICIES
+            ));
+        }
+        Ok(())
+    }
+}
+
 fn default_semantic_cache_ttl() -> u64 {
     300
 }

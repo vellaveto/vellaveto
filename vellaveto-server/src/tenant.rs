@@ -153,6 +153,22 @@ impl Tenant {
             ));
         }
 
+        // SECURITY (FIND-R58-SRV-010): Validate timestamp format (Trap 17).
+        if let Some(ref ts) = self.created_at {
+            if chrono::DateTime::parse_from_rfc3339(ts).is_err() {
+                return Err(TenantError::InvalidTenantId(
+                    "invalid created_at timestamp (must be RFC 3339)".to_string(),
+                ));
+            }
+        }
+        if let Some(ref ts) = self.updated_at {
+            if chrono::DateTime::parse_from_rfc3339(ts).is_err() {
+                return Err(TenantError::InvalidTenantId(
+                    "invalid updated_at timestamp (must be RFC 3339)".to_string(),
+                ));
+            }
+        }
+
         // Validate metadata bounds
         if self.metadata.len() > MAX_TENANT_METADATA_ENTRIES {
             return Err(TenantError::InvalidTenantId(format!(

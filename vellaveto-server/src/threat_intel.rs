@@ -32,6 +32,12 @@ pub enum ThreatIntelError {
     UnsupportedProvider(String),
 }
 
+/// Maximum tags per indicator (FIND-R58-SRV-008).
+const MAX_INDICATOR_TAGS: usize = 50;
+
+/// Maximum length per tag string.
+const MAX_TAG_LEN: usize = 256;
+
 /// A threat indicator from intelligence feeds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThreatIndicator {
@@ -54,6 +60,29 @@ pub struct ThreatIndicator {
     pub first_seen: Option<String>,
     /// When the indicator was last seen.
     pub last_seen: Option<String>,
+}
+
+impl ThreatIndicator {
+    /// Validate indicator bounds (FIND-R58-SRV-008).
+    pub fn validate(&self) -> Result<(), ThreatIntelError> {
+        if self.tags.len() > MAX_INDICATOR_TAGS {
+            return Err(ThreatIntelError::InvalidResponse(format!(
+                "indicator has {} tags, max {}",
+                self.tags.len(),
+                MAX_INDICATOR_TAGS
+            )));
+        }
+        for tag in &self.tags {
+            if tag.len() > MAX_TAG_LEN {
+                return Err(ThreatIntelError::InvalidResponse(format!(
+                    "tag too long ({} > {} bytes)",
+                    tag.len(),
+                    MAX_TAG_LEN
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Types of threat indicators.

@@ -300,6 +300,9 @@ pub enum TelemetryError {
 /// Returns a guard that should be kept alive for the lifetime of the application.
 /// When dropped, it will flush and shut down the tracer provider.
 pub fn init_telemetry(config: &TelemetryConfig) -> Result<TelemetryGuard, TelemetryError> {
+    // SECURITY: Validate config fields before using them (FIND-R59-SRV-001).
+    config.validate()?;
+
     if !config.enabled {
         // Just initialize tracing without OpenTelemetry
         init_tracing_only();

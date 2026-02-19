@@ -130,6 +130,33 @@ fn default_min_trackable_length() -> usize {
     20
 }
 
+impl MemorySecurityConfig {
+    /// Validate memory security configuration (FIND-R58-CFG-019).
+    ///
+    /// Ensures float thresholds are finite and within valid ranges.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.trust_decay_rate.is_finite()
+            || self.trust_decay_rate <= 0.0
+            || self.trust_decay_rate > 10.0
+        {
+            return Err(format!(
+                "memory.trust_decay_rate must be in (0.0, 10.0], got {}",
+                self.trust_decay_rate
+            ));
+        }
+        if !self.trust_threshold.is_finite()
+            || self.trust_threshold < 0.0
+            || self.trust_threshold > 1.0
+        {
+            return Err(format!(
+                "memory.trust_threshold must be in [0.0, 1.0], got {}",
+                self.trust_threshold
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl Default for MemorySecurityConfig {
     fn default() -> Self {
         Self {

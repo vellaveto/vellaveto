@@ -91,6 +91,7 @@ static COMPLIANCE_STATUS_CACHE: ReportCache = ReportCache::new();
 
 /// Query parameters for the compliance status endpoint.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ComplianceStatusQuery {
     /// Include NIST RMF coverage in status response.
     #[serde(default = "default_true")]
@@ -106,6 +107,7 @@ fn default_true() -> bool {
 
 /// Query parameters for the SOC 2 evidence endpoint.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Soc2EvidenceQuery {
     /// Filter to specific Trust Services Category.
     #[serde(default)]
@@ -488,6 +490,7 @@ const MAX_PERIOD_DAYS: u32 = 366;
 
 /// Query parameters for the SOC 2 access review endpoint.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AccessReviewQuery {
     /// Review period duration, e.g. "30d", "7d", "90d". Default from config.
     #[serde(default)]

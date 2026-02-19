@@ -5658,3 +5658,84 @@ fn test_validate_accepts_memory_defaults() {
         );
     }
 }
+
+// ═══════════════════════════════════════════════════
+// SEMANTIC GUARDRAILS VALIDATION TESTS
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_semantic_guardrails_default_validates() {
+    let config = crate::SemanticGuardrailsConfig::default();
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_semantic_guardrails_nan_min_confidence() {
+    let mut config = crate::SemanticGuardrailsConfig::default();
+    config.min_confidence = f64::NAN;
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_semantic_guardrails_negative_min_confidence() {
+    let mut config = crate::SemanticGuardrailsConfig::default();
+    config.min_confidence = -0.1;
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_semantic_guardrails_nan_intent_threshold() {
+    let mut config = crate::SemanticGuardrailsConfig::default();
+    config.intent_classification.confidence_threshold = f64::NAN;
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_semantic_guardrails_nan_jailbreak_threshold() {
+    let mut config = crate::SemanticGuardrailsConfig::default();
+    config.jailbreak_detection.confidence_threshold = f64::INFINITY;
+    assert!(config.validate().is_err());
+}
+
+// ═══════════════════════════════════════════════════
+// MULTIMODAL POLICY VALIDATION TESTS
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_multimodal_default_validates() {
+    let config = crate::MultimodalPolicyConfig::default();
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_multimodal_nan_ocr_confidence() {
+    let mut config = crate::MultimodalPolicyConfig::default();
+    config.min_ocr_confidence = f32::NAN;
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_multimodal_negative_ocr_confidence() {
+    let mut config = crate::MultimodalPolicyConfig::default();
+    config.min_ocr_confidence = -0.1;
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_multimodal_too_many_content_types() {
+    let mut config = crate::MultimodalPolicyConfig::default();
+    config.content_types = (0..25).map(|i| format!("Type{}", i)).collect();
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_validate_multimodal_in_policy_config() {
+    let mut config = r53_base_config();
+    config.multimodal.min_ocr_confidence = f32::NAN;
+    let result = config.validate();
+    assert!(result.is_err());
+    assert!(
+        result.unwrap_err().contains("min_ocr_confidence"),
+        "should reject NaN min_ocr_confidence"
+    );
+}

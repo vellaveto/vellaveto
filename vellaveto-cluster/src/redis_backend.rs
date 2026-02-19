@@ -330,6 +330,7 @@ impl ClusterBackend for RedisBackend {
             }
 
             use unicode_normalization::UnicodeNormalization;
+            use vellaveto_types::unicode::normalize_homoglyphs;
             let requester_normalized: String = requester_base.nfkc().collect();
             let approver_normalized: String = approver_base.nfkc().collect();
             let req_lower: String = requester_normalized
@@ -340,7 +341,12 @@ impl ClusterBackend for RedisBackend {
                 .chars()
                 .flat_map(char::to_lowercase)
                 .collect();
-            if !req_lower.is_empty() && req_lower != "anonymous" && req_lower == app_lower {
+            // SECURITY (FIND-R58-CFG-001): Apply homoglyph normalization
+            // to match vellaveto-approval parity. Without this, Cyrillic
+            // homoglyphs (e.g., U+0430 for 'a') bypass self-approval check.
+            let req_final = normalize_homoglyphs(&req_lower);
+            let app_final = normalize_homoglyphs(&app_lower);
+            if !req_final.is_empty() && req_final != "anonymous" && req_final == app_final {
                 return Err(ClusterError::Validation(format!(
                     "Self-approval denied: requester '{}' cannot approve their own request",
                     requester_base
@@ -386,6 +392,42 @@ impl ClusterBackend for RedisBackend {
             approval.status = ApprovalStatus::Expired;
             self.persist_and_cleanup(&mut conn, &approval).await?;
             return Err(ClusterError::Expired(id.to_string()));
+        }
+
+        // SECURITY (FIND-R58-CFG-002): Self-denial prevention — mirrors
+        // vellaveto-approval::ApprovalStore::deny() parity. A requester
+        // must not be able to deny their own request, as this breaks
+        // separation-of-privilege.
+        if let Some(ref requester) = approval.requested_by {
+            let requester_base = requester.split(" (note:").next().unwrap_or(requester);
+            let denier_base = by.split(" (note:").next().unwrap_or(by);
+
+            if requester_base.contains('(') || denier_base.contains('(') {
+                return Err(ClusterError::Validation(
+                    "Self-denial denied: principal contains invalid characters".to_string(),
+                ));
+            }
+
+            use unicode_normalization::UnicodeNormalization;
+            use vellaveto_types::unicode::normalize_homoglyphs;
+            let requester_normalized: String = requester_base.nfkc().collect();
+            let denier_normalized: String = denier_base.nfkc().collect();
+            let req_lower: String = requester_normalized
+                .chars()
+                .flat_map(char::to_lowercase)
+                .collect();
+            let den_lower: String = denier_normalized
+                .chars()
+                .flat_map(char::to_lowercase)
+                .collect();
+            let req_final = normalize_homoglyphs(&req_lower);
+            let den_final = normalize_homoglyphs(&den_lower);
+            if !req_final.is_empty() && req_final != "anonymous" && req_final == den_final {
+                return Err(ClusterError::Validation(format!(
+                    "Self-denial denied: requester '{}' cannot deny their own request",
+                    requester_base
+                )));
+            }
         }
 
         approval.status = ApprovalStatus::Denied;

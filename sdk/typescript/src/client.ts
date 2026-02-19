@@ -37,6 +37,11 @@ import {
 // SECURITY (FIND-R46-TS-001): Maximum response body size to prevent OOM DoS.
 const MAX_RESPONSE_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
 
+// SECURITY (FIND-R58-CFG-013): Retry parameters for transient HTTP failures.
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 500;
+const RETRYABLE_STATUS_CODES = new Set([429, 502, 503, 504]);
+
 /** Configuration for the Vellaveto client. */
 export interface VellavetoClientOptions {
   /** Base URL of the Vellaveto server (e.g., "http://localhost:3000"). */
@@ -392,67 +397,100 @@ export class VellavetoClient {
     path: string,
     body?: unknown
   ): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    let lastError: VellavetoError | undefined;
+    let backoffMs = INITIAL_BACKOFF_MS;
 
-    try {
-      const response = await fetch(url, {
-        method,
-        headers: this.buildHeaders(),
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
-      });
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        backoffMs *= 2;
+      }
 
-      // SECURITY (FIND-R46-TS-001): Check Content-Length header before reading body.
-      const contentLength = response.headers.get("content-length");
-      if (contentLength !== null) {
-        const size = parseInt(contentLength, 10);
-        if (!isNaN(size) && size > MAX_RESPONSE_BODY_BYTES) {
-          throw new VellavetoError(
-            `Response body exceeds ${MAX_RESPONSE_BODY_BYTES} byte limit (Content-Length: ${size})`,
+      const url = `${this.baseUrl}${path}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+      try {
+        const response = await fetch(url, {
+          method,
+          headers: this.buildHeaders(),
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+          signal: controller.signal,
+        });
+
+        // SECURITY (FIND-R46-TS-001): Check Content-Length header before reading body.
+        const contentLength = response.headers.get("content-length");
+        if (contentLength !== null) {
+          const size = parseInt(contentLength, 10);
+          if (!isNaN(size) && size > MAX_RESPONSE_BODY_BYTES) {
+            throw new VellavetoError(
+              `Response body exceeds ${MAX_RESPONSE_BODY_BYTES} byte limit (Content-Length: ${size})`,
+              response.status
+            );
+          }
+        }
+
+        if (!response.ok) {
+          let errorMsg: string;
+          try {
+            // SECURITY (FIND-R46-TS-001): Read body as text with size check.
+            const errorText = await this.readBodyBounded(response);
+            const errorBody = JSON.parse(errorText) as { error?: string };
+            errorMsg = errorBody.error ?? response.statusText;
+          } catch (e) {
+            if (e instanceof VellavetoError) throw e;
+            errorMsg = response.statusText;
+          }
+          const err = new VellavetoError(
+            this.sanitizeErrorMessage(errorMsg),
             response.status
           );
+          // SECURITY (FIND-R58-CFG-013): Retry on transient HTTP failures.
+          if (
+            response.status !== undefined &&
+            RETRYABLE_STATUS_CODES.has(response.status) &&
+            attempt < MAX_RETRIES
+          ) {
+            lastError = err;
+            continue;
+          }
+          throw err;
         }
-      }
 
-      if (!response.ok) {
-        let errorMsg: string;
-        try {
-          // SECURITY (FIND-R46-TS-001): Read body as text with size check.
-          const errorText = await this.readBodyBounded(response);
-          const errorBody = JSON.parse(errorText) as { error?: string };
-          errorMsg = errorBody.error ?? response.statusText;
-        } catch (e) {
-          if (e instanceof VellavetoError) throw e;
-          errorMsg = response.statusText;
+        // SECURITY (FIND-R46-TS-001): Read body with size limit.
+        const text = await this.readBodyBounded(response);
+        return JSON.parse(text) as T;
+      } catch (error) {
+        if (error instanceof VellavetoError) {
+          // If this is a retryable error we already handled above, it was re-thrown
+          // because max retries exceeded — propagate it.
+          if (
+            error.statusCode !== undefined &&
+            RETRYABLE_STATUS_CODES.has(error.statusCode) &&
+            attempt < MAX_RETRIES
+          ) {
+            lastError = error;
+            continue;
+          }
+          throw error;
         }
-        // SECURITY (FIND-R46-TS-004): Sanitize server error messages.
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new VellavetoError(
+            `Request timed out after ${this.timeout}ms`
+          );
+        }
+        // SECURITY (FIND-R46-TS-004): Sanitize error messages to prevent API key leakage.
+        const rawMsg =
+          error instanceof Error ? error.message : String(error);
         throw new VellavetoError(
-          this.sanitizeErrorMessage(errorMsg),
-          response.status
+          `Network error: ${this.sanitizeErrorMessage(rawMsg)}`
         );
+      } finally {
+        clearTimeout(timeoutId);
       }
-
-      // SECURITY (FIND-R46-TS-001): Read body with size limit.
-      const text = await this.readBodyBounded(response);
-      return JSON.parse(text) as T;
-    } catch (error) {
-      if (error instanceof VellavetoError) throw error;
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new VellavetoError(`Request timed out after ${this.timeout}ms`);
-      }
-      // SECURITY (FIND-R46-TS-004): Sanitize error messages to prevent API key leakage.
-      // Network errors may include request details that contain the Authorization header.
-      const rawMsg =
-        error instanceof Error ? error.message : String(error);
-      throw new VellavetoError(
-        `Network error: ${this.sanitizeErrorMessage(rawMsg)}`
-      );
-    } finally {
-      // TODO(FIND-R51-013): Move clearTimeout before body reading for resource efficiency
-      clearTimeout(timeoutId);
     }
+    // All retries exhausted — throw the last error.
+    throw lastError ?? new VellavetoError("Request failed after retries");
   }
 
   /**

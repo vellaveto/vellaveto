@@ -21,6 +21,15 @@ const maxResponseBodySize = 10 * 1024 * 1024 // 10 MB
 // SECURITY (FIND-R56-SDK-003): Aligned default timeout across all SDKs (Python/Go/TS = 10s).
 const defaultTimeout = 10 * time.Second
 
+// Default retry parameters for transient HTTP failures (FIND-R58-CFG-008).
+const defaultMaxRetries = 3
+const defaultInitialBackoff = 500 * time.Millisecond
+
+// retryableStatus returns true for HTTP status codes that should be retried.
+func retryableStatus(code int) bool {
+	return code == 429 || code == 502 || code == 503 || code == 504
+}
+
 // Client is the Vellaveto API client.
 //
 // SECURITY (FIND-R46-GO-006): Thread safety — Client is safe for concurrent use
@@ -161,30 +170,51 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}) 
 // sensitive server internals (stack traces, config, internal paths).
 const maxErrorBodyDisplay = 256
 
-// doJSON executes a request, checks status, and decodes JSON into dst.
-// TODO(FIND-R51-009): Add retry logic for transient HTTP failures (429, 502, 503, 504)
+// doJSON executes a request with retry for transient HTTP failures.
+//
+// SECURITY (FIND-R58-CFG-008): Retries on 429, 502, 503, 504 with
+// exponential backoff (500ms, 1s, 2s) matching Python SDK parity.
 func (c *Client) doJSON(ctx context.Context, method, path string, body interface{}, dst interface{}) error {
-	respBody, status, err := c.do(ctx, method, path, body)
-	if err != nil {
-		return err
-	}
-	if status < 200 || status >= 300 {
+	backoff := defaultInitialBackoff
+	var lastErr error
+
+	for attempt := 0; attempt <= defaultMaxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+		}
+
+		respBody, status, err := c.do(ctx, method, path, body)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if status >= 200 && status < 300 {
+			if dst != nil {
+				if err := json.Unmarshal(respBody, dst); err != nil {
+					return fmt.Errorf("vellaveto: decode response: %w", err)
+				}
+			}
+			return nil
+		}
 		// SECURITY (FIND-R46-GO-005): Truncate response body in error messages.
 		msg := string(respBody)
 		if len(msg) > maxErrorBodyDisplay {
 			msg = msg[:maxErrorBodyDisplay] + "...(truncated)"
 		}
-		return &VellavetoError{
+		lastErr = &VellavetoError{
 			Message:    fmt.Sprintf("unexpected status: %s", msg),
 			StatusCode: status,
 		}
-	}
-	if dst != nil {
-		if err := json.Unmarshal(respBody, dst); err != nil {
-			return fmt.Errorf("vellaveto: decode response: %w", err)
+		if !retryableStatus(status) {
+			return lastErr
 		}
 	}
-	return nil
+	return lastErr
 }
 
 // Health checks the Vellaveto server health.

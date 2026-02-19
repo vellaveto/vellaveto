@@ -183,7 +183,17 @@ impl GoalTracker {
     }
 
     /// Create with custom configuration.
+    ///
+    /// Logs a warning if validation fails but still constructs the tracker
+    /// with the given config, since GoalTracker is observational (not enforcement).
     pub fn with_config(config: GoalTrackerConfig) -> Self {
+        if let Err(e) = config.validate() {
+            tracing::warn!(
+                target: "vellaveto::security",
+                error = %e,
+                "GoalTrackerConfig validation failed — using config as-is"
+            );
+        }
         Self {
             sessions: RwLock::new(HashMap::new()),
             config,
