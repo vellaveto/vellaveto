@@ -2895,6 +2895,38 @@ fn test_validate_mcp_tool_name_invalid_chars_rejected() {
     assert!(validate_mcp_tool_name("tool$dollar").is_err()); // dollar
 }
 
+/// FIND-R73-002: Verify control characters are escaped in error messages
+/// to prevent log injection.
+#[test]
+fn test_validate_mcp_tool_name_control_char_escaped_in_error() {
+    // Newline — should appear as \n, not a literal newline
+    let err = validate_mcp_tool_name("tool\nname").unwrap_err();
+    assert!(
+        err.contains(r"\n"),
+        "control char should be escaped in error: {}",
+        err.escape_debug()
+    );
+    assert!(
+        !err.contains('\n'),
+        "error message must not contain literal newline"
+    );
+
+    // Null byte — should appear as \0
+    let err = validate_mcp_tool_name("tool\0name").unwrap_err();
+    assert!(
+        err.contains(r"\0"),
+        "null byte should be escaped in error: {}",
+        err.escape_debug()
+    );
+
+    // ESC (0x1b) — ANSI escape injection
+    let err = validate_mcp_tool_name("tool\x1b[31mred").unwrap_err();
+    assert!(
+        !err.contains('\x1b'),
+        "error message must not contain literal ESC"
+    );
+}
+
 #[test]
 fn test_validate_mcp_tool_name_leading_dot_rejected() {
     let err = validate_mcp_tool_name(".hidden").unwrap_err();

@@ -28,6 +28,20 @@ use tokio::sync::RwLock;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use sha2::{Digest, Sha256};
 
+/// SECURITY (FIND-R73-001): Check if a string contains control characters
+/// or Unicode format characters that could enable log injection.
+fn contains_control_chars(s: &str) -> bool {
+    s.chars().any(|c| {
+        (c.is_control() && c != '\n' && c != '\r' && c != '\t')
+            || matches!(c,
+                '\u{200B}'..='\u{200F}' | // zero-width, LRM, RLM
+                '\u{202A}'..='\u{202E}' | // bidi overrides
+                '\u{2060}'..='\u{2069}' | // invisible separators, bidi isolates
+                '\u{FEFF}'               // BOM
+            )
+    })
+}
+
 /// DPoP enforcement mode for OAuth requests.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -396,6 +410,11 @@ pub enum OAuthError {
 
     #[error("DPoP replay detected")]
     DpopReplayDetected,
+
+    /// SECURITY (FIND-R73-001): Reject JWT claims containing control characters
+    /// to prevent log injection via malicious OAuth providers.
+    #[error("JWT claim contains control characters")]
+    ClaimControlCharacters,
 }
 
 /// Cached JWKS key set with TTL-based refresh.
@@ -466,6 +485,18 @@ impl OAuthValidator {
         // Decode and validate
         let token_data: TokenData<OAuthClaims> = decode(token, &decoding_key, &validation)?;
         let claims = token_data.claims;
+
+        // SECURITY (FIND-R73-001): Reject JWT claims containing control characters
+        // or Unicode format characters. Prevents log injection via malicious OAuth
+        // providers embedding newlines/escape codes in sub/iss/scope/aud fields.
+        if contains_control_chars(&claims.sub)
+            || contains_control_chars(&claims.iss)
+            || contains_control_chars(&claims.scope)
+            || claims.aud.iter().any(|a| contains_control_chars(a))
+        {
+            tracing::warn!("SECURITY: Rejecting JWT with control characters in claims");
+            return Err(OAuthError::ClaimControlCharacters);
+        }
 
         if claims.aud.is_empty() {
             if self.config.require_audience {
@@ -1899,5 +1930,29 @@ TfzccotDw2uXy3Xbwy/kdpfK
             matches!(err, OAuthError::InvalidDpopProof(_)),
             "expected InvalidDpopProof, got: {err}"
         );
+    }
+
+    /// FIND-R73-001: Verify the contains_control_chars helper catches
+    /// control characters and Unicode format characters.
+    #[test]
+    fn test_contains_control_chars_rejects_dangerous_chars() {
+        // Normal strings are fine
+        assert!(!contains_control_chars("normal-user@example.com"));
+        assert!(!contains_control_chars("admin"));
+        assert!(!contains_control_chars(""));
+
+        // ASCII control characters (excluding newline/CR/tab)
+        assert!(contains_control_chars("user\x00name")); // null
+        assert!(contains_control_chars("user\x1bname")); // ESC
+        assert!(contains_control_chars("user\x07name")); // BEL
+
+        // Unicode format characters (zero-width, bidi)
+        assert!(contains_control_chars("user\u{200B}name")); // zero-width space
+        assert!(contains_control_chars("user\u{202E}name")); // bidi RLO
+        assert!(contains_control_chars("user\u{FEFF}name")); // BOM
+
+        // Newline/CR/tab are allowed (JWT standard fields may contain them)
+        assert!(!contains_control_chars("line1\nline2")); // newline allowed
+        assert!(!contains_control_chars("col1\tcol2")); // tab allowed
     }
 }

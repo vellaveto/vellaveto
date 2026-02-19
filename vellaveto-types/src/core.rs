@@ -498,9 +498,11 @@ pub fn validate_mcp_tool_name(name: &str) -> Result<(), String> {
     // Charset: only [a-zA-Z0-9_\-./]
     for (i, ch) in name.chars().enumerate() {
         if !matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-' | '.' | '/') {
+            // SECURITY (FIND-R73-002): Use escape_debug to prevent control char injection
+            // into error messages (log injection, terminal escape codes).
             return Err(format!(
                 "invalid character '{}' at position {} (allowed: a-zA-Z0-9_-./)",
-                ch, i
+                ch.escape_debug(), i
             ));
         }
     }
