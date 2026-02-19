@@ -289,8 +289,10 @@ impl IntentClassification {
     }
 
     /// Returns true if the classification has high confidence (>= threshold).
+    ///
+    /// SECURITY (FIND-R64-003): NaN confidence returns false (not high confidence).
     pub fn is_high_confidence(&self, threshold: f64) -> bool {
-        self.confidence >= threshold
+        self.confidence.is_finite() && self.confidence >= threshold
     }
 
     /// Returns the maximum risk level across primary intent and detected risks.

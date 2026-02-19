@@ -38,6 +38,7 @@ pub const IDEMPOTENCY_REPLAYED_HEADER: &str = "x-idempotency-replayed";
 
 /// Configuration for idempotency key handling.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct IdempotencyConfig {
     /// Whether idempotency key handling is enabled.
     #[serde(default)]

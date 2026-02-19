@@ -379,7 +379,8 @@ impl EscalationDetector {
 
         let final_confidence = (adjusted_confidence + trust_penalty).min(1.0);
 
-        if final_confidence >= self.config.deny_threshold {
+        // SECURITY (FIND-R64-001): NaN from arithmetic defaults to deny (fail-closed).
+        if !final_confidence.is_finite() || final_confidence >= self.config.deny_threshold {
             // Record suspicious pair
             self.record_suspicious_pair(source_agent, intermediary)
                 .await;

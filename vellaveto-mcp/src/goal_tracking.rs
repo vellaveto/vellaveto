@@ -10,6 +10,7 @@
 //! The tracker maintains a fingerprint of the initial goal for each session
 //! and compares subsequent actions against it to detect drift.
 
+use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -100,7 +101,10 @@ struct ActionSummary {
 }
 
 /// Configuration for goal tracking.
-#[derive(Debug, Clone)]
+// SECURITY (FIND-R63-MCP-006): deny_unknown_fields prevents attacker-injected
+// fields from being silently accepted in security-critical configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GoalTrackerConfig {
     /// Threshold below which actions are considered drifting (0.0-1.0).
     pub drift_threshold: f32,
@@ -278,7 +282,9 @@ impl GoalTracker {
         if similarity >= self.config.drift_threshold {
             GoalAlignmentResult::Aligned
         } else if similarity >= self.config.diverge_threshold {
-            state.drift_count += 1;
+            // SECURITY (FIND-R63-MCP-008): Use saturating_add to prevent overflow
+            // wrapping drift_count to zero, which would hide drift events.
+            state.drift_count = state.drift_count.saturating_add(1);
             state.drift_score = (state.drift_score + (1.0 - similarity)) / 2.0;
 
             GoalAlignmentResult::PossibleDrift {
@@ -291,7 +297,9 @@ impl GoalTracker {
                 ),
             }
         } else {
-            state.drift_count += 1;
+            // SECURITY (FIND-R63-MCP-008): Use saturating_add to prevent overflow
+            // wrapping drift_count to zero, which would hide drift events.
+            state.drift_count = state.drift_count.saturating_add(1);
             state.drift_score = (state.drift_score + (1.0 - similarity)) / 2.0;
 
             GoalAlignmentResult::Diverged {
@@ -314,8 +322,19 @@ impl GoalTracker {
         let sessions = match self.sessions.read() {
             Ok(g) => g,
             Err(_) => {
-                tracing::error!(target: "vellaveto::security", "RwLock poisoned in GoalTracker::detect_drift");
-                return None;
+                // SECURITY (FIND-R63-MCP-001): Return a drift alert on lock poisoning
+                // (fail-closed). Returning None here would mean "no drift detected"
+                // which is fail-open — an attacker who poisons the lock would bypass
+                // all goal drift detection.
+                tracing::error!(target: "vellaveto::security", "RwLock poisoned in GoalTracker::detect_drift — fail-closed");
+                return Some(GoalDriftAlert {
+                    session_id: session_id.to_string(),
+                    original_goal: String::new(),
+                    current_goal: truncate_string(current_goal, 200),
+                    similarity: 0.0,
+                    description: "Goal drift detection failed: RwLock poisoned (fail-closed)"
+                        .to_string(),
+                });
             }
         };
 

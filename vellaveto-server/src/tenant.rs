@@ -211,6 +211,7 @@ impl Tenant {
 
 /// Tenant quota limits.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TenantQuotas {
     /// Maximum number of policies this tenant can create.
     #[serde(default = "default_max_policies")]

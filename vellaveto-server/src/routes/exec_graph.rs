@@ -156,10 +156,12 @@ pub async fn get_graph(
     })?;
 
     let json_value = serde_json::to_value(&graph).map_err(|e| {
+        // SECURITY (FIND-R64-007): Redact serialization error details from client response.
+        tracing::error!("Failed to serialize graph: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Failed to serialize graph: {}", e),
+                error: "Graph serialization failed".to_string(),
             }),
         )
     })?;

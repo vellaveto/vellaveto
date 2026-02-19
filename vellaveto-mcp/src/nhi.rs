@@ -437,7 +437,8 @@ impl NhiManager {
         };
 
         // Skip enforcement during learning period
-        if baseline.confidence < 1.0 {
+        // SECURITY (FIND-R64-004): NaN confidence treated as < 1.0 (still learning).
+        if !baseline.confidence.is_finite() || baseline.confidence < 1.0 {
             return NhiBehavioralCheckResult {
                 within_baseline: true,
                 anomaly_score: 0.0,

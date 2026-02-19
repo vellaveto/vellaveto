@@ -271,29 +271,45 @@ impl ContextBudgetTracker {
     }
 
     /// Returns the current token usage for a session.
+    ///
+    /// SECURITY (FIND-R64-008): Returns `max_total_context_tokens` on lock poison
+    /// (fail-closed — reports full budget used, so remaining_budget returns 0).
     pub fn get_current_usage(&self, session_id: &str) -> u32 {
-        self.usage
-            .read()
-            .ok()
-            .and_then(|u| u.get(session_id).map(|bu| bu.total_tokens))
-            .unwrap_or(0)
+        match self.usage.read() {
+            Ok(u) => u.get(session_id).map(|bu| bu.total_tokens).unwrap_or(0),
+            Err(_) => {
+                tracing::error!("Context budget lock poisoned — fail-closed (max usage)");
+                self.config.max_total_context_tokens
+            }
+        }
     }
 
     /// Returns the full budget usage for a session.
     pub fn get_usage(&self, session_id: &str) -> Option<BudgetUsage> {
-        self.usage.read().ok()?.get(session_id).cloned()
+        match self.usage.read() {
+            Ok(u) => u.get(session_id).cloned(),
+            Err(_) => {
+                tracing::error!("Context budget lock poisoned in get_usage");
+                None
+            }
+        }
     }
 
     /// Resets the budget for a session.
     pub fn reset_session(&self, session_id: &str) {
         if let Ok(mut usage_map) = self.usage.write() {
             usage_map.remove(session_id);
+        } else {
+            tracing::error!("Context budget write lock poisoned in reset_session");
         }
     }
 
     /// Returns the number of tracked sessions.
     pub fn session_count(&self) -> usize {
-        self.usage.read().map(|u| u.len()).unwrap_or(0)
+        self.usage.read().map(|u| u.len()).unwrap_or_else(|_| {
+            tracing::error!("Context budget lock poisoned in session_count");
+            0
+        })
     }
 
     /// Returns budget statistics.

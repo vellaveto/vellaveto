@@ -53,7 +53,8 @@ impl DiscoveryEngine {
         let mut token_total = 0usize;
 
         for (tool_id, score) in candidates {
-            if score < min_score {
+            // SECURITY (FIND-R64-005): NaN scores from TF-IDF filtered out (fail-closed).
+            if !score.is_finite() || score < min_score {
                 continue;
             }
 

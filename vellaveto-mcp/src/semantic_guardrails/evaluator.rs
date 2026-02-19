@@ -522,7 +522,10 @@ impl<E: LlmEvaluator> SemanticGuardrailsEvaluator<E> {
         result.latency_ms = start.elapsed().as_millis() as u64;
 
         // Check confidence threshold
-        if result.confidence < self.min_confidence && result.allow {
+        // SECURITY (FIND-R64-002): NaN confidence is treated as low-confidence (fail-closed).
+        if (!result.confidence.is_finite() || result.confidence < self.min_confidence)
+            && result.allow
+        {
             return Err(LlmEvalError::LowConfidence {
                 confidence: result.confidence,
             });

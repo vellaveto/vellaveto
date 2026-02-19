@@ -186,10 +186,12 @@ pub async fn discovery_stats(
     })?;
 
     let stats = engine.index_stats().map_err(|e| {
+        // SECURITY (FIND-R64-006): Redact internal error details from client response.
+        tracing::warn!(error = %e, "Discovery index stats failed");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Discovery error: {}", e),
+                error: "Discovery index operation failed".to_string(),
             }),
         )
     })?;
@@ -376,10 +378,11 @@ pub async fn discovery_tools(
             Ok(Some(m)) => m,
             Ok(None) => continue,
             Err(e) => {
+                tracing::warn!(tool_id = %tool_id, error = %e, "Failed to read tool from discovery index");
                 return Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
-                        error: format!("Failed to read tool {}: {}", tool_id, e),
+                        error: "Failed to read tool from discovery index".to_string(),
                     }),
                 ));
             }
