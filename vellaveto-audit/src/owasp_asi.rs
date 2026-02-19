@@ -65,6 +65,7 @@ impl std::fmt::Display for AsiCategory {
 
 /// A single ASI control/mitigation within a category.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AsiControl {
     /// Control identifier (e.g., "ASI01-C01").
     pub id: String,
@@ -80,6 +81,7 @@ pub struct AsiControl {
 
 /// Per-category coverage breakdown.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CategoryCoverage {
     /// ASI category.
     pub category: AsiCategory,
@@ -95,6 +97,7 @@ pub struct CategoryCoverage {
 
 /// OWASP ASI coverage report.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AsiCoverageReport {
     /// Report generation timestamp (RFC 3339).
     pub generated_at: String,
@@ -116,6 +119,7 @@ pub struct AsiCoverageReport {
 
 /// A single row in the control coverage matrix.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ControlMatrixRow {
     /// Control ID.
     pub id: String,

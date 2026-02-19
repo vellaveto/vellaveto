@@ -475,9 +475,14 @@ impl SchemaRecord {
     /// SECURITY (FIND-R46-016): Prevents unbounded growth of version_history.
     /// SECURITY: Truncates hash entries that exceed [`Self::MAX_HASH_LEN`].
     pub fn push_version(&mut self, hash: String) {
-        // Truncate entry if it exceeds the per-entry length limit.
+        // SECURITY (FIND-R82-001): Truncate entry at a UTF-8 char boundary
+        // to prevent panic on multi-byte characters.
         let hash = if hash.len() > Self::MAX_HASH_LEN {
-            hash[..Self::MAX_HASH_LEN].to_string()
+            let mut end = Self::MAX_HASH_LEN;
+            while end > 0 && !hash.is_char_boundary(end) {
+                end -= 1;
+            }
+            hash[..end].to_string()
         } else {
             hash
         };
@@ -700,10 +705,15 @@ impl SamplingStats {
     pub fn reset_window(&mut self, now: u64) {
         self.request_count = 0;
         self.window_start = now;
-        // Truncate individual entries that exceed the per-entry length limit.
+        // SECURITY (FIND-R82-002): Truncate individual entries at a UTF-8 char
+        // boundary to prevent panic on multi-byte characters.
         for entry in &mut self.flagged_patterns {
             if entry.len() > Self::MAX_PATTERN_ENTRY_LEN {
-                entry.truncate(Self::MAX_PATTERN_ENTRY_LEN);
+                let mut end = Self::MAX_PATTERN_ENTRY_LEN;
+                while end > 0 && !entry.is_char_boundary(end) {
+                    end -= 1;
+                }
+                entry.truncate(end);
             }
         }
         if self.flagged_patterns.len() > Self::MAX_FLAGGED_PATTERNS {

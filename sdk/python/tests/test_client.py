@@ -669,6 +669,25 @@ class TestAsyncVellavetoClient:
             result = await client.projector_models()
             assert "models" in result
 
+    @pytest.mark.asyncio
+    async def test_async_owasp_asi_coverage(self, httpx_mock):
+        """IMP-P41-005: Async OWASP ASI coverage test."""
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/compliance/owasp-agentic",
+            json={
+                "total_categories": 10,
+                "covered_categories": 10,
+                "total_controls": 33,
+                "covered_controls": 33,
+                "coverage_percent": 100.0,
+            },
+        )
+
+        async with AsyncVellavetoClient() as client:
+            result = await client.owasp_asi_coverage()
+            assert result["total_controls"] == 33
+            assert result["coverage_percent"] == 100.0
+
 
 class TestZkAuditSync:
     """Tests for VellavetoClient ZK audit methods (Phase 37)."""
@@ -1041,6 +1060,27 @@ class TestSoc2AccessReview:
         client = VellavetoClient()
         with pytest.raises(VellavetoError, match="agent_id exceeds max length"):
             client.soc2_access_review(agent_id="a" * 129)
+        client.close()
+
+    def test_soc2_access_review_period_too_long(self):
+        """FIND-R82-004: Period validation parity with TS SDK."""
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError, match="period exceeds max length"):
+            client.soc2_access_review(period="a" * 33)
+        client.close()
+
+    def test_soc2_access_review_period_invalid_chars(self):
+        """FIND-R82-004: Period validation rejects injection chars."""
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError, match="invalid characters"):
+            client.soc2_access_review(period="30d; DROP TABLE")
+        client.close()
+
+    def test_soc2_access_review_period_empty(self):
+        """FIND-R82-004: Period validation rejects empty string."""
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError, match="non-empty string"):
+            client.soc2_access_review(period="")
         client.close()
 
 

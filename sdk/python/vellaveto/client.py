@@ -768,6 +768,16 @@ class VellavetoClient:
         Returns:
             Access review report as dictionary (JSON) or raw HTML string
         """
+        # SECURITY (FIND-R82-004): Validate period parameter. Parity with TS SDK.
+        if not isinstance(period, str) or len(period) == 0:
+            raise VellavetoError("period must be a non-empty string")
+        if len(period) > 32:
+            raise VellavetoError("period exceeds max length (32)")
+        import re
+        if not re.match(r'^[a-zA-Z0-9\-:]+$', period):
+            raise VellavetoError(
+                "period contains invalid characters: only alphanumeric, dashes, and colons are allowed"
+            )
         # SECURITY (FIND-R72-SDK-007): Validate format parameter. Parity with Go/TS SDKs.
         if export_format not in ("json", "html"):
             raise VellavetoError(
@@ -1232,6 +1242,16 @@ class AsyncVellavetoClient:
         Returns:
             Access review report as dictionary (JSON) or raw HTML string
         """
+        # SECURITY (FIND-R82-004): Validate period parameter. Parity with TS SDK.
+        if not isinstance(period, str) or len(period) == 0:
+            raise VellavetoError("period must be a non-empty string")
+        if len(period) > 32:
+            raise VellavetoError("period exceeds max length (32)")
+        import re
+        if not re.match(r'^[a-zA-Z0-9\-:]+$', period):
+            raise VellavetoError(
+                "period contains invalid characters: only alphanumeric, dashes, and colons are allowed"
+            )
         # SECURITY (FIND-R72-SDK-007): Validate format parameter. Parity with Go/TS SDKs.
         if export_format not in ("json", "html"):
             raise VellavetoError(

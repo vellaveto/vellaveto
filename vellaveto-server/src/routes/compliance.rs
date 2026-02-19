@@ -224,16 +224,20 @@ pub async fn compliance_status(
         "partial_clauses": iso42001_report.partial_clauses,
     });
 
-    // OWASP ASI
-    let asi_registry = vellaveto_audit::owasp_asi::OwaspAsiRegistry::new();
-    let asi_report = asi_registry.generate_coverage_report();
-    response["owasp_asi"] = serde_json::json!({
-        "coverage_percent": asi_report.coverage_percent,
-        "total_controls": asi_report.total_controls,
-        "covered_controls": asi_report.covered_controls,
-        "total_categories": asi_report.total_categories,
-        "covered_categories": asi_report.covered_categories,
-    });
+    // OWASP ASI — gated on config enabled flag (FIND-R82-003)
+    if config.owasp_asi.enabled {
+        let asi_registry = vellaveto_audit::owasp_asi::OwaspAsiRegistry::new();
+        let asi_report = asi_registry.generate_coverage_report();
+        response["owasp_asi"] = serde_json::json!({
+            "coverage_percent": asi_report.coverage_percent,
+            "total_controls": asi_report.total_controls,
+            "covered_controls": asi_report.covered_controls,
+            "total_categories": asi_report.total_categories,
+            "covered_categories": asi_report.covered_categories,
+        });
+    } else {
+        response["owasp_asi"] = serde_json::json!({ "enabled": false });
+    }
 
     // QUALITY (FIND-GAP-013): Cache default-params response for future requests.
     if params.include_nist && params.include_iso {
@@ -462,9 +466,16 @@ pub async fn gap_analysis() -> Result<Json<serde_json::Value>, (StatusCode, Json
 ///
 /// Returns ASI coverage report with per-category breakdown and control matrix.
 /// 10 categories (ASI01–ASI10), 33 controls, mapped to Vellaveto detections.
-#[tracing::instrument(name = "vellaveto.owasp_asi")]
+#[tracing::instrument(name = "vellaveto.owasp_asi", skip(state))]
 pub async fn owasp_asi_coverage(
+    State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R82-003): Gate on config enabled flag, matching other compliance endpoints.
+    let snapshot = state.policy_state.load();
+    if !snapshot.compliance_config.owasp_asi.enabled {
+        return Ok(Json(serde_json::json!({ "enabled": false })));
+    }
+
     // SECURITY (FIND-R46-010): Serve from cache if within TTL.
     if let Some(cached) = OWASP_ASI_CACHE.get() {
         return Ok(Json(cached));

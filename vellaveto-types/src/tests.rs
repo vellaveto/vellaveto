@@ -1215,6 +1215,24 @@ fn test_sampling_stats_reset_window() {
     assert!(!stats.flagged_patterns.is_empty());
 }
 
+// SECURITY (FIND-R82-002): Verify reset_window handles multi-byte UTF-8 at truncation boundary.
+#[test]
+fn test_sampling_stats_reset_window_multibyte_utf8_safe() {
+    let mut stats = SamplingStats::new(1000);
+    // Create a pattern with 2-byte Cyrillic chars that spans the truncation boundary (1024)
+    // Each 'д' is 2 bytes, so 513 chars = 1026 bytes > MAX_PATTERN_ENTRY_LEN (1024)
+    let multibyte_pattern = "д".repeat(513);
+    assert!(multibyte_pattern.len() > SamplingStats::MAX_PATTERN_ENTRY_LEN);
+    stats.flagged_patterns.push(multibyte_pattern);
+
+    // This should NOT panic
+    stats.reset_window(2000);
+
+    let entry = &stats.flagged_patterns[0];
+    assert!(entry.len() <= SamplingStats::MAX_PATTERN_ENTRY_LEN);
+    assert!(entry.is_char_boundary(entry.len()));
+}
+
 #[test]
 fn test_sampling_stats_serialization() {
     let stats = SamplingStats {
@@ -3704,6 +3722,22 @@ fn test_schema_record_push_version_under_limit() {
         record.push_version(format!("hash_{i}"));
     }
     assert_eq!(record.version_history.len(), 5);
+}
+
+// SECURITY (FIND-R82-001): Verify push_version handles multi-byte UTF-8 at truncation boundary.
+#[test]
+fn test_schema_record_push_version_multibyte_utf8_safe() {
+    let mut record = SchemaRecord::new("test_tool", "hash_0", 1000);
+    // Create a string of 2-byte Cyrillic characters that lands on a non-char-boundary
+    // at MAX_HASH_LEN (128). Each char is 2 bytes, so 65 chars = 130 bytes.
+    let multibyte = "д".repeat(65); // 130 bytes, boundary at 128 splits a char
+    assert!(multibyte.len() > SchemaRecord::MAX_HASH_LEN);
+    // This should NOT panic
+    record.push_version(multibyte);
+    // The truncated hash should be valid UTF-8 and within bounds
+    let stored = &record.version_history.last().unwrap();
+    assert!(stored.len() <= SchemaRecord::MAX_HASH_LEN);
+    assert!(stored.is_char_boundary(stored.len()));
 }
 
 #[test]
