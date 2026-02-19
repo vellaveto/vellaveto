@@ -1058,6 +1058,9 @@ impl PolicyConfig {
         // Cluster configuration bounds
         self.cluster.validate()?;
 
+        // Supply chain configuration bounds
+        self.supply_chain.validate()?;
+
         Ok(())
     }
 

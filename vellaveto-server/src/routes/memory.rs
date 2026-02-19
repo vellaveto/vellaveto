@@ -26,6 +26,60 @@ use vellaveto_types::{NamespaceAccessType, QuarantineDetection};
 
 use crate::AppState;
 
+/// Maximum length for string fields in request bodies.
+const MAX_FIELD_LEN: usize = 256;
+
+/// Maximum number of permissions in a share request.
+const MAX_PERMISSIONS_COUNT: usize = 10;
+
+/// Validate an optional string field for length and control characters.
+fn validate_optional_field(
+    value: &Option<String>,
+    name: &str,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if let Some(v) = value {
+        if v.len() > MAX_FIELD_LEN {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("{name} exceeds maximum length ({MAX_FIELD_LEN})")})),
+            ));
+        }
+        if v.chars().any(crate::routes::is_unsafe_char) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("{name} contains invalid characters")})),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Validate a required string field for length and control characters.
+fn validate_required_field(
+    value: &str,
+    name: &str,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if value.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("{name} must not be empty")})),
+        ));
+    }
+    if value.len() > MAX_FIELD_LEN {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("{name} exceeds maximum length ({MAX_FIELD_LEN})")})),
+        ));
+    }
+    if value.chars().any(crate::routes::is_unsafe_char) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("{name} contains invalid characters")})),
+        ));
+    }
+    Ok(())
+}
+
 /// Query parameters for listing memory entries.
 #[derive(Debug, Deserialize)]
 pub struct ListMemoryEntriesQuery {
@@ -125,6 +179,10 @@ pub async fn quarantine_memory_entry(
     Path(id): Path<String>,
     Json(body): Json<QuarantineRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY: Validate input bounds on request body fields.
+    validate_optional_field(&body.reason, "reason")?;
+    validate_optional_field(&body.triggered_by, "triggered_by")?;
+
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -261,6 +319,11 @@ pub async fn create_memory_namespace(
     State(state): State<AppState>,
     Json(body): Json<CreateNamespaceRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY: Validate input bounds on request body fields.
+    validate_required_field(&body.name, "name")?;
+    validate_optional_field(&body.owner, "owner")?;
+    validate_optional_field(&body.isolation_level, "isolation_level")?;
+
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -342,6 +405,21 @@ pub async fn share_memory_namespace(
     Path(id): Path<String>,
     Json(body): Json<ShareNamespaceRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY: Validate input bounds on request body fields.
+    validate_required_field(&body.target_agent, "target_agent")?;
+    validate_optional_field(&body.access_type, "access_type")?;
+    if body.permissions.len() > MAX_PERMISSIONS_COUNT {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                json!({"error": format!("permissions count exceeds maximum ({MAX_PERMISSIONS_COUNT})")}),
+            ),
+        ));
+    }
+    for (i, perm) in body.permissions.iter().enumerate() {
+        validate_required_field(perm, &format!("permissions[{i}]"))?;
+    }
+
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -462,5 +540,55 @@ mod tests {
             Some(NamespaceAccessType::Full)
         ));
         assert!(parse_access_type("invalid").is_none());
+    }
+
+    #[test]
+    fn validate_required_field_rejects_empty() {
+        let result = validate_required_field("", "test_field");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_required_field_rejects_oversized() {
+        let long = "a".repeat(MAX_FIELD_LEN + 1);
+        let result = validate_required_field(&long, "test_field");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_required_field_rejects_control_chars() {
+        let result = validate_required_field("name\x00evil", "test_field");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_required_field_accepts_valid() {
+        let result = validate_required_field("valid-name_123", "test_field");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_optional_field_accepts_none() {
+        let result = validate_optional_field(&None, "test_field");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_optional_field_rejects_oversized() {
+        let long = Some("b".repeat(MAX_FIELD_LEN + 1));
+        let result = validate_optional_field(&long, "test_field");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_optional_field_rejects_control_chars() {
+        let result = validate_optional_field(&Some("foo\nbar".to_string()), "test_field");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn share_namespace_permissions_count_bounded() {
+        assert!(MAX_PERMISSIONS_COUNT <= 100);
+        assert!(MAX_PERMISSIONS_COUNT > 0);
     }
 }

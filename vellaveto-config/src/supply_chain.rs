@@ -111,6 +111,71 @@ impl SupplyChainConfig {
         Ok(())
     }
 
+    /// Validate configuration bounds for supply chain settings.
+    ///
+    /// Checks:
+    /// - `allowed_servers` count does not exceed 1000
+    /// - Path keys and hash values are within length bounds
+    /// - Hash values contain only hex characters and are 64 chars (SHA-256)
+    /// - If `validate_paths_on_load` is set, all paths exist on the filesystem
+    pub fn validate(&self) -> Result<(), String> {
+        const MAX_ALLOWED_SERVERS: usize = 1000;
+        const MAX_PATH_LEN: usize = 4096;
+        const EXPECTED_SHA256_HEX_LEN: usize = 64;
+
+        if self.allowed_servers.len() > MAX_ALLOWED_SERVERS {
+            return Err(format!(
+                "supply_chain.allowed_servers count {} exceeds maximum {MAX_ALLOWED_SERVERS}",
+                self.allowed_servers.len()
+            ));
+        }
+
+        for (path, hash) in &self.allowed_servers {
+            if path.is_empty() {
+                return Err("supply_chain.allowed_servers contains empty path key".to_string());
+            }
+            if path.len() > MAX_PATH_LEN {
+                return Err(format!(
+                    "supply_chain.allowed_servers path length {} exceeds maximum {MAX_PATH_LEN}",
+                    path.len()
+                ));
+            }
+            if path
+                .bytes()
+                .any(|b| b < 0x20 || b == 0x7F || (0x80..=0x9F).contains(&b))
+            {
+                return Err(format!(
+                    "supply_chain.allowed_servers path '{}' contains control characters",
+                    &path[..path.len().min(64)]
+                ));
+            }
+            if hash.len() != EXPECTED_SHA256_HEX_LEN {
+                return Err(format!(
+                    "supply_chain.allowed_servers hash for '{}' has length {} (expected {EXPECTED_SHA256_HEX_LEN})",
+                    &path[..path.len().min(64)],
+                    hash.len()
+                ));
+            }
+            if !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(format!(
+                    "supply_chain.allowed_servers hash for '{}' contains non-hex characters",
+                    &path[..path.len().min(64)]
+                ));
+            }
+        }
+
+        if self.validate_paths_on_load {
+            if let Err(missing) = self.validate_paths() {
+                return Err(format!(
+                    "supply_chain.validate_paths_on_load: missing paths: {}",
+                    missing.join(", ")
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Validate that all paths in `allowed_servers` exist on the filesystem.
     ///
     /// Returns `Ok(())` if all paths exist, or `Err(missing_paths)` with a list
@@ -266,6 +331,104 @@ mod tests {
         assert!(result.is_err());
         let missing = result.unwrap_err();
         assert!(missing.contains(&"/nonexistent/server".to_string()));
+    }
+
+    // --- validate() bounds tests ---
+
+    #[test]
+    fn test_supply_chain_validate_default_ok() {
+        let config = SupplyChainConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_supply_chain_validate_valid_config() {
+        let mut allowed = std::collections::HashMap::new();
+        allowed.insert(
+            "/usr/bin/mcp-server".to_string(),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
+        );
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: allowed,
+            validate_paths_on_load: false,
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_supply_chain_validate_empty_path() {
+        let mut allowed = std::collections::HashMap::new();
+        allowed.insert(
+            String::new(),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
+        );
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: allowed,
+            validate_paths_on_load: false,
+        };
+        assert!(config.validate().unwrap_err().contains("empty path key"));
+    }
+
+    #[test]
+    fn test_supply_chain_validate_bad_hash_length() {
+        let mut allowed = std::collections::HashMap::new();
+        allowed.insert("/bin/server".to_string(), "tooshort".to_string());
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: allowed,
+            validate_paths_on_load: false,
+        };
+        assert!(config.validate().unwrap_err().contains("has length"));
+    }
+
+    #[test]
+    fn test_supply_chain_validate_non_hex_hash() {
+        let mut allowed = std::collections::HashMap::new();
+        allowed.insert(
+            "/bin/server".to_string(),
+            "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz".to_string(),
+        );
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: allowed,
+            validate_paths_on_load: false,
+        };
+        assert!(config.validate().unwrap_err().contains("non-hex"));
+    }
+
+    #[test]
+    fn test_supply_chain_validate_control_chars_in_path() {
+        let mut allowed = std::collections::HashMap::new();
+        allowed.insert(
+            "/bin/\x00server".to_string(),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
+        );
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: allowed,
+            validate_paths_on_load: false,
+        };
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .contains("control characters"));
+    }
+
+    #[test]
+    fn test_supply_chain_validate_paths_on_load_missing() {
+        let mut allowed = std::collections::HashMap::new();
+        allowed.insert(
+            "/nonexistent/path".to_string(),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
+        );
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: allowed,
+            validate_paths_on_load: true,
+        };
+        assert!(config.validate().unwrap_err().contains("missing paths"));
     }
 
     // --- R39-SUP-2: Constant-time hash comparison tests ---
