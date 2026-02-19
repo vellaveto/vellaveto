@@ -118,7 +118,7 @@ pub fn issue_capability_token(
 }
 
 // VERIFIED [S11]: Monotonic attenuation — delegated tokens can only reduce, never expand, capabilities (CapabilityDelegation.als S11)
-// VERIFIED [S12]: Depth bounded — delegation depth strictly decreases on each delegation (CapabilityDelegation.als S12)
+// VERIFIED [S12]: Transitive attenuation — delegated tokens maintain monotonic privilege reduction across the full chain (CapabilityDelegation.als S12)
 /// Attenuate (narrow) a parent capability token for delegation.
 ///
 /// The new token must have:

@@ -246,6 +246,7 @@ impl PolicyEngine {
     // VERIFIED [S1]: Deny-by-default — empty policy set produces Deny (MCPPolicyEngine.tla S1)
     // VERIFIED [S2]: Priority ordering — higher priority wins (MCPPolicyEngine.tla S2)
     // VERIFIED [S3]: Deny-overrides — Deny beats Allow at same priority (MCPPolicyEngine.tla S3)
+    // VERIFIED [S5]: Errors produce Deny — every Allow verdict has a matching Allow policy (MCPPolicyEngine.tla S5)
     // VERIFIED [L1]: Progress — every action gets a verdict (MCPPolicyEngine.tla L1)
     /// Evaluate an action against a set of policies.
     ///
