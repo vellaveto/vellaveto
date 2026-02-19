@@ -3,6 +3,7 @@ package vellaveto
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1898,5 +1899,32 @@ func TestFederationTrustAnchors_QueryParamEncoding(t *testing.T) {
 	_, err := c.FederationTrustAnchors(context.Background(), "org&evil=1")
 	if err != nil {
 		t.Fatalf("FederationTrustAnchors() error: %v", err)
+	}
+}
+
+func TestOwaspAsiCoverage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/compliance/owasp-agentic" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("content-type", "application/json")
+		fmt.Fprintf(w, `{"total_categories":10,"covered_categories":10,"total_controls":33,"covered_controls":33,"coverage_percent":100.0}`)
+	}))
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	resp, err := c.OwaspAsiCoverage(context.Background())
+	if err != nil {
+		t.Fatalf("OwaspAsiCoverage() error: %v", err)
+	}
+	if resp.TotalCategories != 10 {
+		t.Errorf("TotalCategories = %d, want 10", resp.TotalCategories)
+	}
+	if resp.TotalControls != 33 {
+		t.Errorf("TotalControls = %d, want 33", resp.TotalControls)
+	}
+	if resp.CoveragePercent != 100.0 {
+		t.Errorf("CoveragePercent = %f, want 100.0", resp.CoveragePercent)
 	}
 }

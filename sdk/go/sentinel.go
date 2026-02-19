@@ -721,3 +721,12 @@ func (c *Client) FederationTrustAnchors(ctx context.Context, orgID string) (*Fed
 	}
 	return &resp, nil
 }
+
+// OwaspAsiCoverage retrieves the OWASP Agentic Security Index coverage report.
+func (c *Client) OwaspAsiCoverage(ctx context.Context) (*OwaspAsiCoverageResponse, error) {
+	var resp OwaspAsiCoverageResponse
+	if err := c.doJSON(ctx, http.MethodGet, "/api/compliance/owasp-agentic", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

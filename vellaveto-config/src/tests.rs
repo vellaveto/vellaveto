@@ -5749,3 +5749,75 @@ fn test_validate_multimodal_in_policy_config() {
         "should reject NaN min_ocr_confidence"
     );
 }
+
+// ── P3 findings: known_tool_names per-element validation ─────────────────────
+
+#[test]
+fn test_known_tool_names_empty_entry_rejected() {
+    let mut config = minimal_config();
+    config.known_tool_names = vec!["".to_string()];
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("known_tool_names[0]"), "err: {}", err);
+    assert!(err.contains("empty"), "err: {}", err);
+}
+
+#[test]
+fn test_known_tool_names_too_long_rejected() {
+    let mut config = minimal_config();
+    config.known_tool_names = vec!["a".repeat(257)];
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("known_tool_names[0]"), "err: {}", err);
+    assert!(err.contains("exceeds max length"), "err: {}", err);
+}
+
+#[test]
+fn test_known_tool_names_control_char_rejected() {
+    let mut config = minimal_config();
+    config.known_tool_names = vec!["tool\x00name".to_string()];
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("known_tool_names[0]"), "err: {}", err);
+    assert!(err.contains("control characters"), "err: {}", err);
+}
+
+#[test]
+fn test_known_tool_names_valid_entries_accepted() {
+    let mut config = minimal_config();
+    config.known_tool_names = vec!["filesystem".to_string(), "bash_tool".to_string()];
+    assert!(config.validate().is_ok());
+}
+
+// ── P3 findings: persistence_path control-char/length validation ──────────────
+
+#[test]
+fn test_persistence_path_null_byte_rejected() {
+    let mut config = minimal_config();
+    config.tool_registry.persistence_path = "data/reg\x00istry.jsonl".to_string();
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("control characters") || err.contains("null bytes"),
+        "err: {}",
+        err
+    );
+}
+
+#[test]
+fn test_persistence_path_control_char_rejected() {
+    let mut config = minimal_config();
+    config.tool_registry.persistence_path = "data/\x01registry.jsonl".to_string();
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("control characters") || err.contains("null bytes"),
+        "err: {}",
+        err
+    );
+}
+
+#[test]
+fn test_persistence_path_too_long_rejected() {
+    let mut config = minimal_config();
+    // 4097 bytes — just over the 4096-byte limit
+    config.tool_registry.persistence_path = "a".repeat(4097);
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("persistence_path"), "err: {}", err);
+    assert!(err.contains("exceeds max length"), "err: {}", err);
+}

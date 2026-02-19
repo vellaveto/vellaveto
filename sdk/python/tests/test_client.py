@@ -1044,6 +1044,28 @@ class TestSoc2AccessReview:
         client.close()
 
 
+class TestOwaspAsiCoverage:
+    """Tests for OWASP ASI coverage endpoint (Phase 41)."""
+
+    def test_owasp_asi_coverage(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/compliance/owasp-agentic",
+            json={
+                "total_categories": 10,
+                "covered_categories": 10,
+                "total_controls": 33,
+                "covered_controls": 33,
+                "coverage_percent": 100.0,
+            },
+        )
+        client = VellavetoClient()
+        result = client.owasp_asi_coverage()
+        assert result["total_categories"] == 10
+        assert result["total_controls"] == 33
+        assert result["coverage_percent"] == 100.0
+        client.close()
+
+
 class TestBaseUrlValidation:
     """Tests for FIND-R73-SDK-002: base_url validation in constructors."""
 

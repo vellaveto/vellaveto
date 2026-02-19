@@ -822,6 +822,17 @@ class VellavetoClient:
             "GET", "/api/federation/trust-anchors", params=params if params else None
         )
 
+    def owasp_asi_coverage(self) -> Dict[str, Any]:
+        """
+        Get OWASP Agentic Security Index (ASI) coverage report.
+
+        Returns:
+            Dictionary with ASI coverage metrics (total_controls,
+            covered_controls, coverage_percent, category_coverage,
+            control_matrix).
+        """
+        return self._request("GET", "/api/compliance/owasp-agentic")
+
     def close(self):
         """Close the client and release resources."""
         if self._use_httpx and hasattr(self, "_client"):
@@ -1263,3 +1274,7 @@ class AsyncVellavetoClient:
         return await self._request(
             "GET", "/api/federation/trust-anchors", params=params if params else None
         )
+
+    async def owasp_asi_coverage(self) -> Dict[str, Any]:
+        """Get OWASP Agentic Security Index (ASI) coverage report (async)."""
+        return await self._request("GET", "/api/compliance/owasp-agentic")

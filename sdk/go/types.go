@@ -451,3 +451,15 @@ type AccessReviewReport struct {
 	CC6Evidence      Cc6Evidence         `json:"cc6_evidence"`
 	Attestation      ReviewerAttestation `json:"attestation"`
 }
+
+// ── Phase 41: OWASP ASI Types ───────────────────────────────────────────────
+
+// OwaspAsiCoverageResponse represents the OWASP ASI coverage report.
+type OwaspAsiCoverageResponse struct {
+	GeneratedAt       string  `json:"generated_at"`
+	TotalCategories   int     `json:"total_categories"`
+	CoveredCategories int     `json:"covered_categories"`
+	TotalControls     int     `json:"total_controls"`
+	CoveredControls   int     `json:"covered_controls"`
+	CoveragePercent   float64 `json:"coverage_percent"`
+}
