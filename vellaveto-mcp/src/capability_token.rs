@@ -389,9 +389,15 @@ fn grant_covers_action(grant: &CapabilityGrant, action: &Action) -> bool {
         return false;
     }
     // Check path constraints (if any)
-    // SECURITY (FIND-083): Normalize action paths before matching to prevent
-    // path traversal attacks (e.g., "/safe/../etc/passwd" matching "/safe/**").
-    if !grant.allowed_paths.is_empty() && !action.target_paths.is_empty() {
+    // SECURITY (FIND-R57-CAP-001): Fail-closed when grant requires path restrictions
+    // but the action provides no target_paths. Otherwise a missing extraction path
+    // would bypass grant constraints.
+    if !grant.allowed_paths.is_empty() {
+        if action.target_paths.is_empty() {
+            return false;
+        }
+        // SECURITY (FIND-083): Normalize action paths before matching to prevent
+        // path traversal attacks (e.g., "/safe/../etc/passwd" matching "/safe/**").
         let all_covered = action.target_paths.iter().all(|path| {
             // Fail-closed: if normalization fails, deny the grant
             let normalized = match normalize_path_for_grant(path) {
@@ -408,7 +414,12 @@ fn grant_covers_action(grant: &CapabilityGrant, action: &Action) -> bool {
         }
     }
     // Check domain constraints (if any)
-    if !grant.allowed_domains.is_empty() && !action.target_domains.is_empty() {
+    // SECURITY (FIND-R57-CAP-001): Fail-closed when grant requires domain restrictions
+    // but the action provides no target_domains.
+    if !grant.allowed_domains.is_empty() {
+        if action.target_domains.is_empty() {
+            return false;
+        }
         let all_covered = action.target_domains.iter().all(|domain| {
             grant
                 .allowed_domains
@@ -729,11 +740,12 @@ mod tests {
         let key_hex = test_key_hex();
         let token =
             issue_capability_token("issuer", "holder", test_grants(), 5, &key_hex, 3600).unwrap();
-        let action = Action::new(
+        let mut action = Action::new(
             "file_system".to_string(),
             "read_file".to_string(),
             serde_json::json!({"path": "/tmp/test.txt"}),
         );
+        action.target_paths = vec!["/tmp/test.txt".into()];
         assert!(check_grant_coverage(&token, &action).is_some());
     }
 
@@ -997,6 +1009,42 @@ mod tests {
         let mut action2 = Action::new("http".to_string(), "get".to_string(), serde_json::json!({}));
         action2.target_domains = vec!["evil.com".into()];
         assert!(check_grant_coverage(&token, &action2).is_none());
+    }
+
+    // SECURITY (FIND-R57-CAP-001): Missing targets must fail-closed when grants
+    // define path/domain restrictions.
+    #[test]
+    fn test_grant_path_constraint_missing_action_paths_denied() {
+        let key_hex = test_key_hex();
+        let grants = vec![CapabilityGrant {
+            tool_pattern: "fs".into(),
+            function_pattern: "read".into(),
+            allowed_paths: vec!["/data/*".into()],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }];
+        let token = issue_capability_token("issuer", "holder", grants, 5, &key_hex, 3600).unwrap();
+
+        // No target_paths present => deny by fail-closed coverage check.
+        let action = Action::new("fs".to_string(), "read".to_string(), serde_json::json!({}));
+        assert!(check_grant_coverage(&token, &action).is_none());
+    }
+
+    #[test]
+    fn test_grant_domain_constraint_missing_action_domains_denied() {
+        let key_hex = test_key_hex();
+        let grants = vec![CapabilityGrant {
+            tool_pattern: "http".into(),
+            function_pattern: "get".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec!["*.example.com".into()],
+            max_invocations: 0,
+        }];
+        let token = issue_capability_token("issuer", "holder", grants, 5, &key_hex, 3600).unwrap();
+
+        // No target_domains present => deny by fail-closed coverage check.
+        let action = Action::new("http".to_string(), "get".to_string(), serde_json::json!({}));
+        assert!(check_grant_coverage(&token, &action).is_none());
     }
 
     #[test]
