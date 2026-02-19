@@ -112,6 +112,9 @@ impl AgentRecord {
     }
 }
 
+/// SECURITY (FIND-R69-007): Maximum sessions tracked per agent.
+const MAX_SESSIONS_PER_AGENT: usize = 10_000;
+
 /// Detects shadow agent attacks.
 #[derive(Debug)]
 pub struct ShadowAgentDetector {
@@ -395,7 +398,10 @@ impl ShadowAgentDetector {
         };
 
         if let Some(record) = agents.get_mut(claimed_id) {
-            record.associated_sessions.insert(session_id.to_string());
+            // SECURITY (FIND-R69-007): Cap sessions per agent to prevent OOM.
+            if record.associated_sessions.len() < MAX_SESSIONS_PER_AGENT {
+                record.associated_sessions.insert(session_id.to_string());
+            }
         }
     }
 

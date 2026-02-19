@@ -98,6 +98,47 @@ fn default_timeout_secs() -> u64 {
     30
 }
 
+impl ExporterConfig {
+    /// Validate exporter configuration bounds.
+    ///
+    /// SECURITY (FIND-R67-5-001): Enforces safe ranges to prevent DoS via
+    /// unbounded batching (batch_size=0 => infinite wait, usize::MAX => OOM),
+    /// zero-interval flush loops, or excessive retry/timeout values.
+    pub fn validate(&self) -> Result<(), ExportError> {
+        if self.batch_size < 1 || self.batch_size > 10_000 {
+            return Err(ExportError::Configuration(format!(
+                "batch_size must be in [1, 10000], got {}",
+                self.batch_size
+            )));
+        }
+        if self.flush_interval_secs < 1 || self.flush_interval_secs > 3600 {
+            return Err(ExportError::Configuration(format!(
+                "flush_interval_secs must be in [1, 3600], got {}",
+                self.flush_interval_secs
+            )));
+        }
+        if self.max_retries > 20 {
+            return Err(ExportError::Configuration(format!(
+                "max_retries must be in [0, 20], got {}",
+                self.max_retries
+            )));
+        }
+        if self.retry_backoff_secs < 1 || self.retry_backoff_secs > 300 {
+            return Err(ExportError::Configuration(format!(
+                "retry_backoff_secs must be in [1, 300], got {}",
+                self.retry_backoff_secs
+            )));
+        }
+        if self.timeout_secs < 1 || self.timeout_secs > 300 {
+            return Err(ExportError::Configuration(format!(
+                "timeout_secs must be in [1, 300], got {}",
+                self.timeout_secs
+            )));
+        }
+        Ok(())
+    }
+}
+
 impl Default for ExporterConfig {
     fn default() -> Self {
         Self {
@@ -444,6 +485,18 @@ impl SiemExporter for SplunkExporter {
     }
 }
 
+/// Maximum number of custom headers allowed in a webhook exporter.
+///
+/// SECURITY (FIND-R67-5-002): Bounds the HashMap to prevent OOM from
+/// attacker-controlled configuration with millions of headers.
+const MAX_WEBHOOK_HEADERS: usize = 50;
+
+/// Maximum length of a webhook header key.
+const MAX_HEADER_KEY_LEN: usize = 256;
+
+/// Maximum length of a webhook header value.
+const MAX_HEADER_VALUE_LEN: usize = 8192;
+
 /// Generic webhook exporter configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookConfig {
@@ -465,6 +518,40 @@ pub struct WebhookConfig {
     /// Common exporter configuration.
     #[serde(flatten)]
     pub common: ExporterConfig,
+}
+
+impl WebhookConfig {
+    /// Validate webhook configuration bounds.
+    ///
+    /// SECURITY (FIND-R67-5-002): Enforces bounds on headers map to prevent
+    /// OOM via attacker-controlled configuration.
+    pub fn validate(&self) -> Result<(), ExportError> {
+        self.common.validate()?;
+        if self.headers.len() > MAX_WEBHOOK_HEADERS {
+            return Err(ExportError::Configuration(format!(
+                "headers count {} exceeds maximum of {}",
+                self.headers.len(),
+                MAX_WEBHOOK_HEADERS,
+            )));
+        }
+        for (key, value) in &self.headers {
+            if key.len() > MAX_HEADER_KEY_LEN {
+                return Err(ExportError::Configuration(format!(
+                    "header key length {} exceeds maximum of {}",
+                    key.len(),
+                    MAX_HEADER_KEY_LEN,
+                )));
+            }
+            if value.len() > MAX_HEADER_VALUE_LEN {
+                return Err(ExportError::Configuration(format!(
+                    "header value length {} exceeds maximum of {}",
+                    value.len(),
+                    MAX_HEADER_VALUE_LEN,
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Generic webhook exporter.
@@ -631,6 +718,15 @@ impl SiemExporter for WebhookExporter {
 // Datadog Exporter
 // ────────────────────────────────────────────────────────────────────────────
 
+/// Maximum number of tags allowed in Datadog exporter configuration.
+///
+/// SECURITY (FIND-R67-5-002): Bounds the Vec to prevent OOM from
+/// attacker-controlled configuration with millions of tags.
+const MAX_TAG_COUNT: usize = 100;
+
+/// Maximum length of a single Datadog tag.
+const MAX_TAG_LEN: usize = 256;
+
 /// Datadog logs intake configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatadogConfig {
@@ -692,6 +788,33 @@ impl Default for DatadogConfig {
             tags: vec![],
             common: ExporterConfig::default(),
         }
+    }
+}
+
+impl DatadogConfig {
+    /// Validate Datadog configuration bounds.
+    ///
+    /// SECURITY (FIND-R67-5-002): Enforces bounds on tags Vec to prevent
+    /// OOM via attacker-controlled configuration.
+    pub fn validate(&self) -> Result<(), ExportError> {
+        self.common.validate()?;
+        if self.tags.len() > MAX_TAG_COUNT {
+            return Err(ExportError::Configuration(format!(
+                "tags count {} exceeds maximum of {}",
+                self.tags.len(),
+                MAX_TAG_COUNT,
+            )));
+        }
+        for tag in &self.tags {
+            if tag.len() > MAX_TAG_LEN {
+                return Err(ExportError::Configuration(format!(
+                    "tag length {} exceeds maximum of {}",
+                    tag.len(),
+                    MAX_TAG_LEN,
+                )));
+            }
+        }
+        Ok(())
     }
 }
 

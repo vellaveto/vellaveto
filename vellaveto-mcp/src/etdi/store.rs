@@ -16,6 +16,12 @@ use vellaveto_types::{ToolAttestation, ToolSignature, ToolVersionPin};
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// SECURITY (FIND-R69-006): Maximum entries per ETDI store map to prevent OOM.
+const MAX_ETDI_ENTRIES: usize = 50_000;
+
+/// SECURITY (FIND-R69-006): Maximum attestations per tool.
+const MAX_ATTESTATIONS_PER_TOOL: usize = 100;
+
 /// Entry type marker for the store.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
@@ -99,13 +105,23 @@ impl EtdiStore {
 
             match serde_json::from_str::<StoreEntry>(json_part) {
                 Ok(StoreEntry::Signature { tool, data }) => {
-                    signatures.insert(tool, data);
+                    // SECURITY (FIND-R69-006): Cap loaded entries.
+                    if signatures.len() < MAX_ETDI_ENTRIES {
+                        signatures.insert(tool, data);
+                    }
                 }
                 Ok(StoreEntry::Attestation { tool, data }) => {
-                    attestations.entry(tool).or_default().push(data);
+                    if attestations.len() < MAX_ETDI_ENTRIES {
+                        let entry = attestations.entry(tool).or_default();
+                        if entry.len() < MAX_ATTESTATIONS_PER_TOOL {
+                            entry.push(data);
+                        }
+                    }
                 }
                 Ok(StoreEntry::Pin { tool, data }) => {
-                    pins.insert(tool, data);
+                    if pins.len() < MAX_ETDI_ENTRIES {
+                        pins.insert(tool, data);
+                    }
                 }
                 Err(e) => {
                     tracing::warn!("Failed to parse ETDI store entry: {}", e);
@@ -126,11 +142,16 @@ impl EtdiStore {
             tool: tool.to_string(),
             data: signature.clone(),
         };
+        let mut sigs = self.signatures.write().await;
+        // SECURITY (FIND-R69-006): Reject new signatures at capacity.
+        if !sigs.contains_key(tool) && sigs.len() >= MAX_ETDI_ENTRIES {
+            return Err(EtdiError::StoreFull(format!(
+                "ETDI signature store at capacity ({})",
+                MAX_ETDI_ENTRIES,
+            )));
+        }
         self.append_entry(&entry).await?;
-        self.signatures
-            .write()
-            .await
-            .insert(tool.to_string(), signature);
+        sigs.insert(tool.to_string(), signature);
         Ok(())
     }
 
@@ -144,13 +165,23 @@ impl EtdiStore {
             tool: tool.to_string(),
             data: attestation.clone(),
         };
+        let mut atts = self.attestations.write().await;
+        // SECURITY (FIND-R69-006): Reject new attestations at capacity.
+        if !atts.contains_key(tool) && atts.len() >= MAX_ETDI_ENTRIES {
+            return Err(EtdiError::StoreFull(format!(
+                "ETDI attestation store at capacity ({})",
+                MAX_ETDI_ENTRIES,
+            )));
+        }
+        let tool_atts = atts.entry(tool.to_string()).or_default();
+        if tool_atts.len() >= MAX_ATTESTATIONS_PER_TOOL {
+            return Err(EtdiError::StoreFull(format!(
+                "ETDI attestations per tool at capacity ({})",
+                MAX_ATTESTATIONS_PER_TOOL,
+            )));
+        }
         self.append_entry(&entry).await?;
-        self.attestations
-            .write()
-            .await
-            .entry(tool.to_string())
-            .or_default()
-            .push(attestation);
+        tool_atts.push(attestation);
         Ok(())
     }
 
@@ -160,8 +191,16 @@ impl EtdiStore {
             tool: pin.tool_name.clone(),
             data: pin.clone(),
         };
+        let mut pins = self.pins.write().await;
+        // SECURITY (FIND-R69-006): Reject new pins at capacity.
+        if !pins.contains_key(&pin.tool_name) && pins.len() >= MAX_ETDI_ENTRIES {
+            return Err(EtdiError::StoreFull(format!(
+                "ETDI pin store at capacity ({})",
+                MAX_ETDI_ENTRIES,
+            )));
+        }
         self.append_entry(&entry).await?;
-        self.pins.write().await.insert(pin.tool_name.clone(), pin);
+        pins.insert(pin.tool_name.clone(), pin);
         Ok(())
     }
 

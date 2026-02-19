@@ -362,7 +362,18 @@ export class VellavetoClient {
     this.apiKey = options.apiKey;
     // SECURITY (FIND-R56-SDK-003): Aligned default timeout across all SDKs (Python/Go/TS = 10s).
     this.timeout = options.timeout ?? 10000;
-    this.extraHeaders = options.headers ?? {};
+
+    // SECURITY (FIND-R67-SDK-004): Reject header names/values containing CR or LF
+    // to prevent CRLF header injection attacks.
+    const rawHeaders = options.headers ?? {};
+    for (const [key, value] of Object.entries(rawHeaders)) {
+      if (/[\r\n]/.test(key) || /[\r\n]/.test(value)) {
+        throw new VellavetoError(
+          "Header names and values must not contain CR or LF characters"
+        );
+      }
+    }
+    this.extraHeaders = rawHeaders;
   }
 
   // ────────────────────────────────────────────────────
@@ -585,6 +596,12 @@ export class VellavetoClient {
     if (action.target_domains && action.target_domains.length > 100) {
       throw new VellavetoError(
         `action.target_domains has ${action.target_domains.length} entries, max 100`
+      );
+    }
+    // SECURITY (FIND-R67-SDK-001): Bound resolved_ips count. Parity with Go SDK (100).
+    if (action.resolved_ips && action.resolved_ips.length > 100) {
+      throw new VellavetoError(
+        "resolved_ips exceeds max entries (100)"
       );
     }
     const path = trace ? "/api/evaluate?trace=true" : "/api/evaluate";

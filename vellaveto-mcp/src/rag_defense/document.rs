@@ -147,6 +147,12 @@ impl DocumentTrustScore {
     }
 }
 
+/// SECURITY (FIND-R69-004): Maximum tracked documents to prevent OOM.
+const MAX_TRACKED_DOCUMENTS: usize = 100_000;
+
+/// SECURITY (FIND-R69-004): Maximum tracked sessions for document counts.
+const MAX_DOC_SESSIONS: usize = 50_000;
+
 /// Verifies documents and computes trust scores.
 pub struct DocumentVerifier {
     config: DocumentVerificationConfig,
@@ -310,6 +316,14 @@ impl DocumentVerifier {
             RagDefenseError::Internal("Failed to acquire document write lock".to_string())
         })?;
 
+        // SECURITY (FIND-R69-004): Reject new documents when at capacity.
+        if !docs.contains_key(&metadata.id) && docs.len() >= MAX_TRACKED_DOCUMENTS {
+            tracing::warn!(max = MAX_TRACKED_DOCUMENTS, "Document registry at capacity");
+            return Err(RagDefenseError::Internal(
+                "Document registry at capacity".to_string(),
+            ));
+        }
+
         docs.insert(metadata.id.clone(), metadata);
 
         Ok(())
@@ -324,6 +338,14 @@ impl DocumentVerifier {
         let mut counts = self.session_doc_counts.write().map_err(|_| {
             RagDefenseError::Internal("Failed to acquire session count lock".to_string())
         })?;
+
+        // SECURITY (FIND-R69-004): Cap session tracking entries.
+        if !counts.contains_key(session_id) && counts.len() >= MAX_DOC_SESSIONS {
+            tracing::warn!(max = MAX_DOC_SESSIONS, "Session document tracker at capacity");
+            return Err(RagDefenseError::Internal(
+                "Session document tracker at capacity".to_string(),
+            ));
+        }
 
         let count = counts.entry(session_id.to_string()).or_insert(0);
         *count += 1;

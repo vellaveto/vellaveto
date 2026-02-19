@@ -19,6 +19,9 @@ use serde_json::json;
 use crate::routes::ErrorResponse;
 use crate::AppState;
 
+/// SECURITY (FIND-R67-004-006): Maximum number of circuit breaker entries returned by list endpoint.
+const MAX_CIRCUIT_LIST: usize = 1000;
+
 /// List all circuit breaker states.
 ///
 /// GET /api/circuit-breaker
@@ -35,11 +38,13 @@ pub async fn list_circuit_breakers(
     })?;
 
     let tools = cb.tracked_tools();
+    let total = tools.len();
     let mut entries = Vec::new();
 
-    for tool in tools {
-        let circuit_state = cb.get_state(&tool);
-        let stats = cb.get_stats(&tool);
+    // SECURITY (FIND-R67-004-006): Cap response to prevent unbounded serialization.
+    for tool in tools.iter().take(MAX_CIRCUIT_LIST) {
+        let circuit_state = cb.get_state(tool);
+        let stats = cb.get_stats(tool);
         entries.push(json!({
             "tool": tool,
             "state": format!("{:?}", circuit_state),
@@ -49,6 +54,8 @@ pub async fn list_circuit_breakers(
 
     Ok(Json(json!({
         "count": entries.len(),
+        "total": total,
+        "truncated": total > MAX_CIRCUIT_LIST,
         "circuits": entries,
     })))
 }

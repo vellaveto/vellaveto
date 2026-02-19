@@ -114,7 +114,7 @@ impl MemorySecurityManager {
         if entries.len() < self.config.max_entries_per_session {
             entries.insert(fingerprint, entry);
             let mut stats = self.stats.write().await;
-            stats.total_entries += 1;
+            stats.total_entries = stats.total_entries.saturating_add(1);
             Some(id)
         } else {
             None
@@ -170,7 +170,7 @@ impl MemorySecurityManager {
         if entries.len() < self.config.max_entries_per_session {
             entries.insert(fingerprint, entry);
             let mut stats = self.stats.write().await;
-            stats.total_entries += 1;
+            stats.total_entries = stats.total_entries.saturating_add(1);
             Some(id)
         } else {
             None
@@ -261,10 +261,10 @@ impl MemorySecurityManager {
         drop(entries);
 
         let mut quarantine = self.quarantine.write().await;
-        quarantine.add(quarantine_entry);
+        quarantine.add(quarantine_entry)?;
 
         let mut stats = self.stats.write().await;
-        stats.quarantined_entries += 1;
+        stats.quarantined_entries = stats.quarantined_entries.saturating_add(1);
 
         Ok(())
     }
@@ -458,7 +458,7 @@ impl MemorySecurityManager {
         ns_manager.add_share_request(request.clone());
 
         let mut stats = self.stats.write().await;
-        stats.pending_shares += 1;
+        stats.pending_shares = stats.pending_shares.saturating_add(1);
 
         Ok(request)
     }
@@ -623,6 +623,12 @@ impl ProvenanceGraph {
     }
 }
 
+/// Maximum quarantine records to prevent unbounded memory growth.
+///
+/// SECURITY (FIND-R67-5-005): Without a cap, an attacker could quarantine
+/// entries faster than they are released, causing OOM.
+const MAX_QUARANTINE_RECORDS: usize = 100_000;
+
 /// Manager for quarantined entries.
 #[derive(Debug)]
 struct QuarantineManager {
@@ -637,8 +643,16 @@ impl QuarantineManager {
         }
     }
 
-    fn add(&mut self, entry: QuarantineEntry) {
+    fn add(&mut self, entry: QuarantineEntry) -> Result<(), MemorySecurityError> {
+        // SECURITY (FIND-R67-5-005): Reject when at capacity.
+        if self.records.len() >= MAX_QUARANTINE_RECORDS && !self.records.contains_key(&entry.entry_id) {
+            return Err(MemorySecurityError::CapacityExceeded(format!(
+                "quarantine records at maximum of {}",
+                MAX_QUARANTINE_RECORDS,
+            )));
+        }
         self.records.insert(entry.entry_id.clone(), entry);
+        Ok(())
     }
 
     fn release(&mut self, entry_id: &str) {

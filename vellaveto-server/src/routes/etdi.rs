@@ -26,6 +26,13 @@ use serde_json::json;
 
 use crate::AppState;
 
+/// SECURITY (FIND-R67-004-003): Maximum number of signatures returned by list endpoint.
+const MAX_SIGNATURES_LIST: usize = 1000;
+/// SECURITY (FIND-R67-004-004): Maximum number of attestations returned by list endpoint.
+const MAX_ATTESTATIONS_LIST: usize = 1000;
+/// SECURITY (FIND-R67-004-005): Maximum number of version pins returned by list endpoint.
+const MAX_PINS_LIST: usize = 1000;
+
 /// List all tool signatures.
 pub async fn list_tool_signatures(
     State(state): State<AppState>,
@@ -38,16 +45,23 @@ pub async fn list_tool_signatures(
     };
 
     let signatures = store.list_signatures().await;
+    // SECURITY (FIND-R67-004-003): Cap response to prevent unbounded serialization.
+    let total = signatures.len();
+    let bounded: Vec<_> = signatures.iter()
+        .take(MAX_SIGNATURES_LIST)
+        .map(|(tool, sig)| json!({
+            "tool": tool,
+            "signature_id": sig.signature_id,
+            "algorithm": sig.algorithm.to_string(),
+            "signed_at": sig.signed_at,
+            "expires_at": sig.expires_at,
+        }))
+        .collect();
     Ok(Json(json!({
-        "signatures": signatures.iter()
-            .map(|(tool, sig)| json!({
-                "tool": tool,
-                "signature_id": sig.signature_id,
-                "algorithm": sig.algorithm.to_string(),
-                "signed_at": sig.signed_at,
-                "expires_at": sig.expires_at,
-            }))
-            .collect::<Vec<_>>()
+        "count": bounded.len(),
+        "total": total,
+        "truncated": total > MAX_SIGNATURES_LIST,
+        "signatures": bounded,
     })))
 }
 
@@ -135,18 +149,25 @@ pub async fn list_attestations(
     };
 
     let attestations = store.list_attestations().await;
+    // SECURITY (FIND-R67-004-004): Cap response to prevent unbounded serialization.
+    let total = attestations.len();
+    let bounded: Vec<_> = attestations.iter()
+        .take(MAX_ATTESTATIONS_LIST)
+        .map(|(tool, atts)| json!({
+            "tool": tool,
+            "chain_length": atts.len(),
+            "latest": atts.last().map(|a| json!({
+                "attestation_id": a.attestation_id,
+                "type": a.attestation_type,
+                "timestamp": a.timestamp,
+            })),
+        }))
+        .collect();
     Ok(Json(json!({
-        "attestations": attestations.iter()
-            .map(|(tool, atts)| json!({
-                "tool": tool,
-                "chain_length": atts.len(),
-                "latest": atts.last().map(|a| json!({
-                    "attestation_id": a.attestation_id,
-                    "type": a.attestation_type,
-                    "timestamp": a.timestamp,
-                })),
-            }))
-            .collect::<Vec<_>>()
+        "count": bounded.len(),
+        "total": total,
+        "truncated": total > MAX_ATTESTATIONS_LIST,
+        "attestations": bounded,
     })))
 }
 
@@ -209,8 +230,14 @@ pub async fn list_version_pins(
     };
 
     let pins = pin_manager.list_pins().await;
+    // SECURITY (FIND-R67-004-005): Cap response to prevent unbounded serialization.
+    let total = pins.len();
+    let bounded: Vec<_> = pins.into_iter().take(MAX_PINS_LIST).collect();
     Ok(Json(json!({
-        "pins": pins,
+        "count": bounded.len(),
+        "total": total,
+        "truncated": total > MAX_PINS_LIST,
+        "pins": bounded,
         "enforcement": if pin_manager.is_blocking() { "block" } else { "warn" },
     })))
 }

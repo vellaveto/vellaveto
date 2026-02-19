@@ -32,6 +32,9 @@ const MAX_FIELD_LEN: usize = 256;
 /// Maximum number of permissions in a share request.
 const MAX_PERMISSIONS_COUNT: usize = 10;
 
+/// SECURITY (FIND-R67-004-002): Maximum number of namespaces returned by list endpoint.
+const MAX_NAMESPACE_LIST: usize = 1000;
+
 const _: () = {
     assert!(MAX_PERMISSIONS_COUNT > 0);
     assert!(MAX_PERMISSIONS_COUNT <= 100);
@@ -319,9 +322,14 @@ pub async fn list_memory_namespaces(
     };
 
     let namespaces = manager.list_namespaces().await;
+    // SECURITY (FIND-R67-004-002): Cap response to prevent unbounded serialization.
+    let total = namespaces.len();
+    let bounded: Vec<_> = namespaces.into_iter().take(MAX_NAMESPACE_LIST).collect();
     Ok(Json(json!({
-        "count": namespaces.len(),
-        "namespaces": namespaces,
+        "count": bounded.len(),
+        "total": total,
+        "truncated": total > MAX_NAMESPACE_LIST,
+        "namespaces": bounded,
     })))
 }
 

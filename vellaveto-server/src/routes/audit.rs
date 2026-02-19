@@ -30,6 +30,8 @@ const DEFAULT_AUDIT_PAGE_SIZE: usize = 100;
 const MAX_AUDIT_PAGE_SIZE: usize = 1000;
 /// Maximum number of entries that can be loaded before returning an error.
 const MAX_LOADED_ENTRIES: usize = 500_000;
+/// SECURITY (FIND-R67-004-001): Maximum number of checkpoints returned by list endpoint.
+const MAX_CHECKPOINTS_LIST: usize = 1000;
 
 /// Query parameters for paginated audit entry listing.
 #[derive(Deserialize)]
@@ -255,8 +257,11 @@ pub async fn list_checkpoints(
         )
     })?;
 
+    // SECURITY (FIND-R67-004-001): Cap response to prevent unbounded serialization.
+    let total = checkpoints.len();
+    let bounded: Vec<_> = checkpoints.into_iter().take(MAX_CHECKPOINTS_LIST).collect();
     Ok(Json(
-        json!({"count": checkpoints.len(), "checkpoints": checkpoints}),
+        json!({"count": bounded.len(), "total": total, "truncated": total > MAX_CHECKPOINTS_LIST, "checkpoints": bounded}),
     ))
 }
 

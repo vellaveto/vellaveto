@@ -366,6 +366,9 @@ impl AgentKeyPair {
     }
 }
 
+/// SECURITY (FIND-R69-003): Maximum registered agent keys to prevent OOM.
+const MAX_AGENT_KEYS: usize = 10_000;
+
 /// Registry of known agent public keys.
 pub struct AgentKeyRegistry {
     /// Agent ID -> Verifying key
@@ -389,6 +392,14 @@ impl AgentKeyRegistry {
                 return; // fail-closed: don't register with corrupted state
             }
         };
+        // SECURITY (FIND-R69-003): Cap registered keys to prevent OOM.
+        if !keys.contains_key(agent_id) && keys.len() >= MAX_AGENT_KEYS {
+            tracing::warn!(
+                max = MAX_AGENT_KEYS,
+                "Agent key registry at capacity, rejecting new key"
+            );
+            return;
+        }
         keys.insert(agent_id.to_string(), key);
     }
 

@@ -51,6 +51,12 @@ use vellaveto_types::{
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// SECURITY (FIND-R69-002): Maximum secure tasks in memory.
+const MAX_SECURE_TASKS: usize = 50_000;
+
+/// SECURITY (FIND-R69-002): Maximum checkpoints in memory.
+const MAX_CHECKPOINTS: usize = 100_000;
+
 /// Errors from secure task operations.
 #[derive(Error, Debug)]
 pub enum TaskSecurityError {
@@ -152,6 +158,15 @@ impl SecureTaskManager {
             return Err(TaskSecurityError::IntegrityViolation(format!(
                 "Task '{}' already exists",
                 task.task_id
+            )));
+        }
+
+        // SECURITY (FIND-R69-002): Reject new tasks when at capacity.
+        if tasks.len() >= MAX_SECURE_TASKS {
+            tracing::warn!(max = MAX_SECURE_TASKS, "Secure task manager at capacity");
+            return Err(TaskSecurityError::IntegrityViolation(format!(
+                "Maximum secure tasks ({}) reached",
+                MAX_SECURE_TASKS,
             )));
         }
 
@@ -350,6 +365,14 @@ impl SecureTaskManager {
         drop(tasks);
 
         let mut checkpoints = self.checkpoints.write().await;
+        // SECURITY (FIND-R69-002): Reject new checkpoints when at capacity.
+        if checkpoints.len() >= MAX_CHECKPOINTS {
+            tracing::warn!(max = MAX_CHECKPOINTS, "Checkpoint store at capacity");
+            return Err(TaskSecurityError::IntegrityViolation(format!(
+                "Maximum checkpoints ({}) reached",
+                MAX_CHECKPOINTS,
+            )));
+        }
         checkpoints.insert(checkpoint_id, checkpoint.clone());
         self.checkpoints_created.fetch_add(1, Ordering::Relaxed);
 

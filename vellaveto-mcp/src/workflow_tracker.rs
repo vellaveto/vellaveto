@@ -225,6 +225,17 @@ impl WorkflowTracker {
             }
         };
 
+        // SECURITY (FIND-R67-5-010): Enforce max_sessions before inserting new session.
+        if !sessions.contains_key(session_id) && sessions.len() >= self.config.max_sessions {
+            tracing::warn!(
+                target: "vellaveto::security",
+                max_sessions = self.config.max_sessions,
+                current = sessions.len(),
+                "WorkflowTracker max_sessions reached, rejecting new session"
+            );
+            return false;
+        }
+
         // Ensure session exists
         let session = sessions
             .entry(session_id.to_string())

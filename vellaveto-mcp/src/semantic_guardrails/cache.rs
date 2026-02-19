@@ -79,6 +79,10 @@ fn default_enabled() -> bool {
 /// Fallback cache size when disabled or when max_size is 0.
 const FALLBACK_CACHE_SIZE: NonZeroUsize = NonZeroUsize::MIN;
 
+/// SECURITY (FIND-R69-001): Maximum TTL in seconds (7 days) to prevent
+/// `Instant::now() + Duration` overflow panic on extreme config values.
+const MAX_TTL_SECS: u64 = 7 * 24 * 3600;
+
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
@@ -334,9 +338,20 @@ impl EvaluationCache {
             return;
         }
 
+        // SECURITY (FIND-R69-001): Use checked_add to prevent Instant overflow panic
+        // on extreme ttl_secs values.
+        let ttl = Duration::from_secs(self.config.ttl_secs.min(MAX_TTL_SECS));
+        let expires_at = match Instant::now().checked_add(ttl) {
+            Some(t) => t,
+            None => {
+                tracing::warn!("Cache TTL overflow, using fallback 1h expiry");
+                Instant::now() + Duration::from_secs(3600)
+            }
+        };
+
         let entry = CachedEntry {
             evaluation,
-            expires_at: Instant::now() + Duration::from_secs(self.config.ttl_secs),
+            expires_at,
         };
 
         let mut cache = self.cache.blocking_write();
@@ -349,9 +364,19 @@ impl EvaluationCache {
             return;
         }
 
+        // SECURITY (FIND-R69-001): Use checked_add to prevent Instant overflow panic.
+        let ttl = Duration::from_secs(self.config.ttl_secs.min(MAX_TTL_SECS));
+        let expires_at = match Instant::now().checked_add(ttl) {
+            Some(t) => t,
+            None => {
+                tracing::warn!("Cache TTL overflow, using fallback 1h expiry");
+                Instant::now() + Duration::from_secs(3600)
+            }
+        };
+
         let entry = CachedEntry {
             evaluation,
-            expires_at: Instant::now() + Duration::from_secs(self.config.ttl_secs),
+            expires_at,
         };
 
         let mut cache = self.cache.write().await;

@@ -42,6 +42,9 @@ pub enum EtdiError {
     /// SECURITY (FIND-027): HMAC initialization failure (fail-closed).
     #[error("HMAC initialization failed")]
     HmacInit,
+    /// SECURITY (FIND-R69-006): Store capacity exceeded.
+    #[error("Store full: {0}")]
+    StoreFull(String),
 }
 
 /// Compute the canonical hash of a tool definition for signing.

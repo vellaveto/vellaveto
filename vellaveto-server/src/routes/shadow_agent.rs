@@ -20,6 +20,9 @@ use serde_json::json;
 use crate::routes::ErrorResponse;
 use crate::AppState;
 
+/// SECURITY (FIND-R67-004-007): Maximum number of agent entries returned by list endpoint.
+const MAX_AGENT_LIST: usize = 1000;
+
 const MAX_AGENT_ID_LEN: usize = 128;
 
 fn validate_agent_id(agent_id: &str) -> Result<(), &'static str> {
@@ -63,11 +66,15 @@ pub async fn list_shadow_agents(
     })?;
 
     let agent_ids = detector.known_ids();
-    let count = detector.known_count();
+    let total = detector.known_count();
 
+    // SECURITY (FIND-R67-004-007): Cap response to prevent unbounded serialization.
+    let bounded: Vec<_> = agent_ids.into_iter().take(MAX_AGENT_LIST).collect();
     Ok(Json(json!({
-        "count": count,
-        "agent_ids": agent_ids,
+        "count": bounded.len(),
+        "total": total,
+        "truncated": total > MAX_AGENT_LIST,
+        "agent_ids": bounded,
     })))
 }
 

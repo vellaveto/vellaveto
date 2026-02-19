@@ -45,6 +45,7 @@ impl fmt::Display for TaskStatus {
 /// - Task duration limits
 /// - Cancellation authorization (self-cancel only vs. any agent)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TrackedTask {
     /// Unique task identifier from the MCP server.
     pub task_id: String,
@@ -210,6 +211,7 @@ impl TrackedTask {
 /// Each transition records the previous hash, new state, and produces
 /// a new hash, forming an append-only chain that detects tampering.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TaskStateTransition {
     /// Sequence number in the hash chain (0-indexed).
     pub sequence: u64,
@@ -226,6 +228,55 @@ pub struct TaskStateTransition {
     pub hash: String,
 }
 
+impl TaskStateTransition {
+    /// Maximum hash field length (SHA-256 hex = 64 chars, with margin).
+    const MAX_HASH_LEN: usize = 256;
+    /// Maximum timestamp field length.
+    const MAX_TIMESTAMP_LEN: usize = 64;
+
+    /// Validate bounds on deserialized data.
+    ///
+    /// Checks all string fields for length bounds and control characters.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.hash.len() > Self::MAX_HASH_LEN {
+            return Err(format!(
+                "TaskStateTransition hash length {} exceeds max {}",
+                self.hash.len(),
+                Self::MAX_HASH_LEN,
+            ));
+        }
+        if self.prev_hash.len() > Self::MAX_HASH_LEN {
+            return Err(format!(
+                "TaskStateTransition prev_hash length {} exceeds max {}",
+                self.prev_hash.len(),
+                Self::MAX_HASH_LEN,
+            ));
+        }
+        if self.timestamp.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "TaskStateTransition timestamp length {} exceeds max {}",
+                self.timestamp.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        if let Some(ref tb) = self.triggered_by {
+            if tb.len() > MAX_ENTRY_LEN {
+                return Err(format!(
+                    "TaskStateTransition triggered_by length {} exceeds max {}",
+                    tb.len(),
+                    MAX_ENTRY_LEN,
+                ));
+            }
+            if tb.chars().any(|c| c.is_control()) {
+                return Err(
+                    "TaskStateTransition triggered_by contains control characters".to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Maximum byte length for individual entries in `state_chain` hashes and `seen_nonces`.
 pub const MAX_ENTRY_LEN: usize = 256;
 
@@ -237,6 +288,7 @@ pub const MAX_ENTRY_LEN: usize = 256;
 /// - Resume token for authenticated task resumption
 /// - Replay protection via nonces
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SecureTask {
     /// The underlying tracked task.
     pub task: TrackedTask,
@@ -327,6 +379,11 @@ impl SecureTask {
 
     /// Validate bounds on deserialized data.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R67-FC-002): Validate the inner TrackedTask first.
+        self.task
+            .validate()
+            .map_err(|e| format!("SecureTask inner task: {}", e))?;
+
         if self.state_chain.len() > MAX_STATE_CHAIN {
             return Err(format!(
                 "SecureTask state_chain length {} exceeds max {}",
@@ -352,22 +409,11 @@ impl SecureTask {
             }
         }
         for (i, transition) in self.state_chain.iter().enumerate() {
-            if transition.hash.len() > MAX_ENTRY_LEN {
-                return Err(format!(
-                    "SecureTask state_chain[{}].hash length {} exceeds max {}",
-                    i,
-                    transition.hash.len(),
-                    MAX_ENTRY_LEN
-                ));
-            }
-            if transition.prev_hash.len() > MAX_ENTRY_LEN {
-                return Err(format!(
-                    "SecureTask state_chain[{}].prev_hash length {} exceeds max {}",
-                    i,
-                    transition.prev_hash.len(),
-                    MAX_ENTRY_LEN
-                ));
-            }
+            // SECURITY (FIND-R67-MV-001): Delegate to TaskStateTransition::validate()
+            // which checks all fields including hash, prev_hash, timestamp, triggered_by.
+            transition
+                .validate()
+                .map_err(|e| format!("SecureTask state_chain[{}]: {}", i, e))?;
         }
         Ok(())
     }
@@ -517,6 +563,7 @@ impl TaskCheckpoint {
 
 /// Request to resume a task with authentication.
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TaskResumeRequest {
     /// Task ID to resume.
     pub task_id: String,

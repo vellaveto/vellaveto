@@ -33,6 +33,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use vellaveto_types::{TaskStatus, TrackedTask};
 
+/// Absolute maximum number of tracked tasks to prevent unbounded memory growth.
+///
+/// SECURITY (FIND-R67-5-009): When `max_concurrent` is 0 (unlimited), the tasks
+/// HashMap could grow without bound. This constant provides a hard cap.
+const MAX_TRACKED_TASKS: usize = 100_000;
+
 /// Manages async task state for MCP 2025-11-25 compliance.
 ///
 /// Thread-safe via `RwLock` for concurrent access from multiple
@@ -114,6 +120,28 @@ impl TaskStateManager {
         // Check if task ID already exists
         if tasks.contains_key(&task.task_id) {
             return Err(format!("Task '{}' already exists", task.task_id));
+        }
+
+        // SECURITY (FIND-R67-5-009): Absolute capacity bound. When max_concurrent is 0
+        // (unlimited active tasks), we still enforce this hard limit on total tracked
+        // entries to prevent unbounded HashMap growth. Try evicting terminal tasks first.
+        if tasks.len() >= MAX_TRACKED_TASKS {
+            // Evict terminal (completed/failed/cancelled/expired) tasks
+            let terminal_keys: Vec<String> = tasks
+                .iter()
+                .filter(|(_, t)| t.is_terminal())
+                .map(|(k, _)| k.clone())
+                .collect();
+            for key in &terminal_keys {
+                tasks.remove(key);
+            }
+            // If still at capacity after eviction, reject
+            if tasks.len() >= MAX_TRACKED_TASKS {
+                return Err(format!(
+                    "Maximum tracked tasks ({}) exceeded",
+                    MAX_TRACKED_TASKS
+                ));
+            }
         }
 
         // Check concurrent task limit

@@ -101,6 +101,7 @@ def _validate_evaluate_inputs(
     parameters: Optional[Dict[str, Any]],
     target_paths: Optional[List[str]],
     target_domains: Optional[List[str]],
+    resolved_ips: Optional[List[str]] = None,
 ) -> None:
     """Validate inputs for evaluate() — shared by sync and async clients.
 
@@ -137,6 +138,11 @@ def _validate_evaluate_inputs(
         raise VellavetoError(
             f"target_domains has {len(target_domains)} entries, max 100"
         )
+    # SECURITY (FIND-R67-SDK-001): Bound resolved_ips count. Parity with Go SDK (100).
+    if resolved_ips is not None and not isinstance(resolved_ips, list):
+        raise VellavetoError("resolved_ips must be a list or None")
+    if resolved_ips is not None and len(resolved_ips) > 100:
+        raise VellavetoError("resolved_ips exceeds max entries (100)")
 
 
 def _build_evaluate_payload(

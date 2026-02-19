@@ -93,18 +93,45 @@ impl std::fmt::Display for DeputyError {
 impl std::error::Error for DeputyError {}
 
 /// Rule for allowed delegations.
+///
+/// SECURITY (FIND-R67-PF-001): Fields are `pub(crate)` to prevent external
+/// mutation that could bypass delegation validation invariants.
+///
+/// Note: Fields are stored for rule-based delegation validation (see `add_rule`).
+/// The `register_delegation` method currently validates inline; the stored rules
+/// will be consulted once policy-based delegation is wired end-to-end.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DelegationRule {
     /// Principal that can delegate.
-    pub from_principal: String,
+    pub(crate) from_principal: String,
     /// Principal that can receive delegation.
-    pub to_principal: String,
+    pub(crate) to_principal: String,
     /// Tools the delegate is allowed to access (glob patterns).
-    pub allowed_tools: Vec<PatternMatcher>,
+    pub(crate) allowed_tools: Vec<PatternMatcher>,
     /// Maximum delegation depth (0 = no further delegation).
-    pub max_depth: u8,
+    pub(crate) max_depth: u8,
     /// Expiry time in Unix seconds (None = no expiry).
-    pub expires_secs: Option<u64>,
+    pub(crate) expires_secs: Option<u64>,
+}
+
+impl DelegationRule {
+    /// Create a new delegation rule.
+    pub fn new(
+        from_principal: String,
+        to_principal: String,
+        allowed_tools: Vec<PatternMatcher>,
+        max_depth: u8,
+        expires_secs: Option<u64>,
+    ) -> Self {
+        Self {
+            from_principal,
+            to_principal,
+            allowed_tools,
+            max_depth,
+            expires_secs,
+        }
+    }
 }
 
 /// Maximum number of active delegation contexts tracked concurrently.
@@ -205,7 +232,8 @@ impl DeputyValidator {
             .map_or(0, |ctx| ctx.delegation_depth);
 
         // Check depth limit
-        let new_depth = current_depth + 1;
+        // SECURITY (FIND-R67-SA-001): Use saturating_add to prevent overflow.
+        let new_depth = current_depth.saturating_add(1);
         if new_depth > self.max_depth {
             return Err(DeputyError::DelegationDepthExceeded {
                 depth: new_depth,
@@ -346,8 +374,54 @@ impl DeputyValidator {
     }
 
     /// Check if a tool is allowed for the current delegation chain.
+    ///
+    /// Unlike `validate_action()`, this method only checks tool scope without
+    /// verifying the claimed principal. This is appropriate for pre-flight
+    /// tool availability checks where the caller's identity is not yet known
+    /// or not relevant (e.g., building a tool menu for a session).
+    ///
+    /// SECURITY (FIND-R67-FC-001): Previously delegated via `validate_action()`
+    /// with empty claimed_principal, which caused `PrincipalMismatch` for every
+    /// session with a `delegated_to` set, making `is_tool_allowed()` always
+    /// return `false` in delegation contexts.
     pub fn is_tool_allowed(&self, session_id: &str, tool: &str) -> bool {
-        self.validate_action(session_id, tool, "").is_ok()
+        let contexts = match self.active_contexts.read() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(
+                    "CRITICAL: Deputy RwLock poisoned in is_tool_allowed for session '{}': {}",
+                    session_id,
+                    e
+                );
+                // Fail-closed: poisoned lock → tool not allowed
+                return false;
+            }
+        };
+
+        let ctx = match contexts.get(session_id) {
+            Some(c) => c,
+            None => {
+                // No delegation context = direct request, tool is allowed
+                return true;
+            }
+        };
+
+        // Check expiry (fail-closed)
+        let now = Self::now();
+        if ctx.is_expired(now) {
+            return false;
+        }
+
+        // Check if tool is in allowed set (skip principal validation)
+        if ctx.allowed_tools.is_empty() {
+            // Empty allowed_tools = unrestricted
+            return true;
+        }
+
+        let tool_lower = tool.to_lowercase();
+        ctx.allowed_tools
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case(&tool_lower))
     }
 
     /// Get the current principal context for a session.

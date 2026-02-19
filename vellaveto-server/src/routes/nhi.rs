@@ -43,6 +43,8 @@ const MAX_MAP_LEN: usize = 50;
 const MAX_TTL_SECS: u64 = 86400 * 365;
 /// SECURITY (FIND-R66-001): Maximum entries returned by list endpoints.
 const MAX_LIST_ENTRIES: usize = 1000;
+/// SECURITY (FIND-R67-004-009): Maximum delegation chain entries returned.
+const MAX_CHAIN_DISPLAY: usize = 100;
 
 /// SECURITY (FIND-R43-019, FIND-R44-055): Detect control characters AND Unicode format
 /// characters (ZWSP, bidi overrides, invisible operators, TAG characters, soft hyphen)
@@ -591,8 +593,12 @@ pub async fn get_nhi_delegation_chain(
         ));
     };
 
-    let chain = manager.resolve_delegation_chain(&id).await;
-    Ok(Json(json!({"chain": chain})))
+    let delegation = manager.resolve_delegation_chain(&id).await;
+    // SECURITY (FIND-R67-004-009): Bound delegation chain response size.
+    let total = delegation.chain.len();
+    let truncated = total > MAX_CHAIN_DISPLAY;
+    let bounded: Vec<_> = delegation.chain.into_iter().take(MAX_CHAIN_DISPLAY).collect();
+    Ok(Json(json!({"chain": bounded, "total": total, "truncated": truncated})))
 }
 
 /// Rotate credentials for an NHI agent.
@@ -669,7 +675,10 @@ pub async fn get_expiring_nhi_identities(
     };
 
     let expiring = manager.get_expiring_identities().await;
-    Ok(Json(json!({"expiring": expiring})))
+    // SECURITY (FIND-R67-004-008): Cap response to prevent unbounded serialization.
+    let total = expiring.len();
+    let bounded: Vec<_> = expiring.into_iter().take(MAX_LIST_ENTRIES).collect();
+    Ok(Json(json!({"expiring": bounded, "total": total, "truncated": total > MAX_LIST_ENTRIES})))
 }
 
 /// Generate a DPoP nonce.
