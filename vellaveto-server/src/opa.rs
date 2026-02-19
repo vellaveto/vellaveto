@@ -24,6 +24,9 @@ use vellaveto_config::OpaConfig;
 /// Fallback cache size for OPA decisions if configured size is zero.
 const FALLBACK_CACHE_SIZE: usize = 1000;
 
+/// Maximum serialized size for OPA input context JSON (1 MB).
+const MAX_OPA_CONTEXT_SIZE: usize = 1_048_576;
+
 /// Errors that can occur during OPA evaluation.
 #[derive(Debug, Error)]
 pub enum OpaError {
@@ -44,6 +47,12 @@ pub enum OpaError {
 
     #[error("OPA endpoint must use https:// when require_https=true: {0}")]
     InsecureEndpoint(String),
+
+    #[error("OPA context too large ({0} bytes, max {1})")]
+    ContextTooLarge(usize, usize),
+
+    #[error("OPA input validation failed: {0}")]
+    ValidationFailed(String),
 }
 
 /// Cached OPA decision with TTL.
@@ -82,6 +91,29 @@ pub struct OpaInput {
     /// Additional context.
     #[serde(flatten)]
     pub context: serde_json::Value,
+}
+
+impl OpaInput {
+    /// Validate the OPA input, checking that the context JSON does not exceed
+    /// the maximum allowed size.
+    ///
+    /// SECURITY: Unbounded context JSON can cause OOM or excessive network
+    /// traffic to the OPA sidecar. This enforces a 1 MB cap on the serialized
+    /// context payload.
+    pub fn validate(&self) -> Result<(), OpaError> {
+        let context_size = serde_json::to_string(&self.context)
+            .map_err(|e| {
+                OpaError::ValidationFailed(format!("context serialization failed: {}", e))
+            })?
+            .len();
+        if context_size > MAX_OPA_CONTEXT_SIZE {
+            return Err(OpaError::ContextTooLarge(
+                context_size,
+                MAX_OPA_CONTEXT_SIZE,
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// OPA response wrapper.
@@ -222,6 +254,9 @@ impl OpaClient {
 
     /// Evaluate a policy decision via OPA.
     pub async fn evaluate(&self, input: &OpaInput) -> Result<OpaDecision, OpaError> {
+        // SECURITY: Validate input before sending to OPA.
+        input.validate()?;
+
         let cache_key = self.cache_key(input);
 
         // Check cache first
@@ -699,5 +734,53 @@ mod tests {
         };
 
         assert_eq!(config.cache_size, 5000);
+    }
+
+    #[test]
+    fn test_opa_input_validate_small_context() {
+        let input = OpaInput {
+            tool: "filesystem".to_string(),
+            function: "read".to_string(),
+            parameters: serde_json::json!({}),
+            principal: None,
+            session_id: None,
+            context: serde_json::json!({"tenant": "acme"}),
+        };
+        assert!(input.validate().is_ok());
+    }
+
+    #[test]
+    fn test_opa_input_validate_context_too_large() {
+        let large_string = "x".repeat(MAX_OPA_CONTEXT_SIZE + 1);
+        let input = OpaInput {
+            tool: "filesystem".to_string(),
+            function: "read".to_string(),
+            parameters: serde_json::json!({}),
+            principal: None,
+            session_id: None,
+            context: serde_json::json!({"payload": large_string}),
+        };
+        let result = input.validate();
+        assert!(result.is_err());
+        match result {
+            Err(OpaError::ContextTooLarge(size, max)) => {
+                assert!(size > MAX_OPA_CONTEXT_SIZE);
+                assert_eq!(max, MAX_OPA_CONTEXT_SIZE);
+            }
+            other => panic!("expected ContextTooLarge, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_opa_input_validate_null_context() {
+        let input = OpaInput {
+            tool: "t".to_string(),
+            function: "f".to_string(),
+            parameters: serde_json::json!({}),
+            principal: None,
+            session_id: None,
+            context: serde_json::Value::Null,
+        };
+        assert!(input.validate().is_ok());
     }
 }

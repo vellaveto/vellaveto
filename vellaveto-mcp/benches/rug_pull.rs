@@ -1,6 +1,7 @@
 //! Criterion benchmarks for rug-pull and squatting detection.
 //!
 //! Run with: `cargo bench -p vellaveto-mcp --bench rug_pull`
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::{HashMap, HashSet};
 use std::hint::black_box;

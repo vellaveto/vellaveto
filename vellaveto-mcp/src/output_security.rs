@@ -12,6 +12,10 @@
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
+/// Maximum number of session baselines tracked by OutputSecurityAnalyzer.
+/// Prevents unbounded memory growth from attacker-controlled session IDs.
+const MAX_SESSION_BASELINES: usize = 10_000;
+
 /// Pre-compiled base64 detection regex.
 /// Performance (IMP-007): Compiled once at first use rather than per-call.
 fn get_base64_pattern() -> Option<&'static regex::Regex> {
@@ -528,6 +532,16 @@ impl OutputSecurityAnalyzer {
                 return;
             }
         };
+
+        // Enforce capacity bound: reject new sessions when at capacity
+        if !baselines.contains_key(session_id) && baselines.len() >= MAX_SESSION_BASELINES {
+            tracing::warn!(
+                target: "vellaveto::security",
+                "session_baselines at capacity ({}), rejecting new session",
+                MAX_SESSION_BASELINES
+            );
+            return;
+        }
 
         let baseline = baselines
             .entry(session_id.to_string())

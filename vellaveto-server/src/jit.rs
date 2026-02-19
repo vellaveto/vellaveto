@@ -15,6 +15,24 @@ use vellaveto_config::JitAccessConfig;
 /// SECURITY (FIND-R51-015): Global session cap for JIT access.
 const MAX_TOTAL_JIT_SESSIONS: usize = 100_000;
 
+/// Maximum length for individual permission or tool strings.
+const MAX_JIT_STRING_FIELD_LEN: usize = 256;
+
+/// SECURITY: Detect control characters AND Unicode format characters
+/// that can bypass simple `is_control()` checks.
+fn is_unsafe_char_jit(c: char) -> bool {
+    let cp = c as u32;
+    c.is_control()
+        || (0x200B..=0x200F).contains(&cp)
+        || (0x202A..=0x202E).contains(&cp)
+        || (0x2060..=0x2064).contains(&cp)
+        || (0x2066..=0x2069).contains(&cp)
+        || cp == 0xFEFF
+        || (0xFFF9..=0xFFFB).contains(&cp)
+        || (0xE0001..=0xE007F).contains(&cp)
+        || cp == 0x00AD
+}
+
 /// Errors that can occur during JIT access operations.
 #[derive(Debug, Error)]
 pub enum JitError {
@@ -155,6 +173,46 @@ impl JitAccessManager {
             return Err(JitError::InvalidInput(
                 "too many tools (max 100)".to_string(),
             ));
+        }
+
+        // SECURITY: Reject control/format characters in string fields.
+        if request.principal.chars().any(is_unsafe_char_jit) {
+            return Err(JitError::InvalidInput(
+                "principal contains control or format characters".to_string(),
+            ));
+        }
+        if request.reason.chars().any(is_unsafe_char_jit) {
+            return Err(JitError::InvalidInput(
+                "reason contains control or format characters".to_string(),
+            ));
+        }
+        for perm in &request.permissions {
+            if perm.len() > MAX_JIT_STRING_FIELD_LEN {
+                return Err(JitError::InvalidInput(format!(
+                    "permission string too long ({} > {})",
+                    perm.len(),
+                    MAX_JIT_STRING_FIELD_LEN
+                )));
+            }
+            if perm.chars().any(is_unsafe_char_jit) {
+                return Err(JitError::InvalidInput(
+                    "permission contains control or format characters".to_string(),
+                ));
+            }
+        }
+        for tool in &request.tools {
+            if tool.len() > MAX_JIT_STRING_FIELD_LEN {
+                return Err(JitError::InvalidInput(format!(
+                    "tool string too long ({} > {})",
+                    tool.len(),
+                    MAX_JIT_STRING_FIELD_LEN
+                )));
+            }
+            if tool.chars().any(is_unsafe_char_jit) {
+                return Err(JitError::InvalidInput(
+                    "tool contains control or format characters".to_string(),
+                ));
+            }
         }
 
         // SECURITY (FIND-R51-015): Global session cap.
@@ -613,5 +671,75 @@ mod tests {
         // All sessions should be revoked
         let sessions = manager.list_sessions("user1");
         assert!(sessions.iter().all(|s| s.revoked));
+    }
+
+    #[test]
+    fn test_jit_request_principal_control_chars() {
+        let manager = JitAccessManager::new(&test_config()).unwrap();
+        let request = JitRequest {
+            principal: "user\x00evil".to_string(),
+            permissions: HashSet::new(),
+            tools: HashSet::new(),
+            ttl_secs: 3600,
+            reason: "test".to_string(),
+        };
+        let result = manager.request_access(request);
+        assert!(matches!(result, Err(JitError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn test_jit_request_reason_control_chars() {
+        let manager = JitAccessManager::new(&test_config()).unwrap();
+        let request = JitRequest {
+            principal: "user1".to_string(),
+            permissions: HashSet::new(),
+            tools: HashSet::new(),
+            ttl_secs: 3600,
+            reason: "reason\nnewline".to_string(),
+        };
+        let result = manager.request_access(request);
+        assert!(matches!(result, Err(JitError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn test_jit_request_permission_control_chars() {
+        let manager = JitAccessManager::new(&test_config()).unwrap();
+        let request = JitRequest {
+            principal: "user1".to_string(),
+            permissions: ["admin\x07bell".to_string()].into_iter().collect(),
+            tools: HashSet::new(),
+            ttl_secs: 3600,
+            reason: "test".to_string(),
+        };
+        let result = manager.request_access(request);
+        assert!(matches!(result, Err(JitError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn test_jit_request_tool_unicode_format_chars() {
+        let manager = JitAccessManager::new(&test_config()).unwrap();
+        let request = JitRequest {
+            principal: "user1".to_string(),
+            permissions: HashSet::new(),
+            tools: ["fs\u{200B}read".to_string()].into_iter().collect(),
+            ttl_secs: 3600,
+            reason: "test".to_string(),
+        };
+        let result = manager.request_access(request);
+        assert!(matches!(result, Err(JitError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn test_jit_request_tool_string_too_long() {
+        let manager = JitAccessManager::new(&test_config()).unwrap();
+        let request = JitRequest {
+            principal: "user1".to_string(),
+            permissions: HashSet::new(),
+            tools: ["x".repeat(257)].into_iter().collect(),
+            ttl_secs: 3600,
+            reason: "test".to_string(),
+        };
+        let result = manager.request_access(request);
+        assert!(matches!(result, Err(JitError::InvalidInput(_))));
     }
 }

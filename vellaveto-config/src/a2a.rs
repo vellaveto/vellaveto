@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 /// allowed_task_operations = []
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct A2aConfig {
     /// Enable A2A protocol support. Default: false.
     #[serde(default)]
@@ -97,6 +98,168 @@ fn default_a2a_max_message_size() -> usize {
 
 fn default_a2a_timeout() -> u64 {
     30000 // 30 seconds
+}
+
+/// Maximum URL length for A2A upstream/listen addresses.
+const MAX_A2A_URL_LENGTH: usize = 2048;
+
+/// Maximum listen address length.
+const MAX_A2A_LISTEN_ADDR_LENGTH: usize = 256;
+
+/// Maximum A2A card cache duration (7 days).
+const MAX_A2A_CARD_CACHE_SECS: u64 = 604_800;
+
+/// Maximum auth methods / task operations entries.
+const MAX_A2A_LIST_ENTRIES: usize = 20;
+
+/// Maximum per-entry string length for auth methods / task operations.
+const MAX_A2A_ENTRY_LENGTH: usize = 64;
+
+/// Maximum message size (100 MB).
+const MAX_A2A_MESSAGE_SIZE: usize = 100 * 1024 * 1024;
+
+/// Maximum request timeout (5 minutes).
+const MAX_A2A_TIMEOUT_MS: u64 = 300_000;
+
+/// Valid A2A auth methods.
+const VALID_A2A_AUTH_METHODS: &[&str] = &["apikey", "bearer", "oauth2", "mtls"];
+
+/// Valid A2A task operations.
+const VALID_A2A_TASK_OPERATIONS: &[&str] = &["get", "cancel", "resubscribe"];
+
+/// Check if a string contains ASCII or C1 control characters.
+fn a2a_contains_control_chars(s: &str) -> bool {
+    s.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b))
+}
+
+impl A2aConfig {
+    /// Validate A2A configuration fields.
+    pub fn validate(&self) -> Result<(), String> {
+        // Validate upstream_url
+        if let Some(ref url) = self.upstream_url {
+            if url.len() > MAX_A2A_URL_LENGTH {
+                return Err(format!(
+                    "a2a.upstream_url length {} exceeds maximum {}",
+                    url.len(),
+                    MAX_A2A_URL_LENGTH
+                ));
+            }
+            if a2a_contains_control_chars(url) {
+                return Err("a2a.upstream_url contains control characters".to_string());
+            }
+            if !url.starts_with("http://") && !url.starts_with("https://") {
+                return Err("a2a.upstream_url must start with http:// or https://".to_string());
+            }
+        }
+
+        // Validate listen_addr
+        if let Some(ref addr) = self.listen_addr {
+            if addr.len() > MAX_A2A_LISTEN_ADDR_LENGTH {
+                return Err(format!(
+                    "a2a.listen_addr length {} exceeds maximum {}",
+                    addr.len(),
+                    MAX_A2A_LISTEN_ADDR_LENGTH
+                ));
+            }
+            if a2a_contains_control_chars(addr) {
+                return Err("a2a.listen_addr contains control characters".to_string());
+            }
+        }
+
+        // Validate agent_card_cache_secs
+        if self.agent_card_cache_secs > MAX_A2A_CARD_CACHE_SECS {
+            return Err(format!(
+                "a2a.agent_card_cache_secs {} exceeds maximum {} (7 days)",
+                self.agent_card_cache_secs, MAX_A2A_CARD_CACHE_SECS
+            ));
+        }
+
+        // Validate allowed_auth_methods
+        if self.allowed_auth_methods.len() > MAX_A2A_LIST_ENTRIES {
+            return Err(format!(
+                "a2a.allowed_auth_methods count {} exceeds maximum {}",
+                self.allowed_auth_methods.len(),
+                MAX_A2A_LIST_ENTRIES
+            ));
+        }
+        for method in &self.allowed_auth_methods {
+            if method.len() > MAX_A2A_ENTRY_LENGTH {
+                return Err(format!(
+                    "a2a.allowed_auth_methods entry length {} exceeds maximum {}",
+                    method.len(),
+                    MAX_A2A_ENTRY_LENGTH
+                ));
+            }
+            if a2a_contains_control_chars(method) {
+                return Err(format!(
+                    "a2a.allowed_auth_methods entry '{}' contains control characters",
+                    method
+                ));
+            }
+            if !VALID_A2A_AUTH_METHODS.contains(&method.as_str()) {
+                return Err(format!(
+                    "a2a.allowed_auth_methods contains invalid value '{}'. \
+                     Valid values: {:?}",
+                    method, VALID_A2A_AUTH_METHODS
+                ));
+            }
+        }
+
+        // Validate max_message_size
+        if self.max_message_size == 0 {
+            return Err("a2a.max_message_size must be > 0".to_string());
+        }
+        if self.max_message_size > MAX_A2A_MESSAGE_SIZE {
+            return Err(format!(
+                "a2a.max_message_size {} exceeds maximum {} (100 MB)",
+                self.max_message_size, MAX_A2A_MESSAGE_SIZE
+            ));
+        }
+
+        // Validate request_timeout_ms
+        if self.request_timeout_ms == 0 {
+            return Err("a2a.request_timeout_ms must be > 0".to_string());
+        }
+        if self.request_timeout_ms > MAX_A2A_TIMEOUT_MS {
+            return Err(format!(
+                "a2a.request_timeout_ms {} exceeds maximum {} (5 minutes)",
+                self.request_timeout_ms, MAX_A2A_TIMEOUT_MS
+            ));
+        }
+
+        // Validate allowed_task_operations
+        if self.allowed_task_operations.len() > MAX_A2A_LIST_ENTRIES {
+            return Err(format!(
+                "a2a.allowed_task_operations count {} exceeds maximum {}",
+                self.allowed_task_operations.len(),
+                MAX_A2A_LIST_ENTRIES
+            ));
+        }
+        for op in &self.allowed_task_operations {
+            if op.len() > MAX_A2A_ENTRY_LENGTH {
+                return Err(format!(
+                    "a2a.allowed_task_operations entry length {} exceeds maximum {}",
+                    op.len(),
+                    MAX_A2A_ENTRY_LENGTH
+                ));
+            }
+            if a2a_contains_control_chars(op) {
+                return Err(format!(
+                    "a2a.allowed_task_operations entry '{}' contains control characters",
+                    op
+                ));
+            }
+            if !VALID_A2A_TASK_OPERATIONS.contains(&op.as_str()) {
+                return Err(format!(
+                    "a2a.allowed_task_operations contains invalid value '{}'. \
+                     Valid values: {:?}",
+                    op, VALID_A2A_TASK_OPERATIONS
+                ));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Default for A2aConfig {

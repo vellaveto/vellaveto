@@ -1,6 +1,7 @@
 //! Criterion benchmarks for audit logging and export throughput.
 //!
 //! Run with: `cargo bench -p vellaveto-audit --bench audit`
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::hint::black_box;
 

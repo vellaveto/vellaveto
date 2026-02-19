@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 /// persistence_path = "/var/lib/vellaveto/tool_registry.jsonl"
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ToolRegistryConfig {
     /// Enable tool registry tracking. Default: false.
     #[serde(default)]

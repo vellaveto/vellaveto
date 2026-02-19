@@ -700,19 +700,46 @@ pub struct LeastAgencyReport {
 }
 
 impl LeastAgencyReport {
-    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    /// Maximum number of unused permission entries.
+    pub const MAX_UNUSED_PERMISSIONS: usize = 10_000;
+
+    /// Validate structural invariants: finite scores, range checks, collection bounds.
     ///
     /// SECURITY (FIND-P2-007): Non-finite floats can propagate through
     /// calculations and comparisons unpredictably, potentially bypassing
     /// threshold checks (e.g., NaN < 0.5 is false, NaN > 0.5 is also false).
-    pub fn validate_finite(&self) -> Result<(), String> {
+    /// SECURITY (FIND-R53-004): usage_ratio must be in [0.0, 1.0] to prevent
+    /// negative or >1.0 values from bypassing threshold checks.
+    /// SECURITY (FIND-R53-005): Unbounded unused_permissions can cause OOM.
+    pub fn validate(&self) -> Result<(), String> {
         if !self.usage_ratio.is_finite() {
             return Err(format!(
                 "LeastAgencyReport for agent '{}' session '{}' has non-finite usage_ratio: {}",
                 self.agent_id, self.session_id, self.usage_ratio
             ));
         }
+        if self.usage_ratio < 0.0 || self.usage_ratio > 1.0 {
+            return Err(format!(
+                "LeastAgencyReport for agent '{}' session '{}' usage_ratio must be in [0.0, 1.0], got {}",
+                self.agent_id, self.session_id, self.usage_ratio
+            ));
+        }
+        if self.unused_permissions.len() > Self::MAX_UNUSED_PERMISSIONS {
+            return Err(format!(
+                "LeastAgencyReport for agent '{}' session '{}' has {} unused_permissions (max {})",
+                self.agent_id,
+                self.session_id,
+                self.unused_permissions.len(),
+                Self::MAX_UNUSED_PERMISSIONS,
+            ));
+        }
         Ok(())
+    }
+
+    /// Deprecated alias for [`LeastAgencyReport::validate()`].
+    #[deprecated(since = "4.0.1", note = "renamed to validate()")]
+    pub fn validate_finite(&self) -> Result<(), String> {
+        self.validate()
     }
 }
 

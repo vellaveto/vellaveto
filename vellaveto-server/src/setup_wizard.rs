@@ -394,7 +394,7 @@ fn get_session_id(req: &Request) -> Option<String> {
 
 fn session_cookie(session_id: &str) -> String {
     format!(
-        "wizard_session={}; Path=/setup; HttpOnly; SameSite=Strict",
+        "wizard_session={}; Path=/setup; Secure; HttpOnly; SameSite=Strict",
         session_id
     )
 }
@@ -604,7 +604,7 @@ pub async fn step_security_post(State(state): State<AppState>, req: Request) -> 
         };
         let expected_csrf = session.csrf_token.clone();
         let provided_csrf = form.get("csrf_token").cloned().unwrap_or_default();
-        if provided_csrf != expected_csrf {
+        if !csrf_token_matches(&provided_csrf, &expected_csrf) {
             return (StatusCode::FORBIDDEN, "Invalid CSRF token").into_response();
         }
     }
@@ -739,7 +739,7 @@ pub async fn step_policies_post(State(state): State<AppState>, req: Request) -> 
             None => return Redirect::to("/setup").into_response(),
         };
         let provided_csrf = form.get("csrf_token").cloned().unwrap_or_default();
-        if provided_csrf != session.csrf_token {
+        if !csrf_token_matches(&provided_csrf, &session.csrf_token) {
             return (StatusCode::FORBIDDEN, "Invalid CSRF token").into_response();
         }
     }
@@ -846,7 +846,7 @@ pub async fn step_detection_post(State(state): State<AppState>, req: Request) ->
             None => return Redirect::to("/setup").into_response(),
         };
         let provided_csrf = form.get("csrf_token").cloned().unwrap_or_default();
-        if provided_csrf != session.csrf_token {
+        if !csrf_token_matches(&provided_csrf, &session.csrf_token) {
             return (StatusCode::FORBIDDEN, "Invalid CSRF token").into_response();
         }
     }
@@ -972,7 +972,7 @@ pub async fn step_audit_post(State(state): State<AppState>, req: Request) -> Res
             None => return Redirect::to("/setup").into_response(),
         };
         let provided_csrf = form.get("csrf_token").cloned().unwrap_or_default();
-        if provided_csrf != session.csrf_token {
+        if !csrf_token_matches(&provided_csrf, &session.csrf_token) {
             return (StatusCode::FORBIDDEN, "Invalid CSRF token").into_response();
         }
     }
@@ -1138,7 +1138,7 @@ pub async fn step_compliance_post(State(state): State<AppState>, req: Request) -
             None => return Redirect::to("/setup").into_response(),
         };
         let provided_csrf = form.get("csrf_token").cloned().unwrap_or_default();
-        if provided_csrf != session.csrf_token {
+        if !csrf_token_matches(&provided_csrf, &session.csrf_token) {
             return (StatusCode::FORBIDDEN, "Invalid CSRF token").into_response();
         }
     }
@@ -1337,7 +1337,7 @@ pub async fn step_apply(State(state): State<AppState>, req: Request) -> Response
             None => return Redirect::to("/setup").into_response(),
         };
         let provided_csrf = form.get("csrf_token").cloned().unwrap_or_default();
-        if provided_csrf != session.csrf_token {
+        if !csrf_token_matches(&provided_csrf, &session.csrf_token) {
             return (StatusCode::FORBIDDEN, "Invalid CSRF token").into_response();
         }
         toml_content = generate_config_toml(&session);
@@ -1718,12 +1718,38 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
 }
 
 fn escape_toml_string(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            // Escape all other control characters as Unicode escapes
+            c if c.is_control() => {
+                let _ = write!(out, "\\u{:04X}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════════════════
+
+/// Constant-time CSRF token comparison to prevent timing attacks (FIND-P2-CSRF-TIMING).
+/// Hashes both values with SHA-256 to normalize length (prevents length oracle)
+/// and uses `subtle::ConstantTimeEq` for the comparison.
+fn csrf_token_matches(provided: &str, expected: &str) -> bool {
+    use sha2::{Digest, Sha256};
+    use subtle::ConstantTimeEq;
+    let provided_hash = Sha256::digest(provided.as_bytes());
+    let expected_hash = Sha256::digest(expected.as_bytes());
+    bool::from(provided_hash.ct_eq(&expected_hash))
+}
 
 fn error_redirect(path: &str, _msg: &str) -> Response {
     // For simplicity in a no-JS environment, just redirect back.
@@ -1958,6 +1984,7 @@ mod tests {
         let cookie = session_cookie("test-uuid-123");
         assert!(cookie.contains("wizard_session=test-uuid-123"));
         assert!(cookie.contains("Path=/setup"));
+        assert!(cookie.contains("Secure"));
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("SameSite=Strict"));
     }
@@ -2006,5 +2033,72 @@ mod tests {
         session.injection_blocking = true;
         let toml = generate_config_toml(&session);
         assert!(toml.contains("blocking = true"));
+    }
+
+    // --- TOML escape adversarial tests (FIND-P2-TOML-INJECTION) ---
+
+    #[test]
+    fn test_escape_toml_string_newlines() {
+        // Newlines must be escaped to prevent TOML key injection
+        assert_eq!(escape_toml_string("line1\nline2"), "line1\\nline2");
+        assert_eq!(escape_toml_string("line1\rline2"), "line1\\rline2");
+        assert_eq!(escape_toml_string("line1\r\nline2"), "line1\\r\\nline2");
+    }
+
+    #[test]
+    fn test_escape_toml_string_tab() {
+        assert_eq!(escape_toml_string("col1\tcol2"), "col1\\tcol2");
+    }
+
+    #[test]
+    fn test_escape_toml_string_control_chars() {
+        // NUL, BEL, and other control characters must be escaped
+        assert_eq!(escape_toml_string("\0"), "\\u0000");
+        assert_eq!(escape_toml_string("\x07"), "\\u0007");
+        assert_eq!(escape_toml_string("\x1B"), "\\u001B");
+    }
+
+    #[test]
+    fn test_escape_toml_string_injection_adversarial() {
+        // Adversarial: attacker tries to inject a new TOML key via newline
+        let malicious = "innocent\"\nmalicious_key = \"pwned";
+        let escaped = escape_toml_string(malicious);
+        // The escaped string must not contain a raw newline
+        assert!(
+            !escaped.contains('\n'),
+            "escaped TOML string must not contain raw newline"
+        );
+    }
+
+    #[test]
+    fn test_escape_toml_string_cr_injection_adversarial() {
+        // Adversarial: attacker tries to inject via carriage return
+        let malicious = "value\r\n[new_section]\r\nkey = \"injected\"";
+        let escaped = escape_toml_string(malicious);
+        assert!(
+            !escaped.contains('\r'),
+            "escaped TOML string must not contain raw CR"
+        );
+        assert!(
+            !escaped.contains('\n'),
+            "escaped TOML string must not contain raw LF"
+        );
+    }
+
+    // --- CSRF constant-time comparison test (FIND-P2-CSRF-TIMING) ---
+
+    #[test]
+    fn test_csrf_token_matches_constant_time() {
+        // Matching tokens
+        assert!(csrf_token_matches("abc-123-def", "abc-123-def"));
+        // Non-matching tokens
+        assert!(!csrf_token_matches("abc-123-def", "abc-123-xyz"));
+        // Empty vs non-empty
+        assert!(!csrf_token_matches("", "abc-123-def"));
+        assert!(!csrf_token_matches("abc-123-def", ""));
+        // Both empty
+        assert!(csrf_token_matches("", ""));
+        // Different length tokens -- must still be constant-time (no length oracle)
+        assert!(!csrf_token_matches("short", "a-much-longer-token-value"));
     }
 }

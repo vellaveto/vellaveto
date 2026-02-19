@@ -2,6 +2,7 @@
 //!
 //! Covers injection scanning, DLP secret detection, duplicate key detection,
 //! and JSON-RPC message framing.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::hint::black_box;
 

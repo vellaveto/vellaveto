@@ -180,6 +180,67 @@ pub struct DataGovernanceRecord {
     pub retention_days: Option<u32>,
 }
 
+impl DataGovernanceRecord {
+    /// Maximum length for `tool` field (bytes).
+    const MAX_TOOL_LEN: usize = 256;
+    /// Maximum length for `provenance` field (bytes).
+    const MAX_PROVENANCE_LEN: usize = 512;
+    /// Maximum number of classifications per record.
+    const MAX_CLASSIFICATIONS: usize = 64;
+
+    /// Validate structural bounds on fields.
+    ///
+    /// SECURITY (FIND-R53-P3-001): Prevents memory exhaustion and control character
+    /// injection from untrusted `DataGovernanceRecord` payloads.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.tool.is_empty() {
+            return Err("DataGovernanceRecord tool must not be empty".to_string());
+        }
+        if self.tool.len() > Self::MAX_TOOL_LEN {
+            return Err(format!(
+                "DataGovernanceRecord tool length {} exceeds max {}",
+                self.tool.len(),
+                Self::MAX_TOOL_LEN,
+            ));
+        }
+        if self
+            .tool
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "DataGovernanceRecord tool contains control or format characters".to_string(),
+            );
+        }
+        if self.classifications.len() > Self::MAX_CLASSIFICATIONS {
+            return Err(format!(
+                "DataGovernanceRecord classifications count {} exceeds max {}",
+                self.classifications.len(),
+                Self::MAX_CLASSIFICATIONS,
+            ));
+        }
+        if let Some(ref prov) = self.provenance {
+            if prov.len() > Self::MAX_PROVENANCE_LEN {
+                return Err(format!(
+                    "DataGovernanceRecord provenance length {} exceeds max {}",
+                    prov.len(),
+                    Self::MAX_PROVENANCE_LEN,
+                ));
+            }
+            if prov
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(
+                    "DataGovernanceRecord provenance contains control or format characters"
+                        .to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
 // ── Phase 38: SOC 2 Type II Access Review Types ─────────────────────────────
 
 /// Status of a reviewer's attestation on an access review report.
@@ -226,6 +287,90 @@ pub struct ReviewerAttestation {
     pub status: AttestationStatus,
 }
 
+impl ReviewerAttestation {
+    /// Maximum length for `reviewer_name` (bytes).
+    const MAX_NAME_LEN: usize = 256;
+    /// Maximum length for `reviewer_title` (bytes).
+    const MAX_TITLE_LEN: usize = 256;
+    /// Maximum length for `reviewed_at` ISO 8601 timestamp (bytes).
+    const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for `notes` (bytes).
+    const MAX_NOTES_LEN: usize = 4096;
+
+    /// Validate structural bounds on fields.
+    ///
+    /// SECURITY (FIND-R53-P3-005): Prevents memory exhaustion and control character
+    /// injection from untrusted `ReviewerAttestation` payloads.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.reviewer_name.is_empty() {
+            return Err("ReviewerAttestation reviewer_name must not be empty".to_string());
+        }
+        if self.reviewer_name.len() > Self::MAX_NAME_LEN {
+            return Err(format!(
+                "ReviewerAttestation reviewer_name length {} exceeds max {}",
+                self.reviewer_name.len(),
+                Self::MAX_NAME_LEN,
+            ));
+        }
+        if self
+            .reviewer_name
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "ReviewerAttestation reviewer_name contains control or format characters"
+                    .to_string(),
+            );
+        }
+        if self.reviewer_title.is_empty() {
+            return Err("ReviewerAttestation reviewer_title must not be empty".to_string());
+        }
+        if self.reviewer_title.len() > Self::MAX_TITLE_LEN {
+            return Err(format!(
+                "ReviewerAttestation reviewer_title length {} exceeds max {}",
+                self.reviewer_title.len(),
+                Self::MAX_TITLE_LEN,
+            ));
+        }
+        if self
+            .reviewer_title
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "ReviewerAttestation reviewer_title contains control or format characters"
+                    .to_string(),
+            );
+        }
+        if let Some(ref ts) = self.reviewed_at {
+            if ts.len() > Self::MAX_TIMESTAMP_LEN {
+                return Err(format!(
+                    "ReviewerAttestation reviewed_at length {} exceeds max {}",
+                    ts.len(),
+                    Self::MAX_TIMESTAMP_LEN,
+                ));
+            }
+        }
+        if self.notes.len() > Self::MAX_NOTES_LEN {
+            return Err(format!(
+                "ReviewerAttestation notes length {} exceeds max {}",
+                self.notes.len(),
+                Self::MAX_NOTES_LEN,
+            ));
+        }
+        if self
+            .notes
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "ReviewerAttestation notes contains control or format characters".to_string(),
+            );
+        }
+        Ok(())
+    }
+}
+
 /// Per-agent access review entry for SOC 2 Type II reporting.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AccessReviewEntry {
@@ -262,18 +407,75 @@ pub struct AccessReviewEntry {
 }
 
 impl AccessReviewEntry {
-    /// Validate that `usage_ratio` is a finite number (not NaN or infinity).
+    /// Maximum number of session IDs per entry.
+    pub const MAX_SESSION_IDS: usize = 10_000;
+    /// Maximum number of tools accessed per entry.
+    pub const MAX_TOOLS_ACCESSED: usize = 10_000;
+    /// Maximum number of functions called per entry.
+    pub const MAX_FUNCTIONS_CALLED: usize = 10_000;
+    /// Maximum number of unused permissions per entry.
+    pub const MAX_UNUSED_PERMISSIONS: usize = 10_000;
+
+    /// Validate structural invariants: finite scores, range checks, collection bounds.
     ///
     /// SECURITY (FIND-R49-003): Non-finite floats can cause unexpected behavior
     /// in comparisons, serialization, and downstream reporting logic.
-    pub fn validate_finite(&self) -> Result<(), String> {
+    /// SECURITY (FIND-R53-003): usage_ratio must be in [0.0, 1.0] to prevent
+    /// negative or >1.0 values from bypassing threshold checks.
+    /// SECURITY (FIND-R53-006): Unbounded Vec fields can cause OOM from
+    /// attacker-controlled deserialized input.
+    pub fn validate(&self) -> Result<(), String> {
         if !self.usage_ratio.is_finite() {
             return Err(format!(
                 "AccessReviewEntry for agent '{}' has non-finite usage_ratio: {}",
                 self.agent_id, self.usage_ratio,
             ));
         }
+        if self.usage_ratio < 0.0 || self.usage_ratio > 1.0 {
+            return Err(format!(
+                "AccessReviewEntry for agent '{}' usage_ratio must be in [0.0, 1.0], got {}",
+                self.agent_id, self.usage_ratio,
+            ));
+        }
+        if self.session_ids.len() > Self::MAX_SESSION_IDS {
+            return Err(format!(
+                "AccessReviewEntry for agent '{}' has {} session_ids (max {})",
+                self.agent_id,
+                self.session_ids.len(),
+                Self::MAX_SESSION_IDS,
+            ));
+        }
+        if self.tools_accessed.len() > Self::MAX_TOOLS_ACCESSED {
+            return Err(format!(
+                "AccessReviewEntry for agent '{}' has {} tools_accessed (max {})",
+                self.agent_id,
+                self.tools_accessed.len(),
+                Self::MAX_TOOLS_ACCESSED,
+            ));
+        }
+        if self.functions_called.len() > Self::MAX_FUNCTIONS_CALLED {
+            return Err(format!(
+                "AccessReviewEntry for agent '{}' has {} functions_called (max {})",
+                self.agent_id,
+                self.functions_called.len(),
+                Self::MAX_FUNCTIONS_CALLED,
+            ));
+        }
+        if self.unused_permissions.len() > Self::MAX_UNUSED_PERMISSIONS {
+            return Err(format!(
+                "AccessReviewEntry for agent '{}' has {} unused_permissions (max {})",
+                self.agent_id,
+                self.unused_permissions.len(),
+                Self::MAX_UNUSED_PERMISSIONS,
+            ));
+        }
         Ok(())
+    }
+
+    /// Deprecated alias for [`AccessReviewEntry::validate()`].
+    #[deprecated(since = "4.0.1", note = "renamed to validate()")]
+    pub fn validate_finite(&self) -> Result<(), String> {
+        self.validate()
     }
 }
 
@@ -320,14 +522,118 @@ pub struct AccessReviewReport {
 }
 
 impl AccessReviewReport {
-    /// Validate all entries in the report.
+    /// Maximum length for ISO 8601 timestamp fields (bytes).
+    const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for `organization_name` (bytes).
+    const MAX_ORG_NAME_LEN: usize = 512;
+    /// Maximum number of entries in a single report.
     ///
-    /// Calls `validate_finite()` on each `AccessReviewEntry` to ensure no
-    /// non-finite `usage_ratio` values are present.
+    /// Matches the runtime cap in `vellaveto-audit/src/access_review.rs` (10K agents).
+    const MAX_ENTRIES: usize = 10_000;
+
+    /// Validate all fields in the report: string bounds, collection bounds,
+    /// control character rejection, and nested entry validation.
+    ///
+    /// SECURITY (FIND-R53-P4-001): The previous implementation only validated
+    /// nested `AccessReviewEntry` fields but skipped bounds checks on the
+    /// report's own string fields (`generated_at`, `organization_name`,
+    /// `period_start`, `period_end`) and the `entries` collection size. An
+    /// attacker-controlled deserialized report could contain multi-megabyte
+    /// strings or unbounded entry lists, causing memory exhaustion.
     pub fn validate(&self) -> Result<(), String> {
-        for entry in &self.entries {
-            entry.validate_finite()?;
+        // ── Timestamp fields ────────────────────────────────────────────
+        if self.generated_at.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "AccessReviewReport generated_at length {} exceeds max {}",
+                self.generated_at.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
         }
+        if self
+            .generated_at
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "AccessReviewReport generated_at contains control or format characters".to_string(),
+            );
+        }
+        if self.period_start.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "AccessReviewReport period_start length {} exceeds max {}",
+                self.period_start.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        if self
+            .period_start
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "AccessReviewReport period_start contains control or format characters".to_string(),
+            );
+        }
+        if self.period_end.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "AccessReviewReport period_end length {} exceeds max {}",
+                self.period_end.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        if self
+            .period_end
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "AccessReviewReport period_end contains control or format characters".to_string(),
+            );
+        }
+
+        // ── Organization name ───────────────────────────────────────────
+        if self.organization_name.is_empty() {
+            return Err("AccessReviewReport organization_name must not be empty".to_string());
+        }
+        if self.organization_name.len() > Self::MAX_ORG_NAME_LEN {
+            return Err(format!(
+                "AccessReviewReport organization_name length {} exceeds max {}",
+                self.organization_name.len(),
+                Self::MAX_ORG_NAME_LEN,
+            ));
+        }
+        if self
+            .organization_name
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "AccessReviewReport organization_name contains control or format characters"
+                    .to_string(),
+            );
+        }
+
+        // ── Collection bounds ───────────────────────────────────────────
+        if self.entries.len() > Self::MAX_ENTRIES {
+            return Err(format!(
+                "AccessReviewReport entries count {} exceeds max {}",
+                self.entries.len(),
+                Self::MAX_ENTRIES,
+            ));
+        }
+
+        // ── Nested entry validation ─────────────────────────────────────
+        for entry in &self.entries {
+            entry.validate()?;
+        }
+
+        // ── Nested attestation validation ───────────────────────────────
+        // Only validate attestation if the reviewer has filled in their name
+        // (pending attestations have empty reviewer_name by design).
+        if !self.attestation.reviewer_name.is_empty() {
+            self.attestation.validate()?;
+        }
+
         Ok(())
     }
 }

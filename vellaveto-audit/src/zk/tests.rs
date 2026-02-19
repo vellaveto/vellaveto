@@ -452,7 +452,7 @@ fn make_test_chain(count: usize) -> (Vec<Fr>, Vec<Fr>) {
     for i in 0..count {
         let mut hasher = Sha256::new();
         hasher.update(format!("entry_{}", i).as_bytes());
-        hasher.update(&prev);
+        hasher.update(prev);
         let entry: [u8; 32] = hasher.finalize().into();
 
         prev_hashes.push(hash_to_field::<Fr>(&prev));
@@ -472,7 +472,7 @@ fn make_chain_witnesses(count: usize) -> Vec<EntryWitness> {
     for i in 0..count {
         let mut hasher = Sha256::new();
         hasher.update(format!("entry_{}", i).as_bytes());
-        hasher.update(&prev_hash);
+        hasher.update(prev_hash);
         let entry_hash: [u8; 32] = hasher.finalize().into();
 
         let (commitment, blinding) = committer.commit(&entry_hash).unwrap();
@@ -816,9 +816,8 @@ fn test_prover_verify_tampered_proof_bytes_invalid() {
     // Tampered proof bytes may fail deserialization or verification
     let result = prover.verify(&proof);
     // Either an error (deserialization) or invalid proof
-    match result {
-        Ok(vr) => assert!(!vr.valid, "Tampered proof bytes should not verify"),
-        Err(_) => {} // deserialization error is also acceptable
+    if let Ok(vr) = result {
+        assert!(!vr.valid, "Tampered proof bytes should not verify");
     }
 }
 

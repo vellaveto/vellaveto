@@ -68,6 +68,17 @@ pub struct TrackedTask {
 }
 
 impl TrackedTask {
+    /// Maximum length for `task_id` (bytes).
+    const MAX_TASK_ID_LEN: usize = 256;
+    /// Maximum length for `tool` (bytes).
+    const MAX_TOOL_LEN: usize = 256;
+    /// Maximum length for `function` (bytes).
+    const MAX_FUNCTION_LEN: usize = 256;
+    /// Maximum length for ISO 8601 timestamp fields (bytes).
+    const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for `created_by` and `session_id` (bytes).
+    const MAX_ID_FIELD_LEN: usize = 256;
+
     /// Returns true if the task is in a terminal state.
     pub fn is_terminal(&self) -> bool {
         matches!(
@@ -82,6 +93,115 @@ impl TrackedTask {
     /// Returns true if the task is active (pending or running).
     pub fn is_active(&self) -> bool {
         matches!(self.status, TaskStatus::Pending | TaskStatus::Running)
+    }
+
+    /// Validate structural bounds on fields.
+    ///
+    /// SECURITY (FIND-R53-P3-002): Prevents memory exhaustion and control character
+    /// injection from untrusted `TrackedTask` payloads.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.task_id.is_empty() {
+            return Err("TrackedTask task_id must not be empty".to_string());
+        }
+        if self.task_id.len() > Self::MAX_TASK_ID_LEN {
+            return Err(format!(
+                "TrackedTask task_id length {} exceeds max {}",
+                self.task_id.len(),
+                Self::MAX_TASK_ID_LEN,
+            ));
+        }
+        if self
+            .task_id
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err("TrackedTask task_id contains control or format characters".to_string());
+        }
+        if self.tool.is_empty() {
+            return Err("TrackedTask tool must not be empty".to_string());
+        }
+        if self.tool.len() > Self::MAX_TOOL_LEN {
+            return Err(format!(
+                "TrackedTask tool length {} exceeds max {}",
+                self.tool.len(),
+                Self::MAX_TOOL_LEN,
+            ));
+        }
+        if self
+            .tool
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err("TrackedTask tool contains control or format characters".to_string());
+        }
+        if self.function.is_empty() {
+            return Err("TrackedTask function must not be empty".to_string());
+        }
+        if self.function.len() > Self::MAX_FUNCTION_LEN {
+            return Err(format!(
+                "TrackedTask function length {} exceeds max {}",
+                self.function.len(),
+                Self::MAX_FUNCTION_LEN,
+            ));
+        }
+        if self
+            .function
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err("TrackedTask function contains control or format characters".to_string());
+        }
+        if self.created_at.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "TrackedTask created_at length {} exceeds max {}",
+                self.created_at.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        if let Some(ref ea) = self.expires_at {
+            if ea.len() > Self::MAX_TIMESTAMP_LEN {
+                return Err(format!(
+                    "TrackedTask expires_at length {} exceeds max {}",
+                    ea.len(),
+                    Self::MAX_TIMESTAMP_LEN,
+                ));
+            }
+        }
+        if let Some(ref cb) = self.created_by {
+            if cb.len() > Self::MAX_ID_FIELD_LEN {
+                return Err(format!(
+                    "TrackedTask created_by length {} exceeds max {}",
+                    cb.len(),
+                    Self::MAX_ID_FIELD_LEN,
+                ));
+            }
+            if cb
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(
+                    "TrackedTask created_by contains control or format characters".to_string(),
+                );
+            }
+        }
+        if let Some(ref sid) = self.session_id {
+            if sid.len() > Self::MAX_ID_FIELD_LEN {
+                return Err(format!(
+                    "TrackedTask session_id length {} exceeds max {}",
+                    sid.len(),
+                    Self::MAX_ID_FIELD_LEN,
+                ));
+            }
+            if sid
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(
+                    "TrackedTask session_id contains control or format characters".to_string(),
+                );
+            }
+        }
+        Ok(())
     }
 }
 
@@ -274,7 +394,7 @@ impl fmt::Debug for SecureTask {
 ///
 /// Checkpoints are signed snapshots that can be used to verify
 /// task state integrity at a specific point in time.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct TaskCheckpoint {
     /// Unique checkpoint identifier.
     pub checkpoint_id: String,
@@ -290,6 +410,109 @@ pub struct TaskCheckpoint {
     pub signature: String,
     /// Public key used to sign (hex-encoded).
     pub public_key: String,
+}
+
+/// SECURITY (FIND-R53-001): Custom Debug redacts `signature` and `public_key`
+/// to prevent secret leakage in logs/debug output.
+impl fmt::Debug for TaskCheckpoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TaskCheckpoint")
+            .field("checkpoint_id", &self.checkpoint_id)
+            .field("task_id", &self.task_id)
+            .field("sequence", &self.sequence)
+            .field("state_hash", &self.state_hash)
+            .field("created_at", &self.created_at)
+            .field("signature", &"[REDACTED]")
+            .field("public_key", &"[REDACTED]")
+            .finish()
+    }
+}
+
+impl TaskCheckpoint {
+    /// Maximum length for `checkpoint_id` (bytes).
+    const MAX_CHECKPOINT_ID_LEN: usize = 256;
+    /// Maximum length for `task_id` (bytes).
+    const MAX_TASK_ID_LEN: usize = 256;
+    /// Maximum length for `state_hash` (bytes).
+    const MAX_HASH_LEN: usize = 256;
+    /// Maximum length for ISO 8601 timestamp fields (bytes).
+    const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for hex-encoded signature (bytes).
+    const MAX_SIGNATURE_LEN: usize = 512;
+    /// Maximum length for hex-encoded public key (bytes).
+    const MAX_PUBLIC_KEY_LEN: usize = 512;
+
+    /// Validate structural bounds on fields.
+    ///
+    /// SECURITY (FIND-R53-P3-003): Prevents memory exhaustion and control character
+    /// injection from untrusted `TaskCheckpoint` payloads.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.checkpoint_id.is_empty() {
+            return Err("TaskCheckpoint checkpoint_id must not be empty".to_string());
+        }
+        if self.checkpoint_id.len() > Self::MAX_CHECKPOINT_ID_LEN {
+            return Err(format!(
+                "TaskCheckpoint checkpoint_id length {} exceeds max {}",
+                self.checkpoint_id.len(),
+                Self::MAX_CHECKPOINT_ID_LEN,
+            ));
+        }
+        if self
+            .checkpoint_id
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "TaskCheckpoint checkpoint_id contains control or format characters".to_string(),
+            );
+        }
+        if self.task_id.is_empty() {
+            return Err("TaskCheckpoint task_id must not be empty".to_string());
+        }
+        if self.task_id.len() > Self::MAX_TASK_ID_LEN {
+            return Err(format!(
+                "TaskCheckpoint task_id length {} exceeds max {}",
+                self.task_id.len(),
+                Self::MAX_TASK_ID_LEN,
+            ));
+        }
+        if self
+            .task_id
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err("TaskCheckpoint task_id contains control or format characters".to_string());
+        }
+        if self.state_hash.len() > Self::MAX_HASH_LEN {
+            return Err(format!(
+                "TaskCheckpoint state_hash length {} exceeds max {}",
+                self.state_hash.len(),
+                Self::MAX_HASH_LEN,
+            ));
+        }
+        if self.created_at.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "TaskCheckpoint created_at length {} exceeds max {}",
+                self.created_at.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        if self.signature.len() > Self::MAX_SIGNATURE_LEN {
+            return Err(format!(
+                "TaskCheckpoint signature length {} exceeds max {}",
+                self.signature.len(),
+                Self::MAX_SIGNATURE_LEN,
+            ));
+        }
+        if self.public_key.len() > Self::MAX_PUBLIC_KEY_LEN {
+            return Err(format!(
+                "TaskCheckpoint public_key length {} exceeds max {}",
+                self.public_key.len(),
+                Self::MAX_PUBLIC_KEY_LEN,
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Request to resume a task with authentication.

@@ -1,6 +1,7 @@
 //! Criterion benchmarks for vellaveto-engine policy evaluation.
 //!
 //! Validates that evaluation latency stays under 5ms for realistic workloads.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::hint::black_box;
 

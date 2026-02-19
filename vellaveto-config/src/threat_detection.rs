@@ -23,6 +23,7 @@ use crate::default_true;
 /// max_agents = 10000
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct BehavioralDetectionConfig {
     /// Enable behavioral anomaly detection. Default: false.
     #[serde(default)]
@@ -103,6 +104,7 @@ impl Default for BehavioralDetectionConfig {
 /// require_exact_match = false
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct DataFlowTrackingConfig {
     /// Enable cross-request data flow tracking. Default: false.
     #[serde(default)]
@@ -169,6 +171,7 @@ impl Default for DataFlowTrackingConfig {
 /// ]
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SemanticDetectionConfig {
     /// Enable semantic injection detection. Default: false.
     /// Requires the `semantic-detection` feature flag on `vellaveto-mcp`.
@@ -249,6 +252,7 @@ fn default_cb_half_open_max_requests() -> u32 {
 /// half_open_max_requests = 1
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct CircuitBreakerConfig {
     /// Enable circuit breaker protection. Default: false.
     #[serde(default)]
@@ -302,6 +306,7 @@ fn default_max_delegation_depth() -> u8 {
 /// require_explicit_delegation = false
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct DeputyConfig {
     /// Enable confused deputy prevention. Default: false.
     #[serde(default)]
@@ -353,6 +358,7 @@ fn default_trust_decay_hours() -> u64 {
 /// min_trust_level = 1
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ShadowAgentConfig {
     /// Enable shadow agent detection. Default: false.
     #[serde(default)]
@@ -430,6 +436,7 @@ fn default_min_schema_observations() -> u32 {
 /// max_tracked_schemas = 1000
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SchemaPoisoningConfig {
     /// Enable schema poisoning detection. Default: false.
     #[serde(default)]
@@ -500,6 +507,7 @@ fn default_max_sampling_prompt_length() -> usize {
 /// block_sensitive_patterns = true
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SamplingDetectionConfig {
     /// Enable sampling attack detection. Default: false.
     #[serde(default)]
@@ -584,6 +592,7 @@ fn default_max_privilege_gap() -> u8 {
 /// max_privilege_gap = 2
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct CrossAgentConfig {
     /// Enable cross-agent security features. Default: false.
     #[serde(default)]
@@ -687,6 +696,7 @@ impl Default for CrossAgentConfig {
 /// kill_switch_enabled = true
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AdvancedThreatConfig {
     /// Enable goal state tracking to detect objective drift mid-session.
     /// Detects when an agent's goals change unexpectedly (ASI01 mitigation).

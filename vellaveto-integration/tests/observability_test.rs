@@ -68,14 +68,21 @@ async fn capture_request(
     StatusCode::OK
 }
 
-async fn spawn_capture_server() -> (
+async fn spawn_capture_server() -> Option<(
     String,
     oneshot::Receiver<CapturedRequest>,
     tokio::task::JoinHandle<()>,
-) {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind capture server");
+)> {
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            eprintln!(
+                "skipping observability integration test: cannot bind capture server: {error}"
+            );
+            return None;
+        }
+        Err(error) => panic!("bind capture server: {error}"),
+    };
     let address = listener.local_addr().expect("capture server local addr");
     let (sender, receiver) = oneshot::channel();
 
@@ -90,7 +97,7 @@ async fn spawn_capture_server() -> (
         let _ = axum::serve(listener, app).await;
     });
 
-    (format!("http://{}", address), receiver, handle)
+    Some((format!("http://{}", address), receiver, handle))
 }
 
 #[derive(Clone)]
@@ -184,14 +191,21 @@ async fn capture_planned_request(
 async fn spawn_planned_capture_server(
     expected_requests: usize,
     responses: Vec<PlannedResponse>,
-) -> (
+) -> Option<(
     String,
     oneshot::Receiver<Vec<CapturedRequest>>,
     tokio::task::JoinHandle<()>,
-) {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind planned capture server");
+)> {
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            eprintln!(
+                "skipping observability integration test: cannot bind planned capture server: {error}"
+            );
+            return None;
+        }
+        Err(error) => panic!("bind planned capture server: {error}"),
+    };
     let address = listener.local_addr().expect("planned capture local addr");
     let (sender, receiver) = oneshot::channel();
 
@@ -210,7 +224,7 @@ async fn spawn_planned_capture_server(
         let _ = axum::serve(listener, app).await;
     });
 
-    (format!("http://{}", address), receiver, handle)
+    Some((format!("http://{}", address), receiver, handle))
 }
 
 fn sample_span() -> SecuritySpan {
@@ -263,7 +277,9 @@ fn sample_spans(count: usize) -> Vec<SecuritySpan> {
 
 #[tokio::test]
 async fn test_langfuse_exporter_serialization() {
-    let (base_url, receiver, server_handle) = spawn_capture_server().await;
+    let Some((base_url, receiver, server_handle)) = spawn_capture_server().await else {
+        return;
+    };
 
     let config = LangfuseExporterConfig::new(base_url, "pk-test", "sk-test");
     let exporter = LangfuseExporter::new(config).expect("langfuse exporter");
@@ -313,7 +329,9 @@ async fn test_langfuse_exporter_serialization() {
 
 #[tokio::test]
 async fn test_arize_otlp_format() {
-    let (base_url, receiver, server_handle) = spawn_capture_server().await;
+    let Some((base_url, receiver, server_handle)) = spawn_capture_server().await else {
+        return;
+    };
 
     let config = ArizeExporterConfig::new(base_url, "space-123", "api-456");
     let exporter = ArizeExporter::new(config).expect("arize exporter");
@@ -366,7 +384,9 @@ async fn test_arize_otlp_format() {
 
 #[tokio::test]
 async fn test_helicone_log_format() {
-    let (base_url, receiver, server_handle) = spawn_capture_server().await;
+    let Some((base_url, receiver, server_handle)) = spawn_capture_server().await else {
+        return;
+    };
 
     let config = HeliconeExporterConfig::new(format!("{}/v1/log", base_url), "helicone-key");
     let exporter = HeliconeExporter::new(config).expect("helicone exporter");
@@ -401,7 +421,9 @@ async fn test_helicone_log_format() {
 
 #[tokio::test]
 async fn test_webhook_gzip_compression() {
-    let (base_url, receiver, server_handle) = spawn_capture_server().await;
+    let Some((base_url, receiver, server_handle)) = spawn_capture_server().await else {
+        return;
+    };
 
     let config = WebhookExporterConfig::new(format!("{}/webhook", base_url)).with_compression(true);
     let exporter = WebhookExporter::new(config).expect("webhook exporter");
@@ -438,7 +460,7 @@ async fn test_webhook_gzip_compression() {
 
 #[tokio::test]
 async fn test_export_batch_various_span_counts() {
-    let (base_url, receiver, server_handle) = spawn_planned_capture_server(
+    let Some((base_url, receiver, server_handle)) = spawn_planned_capture_server(
         3,
         vec![
             PlannedResponse::ok(),
@@ -446,7 +468,10 @@ async fn test_export_batch_various_span_counts() {
             PlannedResponse::ok(),
         ],
     )
-    .await;
+    .await
+    else {
+        return;
+    };
 
     let mut config = WebhookExporterConfig::new(format!("{}/webhook", base_url))
         .with_compression(false)
@@ -482,7 +507,7 @@ async fn test_export_batch_various_span_counts() {
 #[tokio::test]
 async fn test_health_check_failures_propagate_auth_errors() {
     // Langfuse
-    let (base_url, receiver, server_handle) = spawn_planned_capture_server(
+    let Some((base_url, receiver, server_handle)) = spawn_planned_capture_server(
         1,
         vec![PlannedResponse {
             status: StatusCode::UNAUTHORIZED,
@@ -490,7 +515,10 @@ async fn test_health_check_failures_propagate_auth_errors() {
             delay: None,
         }],
     )
-    .await;
+    .await
+    else {
+        return;
+    };
     let exporter =
         LangfuseExporter::new(LangfuseExporterConfig::new(base_url, "pk-test", "sk-test"))
             .expect("langfuse exporter");
@@ -504,7 +532,7 @@ async fn test_health_check_failures_propagate_auth_errors() {
     assert!(matches!(result, Err(ObservabilityError::AuthError(_))));
 
     // Arize
-    let (base_url, receiver, server_handle) = spawn_planned_capture_server(
+    let Some((base_url, receiver, server_handle)) = spawn_planned_capture_server(
         1,
         vec![PlannedResponse {
             status: StatusCode::UNAUTHORIZED,
@@ -512,7 +540,10 @@ async fn test_health_check_failures_propagate_auth_errors() {
             delay: None,
         }],
     )
-    .await;
+    .await
+    else {
+        return;
+    };
     let exporter = ArizeExporter::new(ArizeExporterConfig::new(base_url, "space", "api"))
         .expect("arize exporter");
     let result = exporter.health_check().await;
@@ -525,7 +556,7 @@ async fn test_health_check_failures_propagate_auth_errors() {
     assert!(matches!(result, Err(ObservabilityError::AuthError(_))));
 
     // Helicone
-    let (base_url, receiver, server_handle) = spawn_planned_capture_server(
+    let Some((base_url, receiver, server_handle)) = spawn_planned_capture_server(
         1,
         vec![PlannedResponse {
             status: StatusCode::UNAUTHORIZED,
@@ -533,7 +564,10 @@ async fn test_health_check_failures_propagate_auth_errors() {
             delay: None,
         }],
     )
-    .await;
+    .await
+    else {
+        return;
+    };
     let exporter = HeliconeExporter::new(HeliconeExporterConfig::new(
         format!("{}/v1/log", base_url),
         "helicone-key",
@@ -549,7 +583,7 @@ async fn test_health_check_failures_propagate_auth_errors() {
     assert!(matches!(result, Err(ObservabilityError::AuthError(_))));
 
     // Webhook
-    let (base_url, receiver, server_handle) = spawn_planned_capture_server(
+    let Some((base_url, receiver, server_handle)) = spawn_planned_capture_server(
         1,
         vec![PlannedResponse {
             status: StatusCode::UNAUTHORIZED,
@@ -557,7 +591,10 @@ async fn test_health_check_failures_propagate_auth_errors() {
             delay: None,
         }],
     )
-    .await;
+    .await
+    else {
+        return;
+    };
     let exporter =
         WebhookExporter::new(WebhookExporterConfig::new(format!("{}/webhook", base_url)))
             .expect("webhook exporter");
@@ -573,7 +610,7 @@ async fn test_health_check_failures_propagate_auth_errors() {
 
 #[tokio::test]
 async fn test_export_retry_on_rate_limit() {
-    let (base_url, receiver, server_handle) = spawn_planned_capture_server(
+    let Some((base_url, receiver, server_handle)) = spawn_planned_capture_server(
         2,
         vec![
             PlannedResponse {
@@ -584,7 +621,10 @@ async fn test_export_retry_on_rate_limit() {
             PlannedResponse::ok(),
         ],
     )
-    .await;
+    .await
+    else {
+        return;
+    };
 
     let mut config = LangfuseExporterConfig::new(base_url, "pk-test", "sk-test");
     config.common.max_retries = 1;
@@ -615,11 +655,14 @@ async fn test_concurrent_batch_chunk_processing() {
     let batch_size = 10usize;
     let expected_requests = concurrent_calls * spans_per_call.div_ceil(batch_size);
 
-    let (base_url, receiver, server_handle) = spawn_planned_capture_server(
+    let Some((base_url, receiver, server_handle)) = spawn_planned_capture_server(
         expected_requests,
         vec![PlannedResponse::ok(); expected_requests],
     )
-    .await;
+    .await
+    else {
+        return;
+    };
 
     let mut config = WebhookExporterConfig::new(format!("{}/webhook", base_url))
         .with_compression(false)
@@ -659,7 +702,7 @@ async fn test_concurrent_batch_chunk_processing() {
 
 #[tokio::test]
 async fn test_export_timeout_on_slow_endpoint() {
-    let (base_url, receiver, server_handle) = spawn_planned_capture_server(
+    let Some((base_url, receiver, server_handle)) = spawn_planned_capture_server(
         1,
         vec![PlannedResponse {
             status: StatusCode::OK,
@@ -667,7 +710,10 @@ async fn test_export_timeout_on_slow_endpoint() {
             delay: Some(Duration::from_secs(2)),
         }],
     )
-    .await;
+    .await
+    else {
+        return;
+    };
 
     let mut config = WebhookExporterConfig::new(format!("{}/webhook", base_url))
         .with_compression(false)

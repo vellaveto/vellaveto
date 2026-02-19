@@ -28,12 +28,17 @@ use std::collections::{HashMap, HashSet};
 
 use crate::inspection::DlpFinding;
 
+/// Maximum allowed value for max_findings in DataFlowConfig.
+/// Prevents excessive memory allocation from attacker-controlled config values.
+const MAX_DATA_FLOW_CONFIG_MAX_FINDINGS: usize = 100_000;
+
 // ═══════════════════════════════════════════════════
 // CONFIGURATION
 // ═══════════════════════════════════════════════════
 
 /// Configuration for data flow tracking.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DataFlowConfig {
     /// Maximum number of response findings to retain per session.
     /// Oldest findings are evicted when capacity is reached.
@@ -80,6 +85,8 @@ impl Default for DataFlowConfig {
 pub enum DataFlowError {
     /// max_findings must be > 0.
     InvalidMaxFindings,
+    /// max_findings exceeds upper bound.
+    MaxFindingsTooLarge,
     /// max_fingerprints_per_pattern must be > 0.
     InvalidMaxFingerprints,
 }
@@ -88,6 +95,13 @@ impl std::fmt::Display for DataFlowError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DataFlowError::InvalidMaxFindings => write!(f, "max_findings must be > 0"),
+            DataFlowError::MaxFindingsTooLarge => {
+                write!(
+                    f,
+                    "max_findings must be <= {}",
+                    MAX_DATA_FLOW_CONFIG_MAX_FINDINGS
+                )
+            }
             DataFlowError::InvalidMaxFingerprints => {
                 write!(f, "max_fingerprints_per_pattern must be > 0")
             }
@@ -102,6 +116,9 @@ impl DataFlowConfig {
     pub fn validate(&self) -> Result<(), DataFlowError> {
         if self.max_findings == 0 {
             return Err(DataFlowError::InvalidMaxFindings);
+        }
+        if self.max_findings > MAX_DATA_FLOW_CONFIG_MAX_FINDINGS {
+            return Err(DataFlowError::MaxFindingsTooLarge);
         }
         if self.max_fingerprints_per_pattern == 0 {
             return Err(DataFlowError::InvalidMaxFingerprints);

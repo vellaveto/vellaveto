@@ -43,6 +43,7 @@ use serde::{Deserialize, Serialize};
 /// Controls AI observability platform integrations (Langfuse, Arize, Helicone)
 /// and enhanced tracing with request/response body capture.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ObservabilityConfig {
     /// Master toggle for observability. Default: false (opt-in).
     #[serde(default)]
@@ -148,6 +149,7 @@ impl Default for ObservabilityConfig {
 /// Langfuse (<https://langfuse.com>) provides tracing, evaluation, and
 /// observability for LLM applications.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct LangfuseConfig {
     /// Enable Langfuse exporter. Default: false.
     #[serde(default)]
@@ -240,6 +242,7 @@ impl Default for LangfuseConfig {
 /// Arize (<https://arize.com>) provides ML observability with a focus on
 /// embeddings, model performance, and drift detection.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ArizeConfig {
     /// Enable Arize exporter. Default: false.
     #[serde(default)]
@@ -320,6 +323,7 @@ impl Default for ArizeConfig {
 /// Helicone (<https://helicone.ai>) provides LLM observability through
 /// header-based integration with LLM API providers.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct HeliconeConfig {
     /// Enable Helicone exporter. Default: false.
     #[serde(default)]
@@ -381,6 +385,7 @@ impl Default for HeliconeConfig {
 ///
 /// Sends security spans to a custom HTTP endpoint as JSON.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct WebhookExporterConfig {
     /// Enable webhook exporter. Default: false.
     #[serde(default)]
@@ -452,6 +457,7 @@ pub enum OtlpProtocol {
 /// Exports `SecuritySpan` traces to any OTLP-compatible collector
 /// (Jaeger, Grafana Tempo, Datadog, etc.) with GenAI semantic conventions.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct OtlpConfig {
     /// Enable OTLP exporter. Default: false.
     #[serde(default)]
@@ -527,6 +533,14 @@ impl ObservabilityConfig {
 
     /// Validate the configuration.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R53-P3-002): Validate sample_rate is finite before range check.
+        // NaN bypasses both < and > comparisons, silently accepting an invalid value.
+        if !self.sample_rate.is_finite() {
+            return Err(format!(
+                "observability.sample_rate must be finite, got {}",
+                self.sample_rate
+            ));
+        }
         // Validate sample_rate
         if self.sample_rate < 0.0 || self.sample_rate > 1.0 {
             return Err(format!(

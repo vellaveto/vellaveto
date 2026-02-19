@@ -29,7 +29,10 @@ pub const MAX_EXTENSION_ID_LEN: usize = 256;
 /// Describes a loadable extension that handles `x-<id>/...` method calls.
 /// Extensions are isolated via resource limits and can optionally be
 /// signed for integrity verification.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+///
+/// Uses a custom `Debug` implementation that redacts `signature` and `public_key`
+/// to prevent secret leakage in logs/debug output (FIND-R53-P3-004).
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExtensionDescriptor {
     /// Unique extension identifier (e.g., "vellaveto-audit").
     /// Used as the `x-<id>/` prefix for method routing.
@@ -50,6 +53,24 @@ pub struct ExtensionDescriptor {
     /// Optional Ed25519 public key of the signer (hex-encoded).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_key: Option<String>,
+}
+
+// SECURITY (FIND-R53-P3-004): Custom Debug to redact optional signature and public_key.
+impl std::fmt::Debug for ExtensionDescriptor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExtensionDescriptor")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("version", &self.version)
+            .field("capabilities", &self.capabilities)
+            .field("methods", &self.methods)
+            .field("signature", &self.signature.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "public_key",
+                &self.public_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 impl ExtensionDescriptor {

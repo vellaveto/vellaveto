@@ -171,7 +171,7 @@ fn test_prost_struct_to_json_all_types() {
             (
                 "number_val".to_string(),
                 prost_types::Value {
-                    kind: Some(Kind::NumberValue(3.14)),
+                    kind: Some(Kind::NumberValue(std::f64::consts::PI)),
                 },
             ),
             (
@@ -198,7 +198,7 @@ fn test_prost_struct_to_json_all_types() {
     let json = prost_struct_to_json(&s, 0).unwrap();
     assert!(json["null_val"].is_null());
     assert_eq!(json["bool_val"], true);
-    assert!((json["number_val"].as_f64().unwrap() - 3.14).abs() < f64::EPSILON);
+    assert!((json["number_val"].as_f64().unwrap() - std::f64::consts::PI).abs() < f64::EPSILON);
     assert_eq!(json["string_val"], "hello");
     assert_eq!(json["list_val"][0], 1);
 }
@@ -365,7 +365,7 @@ fn test_prost_number_float_roundtrip() {
         fields: vec![(
             "score".to_string(),
             prost_types::Value {
-                kind: Some(Kind::NumberValue(3.14)),
+                kind: Some(Kind::NumberValue(std::f64::consts::PI)),
             },
         )]
         .into_iter()

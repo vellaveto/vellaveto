@@ -5269,3 +5269,320 @@ fn test_tool_signature_is_expired_malformed_expires_at_returns_expired() {
     // the malformed month/day/hour/minute/second should cause fail-closed (expired).
     assert!(sig.is_expired("2026-02-15T12:00:00Z"));
 }
+
+// ── FIND-R53-001: TaskCheckpoint Debug redacts signature and public_key ──────
+
+#[test]
+fn test_task_checkpoint_debug_redacts_signature() {
+    let cp = TaskCheckpoint {
+        checkpoint_id: "cp-1".to_string(),
+        task_id: "task-1".to_string(),
+        sequence: 0,
+        state_hash: "abc123".to_string(),
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        signature: "supersecret_signature".to_string(),
+        public_key: "supersecret_pubkey".to_string(),
+    };
+    let debug = format!("{:?}", cp);
+    assert!(
+        !debug.contains("supersecret_signature"),
+        "Debug output must not contain raw signature"
+    );
+    assert!(
+        !debug.contains("supersecret_pubkey"),
+        "Debug output must not contain raw public_key"
+    );
+    assert!(
+        debug.contains("[REDACTED]"),
+        "Debug output must show [REDACTED] for sensitive fields"
+    );
+    assert!(debug.contains("cp-1"));
+    assert!(debug.contains("task-1"));
+    assert!(debug.contains("abc123"));
+}
+
+// ── FIND-R53-002: AccountabilityAttestation Debug redacts signature/public_key
+
+#[test]
+fn test_accountability_attestation_debug_redacts_signature() {
+    let att = AccountabilityAttestation {
+        attestation_id: "att-1".to_string(),
+        agent_id: "agent-1".to_string(),
+        did: None,
+        statement: "I agree".to_string(),
+        policy_hash: "hash123".to_string(),
+        signature: "topsecret_sig".to_string(),
+        algorithm: "Ed25519".to_string(),
+        public_key: "topsecret_key".to_string(),
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-12-31T23:59:59Z".to_string(),
+        verified: false,
+    };
+    let debug = format!("{:?}", att);
+    assert!(
+        !debug.contains("topsecret_sig"),
+        "Debug output must not contain raw signature"
+    );
+    assert!(
+        !debug.contains("topsecret_key"),
+        "Debug output must not contain raw public_key"
+    );
+    assert!(
+        debug.contains("[REDACTED]"),
+        "Debug output must show [REDACTED] for sensitive fields"
+    );
+    assert!(debug.contains("att-1"));
+    assert!(debug.contains("agent-1"));
+    assert!(debug.contains("Ed25519"));
+}
+
+// ── FIND-R53-003: AccessReviewEntry usage_ratio [0.0, 1.0] range validation ──
+
+#[test]
+fn test_access_review_entry_validate_rejects_negative_usage_ratio() {
+    let entry = AccessReviewEntry {
+        agent_id: "agent-1".to_string(),
+        session_ids: vec![],
+        first_access: "2026-01-01T00:00:00Z".to_string(),
+        last_access: "2026-01-31T00:00:00Z".to_string(),
+        total_evaluations: 10,
+        allow_count: 5,
+        deny_count: 5,
+        require_approval_count: 0,
+        tools_accessed: vec![],
+        functions_called: vec![],
+        permissions_granted: 5,
+        permissions_used: 3,
+        usage_ratio: -0.1,
+        unused_permissions: vec![],
+        agency_recommendation: "Optimal".to_string(),
+    };
+    let err = entry.validate().unwrap_err();
+    assert!(err.contains("usage_ratio must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_access_review_entry_validate_rejects_above_one_usage_ratio() {
+    let entry = AccessReviewEntry {
+        agent_id: "agent-1".to_string(),
+        session_ids: vec![],
+        first_access: "2026-01-01T00:00:00Z".to_string(),
+        last_access: "2026-01-31T00:00:00Z".to_string(),
+        total_evaluations: 10,
+        allow_count: 5,
+        deny_count: 5,
+        require_approval_count: 0,
+        tools_accessed: vec![],
+        functions_called: vec![],
+        permissions_granted: 5,
+        permissions_used: 3,
+        usage_ratio: 1.5,
+        unused_permissions: vec![],
+        agency_recommendation: "Optimal".to_string(),
+    };
+    let err = entry.validate().unwrap_err();
+    assert!(err.contains("usage_ratio must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_access_review_entry_validate_rejects_nan_usage_ratio() {
+    let entry = AccessReviewEntry {
+        agent_id: "agent-1".to_string(),
+        session_ids: vec![],
+        first_access: "2026-01-01T00:00:00Z".to_string(),
+        last_access: "2026-01-31T00:00:00Z".to_string(),
+        total_evaluations: 10,
+        allow_count: 5,
+        deny_count: 5,
+        require_approval_count: 0,
+        tools_accessed: vec![],
+        functions_called: vec![],
+        permissions_granted: 5,
+        permissions_used: 3,
+        usage_ratio: f64::NAN,
+        unused_permissions: vec![],
+        agency_recommendation: "Optimal".to_string(),
+    };
+    let err = entry.validate().unwrap_err();
+    assert!(err.contains("non-finite usage_ratio"));
+}
+
+#[test]
+fn test_access_review_entry_validate_accepts_valid_ratio() {
+    let entry = AccessReviewEntry {
+        agent_id: "agent-1".to_string(),
+        session_ids: vec!["s1".to_string()],
+        first_access: "2026-01-01T00:00:00Z".to_string(),
+        last_access: "2026-01-31T00:00:00Z".to_string(),
+        total_evaluations: 10,
+        allow_count: 5,
+        deny_count: 5,
+        require_approval_count: 0,
+        tools_accessed: vec!["tool1".to_string()],
+        functions_called: vec!["fn1".to_string()],
+        permissions_granted: 5,
+        permissions_used: 4,
+        usage_ratio: 0.8,
+        unused_permissions: vec!["p1".to_string()],
+        agency_recommendation: "Optimal".to_string(),
+    };
+    assert!(entry.validate().is_ok());
+}
+
+// ── FIND-R53-006: AccessReviewEntry unbounded Vec fields ─────────────────────
+
+#[test]
+fn test_access_review_entry_validate_rejects_too_many_session_ids() {
+    let entry = AccessReviewEntry {
+        agent_id: "agent-1".to_string(),
+        session_ids: (0..=AccessReviewEntry::MAX_SESSION_IDS)
+            .map(|i| format!("s{i}"))
+            .collect(),
+        first_access: "2026-01-01T00:00:00Z".to_string(),
+        last_access: "2026-01-31T00:00:00Z".to_string(),
+        total_evaluations: 10,
+        allow_count: 5,
+        deny_count: 5,
+        require_approval_count: 0,
+        tools_accessed: vec![],
+        functions_called: vec![],
+        permissions_granted: 5,
+        permissions_used: 4,
+        usage_ratio: 0.8,
+        unused_permissions: vec![],
+        agency_recommendation: "Optimal".to_string(),
+    };
+    let err = entry.validate().unwrap_err();
+    assert!(err.contains("session_ids"));
+}
+
+#[test]
+fn test_access_review_entry_validate_rejects_too_many_unused_permissions() {
+    let entry = AccessReviewEntry {
+        agent_id: "agent-1".to_string(),
+        session_ids: vec![],
+        first_access: "2026-01-01T00:00:00Z".to_string(),
+        last_access: "2026-01-31T00:00:00Z".to_string(),
+        total_evaluations: 10,
+        allow_count: 5,
+        deny_count: 5,
+        require_approval_count: 0,
+        tools_accessed: vec![],
+        functions_called: vec![],
+        permissions_granted: 5,
+        permissions_used: 4,
+        usage_ratio: 0.8,
+        unused_permissions: (0..=AccessReviewEntry::MAX_UNUSED_PERMISSIONS)
+            .map(|i| format!("p{i}"))
+            .collect(),
+        agency_recommendation: "Optimal".to_string(),
+    };
+    let err = entry.validate().unwrap_err();
+    assert!(err.contains("unused_permissions"));
+}
+
+// ── FIND-R53-004: LeastAgencyReport usage_ratio [0.0, 1.0] range validation ──
+
+#[test]
+fn test_least_agency_report_validate_rejects_negative_usage_ratio() {
+    let report = LeastAgencyReport {
+        agent_id: "agent-1".to_string(),
+        session_id: "sess-1".to_string(),
+        granted_permissions: 5,
+        used_permissions: 3,
+        unused_permissions: vec![],
+        usage_ratio: -0.5,
+        recommendation: AgencyRecommendation::Critical,
+    };
+    let err = report.validate().unwrap_err();
+    assert!(err.contains("usage_ratio must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_least_agency_report_validate_rejects_above_one_usage_ratio() {
+    let report = LeastAgencyReport {
+        agent_id: "agent-1".to_string(),
+        session_id: "sess-1".to_string(),
+        granted_permissions: 5,
+        used_permissions: 3,
+        unused_permissions: vec![],
+        usage_ratio: 2.0,
+        recommendation: AgencyRecommendation::Optimal,
+    };
+    let err = report.validate().unwrap_err();
+    assert!(err.contains("usage_ratio must be in [0.0, 1.0]"));
+}
+
+#[test]
+fn test_least_agency_report_validate_rejects_nan_usage_ratio() {
+    let report = LeastAgencyReport {
+        agent_id: "agent-1".to_string(),
+        session_id: "sess-1".to_string(),
+        granted_permissions: 5,
+        used_permissions: 3,
+        unused_permissions: vec![],
+        usage_ratio: f64::NAN,
+        recommendation: AgencyRecommendation::Critical,
+    };
+    let err = report.validate().unwrap_err();
+    assert!(err.contains("non-finite usage_ratio"));
+}
+
+#[test]
+fn test_least_agency_report_validate_accepts_valid() {
+    let report = LeastAgencyReport {
+        agent_id: "agent-1".to_string(),
+        session_id: "sess-1".to_string(),
+        granted_permissions: 5,
+        used_permissions: 4,
+        unused_permissions: vec!["p1".to_string()],
+        usage_ratio: 0.8,
+        recommendation: AgencyRecommendation::Optimal,
+    };
+    assert!(report.validate().is_ok());
+}
+
+#[test]
+fn test_least_agency_report_validate_accepts_boundary_values() {
+    let report_zero = LeastAgencyReport {
+        agent_id: "a".to_string(),
+        session_id: "s".to_string(),
+        granted_permissions: 5,
+        used_permissions: 0,
+        unused_permissions: vec![],
+        usage_ratio: 0.0,
+        recommendation: AgencyRecommendation::Critical,
+    };
+    assert!(report_zero.validate().is_ok());
+
+    let report_one = LeastAgencyReport {
+        agent_id: "a".to_string(),
+        session_id: "s".to_string(),
+        granted_permissions: 0,
+        used_permissions: 0,
+        unused_permissions: vec![],
+        usage_ratio: 1.0,
+        recommendation: AgencyRecommendation::Optimal,
+    };
+    assert!(report_one.validate().is_ok());
+}
+
+// ── FIND-R53-005: LeastAgencyReport unbounded unused_permissions ─────────────
+
+#[test]
+fn test_least_agency_report_validate_rejects_too_many_unused_permissions() {
+    let report = LeastAgencyReport {
+        agent_id: "agent-1".to_string(),
+        session_id: "sess-1".to_string(),
+        granted_permissions: 20_000,
+        used_permissions: 0,
+        unused_permissions: (0..=LeastAgencyReport::MAX_UNUSED_PERMISSIONS)
+            .map(|i| format!("p{i}"))
+            .collect(),
+        usage_ratio: 0.0,
+        recommendation: AgencyRecommendation::Critical,
+    };
+    let err = report.validate().unwrap_err();
+    assert!(err.contains("unused_permissions"));
+    assert!(err.contains("10000"));
+}

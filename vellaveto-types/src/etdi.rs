@@ -423,6 +423,19 @@ pub struct ToolVersionPin {
 }
 
 impl ToolVersionPin {
+    /// Maximum length for `tool_name` (bytes).
+    const MAX_TOOL_NAME_LEN: usize = 256;
+    /// Maximum length for `pinned_version` (bytes).
+    const MAX_VERSION_LEN: usize = 128;
+    /// Maximum length for `version_constraint` (bytes).
+    const MAX_CONSTRAINT_LEN: usize = 256;
+    /// Maximum length for `definition_hash` (bytes).
+    const MAX_HASH_LEN: usize = 256;
+    /// Maximum length for ISO 8601 timestamp fields (bytes).
+    const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for `pinned_by` (bytes).
+    const MAX_PINNED_BY_LEN: usize = 256;
+
     /// Returns true if the pin uses an exact version match.
     pub fn is_exact(&self) -> bool {
         self.pinned_version.is_some()
@@ -431,6 +444,84 @@ impl ToolVersionPin {
     /// Returns true if the pin uses a constraint.
     pub fn is_constraint(&self) -> bool {
         self.version_constraint.is_some()
+    }
+
+    /// Validate structural bounds on fields.
+    ///
+    /// SECURITY (FIND-R53-P3-008): Prevents memory exhaustion and control character
+    /// injection from untrusted `ToolVersionPin` payloads.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.tool_name.is_empty() {
+            return Err("ToolVersionPin tool_name must not be empty".to_string());
+        }
+        if self.tool_name.len() > Self::MAX_TOOL_NAME_LEN {
+            return Err(format!(
+                "ToolVersionPin tool_name length {} exceeds max {}",
+                self.tool_name.len(),
+                Self::MAX_TOOL_NAME_LEN,
+            ));
+        }
+        if self
+            .tool_name
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "ToolVersionPin tool_name contains control or format characters".to_string(),
+            );
+        }
+        if let Some(ref ver) = self.pinned_version {
+            if ver.len() > Self::MAX_VERSION_LEN {
+                return Err(format!(
+                    "ToolVersionPin pinned_version length {} exceeds max {}",
+                    ver.len(),
+                    Self::MAX_VERSION_LEN,
+                ));
+            }
+        }
+        if let Some(ref constraint) = self.version_constraint {
+            if constraint.len() > Self::MAX_CONSTRAINT_LEN {
+                return Err(format!(
+                    "ToolVersionPin version_constraint length {} exceeds max {}",
+                    constraint.len(),
+                    Self::MAX_CONSTRAINT_LEN,
+                ));
+            }
+        }
+        if self.definition_hash.len() > Self::MAX_HASH_LEN {
+            return Err(format!(
+                "ToolVersionPin definition_hash length {} exceeds max {}",
+                self.definition_hash.len(),
+                Self::MAX_HASH_LEN,
+            ));
+        }
+        if self.pinned_at.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "ToolVersionPin pinned_at length {} exceeds max {}",
+                self.pinned_at.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        if self.pinned_by.is_empty() {
+            return Err("ToolVersionPin pinned_by must not be empty".to_string());
+        }
+        if self.pinned_by.len() > Self::MAX_PINNED_BY_LEN {
+            return Err(format!(
+                "ToolVersionPin pinned_by length {} exceeds max {}",
+                self.pinned_by.len(),
+                Self::MAX_PINNED_BY_LEN,
+            ));
+        }
+        if self
+            .pinned_by
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "ToolVersionPin pinned_by contains control or format characters".to_string(),
+            );
+        }
+        Ok(())
     }
 }
 

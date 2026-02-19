@@ -32,6 +32,7 @@ use crate::default_true;
 /// max_namespaces = 1000
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct MemorySecurityConfig {
     /// Enable memory security tracking. Default: false.
     #[serde(default)]
@@ -155,6 +156,7 @@ impl Default for MemorySecurityConfig {
 ///
 /// Controls agent-level namespace isolation and access control.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NamespaceConfig {
     /// Enable namespace isolation. Default: true.
     #[serde(default = "default_true")]
@@ -232,6 +234,7 @@ impl Default for NamespaceConfig {
 /// allowed_algorithms = ["ES256", "RS256"]
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NhiConfig {
     /// Enable NHI lifecycle management. Default: false.
     #[serde(default)]
@@ -413,6 +416,7 @@ impl Default for NhiConfig {
 /// attestation_ttl_secs = 86400
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct VerificationConfig {
     /// Enable identity verification features. Default: false.
     #[serde(default)]
@@ -478,6 +482,7 @@ impl Default for VerificationConfig {
 ///
 /// Controls validation of DPoP proofs for sender-constrained tokens.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct DpopConfig {
     /// Require server-issued nonce in DPoP proofs. Default: true.
     #[serde(default = "default_true")]

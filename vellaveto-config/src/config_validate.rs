@@ -27,6 +27,33 @@ pub const MAX_KNOWN_TOOL_NAMES: usize = 1_000;
 /// allowed_servers maps in config files.
 pub const MAX_ALLOWED_SERVERS: usize = 1_000;
 
+/// Maximum allowed behavioral baseline sessions before rejecting config.
+const MAX_BEHAVIORAL_MIN_SESSIONS: u32 = 10_000;
+/// Maximum allowed cross-agent privilege gap.
+const MAX_CROSS_AGENT_PRIVILEGE_GAP: u8 = 10;
+/// Maximum length for a trusted cross-agent identifier.
+const MAX_CROSS_AGENT_TRUSTED_AGENT_LEN: usize = 256;
+/// Maximum minimum observations for schema poisoning baseline.
+const MAX_SCHEMA_POISONING_MIN_OBSERVATIONS: u32 = 10_000;
+/// Maximum semantic min text length before rejecting config.
+const MAX_SEMANTIC_MIN_TEXT_LENGTH: usize = 100_000;
+/// Maximum per-template length for semantic templates.
+const MAX_SEMANTIC_TEMPLATE_LEN: usize = 4096;
+/// Maximum memory entries retained per session.
+const MAX_MEMORY_ENTRIES_PER_SESSION: usize = 100_000;
+/// Maximum provenance nodes retained in memory security.
+const MAX_MEMORY_PROVENANCE_NODES: usize = 1_000_000;
+/// Maximum memory poisoning fingerprints retained per session.
+const MAX_MEMORY_FINGERPRINTS: usize = 100_000;
+/// Maximum memory age in hours (one year).
+const MAX_MEMORY_AGE_HOURS: u64 = 8_760;
+/// Maximum namespace count for memory isolation.
+const MAX_MEMORY_NAMESPACES: usize = 100_000;
+
+fn contains_control_chars(s: &str) -> bool {
+    s.chars().any(char::is_control)
+}
+
 impl PolicyConfig {
     /// Validate config bounds. Returns an error describing the first violation found.
     ///
@@ -449,6 +476,12 @@ impl PolicyConfig {
                 MAX_BEHAVIORAL_TOOLS_PER_AGENT, self.behavioral.max_tools_per_agent
             ));
         }
+        if self.behavioral.min_sessions > MAX_BEHAVIORAL_MIN_SESSIONS {
+            return Err(format!(
+                "behavioral.min_sessions must be <= {}, got {}",
+                MAX_BEHAVIORAL_MIN_SESSIONS, self.behavioral.min_sessions
+            ));
+        }
 
         // Validate data flow tracking config
         if self.data_flow.max_findings > MAX_DATA_FLOW_FINDINGS {
@@ -481,6 +514,34 @@ impl PolicyConfig {
                 self.semantic_detection.extra_templates.len(),
                 MAX_SEMANTIC_EXTRA_TEMPLATES
             ));
+        }
+        if self.semantic_detection.min_text_length > MAX_SEMANTIC_MIN_TEXT_LENGTH {
+            return Err(format!(
+                "semantic_detection.min_text_length must be <= {}, got {}",
+                MAX_SEMANTIC_MIN_TEXT_LENGTH, self.semantic_detection.min_text_length
+            ));
+        }
+        for (i, template) in self.semantic_detection.extra_templates.iter().enumerate() {
+            if template.is_empty() {
+                return Err(format!(
+                    "semantic_detection.extra_templates[{}] must not be empty",
+                    i
+                ));
+            }
+            if template.len() > MAX_SEMANTIC_TEMPLATE_LEN {
+                return Err(format!(
+                    "semantic_detection.extra_templates[{}] exceeds max length ({} > {})",
+                    i,
+                    template.len(),
+                    MAX_SEMANTIC_TEMPLATE_LEN
+                ));
+            }
+            if contains_control_chars(template) {
+                return Err(format!(
+                    "semantic_detection.extra_templates[{}] contains control characters",
+                    i
+                ));
+            }
         }
 
         // Validate cluster config
@@ -598,6 +659,12 @@ impl PolicyConfig {
                 MAX_TRACKED_SCHEMAS, self.schema_poisoning.max_tracked_schemas
             ));
         }
+        if self.schema_poisoning.min_observations > MAX_SCHEMA_POISONING_MIN_OBSERVATIONS {
+            return Err(format!(
+                "schema_poisoning.min_observations must be <= {}, got {}",
+                MAX_SCHEMA_POISONING_MIN_OBSERVATIONS, self.schema_poisoning.min_observations
+            ));
+        }
 
         // Validate sampling detection config
         if self.sampling_detection.allowed_models.len() > MAX_ALLOWED_SAMPLING_MODELS {
@@ -618,6 +685,28 @@ impl PolicyConfig {
                 self.cross_agent.trusted_agents.len(),
                 MAX_CROSS_AGENT_TRUSTED_AGENTS
             ));
+        }
+        for (i, agent) in self.cross_agent.trusted_agents.iter().enumerate() {
+            if agent.is_empty() {
+                return Err(format!(
+                    "cross_agent.trusted_agents[{}] must not be empty",
+                    i
+                ));
+            }
+            if agent.len() > MAX_CROSS_AGENT_TRUSTED_AGENT_LEN {
+                return Err(format!(
+                    "cross_agent.trusted_agents[{}] exceeds max length ({} > {})",
+                    i,
+                    agent.len(),
+                    MAX_CROSS_AGENT_TRUSTED_AGENT_LEN
+                ));
+            }
+            if contains_control_chars(agent) {
+                return Err(format!(
+                    "cross_agent.trusted_agents[{}] contains control characters",
+                    i
+                ));
+            }
         }
         if !self.cross_agent.escalation_deny_threshold.is_finite()
             || self.cross_agent.escalation_deny_threshold < 0.0
@@ -650,6 +739,12 @@ impl PolicyConfig {
         }
         if self.cross_agent.enabled && self.cross_agent.nonce_expiry_secs == 0 {
             return Err("cross_agent.nonce_expiry_secs must be > 0 when enabled".to_string());
+        }
+        if self.cross_agent.max_privilege_gap > MAX_CROSS_AGENT_PRIVILEGE_GAP {
+            return Err(format!(
+                "cross_agent.max_privilege_gap must be <= {}, got {}",
+                MAX_CROSS_AGENT_PRIVILEGE_GAP, self.cross_agent.max_privilege_gap
+            ));
         }
 
         // PHASE 3.3: Advanced Threat Detection validation
@@ -789,6 +884,71 @@ impl PolicyConfig {
             }
         }
 
+        // Memory security validation
+        if !self.memory_security.trust_decay_rate.is_finite()
+            || self.memory_security.trust_decay_rate < 0.0
+        {
+            return Err(format!(
+                "memory_security.trust_decay_rate must be finite and >= 0.0, got {}",
+                self.memory_security.trust_decay_rate
+            ));
+        }
+        if !self.memory_security.trust_threshold.is_finite()
+            || self.memory_security.trust_threshold < 0.0
+            || self.memory_security.trust_threshold > 1.0
+        {
+            return Err(format!(
+                "memory_security.trust_threshold must be in [0.0, 1.0], got {}",
+                self.memory_security.trust_threshold
+            ));
+        }
+        if self.memory_security.max_entries_per_session > MAX_MEMORY_ENTRIES_PER_SESSION {
+            return Err(format!(
+                "memory_security.max_entries_per_session must be <= {}, got {}",
+                MAX_MEMORY_ENTRIES_PER_SESSION, self.memory_security.max_entries_per_session
+            ));
+        }
+        if self.memory_security.max_provenance_nodes > MAX_MEMORY_PROVENANCE_NODES {
+            return Err(format!(
+                "memory_security.max_provenance_nodes must be <= {}, got {}",
+                MAX_MEMORY_PROVENANCE_NODES, self.memory_security.max_provenance_nodes
+            ));
+        }
+        if self.memory_security.max_fingerprints > MAX_MEMORY_FINGERPRINTS {
+            return Err(format!(
+                "memory_security.max_fingerprints must be <= {}, got {}",
+                MAX_MEMORY_FINGERPRINTS, self.memory_security.max_fingerprints
+            ));
+        }
+        if self.memory_security.max_memory_age_hours > MAX_MEMORY_AGE_HOURS {
+            return Err(format!(
+                "memory_security.max_memory_age_hours must be <= {}, got {}",
+                MAX_MEMORY_AGE_HOURS, self.memory_security.max_memory_age_hours
+            ));
+        }
+        if self.memory_security.enabled && self.memory_security.max_memory_age_hours == 0 {
+            return Err(
+                "memory_security.max_memory_age_hours must be > 0 when enabled".to_string(),
+            );
+        }
+        if self.memory_security.namespaces.max_namespaces > MAX_MEMORY_NAMESPACES {
+            return Err(format!(
+                "memory_security.namespaces.max_namespaces must be <= {}, got {}",
+                MAX_MEMORY_NAMESPACES, self.memory_security.namespaces.max_namespaces
+            ));
+        }
+        if self.memory_security.namespaces.enabled {
+            let valid_isolations = ["session", "agent", "shared"];
+            if !valid_isolations
+                .contains(&self.memory_security.namespaces.default_isolation.as_str())
+            {
+                return Err(format!(
+                    "memory_security.namespaces.default_isolation must be one of {:?}, got '{}'",
+                    valid_isolations, self.memory_security.namespaces.default_isolation
+                ));
+            }
+        }
+
         // ═══════════════════════════════════════════════════
         // NHI VERIFICATION CONFIG VALIDATION
         // ═══════════════════════════════════════════════════
@@ -892,6 +1052,12 @@ impl PolicyConfig {
         // RAG defense configuration bounds
         self.rag_defense.validate()?;
 
+        // A2A protocol configuration bounds
+        self.a2a.validate()?;
+
+        // Cluster configuration bounds
+        self.cluster.validate()?;
+
         Ok(())
     }
 
@@ -915,6 +1081,11 @@ impl PolicyConfig {
             .into());
         }
         let content = std::fs::read_to_string(path)?;
+        // SECURITY: Empty/whitespace-only config files are almost always operator error.
+        // Reject them explicitly instead of silently loading defaults.
+        if content.trim().is_empty() {
+            return Err(format!("Config file '{}' is empty", path).into());
+        }
         // SECURITY (FIND-R46-014): Reject unknown file extensions instead of silently
         // falling back to TOML. Silent fallback can mask misconfiguration — e.g., a
         // YAML file being parsed as TOML without error but producing wrong results.

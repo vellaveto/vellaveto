@@ -90,7 +90,7 @@ impl fmt::Display for VerificationTier {
 /// Attestations provide cryptographic proof that an agent acknowledged and agreed
 /// to specific policies at a specific point in time. They use Ed25519 signatures
 /// over length-prefixed content to prevent boundary collision attacks.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct AccountabilityAttestation {
     /// Unique attestation identifier (UUID).
     pub attestation_id: String,
@@ -116,6 +116,26 @@ pub struct AccountabilityAttestation {
     /// Whether this attestation has been verified.
     #[serde(default)]
     pub verified: bool,
+}
+
+/// SECURITY (FIND-R53-002): Custom Debug redacts `signature` and `public_key`
+/// to prevent secret leakage in logs/debug output.
+impl fmt::Debug for AccountabilityAttestation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AccountabilityAttestation")
+            .field("attestation_id", &self.attestation_id)
+            .field("agent_id", &self.agent_id)
+            .field("did", &self.did)
+            .field("statement", &self.statement)
+            .field("policy_hash", &self.policy_hash)
+            .field("signature", &"[REDACTED]")
+            .field("algorithm", &self.algorithm)
+            .field("public_key", &"[REDACTED]")
+            .field("created_at", &self.created_at)
+            .field("expires_at", &self.expires_at)
+            .field("verified", &self.verified)
+            .finish()
+    }
 }
 
 /// Result of verifying an accountability attestation.

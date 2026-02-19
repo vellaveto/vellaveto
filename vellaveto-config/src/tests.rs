@@ -5231,3 +5231,430 @@ fn test_federation_config_validation_valid() {
     // Should pass validation (valid TTLs, no duplicate org_ids)
     assert!(config.validate().is_ok());
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// FIND-R53-P3: Round 53 P3 findings — config validation hardening
+// ════════════════════════════════════════════════════════════════════════
+
+/// Helper: minimal valid PolicyConfig for round-53 tests.
+fn r53_base_config() -> PolicyConfig {
+    PolicyConfig::from_toml(
+        r#"
+[[policies]]
+name = "r53"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#,
+    )
+    .expect("r53_base_config TOML must parse")
+}
+
+// ── Finding 3: BehavioralDetectionConfig.min_sessions upper bound ─────
+
+#[test]
+fn test_validate_rejects_behavioral_min_sessions_too_large() {
+    let mut config = r53_base_config();
+    config.behavioral.min_sessions = 10_001;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("behavioral.min_sessions"),
+        "expected min_sessions error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_accepts_behavioral_min_sessions_at_max() {
+    let mut config = r53_base_config();
+    config.behavioral.min_sessions = 10_000;
+    let result = config.validate();
+    if let Err(e) = &result {
+        assert!(
+            !e.contains("behavioral.min_sessions"),
+            "min_sessions=10000 should be accepted, got: {}",
+            e
+        );
+    }
+}
+
+// ── Finding 4: CrossAgentConfig trusted_agents + max_privilege_gap ────
+
+#[test]
+fn test_validate_rejects_cross_agent_empty_trusted_agent() {
+    let mut config = r53_base_config();
+    config.cross_agent.trusted_agents = vec!["".to_string()];
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("trusted_agents") && err.contains("must not be empty"),
+        "expected empty trusted_agent error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_cross_agent_trusted_agent_too_long() {
+    let mut config = r53_base_config();
+    config.cross_agent.trusted_agents = vec!["x".repeat(257)];
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("trusted_agents") && err.contains("exceeds max length"),
+        "expected length error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_cross_agent_trusted_agent_control_chars() {
+    let mut config = r53_base_config();
+    config.cross_agent.trusted_agents = vec!["agent\x00id".to_string()];
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("trusted_agents") && err.contains("control characters"),
+        "expected control char error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_cross_agent_max_privilege_gap_too_large() {
+    let mut config = r53_base_config();
+    config.cross_agent.max_privilege_gap = 11;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("max_privilege_gap"),
+        "expected max_privilege_gap error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_accepts_cross_agent_max_privilege_gap_at_max() {
+    let mut config = r53_base_config();
+    config.cross_agent.max_privilege_gap = 10;
+    let result = config.validate();
+    if let Err(e) = &result {
+        assert!(
+            !e.contains("max_privilege_gap"),
+            "max_privilege_gap=10 should be accepted, got: {}",
+            e
+        );
+    }
+}
+
+#[test]
+fn test_validate_accepts_cross_agent_valid_trusted_agents() {
+    let mut config = r53_base_config();
+    config.cross_agent.trusted_agents = vec!["agent-alpha".to_string(), "agent-beta".to_string()];
+    let result = config.validate();
+    if let Err(e) = &result {
+        assert!(
+            !e.contains("trusted_agents"),
+            "valid trusted_agents should be accepted, got: {}",
+            e
+        );
+    }
+}
+
+// ── Finding 5: SchemaPoisoningConfig.min_observations upper bound ─────
+
+#[test]
+fn test_validate_rejects_schema_poisoning_min_observations_too_large() {
+    let mut config = r53_base_config();
+    config.schema_poisoning.min_observations = 10_001;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("schema_poisoning.min_observations"),
+        "expected min_observations error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_accepts_schema_poisoning_min_observations_at_max() {
+    let mut config = r53_base_config();
+    config.schema_poisoning.min_observations = 10_000;
+    let result = config.validate();
+    if let Err(e) = &result {
+        assert!(
+            !e.contains("schema_poisoning.min_observations"),
+            "min_observations=10000 should be accepted, got: {}",
+            e
+        );
+    }
+}
+
+// ── Finding 6: SemanticDetectionConfig.min_text_length + templates ────
+
+#[test]
+fn test_validate_rejects_semantic_min_text_length_too_large() {
+    let mut config = r53_base_config();
+    config.semantic_detection.min_text_length = 100_001;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("semantic_detection.min_text_length"),
+        "expected min_text_length error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_accepts_semantic_min_text_length_at_max() {
+    let mut config = r53_base_config();
+    config.semantic_detection.min_text_length = 100_000;
+    let result = config.validate();
+    if let Err(e) = &result {
+        assert!(
+            !e.contains("semantic_detection.min_text_length"),
+            "min_text_length=100000 should be accepted, got: {}",
+            e
+        );
+    }
+}
+
+#[test]
+fn test_validate_rejects_semantic_template_too_long() {
+    let mut config = r53_base_config();
+    config.semantic_detection.extra_templates = vec!["x".repeat(4097)];
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("extra_templates") && err.contains("exceeds max length"),
+        "expected template length error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_semantic_template_empty() {
+    let mut config = r53_base_config();
+    config.semantic_detection.extra_templates = vec!["".to_string()];
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("extra_templates") && err.contains("must not be empty"),
+        "expected empty template error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_semantic_template_control_chars() {
+    let mut config = r53_base_config();
+    config.semantic_detection.extra_templates = vec!["template\x07with bell".to_string()];
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("extra_templates") && err.contains("control characters"),
+        "expected control char error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_accepts_semantic_valid_templates() {
+    let mut config = r53_base_config();
+    config.semantic_detection.extra_templates = vec![
+        "valid template one".to_string(),
+        "valid template two".to_string(),
+    ];
+    let result = config.validate();
+    if let Err(e) = &result {
+        assert!(
+            !e.contains("extra_templates"),
+            "valid templates should be accepted, got: {}",
+            e
+        );
+    }
+}
+
+// ── Finding 7: MemorySecurityConfig validation ───────────────────────
+
+#[test]
+fn test_validate_rejects_memory_trust_decay_rate_nan() {
+    let mut config = r53_base_config();
+    config.memory_security.trust_decay_rate = f64::NAN;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("memory_security.trust_decay_rate"),
+        "expected trust_decay_rate error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_memory_trust_decay_rate_negative() {
+    let mut config = r53_base_config();
+    config.memory_security.trust_decay_rate = -0.01;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("memory_security.trust_decay_rate"),
+        "expected trust_decay_rate error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_memory_trust_threshold_nan() {
+    let mut config = r53_base_config();
+    config.memory_security.trust_threshold = f64::NAN;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("memory_security.trust_threshold"),
+        "expected trust_threshold error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_memory_trust_threshold_out_of_range() {
+    let mut config = r53_base_config();
+    config.memory_security.trust_threshold = 1.1;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("memory_security.trust_threshold"),
+        "expected trust_threshold error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_memory_trust_threshold_negative() {
+    let mut config = r53_base_config();
+    config.memory_security.trust_threshold = -0.1;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("memory_security.trust_threshold"),
+        "expected trust_threshold error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_memory_max_entries_per_session_too_large() {
+    let mut config = r53_base_config();
+    config.memory_security.max_entries_per_session = 100_001;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("memory_security.max_entries_per_session"),
+        "expected max_entries_per_session error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_memory_max_provenance_nodes_too_large() {
+    let mut config = r53_base_config();
+    config.memory_security.max_provenance_nodes = 1_000_001;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("memory_security.max_provenance_nodes"),
+        "expected max_provenance_nodes error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_memory_max_fingerprints_too_large() {
+    let mut config = r53_base_config();
+    config.memory_security.max_fingerprints = 100_001;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("memory_security.max_fingerprints"),
+        "expected max_fingerprints error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_memory_max_age_hours_too_large() {
+    let mut config = r53_base_config();
+    config.memory_security.max_memory_age_hours = 8761;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("memory_security.max_memory_age_hours"),
+        "expected max_memory_age_hours error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_memory_max_age_hours_zero_when_enabled() {
+    let mut config = r53_base_config();
+    config.memory_security.enabled = true;
+    config.memory_security.max_memory_age_hours = 0;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("max_memory_age_hours must be > 0 when enabled"),
+        "expected zero-age-when-enabled error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_accepts_memory_max_age_hours_zero_when_disabled() {
+    let mut config = r53_base_config();
+    config.memory_security.enabled = false;
+    config.memory_security.max_memory_age_hours = 0;
+    let result = config.validate();
+    if let Err(e) = &result {
+        assert!(
+            !e.contains("max_memory_age_hours must be > 0 when enabled"),
+            "zero age when disabled should be accepted, got: {}",
+            e
+        );
+    }
+}
+
+#[test]
+fn test_validate_rejects_memory_namespaces_max_too_large() {
+    let mut config = r53_base_config();
+    config.memory_security.namespaces.max_namespaces = 100_001;
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("memory_security.namespaces.max_namespaces"),
+        "expected max_namespaces error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_rejects_memory_namespaces_invalid_isolation() {
+    let mut config = r53_base_config();
+    config.memory_security.namespaces.enabled = true;
+    config.memory_security.namespaces.default_isolation = "invalid".to_string();
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("default_isolation"),
+        "expected isolation error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_accepts_memory_namespaces_valid_isolations() {
+    for isolation in &["session", "agent", "shared"] {
+        let mut config = r53_base_config();
+        config.memory_security.namespaces.enabled = true;
+        config.memory_security.namespaces.default_isolation = isolation.to_string();
+        let result = config.validate();
+        if let Err(e) = &result {
+            assert!(
+                !e.contains("default_isolation"),
+                "isolation '{}' should be accepted, got: {}",
+                isolation,
+                e
+            );
+        }
+    }
+}
+
+#[test]
+fn test_validate_accepts_memory_defaults() {
+    let config = r53_base_config();
+    let result = config.validate();
+    if let Err(e) = &result {
+        assert!(
+            !e.contains("memory_security"),
+            "default memory_security should be accepted, got: {}",
+            e
+        );
+    }
+}

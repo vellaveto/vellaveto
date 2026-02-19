@@ -81,7 +81,20 @@ pub struct McpCapability {
     pub sub_capabilities: Vec<String>,
 }
 
+/// Maximum number of sub-capabilities per `McpCapability`.
+///
+/// SECURITY (FIND-R53-P3-007): Prevents memory exhaustion from unbounded
+/// sub-capability vectors in deserialized capability payloads.
+pub const MAX_SUB_CAPABILITIES: usize = 100;
+
 impl McpCapability {
+    /// Maximum length for `name` (bytes).
+    const MAX_NAME_LEN: usize = 256;
+    /// Maximum length for `version` (bytes).
+    const MAX_VERSION_LEN: usize = 128;
+    /// Maximum length for a single sub-capability string (bytes).
+    const MAX_SUB_CAPABILITY_LEN: usize = 256;
+
     /// Create a new capability with just a name.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
@@ -103,6 +116,58 @@ impl McpCapability {
     /// Check if this capability has a specific sub-capability.
     pub fn has_sub(&self, sub: &str) -> bool {
         self.sub_capabilities.iter().any(|s| s == sub)
+    }
+
+    /// Validate structural bounds on fields.
+    ///
+    /// SECURITY (FIND-R53-P3-007): Prevents memory exhaustion and control character
+    /// injection from untrusted `McpCapability` payloads. Enforces
+    /// `MAX_SUB_CAPABILITIES` on the sub-capabilities vector.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.is_empty() {
+            return Err("McpCapability name must not be empty".to_string());
+        }
+        if self.name.len() > Self::MAX_NAME_LEN {
+            return Err(format!(
+                "McpCapability name length {} exceeds max {}",
+                self.name.len(),
+                Self::MAX_NAME_LEN,
+            ));
+        }
+        if self
+            .name
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err("McpCapability name contains control or format characters".to_string());
+        }
+        if let Some(ref ver) = self.version {
+            if ver.len() > Self::MAX_VERSION_LEN {
+                return Err(format!(
+                    "McpCapability version length {} exceeds max {}",
+                    ver.len(),
+                    Self::MAX_VERSION_LEN,
+                ));
+            }
+        }
+        if self.sub_capabilities.len() > MAX_SUB_CAPABILITIES {
+            return Err(format!(
+                "McpCapability sub_capabilities count {} exceeds max {}",
+                self.sub_capabilities.len(),
+                MAX_SUB_CAPABILITIES,
+            ));
+        }
+        for (i, sub) in self.sub_capabilities.iter().enumerate() {
+            if sub.len() > Self::MAX_SUB_CAPABILITY_LEN {
+                return Err(format!(
+                    "McpCapability sub_capabilities[{}] length {} exceeds max {}",
+                    i,
+                    sub.len(),
+                    Self::MAX_SUB_CAPABILITY_LEN,
+                ));
+            }
+        }
+        Ok(())
     }
 }
 

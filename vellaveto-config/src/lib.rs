@@ -136,9 +136,10 @@ pub(crate) fn default_true() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicyConfig {
+    #[serde(default)]
     pub policies: Vec<PolicyRule>,
 
     /// Optional injection scanning configuration.

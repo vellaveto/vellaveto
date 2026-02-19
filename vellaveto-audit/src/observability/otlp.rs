@@ -264,7 +264,7 @@ pub fn parse_span_id(id: &str) -> SpanId {
 /// Returns `SystemTime::now()` if parsing fails.
 pub fn parse_time(timestamp: &str) -> SystemTime {
     chrono::DateTime::parse_from_rfc3339(timestamp)
-        .map(|dt| SystemTime::from(dt))
+        .map(SystemTime::from)
         .unwrap_or_else(|_| SystemTime::now())
 }
 

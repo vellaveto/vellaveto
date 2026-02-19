@@ -37,8 +37,33 @@ pub const GLOBAL_TENANT_PREFIX: &str = "_global_";
 /// Default tenant ID when multi-tenancy is disabled or no tenant is specified.
 pub const DEFAULT_TENANT_ID: &str = "_default_";
 
+/// Maximum number of metadata entries per tenant.
+const MAX_TENANT_METADATA_ENTRIES: usize = 64;
+
+/// Maximum length for a single metadata key or value.
+const MAX_TENANT_METADATA_FIELD_LEN: usize = 1024;
+
+/// Maximum length for tenant name.
+const MAX_TENANT_NAME_LEN: usize = 256;
+
+/// SECURITY: Detect control characters AND Unicode format characters
+/// that can bypass simple `is_control()` checks.
+fn is_unsafe_char_tenant(c: char) -> bool {
+    let cp = c as u32;
+    c.is_control()
+        || (0x200B..=0x200F).contains(&cp)
+        || (0x202A..=0x202E).contains(&cp)
+        || (0x2060..=0x2064).contains(&cp)
+        || (0x2066..=0x2069).contains(&cp)
+        || cp == 0xFEFF
+        || (0xFFF9..=0xFFFB).contains(&cp)
+        || (0xE0001..=0xE007F).contains(&cp)
+        || cp == 0x00AD
+}
+
 /// Tenant data model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Tenant {
     /// Unique tenant identifier (e.g., UUID or slug).
     pub id: String,
@@ -96,6 +121,72 @@ impl Tenant {
             created_at: None,
             updated_at: None,
         }
+    }
+
+    /// Validate tenant fields: ID format, name bounds, and metadata safety.
+    ///
+    /// SECURITY: Enforces bounds on metadata (max entries, max key/value length)
+    /// and rejects control/Unicode format characters in name, metadata keys and
+    /// values to prevent log injection and display manipulation.
+    pub fn validate(&self) -> Result<(), TenantError> {
+        validate_tenant_id(&self.id)?;
+
+        // Validate name
+        if self.name.is_empty() {
+            return Err(TenantError::InvalidTenantId(
+                "tenant name cannot be empty".to_string(),
+            ));
+        }
+        if self.name.len() > MAX_TENANT_NAME_LEN {
+            return Err(TenantError::InvalidTenantId(format!(
+                "tenant name too long ({} > {} chars)",
+                self.name.len(),
+                MAX_TENANT_NAME_LEN
+            )));
+        }
+        if self.name.chars().any(is_unsafe_char_tenant) {
+            return Err(TenantError::InvalidTenantId(
+                "tenant name contains control or format characters".to_string(),
+            ));
+        }
+
+        // Validate metadata bounds
+        if self.metadata.len() > MAX_TENANT_METADATA_ENTRIES {
+            return Err(TenantError::InvalidTenantId(format!(
+                "too many metadata entries ({} > {})",
+                self.metadata.len(),
+                MAX_TENANT_METADATA_ENTRIES
+            )));
+        }
+
+        for (key, value) in &self.metadata {
+            if key.len() > MAX_TENANT_METADATA_FIELD_LEN {
+                return Err(TenantError::InvalidTenantId(format!(
+                    "metadata key too long ({} > {} bytes)",
+                    key.len(),
+                    MAX_TENANT_METADATA_FIELD_LEN
+                )));
+            }
+            if value.len() > MAX_TENANT_METADATA_FIELD_LEN {
+                return Err(TenantError::InvalidTenantId(format!(
+                    "metadata value too long ({} > {} bytes)",
+                    value.len(),
+                    MAX_TENANT_METADATA_FIELD_LEN
+                )));
+            }
+            if key.chars().any(is_unsafe_char_tenant) {
+                return Err(TenantError::InvalidTenantId(
+                    "metadata key contains control or format characters".to_string(),
+                ));
+            }
+            if value.chars().any(is_unsafe_char_tenant) {
+                return Err(TenantError::InvalidTenantId(
+                    "metadata value contains control or format characters".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -481,6 +572,8 @@ impl TenantStore for InMemoryTenantStore {
     }
 
     fn create_tenant(&self, tenant: Tenant) -> Result<(), TenantError> {
+        // SECURITY: Validate tenant before storing.
+        tenant.validate()?;
         // SECURITY (FIND-025): Return error on lock poisoning instead of panicking.
         let mut tenants = self
             .tenants
@@ -497,6 +590,8 @@ impl TenantStore for InMemoryTenantStore {
     }
 
     fn update_tenant(&self, tenant: Tenant) -> Result<(), TenantError> {
+        // SECURITY: Validate tenant before storing.
+        tenant.validate()?;
         // SECURITY (FIND-025): Return error on lock poisoning instead of panicking.
         let mut tenants = self
             .tenants
@@ -892,5 +987,96 @@ mod tests {
         assert!(TenantContext::is_global("_global_:dangerous_block"));
         assert!(!TenantContext::is_global("acme:file:read"));
         assert!(!TenantContext::is_global("file:read"));
+    }
+
+    #[test]
+    fn test_tenant_validate_valid() {
+        let tenant = Tenant::new("acme", "Acme Corp");
+        assert!(tenant.validate().is_ok());
+    }
+
+    #[test]
+    fn test_tenant_validate_empty_name() {
+        let mut tenant = Tenant::new("acme", "Acme Corp");
+        tenant.name = String::new();
+        assert!(tenant.validate().is_err());
+    }
+
+    #[test]
+    fn test_tenant_validate_name_too_long() {
+        let mut tenant = Tenant::new("acme", "Acme Corp");
+        tenant.name = "x".repeat(257);
+        assert!(tenant.validate().is_err());
+    }
+
+    #[test]
+    fn test_tenant_validate_name_control_chars() {
+        let mut tenant = Tenant::new("acme", "Acme Corp");
+        tenant.name = "Acme\x00Corp".to_string();
+        assert!(tenant.validate().is_err());
+    }
+
+    #[test]
+    fn test_tenant_validate_name_unicode_format_chars() {
+        let mut tenant = Tenant::new("acme", "Acme Corp");
+        tenant.name = "Acme\u{200B}Corp".to_string();
+        assert!(tenant.validate().is_err());
+    }
+
+    #[test]
+    fn test_tenant_validate_metadata_too_many_entries() {
+        let mut tenant = Tenant::new("acme", "Acme Corp");
+        for i in 0..65 {
+            tenant
+                .metadata
+                .insert(format!("key{}", i), format!("val{}", i));
+        }
+        assert!(tenant.validate().is_err());
+    }
+
+    #[test]
+    fn test_tenant_validate_metadata_key_control_chars() {
+        let mut tenant = Tenant::new("acme", "Acme Corp");
+        tenant
+            .metadata
+            .insert("key\x07bell".to_string(), "val".to_string());
+        assert!(tenant.validate().is_err());
+    }
+
+    #[test]
+    fn test_tenant_validate_metadata_value_control_chars() {
+        let mut tenant = Tenant::new("acme", "Acme Corp");
+        tenant
+            .metadata
+            .insert("key".to_string(), "val\nnewline".to_string());
+        assert!(tenant.validate().is_err());
+    }
+
+    #[test]
+    fn test_tenant_validate_metadata_value_bidi_override() {
+        let mut tenant = Tenant::new("acme", "Acme Corp");
+        tenant
+            .metadata
+            .insert("key".to_string(), "val\u{202E}rtl".to_string());
+        assert!(tenant.validate().is_err());
+    }
+
+    #[test]
+    fn test_tenant_deny_unknown_fields() {
+        let json = r#"{"id":"test","name":"Test","unknown_field":"bad"}"#;
+        let result: Result<Tenant, _> = serde_json::from_str(json);
+        assert!(
+            result.is_err(),
+            "deny_unknown_fields should reject unknown keys"
+        );
+    }
+
+    #[test]
+    fn test_tenant_validate_valid_metadata() {
+        let mut tenant = Tenant::new("acme", "Acme Corp");
+        tenant
+            .metadata
+            .insert("env".to_string(), "production".to_string());
+        assert!(tenant.validate().is_ok());
     }
 }

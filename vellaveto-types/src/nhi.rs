@@ -252,10 +252,24 @@ impl NhiBehavioralBaseline {
                     "NhiBehavioralBaseline tool_call_patterns['{key}'] is not finite: {val}"
                 ));
             }
+            // SECURITY (FIND-R53-P3-006): Negative call frequency is nonsensical.
+            if *val < 0.0 {
+                return Err(format!(
+                    "NhiBehavioralBaseline tool_call_patterns['{key}'] must be >= 0.0, got {val}"
+                ));
+            }
         }
         if !self.avg_request_interval_secs.is_finite() {
             return Err(format!(
                 "NhiBehavioralBaseline avg_request_interval_secs is not finite: {}",
+                self.avg_request_interval_secs
+            ));
+        }
+        // SECURITY (FIND-R53-P3-006): Negative timing values are nonsensical and could
+        // cause unexpected comparisons (e.g., negative interval always < any threshold).
+        if self.avg_request_interval_secs < 0.0 {
+            return Err(format!(
+                "NhiBehavioralBaseline avg_request_interval_secs must be >= 0.0, got {}",
                 self.avg_request_interval_secs
             ));
         }
@@ -265,9 +279,21 @@ impl NhiBehavioralBaseline {
                 self.request_interval_stddev
             ));
         }
+        if self.request_interval_stddev < 0.0 {
+            return Err(format!(
+                "NhiBehavioralBaseline request_interval_stddev must be >= 0.0, got {}",
+                self.request_interval_stddev
+            ));
+        }
         if !self.typical_session_duration_secs.is_finite() {
             return Err(format!(
                 "NhiBehavioralBaseline typical_session_duration_secs is not finite: {}",
+                self.typical_session_duration_secs
+            ));
+        }
+        if self.typical_session_duration_secs < 0.0 {
+            return Err(format!(
+                "NhiBehavioralBaseline typical_session_duration_secs must be >= 0.0, got {}",
                 self.typical_session_duration_secs
             ));
         }

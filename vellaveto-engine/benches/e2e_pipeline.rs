@@ -5,6 +5,7 @@
 //! evaluation with varying policy counts and evaluation contexts.
 //!
 //! Run with: `cargo bench -p vellaveto-engine --bench e2e_pipeline`
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::HashMap;
 use std::hint::black_box;

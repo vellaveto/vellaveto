@@ -1,6 +1,7 @@
 //! Criterion benchmarks for semantic injection detection (P4.3).
 //!
 //! Run with: `cargo bench -p vellaveto-mcp --features semantic-detection --bench semantic`
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::hint::black_box;
 

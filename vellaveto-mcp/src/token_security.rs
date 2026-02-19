@@ -14,6 +14,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
+/// Maximum number of session contexts tracked by TokenSecurityAnalyzer.
+/// Prevents unbounded memory growth from attacker-controlled session IDs.
+const MAX_SESSION_CONTEXTS: usize = 10_000;
+
 /// Alert types for token security violations.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenSecurityAlert {
@@ -88,10 +92,35 @@ pub struct TokenSecurityConfig {
     pub detect_glitch_tokens: bool,
     /// Default context budget (tokens).
     pub default_context_budget: usize,
-    /// Flood warning threshold (% of budget).
+    /// Flood warning threshold (fraction of budget, 0.0-1.0).
     pub flood_warning_threshold: f32,
     /// Maximum input length before automatic rejection.
     pub max_input_length: usize,
+}
+
+impl TokenSecurityConfig {
+    /// Validates configuration values.
+    ///
+    /// Ensures float thresholds are finite and within valid ranges,
+    /// and that budget/length values are non-zero.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.flood_warning_threshold.is_finite() {
+            return Err("flood_warning_threshold must be finite".to_string());
+        }
+        if self.flood_warning_threshold < 0.0 || self.flood_warning_threshold > 1.0 {
+            return Err(format!(
+                "flood_warning_threshold must be in [0.0, 1.0], got {}",
+                self.flood_warning_threshold
+            ));
+        }
+        if self.default_context_budget == 0 {
+            return Err("default_context_budget must be > 0".to_string());
+        }
+        if self.max_input_length == 0 {
+            return Err("max_input_length must be > 0".to_string());
+        }
+        Ok(())
+    }
 }
 
 impl Default for TokenSecurityConfig {
@@ -305,28 +334,28 @@ impl TokenSecurityAnalyzer {
     fn count_confusables(&self, input: &str) -> usize {
         // Common confusables (ASCII lookalikes from other scripts)
         const CONFUSABLES: &[(char, char)] = &[
-            ('а', 'a'), // Cyrillic
-            ('е', 'e'),
-            ('о', 'o'),
-            ('р', 'p'),
-            ('с', 'c'),
-            ('у', 'y'),
-            ('х', 'x'),
-            ('А', 'A'),
-            ('В', 'B'),
-            ('Е', 'E'),
-            ('К', 'K'),
-            ('М', 'M'),
-            ('Н', 'H'),
-            ('О', 'O'),
-            ('Р', 'P'),
-            ('С', 'C'),
-            ('Т', 'T'),
-            ('Х', 'X'),
-            ('ɑ', 'a'), // IPA
-            ('ɡ', 'g'),
-            ('ℓ', 'l'), // Math symbols
-            ('ⅰ', 'i'),
+            ('\u{0430}', 'a'), // Cyrillic
+            ('\u{0435}', 'e'),
+            ('\u{043E}', 'o'),
+            ('\u{0440}', 'p'),
+            ('\u{0441}', 'c'),
+            ('\u{0443}', 'y'),
+            ('\u{0445}', 'x'),
+            ('\u{0410}', 'A'),
+            ('\u{0412}', 'B'),
+            ('\u{0415}', 'E'),
+            ('\u{041A}', 'K'),
+            ('\u{041C}', 'M'),
+            ('\u{041D}', 'H'),
+            ('\u{041E}', 'O'),
+            ('\u{0420}', 'P'),
+            ('\u{0421}', 'C'),
+            ('\u{0422}', 'T'),
+            ('\u{0425}', 'X'),
+            ('\u{0251}', 'a'), // IPA
+            ('\u{0261}', 'g'),
+            ('\u{2113}', 'l'), // Math symbols
+            ('\u{2170}', 'i'),
         ];
 
         input
@@ -425,6 +454,25 @@ impl TokenSecurityAnalyzer {
                 });
             }
         };
+
+        // Enforce capacity bound: reject new sessions when at capacity (fail-closed)
+        if !contexts.contains_key(session_id) && contexts.len() >= MAX_SESSION_CONTEXTS {
+            tracing::warn!(
+                target: "vellaveto::security",
+                "session_contexts at capacity ({}), rejecting new session (fail-closed)",
+                MAX_SESSION_CONTEXTS
+            );
+            return Err(ContextFloodingAlert {
+                estimated_tokens: input.len() / 4,
+                budget: self.config.default_context_budget,
+                usage_percent: 100.0,
+                description: format!(
+                    "Session context capacity reached ({}), cannot track new session",
+                    MAX_SESSION_CONTEXTS
+                ),
+            });
+        }
+
         let context = contexts
             .entry(session_id.to_string())
             .or_insert(SessionContext {
@@ -434,9 +482,19 @@ impl TokenSecurityAnalyzer {
                 request_count: 0,
             });
 
-        context.total_tokens += estimated_tokens;
-        context.request_count += 1;
+        context.total_tokens = context.total_tokens.saturating_add(estimated_tokens);
+        context.request_count = context.request_count.saturating_add(1);
         context.last_activity = Instant::now();
+
+        // Fail-closed: zero budget means fully exhausted
+        if context.budget == 0 {
+            return Err(ContextFloodingAlert {
+                estimated_tokens: context.total_tokens,
+                budget: 0,
+                usage_percent: 100.0,
+                description: "Context budget is zero (fail-closed)".to_string(),
+            });
+        }
 
         let usage_percent = context.total_tokens as f32 / context.budget as f32;
 
@@ -503,6 +561,17 @@ impl TokenSecurityAnalyzer {
                 return;
             }
         };
+
+        // Enforce capacity bound: reject new sessions when at capacity
+        if !contexts.contains_key(session_id) && contexts.len() >= MAX_SESSION_CONTEXTS {
+            tracing::warn!(
+                target: "vellaveto::security",
+                "session_contexts at capacity ({}), rejecting new session in set_session_budget",
+                MAX_SESSION_CONTEXTS
+            );
+            return;
+        }
+
         let context = contexts
             .entry(session_id.to_string())
             .or_insert(SessionContext {
@@ -549,11 +618,12 @@ impl TokenSecurityAnalyzer {
             }
         };
         contexts.get(session_id).map(|ctx| {
-            (
-                ctx.total_tokens,
-                ctx.budget,
-                ctx.total_tokens as f32 / ctx.budget as f32 * 100.0,
-            )
+            let usage_percent = if ctx.budget == 0 {
+                100.0 // fail-closed: zero budget means fully exhausted
+            } else {
+                ctx.total_tokens as f32 / ctx.budget as f32 * 100.0
+            };
+            (ctx.total_tokens, ctx.budget, usage_percent)
         })
     }
 
@@ -628,7 +698,7 @@ mod tests {
         assert_eq!(analyzer.count_confusables("Hello world"), 0);
 
         // Cyrillic confusables
-        let with_cyrillic = "аbсdefgор"; // Contains Cyrillic а, с, о, р
+        let with_cyrillic = "\u{0430}b\u{0441}defg\u{043E}\u{0440}"; // Contains Cyrillic a, s, o, r
         assert!(analyzer.count_confusables(with_cyrillic) >= 3);
     }
 
@@ -768,5 +838,112 @@ mod tests {
         // With punctuation
         let tokens = analyzer.estimate_tokens("Hello, world! How are you?");
         assert!(tokens >= 5);
+    }
+
+    #[test]
+    fn test_config_validate_default_ok() {
+        let config = TokenSecurityConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_validate_nan_threshold() {
+        let config = TokenSecurityConfig {
+            flood_warning_threshold: f32::NAN,
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("finite"));
+    }
+
+    #[test]
+    fn test_config_validate_threshold_out_of_range() {
+        let config = TokenSecurityConfig {
+            flood_warning_threshold: 1.5,
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("[0.0, 1.0]"));
+    }
+
+    #[test]
+    fn test_config_validate_zero_budget() {
+        let config = TokenSecurityConfig {
+            default_context_budget: 0,
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("default_context_budget"));
+    }
+
+    #[test]
+    fn test_zero_budget_fail_closed() {
+        let config = TokenSecurityConfig {
+            default_context_budget: 100_000,
+            ..Default::default()
+        };
+        let analyzer = TokenSecurityAnalyzer::with_config(config);
+
+        // Set a zero budget for the session
+        analyzer.set_session_budget("zero_budget_session", 0);
+
+        // Should fail-closed with zero budget
+        let result = analyzer.check_context_budget("zero_budget_session", "test input");
+        assert!(result.is_err());
+        let alert = result.unwrap_err();
+        assert_eq!(alert.budget, 0);
+        assert!(alert.description.contains("zero"));
+    }
+
+    #[test]
+    fn test_get_session_stats_zero_budget() {
+        let config = TokenSecurityConfig::default();
+        let analyzer = TokenSecurityAnalyzer::with_config(config);
+
+        // Set zero budget
+        analyzer.set_session_budget("zero_session", 0);
+
+        let stats = analyzer.get_session_stats("zero_session");
+        assert!(stats.is_some());
+        let (_tokens, budget, percent) = stats.unwrap();
+        assert_eq!(budget, 0);
+        // Should return 100.0% (fail-closed) instead of NaN/Infinity
+        assert_eq!(percent, 100.0);
+    }
+
+    #[test]
+    fn test_total_tokens_saturating_add() {
+        let config = TokenSecurityConfig {
+            default_context_budget: usize::MAX,
+            flood_warning_threshold: 0.99,
+            ..Default::default()
+        };
+        let analyzer = TokenSecurityAnalyzer::with_config(config);
+
+        // Fill up tokens close to usize::MAX
+        {
+            let mut contexts = analyzer.session_contexts.write().unwrap();
+            contexts.insert(
+                "saturate_session".to_string(),
+                SessionContext {
+                    total_tokens: usize::MAX - 10,
+                    budget: usize::MAX,
+                    last_activity: Instant::now(),
+                    request_count: 0,
+                },
+            );
+        }
+
+        // This should saturate, not wrap around
+        let _ = analyzer.check_context_budget("saturate_session", "some words to add tokens");
+
+        let stats = analyzer.get_session_stats("saturate_session");
+        assert!(stats.is_some());
+        let (tokens, _, _) = stats.unwrap();
+        // Should be at or near usize::MAX, not wrapped to a small value
+        assert!(tokens > usize::MAX - 100);
     }
 }

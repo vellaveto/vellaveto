@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 /// key_prefix = "vellaveto:"
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ClusterConfig {
     /// Enable clustering. When false (default), local in-process state is used.
     #[serde(default)]
@@ -57,6 +58,62 @@ fn default_cluster_pool_size() -> usize {
 
 fn default_cluster_key_prefix() -> String {
     "vellaveto:".to_string()
+}
+
+/// Check if a string contains ASCII or C1 control characters.
+fn cluster_contains_control_chars(s: &str) -> bool {
+    s.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b))
+}
+
+/// Maximum URL length for Redis connection string.
+const MAX_CLUSTER_URL_LENGTH: usize = 2048;
+
+/// Maximum key prefix length.
+const MAX_CLUSTER_PREFIX_LENGTH: usize = 64;
+
+/// Valid cluster backend values.
+const VALID_CLUSTER_BACKENDS: &[&str] = &["local", "redis"];
+
+impl ClusterConfig {
+    /// Validate cluster configuration fields.
+    pub fn validate(&self) -> Result<(), String> {
+        // Validate backend
+        if !VALID_CLUSTER_BACKENDS.contains(&self.backend.as_str()) {
+            return Err(format!(
+                "cluster.backend must be one of {:?}, got '{}'",
+                VALID_CLUSTER_BACKENDS, self.backend
+            ));
+        }
+        if cluster_contains_control_chars(&self.backend) {
+            return Err("cluster.backend contains control characters".to_string());
+        }
+
+        // Validate redis_url
+        if self.redis_url.len() > MAX_CLUSTER_URL_LENGTH {
+            return Err(format!(
+                "cluster.redis_url length {} exceeds maximum {}",
+                self.redis_url.len(),
+                MAX_CLUSTER_URL_LENGTH
+            ));
+        }
+        if cluster_contains_control_chars(&self.redis_url) {
+            return Err("cluster.redis_url contains control characters".to_string());
+        }
+
+        // Validate key_prefix
+        if self.key_prefix.len() > MAX_CLUSTER_PREFIX_LENGTH {
+            return Err(format!(
+                "cluster.key_prefix length {} exceeds maximum {}",
+                self.key_prefix.len(),
+                MAX_CLUSTER_PREFIX_LENGTH
+            ));
+        }
+        if cluster_contains_control_chars(&self.key_prefix) {
+            return Err("cluster.key_prefix contains control characters".to_string());
+        }
+
+        Ok(())
+    }
 }
 
 impl Default for ClusterConfig {
