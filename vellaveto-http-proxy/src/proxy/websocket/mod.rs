@@ -702,7 +702,14 @@ async fn relay_client_to_upstream(
                             }
                         }
 
-                        let action = extractor::extract_action(tool_name, arguments);
+                        let mut action = extractor::extract_action(tool_name, arguments);
+
+                        // SECURITY (FIND-R75-002): DNS resolution for IP-based policy evaluation.
+                        // Parity with HTTP handler (handlers.rs:717). Without this, policies
+                        // using ip_rules are completely bypassed on the WebSocket transport.
+                        if state.engine.has_ip_rules() {
+                            super::helpers::resolve_domains(&mut action).await;
+                        }
 
                         // SECURITY (FIND-R46-006): Call chain validation and privilege escalation check.
                         // Extract X-Upstream-Agents from the initial WS upgrade headers stored in session.
@@ -1423,7 +1430,14 @@ async fn relay_client_to_upstream(
                         }
 
                         // Build action for resource read
-                        let action = extractor::extract_resource_action(uri);
+                        let mut action = extractor::extract_resource_action(uri);
+
+                        // SECURITY (FIND-R75-002): DNS resolution for resource reads.
+                        // Parity with HTTP handler (handlers.rs:1543).
+                        if state.engine.has_ip_rules() {
+                            super::helpers::resolve_domains(&mut action).await;
+                        }
+
                         let ctx = build_ws_evaluation_context(&state, &session_id);
                         let verdict = match state.engine.evaluate_action_with_context(
                             &action,
@@ -2253,10 +2267,17 @@ async fn relay_upstream_to_client(
                     let tracked_tool_name =
                         take_tracked_tool_call(&state.sessions, &session_id, json_val.get("id"));
 
+                    // SECURITY (FIND-R75-003): Track whether DLP or injection was detected
+                    // (even in log-only mode) to gate memory_tracker.record_response().
+                    // Recording fingerprints from tainted responses would poison the tracker.
+                    let mut dlp_found = false;
+                    let mut injection_found = false;
+
                     // DLP scanning on responses
                     if state.response_dlp_enabled {
                         let dlp_findings = scan_response_for_secrets(&json_val);
                         if !dlp_findings.is_empty() {
+                            dlp_found = true;
                             for finding in &dlp_findings {
                                 record_dlp_finding(&finding.pattern_name);
                             }
@@ -2338,6 +2359,7 @@ async fn relay_upstream_to_client(
                                 };
 
                             if !injection_matches.is_empty() {
+                                injection_found = true;
                                 tracing::warn!(
                                     "SECURITY: Injection in WS response! Session: {}, Patterns: {:?}",
                                     session_id,
@@ -2446,6 +2468,17 @@ async fn relay_upstream_to_client(
                         let mut sink = client_sink.lock().await;
                         let _ = sink.send(Message::Text(error.into())).await;
                         continue;
+                    }
+
+                    // SECURITY (FIND-R75-003): Record response fingerprints for memory
+                    // poisoning detection. Parity with HTTP handler (inspection.rs:638)
+                    // and gRPC handler (service.rs:968). Skip recording when DLP or
+                    // injection was detected (even in log-only mode) to avoid poisoning
+                    // the tracker with tainted data.
+                    if !dlp_found && !injection_found {
+                        if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                            session.memory_tracker.record_response(&json_val);
+                        }
                     }
 
                     // SECURITY (FIND-R46-WS-004): Audit log forwarded upstream→client text messages

@@ -492,9 +492,12 @@ impl PolicyConfig {
 
         // SECURITY (FIND-R72-CFG-006): Validate audit_export.format is a recognized value.
         // Unrecognized values could cause silent export failures or unexpected behavior.
+        // SECURITY (FIND-R75-004): Accept all aliases recognized by ExportFormat::parse_format()
+        // ("cef", "jsonl", "json_lines", "jsonlines") to avoid breaking valid configurations.
         {
-            let valid_formats = ["cef", "jsonl"];
-            if !valid_formats.contains(&self.audit_export.format.as_str()) {
+            let valid_formats = ["cef", "jsonl", "json_lines", "jsonlines"];
+            let format_lower = self.audit_export.format.to_lowercase();
+            if !valid_formats.contains(&format_lower.as_str()) {
                 return Err(format!(
                     "audit_export.format must be one of {:?}, got '{}'",
                     valid_formats, self.audit_export.format
@@ -1232,6 +1235,15 @@ impl PolicyConfig {
 
         // Extension registry configuration bounds
         self.extension.validate()?;
+
+        // SECURITY (FIND-R75-005): MCP protocol configuration bounds.
+        // Validate collection sizes on all MCP protocol config structs.
+        self.elicitation.validate()?;
+        self.sampling.validate()?;
+        self.async_tasks.validate()?;
+        self.resource_indicator.validate()?;
+        self.cimd.validate()?;
+        self.step_up_auth.validate()?;
 
         // MCP Streamable HTTP configuration bounds (Phase 30)
         self.streamable_http.validate()?;

@@ -18,6 +18,7 @@ use crate::default_true;
 /// max_per_session = 5
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ElicitationConfig {
     /// Master toggle. Default: false (block all elicitation requests).
     #[serde(default)]
@@ -49,6 +50,19 @@ impl Default for ElicitationConfig {
 /// Maximum number of blocked field types for elicitation config.
 pub const MAX_BLOCKED_FIELD_TYPES: usize = 100;
 
+impl ElicitationConfig {
+    /// Validate configuration bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.blocked_field_types.len() > MAX_BLOCKED_FIELD_TYPES {
+            return Err(format!(
+                "elicitation.blocked_field_types exceeds {} entries",
+                MAX_BLOCKED_FIELD_TYPES
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Sampling request policy configuration (P2.3).
 ///
 /// Controls whether `sampling/createMessage` requests are allowed and
@@ -65,6 +79,7 @@ pub const MAX_BLOCKED_FIELD_TYPES: usize = 100;
 /// block_if_contains_tool_output = true
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SamplingConfig {
     /// Master toggle. Default: false (block all sampling requests).
     #[serde(default)]
@@ -91,6 +106,19 @@ impl Default for SamplingConfig {
 
 /// Maximum number of allowed models for sampling config.
 pub const MAX_ALLOWED_MODELS: usize = 100;
+
+impl SamplingConfig {
+    /// Validate configuration bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.allowed_models.len() > MAX_ALLOWED_MODELS {
+            return Err(format!(
+                "sampling.allowed_models exceeds {} entries",
+                MAX_ALLOWED_MODELS
+            ));
+        }
+        Ok(())
+    }
+}
 
 // ═══════════════════════════════════════════════════
 // MCP 2025-11-25 CONFIGURATION
@@ -121,6 +149,7 @@ fn default_max_task_duration_secs() -> u64 {
 /// allow_cancellation = ["admin", "operator"]
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AsyncTaskConfig {
     /// Master toggle for async task policies. Default: true.
     #[serde(default = "default_true")]
@@ -215,6 +244,22 @@ impl Default for AsyncTaskConfig {
     }
 }
 
+/// Maximum number of allow_cancellation entries.
+pub const MAX_ALLOW_CANCELLATION: usize = 100;
+
+impl AsyncTaskConfig {
+    /// Validate configuration bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.allow_cancellation.len() > MAX_ALLOW_CANCELLATION {
+            return Err(format!(
+                "async_tasks.allow_cancellation exceeds {} entries",
+                MAX_ALLOW_CANCELLATION
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// RFC 8707 Resource Indicator configuration.
 ///
 /// Validates OAuth tokens include the expected resource indicators.
@@ -229,6 +274,7 @@ impl Default for AsyncTaskConfig {
 /// require_resource = false
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ResourceIndicatorConfig {
     /// Enable resource indicator validation. Default: false.
     #[serde(default)]
@@ -245,6 +291,22 @@ pub struct ResourceIndicatorConfig {
     pub require_resource: bool,
 }
 
+/// Maximum number of allowed resource patterns.
+pub const MAX_ALLOWED_RESOURCES: usize = 100;
+
+impl ResourceIndicatorConfig {
+    /// Validate configuration bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.allowed_resources.len() > MAX_ALLOWED_RESOURCES {
+            return Err(format!(
+                "resource_indicator.allowed_resources exceeds {} entries",
+                MAX_ALLOWED_RESOURCES
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// CIMD (Capability-Indexed Message Dispatch) configuration.
 ///
 /// Controls capability requirements for MCP 2025-11-25 sessions.
@@ -258,6 +320,7 @@ pub struct ResourceIndicatorConfig {
 /// blocked_capabilities = ["admin.dangerous"]
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct CimdConfig {
     /// Enable capability-based routing. Default: false.
     #[serde(default)]
@@ -270,6 +333,28 @@ pub struct CimdConfig {
     /// Capabilities that must NOT be declared by the client.
     #[serde(default)]
     pub blocked_capabilities: Vec<String>,
+}
+
+/// Maximum number of capability entries per list.
+pub const MAX_CAPABILITIES: usize = 100;
+
+impl CimdConfig {
+    /// Validate configuration bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.required_capabilities.len() > MAX_CAPABILITIES {
+            return Err(format!(
+                "cimd.required_capabilities exceeds {} entries",
+                MAX_CAPABILITIES
+            ));
+        }
+        if self.blocked_capabilities.len() > MAX_CAPABILITIES {
+            return Err(format!(
+                "cimd.blocked_capabilities exceeds {} entries",
+                MAX_CAPABILITIES
+            ));
+        }
+        Ok(())
+    }
 }
 
 // ═══════════════════════════════════════════════════
@@ -296,6 +381,7 @@ fn default_max_event_id_length() -> usize {
 /// sse_retry_ms = 3000
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct StreamableHttpConfig {
     /// Enable SSE resumability (GET /mcp with Last-Event-ID). Default: false.
     #[serde(default)]
@@ -372,6 +458,7 @@ fn default_step_up_expiry_secs() -> u64 {
 /// trigger_tools = ["delete_*", "transfer_*", "admin_*"]
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct StepUpAuthConfig {
     /// Enable step-up authentication. Default: false.
     #[serde(default)]
@@ -404,5 +491,27 @@ impl Default for StepUpAuthConfig {
             trigger_tools: Vec::new(),
             required_level: default_step_up_level(),
         }
+    }
+}
+
+/// Maximum number of trigger tools for step-up auth.
+pub const MAX_TRIGGER_TOOLS: usize = 100;
+
+impl StepUpAuthConfig {
+    /// Validate configuration bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.trigger_tools.len() > MAX_TRIGGER_TOOLS {
+            return Err(format!(
+                "step_up_auth.trigger_tools exceeds {} entries",
+                MAX_TRIGGER_TOOLS
+            ));
+        }
+        if self.required_level > 4 {
+            return Err(format!(
+                "step_up_auth.required_level must be 0-4, got {}",
+                self.required_level
+            ));
+        }
+        Ok(())
     }
 }

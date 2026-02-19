@@ -613,8 +613,14 @@ impl McpGrpcService {
                         }
                         #[allow(unreachable_patterns)] // AbacDecision is #[non_exhaustive]
                         _ => {
-                            // Future variants — fail-closed (deny)
+                            // SECURITY (FIND-R75-001): Future variants — fail-closed (deny).
+                            // Must return denial, not fall through to Allow path.
+                            // Parity with HTTP handler (handlers.rs) and WS handler (FIND-R74-002).
                             tracing::warn!("Unknown AbacDecision variant — fail-closed");
+                            return make_proto_denial_response(
+                                proto_req,
+                                "Denied by policy",
+                            );
                         }
                     }
                 }

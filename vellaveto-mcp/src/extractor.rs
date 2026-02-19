@@ -150,8 +150,20 @@ pub fn classify_message(msg: &Value) -> MessageType {
 
             match tool_name {
                 Some(name) if !name.is_empty() => {
-                    let arguments = params
-                        .and_then(|p| p.get("arguments"))
+                    // SECURITY (FIND-R82-001): Validate that arguments is an object
+                    // (or absent). Non-object types (array, string, number) are rejected
+                    // early for clarity rather than relying on fail-closed .get() semantics.
+                    let raw_args = params.and_then(|p| p.get("arguments"));
+                    if let Some(args) = raw_args {
+                        if !args.is_object() && !args.is_null() {
+                            return MessageType::Invalid {
+                                id,
+                                reason: "tools/call arguments must be a JSON object".to_string(),
+                            };
+                        }
+                    }
+                    let arguments = raw_args
+                        .filter(|a| a.is_object())
                         .cloned()
                         .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
 
@@ -686,6 +698,56 @@ mod tests {
         });
         let mt = classify_message(&msg);
         assert!(matches!(mt, MessageType::Invalid { .. }));
+    }
+
+    #[test]
+    fn test_classify_tool_call_non_object_arguments_returns_invalid() {
+        // FIND-R82-001: Non-object arguments must be rejected early.
+        let array_args = json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "tools/call",
+            "params": {"name": "bash", "arguments": ["cmd", "arg"]}
+        });
+        let mt = classify_message(&array_args);
+        assert!(matches!(mt, MessageType::Invalid { .. }), "array arguments should be rejected");
+
+        let string_args = json!({
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": "tools/call",
+            "params": {"name": "bash", "arguments": "a string"}
+        });
+        let mt = classify_message(&string_args);
+        assert!(matches!(mt, MessageType::Invalid { .. }), "string arguments should be rejected");
+
+        let number_args = json!({
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "tools/call",
+            "params": {"name": "bash", "arguments": 42}
+        });
+        let mt = classify_message(&number_args);
+        assert!(matches!(mt, MessageType::Invalid { .. }), "number arguments should be rejected");
+
+        // Null and absent arguments are fine (default to empty object)
+        let null_args = json!({
+            "jsonrpc": "2.0",
+            "id": 10,
+            "method": "tools/call",
+            "params": {"name": "bash", "arguments": null}
+        });
+        let mt = classify_message(&null_args);
+        assert!(matches!(mt, MessageType::ToolCall { .. }), "null arguments should be accepted");
+
+        let absent_args = json!({
+            "jsonrpc": "2.0",
+            "id": 11,
+            "method": "tools/call",
+            "params": {"name": "bash"}
+        });
+        let mt = classify_message(&absent_args);
+        assert!(matches!(mt, MessageType::ToolCall { .. }), "absent arguments should be accepted");
     }
 
     #[test]
