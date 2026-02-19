@@ -16,6 +16,9 @@ pub use vellaveto_types::compliance::{
 /// Maximum number of human oversight tool patterns.
 pub const MAX_HUMAN_OVERSIGHT_TOOLS: usize = 500;
 
+/// Maximum number of data governance tool mappings (FIND-R63-CFG-002).
+pub const MAX_TOOL_MAPPINGS: usize = 1_000;
+
 /// Minimum record retention in days (Art 12 floor).
 pub const MIN_RETENTION_DAYS: u32 = 30;
 
@@ -220,7 +223,7 @@ impl Default for DataGovernanceConfig {
 // ── Top-Level Compliance Configuration ────────────────────────────────────────
 
 /// Top-level compliance evidence configuration.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ComplianceConfig {
     /// EU AI Act compliance configuration.
@@ -257,6 +260,15 @@ impl ComplianceConfig {
                 "soc2.tracked_categories has {} entries, max is {}",
                 self.soc2.tracked_categories.len(),
                 MAX_SOC2_CATEGORIES,
+            ));
+        }
+        // SECURITY (FIND-R63-CFG-002): Bound data_governance.tool_mappings to prevent
+        // memory exhaustion from excessively large tool mapping arrays.
+        if self.data_governance.tool_mappings.len() > MAX_TOOL_MAPPINGS {
+            return Err(format!(
+                "data_governance.tool_mappings has {} entries, max is {}",
+                self.data_governance.tool_mappings.len(),
+                MAX_TOOL_MAPPINGS,
             ));
         }
         // Phase 38: Access review config validation

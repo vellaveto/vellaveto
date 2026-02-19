@@ -9,6 +9,7 @@
 //! - OWASP ASI Top 10 (ASI07: Insecure Tool Output Handling)
 //! - Microsoft "Runtime Risk to Real-Time Defense" (2026)
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{OnceLock, RwLock};
 
@@ -113,7 +114,10 @@ pub enum EntropyResult {
 }
 
 /// Configuration for the output security analyzer.
-#[derive(Debug, Clone)]
+// SECURITY (FIND-R63-MCP-006): deny_unknown_fields prevents attacker-injected
+// fields from being silently accepted in security-critical configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OutputSecurityConfig {
     /// Enable steganography detection.
     pub detect_steganography: bool,

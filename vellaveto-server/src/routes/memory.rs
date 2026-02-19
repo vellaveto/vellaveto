@@ -185,6 +185,9 @@ pub async fn quarantine_memory_entry(
     Path(id): Path<String>,
     Json(body): Json<QuarantineRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY (FIND-R63-SRV-010): Validate path parameter.
+    crate::routes::validate_path_param_json(&id, "id")?;
+
     // SECURITY: Validate input bounds on request body fields.
     validate_optional_field(&body.reason, "reason")?;
     validate_optional_field(&body.triggered_by, "triggered_by")?;
@@ -233,6 +236,9 @@ pub async fn release_memory_entry(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY (FIND-R63-SRV-007): Validate path parameter.
+    crate::routes::validate_path_param_json(&id, "id")?;
+
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -264,6 +270,9 @@ pub async fn verify_memory_integrity(
     State(state): State<AppState>,
     Path(session): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY (FIND-R63-SRV-008): Validate path parameter.
+    crate::routes::validate_path_param_json(&session, "session")?;
+
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -280,6 +289,9 @@ pub async fn get_memory_provenance(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY (FIND-R63-SRV-009): Validate path parameter.
+    crate::routes::validate_path_param_json(&id, "id")?;
+
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -421,6 +433,9 @@ pub async fn share_memory_namespace(
     Path(id): Path<String>,
     Json(body): Json<ShareNamespaceRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY (FIND-R63-SRV-012): Validate path parameter.
+    crate::routes::validate_path_param_json(&id, "id")?;
+
     // SECURITY: Validate input bounds on request body fields.
     validate_required_field(&body.target_agent, "target_agent")?;
     validate_optional_field(&body.access_type, "access_type")?;

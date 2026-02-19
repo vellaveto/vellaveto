@@ -24,7 +24,7 @@ pub enum DeploymentMode {
 /// When enabled, one instance in the cluster acquires the leader lease.
 /// The leader performs coordination tasks (e.g., audit log rotation,
 /// stale approval expiry) while followers defer.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct LeaderElectionConfig {
     /// Enable leader election. Default: false.
@@ -110,7 +110,7 @@ pub enum ServiceDiscoveryMode {
 }
 
 /// Configuration for service discovery.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ServiceDiscoveryConfig {
     /// Discovery mode. Default: Static.
@@ -230,7 +230,7 @@ impl ServiceDiscoveryConfig {
 pub const MAX_INSTANCE_ID_LEN: usize = 253;
 
 /// Top-level deployment configuration.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DeploymentConfig {
     /// Deployment mode. Default: Standalone.

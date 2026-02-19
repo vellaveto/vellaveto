@@ -101,7 +101,16 @@ pub async fn get_task(
         )
     })?;
 
-    Ok(Json(serde_json::to_value(task).unwrap_or(json!({}))))
+    let value = serde_json::to_value(task).map_err(|e| {
+        tracing::error!("Failed to serialize task: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Failed to serialize task".to_string(),
+            }),
+        )
+    })?;
+    Ok(Json(value))
 }
 
 /// Cancel a task.

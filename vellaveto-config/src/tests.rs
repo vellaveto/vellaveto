@@ -1261,7 +1261,7 @@ fn test_validate_rejects_nan_trust_threshold() {
     config.tool_registry.trust_threshold = f32::NAN;
     let err = config.validate().unwrap_err();
     assert!(
-        err.contains("trust_threshold must be finite"),
+        err.contains("trust_threshold must be in [0.0, 1.0]"),
         "NaN should be rejected, got: {}",
         err
     );
@@ -1273,7 +1273,7 @@ fn test_validate_rejects_infinity_trust_threshold() {
     config.tool_registry.trust_threshold = f32::INFINITY;
     let err = config.validate().unwrap_err();
     assert!(
-        err.contains("trust_threshold must be finite"),
+        err.contains("trust_threshold must be in [0.0, 1.0]"),
         "Infinity should be rejected, got: {}",
         err
     );

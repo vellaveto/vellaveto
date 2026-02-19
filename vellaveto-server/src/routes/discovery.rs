@@ -229,19 +229,23 @@ pub async fn discovery_reindex(
     })?;
 
     engine.index().rebuild_idf().map_err(|e| {
+        // SECURITY (FIND-R65-001): Redact internal error details.
+        tracing::warn!(error = %e, "Discovery reindex failed");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Reindex failed: {}", e),
+                error: "Reindex failed".to_string(),
             }),
         )
     })?;
 
     let total_tools = engine.index().len().map_err(|e| {
+        // SECURITY (FIND-R65-001): Redact internal error details.
+        tracing::warn!(error = %e, "Failed to read discovery index size");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Failed to read index size: {}", e),
+                error: "Failed to read index size".to_string(),
             }),
         )
     })?;
@@ -359,10 +363,12 @@ pub async fn discovery_tools(
 
     // Get all tool IDs
     let tool_ids = engine.index().tool_ids().map_err(|e| {
+        // SECURITY (FIND-R65-001): Redact internal error details.
+        tracing::warn!(error = %e, "Failed to list discovery tool IDs");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Failed to list tools: {}", e),
+                error: "Failed to list tools".to_string(),
             }),
         )
     })?;

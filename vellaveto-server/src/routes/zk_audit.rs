@@ -374,12 +374,16 @@ pub async fn zk_audit_commitments(
                     Json(ErrorResponse { error: msg }),
                 )
             }
-            _ => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Failed to load audit entries: {}", e),
-                }),
-            ),
+            _ => {
+                // SECURITY (FIND-R65-003): Redact internal error details.
+                tracing::warn!(error = %e, "Failed to load audit entries for ZK commitments");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "Failed to load audit entries".to_string(),
+                    }),
+                )
+            }
         })?;
 
     let commitments: Vec<serde_json::Value> = entries

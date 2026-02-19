@@ -686,6 +686,11 @@ pub async fn soc2_access_review(
     }
 }
 
+/// SECURITY (FIND-R63-SRV-011): Maximum number of (agent_id, session_id) pairs
+/// to collect when building least-agency data. Prevents unbounded HashSet growth
+/// from very large audit logs with many unique agent/session combinations.
+const MAX_AGENT_SESSION_PAIRS: usize = 50_000;
+
 /// Collect least-agency data for all (agent_id, session_id) pairs observed in
 /// audit entries within the review period.
 fn collect_least_agency_data(
@@ -707,6 +712,15 @@ fn collect_least_agency_data(
         }
         if entry.timestamp.as_str() < period_start || entry.timestamp.as_str() > period_end {
             continue;
+        }
+        // SECURITY (FIND-R63-SRV-011): Cap the HashSet to prevent OOM from
+        // audit logs with an excessive number of unique agent/session pairs.
+        if pairs.len() >= MAX_AGENT_SESSION_PAIRS {
+            tracing::warn!(
+                max = MAX_AGENT_SESSION_PAIRS,
+                "Agent/session pair limit reached during access review; results may be incomplete"
+            );
+            break;
         }
         let agent_id = entry
             .metadata

@@ -51,10 +51,12 @@ pub async fn projector_models(
     })?;
 
     let families = registry.families().map_err(|e| {
+        // SECURITY (FIND-R65-002): Redact internal error details.
+        tracing::warn!(error = %e, "Failed to list projector model families");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Failed to list model families: {}", e),
+                error: "Failed to list model families".to_string(),
             }),
         )
     })?;

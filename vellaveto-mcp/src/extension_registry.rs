@@ -194,6 +194,20 @@ impl ExtensionRegistry {
                 .extensions
                 .write()
                 .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {}", e)))?;
+
+            // SECURITY (FIND-R63-MCP-003): Re-check capacity and duplicate after
+            // acquiring write lock to close TOCTOU race between the earlier read-lock
+            // check and this write-lock insertion.
+            if extensions.len() >= MAX_EXTENSIONS {
+                return Err(ExtensionError::Validation(format!(
+                    "Too many extensions: max {}",
+                    MAX_EXTENSIONS
+                )));
+            }
+            if extensions.contains_key(&descriptor.id) {
+                return Err(ExtensionError::AlreadyRegistered(descriptor.id.clone()));
+            }
+
             extensions.insert(
                 descriptor.id.clone(),
                 RegisteredExtension {

@@ -222,21 +222,10 @@ impl PolicyConfig {
             ));
         }
 
-        // SECURITY (R24-SUP-4): Reject NaN/Infinity in trust_threshold.
-        // IEEE 754 special values bypass comparison operators, allowing
-        // any tool to pass or fail threshold checks unpredictably.
-        if !self.tool_registry.trust_threshold.is_finite() {
-            return Err(format!(
-                "tool_registry.trust_threshold must be finite, got {}",
-                self.tool_registry.trust_threshold
-            ));
-        }
-        if self.tool_registry.trust_threshold < 0.0 || self.tool_registry.trust_threshold > 1.0 {
-            return Err(format!(
-                "tool_registry.trust_threshold must be in [0.0, 1.0], got {}",
-                self.tool_registry.trust_threshold
-            ));
-        }
+        // SECURITY (FIND-R63-CFG-001): Delegate to ToolRegistryConfig::validate()
+        // instead of inlining the trust_threshold checks here. This ensures
+        // the validation logic is not duplicated as dead code.
+        self.tool_registry.validate()?;
 
         // SECURITY (R24-SUP-6): Validate webhook_url scheme to prevent SSRF.
         // Only HTTPS is allowed for webhook destinations.

@@ -244,7 +244,10 @@ pub async fn simulate_evaluate(
         let snap = state.policy_state.load();
         (
             PolicyEngine::with_policies(false, &snap.policies).map_err(|errors| {
-                tracing::warn!(count = errors.len(), "Simulator: policy recompilation failed");
+                tracing::warn!(
+                    count = errors.len(),
+                    "Simulator: policy recompilation failed"
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
@@ -322,7 +325,10 @@ pub async fn simulate_batch(
     } else {
         let snap = state.policy_state.load();
         PolicyEngine::with_policies(false, &snap.policies).map_err(|errors| {
-            tracing::warn!(count = errors.len(), "Simulator batch: policy recompilation failed");
+            tracing::warn!(
+                count = errors.len(),
+                "Simulator batch: policy recompilation failed"
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -615,12 +621,15 @@ pub async fn simulate_red_team(
 
     match result {
         Ok(Ok(report)) => Ok(Json(report)),
-        Ok(Err(e)) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Red team execution failed: {}", e),
-            }),
-        )),
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "Red team execution failed");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Red team execution failed".to_string(),
+                }),
+            ))
+        }
         Err(_) => Err((
             StatusCode::REQUEST_TIMEOUT,
             Json(ErrorResponse {

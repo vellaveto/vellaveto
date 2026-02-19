@@ -10,6 +10,7 @@
 //! - Context window exhaustion attacks
 //! - Token-level prompt injection techniques
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
@@ -82,7 +83,10 @@ pub struct GlitchTokenMatch {
 }
 
 /// Configuration for token security analyzer.
-#[derive(Debug, Clone)]
+// SECURITY (FIND-R63-MCP-006): deny_unknown_fields prevents attacker-injected
+// fields from being silently accepted in security-critical configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TokenSecurityConfig {
     /// Enable token smuggling detection.
     pub detect_smuggling: bool,

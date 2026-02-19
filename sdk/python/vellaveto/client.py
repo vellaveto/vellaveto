@@ -70,7 +70,7 @@ ConnectionError = VellavetoConnectionError  # noqa: A001
 
 
 # HTTP status codes considered transient (safe to retry)
-_TRANSIENT_STATUS_CODES = frozenset({502, 503, 504})
+_TRANSIENT_STATUS_CODES = frozenset({429, 502, 503, 504})
 
 # Maximum length for tool name, function name, and similar string inputs
 _MAX_INPUT_STRING_LEN = 1024

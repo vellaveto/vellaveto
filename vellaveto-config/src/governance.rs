@@ -27,6 +27,20 @@ pub const MAX_AGENT_ID_LENGTH: usize = 256;
 /// Maximum discovery window (24 hours) (FIND-R44-048).
 pub const MAX_DISCOVERY_WINDOW_SECS: u64 = 86_400;
 
+/// Check if a character is a Unicode format character that can be used for
+/// invisible text injection (zero-width chars, bidi overrides, BOM).
+///
+/// SECURITY (FIND-R63-CFG-005): Mirrors `vellaveto_types::core::is_unicode_format_char()`
+/// which is `pub(crate)` and not accessible from this crate.
+fn is_unicode_format_char(c: char) -> bool {
+    matches!(c,
+        '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
+        '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
+        '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
+        '\u{FEFF}'                  // BOM / zero-width no-break space
+    )
+}
+
 /// Governance configuration for shadow AI discovery and least agency enforcement.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -130,6 +144,14 @@ impl GovernanceConfig {
                     i
                 ));
             }
+            // SECURITY (FIND-R63-CFG-005): Reject Unicode format characters
+            // (zero-width, bidi overrides, BOM) that can bypass security checks.
+            if tool.chars().any(is_unicode_format_char) {
+                return Err(format!(
+                    "governance.approved_tools[{}] contains Unicode format characters",
+                    i
+                ));
+            }
         }
         if self.known_servers.len() > MAX_GOVERNANCE_KNOWN_SERVERS {
             return Err(format!(
@@ -158,6 +180,13 @@ impl GovernanceConfig {
                     i
                 ));
             }
+            // SECURITY (FIND-R63-CFG-005): Reject Unicode format characters.
+            if server.chars().any(is_unicode_format_char) {
+                return Err(format!(
+                    "governance.known_servers[{}] contains Unicode format characters",
+                    i
+                ));
+            }
         }
         // FIND-R44-017: Validate registered_agents count and per-string length
         if self.registered_agents.len() > MAX_GOVERNANCE_REGISTERED_AGENTS {
@@ -183,6 +212,13 @@ impl GovernanceConfig {
             {
                 return Err(format!(
                     "governance.registered_agents[{}] contains control characters",
+                    i
+                ));
+            }
+            // SECURITY (FIND-R63-CFG-005): Reject Unicode format characters.
+            if agent.chars().any(is_unicode_format_char) {
+                return Err(format!(
+                    "governance.registered_agents[{}] contains Unicode format characters",
                     i
                 ));
             }
