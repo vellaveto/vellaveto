@@ -229,6 +229,32 @@ impl Default for DataGovernanceConfig {
     }
 }
 
+// ── OWASP ASI Configuration ──────────────────────────────────────────────────
+
+/// OWASP Agentic Security Index (ASI) compliance configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct OwaspAsiConfig {
+    /// Enable OWASP ASI compliance coverage reporting.
+    #[serde(default = "super::default_true")]
+    pub enabled: bool,
+}
+
+impl Default for OwaspAsiConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+impl OwaspAsiConfig {
+    /// Validate OWASP ASI configuration.
+    pub fn validate(&self) -> Result<(), String> {
+        // Currently only a boolean flag — no additional validation needed.
+        // This method exists for forward compatibility when fields are added.
+        Ok(())
+    }
+}
+
 // ── Top-Level Compliance Configuration ────────────────────────────────────────
 
 /// Top-level compliance evidence configuration.
@@ -246,6 +272,10 @@ pub struct ComplianceConfig {
     /// Art 10 data governance configuration.
     #[serde(default)]
     pub data_governance: DataGovernanceConfig,
+
+    /// OWASP Agentic Security Index (ASI) configuration.
+    #[serde(default)]
+    pub owasp_asi: OwaspAsiConfig,
 }
 
 impl ComplianceConfig {
@@ -383,6 +413,8 @@ impl ComplianceConfig {
                 ));
             }
         }
+        // Phase 41: OWASP ASI config validation
+        self.owasp_asi.validate()?;
         Ok(())
     }
 
@@ -505,6 +537,7 @@ mod tests {
                 access_review: Soc2AccessReviewConfig::default(),
             },
             data_governance: DataGovernanceConfig::default(),
+            owasp_asi: OwaspAsiConfig::default(),
         };
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: ComplianceConfig = serde_json::from_str(&json).unwrap();
@@ -845,5 +878,59 @@ reviewers = ["Alice"]
             retention_days: Some(365),
         }];
         assert!(config.validate().is_ok());
+    }
+
+    // ── Phase 41: OWASP ASI config tests ─────────────────────────────────────
+
+    #[test]
+    fn test_owasp_asi_config_defaults() {
+        let config = OwaspAsiConfig::default();
+        assert!(config.enabled);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_owasp_asi_config_disabled() {
+        let config = OwaspAsiConfig { enabled: false };
+        assert!(!config.enabled);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_compliance_config_includes_owasp_asi() {
+        let config = ComplianceConfig::default();
+        assert!(config.owasp_asi.enabled);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_owasp_asi_toml_parsing() {
+        let toml_str = r#"
+[eu_ai_act]
+enabled = true
+
+[soc2]
+enabled = false
+
+[owasp_asi]
+enabled = false
+"#;
+        let config: ComplianceConfig = toml::from_str(toml_str).unwrap();
+        assert!(!config.owasp_asi.enabled);
+    }
+
+    #[test]
+    fn test_owasp_asi_deny_unknown_fields() {
+        let json = r#"{"enabled": true, "unknown_field": "bad"}"#;
+        let result: Result<OwaspAsiConfig, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "should reject unknown fields");
+    }
+
+    #[test]
+    fn test_owasp_asi_serde_roundtrip() {
+        let config = OwaspAsiConfig { enabled: true };
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: OwaspAsiConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(config, deserialized);
     }
 }

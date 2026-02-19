@@ -106,7 +106,8 @@ pub use abac::AbacConfig;
 pub use billing::BillingConfig;
 pub use cluster::ClusterConfig;
 pub use compliance::{
-    AiActRiskClass, ComplianceConfig, EuAiActConfig, Soc2Config, TrustServicesCategory,
+    AiActRiskClass, ComplianceConfig, EuAiActConfig, OwaspAsiConfig, Soc2Config,
+    TrustServicesCategory,
 };
 pub use config_validate::{
     MAX_ALLOWED_SERVERS, MAX_CUSTOM_PII_PATTERNS, MAX_DISABLED_INJECTION_PATTERNS,

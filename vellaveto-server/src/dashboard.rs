@@ -935,7 +935,7 @@ mod tests {
         };
         let mut html = String::new();
         render_compliance_section(&mut html, &snap);
-        // The gap analysis report includes these 7 frameworks
+        // The gap analysis report includes these 8 frameworks
         assert!(html.contains("MITRE ATLAS"));
         assert!(html.contains("NIST AI RMF"));
         assert!(html.contains("ISO 27090"));
@@ -943,6 +943,7 @@ mod tests {
         assert!(html.contains("EU AI Act"));
         assert!(html.contains("CoSAI"));
         assert!(html.contains("Adversa TOP 25"));
+        assert!(html.contains("OWASP ASI"));
     }
 
     #[test]
