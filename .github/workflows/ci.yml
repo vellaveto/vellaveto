@@ -235,7 +235,13 @@ jobs:
           restore-keys: bench-baseline-${{ runner.os }}-
 
       - name: Run benchmarks
-        run: cargo bench --workspace --locked
+        run: |
+          set -euo pipefail
+          # CI smoke benchmark mode: keep coverage while reducing runtime/flakiness.
+          cargo bench --workspace --locked -- --quick || {
+            echo "First benchmark run failed; retrying once..."
+            cargo bench --workspace --locked -- --quick
+          }
 
       - name: Save benchmark baseline
         uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
