@@ -184,8 +184,17 @@ fn compile_from_toml_bounded(
     }
     PolicyEngine::sort_policies(&mut policies);
     let engine = PolicyEngine::with_policies(false, &policies).map_err(|errors| {
-        let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
-        format!("Policy compilation errors: {}", msgs.join("; "))
+        // SECURITY (FIND-R63-006): Truncate error list to prevent large responses.
+        let msgs: Vec<String> = errors.iter().take(10).map(|e| e.to_string()).collect();
+        let mut msg = format!("Policy compilation errors: {}", msgs.join("; "));
+        if errors.len() > 10 {
+            msg.push_str(&format!(" ... and {} more", errors.len() - 10));
+        }
+        if msg.len() > 4096 {
+            msg.truncate(4096);
+            msg.push_str("...");
+        }
+        msg
     })?;
     Ok((engine, policies))
 }
@@ -235,11 +244,11 @@ pub async fn simulate_evaluate(
         let snap = state.policy_state.load();
         (
             PolicyEngine::with_policies(false, &snap.policies).map_err(|errors| {
-                let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+                tracing::warn!(count = errors.len(), "Simulator: policy recompilation failed");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
-                        error: format!("Policy recompilation failed: {}", msgs.join("; ")),
+                        error: "Policy recompilation failed".to_string(),
                     }),
                 )
             })?,
@@ -313,11 +322,11 @@ pub async fn simulate_batch(
     } else {
         let snap = state.policy_state.load();
         PolicyEngine::with_policies(false, &snap.policies).map_err(|errors| {
-            let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+            tracing::warn!(count = errors.len(), "Simulator batch: policy recompilation failed");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: format!("Policy recompilation failed: {}", msgs.join("; ")),
+                    error: "Policy recompilation failed".to_string(),
                 }),
             )
         })?
@@ -358,13 +367,20 @@ pub async fn simulate_batch(
                 });
             }
             Err(e) => {
+                // SECURITY (FIND-R63-007): Truncate error to prevent large responses.
+                let err_str = e.to_string();
+                let bounded_err = if err_str.len() > 256 {
+                    format!("{}...", &err_str[..256])
+                } else {
+                    err_str
+                };
                 results.push(BatchResult {
                     action_index: i,
                     verdict: Verdict::Deny {
                         reason: "Evaluation error".to_string(),
                     },
                     trace: None,
-                    error: Some(e.to_string()),
+                    error: Some(bounded_err),
                 });
                 errors += 1;
             }
@@ -489,6 +505,32 @@ pub async fn simulate_diff(
     let before_policies = before_config.to_policies();
     let after_policies = after_config.to_policies();
 
+    // SECURITY (FIND-R63-004): Cap policy count in diff to prevent expensive iteration.
+    if before_policies.len() > MAX_POLICY_COUNT {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "'before' policy count {} exceeds maximum of {}",
+                    before_policies.len(),
+                    MAX_POLICY_COUNT
+                ),
+            }),
+        ));
+    }
+    if after_policies.len() > MAX_POLICY_COUNT {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "'after' policy count {} exceeds maximum of {}",
+                    after_policies.len(),
+                    MAX_POLICY_COUNT
+                ),
+            }),
+        ));
+    }
+
     // Build ID maps
     let before_map: std::collections::HashMap<&str, &Policy> =
         before_policies.iter().map(|p| (p.id.as_str(), p)).collect();
@@ -543,11 +585,11 @@ pub async fn simulate_red_team(
 
     let snap = state.policy_state.load();
     let engine = PolicyEngine::with_policies(false, &snap.policies).map_err(|errors| {
-        let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+        tracing::warn!(count = errors.len(), "Red team: policy compilation failed");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Policy compilation failed: {}", msgs.join("; ")),
+                error: "Policy compilation failed".to_string(),
             }),
         )
     })?;

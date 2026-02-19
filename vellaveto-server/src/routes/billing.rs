@@ -33,6 +33,14 @@ const MAX_WEBHOOK_PAYLOAD: usize = 262_144;
 /// timestamps in their signature headers.
 const MAX_WEBHOOK_TIMESTAMP_AGE_SECS: u64 = 300;
 
+/// SECURITY (FIND-R63-001): Maximum length for webhook signature headers.
+/// Paddle: `ts=<20>;h1=<64>` ≈ 90 chars. Stripe: `t=<20>,v1=<64>` ≈ 90 chars.
+/// 512 is generous but prevents parsing DoS from multi-megabyte headers.
+const MAX_SIGNATURE_HEADER_LENGTH: usize = 512;
+
+/// Expected hex length of HMAC-SHA256 output (32 bytes = 64 hex chars).
+const HMAC_SHA256_HEX_LENGTH: usize = 64;
+
 /// Response returned to webhook callers.
 #[derive(Debug, Serialize)]
 pub struct WebhookResponse {
@@ -149,6 +157,15 @@ pub async fn paddle_webhook(
 /// Paddle uses `ts=<timestamp>;h1=<hmac_hex>` format in the `Paddle-Signature` header.
 /// HMAC-SHA256 is computed over `<timestamp>:<body>` using the webhook secret.
 fn verify_paddle_signature(signature_header: &str, body: &[u8], secret: &str) -> bool {
+    // SECURITY (FIND-R63-001): Bound header length before parsing.
+    if signature_header.len() > MAX_SIGNATURE_HEADER_LENGTH {
+        tracing::warn!(
+            len = signature_header.len(),
+            "Paddle signature header exceeds max length"
+        );
+        return false;
+    }
+
     // Parse "ts=<ts>;h1=<hmac>"
     let mut ts_value = "";
     let mut h1_value = "";
@@ -163,6 +180,12 @@ fn verify_paddle_signature(signature_header: &str, body: &[u8], secret: &str) ->
     }
 
     if ts_value.is_empty() || h1_value.is_empty() {
+        return false;
+    }
+
+    // SECURITY (FIND-R63-001): Validate HMAC hex length — SHA-256 produces exactly 64 hex chars.
+    // Reject early to prevent large allocations from oversized h1 values.
+    if h1_value.len() != HMAC_SHA256_HEX_LENGTH {
         return false;
     }
 
@@ -185,7 +208,9 @@ fn verify_paddle_signature(signature_header: &str, body: &[u8], secret: &str) ->
     }
 
     // Compute HMAC-SHA256 over "ts:body"
-    let mut signed_payload = Vec::with_capacity(ts_value.len() + 1 + body.len());
+    // SECURITY (FIND-R63-001): Use saturating_add to prevent overflow in capacity calculation.
+    let capacity = ts_value.len().saturating_add(1).saturating_add(body.len());
+    let mut signed_payload = Vec::with_capacity(capacity);
     signed_payload.extend_from_slice(ts_value.as_bytes());
     signed_payload.push(b':');
     signed_payload.extend_from_slice(body);
@@ -297,6 +322,15 @@ pub async fn stripe_webhook(
 /// Stripe uses `t=<timestamp>,v1=<hmac_hex>` format in `Stripe-Signature` header.
 /// HMAC-SHA256 is computed over `<timestamp>.<body>` using the `whsec_` signing secret.
 fn verify_stripe_signature(signature_header: &str, body: &[u8], secret: &str) -> bool {
+    // SECURITY (FIND-R63-001): Bound header length before parsing.
+    if signature_header.len() > MAX_SIGNATURE_HEADER_LENGTH {
+        tracing::warn!(
+            len = signature_header.len(),
+            "Stripe signature header exceeds max length"
+        );
+        return false;
+    }
+
     let mut t_value = "";
     let mut v1_value = "";
 
@@ -310,6 +344,11 @@ fn verify_stripe_signature(signature_header: &str, body: &[u8], secret: &str) ->
     }
 
     if t_value.is_empty() || v1_value.is_empty() {
+        return false;
+    }
+
+    // SECURITY (FIND-R63-001): Validate HMAC hex length — SHA-256 produces exactly 64 hex chars.
+    if v1_value.len() != HMAC_SHA256_HEX_LENGTH {
         return false;
     }
 
@@ -332,7 +371,9 @@ fn verify_stripe_signature(signature_header: &str, body: &[u8], secret: &str) ->
     }
 
     // Compute HMAC-SHA256 over "timestamp.body"
-    let mut signed_payload = Vec::with_capacity(t_value.len() + 1 + body.len());
+    // SECURITY (FIND-R63-001): Use saturating_add to prevent overflow in capacity calculation.
+    let capacity = t_value.len().saturating_add(1).saturating_add(body.len());
+    let mut signed_payload = Vec::with_capacity(capacity);
     signed_payload.extend_from_slice(t_value.as_bytes());
     signed_payload.push(b'.');
     signed_payload.extend_from_slice(body);
@@ -596,5 +637,44 @@ mod tests {
         let resp = WebhookResponse { received: true };
         let json = serde_json::to_string(&resp).expect("serialize");
         assert!(json.contains("\"received\":true"));
+    }
+
+    // SECURITY (FIND-R63-001): Signature header length bounds
+    #[test]
+    fn test_paddle_signature_oversized_header_rejected() {
+        let huge_header = "a".repeat(MAX_SIGNATURE_HEADER_LENGTH + 1);
+        assert!(!verify_paddle_signature(&huge_header, b"body", "secret"));
+    }
+
+    #[test]
+    fn test_stripe_signature_oversized_header_rejected() {
+        let huge_header = "a".repeat(MAX_SIGNATURE_HEADER_LENGTH + 1);
+        assert!(!verify_stripe_signature(&huge_header, b"body", "secret"));
+    }
+
+    // SECURITY (FIND-R63-001): HMAC hex length validation
+    #[test]
+    fn test_paddle_signature_wrong_hmac_length_rejected() {
+        let ts = current_ts();
+        // 63 chars — one short of the expected 64
+        let header = format!("ts={};h1={}", ts, "a".repeat(63));
+        assert!(!verify_paddle_signature(&header, b"body", "secret"));
+        // 65 chars — one over
+        let header = format!("ts={};h1={}", ts, "a".repeat(65));
+        assert!(!verify_paddle_signature(&header, b"body", "secret"));
+    }
+
+    #[test]
+    fn test_stripe_signature_wrong_hmac_length_rejected() {
+        let ts = current_ts();
+        let header = format!("t={},v1={}", ts, "a".repeat(63));
+        assert!(!verify_stripe_signature(&header, b"body", "secret"));
+        let header = format!("t={},v1={}", ts, "a".repeat(65));
+        assert!(!verify_stripe_signature(&header, b"body", "secret"));
+    }
+
+    #[test]
+    fn test_hmac_sha256_hex_length_constant() {
+        assert_eq!(HMAC_SHA256_HEX_LENGTH, 64);
     }
 }
