@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -52,9 +54,31 @@ func WithAPIKey(key string) Option {
 	return func(c *Client) { c.apiKey = key }
 }
 
+// minTimeout is the minimum allowed timeout (100ms).
+// SECURITY (FIND-R80-001): Zero or very small timeouts cause immediate cancellation.
+const minTimeout = 100 * time.Millisecond
+
+// maxTimeout is the maximum allowed timeout (5 minutes / 300s).
+// SECURITY (FIND-R80-001): Parity with TypeScript SDK [100ms, 300000ms].
+const maxTimeout = 300 * time.Second
+
 // WithTimeout sets the HTTP request timeout.
+//
+// SECURITY (FIND-R80-001): Clamps the duration to [100ms, 300s]. Values outside
+// this range are silently clamped with a warning log, matching TypeScript SDK
+// validation range [100, 300000] ms. Zero/negative durations would cause
+// immediate request cancellation.
 func WithTimeout(d time.Duration) Option {
-	return func(c *Client) { c.httpClient.Timeout = d }
+	return func(c *Client) {
+		if d < minTimeout {
+			log.Printf("[vellaveto] WARNING: timeout %v below minimum %v, clamping to %v", d, minTimeout, minTimeout)
+			d = minTimeout
+		} else if d > maxTimeout {
+			log.Printf("[vellaveto] WARNING: timeout %v above maximum %v, clamping to %v", d, maxTimeout, maxTimeout)
+			d = maxTimeout
+		}
+		c.httpClient.Timeout = d
+	}
 }
 
 // WithHTTPClient replaces the default HTTP client.
@@ -415,7 +439,13 @@ func (c *Client) ReloadPolicies(ctx context.Context) (*ReloadPoliciesResponse, e
 }
 
 // Simulate evaluates an action with full trace information.
+//
+// SECURITY (FIND-R80-002): Validates action fields before sending, matching
+// Evaluate() parity.
 func (c *Client) Simulate(ctx context.Context, action Action, evalCtx *EvaluationContext) (*SimulateResponse, error) {
+	if err := action.Validate(); err != nil {
+		return nil, err
+	}
 	reqBody := SimulateRequest{
 		Action:  action,
 		Context: evalCtx,
@@ -428,7 +458,15 @@ func (c *Client) Simulate(ctx context.Context, action Action, evalCtx *Evaluatio
 }
 
 // BatchEvaluate evaluates multiple actions in a single request.
+//
+// SECURITY (FIND-R80-002): Validates all action fields before sending, matching
+// Evaluate() parity.
 func (c *Client) BatchEvaluate(ctx context.Context, actions []Action, policyConfig map[string]interface{}) (*BatchResponse, error) {
+	for i := range actions {
+		if err := actions[i].Validate(); err != nil {
+			return nil, fmt.Errorf("vellaveto: action[%d]: %w", i, err)
+		}
+	}
 	reqBody := BatchRequest{
 		Actions:      actions,
 		PolicyConfig: policyConfig,
@@ -478,9 +516,39 @@ func (c *Client) ListPendingApprovals(ctx context.Context) ([]Approval, error) {
 // maxApprovalIDLength is the maximum allowed length for an approval ID.
 const maxApprovalIDLength = 256
 
+// isUnicodeFormatChar returns true if the rune is a Unicode format character
+// that can be used for invisible text manipulation attacks.
+// SECURITY (FIND-R80-003): Covers zero-width chars, bidi overrides, BOM,
+// interlinear annotation anchors, and other format characters.
+func isUnicodeFormatChar(r rune) bool {
+	// Zero-width and joining chars: U+200B-U+200F
+	if r >= 0x200B && r <= 0x200F {
+		return true
+	}
+	// Bidi overrides: U+202A-U+202E
+	if r >= 0x202A && r <= 0x202E {
+		return true
+	}
+	// Word joiner and invisible chars: U+2060-U+2069
+	if r >= 0x2060 && r <= 0x2069 {
+		return true
+	}
+	// BOM / zero-width no-break space: U+FEFF
+	if r == 0xFEFF {
+		return true
+	}
+	// Interlinear annotation anchors: U+FFF9-U+FFFB
+	if r >= 0xFFF9 && r <= 0xFFFB {
+		return true
+	}
+	return false
+}
+
 // validateApprovalID checks that an approval ID is non-empty, within length
 // bounds, and contains no control or Unicode format characters.
 // SECURITY (FIND-R54-SDK-003): Prevents empty/oversized/malicious approval IDs.
+// SECURITY (FIND-R80-003): Also rejects Unicode format characters (zero-width,
+// bidi overrides, BOM, etc.) that can be used for invisible text manipulation.
 func validateApprovalID(id string) error {
 	if id == "" {
 		return fmt.Errorf("vellaveto: approval ID must not be empty")
@@ -491,6 +559,9 @@ func validateApprovalID(id string) error {
 	for _, c := range id {
 		if c < ' ' || (c >= 0x7F && c <= 0x9F) {
 			return fmt.Errorf("vellaveto: approval ID contains control characters")
+		}
+		if isUnicodeFormatChar(c) {
+			return fmt.Errorf("vellaveto: approval ID contains Unicode format characters")
 		}
 	}
 	return nil
@@ -650,6 +721,13 @@ func (c *Client) ZkCommitments(ctx context.Context, from, to uint64) (*ZkCommitm
 	return &resp, nil
 }
 
+// maxPeriodLength is the maximum allowed length for the period query parameter.
+const maxPeriodLength = 32
+
+// periodPattern validates period values: alphanumeric, dashes, and colons only.
+// Covers ISO date ranges like "2026-01-01:2026-02-01" and shorthand like "30d".
+var periodPattern = regexp.MustCompile(`^[a-zA-Z0-9\-:]+$`)
+
 // Soc2AccessReview generates a SOC 2 Type II access review report.
 // SECURITY (FIND-R46-GO-003): Use url.Values for proper URL encoding of query parameters.
 func (c *Client) Soc2AccessReview(ctx context.Context, period, format, agentID string) (*AccessReviewReport, error) {
@@ -660,10 +738,24 @@ func (c *Client) Soc2AccessReview(ctx context.Context, period, format, agentID s
 	if format != "" && format != "json" && format != "html" {
 		return nil, &VellavetoError{Message: fmt.Sprintf("format must be \"json\" or \"html\", got %q", format)}
 	}
+	// SECURITY (FIND-R80-004): Validate period parameter to prevent injection via query string.
+	// Parity with TypeScript SDK validation.
+	if period != "" {
+		if len(period) > maxPeriodLength {
+			return nil, &VellavetoError{Message: fmt.Sprintf("period exceeds max length (%d)", maxPeriodLength)}
+		}
+		if !periodPattern.MatchString(period) {
+			return nil, &VellavetoError{Message: "period contains invalid characters: only alphanumeric, dashes, and colons are allowed"}
+		}
+	}
 	// SECURITY (FIND-R55-SDK-005): Reject control chars. Parity with FederationTrustAnchors.
 	for _, ch := range agentID {
 		if ch < ' ' || (ch >= 0x7F && ch <= 0x9F) {
 			return nil, &VellavetoError{Message: "agent_id contains control characters"}
+		}
+		// SECURITY (FIND-R80-003): Reject Unicode format characters.
+		if isUnicodeFormatChar(ch) {
+			return nil, &VellavetoError{Message: "agent_id contains Unicode format characters"}
 		}
 	}
 	q := url.Values{}
@@ -704,9 +796,13 @@ func (c *Client) FederationTrustAnchors(ctx context.Context, orgID string) (*Fed
 		return nil, &VellavetoError{Message: "org_id exceeds max length (128)"}
 	}
 	// SECURITY (FIND-R50-037): Catch DEL (0x7F) and C1 control chars (0x80-0x9F)
+	// SECURITY (FIND-R80-003): Also reject Unicode format characters.
 	for _, c := range orgID {
 		if c < ' ' || (c >= 0x7F && c <= 0x9F) {
 			return nil, &VellavetoError{Message: "org_id contains control characters"}
+		}
+		if isUnicodeFormatChar(c) {
+			return nil, &VellavetoError{Message: "org_id contains Unicode format characters"}
 		}
 	}
 	path := "/api/federation/trust-anchors"

@@ -40,11 +40,27 @@ async fn resolve_domains(action: &mut Action) {
     }
     let mut resolved = Vec::new();
     for domain in &action.target_domains {
+        // SECURITY (FIND-R80-004): Stop resolving if we've hit the cap.
+        if resolved.len() >= MAX_RESOLVED_IPS {
+            tracing::warn!(
+                "Resolved IPs capped at {} — skipping remaining domains",
+                MAX_RESOLVED_IPS
+            );
+            break;
+        }
         // Strip port if present (domain might be "example.com:8080")
         let host = domain.split(':').next().unwrap_or(domain);
         match tokio::net::lookup_host((host, 0)).await {
             Ok(addrs) => {
                 for addr in addrs {
+                    if resolved.len() >= MAX_RESOLVED_IPS {
+                        tracing::warn!(
+                            domain = %domain,
+                            cap = MAX_RESOLVED_IPS,
+                            "Resolved IPs cap reached during DNS lookup — truncating"
+                        );
+                        break;
+                    }
                     resolved.push(addr.ip().to_string());
                 }
             }
@@ -60,6 +76,11 @@ async fn resolve_domains(action: &mut Action) {
     }
     action.resolved_ips = resolved;
 }
+
+/// SECURITY (FIND-R80-004): Maximum number of resolved IPs from DNS lookups.
+/// A domain with many A/AAAA records could return hundreds of IPs. Cap to
+/// prevent unbounded memory growth.
+const MAX_RESOLVED_IPS: usize = 100;
 
 /// SECURITY (R8-MCP-8): Maximum number of pending (in-flight) requests.
 /// Prevents OOM if an agent sends requests faster than the server responds.
@@ -89,6 +110,22 @@ pub(super) const MAX_FLAGGED_TOOLS: usize = 10_000;
 
 /// SECURITY (FIND-R46-010): Maximum entries for call_counts.
 const MAX_CALL_COUNTS: usize = 10_000;
+
+/// SECURITY (FIND-R80-003): Maximum length for VELLAVETO_AGENT_ID env var.
+/// Matches vellaveto-config/src/governance.rs::MAX_AGENT_ID_LENGTH.
+const MAX_ENV_AGENT_ID_LENGTH: usize = 256;
+
+/// SECURITY (FIND-R80-003): Check if a character is a Unicode format character
+/// (zero-width, bidi overrides, BOM). Duplicated from vellaveto-types as that
+/// function is pub(crate).
+fn is_unicode_format_char(c: char) -> bool {
+    matches!(c,
+        '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
+        '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
+        '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
+        '\u{FEFF}'                  // BOM / zero-width no-break space
+    )
+}
 
 /// SECURITY (FIND-R46-011): Maximum channel buffer for child→agent relay.
 /// Each buffered message can be up to ~1MB; keeping the buffer small
@@ -160,10 +197,25 @@ impl RelayState {
         let agent_id = std::env::var("VELLAVETO_AGENT_ID").ok().and_then(|v| {
             let trimmed = v.trim().to_string();
             if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed)
+                return None;
             }
+            // SECURITY (FIND-R80-003): Validate the env var for length, control chars,
+            // and Unicode format chars. If invalid, log a warning and fall back to None.
+            if trimmed.len() > MAX_ENV_AGENT_ID_LENGTH {
+                tracing::warn!(
+                    len = trimmed.len(),
+                    max = MAX_ENV_AGENT_ID_LENGTH,
+                    "VELLAVETO_AGENT_ID exceeds maximum length — ignoring"
+                );
+                return None;
+            }
+            if trimmed.chars().any(|c| c.is_control() || is_unicode_format_char(c)) {
+                tracing::warn!(
+                    "VELLAVETO_AGENT_ID contains control or Unicode format characters — ignoring"
+                );
+                return None;
+            }
+            Some(trimmed)
         });
         if agent_id.is_none() {
             tracing::warn!(
@@ -1432,6 +1484,92 @@ impl ProxyBridge {
         let eval_ctx = state.evaluation_context();
         match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
             Ok((Verdict::Allow, _trace)) => {
+                // SECURITY (FIND-R80-006): ABAC refinement — only runs when ABAC
+                // engine is configured. If the PolicyEngine allowed the action,
+                // ABAC may still deny it based on principal/action/resource/condition
+                // constraints. Parity with tool call handler.
+                if let Some(ref abac) = self.abac_engine {
+                    let principal_id = eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
+                    let principal_type = eval_ctx
+                        .agent_identity
+                        .as_ref()
+                        .and_then(|id| id.claims.get("type"))
+                        .and_then(|v: &serde_json::Value| v.as_str())
+                        .unwrap_or("Agent");
+                    let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
+                        eval_ctx: &eval_ctx,
+                        principal_type,
+                        principal_id,
+                        risk_score: None,
+                    };
+
+                    match abac.evaluate(&action, &abac_ctx) {
+                        vellaveto_engine::abac::AbacDecision::Deny { policy_id, reason } => {
+                            let verdict = Verdict::Deny {
+                                reason: reason.clone(),
+                            };
+                            if let Err(e) = self
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &verdict,
+                                    json!({
+                                        "source": "proxy",
+                                        "event": "abac_deny_task",
+                                        "abac_policy_id": policy_id,
+                                        "task_method": task_method,
+                                        "task_id": task_id,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!("Audit log failed for ABAC deny: {}", e);
+                            }
+                            let response = make_denial_response(&id, &reason);
+                            write_message(agent_writer, &response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
+                        }
+                        vellaveto_engine::abac::AbacDecision::Allow { .. } => {
+                            // ABAC explicitly allowed — proceed
+                        }
+                        vellaveto_engine::abac::AbacDecision::NoMatch => {
+                            // No ABAC rule matched — existing Allow verdict stands
+                        }
+                        #[allow(unreachable_patterns)] // AbacDecision is #[non_exhaustive]
+                        _ => {
+                            // SECURITY: Future variants — fail-closed (deny).
+                            tracing::warn!("Unknown AbacDecision variant in task request — fail-closed");
+                            let reason =
+                                "Access denied by policy (unknown ABAC decision)".to_string();
+                            let verdict = Verdict::Deny {
+                                reason: reason.clone(),
+                            };
+                            if let Err(e) = self
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &verdict,
+                                    json!({
+                                        "source": "proxy",
+                                        "event": "abac_unknown_variant_deny_task",
+                                        "task_method": task_method,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!("Audit log failed for ABAC deny: {}", e);
+                            }
+                            let response = make_denial_response(&id, &reason);
+                            write_message(agent_writer, &response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
+                        }
+                    }
+                }
+
                 if let Err(e) = self
                     .audit
                     .log_entry(
@@ -1561,6 +1699,92 @@ impl ProxyBridge {
 
         match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
             Ok((Verdict::Allow, _trace)) => {
+                // SECURITY (FIND-R80-007): ABAC refinement — only runs when ABAC
+                // engine is configured. If the PolicyEngine allowed the action,
+                // ABAC may still deny it based on principal/action/resource/condition
+                // constraints. Parity with tool call handler.
+                if let Some(ref abac) = self.abac_engine {
+                    let principal_id = eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
+                    let principal_type = eval_ctx
+                        .agent_identity
+                        .as_ref()
+                        .and_then(|id| id.claims.get("type"))
+                        .and_then(|v: &serde_json::Value| v.as_str())
+                        .unwrap_or("Agent");
+                    let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
+                        eval_ctx: &eval_ctx,
+                        principal_type,
+                        principal_id,
+                        risk_score: None,
+                    };
+
+                    match abac.evaluate(&action, &abac_ctx) {
+                        vellaveto_engine::abac::AbacDecision::Deny { policy_id, reason } => {
+                            let verdict = Verdict::Deny {
+                                reason: reason.clone(),
+                            };
+                            if let Err(e) = self
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &verdict,
+                                    json!({
+                                        "source": "proxy",
+                                        "event": "abac_deny_extension",
+                                        "abac_policy_id": policy_id,
+                                        "extension_id": extension_id,
+                                        "method": method,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!("Audit log failed for ABAC deny: {}", e);
+                            }
+                            let response = make_denial_response(&id, &reason);
+                            write_message(agent_writer, &response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
+                        }
+                        vellaveto_engine::abac::AbacDecision::Allow { .. } => {
+                            // ABAC explicitly allowed — proceed
+                        }
+                        vellaveto_engine::abac::AbacDecision::NoMatch => {
+                            // No ABAC rule matched — existing Allow verdict stands
+                        }
+                        #[allow(unreachable_patterns)] // AbacDecision is #[non_exhaustive]
+                        _ => {
+                            // SECURITY: Future variants — fail-closed (deny).
+                            tracing::warn!("Unknown AbacDecision variant in extension method — fail-closed");
+                            let reason =
+                                "Access denied by policy (unknown ABAC decision)".to_string();
+                            let verdict = Verdict::Deny {
+                                reason: reason.clone(),
+                            };
+                            if let Err(e) = self
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &verdict,
+                                    json!({
+                                        "source": "proxy",
+                                        "event": "abac_unknown_variant_deny_extension",
+                                        "extension_id": extension_id,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!("Audit log failed for ABAC deny: {}", e);
+                            }
+                            let response = make_denial_response(&id, &reason);
+                            write_message(agent_writer, &response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
+                        }
+                    }
+                }
+
                 // SECURITY (FIND-R46-004): DLP scan extension method parameters
                 // before forwarding. Extension methods must not bypass DLP.
                 let dlp_findings = scan_parameters_for_secrets(&params);

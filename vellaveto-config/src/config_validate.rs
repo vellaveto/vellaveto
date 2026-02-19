@@ -988,6 +988,111 @@ impl PolicyConfig {
             ));
         }
 
+        // SECURITY (FIND-R80-007): Validate etdi.data_path for path traversal, control
+        // characters, and length — same pattern as tool_registry.persistence_path.
+        if let Some(ref data_path) = self.etdi.data_path {
+            const MAX_ETDI_DATA_PATH_LEN: usize = 4096;
+            if data_path
+                .bytes()
+                .any(|b| b == 0x00 || b < 0x20 || (0x7F..=0x9F).contains(&b))
+            {
+                return Err(
+                    "etdi.data_path contains null bytes or control characters".to_string(),
+                );
+            }
+            if data_path.len() > MAX_ETDI_DATA_PATH_LEN {
+                return Err(format!(
+                    "etdi.data_path exceeds max length ({} > {})",
+                    data_path.len(),
+                    MAX_ETDI_DATA_PATH_LEN,
+                ));
+            }
+            use std::path::{Component, Path};
+            let p = Path::new(data_path);
+            if p.is_absolute() {
+                return Err(format!(
+                    "etdi.data_path must be a relative path, got '{}'",
+                    data_path
+                ));
+            }
+            if p.components().any(|c| matches!(c, Component::ParentDir)) {
+                return Err(format!(
+                    "etdi.data_path must not contain '..' components, got '{}'",
+                    data_path
+                ));
+            }
+        }
+
+        // SECURITY (FIND-R80-007): Validate etdi.version_pinning.pins_path for path traversal,
+        // control characters, and length — same pattern as etdi.data_path above.
+        if let Some(ref pins_path) = self.etdi.version_pinning.pins_path {
+            const MAX_ETDI_PINS_PATH_LEN: usize = 4096;
+            if pins_path
+                .bytes()
+                .any(|b| b == 0x00 || b < 0x20 || (0x7F..=0x9F).contains(&b))
+            {
+                return Err(
+                    "etdi.version_pinning.pins_path contains null bytes or control characters"
+                        .to_string(),
+                );
+            }
+            if pins_path.len() > MAX_ETDI_PINS_PATH_LEN {
+                return Err(format!(
+                    "etdi.version_pinning.pins_path exceeds max length ({} > {})",
+                    pins_path.len(),
+                    MAX_ETDI_PINS_PATH_LEN,
+                ));
+            }
+            use std::path::{Component, Path};
+            let p = Path::new(pins_path);
+            if p.is_absolute() {
+                return Err(format!(
+                    "etdi.version_pinning.pins_path must be a relative path, got '{}'",
+                    pins_path
+                ));
+            }
+            if p.components().any(|c| matches!(c, Component::ParentDir)) {
+                return Err(format!(
+                    "etdi.version_pinning.pins_path must not contain '..' components, got '{}'",
+                    pins_path
+                ));
+            }
+        }
+
+        // SECURITY (FIND-R80-007): Validate etdi.attestation.rekor_url for HTTPS scheme,
+        // control characters, and length.
+        if let Some(ref rekor_url) = self.etdi.attestation.rekor_url {
+            const MAX_REKOR_URL_LEN: usize = 2048;
+            if rekor_url
+                .bytes()
+                .any(|b| b == 0x00 || b < 0x20 || (0x7F..=0x9F).contains(&b))
+            {
+                return Err(
+                    "etdi.attestation.rekor_url contains null bytes or control characters"
+                        .to_string(),
+                );
+            }
+            if rekor_url.len() > MAX_REKOR_URL_LEN {
+                return Err(format!(
+                    "etdi.attestation.rekor_url exceeds max length ({} > {})",
+                    rekor_url.len(),
+                    MAX_REKOR_URL_LEN,
+                ));
+            }
+            let parsed = url::Url::parse(rekor_url)
+                .map_err(|e| format!("etdi.attestation.rekor_url must be a valid URL: {e}"))?;
+            if parsed.scheme() != "https" {
+                return Err(
+                    "etdi.attestation.rekor_url must use https:// scheme".to_string(),
+                );
+            }
+            if parsed.host_str().map(str::is_empty).unwrap_or(true) {
+                return Err(
+                    "etdi.attestation.rekor_url must include a host".to_string(),
+                );
+            }
+        }
+
         // OPA validation
         if self.opa.enabled {
             if self.opa.endpoint.is_none() && self.opa.bundle_path.is_none() {
@@ -1039,6 +1144,40 @@ impl PolicyConfig {
                 self.opa.headers.len(),
                 MAX_OPA_HEADERS
             ));
+        }
+        // SECURITY (FIND-R80-008): Validate OPA header keys and values for CRLF injection
+        // and control characters. Malicious header values with \r\n could inject additional
+        // HTTP headers into upstream OPA requests.
+        const MAX_OPA_HEADER_KEY_LEN: usize = 256;
+        const MAX_OPA_HEADER_VALUE_LEN: usize = 4096;
+        for (key, value) in &self.opa.headers {
+            if key.len() > MAX_OPA_HEADER_KEY_LEN {
+                return Err(format!(
+                    "opa.headers key '{}...' exceeds max length ({} > {})",
+                    &key[..key.len().min(32)],
+                    key.len(),
+                    MAX_OPA_HEADER_KEY_LEN,
+                ));
+            }
+            if key.bytes().any(|b| b < 0x20 || b == 0x7F) {
+                return Err(
+                    "opa.headers key contains control characters (including CR/LF)".to_string(),
+                );
+            }
+            if value.len() > MAX_OPA_HEADER_VALUE_LEN {
+                return Err(format!(
+                    "opa.headers value for key '{}' exceeds max length ({} > {})",
+                    &key[..key.len().min(32)],
+                    value.len(),
+                    MAX_OPA_HEADER_VALUE_LEN,
+                ));
+            }
+            if value.bytes().any(|b| b < 0x20 || b == 0x7F) {
+                return Err(format!(
+                    "opa.headers value for key '{}' contains control characters (including CR/LF)",
+                    &key[..key.len().min(32)],
+                ));
+            }
         }
 
         // Threat intel validation

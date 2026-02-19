@@ -1902,6 +1902,256 @@ func TestFederationTrustAnchors_QueryParamEncoding(t *testing.T) {
 	}
 }
 
+// ── FIND-R80-001: WithTimeout clamping ──────────────────────
+
+func TestWithTimeout_ClampsZero(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:3000", WithTimeout(0))
+	if c.httpClient.Timeout != 100*time.Millisecond {
+		t.Errorf("Timeout = %v, want 100ms (clamped from 0)", c.httpClient.Timeout)
+	}
+}
+
+func TestWithTimeout_ClampsNegative(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:3000", WithTimeout(-5*time.Second))
+	if c.httpClient.Timeout != 100*time.Millisecond {
+		t.Errorf("Timeout = %v, want 100ms (clamped from negative)", c.httpClient.Timeout)
+	}
+}
+
+func TestWithTimeout_ClampsAboveMax(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:3000", WithTimeout(10*time.Minute))
+	if c.httpClient.Timeout != 300*time.Second {
+		t.Errorf("Timeout = %v, want 300s (clamped from 10min)", c.httpClient.Timeout)
+	}
+}
+
+func TestWithTimeout_AcceptsValid(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:3000", WithTimeout(5*time.Second))
+	if c.httpClient.Timeout != 5*time.Second {
+		t.Errorf("Timeout = %v, want 5s", c.httpClient.Timeout)
+	}
+}
+
+func TestWithTimeout_AcceptsMinBoundary(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:3000", WithTimeout(100*time.Millisecond))
+	if c.httpClient.Timeout != 100*time.Millisecond {
+		t.Errorf("Timeout = %v, want 100ms", c.httpClient.Timeout)
+	}
+}
+
+func TestWithTimeout_AcceptsMaxBoundary(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:3000", WithTimeout(300*time.Second))
+	if c.httpClient.Timeout != 300*time.Second {
+		t.Errorf("Timeout = %v, want 300s", c.httpClient.Timeout)
+	}
+}
+
+// ── FIND-R80-002: Simulate/BatchEvaluate action validation ──
+
+func TestSimulate_RejectsEmptyTool(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	_, err := c.Simulate(context.Background(), Action{}, nil)
+	if err == nil {
+		t.Fatal("Simulate() should reject empty Tool")
+	}
+	if !strings.Contains(err.Error(), "Tool must not be empty") {
+		t.Errorf("error = %q, want contains 'Tool must not be empty'", err.Error())
+	}
+}
+
+func TestSimulate_RejectsOversizedTool(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	longTool := strings.Repeat("x", 300)
+	_, err := c.Simulate(context.Background(), Action{Tool: longTool}, nil)
+	if err == nil {
+		t.Fatal("Simulate() should reject oversized Tool")
+	}
+	if !strings.Contains(err.Error(), "exceeds max length") {
+		t.Errorf("error = %q, want contains 'exceeds max length'", err.Error())
+	}
+}
+
+func TestBatchEvaluate_RejectsEmptyTool(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	_, err := c.BatchEvaluate(context.Background(), []Action{{Tool: "valid"}, {}}, nil)
+	if err == nil {
+		t.Fatal("BatchEvaluate() should reject action with empty Tool")
+	}
+	if !strings.Contains(err.Error(), "action[1]") {
+		t.Errorf("error = %q, want contains 'action[1]'", err.Error())
+	}
+}
+
+func TestBatchEvaluate_RejectsTooManyTargetPaths(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	paths := make([]string, 101)
+	for i := range paths {
+		paths[i] = "/path"
+	}
+	_, err := c.BatchEvaluate(context.Background(), []Action{{Tool: "fs", TargetPaths: paths}}, nil)
+	if err == nil {
+		t.Fatal("BatchEvaluate() should reject >100 TargetPaths")
+	}
+	if !strings.Contains(err.Error(), "action[0]") {
+		t.Errorf("error = %q, want contains 'action[0]'", err.Error())
+	}
+}
+
+// ── FIND-R80-003: Unicode format char validation ──────────────
+
+func TestValidateApprovalID_RejectsZeroWidthSpace(t *testing.T) {
+	err := validateApprovalID("abc\u200Bdef")
+	if err == nil {
+		t.Fatal("validateApprovalID should reject zero-width space U+200B")
+	}
+	if !strings.Contains(err.Error(), "Unicode format characters") {
+		t.Errorf("error = %q, want contains 'Unicode format characters'", err.Error())
+	}
+}
+
+func TestValidateApprovalID_RejectsBidiOverride(t *testing.T) {
+	err := validateApprovalID("abc\u202Edef")
+	if err == nil {
+		t.Fatal("validateApprovalID should reject bidi override U+202E")
+	}
+	if !strings.Contains(err.Error(), "Unicode format characters") {
+		t.Errorf("error = %q, want contains 'Unicode format characters'", err.Error())
+	}
+}
+
+func TestValidateApprovalID_RejectsBOM(t *testing.T) {
+	err := validateApprovalID("\uFEFFabc")
+	if err == nil {
+		t.Fatal("validateApprovalID should reject BOM U+FEFF")
+	}
+	if !strings.Contains(err.Error(), "Unicode format characters") {
+		t.Errorf("error = %q, want contains 'Unicode format characters'", err.Error())
+	}
+}
+
+func TestValidateApprovalID_RejectsWordJoiner(t *testing.T) {
+	err := validateApprovalID("abc\u2060def")
+	if err == nil {
+		t.Fatal("validateApprovalID should reject word joiner U+2060")
+	}
+	if !strings.Contains(err.Error(), "Unicode format characters") {
+		t.Errorf("error = %q, want contains 'Unicode format characters'", err.Error())
+	}
+}
+
+func TestValidateApprovalID_AcceptsNormalUnicode(t *testing.T) {
+	err := validateApprovalID("approval-123-valid")
+	if err != nil {
+		t.Fatalf("validateApprovalID unexpected error: %v", err)
+	}
+}
+
+func TestIsUnicodeFormatChar(t *testing.T) {
+	tests := []struct {
+		r    rune
+		want bool
+		name string
+	}{
+		{0x200B, true, "ZWSP"},
+		{0x200C, true, "ZWNJ"},
+		{0x200D, true, "ZWJ"},
+		{0x200E, true, "LRM"},
+		{0x200F, true, "RLM"},
+		{0x202A, true, "LRE"},
+		{0x202E, true, "RLO"},
+		{0x2060, true, "WJ"},
+		{0x2069, true, "PDI"},
+		{0xFEFF, true, "BOM"},
+		{0xFFF9, true, "IAA"},
+		{0xFFFB, true, "IAT"},
+		{'a', false, "ASCII letter"},
+		{'0', false, "ASCII digit"},
+		{'-', false, "hyphen"},
+		{0x0100, false, "Latin Extended"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isUnicodeFormatChar(tt.r)
+			if got != tt.want {
+				t.Errorf("isUnicodeFormatChar(%U) = %v, want %v", tt.r, got, tt.want)
+			}
+		})
+	}
+}
+
+// ── FIND-R80-004: Soc2AccessReview period validation ──────────
+
+func TestSoc2AccessReview_PeriodTooLong(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	longPeriod := strings.Repeat("a", 33)
+	_, err := c.Soc2AccessReview(context.Background(), longPeriod, "json", "")
+	if err == nil {
+		t.Fatal("expected error for period > 32 chars")
+	}
+	if !strings.Contains(err.Error(), "period exceeds max length") {
+		t.Errorf("error = %q, want contains 'period exceeds max length'", err.Error())
+	}
+}
+
+func TestSoc2AccessReview_PeriodInvalidChars(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	_, err := c.Soc2AccessReview(context.Background(), "30d;rm -rf /", "json", "")
+	if err == nil {
+		t.Fatal("expected error for period with invalid characters")
+	}
+	if !strings.Contains(err.Error(), "period contains invalid characters") {
+		t.Errorf("error = %q, want contains 'period contains invalid characters'", err.Error())
+	}
+}
+
+func TestSoc2AccessReview_PeriodAcceptsValid(t *testing.T) {
+	srv := testServer(t, "GET", "/api/compliance/soc2/access-review", 200, AccessReviewReport{
+		GeneratedAt: "2026-02-16T00:00:00Z",
+		TotalAgents: 0,
+		Entries:     []AccessReviewEntry{},
+		CC6Evidence: Cc6Evidence{},
+		Attestation: ReviewerAttestation{Status: "pending"},
+	})
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	// ISO date range with colons and dashes should be accepted
+	_, err := c.Soc2AccessReview(context.Background(), "2026-01-01:2026-02-01", "json", "")
+	if err != nil {
+		t.Fatalf("Soc2AccessReview() error: %v (valid period should be accepted)", err)
+	}
+}
+
+func TestSoc2AccessReview_PeriodAccepts30d(t *testing.T) {
+	srv := testServer(t, "GET", "/api/compliance/soc2/access-review", 200, AccessReviewReport{
+		GeneratedAt: "2026-02-16T00:00:00Z",
+		TotalAgents: 0,
+		Entries:     []AccessReviewEntry{},
+		CC6Evidence: Cc6Evidence{},
+		Attestation: ReviewerAttestation{Status: "pending"},
+	})
+	defer srv.Close()
+
+	c := mustNewClient(t, srv.URL)
+	_, err := c.Soc2AccessReview(context.Background(), "30d", "json", "")
+	if err != nil {
+		t.Fatalf("Soc2AccessReview() error: %v (30d period should be accepted)", err)
+	}
+}
+
+// ── FIND-R80-003: FederationTrustAnchors Unicode format char validation ──
+
+func TestFederationTrustAnchors_OrgIDUnicodeFormatChar(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	_, err := c.FederationTrustAnchors(context.Background(), "org\u200Bid")
+	if err == nil {
+		t.Fatal("expected error for org_id with zero-width space")
+	}
+	if !strings.Contains(err.Error(), "Unicode format characters") {
+		t.Errorf("error = %q, want contains 'Unicode format characters'", err.Error())
+	}
+}
+
 func TestOwaspAsiCoverage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/compliance/owasp-agentic" {

@@ -2501,12 +2501,16 @@ pub async fn handle_mcp_post(
             }
         }
         MessageType::Invalid { id, reason } => {
+            // SECURITY (FIND-R80-001): Log the detailed reason at warn level but do NOT
+            // include attacker-controlled `reason` in the client response. This prevents
+            // information leakage that could help attackers craft better payloads.
+            tracing::warn!("Invalid JSON-RPC request: {}", reason);
             let response = json!({
                 "jsonrpc": "2.0",
                 "id": id,
                 "error": {
                     "code": -32600,
-                    "message": format!("Invalid request: {}", reason)
+                    "message": "Invalid JSON-RPC request"
                 }
             });
             attach_session_header(
@@ -2543,13 +2547,13 @@ pub async fn handle_mcp_delete(
     let session_id = headers
         .get(MCP_SESSION_ID)
         .and_then(|v| v.to_str().ok())
-        .filter(|id| id.len() <= MAX_SESSION_ID_LENGTH);
+        .filter(|id| id.len() <= MAX_SESSION_ID_LENGTH && !id.chars().any(|c| c.is_control()));
 
-    // If the header was present but filtered out due to length, return 400.
+    // If the header was present but filtered out due to length or control chars, return 400.
     if headers.get(MCP_SESSION_ID).is_some() && session_id.is_none() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Session ID too long"})),
+            Json(json!({"error": "Invalid session ID"})),
         )
             .into_response();
     }

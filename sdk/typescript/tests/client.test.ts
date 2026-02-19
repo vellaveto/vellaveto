@@ -172,6 +172,56 @@ describe("VellavetoClient", () => {
     expect(result.results).toHaveLength(2);
   });
 
+  // ── FIND-R80-015: simulate/batchEvaluate action validation ──
+
+  test("simulate rejects empty tool", async () => {
+    await expect(
+      client.simulate({ tool: "" })
+    ).rejects.toThrow("action.tool must be a non-empty string");
+  });
+
+  test("simulate rejects tool exceeding max length", async () => {
+    await expect(
+      client.simulate({ tool: "x".repeat(257) })
+    ).rejects.toThrow("action.tool exceeds max length (256)");
+  });
+
+  test("simulate rejects non-object parameters", async () => {
+    await expect(
+      client.simulate({ tool: "fs", parameters: "bad" as any })
+    ).rejects.toThrow("action.parameters must be an object if provided");
+  });
+
+  test("simulate rejects >100 target_paths", async () => {
+    await expect(
+      client.simulate({ tool: "fs", target_paths: Array(101).fill("/tmp") })
+    ).rejects.toThrow("action.target_paths has 101 entries, max 100");
+  });
+
+  test("batchEvaluate rejects empty tool in action", async () => {
+    await expect(
+      client.batchEvaluate([{ tool: "fs" }, { tool: "" }])
+    ).rejects.toThrow("actions[1]");
+  });
+
+  test("batchEvaluate rejects oversized tool in action", async () => {
+    await expect(
+      client.batchEvaluate([{ tool: "x".repeat(257) }])
+    ).rejects.toThrow("actions[0]");
+  });
+
+  test("batchEvaluate rejects non-array actions", async () => {
+    await expect(
+      (client.batchEvaluate as any)("not-an-array")
+    ).rejects.toThrow("actions must be an array");
+  });
+
+  test("batchEvaluate rejects >100 target_domains in action", async () => {
+    await expect(
+      client.batchEvaluate([{ tool: "http", target_domains: Array(101).fill("example.com") }])
+    ).rejects.toThrow("actions[0]");
+  });
+
   // ── Validate Config ────────────────────────────
 
   test("validateConfig valid", async () => {

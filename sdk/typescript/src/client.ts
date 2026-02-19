@@ -577,13 +577,15 @@ export class VellavetoClient {
     return this.request<HealthResponse>("GET", "/health");
   }
 
-  /** Evaluate a single action against loaded policies. */
-  async evaluate(
-    action: Action,
-    context?: EvaluationContext,
-    trace?: boolean
-  ): Promise<EvaluationResult> {
-    // SECURITY (FIND-R54-SDK-007): Validate action before sending.
+  /**
+   * Validate an action's fields before sending to the server.
+   *
+   * SECURITY (FIND-R54-SDK-007): Client-side input validation prevents sending
+   * obviously invalid or oversized payloads to the server.
+   * SECURITY (FIND-R80-015): Extracted from evaluate() so simulate() and
+   * batchEvaluate() can also validate actions.
+   */
+  private validateAction(action: Action): void {
     if (!action || typeof action !== "object") {
       throw new VellavetoError("action must be a non-null object");
     }
@@ -624,6 +626,16 @@ export class VellavetoClient {
         "resolved_ips exceeds max entries (100)"
       );
     }
+  }
+
+  /** Evaluate a single action against loaded policies. */
+  async evaluate(
+    action: Action,
+    context?: EvaluationContext,
+    trace?: boolean
+  ): Promise<EvaluationResult> {
+    // SECURITY (FIND-R54-SDK-007): Validate action before sending.
+    this.validateAction(action);
     const path = trace ? "/api/evaluate?trace=true" : "/api/evaluate";
     const body: Record<string, unknown> = {
       tool: action.tool,
@@ -729,11 +741,16 @@ export class VellavetoClient {
   // Simulator (Phase 22)
   // ────────────────────────────────────────────────────
 
-  /** Simulate a single action evaluation with full trace. */
+  /** Simulate a single action evaluation with full trace.
+   *
+   * SECURITY (FIND-R80-015): Validates action fields before sending, matching
+   * evaluate() parity.
+   */
   async simulate(
     action: Action,
     options?: SimulateOptions
   ): Promise<SimulateResponse> {
+    this.validateAction(action);
     return this.request<SimulateResponse>("POST", "/api/simulator/evaluate", {
       action,
       context: options?.context,
@@ -741,11 +758,28 @@ export class VellavetoClient {
     });
   }
 
-  /** Batch-evaluate multiple actions. */
+  /** Batch-evaluate multiple actions.
+   *
+   * SECURITY (FIND-R80-015): Validates all action fields before sending, matching
+   * evaluate() parity.
+   */
   async batchEvaluate(
     actions: Action[],
     policyConfig?: string
   ): Promise<BatchResponse> {
+    if (!Array.isArray(actions)) {
+      throw new VellavetoError("actions must be an array");
+    }
+    for (let i = 0; i < actions.length; i++) {
+      try {
+        this.validateAction(actions[i]);
+      } catch (e) {
+        if (e instanceof VellavetoError) {
+          throw new VellavetoError(`actions[${i}]: ${e.message}`);
+        }
+        throw e;
+      }
+    }
     return this.request<BatchResponse>("POST", "/api/simulator/batch", {
       actions,
       policy_config: policyConfig,
