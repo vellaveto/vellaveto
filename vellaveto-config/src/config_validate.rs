@@ -126,10 +126,7 @@ impl PolicyConfig {
         }
         for (i, pattern) in self.dlp.disabled_patterns.iter().enumerate() {
             if pattern.is_empty() {
-                return Err(format!(
-                    "dlp.disabled_patterns[{}] must not be empty",
-                    i
-                ));
+                return Err(format!("dlp.disabled_patterns[{}] must not be empty", i));
             }
             if pattern.len() > MAX_DLP_DISABLED_PATTERN_LEN {
                 return Err(format!(
@@ -263,10 +260,7 @@ impl PolicyConfig {
         }
         for (i, origin) in self.allowed_origins.iter().enumerate() {
             if origin.is_empty() {
-                return Err(format!(
-                    "allowed_origins[{}] must not be empty",
-                    i
-                ));
+                return Err(format!("allowed_origins[{}] must not be empty", i));
             }
             if origin.len() > MAX_ORIGIN_LEN {
                 return Err(format!(
