@@ -2260,6 +2260,14 @@ impl ProxyBridge {
             }
         }
 
+        // SECURITY (FIND-R79-001): Track whether injection, schema violation, or DLP
+        // was detected (even in log-only mode) to gate memory_tracker.record_response().
+        // Recording fingerprints from tainted responses would poison the tracker.
+        // Parity with HTTP (inspection.rs:638), WS (mod.rs:2659), gRPC (service.rs:1115).
+        let mut injection_found = false;
+        let mut schema_violation_found = false;
+        let mut dlp_found = false;
+
         // C-8.3: Inspect response for prompt injection (OWASP MCP06)
         let injection_matches: Vec<String> = if self.injection_disabled {
             Vec::new()
@@ -2276,6 +2284,7 @@ impl ProxyBridge {
                 .collect()
         };
         if !injection_matches.is_empty() {
+            injection_found = true;
             tracing::warn!(
                 "SECURITY: Potential prompt injection in tool response! \
                  Matched patterns: {:?}",
@@ -2346,6 +2355,9 @@ impl ProxyBridge {
                             tracing::debug!("structuredContent validated for tool '{}'", tool_name);
                         }
                         ValidationResult::NoSchema => {
+                            // Note: NoSchema in non-blocking mode is not a tainted response,
+                            // so we do NOT set schema_violation_found here. In blocking mode,
+                            // the code returns early below, making the flag moot.
                             if self.output_schema_blocking {
                                 tracing::warn!(
                                     "SECURITY: No output schema registered for tool '{}' \
@@ -2401,6 +2413,7 @@ impl ProxyBridge {
                             }
                         }
                         ValidationResult::Invalid { violations } => {
+                            schema_violation_found = true;
                             tracing::warn!(
                                 "SECURITY: structuredContent validation failed for tool '{}': {:?}",
                                 tool_name,
@@ -2449,6 +2462,8 @@ impl ProxyBridge {
                         }
                     }
                 } else if self.output_schema_blocking {
+                    // Note: no need to set schema_violation_found here because
+                    // this branch returns early via `return Ok(())` below.
                     tracing::warn!(
                         "SECURITY: structuredContent present but tool context unavailable \
                          while output_schema_blocking=true; blocking response"
@@ -2503,6 +2518,7 @@ impl ProxyBridge {
         if self.response_dlp_enabled {
             let dlp_findings = scan_response_for_secrets(&msg);
             if !dlp_findings.is_empty() {
+                dlp_found = true;
                 let patterns: Vec<String> = dlp_findings
                     .iter()
                     .map(|f| format!("{} at {}", f.pattern_name, f.location))
@@ -2557,8 +2573,13 @@ impl ProxyBridge {
             }
         }
 
-        // OWASP ASI06: Record response data for poisoning detection
-        state.memory_tracker.record_response(&msg);
+        // OWASP ASI06: Record response data for poisoning detection.
+        // SECURITY (FIND-R79-001): Skip recording when injection, DLP, or schema
+        // violation was detected (even in log-only mode) to avoid poisoning the
+        // tracker with tainted data. Parity with HTTP/WS/gRPC handlers.
+        if !injection_found && !dlp_found && !schema_violation_found {
+            state.memory_tracker.record_response(&msg);
+        }
 
         // Phase 19: Art 50(1) transparency marking
         if self.transparency_marking {
