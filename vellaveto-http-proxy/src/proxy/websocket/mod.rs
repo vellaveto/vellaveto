@@ -168,12 +168,13 @@ pub async fn handle_ws_upgrade(
         Err(response) => return response,
     };
 
-    // SECURITY (FIND-R55-WS-004): Validate session_id length from query parameter.
-    // Parity with HTTP DELETE handler's FIND-R44-053 validation (max 128 chars).
+    // SECURITY (FIND-R55-WS-004, FIND-R81-001): Validate session_id length and
+    // control characters from query parameter. Parity with HTTP POST/GET handlers
+    // (handlers.rs:154, handlers.rs:2928) which reject control chars.
     let ws_session_id = query
         .session_id
         .as_deref()
-        .filter(|id| !id.is_empty() && id.len() <= 128);
+        .filter(|id| !id.is_empty() && id.len() <= 128 && !id.chars().any(|c| c.is_control()));
 
     // 3. Get or create session
     let session_id = state.sessions.get_or_create(ws_session_id);

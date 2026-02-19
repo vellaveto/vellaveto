@@ -101,6 +101,32 @@ impl ProxyBridge {
             Some(p) => p,
             None => return std::collections::HashSet::new(),
         };
+
+        // SECURITY (FIND-R80-001): Check file size before reading to prevent OOM
+        // from a maliciously large flagged-tools file. Cap at 10 MB which is generous
+        // for 10,000 JSONL entries (~100 bytes each ≈ 1 MB).
+        const MAX_FLAGGED_FILE_SIZE: u64 = 10 * 1024 * 1024;
+        match tokio::fs::metadata(path).await {
+            Ok(meta) => {
+                if meta.len() > MAX_FLAGGED_FILE_SIZE {
+                    tracing::error!(
+                        "Flagged tools file {:?} exceeds max size ({} > {} bytes); skipping load",
+                        path,
+                        meta.len(),
+                        MAX_FLAGGED_FILE_SIZE
+                    );
+                    return std::collections::HashSet::new();
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return std::collections::HashSet::new();
+            }
+            Err(e) => {
+                tracing::warn!("Failed to stat flagged tools file: {}", e);
+                return std::collections::HashSet::new();
+            }
+        }
+
         let contents = match tokio::fs::read_to_string(path).await {
             Ok(c) => c,
             Err(e) => {
@@ -115,6 +141,15 @@ impl ProxyBridge {
             let line = line.trim();
             if line.is_empty() {
                 continue;
+            }
+            // SECURITY (FIND-R80-001): Cap loaded entries at MAX_FLAGGED_TOOLS
+            // for parity with runtime flag_tool() insertion bounds.
+            if tools.len() >= super::relay::MAX_FLAGGED_TOOLS {
+                tracing::warn!(
+                    "Flagged tools file has more than {} entries; truncating load",
+                    super::relay::MAX_FLAGGED_TOOLS
+                );
+                break;
             }
             match serde_json::from_str::<Value>(line) {
                 Ok(entry) => {
