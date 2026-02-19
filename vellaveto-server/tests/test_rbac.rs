@@ -567,6 +567,38 @@ async fn jwt_operator_can_evaluate_when_api_key_is_configured() {
 }
 
 #[tokio::test]
+async fn jwt_mode_with_api_key_still_requires_auth_header() {
+    let config = RbacConfig {
+        enabled: true,
+        allow_header_role: false,
+        default_role: Role::Viewer,
+        jwt_config: Some(JwtConfig {
+            key: JwtKey::Secret(TEST_SECRET.to_string()),
+            algorithms: vec![jsonwebtoken::Algorithm::HS256],
+            issuer: None,
+            audience: None,
+            leeway_seconds: 60,
+        }),
+    };
+    let (state, _tmp) = test_state_with_rbac_and_api_key(config, Some("legacy-api-key"));
+    let app = routes::build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/policies")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // With API key configured, missing Authorization must still be rejected.
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn jwt_invalid_token_is_rejected() {
     let config = RbacConfig {
         enabled: true,
