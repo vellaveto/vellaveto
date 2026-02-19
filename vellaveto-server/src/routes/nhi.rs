@@ -41,6 +41,8 @@ const MAX_ARRAY_LEN: usize = 100;
 const MAX_MAP_LEN: usize = 50;
 /// Maximum TTL in seconds (1 year). Prevents Duration overflow on arithmetic.
 const MAX_TTL_SECS: u64 = 86400 * 365;
+/// SECURITY (FIND-R66-001): Maximum entries returned by list endpoints.
+const MAX_LIST_ENTRIES: usize = 1000;
 
 /// SECURITY (FIND-R43-019, FIND-R44-055): Detect control characters AND Unicode format
 /// characters (ZWSP, bidi overrides, invisible operators, TAG characters, soft hyphen)
@@ -150,7 +152,10 @@ pub async fn list_nhi_agents(
     });
 
     let agents = manager.list_identities(status_filter).await;
-    Ok(Json(json!({"agents": agents})))
+    // SECURITY (FIND-R66-001): Cap response to prevent unbounded serialization.
+    let total = agents.len();
+    let bounded: Vec<_> = agents.into_iter().take(MAX_LIST_ENTRIES).collect();
+    Ok(Json(json!({"agents": bounded, "total": total, "truncated": total > MAX_LIST_ENTRIES})))
 }
 
 /// Register a new NHI agent identity.
@@ -424,7 +429,10 @@ pub async fn list_nhi_delegations(
         Vec::new()
     };
 
-    Ok(Json(json!({"delegations": delegations})))
+    // SECURITY (FIND-R66-002): Cap response to prevent unbounded serialization.
+    let total = delegations.len();
+    let bounded: Vec<_> = delegations.into_iter().take(MAX_LIST_ENTRIES).collect();
+    Ok(Json(json!({"delegations": bounded, "total": total, "truncated": total > MAX_LIST_ENTRIES})))
 }
 
 /// Create an NHI delegation.

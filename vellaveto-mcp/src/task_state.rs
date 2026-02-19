@@ -130,6 +130,13 @@ impl TaskStateManager {
         // Set expiry time if max_duration is configured
         if self.max_duration_secs > 0 && task.expires_at.is_none() {
             if let Ok(created) = chrono::DateTime::parse_from_rfc3339(&task.created_at) {
+                // SECURITY (FIND-R66-003): Reject created_at timestamps more than
+                // 1 day in the future to prevent tasks that never expire.
+                let now = chrono::Utc::now();
+                let max_future = now + chrono::Duration::days(1);
+                if created.with_timezone(&chrono::Utc) > max_future {
+                    return Err("Task created_at is too far in the future".to_string());
+                }
                 let expires = created + chrono::Duration::seconds(self.max_duration_secs as i64);
                 task.expires_at = Some(expires.to_rfc3339());
             }

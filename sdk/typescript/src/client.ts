@@ -596,6 +596,8 @@ export class VellavetoClient {
       // request body, matching the Python and Go SDK behavior.
       target_paths: action.target_paths ?? [],
       target_domains: action.target_domains ?? [],
+      // SECURITY (FIND-R63-SDK-001): Include resolved_ips for parity with Go SDK.
+      resolved_ips: action.resolved_ips ?? [],
     };
     if (context) {
       body.context = context;

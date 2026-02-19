@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
 use thiserror::Error;
 
 // ═══════════════════════════════════════════════════════════════════
@@ -230,7 +231,9 @@ impl RekorVerifier {
         }
 
         let computed_root = hex::encode(&current);
-        Ok(computed_root == proof.root_hash)
+        // SECURITY (FIND-R63-MCP-002): Use constant-time comparison to prevent
+        // timing side-channel attacks on hash verification.
+        Ok(computed_root.as_bytes().ct_eq(proof.root_hash.as_bytes()).into())
     }
 
     /// Verify that a tool hash matches the Rekor entry's data hash.
@@ -245,7 +248,9 @@ impl RekorVerifier {
             ));
         }
 
-        Ok(tool_hash == entry.body.spec.data.hash.value)
+        // SECURITY (FIND-R63-MCP-002): Use constant-time comparison to prevent
+        // timing side-channel attacks on hash verification.
+        Ok(tool_hash.as_bytes().ct_eq(entry.body.spec.data.hash.value.as_bytes()).into())
     }
 
     /// Full offline verification: inclusion proof + tool hash match.

@@ -154,6 +154,8 @@ def _build_evaluate_payload(
         "parameters": action.parameters,
         "target_paths": action.target_paths,
         "target_domains": action.target_domains,
+        # SECURITY (FIND-R63-SDK-001): Include resolved_ips for parity with Go SDK.
+        "resolved_ips": action.resolved_ips,
     }
     if context:
         payload["context"] = context.to_dict()
