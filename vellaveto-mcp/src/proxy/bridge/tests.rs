@@ -296,6 +296,22 @@ fn test_default_timeout_is_30_seconds() {
     assert_eq!(bridge.request_timeout, Duration::from_secs(30));
 }
 
+/// FIND-R78-001: Verify strict tool name validation builder sets the flag.
+#[test]
+fn test_strict_tool_name_validation_builder() {
+    let bridge = test_bridge(vec![]);
+    assert!(
+        !bridge.strict_tool_name_validation,
+        "strict_tool_name_validation should default to false"
+    );
+
+    let bridge = test_bridge(vec![]).with_strict_tool_name_validation(true);
+    assert!(
+        bridge.strict_tool_name_validation,
+        "with_strict_tool_name_validation(true) should enable it"
+    );
+}
+
 // --- Phase 10.4: Evaluation trace tests ---
 
 fn test_bridge_traced(policies: Vec<vellaveto_types::Policy>) -> ProxyBridge {

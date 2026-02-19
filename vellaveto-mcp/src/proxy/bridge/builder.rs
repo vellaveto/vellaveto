@@ -255,4 +255,17 @@ impl ProxyBridge {
         self.explanation_verbosity = verbosity;
         self
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 30: MCP 2025-11-25 Spec Compliance
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// SECURITY (FIND-R78-001): Enable strict MCP tool name validation.
+    /// When true, tool names are validated against the MCP 2025-11-25 spec
+    /// format (1-64 chars, `[a-zA-Z0-9_\-./]`, no `..`/`//`) before policy
+    /// evaluation. This achieves parity with the HTTP/WebSocket/gRPC proxy.
+    pub fn with_strict_tool_name_validation(mut self, enabled: bool) -> Self {
+        self.strict_tool_name_validation = enabled;
+        self
+    }
 }

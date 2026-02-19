@@ -81,7 +81,10 @@ fn is_unsafe_char_telemetry(c: char) -> bool {
 }
 
 /// Telemetry configuration.
+// SECURITY (FIND-R74-008): deny_unknown_fields prevents attacker-injected
+// fields from being silently accepted in security-critical configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TelemetryConfig {
     /// Whether telemetry is enabled.
     #[serde(default)]
@@ -164,6 +167,143 @@ impl TelemetryConfig {
                 "otlp.endpoint must use http:// or https:// scheme".into(),
             ));
         }
+        // SECURITY (FIND-R74-007): Validate OTLP endpoint against private/loopback IPs
+        // to prevent SSRF. Matches the pattern used for webhook_url in config_validate.rs.
+        // Only enforced when telemetry is enabled — default config uses localhost:4317
+        // which is correct for local OTLP collectors and should not block disabled configs.
+        if self.enabled {
+            let after_scheme = if self.otlp.endpoint.starts_with("https://") {
+                &self.otlp.endpoint["https://".len()..]
+            } else {
+                &self.otlp.endpoint["http://".len()..]
+            };
+            // Strip userinfo (RFC 3986 §3.2.1)
+            let authority = after_scheme
+                .find('/')
+                .map_or(after_scheme, |i| &after_scheme[..i]);
+            let host_portion = match authority.rfind('@') {
+                Some(at) => &after_scheme[at + 1..],
+                None => after_scheme,
+            };
+            // Percent-decode brackets for IPv6 detection
+            let host_portion_decoded = host_portion
+                .replace("%5B", "[")
+                .replace("%5b", "[")
+                .replace("%5D", "]")
+                .replace("%5d", "]");
+            let host_portion = host_portion_decoded.as_str();
+            let host = if host_portion.starts_with('[') {
+                if let Some(bracket_end) = host_portion.find(']') {
+                    host_portion[..bracket_end + 1].to_lowercase()
+                } else {
+                    return Err(TelemetryError::InvalidConfig(
+                        "otlp.endpoint has malformed IPv6 address (missing ']')".into(),
+                    ));
+                }
+            } else {
+                let host_end = host_portion
+                    .find(['/', ':', '?', '#'])
+                    .unwrap_or(host_portion.len());
+                host_portion[..host_end].to_lowercase()
+            };
+            if host.is_empty() {
+                return Err(TelemetryError::InvalidConfig(
+                    "otlp.endpoint has no host".into(),
+                ));
+            }
+            // Percent-decode host before comparison
+            let host_for_check = {
+                let mut decoded = String::with_capacity(host.len());
+                let bytes = host.as_bytes();
+                let mut i = 0;
+                while i < bytes.len() {
+                    if bytes[i] == b'%' && i + 2 < bytes.len() {
+                        if let (Some(hi), Some(lo)) = (
+                            (bytes[i + 1] as char).to_digit(16),
+                            (bytes[i + 2] as char).to_digit(16),
+                        ) {
+                            decoded.push((hi * 16 + lo) as u8 as char);
+                            i += 3;
+                            continue;
+                        }
+                    }
+                    decoded.push(bytes[i] as char);
+                    i += 1;
+                }
+                decoded.to_lowercase()
+            };
+            // Reject localhost/loopback
+            let loopbacks = ["localhost", "127.0.0.1", "[::1]", "0.0.0.0"];
+            if loopbacks.iter().any(|lb| host_for_check == *lb) {
+                return Err(TelemetryError::InvalidConfig(format!(
+                    "otlp.endpoint must not target localhost/loopback, got '{}'",
+                    host
+                )));
+            }
+            // Reject private IPv4 ranges
+            if let Ok(ip) = host_for_check.parse::<std::net::Ipv4Addr>() {
+                let is_private = ip.is_loopback()
+                    || ip.octets()[0] == 10                          // 10.0.0.0/8
+                    || (ip.octets()[0] == 172 && (ip.octets()[1] & 0xf0) == 16) // 172.16.0.0/12
+                    || (ip.octets()[0] == 192 && ip.octets()[1] == 168)         // 192.168.0.0/16
+                    || (ip.octets()[0] == 169 && ip.octets()[1] == 254)         // 169.254.0.0/16 (link-local/metadata)
+                    || (ip.octets()[0] == 100 && (ip.octets()[1] & 0xc0) == 64) // 100.64.0.0/10 (CGNAT)
+                    || ip.octets()[0] == 0                           // 0.0.0.0/8
+                    || ip.is_broadcast(); // 255.255.255.255
+                if is_private {
+                    return Err(TelemetryError::InvalidConfig(format!(
+                        "otlp.endpoint must not target private/internal IP ranges, got '{}'",
+                        host
+                    )));
+                }
+            }
+            // Reject private IPv6 ranges
+            let ipv6_host = host_for_check.trim_start_matches('[').trim_end_matches(']');
+            if let Ok(ip6) = ipv6_host.parse::<std::net::Ipv6Addr>() {
+                // Check IPv4-mapped IPv6 (::ffff:x.x.x.x)
+                let segs = ip6.segments();
+                let is_ipv4_mapped = segs[0] == 0
+                    && segs[1] == 0
+                    && segs[2] == 0
+                    && segs[3] == 0
+                    && segs[4] == 0
+                    && segs[5] == 0xffff;
+                if is_ipv4_mapped {
+                    let mapped_ip = std::net::Ipv4Addr::new(
+                        (segs[6] >> 8) as u8,
+                        segs[6] as u8,
+                        (segs[7] >> 8) as u8,
+                        segs[7] as u8,
+                    );
+                    let is_private_v4 = mapped_ip.is_loopback()
+                        || mapped_ip.octets()[0] == 10
+                        || (mapped_ip.octets()[0] == 172
+                            && (mapped_ip.octets()[1] & 0xf0) == 16)
+                        || (mapped_ip.octets()[0] == 192 && mapped_ip.octets()[1] == 168)
+                        || (mapped_ip.octets()[0] == 169 && mapped_ip.octets()[1] == 254)
+                        || (mapped_ip.octets()[0] == 100
+                            && (mapped_ip.octets()[1] & 0xc0) == 64)
+                        || mapped_ip.octets()[0] == 0
+                        || mapped_ip.is_broadcast();
+                    if is_private_v4 {
+                        return Err(TelemetryError::InvalidConfig(format!(
+                            "otlp.endpoint must not target private/internal IP ranges (IPv4-mapped IPv6), got '{}'",
+                            host
+                        )));
+                    }
+                }
+                let is_private = ip6.is_loopback()
+                    || ip6.is_unspecified()
+                    || (segs[0] & 0xfe00) == 0xfc00  // fc00::/7 (ULA)
+                    || (segs[0] & 0xffc0) == 0xfe80; // fe80::/10 (link-local)
+                if is_private {
+                    return Err(TelemetryError::InvalidConfig(format!(
+                        "otlp.endpoint must not target private/internal IPv6 ranges, got '{}'",
+                        host
+                    )));
+                }
+            }
+        }
         if self.otlp.protocol.len() > MAX_OTLP_PROTOCOL_LEN {
             return Err(TelemetryError::InvalidConfig(
                 "otlp.protocol too long".into(),
@@ -205,7 +345,10 @@ impl TelemetryConfig {
 }
 
 /// OTLP exporter configuration.
+// SECURITY (FIND-R74-008): deny_unknown_fields prevents attacker-injected
+// fields from being silently accepted in security-critical configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OtlpConfig {
     /// OTLP endpoint (e.g., "http://otel-collector:4317").
     #[serde(default = "default_otlp_endpoint")]
@@ -248,7 +391,10 @@ impl Default for OtlpConfig {
 }
 
 /// Sampling configuration for traces.
+// SECURITY (FIND-R74-008): deny_unknown_fields prevents attacker-injected
+// fields from being silently accepted in security-critical configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SamplingConfig {
     /// Sampling strategy: "always_on", "always_off", "parent_based", "ratio".
     #[serde(default = "default_sampling_strategy")]

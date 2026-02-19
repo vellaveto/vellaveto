@@ -147,6 +147,11 @@ impl GoalTrackerConfig {
                 self.diverge_threshold, self.drift_threshold
             ));
         }
+        // SECURITY (FIND-R74-003): max_sessions=0 causes cleanup_threshold=0,
+        // triggering cleanup on every call and rejecting all new sessions.
+        if self.max_sessions == 0 {
+            return Err("max_sessions must be > 0".to_string());
+        }
         Ok(())
     }
 }
@@ -261,7 +266,9 @@ impl GoalTracker {
         // SECURITY (FIND-R73-006): Periodically clean up expired sessions.
         // Only run cleanup when the sessions map exceeds 80% of max_sessions
         // to avoid overhead on every call.
-        let cleanup_threshold = (self.config.max_sessions as f64 * 0.8) as usize;
+        // SECURITY (FIND-R74-003): Use integer arithmetic to avoid f64 truncation.
+        // 4/5 == 80% threshold without floating-point precision loss.
+        let cleanup_threshold = self.config.max_sessions.saturating_mul(4) / 5;
         if sessions.len() > cleanup_threshold {
             self.cleanup_expired_sessions(&mut sessions);
         }

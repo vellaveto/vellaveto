@@ -202,6 +202,12 @@ async fn main() -> Result<()> {
         bridge = bridge.with_injection_disabled(true);
     }
 
+    // SECURITY (FIND-R78-001): MCP 2025-11-25 tool name validation parity with HTTP proxy.
+    if policy_config.streamable_http.strict_tool_name_validation {
+        bridge = bridge.with_strict_tool_name_validation(true);
+        tracing::info!("MCP tool name validation: ENABLED (strict)");
+    }
+
     tracing::info!("Request timeout: {}s, trace: {}", cli.timeout, cli.trace);
 
     // Run the proxy

@@ -139,6 +139,13 @@ pub struct ProxyBridge {
     // ═══════════════════════════════════════════════════════════════════
     /// Verbosity level for per-verdict decision explanations.
     explanation_verbosity: vellaveto_types::ExplanationVerbosity,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 30: MCP 2025-11-25 Spec Compliance
+    // ═══════════════════════════════════════════════════════════════════
+    /// SECURITY (FIND-R78-001): When true, validate tool names against MCP spec
+    /// format before evaluation. Parity with HTTP/WebSocket/gRPC proxy modes.
+    strict_tool_name_validation: bool,
 }
 
 impl ProxyBridge {
@@ -183,6 +190,8 @@ impl ProxyBridge {
             human_oversight_tools: Vec::new(),
             // Phase 24: Art 50(2) explanations (default: disabled)
             explanation_verbosity: vellaveto_types::ExplanationVerbosity::None,
+            // Phase 30: MCP 2025-11-25 tool name validation (default: disabled)
+            strict_tool_name_validation: false,
         }
     }
 }

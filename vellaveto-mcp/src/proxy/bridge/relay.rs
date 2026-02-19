@@ -433,6 +433,38 @@ impl ProxyBridge {
             agent: agent_writer,
             child: child_stdin,
         } = io;
+        // SECURITY (FIND-R78-001): MCP 2025-11-25 tool name validation.
+        // Parity with HTTP/WebSocket/gRPC proxy modes.
+        if self.strict_tool_name_validation {
+            if let Err(e) = vellaveto_types::validate_mcp_tool_name(&tool_name) {
+                tracing::warn!(
+                    "SECURITY: Rejecting invalid tool name in stdio proxy: {}",
+                    e
+                );
+                let action = extract_action(&tool_name, &arguments);
+                let reason = format!("Invalid tool name: {}", e);
+                let verdict = Verdict::Deny {
+                    reason: reason.clone(),
+                };
+                if let Err(audit_err) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({"source": "proxy", "event": "invalid_tool_name"}),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit invalid tool name: {}", audit_err);
+                }
+                let response = make_denial_response(&id, &reason);
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+                return Ok(());
+            }
+        }
+
         // C-15 Exploit #9: Block calls to rug-pulled tools
         if state.flagged_tools.contains(&tool_name) {
             let action = extract_action(&tool_name, &arguments);

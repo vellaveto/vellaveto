@@ -1170,10 +1170,20 @@ async fn relay_client_to_upstream(
                                         #[allow(unreachable_patterns)]
                                         // AbacDecision is #[non_exhaustive]
                                         _ => {
-                                            // Future variants — fail-closed (deny)
+                                            // SECURITY (FIND-R74-002): Future variants — fail-closed (deny).
+                                            // Must send deny and continue, not fall through to Allow path.
                                             tracing::warn!(
                                                 "Unknown AbacDecision variant — fail-closed"
                                             );
+                                            let error_resp = make_ws_error_response(
+                                                Some(id),
+                                                -32001,
+                                                "Denied by policy",
+                                            );
+                                            let mut sink = client_sink.lock().await;
+                                            let _ =
+                                                sink.send(Message::Text(error_resp.into())).await;
+                                            continue;
                                         }
                                     }
                                 }
@@ -1344,6 +1354,73 @@ async fn relay_client_to_upstream(
                         }
                     }
                     MessageType::ResourceRead { ref id, ref uri } => {
+                        // SECURITY (FIND-R74-007): Check for memory poisoning in resource URI.
+                        // ResourceRead is a likely exfiltration vector: a poisoned tool response
+                        // says "read this file" and the agent issues resources/read for that URI.
+                        // Parity with HTTP handler (handlers.rs:1472).
+                        {
+                            let poisoning_detected = state
+                                .sessions
+                                .get_mut(&session_id)
+                                .and_then(|session| {
+                                    let uri_params = json!({"uri": uri});
+                                    let matches =
+                                        session.memory_tracker.check_parameters(&uri_params);
+                                    if !matches.is_empty() {
+                                        for m in &matches {
+                                            tracing::warn!(
+                                                "SECURITY: Memory poisoning detected in WS resources/read (session {}): \
+                                                 param '{}' contains replayed data (fingerprint: {})",
+                                                session_id,
+                                                m.param_location,
+                                                m.fingerprint
+                                            );
+                                        }
+                                        Some(matches.len())
+                                    } else {
+                                        None
+                                    }
+                                });
+                            if let Some(match_count) = poisoning_detected {
+                                let poison_action = extractor::extract_resource_action(uri);
+                                let deny_reason = format!(
+                                    "Memory poisoning detected: {} replayed data fragment(s) in resources/read",
+                                    match_count
+                                );
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &poison_action,
+                                        &Verdict::Deny {
+                                            reason: deny_reason.clone(),
+                                        },
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "event": "memory_poisoning_detected",
+                                            "matches": match_count,
+                                            "uri": uri,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to audit WS resource memory poisoning: {}",
+                                        e
+                                    );
+                                }
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "Request blocked: security policy violation",
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                                continue;
+                            }
+                        }
+
                         // Build action for resource read
                         let action = extractor::extract_resource_action(uri);
                         let ctx = build_ws_evaluation_context(&state, &session_id);
@@ -1451,47 +1528,94 @@ async fn relay_client_to_upstream(
                         let _ = sink.send(Message::Text(error.into())).await;
                     }
                     MessageType::SamplingRequest { ref id } => {
-                        // Check sampling config
-                        if !state.sampling_config.enabled {
-                            let denial = extractor::make_denial_response(
-                                id,
-                                "Sampling requests are disabled",
+                        // SECURITY (FIND-R74-006): Call inspect_sampling() for full
+                        // verdict (enabled + model filter + tool output check),
+                        // matching HTTP handler parity (handlers.rs:1681).
+                        let params = parsed.get("params").cloned().unwrap_or(json!({}));
+                        let sampling_verdict =
+                            vellaveto_mcp::elicitation::inspect_sampling(
+                                &params,
+                                &state.sampling_config,
                             );
-                            let denial_text = serde_json::to_string(&denial)
-                                .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Sampling disabled"}}"#.to_string());
-                            let mut sink = client_sink.lock().await;
-                            let _ = sink.send(Message::Text(denial_text.into())).await;
-                        } else {
-                            // Forward allowed sampling request
-                            // SECURITY (FIND-R48-001): Fail-closed on canonicalization failure.
-                            // Falling back to original text would create a TOCTOU gap.
-                            let forward_text = if state.canonicalize {
-                                match serde_json::to_string(&parsed) {
-                                    Ok(canonical) => canonical,
-                                    Err(e) => {
-                                        tracing::error!(
-                                            "SECURITY: WS sampling canonicalization failed: {}",
-                                            e
-                                        );
-                                        let error_resp = make_ws_error_response(
-                                            Some(id),
-                                            -32603,
-                                            "Internal error",
-                                        );
-                                        let mut sink = client_sink.lock().await;
-                                        let _ = sink.send(Message::Text(error_resp.into())).await;
-                                        continue;
+                        match sampling_verdict {
+                            vellaveto_mcp::elicitation::SamplingVerdict::Allow => {
+                                // Forward allowed sampling request
+                                // SECURITY (FIND-R48-001): Fail-closed on canonicalization failure.
+                                // Falling back to original text would create a TOCTOU gap.
+                                let forward_text = if state.canonicalize {
+                                    match serde_json::to_string(&parsed) {
+                                        Ok(canonical) => canonical,
+                                        Err(e) => {
+                                            tracing::error!(
+                                                "SECURITY: WS sampling canonicalization failed: {}",
+                                                e
+                                            );
+                                            let error_resp = make_ws_error_response(
+                                                Some(id),
+                                                -32603,
+                                                "Internal error",
+                                            );
+                                            let mut sink = client_sink.lock().await;
+                                            let _ = sink.send(Message::Text(error_resp.into())).await;
+                                            continue;
+                                        }
                                     }
+                                } else {
+                                    text.to_string()
+                                };
+                                let mut sink = upstream_sink.lock().await;
+                                let _ = sink
+                                    .send(tokio_tungstenite::tungstenite::Message::Text(
+                                        forward_text.into(),
+                                    ))
+                                    .await;
+                            }
+                            vellaveto_mcp::elicitation::SamplingVerdict::Deny { reason } => {
+                                tracing::warn!(
+                                    session_id = %session_id,
+                                    "Blocked WS sampling/createMessage: {}",
+                                    reason
+                                );
+                                let action = Action::new(
+                                    "vellaveto",
+                                    "ws_sampling_interception",
+                                    json!({
+                                        "method": "sampling/createMessage",
+                                        "session": session_id,
+                                        "transport": "websocket",
+                                        "reason": &reason,
+                                    }),
+                                );
+                                let verdict = Verdict::Deny {
+                                    reason: reason.clone(),
+                                };
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &verdict,
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "event": "ws_sampling_interception",
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to audit WS sampling interception: {}",
+                                        e
+                                    );
                                 }
-                            } else {
-                                text.to_string()
-                            };
-                            let mut sink = upstream_sink.lock().await;
-                            let _ = sink
-                                .send(tokio_tungstenite::tungstenite::Message::Text(
-                                    forward_text.into(),
-                                ))
-                                .await;
+                                // SECURITY: Generic message to client — detailed reason
+                                // is in the audit log, not leaked to the client.
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "sampling/createMessage blocked by policy",
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                            }
                         }
                     }
                     MessageType::TaskRequest {
@@ -2618,6 +2742,12 @@ fn build_ws_evaluation_context(state: &ProxyState, session_id: &str) -> Evaluati
         if let Some(ref agent_id) = session.oauth_subject {
             ctx.agent_id = Some(agent_id.clone());
         }
+        // SECURITY (FIND-R74-003): Include agent_identity and call_chain for parity
+        // with HTTP handler (handlers.rs:731-734) and gRPC handler (service.rs:1241-1242).
+        // Without these, WS policy evaluation cannot enforce identity-based or
+        // call-chain-based context conditions.
+        ctx.agent_identity = session.agent_identity.clone();
+        ctx.call_chain = session.current_call_chain.clone();
     }
 
     ctx

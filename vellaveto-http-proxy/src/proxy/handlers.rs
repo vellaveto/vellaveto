@@ -927,8 +927,21 @@ pub async fn handle_mcp_post(
                             }
                             #[allow(unreachable_patterns)] // AbacDecision is #[non_exhaustive]
                             _ => {
-                                // Future variants — fail-closed (deny)
+                                // SECURITY (FIND-R74-002): Future variants — fail-closed (deny).
+                                // Must return a deny response, not fall through to Allow path.
                                 tracing::warn!("Unknown AbacDecision variant — fail-closed");
+                                let response = serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "error": {
+                                        "code": -32001,
+                                        "message": "Denied by policy"
+                                    }
+                                });
+                                return attach_session_header(
+                                    (StatusCode::OK, Json(response)).into_response(),
+                                    &session_id,
+                                );
                             }
                         }
                     }
