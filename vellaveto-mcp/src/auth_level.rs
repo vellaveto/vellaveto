@@ -64,6 +64,12 @@ pub struct AuthLevelTracker {
 /// Initial capacity for tracked auth sessions.
 const INITIAL_AUTH_SESSION_CAPACITY: usize = 256;
 
+/// SECURITY (FIND-R68-001): Maximum tracked auth sessions to prevent OOM.
+const MAX_AUTH_SESSIONS: usize = 10_000;
+
+/// SECURITY (FIND-R68-001): Maximum session ID length.
+const MAX_SESSION_ID_LEN: usize = 256;
+
 impl AuthLevelTracker {
     /// Create a new auth level tracker with no default expiry.
     pub fn new() -> Self {
@@ -114,7 +120,25 @@ impl AuthLevelTracker {
     /// * `level` - The new authentication level
     /// * `expires` - Optional expiry duration. If None, uses default expiry.
     pub async fn upgrade(&self, session_id: &str, level: AuthLevel, expires: Option<Duration>) {
+        // SECURITY (FIND-R68-001): Validate session ID length and enforce session cap.
+        if session_id.len() > MAX_SESSION_ID_LEN {
+            tracing::warn!(
+                len = session_id.len(),
+                "Auth level upgrade rejected: session ID too long"
+            );
+            return;
+        }
+
         let mut sessions = self.sessions.write().await;
+
+        // Allow updates to existing sessions but reject new ones at capacity.
+        if !sessions.contains_key(session_id) && sessions.len() >= MAX_AUTH_SESSIONS {
+            tracing::warn!(
+                max = MAX_AUTH_SESSIONS,
+                "Auth level tracker at capacity, rejecting new session"
+            );
+            return;
+        }
 
         let expires_at = expires.or(self.default_expiry).map(|d| Instant::now() + d);
 

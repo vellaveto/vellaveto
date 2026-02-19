@@ -377,6 +377,15 @@ impl NhiManager {
                     * ((baseline.observation_count - 1) as f64);
                 baseline.request_interval_stddev =
                     ((variance + variance_update) / (baseline.observation_count as f64)).sqrt();
+
+                // SECURITY (FIND-R68-002): Guard against NaN/Infinity from
+                // Welford's algorithm (e.g., overflow from extreme intervals).
+                if !baseline.avg_request_interval_secs.is_finite() {
+                    baseline.avg_request_interval_secs = interval;
+                }
+                if !baseline.request_interval_stddev.is_finite() {
+                    baseline.request_interval_stddev = 0.0;
+                }
             }
         }
 
