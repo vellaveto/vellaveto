@@ -5671,15 +5671,19 @@ fn test_semantic_guardrails_default_validates() {
 
 #[test]
 fn test_semantic_guardrails_nan_min_confidence() {
-    let mut config = crate::SemanticGuardrailsConfig::default();
-    config.min_confidence = f64::NAN;
+    let config = crate::SemanticGuardrailsConfig {
+        min_confidence: f64::NAN,
+        ..Default::default()
+    };
     assert!(config.validate().is_err());
 }
 
 #[test]
 fn test_semantic_guardrails_negative_min_confidence() {
-    let mut config = crate::SemanticGuardrailsConfig::default();
-    config.min_confidence = -0.1;
+    let config = crate::SemanticGuardrailsConfig {
+        min_confidence: -0.1,
+        ..Default::default()
+    };
     assert!(config.validate().is_err());
 }
 
@@ -5709,22 +5713,28 @@ fn test_multimodal_default_validates() {
 
 #[test]
 fn test_multimodal_nan_ocr_confidence() {
-    let mut config = crate::MultimodalPolicyConfig::default();
-    config.min_ocr_confidence = f32::NAN;
+    let config = crate::MultimodalPolicyConfig {
+        min_ocr_confidence: f32::NAN,
+        ..Default::default()
+    };
     assert!(config.validate().is_err());
 }
 
 #[test]
 fn test_multimodal_negative_ocr_confidence() {
-    let mut config = crate::MultimodalPolicyConfig::default();
-    config.min_ocr_confidence = -0.1;
+    let config = crate::MultimodalPolicyConfig {
+        min_ocr_confidence: -0.1,
+        ..Default::default()
+    };
     assert!(config.validate().is_err());
 }
 
 #[test]
 fn test_multimodal_too_many_content_types() {
-    let mut config = crate::MultimodalPolicyConfig::default();
-    config.content_types = (0..25).map(|i| format!("Type{}", i)).collect();
+    let config = crate::MultimodalPolicyConfig {
+        content_types: (0..25).map(|i| format!("Type{}", i)).collect(),
+        ..Default::default()
+    };
     assert!(config.validate().is_err());
 }
 
