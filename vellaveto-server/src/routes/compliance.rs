@@ -506,18 +506,19 @@ fn parse_period_days(period: &str) -> Result<u32, String> {
     if trimmed.is_empty() {
         return Err("Empty period string".to_string());
     }
+    // SECURITY: Reject overly long period strings before echoing in errors.
+    if trimmed.len() > 20 {
+        return Err("Invalid period: value too long".to_string());
+    }
     let (num_str, suffix) = if trimmed.ends_with('d') || trimmed.ends_with('D') {
         (&trimmed[..trimmed.len() - 1], "d")
     } else {
         (trimmed, "")
     };
     let _ = suffix; // suffix is always "d" or empty (days only)
-    let days: u32 = num_str.parse().map_err(|_| {
-        format!(
-            "Invalid period '{}': must be a number followed by 'd'",
-            period
-        )
-    })?;
+    let days: u32 = num_str
+        .parse()
+        .map_err(|_| "Invalid period: must be a number followed by 'd'".to_string())?;
     if days == 0 {
         return Err("Period must be at least 1 day".to_string());
     }

@@ -259,6 +259,15 @@ pub async fn create_version_pin(
     // SECURITY (FIND-R51-005): Validate path parameter.
     crate::routes::validate_path_param_json(&tool, "tool")?;
 
+    // SECURITY: Validate input bounds on request body fields.
+    crate::routes::validate_path_param_json(&req.definition_hash, "definition_hash")?;
+    if let Some(ref version) = req.version {
+        crate::routes::validate_path_param_json(version, "version")?;
+    }
+    if let Some(ref constraint) = req.constraint {
+        crate::routes::validate_path_param_json(constraint, "constraint")?;
+    }
+
     let Some(ref pin_manager) = state.etdi_version_pins else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -285,10 +294,13 @@ pub async fn create_version_pin(
             "success": true,
             "pin": pin,
         }))),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": e.to_string()})),
-        )),
+        Err(e) => {
+            tracing::warn!(tool = %tool, error = %e, "Failed to create version pin");
+            Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Failed to create version pin"})),
+            ))
+        }
     }
 }
 

@@ -38,10 +38,13 @@ pub const GLOBAL_TENANT_PREFIX: &str = "_global_";
 pub const DEFAULT_TENANT_ID: &str = "_default_";
 
 /// Maximum number of metadata entries per tenant.
-const MAX_TENANT_METADATA_ENTRIES: usize = 64;
+const MAX_TENANT_METADATA_ENTRIES: usize = 100;
 
-/// Maximum length for a single metadata key or value.
-const MAX_TENANT_METADATA_FIELD_LEN: usize = 1024;
+/// Maximum length for a metadata key.
+const MAX_TENANT_METADATA_KEY_LEN: usize = 128;
+
+/// Maximum length for a metadata value.
+const MAX_TENANT_METADATA_VALUE_LEN: usize = 1024;
 
 /// Maximum length for tenant name.
 const MAX_TENANT_NAME_LEN: usize = 256;
@@ -160,18 +163,18 @@ impl Tenant {
         }
 
         for (key, value) in &self.metadata {
-            if key.len() > MAX_TENANT_METADATA_FIELD_LEN {
+            if key.len() > MAX_TENANT_METADATA_KEY_LEN {
                 return Err(TenantError::InvalidTenantId(format!(
                     "metadata key too long ({} > {} bytes)",
                     key.len(),
-                    MAX_TENANT_METADATA_FIELD_LEN
+                    MAX_TENANT_METADATA_KEY_LEN
                 )));
             }
-            if value.len() > MAX_TENANT_METADATA_FIELD_LEN {
+            if value.len() > MAX_TENANT_METADATA_VALUE_LEN {
                 return Err(TenantError::InvalidTenantId(format!(
                     "metadata value too long ({} > {} bytes)",
                     value.len(),
-                    MAX_TENANT_METADATA_FIELD_LEN
+                    MAX_TENANT_METADATA_VALUE_LEN
                 )));
             }
             if key.chars().any(is_unsafe_char_tenant) {
