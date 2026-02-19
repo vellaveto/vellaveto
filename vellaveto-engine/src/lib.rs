@@ -720,6 +720,15 @@ impl PolicyEngine {
                 }
                 ')' => {
                     paren_depth -= 1;
+                    // SECURITY (FIND-R58-ENG-002): Reject unbalanced closing parens.
+                    // Negative paren_depth disables alternation/inner-quantifier
+                    // tracking, allowing ReDoS patterns to bypass the safety check.
+                    if paren_depth < 0 {
+                        return Err(format!(
+                            "Invalid regex pattern — unbalanced parentheses: '{}'",
+                            &pattern[..pattern.len().min(100)]
+                        ));
+                    }
                     // Check if the next char is a quantifier
                     if i + 1 < chars.len() && quantifiers.contains(&chars[i + 1]) {
                         if has_inner_quantifier {
@@ -746,6 +755,15 @@ impl PolicyEngine {
                 }
                 _ => {}
             }
+        }
+
+        // SECURITY (FIND-R58-ENG-004): Reject patterns with unclosed parentheses.
+        if paren_depth != 0 {
+            return Err(format!(
+                "Invalid regex pattern — unbalanced parentheses ({} unclosed): '{}'",
+                paren_depth,
+                &pattern[..pattern.len().min(100)]
+            ));
         }
 
         Ok(())
@@ -810,6 +828,9 @@ impl PolicyEngine {
             tracing::error!("glob_matcher_cache write lock poisoned: {}", e);
             e.into_inner()
         });
+        // FIND-R58-ENG-011: Full cache.clear() can cause a thundering herd of
+        // recompilation on the legacy (non-precompiled) path. For production,
+        // use with_policies() to pre-compile patterns and avoid this cache entirely.
         if cache.len() >= MAX_GLOB_MATCHER_CACHE_ENTRIES {
             cache.clear();
         }

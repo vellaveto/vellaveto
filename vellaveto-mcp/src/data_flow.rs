@@ -32,6 +32,9 @@ use crate::inspection::DlpFinding;
 /// Prevents excessive memory allocation from attacker-controlled config values.
 const MAX_DATA_FLOW_CONFIG_MAX_FINDINGS: usize = 100_000;
 
+/// Maximum allowed value for max_fingerprints_per_pattern in DataFlowConfig.
+const MAX_DATA_FLOW_CONFIG_MAX_FINGERPRINTS: usize = 10_000;
+
 // ═══════════════════════════════════════════════════
 // CONFIGURATION
 // ═══════════════════════════════════════════════════
@@ -89,6 +92,8 @@ pub enum DataFlowError {
     MaxFindingsTooLarge,
     /// max_fingerprints_per_pattern must be > 0.
     InvalidMaxFingerprints,
+    /// max_fingerprints_per_pattern exceeds upper bound.
+    MaxFingerprintsTooLarge,
 }
 
 impl std::fmt::Display for DataFlowError {
@@ -104,6 +109,13 @@ impl std::fmt::Display for DataFlowError {
             }
             DataFlowError::InvalidMaxFingerprints => {
                 write!(f, "max_fingerprints_per_pattern must be > 0")
+            }
+            DataFlowError::MaxFingerprintsTooLarge => {
+                write!(
+                    f,
+                    "max_fingerprints_per_pattern must be <= {}",
+                    MAX_DATA_FLOW_CONFIG_MAX_FINGERPRINTS
+                )
             }
         }
     }
@@ -123,6 +135,9 @@ impl DataFlowConfig {
         if self.max_fingerprints_per_pattern == 0 {
             return Err(DataFlowError::InvalidMaxFingerprints);
         }
+        if self.max_fingerprints_per_pattern > MAX_DATA_FLOW_CONFIG_MAX_FINGERPRINTS {
+            return Err(DataFlowError::MaxFingerprintsTooLarge);
+        }
         Ok(())
     }
 }
@@ -133,6 +148,7 @@ impl DataFlowConfig {
 
 /// An alert indicating potential data exfiltration across requests.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExfiltrationAlert {
     /// The DLP pattern type that correlates response and request
     /// (e.g., "aws_access_key", "github_token").
@@ -990,5 +1006,18 @@ mod tests {
     fn test_fingerprint_none_when_no_text() {
         let f = DlpFindingWithFingerprint::from_finding(finding("test", "loc"), None);
         assert!(f.fingerprint.is_none());
+    }
+
+    #[test]
+    fn test_config_max_fingerprints_too_large() {
+        let config = DataFlowConfig {
+            max_findings: 100,
+            max_fingerprints_per_pattern: 10_001,
+            require_exact_match: false,
+        };
+        assert!(matches!(
+            config.validate(),
+            Err(DataFlowError::MaxFingerprintsTooLarge)
+        ));
     }
 }

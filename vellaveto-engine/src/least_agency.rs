@@ -121,7 +121,11 @@ impl LeastAgencyTracker {
     /// Register granted policy IDs for an agent session.
     pub fn register_grants(&self, agent_id: &str, session_id: &str, policy_ids: &[String]) {
         let key = Self::session_key(agent_id, session_id);
-        // SECURITY (FIND-P3-012): Log poisoned lock recovery instead of silently returning.
+        // SECURITY (FIND-P3-012, FIND-R58-ENG-005): Log poisoned lock recovery.
+        // Unlike DeputyValidator (which fails closed on poison because it makes
+        // allow/deny decisions), LeastAgencyTracker is observational — it tracks
+        // permission usage for compliance reporting, not enforcement. Recovering
+        // on poison preserves observability; failing closed would stop tracking.
         let mut trackers = match self.trackers.write() {
             Ok(guard) => guard,
             Err(e) => {

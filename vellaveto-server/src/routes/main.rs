@@ -871,9 +871,10 @@ fn validate_origin(origin: &str, allowed_origins: &[String]) -> bool {
         return is_localhost(&parsed_origin);
     }
 
-    // SECURITY (R33-001): Check all origins in constant time to prevent
-    // timing side-channel that could reveal which origins are configured.
-    // We accumulate the result and avoid early returns.
+    // SECURITY (R33-001): Iterate all origins without early return to prevent
+    // a timing side-channel that could reveal the number of configured origins.
+    // This is NOT constant-time comparison (origins are not secrets), but avoids
+    // leaking the position of a matching origin in the list.
     let mut matched = false;
     for allowed in allowed_origins {
         if let Some(parsed_allowed) = parse_origin(allowed) {

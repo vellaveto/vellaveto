@@ -45,6 +45,41 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
+/// Maximum length for service name.
+const MAX_SERVICE_NAME_LEN: usize = 256;
+
+/// Maximum length for service version.
+const MAX_SERVICE_VERSION_LEN: usize = 128;
+
+/// Maximum length for OTLP endpoint URL.
+const MAX_OTLP_ENDPOINT_LEN: usize = 1024;
+
+/// Maximum length for OTLP protocol string.
+const MAX_OTLP_PROTOCOL_LEN: usize = 64;
+
+/// Maximum length for sampling strategy string.
+const MAX_SAMPLING_STRATEGY_LEN: usize = 64;
+
+/// Maximum number of OTLP headers.
+const MAX_OTLP_HEADERS: usize = 32;
+
+/// Maximum length for an OTLP header key or value.
+const MAX_OTLP_HEADER_FIELD_LEN: usize = 512;
+
+/// SECURITY: Detect control characters AND Unicode format characters.
+fn is_unsafe_char_telemetry(c: char) -> bool {
+    let cp = c as u32;
+    c.is_control()
+        || (0x200B..=0x200F).contains(&cp)
+        || (0x202A..=0x202E).contains(&cp)
+        || (0x2060..=0x2064).contains(&cp)
+        || (0x2066..=0x2069).contains(&cp)
+        || cp == 0xFEFF
+        || (0xFFF9..=0xFFFB).contains(&cp)
+        || (0xE0001..=0xE007F).contains(&cp)
+        || cp == 0x00AD
+}
+
 /// Telemetry configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryConfig {
@@ -82,6 +117,90 @@ impl Default for TelemetryConfig {
             otlp: OtlpConfig::default(),
             sampling: SamplingConfig::default(),
         }
+    }
+}
+
+// SECURITY (FIND-R58-SRV-011): Validate telemetry config string fields.
+impl TelemetryConfig {
+    /// Validate all string fields for control characters and length bounds.
+    pub fn validate(&self) -> Result<(), TelemetryError> {
+        if self.service_name.len() > MAX_SERVICE_NAME_LEN {
+            return Err(TelemetryError::InvalidConfig(
+                "service_name too long".into(),
+            ));
+        }
+        if self.service_name.chars().any(is_unsafe_char_telemetry) {
+            return Err(TelemetryError::InvalidConfig(
+                "service_name contains control/format characters".into(),
+            ));
+        }
+        if let Some(ref v) = self.service_version {
+            if v.len() > MAX_SERVICE_VERSION_LEN {
+                return Err(TelemetryError::InvalidConfig(
+                    "service_version too long".into(),
+                ));
+            }
+            if v.chars().any(is_unsafe_char_telemetry) {
+                return Err(TelemetryError::InvalidConfig(
+                    "service_version contains control/format characters".into(),
+                ));
+            }
+        }
+        // Validate OTLP config
+        if self.otlp.endpoint.len() > MAX_OTLP_ENDPOINT_LEN {
+            return Err(TelemetryError::InvalidConfig(
+                "otlp.endpoint too long".into(),
+            ));
+        }
+        if self.otlp.endpoint.chars().any(is_unsafe_char_telemetry) {
+            return Err(TelemetryError::InvalidConfig(
+                "otlp.endpoint contains control/format characters".into(),
+            ));
+        }
+        // Validate endpoint URL scheme
+        if !self.otlp.endpoint.starts_with("http://") && !self.otlp.endpoint.starts_with("https://")
+        {
+            return Err(TelemetryError::InvalidConfig(
+                "otlp.endpoint must use http:// or https:// scheme".into(),
+            ));
+        }
+        if self.otlp.protocol.len() > MAX_OTLP_PROTOCOL_LEN {
+            return Err(TelemetryError::InvalidConfig(
+                "otlp.protocol too long".into(),
+            ));
+        }
+        if self.otlp.headers.len() > MAX_OTLP_HEADERS {
+            return Err(TelemetryError::InvalidConfig(
+                "too many otlp.headers".into(),
+            ));
+        }
+        for (k, v) in &self.otlp.headers {
+            if k.len() > MAX_OTLP_HEADER_FIELD_LEN || v.len() > MAX_OTLP_HEADER_FIELD_LEN {
+                return Err(TelemetryError::InvalidConfig(
+                    "otlp header key or value too long".into(),
+                ));
+            }
+            if k.chars().any(is_unsafe_char_telemetry) || v.chars().any(is_unsafe_char_telemetry) {
+                return Err(TelemetryError::InvalidConfig(
+                    "otlp header contains control/format characters".into(),
+                ));
+            }
+        }
+        // Validate sampling
+        if self.sampling.strategy.len() > MAX_SAMPLING_STRATEGY_LEN {
+            return Err(TelemetryError::InvalidConfig(
+                "sampling.strategy too long".into(),
+            ));
+        }
+        if !self.sampling.ratio.is_finite()
+            || self.sampling.ratio < 0.0
+            || self.sampling.ratio > 1.0
+        {
+            return Err(TelemetryError::InvalidConfig(
+                "sampling.ratio must be finite and in [0.0, 1.0]".into(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -171,6 +290,9 @@ pub enum TelemetryError {
 
     #[error("unsupported protocol: {0}")]
     UnsupportedProtocol(String),
+
+    #[error("invalid configuration: {0}")]
+    InvalidConfig(String),
 }
 
 /// Initialize OpenTelemetry with the given configuration.

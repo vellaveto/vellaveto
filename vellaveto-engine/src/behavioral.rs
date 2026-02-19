@@ -580,7 +580,24 @@ impl BehavioralTracker {
     ) -> Result<Self, BehavioralError> {
         config.validate()?;
 
+        // SECURITY (FIND-R58-ENG-001): Enforce max_agents/max_tools_per_agent bounds
+        // on deserialized snapshots to prevent OOM from oversized snapshot files.
+        if snapshot.agents.len() > config.max_agents {
+            return Err(BehavioralError::InvalidSnapshot(format!(
+                "snapshot has {} agents, exceeds max_agents {}",
+                snapshot.agents.len(),
+                config.max_agents
+            )));
+        }
         for (agent_id, entry) in &snapshot.agents {
+            if entry.tools.len() > config.max_tools_per_agent {
+                return Err(BehavioralError::InvalidSnapshot(format!(
+                    "agent '{}' has {} tools, exceeds max_tools_per_agent {}",
+                    agent_id,
+                    entry.tools.len(),
+                    config.max_tools_per_agent
+                )));
+            }
             for (tool, baseline) in &entry.tools {
                 if baseline.ema.is_nan() || baseline.ema.is_infinite() {
                     return Err(BehavioralError::InvalidSnapshot(format!(

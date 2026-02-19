@@ -72,6 +72,37 @@ fn default_behavioral_max_agents() -> usize {
     10_000
 }
 
+impl BehavioralDetectionConfig {
+    /// Validate behavioral detection configuration fields.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.alpha.is_finite() || self.alpha <= 0.0 || self.alpha > 1.0 {
+            return Err(format!(
+                "behavioral.alpha must be in (0.0, 1.0], got {}",
+                self.alpha
+            ));
+        }
+        if !self.threshold.is_finite() || self.threshold <= 0.0 {
+            return Err(format!(
+                "behavioral.threshold must be finite and positive, got {}",
+                self.threshold
+            ));
+        }
+        if self.max_agents > MAX_BEHAVIORAL_AGENTS {
+            return Err(format!(
+                "behavioral.max_agents must be <= {}, got {}",
+                MAX_BEHAVIORAL_AGENTS, self.max_agents
+            ));
+        }
+        if self.max_tools_per_agent > MAX_BEHAVIORAL_TOOLS_PER_AGENT {
+            return Err(format!(
+                "behavioral.max_tools_per_agent must be <= {}, got {}",
+                MAX_BEHAVIORAL_TOOLS_PER_AGENT, self.max_tools_per_agent
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl Default for BehavioralDetectionConfig {
     fn default() -> Self {
         Self {
@@ -198,6 +229,29 @@ fn default_semantic_threshold() -> f64 {
 }
 fn default_semantic_min_length() -> usize {
     10
+}
+
+impl SemanticDetectionConfig {
+    /// Validate semantic detection configuration fields.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.threshold.is_finite() || self.threshold <= 0.0 || self.threshold > 1.0 {
+            return Err(format!(
+                "semantic_detection.threshold must be in (0.0, 1.0], got {}",
+                self.threshold
+            ));
+        }
+        if self.min_text_length == 0 {
+            return Err("semantic_detection.min_text_length must be > 0".to_string());
+        }
+        if self.extra_templates.len() > MAX_SEMANTIC_EXTRA_TEMPLATES {
+            return Err(format!(
+                "semantic_detection.extra_templates has {} entries, max is {}",
+                self.extra_templates.len(),
+                MAX_SEMANTIC_EXTRA_TEMPLATES
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Default for SemanticDetectionConfig {
@@ -464,6 +518,28 @@ fn default_max_tracked_schemas() -> usize {
     1_000
 }
 
+impl SchemaPoisoningConfig {
+    /// Validate schema poisoning detection configuration fields.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.mutation_threshold.is_finite()
+            || self.mutation_threshold < 0.0
+            || self.mutation_threshold > 1.0
+        {
+            return Err(format!(
+                "schema_poisoning.mutation_threshold must be in [0.0, 1.0], got {}",
+                self.mutation_threshold
+            ));
+        }
+        if self.max_tracked_schemas > MAX_TRACKED_SCHEMAS {
+            return Err(format!(
+                "schema_poisoning.max_tracked_schemas must be <= {}, got {}",
+                MAX_TRACKED_SCHEMAS, self.max_tracked_schemas
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl Default for SchemaPoisoningConfig {
     fn default() -> Self {
         Self {
@@ -649,6 +725,44 @@ pub struct CrossAgentConfig {
     /// Default: true.
     #[serde(default = "default_true")]
     pub check_delimiter_injection: bool,
+}
+
+impl CrossAgentConfig {
+    /// Validate cross-agent security configuration fields.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.escalation_deny_threshold.is_finite()
+            || self.escalation_deny_threshold < 0.0
+            || self.escalation_deny_threshold > 1.0
+        {
+            return Err(format!(
+                "cross_agent.escalation_deny_threshold must be in [0.0, 1.0], got {}",
+                self.escalation_deny_threshold
+            ));
+        }
+        if !self.escalation_alert_threshold.is_finite()
+            || self.escalation_alert_threshold < 0.0
+            || self.escalation_alert_threshold > 1.0
+        {
+            return Err(format!(
+                "cross_agent.escalation_alert_threshold must be in [0.0, 1.0], got {}",
+                self.escalation_alert_threshold
+            ));
+        }
+        if self.escalation_alert_threshold > self.escalation_deny_threshold {
+            return Err(format!(
+                "cross_agent.escalation_alert_threshold ({}) must be <= escalation_deny_threshold ({})",
+                self.escalation_alert_threshold, self.escalation_deny_threshold
+            ));
+        }
+        if self.trusted_agents.len() > MAX_CROSS_AGENT_TRUSTED_AGENTS {
+            return Err(format!(
+                "cross_agent.trusted_agents has {} entries, max is {}",
+                self.trusted_agents.len(),
+                MAX_CROSS_AGENT_TRUSTED_AGENTS
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Default for CrossAgentConfig {

@@ -6,6 +6,12 @@
 use vellaveto_types::Action;
 
 /// Pre-compiled pattern matcher for tool/function ID segments.
+///
+/// All matches are **case-sensitive** by design. MCP tool names are case-sensitive
+/// per the MCP spec, so ABAC action patterns and policy IDs must match the exact
+/// casing of tool names. The main engine's context checks (agent identity, action
+/// sequences) use `eq_ignore_ascii_case()` where case-insensitive matching is the
+/// security-correct behavior. (FIND-R58-ENG-006)
 #[derive(Debug, Clone)]
 pub enum PatternMatcher {
     /// Matches anything ("*")

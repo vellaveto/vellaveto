@@ -626,22 +626,23 @@ impl CircuitBreakerManager {
         };
         let now = Self::now_or_zero();
 
-        let mut closed = 0;
-        let mut open = 0;
-        let mut half_open = 0;
+        let mut closed: usize = 0;
+        let mut open: usize = 0;
+        let mut half_open: usize = 0;
 
         for stats in circuits.values() {
             match stats.state {
-                CircuitState::Closed => closed += 1,
+                // SECURITY (FIND-R58-ENG-003): Saturating arithmetic per Trap 9.
+                CircuitState::Closed => closed = closed.saturating_add(1),
                 CircuitState::Open => {
                     let eff_duration = self.effective_open_duration(stats);
                     if now >= stats.last_state_change + eff_duration {
-                        half_open += 1;
+                        half_open = half_open.saturating_add(1);
                     } else {
-                        open += 1;
+                        open = open.saturating_add(1);
                     }
                 }
-                CircuitState::HalfOpen => half_open += 1,
+                CircuitState::HalfOpen => half_open = half_open.saturating_add(1),
             }
         }
 

@@ -56,6 +56,10 @@ pub struct GoalDriftAlert {
 }
 
 /// Fingerprint of a goal for comparison.
+///
+/// NOTE: Uses `DefaultHasher` (SipHash) which is NOT cryptographic.
+/// This hash is used only for fast equality comparison of goal text,
+/// not for collision resistance or tamper detection.
 #[derive(Debug, Clone)]
 struct GoalFingerprint {
     /// Hash of the goal text.
@@ -110,6 +114,37 @@ pub struct GoalTrackerConfig {
     pub max_actions_per_session: usize,
     /// Keywords that indicate goal manipulation attempts.
     pub manipulation_keywords: Vec<String>,
+}
+
+impl GoalTrackerConfig {
+    /// Validate configuration values.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.drift_threshold.is_finite() {
+            return Err("drift_threshold must be finite".to_string());
+        }
+        if !self.diverge_threshold.is_finite() {
+            return Err("diverge_threshold must be finite".to_string());
+        }
+        if self.drift_threshold < 0.0 || self.drift_threshold > 1.0 {
+            return Err(format!(
+                "drift_threshold must be in [0.0, 1.0], got {}",
+                self.drift_threshold
+            ));
+        }
+        if self.diverge_threshold < 0.0 || self.diverge_threshold > 1.0 {
+            return Err(format!(
+                "diverge_threshold must be in [0.0, 1.0], got {}",
+                self.diverge_threshold
+            ));
+        }
+        if self.diverge_threshold > self.drift_threshold {
+            return Err(format!(
+                "diverge_threshold ({}) must be <= drift_threshold ({})",
+                self.diverge_threshold, self.drift_threshold
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Default for GoalTrackerConfig {
@@ -181,6 +216,16 @@ impl GoalTracker {
         // Enforce max sessions limit
         if sessions.len() >= self.config.max_sessions && !sessions.contains_key(session_id) {
             self.cleanup_expired_sessions(&mut sessions);
+
+            // R58-013: Re-check after cleanup; reject insert if still at capacity
+            if sessions.len() >= self.config.max_sessions {
+                tracing::warn!(
+                    target: "vellaveto::security",
+                    "GoalTracker at max_sessions ({}) after cleanup, rejecting new session",
+                    self.config.max_sessions
+                );
+                return;
+            }
         }
 
         sessions.insert(session_id.to_string(), state);
@@ -678,5 +723,47 @@ mod tests {
         assert!(is_stop_word("and"));
         assert!(!is_stop_word("file"));
         assert!(!is_stop_word("database"));
+    }
+
+    #[test]
+    fn test_goal_tracker_config_validate_default_ok() {
+        let config = GoalTrackerConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_goal_tracker_config_validate_nan_drift() {
+        let config = GoalTrackerConfig {
+            drift_threshold: f32::NAN,
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_goal_tracker_config_validate_diverge_gt_drift() {
+        let config = GoalTrackerConfig {
+            drift_threshold: 0.3,
+            diverge_threshold: 0.7,
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("<="));
+    }
+
+    #[test]
+    fn test_set_initial_goal_rejects_at_capacity() {
+        let tracker = GoalTracker::with_config(GoalTrackerConfig {
+            max_sessions: 2,
+            ..Default::default()
+        });
+        tracker.set_initial_goal("sess1", "goal1");
+        tracker.set_initial_goal("sess2", "goal2");
+        assert_eq!(tracker.session_count(), 2);
+        // This should attempt cleanup then reject since no sessions are expired
+        tracker.set_initial_goal("sess3", "goal3");
+        // sess3 should have been rejected
+        assert_eq!(tracker.session_count(), 2);
     }
 }

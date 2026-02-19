@@ -625,7 +625,7 @@ impl PolicyEngine {
         let mut stack: Vec<(&serde_json::Value, usize)> = vec![(value, 0)];
 
         while let Some((val, depth)) = stack.pop() {
-            nodes_visited += 1;
+            nodes_visited = nodes_visited.saturating_add(1); // FIND-R58-ENG-007: Trap 9
             if depth > max_depth {
                 max_depth = depth;
             }

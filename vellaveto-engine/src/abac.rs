@@ -282,7 +282,6 @@ impl AbacEngine {
     /// 4. If nothing matches → NoMatch (caller decides)
     pub fn evaluate(&self, action: &Action, ctx: &AbacEvalContext<'_>) -> AbacDecision {
         let mut best_permit: Option<&str> = None;
-        let mut best_forbid: Option<(&str, String)> = None;
 
         for policy in &self.compiled {
             if !matches_principal(&policy.principal, ctx, &self.entity_store) {
@@ -300,12 +299,13 @@ impl AbacEngine {
 
             match policy.effect {
                 AbacEffect::Forbid => {
-                    if best_forbid.is_none() {
-                        best_forbid = Some((
-                            &policy.id,
-                            format!("ABAC forbid policy '{}' matched", policy.id),
-                        ));
-                    }
+                    // SECURITY (FIND-R58-ENG-008): Early exit on first Forbid match.
+                    // With forbid-overrides semantics, no subsequent match can change
+                    // the outcome. Continuing wastes CPU on the critical evaluation path.
+                    return AbacDecision::Deny {
+                        policy_id: policy.id.clone(),
+                        reason: format!("ABAC forbid policy '{}' matched", policy.id),
+                    };
                 }
                 AbacEffect::Permit => {
                     if best_permit.is_none() {
@@ -313,14 +313,6 @@ impl AbacEngine {
                     }
                 }
             }
-        }
-
-        // Forbid-overrides: any forbid wins
-        if let Some((id, reason)) = best_forbid {
-            return AbacDecision::Deny {
-                policy_id: id.to_string(),
-                reason,
-            };
         }
 
         if let Some(id) = best_permit {

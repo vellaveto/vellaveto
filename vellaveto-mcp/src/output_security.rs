@@ -9,12 +9,12 @@
 //! - OWASP ASI Top 10 (ASI07: Insecure Tool Output Handling)
 //! - Microsoft "Runtime Risk to Real-Time Defense" (2026)
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{OnceLock, RwLock};
 
 /// Maximum number of session baselines tracked by OutputSecurityAnalyzer.
 /// Prevents unbounded memory growth from attacker-controlled session IDs.
-const MAX_SESSION_BASELINES: usize = 10_000;
+const MAX_SESSION_BASELINES: usize = 100_000;
 
 /// Pre-compiled base64 detection regex.
 /// Performance (IMP-007): Compiled once at first use rather than per-call.
@@ -44,7 +44,8 @@ pub enum OutputSecurityAlert {
 pub struct SteganographyAlert {
     /// Type of steganography detected.
     pub stego_type: SteganographyType,
-    /// Confidence score (0.0 to 1.0).
+    /// Confidence score in the range `[0.0, 1.0]`. Values outside this range
+    /// indicate a bug in the detection logic and must not be relied upon.
     pub confidence: f32,
     /// Description of detection.
     pub description: String,
@@ -132,6 +133,40 @@ pub struct OutputSecurityConfig {
     pub strip_trailing_whitespace: bool,
 }
 
+impl OutputSecurityConfig {
+    /// Validate configuration values.
+    ///
+    /// Ensures entropy thresholds are finite, non-negative, and that
+    /// min < max. Shannon entropy for byte data is in `[0.0, 8.0]`,
+    /// so thresholds outside that range are rejected.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.min_entropy_threshold.is_finite() {
+            return Err("min_entropy_threshold must be finite".to_string());
+        }
+        if !self.max_entropy_threshold.is_finite() {
+            return Err("max_entropy_threshold must be finite".to_string());
+        }
+        if self.min_entropy_threshold < 0.0 || self.min_entropy_threshold > 8.0 {
+            return Err(format!(
+                "min_entropy_threshold must be in [0.0, 8.0], got {}",
+                self.min_entropy_threshold
+            ));
+        }
+        if self.max_entropy_threshold < 0.0 || self.max_entropy_threshold > 8.0 {
+            return Err(format!(
+                "max_entropy_threshold must be in [0.0, 8.0], got {}",
+                self.max_entropy_threshold
+            ));
+        }
+        if self.min_entropy_threshold >= self.max_entropy_threshold {
+            return Err(format!(
+                "min_entropy_threshold ({}) must be less than max_entropy_threshold ({})",
+                self.min_entropy_threshold, self.max_entropy_threshold
+            ));
+        }
+        Ok(())
+    }
+}
 impl Default for OutputSecurityConfig {
     fn default() -> Self {
         Self {
@@ -258,30 +293,31 @@ impl OutputSecurityAnalyzer {
 
     /// Detect homoglyph-based steganography.
     fn detect_homoglyph_stego(&self, output: &str) -> Option<SteganographyAlert> {
-        // Map of common ASCII chars to their confusable Unicode homoglyphs
-        let homoglyphs: HashMap<char, Vec<char>> = [
-            ('a', vec!['а', 'ɑ', 'α']), // Latin 'a' vs Cyrillic 'а', etc.
-            ('e', vec!['е', 'ε']),      // Latin 'e' vs Cyrillic 'е'
-            ('o', vec!['о', 'ο', '0']), // Latin 'o' vs Cyrillic 'о', Greek omicron
-            ('c', vec!['с']),           // Latin 'c' vs Cyrillic 'с'
-            ('p', vec!['р']),           // Latin 'p' vs Cyrillic 'р'
-            ('x', vec!['х']),           // Latin 'x' vs Cyrillic 'х'
-            ('y', vec!['у']),           // Latin 'y' vs Cyrillic 'у'
-        ]
-        .into_iter()
-        .collect();
+        // R58-014/015: Use a lazily-initialized static HashSet for O(1)
+        // per-character lookup instead of recreating a HashMap on every call.
+        static CONFUSABLE_SET: OnceLock<HashSet<char>> = OnceLock::new();
+        let confusable_set = CONFUSABLE_SET.get_or_init(|| {
+            [
+                'а', 'ɑ', 'α', // Latin 'a' confusables: Cyrillic, IPA, Greek
+                'е', 'ε', // Latin 'e' confusables: Cyrillic, Greek
+                'о', 'ο', '0', // Latin 'o' confusables: Cyrillic, Greek omicron, digit zero
+                'с', // Latin 'c' confusable: Cyrillic
+                'р', // Latin 'p' confusable: Cyrillic
+                'х', // Latin 'x' confusable: Cyrillic
+                'у', // Latin 'y' confusable: Cyrillic
+            ]
+            .into_iter()
+            .collect()
+        });
 
         let mut homoglyph_count = 0;
         let mut first_offset = None;
 
         for (i, c) in output.chars().enumerate() {
-            for confusables in homoglyphs.values() {
-                if confusables.contains(&c) {
-                    homoglyph_count += 1;
-                    if first_offset.is_none() {
-                        first_offset = Some(i);
-                    }
-                    break;
+            if confusable_set.contains(&c) {
+                homoglyph_count += 1;
+                if first_offset.is_none() {
+                    first_offset = Some(i);
                 }
             }
         }
@@ -289,6 +325,11 @@ impl OutputSecurityAnalyzer {
         // More than 5 homoglyphs in otherwise ASCII text is suspicious
         let ascii_count = output.chars().filter(|c| c.is_ascii()).count();
         let total_chars = output.chars().count();
+
+        // R58-005: Guard against division by zero on empty input.
+        if total_chars == 0 {
+            return None;
+        }
 
         if homoglyph_count > 5 && ascii_count as f32 / total_chars as f32 > 0.9 {
             return Some(SteganographyAlert {
@@ -554,7 +595,7 @@ impl OutputSecurityAnalyzer {
         // Exponential moving average
         let alpha = 0.2;
         baseline.average = alpha * entropy + (1.0 - alpha) * baseline.average;
-        baseline.sample_count += 1;
+        baseline.sample_count = baseline.sample_count.saturating_add(1);
 
         // Update standard deviation approximation
         let diff = (entropy - baseline.average).abs();
@@ -791,5 +832,68 @@ mod tests {
         // Four equally distributed chars = 2 bits
         let entropy = analyzer.calculate_entropy("abcd");
         assert!((entropy - 2.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_output_config_validate_default_ok() {
+        let config = OutputSecurityConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_output_config_validate_nan_min() {
+        let mut config = OutputSecurityConfig::default();
+        config.min_entropy_threshold = f32::NAN;
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("finite"));
+    }
+
+    #[test]
+    fn test_output_config_validate_nan_max() {
+        let mut config = OutputSecurityConfig::default();
+        config.max_entropy_threshold = f32::NAN;
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("finite"));
+    }
+
+    #[test]
+    fn test_output_config_validate_min_out_of_range() {
+        let mut config = OutputSecurityConfig::default();
+        config.min_entropy_threshold = -1.0;
+        assert!(config.validate().is_err());
+        config.min_entropy_threshold = 9.0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_output_config_validate_min_ge_max() {
+        let mut config = OutputSecurityConfig::default();
+        config.min_entropy_threshold = 5.0;
+        config.max_entropy_threshold = 5.0;
+        assert!(config.validate().is_err());
+        config.min_entropy_threshold = 6.0;
+        config.max_entropy_threshold = 5.0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_homoglyph_empty_input() {
+        let analyzer = OutputSecurityAnalyzer::new();
+        assert!(analyzer.detect_homoglyph_stego("").is_none());
+    }
+
+    #[test]
+    fn test_baseline_capacity_bound() {
+        let analyzer = OutputSecurityAnalyzer::new();
+        // Fill baselines to capacity
+        for i in 0..100 {
+            analyzer.update_baseline(&format!("sess_{}", i), 4.0);
+        }
+        // Existing sessions can still be updated
+        analyzer.update_baseline("sess_0", 4.5);
+        let baseline = analyzer.get_baseline("sess_0");
+        assert!(baseline.is_some());
     }
 }

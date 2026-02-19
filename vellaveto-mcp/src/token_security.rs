@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 /// Maximum number of session contexts tracked by TokenSecurityAnalyzer.
 /// Prevents unbounded memory growth from attacker-controlled session IDs.
-const MAX_SESSION_CONTEXTS: usize = 10_000;
+const MAX_SESSION_CONTEXTS: usize = 100_000;
 
 /// Alert types for token security violations.
 #[derive(Debug, Clone, PartialEq)]
@@ -455,22 +455,30 @@ impl TokenSecurityAnalyzer {
             }
         };
 
-        // Enforce capacity bound: reject new sessions when at capacity (fail-closed)
+        // Enforce capacity bound: auto-cleanup then reject if still over (fail-closed)
         if !contexts.contains_key(session_id) && contexts.len() >= MAX_SESSION_CONTEXTS {
-            tracing::warn!(
-                target: "vellaveto::security",
-                "session_contexts at capacity ({}), rejecting new session (fail-closed)",
-                MAX_SESSION_CONTEXTS
-            );
-            return Err(ContextFloodingAlert {
-                estimated_tokens: input.len() / 4,
-                budget: self.config.default_context_budget,
-                usage_percent: 100.0,
-                description: format!(
-                    "Session context capacity reached ({}), cannot track new session",
+            // Attempt to free space by expiring stale sessions
+            let now = std::time::Instant::now();
+            let ttl = std::time::Duration::from_secs(3600);
+            contexts.retain(|_, ctx| now.duration_since(ctx.last_activity) < ttl);
+
+            // Re-check after cleanup
+            if contexts.len() >= MAX_SESSION_CONTEXTS {
+                tracing::warn!(
+                    target: "vellaveto::security",
+                    "session_contexts at capacity ({}) after cleanup, rejecting (fail-closed)",
                     MAX_SESSION_CONTEXTS
-                ),
-            });
+                );
+                return Err(ContextFloodingAlert {
+                    estimated_tokens: input.len() / 4,
+                    budget: self.config.default_context_budget,
+                    usage_percent: 100.0,
+                    description: format!(
+                        "Session context capacity reached ({}) after cleanup",
+                        MAX_SESSION_CONTEXTS
+                    ),
+                });
+            }
         }
 
         let context = contexts
