@@ -21,6 +21,7 @@ import {
   FederationStatusResponse,
   FederationTrustAnchorsResponse,
   HealthResponse,
+  OwaspAsiCoverageResponse,
   PolicySummary,
   ProjectorModelsResponse,
   ProjectorTransformResponse,
@@ -1052,8 +1053,8 @@ export class VellavetoClient {
   }
 
   /** Get OWASP Agentic Security Index (ASI) coverage report. */
-  async owaspAsiCoverage(): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>(
+  async owaspAsiCoverage(): Promise<OwaspAsiCoverageResponse> {
+    return this.request<OwaspAsiCoverageResponse>(
       "GET",
       "/api/compliance/owasp-agentic"
     );

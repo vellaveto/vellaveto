@@ -369,3 +369,35 @@ export interface FederationTrustAnchor {
   display_name: string;
   trust_level: string;
 }
+
+// ── Phase 41: OWASP ASI Types ──────────────────────────────────────
+
+/** Per-category coverage breakdown for OWASP ASI. */
+export interface AsiCategoryCoverage {
+  category: string;
+  category_name: string;
+  total_controls: number;
+  covered_controls: number;
+  coverage_percent: number;
+}
+
+/** A single row in the OWASP ASI control coverage matrix. */
+export interface AsiControlMatrixRow {
+  id: string;
+  category: string;
+  name: string;
+  covered: boolean;
+  mitigations: string[];
+}
+
+/** OWASP Agentic Security Index coverage report. */
+export interface OwaspAsiCoverageResponse {
+  generated_at: string;
+  total_categories: number;
+  covered_categories: number;
+  total_controls: number;
+  covered_controls: number;
+  coverage_percent: number;
+  category_coverage: AsiCategoryCoverage[];
+  control_matrix: AsiControlMatrixRow[];
+}

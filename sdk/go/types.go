@@ -454,12 +454,32 @@ type AccessReviewReport struct {
 
 // ── Phase 41: OWASP ASI Types ───────────────────────────────────────────────
 
+// AsiCategoryCoverage is a per-category breakdown of OWASP ASI coverage.
+type AsiCategoryCoverage struct {
+	Category        string  `json:"category"`
+	CategoryName    string  `json:"category_name"`
+	TotalControls   int     `json:"total_controls"`
+	CoveredControls int     `json:"covered_controls"`
+	CoveragePercent float64 `json:"coverage_percent"`
+}
+
+// AsiControlMatrixRow is a single row in the OWASP ASI control coverage matrix.
+type AsiControlMatrixRow struct {
+	ID          string   `json:"id"`
+	Category    string   `json:"category"`
+	Name        string   `json:"name"`
+	Covered     bool     `json:"covered"`
+	Mitigations []string `json:"mitigations"`
+}
+
 // OwaspAsiCoverageResponse represents the OWASP ASI coverage report.
 type OwaspAsiCoverageResponse struct {
-	GeneratedAt       string  `json:"generated_at"`
-	TotalCategories   int     `json:"total_categories"`
-	CoveredCategories int     `json:"covered_categories"`
-	TotalControls     int     `json:"total_controls"`
-	CoveredControls   int     `json:"covered_controls"`
-	CoveragePercent   float64 `json:"coverage_percent"`
+	GeneratedAt       string                 `json:"generated_at"`
+	TotalCategories   int                    `json:"total_categories"`
+	CoveredCategories int                    `json:"covered_categories"`
+	TotalControls     int                    `json:"total_controls"`
+	CoveredControls   int                    `json:"covered_controls"`
+	CoveragePercent   float64                `json:"coverage_percent"`
+	CategoryCoverage  []AsiCategoryCoverage  `json:"category_coverage"`
+	ControlMatrix     []AsiControlMatrixRow  `json:"control_matrix"`
 }
