@@ -190,7 +190,13 @@ pub fn to_json_lines(entry: &AuditEntry) -> String {
                 error = %e,
                 "Failed to serialize audit entry to JSON Lines"
             );
-            String::new()
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "error": "serialization_failed",
+                    "entry_id": entry.id
+                })
+            )
         }
     }
 }

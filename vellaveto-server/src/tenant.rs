@@ -1029,7 +1029,7 @@ mod tests {
     #[test]
     fn test_tenant_validate_metadata_too_many_entries() {
         let mut tenant = Tenant::new("acme", "Acme Corp");
-        for i in 0..65 {
+        for i in 0..=MAX_TENANT_METADATA_ENTRIES {
             tenant
                 .metadata
                 .insert(format!("key{}", i), format!("val{}", i));
