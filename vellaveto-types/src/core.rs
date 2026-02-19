@@ -502,7 +502,8 @@ pub fn validate_mcp_tool_name(name: &str) -> Result<(), String> {
             // into error messages (log injection, terminal escape codes).
             return Err(format!(
                 "invalid character '{}' at position {} (allowed: a-zA-Z0-9_-./)",
-                ch.escape_debug(), i
+                ch.escape_debug(),
+                i
             ));
         }
     }
