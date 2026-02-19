@@ -153,6 +153,15 @@ impl MemorySecurityConfig {
                 self.trust_threshold
             ));
         }
+        // SECURITY (FIND-R71-CFG-014): Validate namespace default_isolation is
+        // a recognized value. Unrecognized values could silently fail-open.
+        let valid_isolations = ["session", "agent", "shared"];
+        if !valid_isolations.contains(&self.namespaces.default_isolation.as_str()) {
+            return Err(format!(
+                "memory.namespaces.default_isolation must be one of {:?}, got '{}'",
+                valid_isolations, self.namespaces.default_isolation
+            ));
+        }
         Ok(())
     }
 }

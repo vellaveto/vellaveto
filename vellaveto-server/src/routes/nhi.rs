@@ -132,6 +132,71 @@ fn validate_string_map(
     Ok(())
 }
 
+/// Parse optional NHI status filter from query parameter.
+/// SECURITY (FIND-R71-SRV-005): Unknown values are rejected (fail-closed).
+fn parse_status_filter(
+    status: Option<&str>,
+) -> Result<Option<NhiIdentityStatus>, (StatusCode, Json<serde_json::Value>)> {
+    match status {
+        Some("active") => Ok(Some(NhiIdentityStatus::Active)),
+        Some("suspended") => Ok(Some(NhiIdentityStatus::Suspended)),
+        Some("revoked") => Ok(Some(NhiIdentityStatus::Revoked)),
+        Some("expired") => Ok(Some(NhiIdentityStatus::Expired)),
+        Some("probationary") => Ok(Some(NhiIdentityStatus::Probationary)),
+        Some(other) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": format!(
+                    "invalid status filter '{}': valid values are active, suspended, revoked, expired, probationary",
+                    other
+                )
+            })),
+        )),
+        None => Ok(None),
+    }
+}
+
+/// Parse NHI attestation type from request body value.
+/// SECURITY (FIND-R71-SRV-003): Unknown values are rejected (fail-closed).
+fn parse_attestation_type(
+    value: Option<&str>,
+) -> Result<NhiAttestationType, (StatusCode, Json<serde_json::Value>)> {
+    match value.unwrap_or("jwt") {
+        "jwt" => Ok(NhiAttestationType::Jwt),
+        "mtls" => Ok(NhiAttestationType::Mtls),
+        "spiffe" => Ok(NhiAttestationType::Spiffe),
+        "dpop" => Ok(NhiAttestationType::DPoP),
+        "api_key" => Ok(NhiAttestationType::ApiKey),
+        other => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": format!(
+                    "invalid attestation_type '{}': valid values are jwt, mtls, spiffe, dpop, api_key",
+                    other
+                )
+            })),
+        )),
+    }
+}
+
+/// Validate request interval input for behavior checks.
+/// SECURITY (FIND-R71-SRV-004): Reject negative or non-finite values.
+fn validate_request_interval(
+    interval: Option<f64>,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if let Some(interval) = interval {
+        if !interval.is_finite() || interval < 0.0 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "request_interval_secs must be a non-negative finite number"
+                })),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// List all NHI agent identities.
 pub async fn list_nhi_agents(
     State(state): State<AppState>,
@@ -144,20 +209,15 @@ pub async fn list_nhi_agents(
         ));
     };
 
-    let status_filter = params.get("status").and_then(|s| match s.as_str() {
-        "active" => Some(NhiIdentityStatus::Active),
-        "suspended" => Some(NhiIdentityStatus::Suspended),
-        "revoked" => Some(NhiIdentityStatus::Revoked),
-        "expired" => Some(NhiIdentityStatus::Expired),
-        "probationary" => Some(NhiIdentityStatus::Probationary),
-        _ => None,
-    });
+    let status_filter = parse_status_filter(params.get("status").map(String::as_str))?;
 
     let agents = manager.list_identities(status_filter).await;
     // SECURITY (FIND-R66-001): Cap response to prevent unbounded serialization.
     let total = agents.len();
     let bounded: Vec<_> = agents.into_iter().take(MAX_LIST_ENTRIES).collect();
-    Ok(Json(json!({"agents": bounded, "total": total, "truncated": total > MAX_LIST_ENTRIES})))
+    Ok(Json(
+        json!({"agents": bounded, "total": total, "truncated": total > MAX_LIST_ENTRIES}),
+    ))
 }
 
 /// Register a new NHI agent identity.
@@ -175,14 +235,7 @@ pub async fn register_nhi_agent(
     let name = body["name"].as_str().unwrap_or("unnamed");
     validate_string_field(name, "name")?;
 
-    let attestation_type = match body["attestation_type"].as_str().unwrap_or("jwt") {
-        "jwt" => NhiAttestationType::Jwt,
-        "mtls" => NhiAttestationType::Mtls,
-        "spiffe" => NhiAttestationType::Spiffe,
-        "dpop" => NhiAttestationType::DPoP,
-        "api_key" => NhiAttestationType::ApiKey,
-        _ => NhiAttestationType::Jwt,
-    };
+    let attestation_type = parse_attestation_type(body["attestation_type"].as_str())?;
     let spiffe_id = body["spiffe_id"].as_str();
     if let Some(s) = spiffe_id {
         validate_string_field(s, "spiffe_id")?;
@@ -395,6 +448,7 @@ pub async fn check_nhi_behavior(
     // SECURITY (FIND-R43-021): Validate body fields.
     validate_string_field(tool_call, "tool_call")?;
     let request_interval = body["request_interval_secs"].as_f64();
+    validate_request_interval(request_interval)?;
     let source_ip = body["source_ip"].as_str();
     // SECURITY (FIND-R43-021): Validate source_ip if present.
     if let Some(ip) = source_ip {
@@ -434,7 +488,9 @@ pub async fn list_nhi_delegations(
     // SECURITY (FIND-R66-002): Cap response to prevent unbounded serialization.
     let total = delegations.len();
     let bounded: Vec<_> = delegations.into_iter().take(MAX_LIST_ENTRIES).collect();
-    Ok(Json(json!({"delegations": bounded, "total": total, "truncated": total > MAX_LIST_ENTRIES})))
+    Ok(Json(
+        json!({"delegations": bounded, "total": total, "truncated": total > MAX_LIST_ENTRIES}),
+    ))
 }
 
 /// Create an NHI delegation.
@@ -597,8 +653,14 @@ pub async fn get_nhi_delegation_chain(
     // SECURITY (FIND-R67-004-009): Bound delegation chain response size.
     let total = delegation.chain.len();
     let truncated = total > MAX_CHAIN_DISPLAY;
-    let bounded: Vec<_> = delegation.chain.into_iter().take(MAX_CHAIN_DISPLAY).collect();
-    Ok(Json(json!({"chain": bounded, "total": total, "truncated": truncated})))
+    let bounded: Vec<_> = delegation
+        .chain
+        .into_iter()
+        .take(MAX_CHAIN_DISPLAY)
+        .collect();
+    Ok(Json(
+        json!({"chain": bounded, "total": total, "truncated": truncated}),
+    ))
 }
 
 /// Rotate credentials for an NHI agent.
@@ -678,7 +740,9 @@ pub async fn get_expiring_nhi_identities(
     // SECURITY (FIND-R67-004-008): Cap response to prevent unbounded serialization.
     let total = expiring.len();
     let bounded: Vec<_> = expiring.into_iter().take(MAX_LIST_ENTRIES).collect();
-    Ok(Json(json!({"expiring": bounded, "total": total, "truncated": total > MAX_LIST_ENTRIES})))
+    Ok(Json(
+        json!({"expiring": bounded, "total": total, "truncated": total > MAX_LIST_ENTRIES}),
+    ))
 }
 
 /// Generate a DPoP nonce.
@@ -780,5 +844,65 @@ mod tests {
         assert!(is_unsafe_char('\u{FEFF}'));
         assert!(!is_unsafe_char('a'));
         assert!(!is_unsafe_char('-'));
+    }
+
+    #[test]
+    fn test_parse_status_filter_rejects_unknown() {
+        let err =
+            parse_status_filter(Some("unknown")).expect_err("unknown status must be rejected");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        let body = err.1 .0;
+        let msg = body["error"]
+            .as_str()
+            .expect("error field should be a string");
+        assert!(msg.contains("invalid status filter"));
+    }
+
+    #[test]
+    fn test_parse_status_filter_accepts_known_and_none() {
+        assert!(matches!(
+            parse_status_filter(Some("active")).expect("valid status"),
+            Some(NhiIdentityStatus::Active)
+        ));
+        assert!(parse_status_filter(None)
+            .expect("none should be accepted")
+            .is_none());
+    }
+
+    #[test]
+    fn test_parse_attestation_type_rejects_unknown() {
+        let err = parse_attestation_type(Some("magic")).expect_err("unknown attestation must fail");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        let body = err.1 .0;
+        let msg = body["error"]
+            .as_str()
+            .expect("error field should be a string");
+        assert!(msg.contains("invalid attestation_type"));
+    }
+
+    #[test]
+    fn test_parse_attestation_type_defaults_to_jwt() {
+        assert!(matches!(
+            parse_attestation_type(None).expect("default should parse"),
+            NhiAttestationType::Jwt
+        ));
+        assert!(matches!(
+            parse_attestation_type(Some("dpop")).expect("dpop should parse"),
+            NhiAttestationType::DPoP
+        ));
+    }
+
+    #[test]
+    fn test_validate_request_interval_rejects_negative() {
+        let err =
+            validate_request_interval(Some(-0.1)).expect_err("negative interval must be rejected");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_validate_request_interval_accepts_non_negative_or_absent() {
+        assert!(validate_request_interval(Some(0.0)).is_ok());
+        assert!(validate_request_interval(Some(1.5)).is_ok());
+        assert!(validate_request_interval(None).is_ok());
     }
 }

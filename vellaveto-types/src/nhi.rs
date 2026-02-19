@@ -572,6 +572,7 @@ impl NhiDelegationChain {
 
 /// DPoP (Demonstration of Proof-of-Possession) proof for RFC 9449 compliance.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NhiDpopProof {
     /// The DPoP proof JWT.
     pub proof: String,
@@ -589,6 +590,73 @@ pub struct NhiDpopProof {
     pub iat: String,
     /// Unique identifier for replay prevention (jti claim).
     pub jti: String,
+}
+
+impl NhiDpopProof {
+    /// Maximum length for the `proof` JWT field.
+    const MAX_PROOF_LEN: usize = 16_384;
+    /// Maximum length for `htm`, `htu`, `ath`, `nonce`, `iat`, and `jti` fields.
+    const MAX_FIELD_LEN: usize = 1024;
+
+    /// Validate structural bounds on string fields.
+    ///
+    /// SECURITY (FIND-R71-002): Prevents memory exhaustion via oversized DPoP proofs.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.proof.len() > Self::MAX_PROOF_LEN {
+            return Err(format!(
+                "NhiDpopProof proof length {} exceeds max {}",
+                self.proof.len(),
+                Self::MAX_PROOF_LEN,
+            ));
+        }
+        if self.htm.len() > Self::MAX_FIELD_LEN {
+            return Err(format!(
+                "NhiDpopProof htm length {} exceeds max {}",
+                self.htm.len(),
+                Self::MAX_FIELD_LEN,
+            ));
+        }
+        if self.htu.len() > Self::MAX_FIELD_LEN {
+            return Err(format!(
+                "NhiDpopProof htu length {} exceeds max {}",
+                self.htu.len(),
+                Self::MAX_FIELD_LEN,
+            ));
+        }
+        if let Some(ref ath) = self.ath {
+            if ath.len() > Self::MAX_FIELD_LEN {
+                return Err(format!(
+                    "NhiDpopProof ath length {} exceeds max {}",
+                    ath.len(),
+                    Self::MAX_FIELD_LEN,
+                ));
+            }
+        }
+        if let Some(ref nonce) = self.nonce {
+            if nonce.len() > Self::MAX_FIELD_LEN {
+                return Err(format!(
+                    "NhiDpopProof nonce length {} exceeds max {}",
+                    nonce.len(),
+                    Self::MAX_FIELD_LEN,
+                ));
+            }
+        }
+        if self.iat.len() > Self::MAX_FIELD_LEN {
+            return Err(format!(
+                "NhiDpopProof iat length {} exceeds max {}",
+                self.iat.len(),
+                Self::MAX_FIELD_LEN,
+            ));
+        }
+        if self.jti.len() > Self::MAX_FIELD_LEN {
+            return Err(format!(
+                "NhiDpopProof jti length {} exceeds max {}",
+                self.jti.len(),
+                Self::MAX_FIELD_LEN,
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Result of DPoP proof verification.

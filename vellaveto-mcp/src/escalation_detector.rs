@@ -152,6 +152,12 @@ const MAX_ANALYSIS_CACHE_SIZE: usize = 10_000;
 /// score saturates to 1.0. Used as the denominator for suspicion normalization.
 const SUSPICION_SATURATION_COUNT: f32 = 10.0;
 
+/// Maximum number of suspicious agent pairs to track before skipping new entries.
+///
+/// SECURITY (FIND-R71-P3-005): Without a cap, an attacker could generate
+/// many unique agent pair combinations, causing unbounded memory growth.
+const MAX_SUSPICIOUS_PAIRS: usize = 100_000;
+
 /// Detects cross-agent privilege escalation attacks.
 pub struct EscalationDetector {
     /// Reference to the agent trust graph.
@@ -629,6 +635,16 @@ impl EscalationDetector {
     async fn record_suspicious_pair(&self, source: &str, intermediary: &str) {
         let mut pairs = self.suspicious_pairs.write().await;
         let key = (source.to_string(), intermediary.to_string());
+        // SECURITY (FIND-R71-P3-005): Only insert new pairs if under capacity.
+        // Existing pairs are always updated (they don't grow the map).
+        if !pairs.contains_key(&key) && pairs.len() >= MAX_SUSPICIOUS_PAIRS {
+            tracing::warn!(
+                target: "vellaveto::security",
+                max = MAX_SUSPICIOUS_PAIRS,
+                "suspicious_pairs at capacity, skipping new pair"
+            );
+            return;
+        }
         let counter = pairs.entry(key).or_insert(0);
         *counter = counter.saturating_add(1);
     }

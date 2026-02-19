@@ -91,6 +91,7 @@ impl fmt::Display for VerificationTier {
 /// to specific policies at a specific point in time. They use Ed25519 signatures
 /// over length-prefixed content to prevent boundary collision attacks.
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AccountabilityAttestation {
     /// Unique attestation identifier (UUID).
     pub attestation_id: String,
@@ -135,6 +136,93 @@ impl fmt::Debug for AccountabilityAttestation {
             .field("expires_at", &self.expires_at)
             .field("verified", &self.verified)
             .finish()
+    }
+}
+
+impl AccountabilityAttestation {
+    /// Maximum length for `signature` field (hex-encoded Ed25519).
+    const MAX_SIGNATURE_LEN: usize = 512;
+    /// Maximum length for `public_key` field (hex-encoded).
+    const MAX_PUBLIC_KEY_LEN: usize = 512;
+    /// Maximum length for `policy_hash` field (hex-encoded SHA-256).
+    const MAX_POLICY_HASH_LEN: usize = 128;
+    /// Maximum length for `statement` field.
+    const MAX_STATEMENT_LEN: usize = 4096;
+    /// Maximum length for `attestation_id` and `agent_id` fields.
+    const MAX_ID_LEN: usize = 256;
+    /// Maximum length for `algorithm` field.
+    const MAX_ALGORITHM_LEN: usize = 64;
+    /// Maximum length for timestamp fields (`created_at`, `expires_at`).
+    const MAX_TIMESTAMP_LEN: usize = 64;
+
+    /// Validate structural bounds on string fields.
+    ///
+    /// SECURITY (FIND-R71-003): Prevents memory exhaustion via oversized attestation payloads.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.attestation_id.len() > Self::MAX_ID_LEN {
+            return Err(format!(
+                "AccountabilityAttestation attestation_id length {} exceeds max {}",
+                self.attestation_id.len(),
+                Self::MAX_ID_LEN,
+            ));
+        }
+        if self.agent_id.len() > Self::MAX_ID_LEN {
+            return Err(format!(
+                "AccountabilityAttestation agent_id length {} exceeds max {}",
+                self.agent_id.len(),
+                Self::MAX_ID_LEN,
+            ));
+        }
+        if self.statement.len() > Self::MAX_STATEMENT_LEN {
+            return Err(format!(
+                "AccountabilityAttestation statement length {} exceeds max {}",
+                self.statement.len(),
+                Self::MAX_STATEMENT_LEN,
+            ));
+        }
+        if self.policy_hash.len() > Self::MAX_POLICY_HASH_LEN {
+            return Err(format!(
+                "AccountabilityAttestation policy_hash length {} exceeds max {}",
+                self.policy_hash.len(),
+                Self::MAX_POLICY_HASH_LEN,
+            ));
+        }
+        if self.signature.len() > Self::MAX_SIGNATURE_LEN {
+            return Err(format!(
+                "AccountabilityAttestation signature length {} exceeds max {}",
+                self.signature.len(),
+                Self::MAX_SIGNATURE_LEN,
+            ));
+        }
+        if self.algorithm.len() > Self::MAX_ALGORITHM_LEN {
+            return Err(format!(
+                "AccountabilityAttestation algorithm length {} exceeds max {}",
+                self.algorithm.len(),
+                Self::MAX_ALGORITHM_LEN,
+            ));
+        }
+        if self.public_key.len() > Self::MAX_PUBLIC_KEY_LEN {
+            return Err(format!(
+                "AccountabilityAttestation public_key length {} exceeds max {}",
+                self.public_key.len(),
+                Self::MAX_PUBLIC_KEY_LEN,
+            ));
+        }
+        if self.created_at.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "AccountabilityAttestation created_at length {} exceeds max {}",
+                self.created_at.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        if self.expires_at.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "AccountabilityAttestation expires_at length {} exceeds max {}",
+                self.expires_at.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        Ok(())
     }
 }
 

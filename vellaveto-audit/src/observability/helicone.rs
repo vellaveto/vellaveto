@@ -162,12 +162,16 @@ impl HeliconeExporter {
                 status
             )))
         } else if status.as_u16() == 429 {
+            // SECURITY (FIND-R71-P3-006): Cap Retry-After at 300 seconds to prevent
+            // an adversarial server from stalling the exporter indefinitely.
+            const MAX_RETRY_AFTER_SECS: u64 = 300;
             let retry_after = response
                 .headers()
                 .get("retry-after")
                 .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(60);
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(60)
+                .min(MAX_RETRY_AFTER_SECS);
             Err(ObservabilityError::RateLimited {
                 retry_after_secs: retry_after,
             })

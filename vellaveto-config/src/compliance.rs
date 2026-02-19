@@ -342,7 +342,10 @@ impl ComplianceConfig {
         }
         // SECURITY: Byte-level control char check matching governance.rs pattern —
         // includes C1 controls (0x80-0x9F).
-        if value.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+        if value
+            .bytes()
+            .any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b))
+        {
             return Err(format!("{} contains control characters", field_name));
         }
         Ok(())

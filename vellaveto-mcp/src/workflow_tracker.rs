@@ -66,6 +66,8 @@ pub enum WorkflowAlertType {
     PrivilegeEscalation,
     /// Resource exhaustion attempt.
     ResourceExhaustion,
+    /// Internal error (e.g., lock poisoning) — fail-closed.
+    InternalError,
 }
 
 /// Prediction of workflow outcome.
@@ -372,8 +374,18 @@ impl WorkflowTracker {
         let sessions = match self.sessions.read() {
             Ok(g) => g,
             Err(_) => {
-                tracing::error!(target: "vellaveto::security", "RwLock poisoned in WorkflowTracker::check_cumulative_effects");
-                return None;
+                // SECURITY (FIND-R71-P2-001): Return an alert on lock poisoning (fail-closed).
+                // Returning None means "no alert" which is fail-open — an attacker who
+                // poisons the lock would bypass all cumulative effect detection.
+                tracing::error!(target: "vellaveto::security", "RwLock poisoned in WorkflowTracker::check_cumulative_effects — fail-closed");
+                return Some(WorkflowAlert {
+                    session_id: session_id.to_string(),
+                    alert_type: WorkflowAlertType::InternalError,
+                    description: "Cumulative effects check failed: RwLock poisoned (fail-closed)"
+                        .to_string(),
+                    involved_actions: Vec::new(),
+                    severity: 5,
+                });
             }
         };
         let session = sessions.get(session_id)?;

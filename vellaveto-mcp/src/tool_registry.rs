@@ -525,11 +525,20 @@ impl ToolRegistry {
 
     /// Check if a tool requires approval due to low trust score.
     ///
-    /// Returns true if the tool exists and has trust_score < threshold.
-    /// Returns false if the tool doesn't exist (fail-open for unknown tools,
-    /// which should be registered first via register_tool).
+    /// Returns true for:
+    /// - tools below the trust threshold
+    /// - unknown tools (fail-closed default)
+    ///
+    /// Returns false only for trusted tools at or above threshold.
+    ///
+    /// SECURITY (FIND-R57-REG-001): Unknown tools must require approval by default.
+    /// Treating unknown as trusted is a fail-open behavior that can bypass intent
+    /// to gate first-seen tools.
     pub async fn requires_approval(&self, tool_id: &str) -> bool {
-        self.check_trust(tool_id).await.is_some()
+        matches!(
+            self.check_trust_level(tool_id).await,
+            TrustLevel::Unknown | TrustLevel::Untrusted { .. }
+        )
     }
 
     /// Check a tool's trust level in the registry.
@@ -975,6 +984,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("registry.jsonl");
         let registry = ToolRegistry::with_threshold(&path, 0.4);
+
+        // Unknown tools should require approval (fail-closed).
+        assert!(
+            registry.requires_approval("unknown").await,
+            "Unknown tools must require approval"
+        );
 
         registry
             .register_tool("trusted", &json!({"type": "object"}), false)

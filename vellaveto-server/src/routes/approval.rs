@@ -143,8 +143,7 @@ pub async fn list_pending_approvals(State(state): State<AppState>) -> Json<serde
                 Ok(mut val) => {
                     if let Some(action) = val.get_mut("action") {
                         if let Some(params) = action.get("parameters") {
-                            let redacted_params =
-                                vellaveto_audit::redact_keys_and_patterns(params);
+                            let redacted_params = vellaveto_audit::redact_keys_and_patterns(params);
                             action["parameters"] = redacted_params;
                         }
                     }
@@ -158,7 +157,9 @@ pub async fn list_pending_approvals(State(state): State<AppState>) -> Json<serde
         })
         .collect();
 
-    Json(json!({"count": redacted.len(), "total": total, "truncated": total > MAX_PENDING_LIST, "approvals": redacted}))
+    Json(
+        json!({"count": redacted.len(), "total": total, "truncated": total > MAX_PENDING_LIST, "approvals": redacted}),
+    )
 }
 
 /// Get a specific approval by ID.

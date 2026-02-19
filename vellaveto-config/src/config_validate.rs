@@ -797,6 +797,37 @@ impl PolicyConfig {
         if self.spiffe.enabled && self.spiffe.trust_domain.is_none() {
             return Err("spiffe.trust_domain is required when SPIFFE is enabled".to_string());
         }
+        // SECURITY (FIND-R71-CFG-007): Bound SPIFFE collections to prevent OOM
+        // from excessively large config files.
+        const MAX_SPIFFE_ID_TO_ROLE: usize = 1_000;
+        const MAX_SPIFFE_ALLOWED_IDS: usize = 1_000;
+        if self.spiffe.id_to_role.len() > MAX_SPIFFE_ID_TO_ROLE {
+            return Err(format!(
+                "spiffe.id_to_role has {} entries, max is {}",
+                self.spiffe.id_to_role.len(),
+                MAX_SPIFFE_ID_TO_ROLE
+            ));
+        }
+        if self.spiffe.allowed_spiffe_ids.len() > MAX_SPIFFE_ALLOWED_IDS {
+            return Err(format!(
+                "spiffe.allowed_spiffe_ids has {} entries, max is {}",
+                self.spiffe.allowed_spiffe_ids.len(),
+                MAX_SPIFFE_ALLOWED_IDS
+            ));
+        }
+
+        // SECURITY (FIND-R71-CFG-012): Validate ETDI version_pinning.enforcement is a
+        // recognized value. Unrecognized values could silently fail-open.
+        if self.etdi.version_pinning.enabled {
+            let enforcement_lower = self.etdi.version_pinning.enforcement.to_lowercase();
+            let valid_enforcements = ["warn", "block"];
+            if !valid_enforcements.contains(&enforcement_lower.as_str()) {
+                return Err(format!(
+                    "etdi.version_pinning.enforcement must be one of {:?}, got '{}'",
+                    valid_enforcements, self.etdi.version_pinning.enforcement
+                ));
+            }
+        }
 
         // OPA validation
         if self.opa.enabled {
@@ -840,6 +871,16 @@ impl PolicyConfig {
                 return Err("opa.timeout_ms must be <= 300000 (5 minutes)".to_string());
             }
         }
+        // SECURITY (FIND-R71-CFG-009): Bound OPA headers to prevent OOM from
+        // excessively large config files.
+        const MAX_OPA_HEADERS: usize = 50;
+        if self.opa.headers.len() > MAX_OPA_HEADERS {
+            return Err(format!(
+                "opa.headers has {} entries, max is {}",
+                self.opa.headers.len(),
+                MAX_OPA_HEADERS
+            ));
+        }
 
         // Threat intel validation
         if self.threat_intel.enabled {
@@ -856,6 +897,15 @@ impl PolicyConfig {
             if self.threat_intel.min_confidence > 100 {
                 return Err("threat_intel.min_confidence must be <= 100".to_string());
             }
+            // SECURITY (FIND-R71-CFG-013): Validate on_match is a recognized action.
+            // Unrecognized values could silently default to no-op, bypassing threat response.
+            let valid_on_match = ["deny", "alert", "require_approval"];
+            if !valid_on_match.contains(&self.threat_intel.on_match.as_str()) {
+                return Err(format!(
+                    "threat_intel.on_match must be one of {:?}, got '{}'",
+                    valid_on_match, self.threat_intel.on_match
+                ));
+            }
         }
 
         // JIT access validation
@@ -870,6 +920,67 @@ impl PolicyConfig {
             }
             if self.jit_access.max_sessions_per_principal == 0 {
                 return Err("jit_access.max_sessions_per_principal must be > 0".to_string());
+            }
+        }
+        // SECURITY (FIND-R71-CFG-008): Bound allowed_elevations to prevent OOM.
+        const MAX_JIT_ALLOWED_ELEVATIONS: usize = 100;
+        if self.jit_access.allowed_elevations.len() > MAX_JIT_ALLOWED_ELEVATIONS {
+            return Err(format!(
+                "jit_access.allowed_elevations has {} entries, max is {}",
+                self.jit_access.allowed_elevations.len(),
+                MAX_JIT_ALLOWED_ELEVATIONS
+            ));
+        }
+        // SECURITY (FIND-R71-CFG-011): Validate notification_webhook URL to prevent SSRF.
+        // Require https:// scheme and reject private/loopback addresses.
+        if let Some(ref webhook_url) = self.jit_access.notification_webhook {
+            let trimmed = webhook_url.trim();
+            if !trimmed.is_empty() {
+                if !trimmed.starts_with("https://") {
+                    return Err(
+                        "jit_access.notification_webhook must use https:// scheme".to_string()
+                    );
+                }
+                let parsed = url::Url::parse(trimmed).map_err(|e| {
+                    format!("jit_access.notification_webhook is not a valid URL: {e}")
+                })?;
+                let host = parsed.host_str().unwrap_or("");
+                let lower_host = host.to_lowercase();
+                if lower_host == "localhost" || lower_host.starts_with("localhost.") {
+                    return Err(
+                        "jit_access.notification_webhook must not target localhost".to_string()
+                    );
+                }
+                if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+                    let is_private = ip.is_loopback()
+                        || ip.octets()[0] == 10
+                        || (ip.octets()[0] == 172 && (ip.octets()[1] & 0xf0) == 16)
+                        || (ip.octets()[0] == 192 && ip.octets()[1] == 168)
+                        || (ip.octets()[0] == 169 && ip.octets()[1] == 254)
+                        || (ip.octets()[0] == 100 && (ip.octets()[1] & 0xc0) == 64)
+                        || ip.octets()[0] == 0
+                        || ip.is_broadcast();
+                    if is_private {
+                        return Err(format!(
+                            "jit_access.notification_webhook must not target private/internal IP ranges, got '{}'",
+                            host
+                        ));
+                    }
+                }
+                let ipv6_host = host.trim_start_matches('[').trim_end_matches(']');
+                if let Ok(ip6) = ipv6_host.parse::<std::net::Ipv6Addr>() {
+                    let segs = ip6.segments();
+                    let is_private = ip6.is_loopback()
+                        || ip6.is_unspecified()
+                        || (segs[0] & 0xfe00) == 0xfc00  // fc00::/7 (ULA)
+                        || (segs[0] & 0xffc0) == 0xfe80; // fe80::/10 (link-local)
+                    if is_private {
+                        return Err(format!(
+                            "jit_access.notification_webhook must not target private/internal IPv6 ranges, got '{}'",
+                            host
+                        ));
+                    }
+                }
             }
         }
 

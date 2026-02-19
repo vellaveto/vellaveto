@@ -208,6 +208,71 @@ fn test_ws_error_response_string_id() {
     assert_eq!(parsed["id"], "req-abc");
 }
 
+#[test]
+fn test_ws_error_response_with_data() {
+    let id = json!(7);
+    let response = make_ws_error_response_with_data(
+        Some(&id),
+        -32001,
+        "Approval required",
+        Some(json!({
+            "verdict": "require_approval",
+            "approval_id": "abc-123"
+        })),
+    );
+    let parsed: Value = serde_json::from_str(&response).expect("valid JSON");
+
+    assert_eq!(parsed["id"], 7);
+    assert_eq!(parsed["error"]["message"], "Approval required");
+    assert_eq!(parsed["error"]["data"]["verdict"], "require_approval");
+    assert_eq!(parsed["error"]["data"]["approval_id"], "abc-123");
+}
+
+#[test]
+fn test_ws_error_response_with_data_none_omits_data_field() {
+    let response = make_ws_error_response_with_data(None, -32001, "Denied", None);
+    let parsed: Value = serde_json::from_str(&response).expect("valid JSON");
+
+    assert!(parsed["error"].get("data").is_none());
+}
+
+#[tokio::test]
+async fn test_create_ws_approval_prefers_agent_identity_subject() {
+    let mut state = make_test_state();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let approval_store = vellaveto_approval::ApprovalStore::new(
+        dir.path().join("approvals.jsonl"),
+        std::time::Duration::from_secs(300),
+    );
+    state.approval_store = Some(std::sync::Arc::new(approval_store));
+
+    let session_id = state.sessions.get_or_create(None);
+    {
+        let mut session = state
+            .sessions
+            .get_mut(&session_id)
+            .expect("session should exist");
+        session.oauth_subject = Some("oauth-subject".to_string());
+        session.agent_identity = Some(vellaveto_types::AgentIdentity {
+            subject: Some("agent-subject".to_string()),
+            ..Default::default()
+        });
+    }
+
+    let action = vellaveto_types::Action::new("tool", "fn", json!({}));
+    let approval_id = create_ws_approval(&state, &session_id, &action, "Approval required").await;
+    assert!(approval_id.is_some(), "approval should be created");
+
+    let pending = state
+        .approval_store
+        .as_ref()
+        .expect("approval store set")
+        .list_pending()
+        .await;
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].requested_by.as_deref(), Some("agent-subject"));
+}
+
 // ==========================================================================
 // extract_scannable_text tests
 // ==========================================================================

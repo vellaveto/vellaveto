@@ -285,7 +285,9 @@ impl OpaClient {
                     decision: decision.clone(),
                     // SECURITY (FIND-R70-002): Cap TTL to prevent Instant overflow.
                     expires_at: Instant::now()
-                        + Duration::from_secs(self.config.cache_ttl_secs.min(MAX_OPA_CACHE_TTL_SECS)),
+                        + Duration::from_secs(
+                            self.config.cache_ttl_secs.min(MAX_OPA_CACHE_TTL_SECS),
+                        ),
                 },
             );
         }

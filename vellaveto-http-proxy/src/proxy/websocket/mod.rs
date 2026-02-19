@@ -978,10 +978,23 @@ async fn relay_client_to_upstream(
                                     {
                                         tracing::warn!("Failed to audit WS unknown tool: {}", e);
                                     }
-                                    let error = make_ws_error_response(
+                                    let approval_reason = "Approval required";
+                                    let approval_id = create_ws_approval(
+                                        &state,
+                                        &session_id,
+                                        &action,
+                                        approval_reason,
+                                    )
+                                    .await;
+                                    let error = make_ws_error_response_with_data(
                                         Some(id),
                                         -32001,
-                                        "Approval required",
+                                        approval_reason,
+                                        Some(json!({
+                                            "verdict": "require_approval",
+                                            "reason": approval_reason,
+                                            "approval_id": approval_id,
+                                        })),
                                     );
                                     let mut sink = client_sink.lock().await;
                                     let _ = sink.send(Message::Text(error.into())).await;
@@ -1010,10 +1023,23 @@ async fn relay_client_to_upstream(
                                     {
                                         tracing::warn!("Failed to audit WS untrusted tool: {}", e);
                                     }
-                                    let error = make_ws_error_response(
+                                    let approval_reason = "Approval required";
+                                    let approval_id = create_ws_approval(
+                                        &state,
+                                        &session_id,
+                                        &action,
+                                        approval_reason,
+                                    )
+                                    .await;
+                                    let error = make_ws_error_response_with_data(
                                         Some(id),
                                         -32001,
-                                        "Approval required",
+                                        approval_reason,
+                                        Some(json!({
+                                            "verdict": "require_approval",
+                                            "reason": approval_reason,
+                                            "approval_id": approval_id,
+                                        })),
                                     );
                                     let mut sink = client_sink.lock().await;
                                     let _ = sink.send(Message::Text(error.into())).await;
@@ -1258,7 +1284,7 @@ async fn relay_client_to_upstream(
                                 let _ = sink.send(Message::Text(error.into())).await;
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
-                                // Treat as deny for WebSocket transport
+                                // Treat as deny for audit, but preserve approval semantics.
                                 let deny_reason = format!("Requires approval: {}", reason);
                                 if let Err(e) = state
                                     .audit
@@ -1277,9 +1303,19 @@ async fn relay_client_to_upstream(
                                 {
                                     tracing::warn!("Failed to audit WS approval request: {}", e);
                                 }
-                                // SECURITY (FIND-R46-012): Generic message to client.
-                                let error =
-                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
+                                let approval_reason = "Approval required";
+                                let approval_id =
+                                    create_ws_approval(&state, &session_id, &action, reason).await;
+                                let error = make_ws_error_response_with_data(
+                                    Some(id),
+                                    -32001,
+                                    approval_reason,
+                                    Some(json!({
+                                        "verdict": "require_approval",
+                                        "reason": approval_reason,
+                                        "approval_id": approval_id,
+                                    })),
+                                );
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(error.into())).await;
                             }
@@ -1521,20 +1557,13 @@ async fn relay_client_to_upstream(
                                     break;
                                 }
                             }
-                            Verdict::Deny { ref reason }
-                            | Verdict::RequireApproval { ref reason, .. } => {
-                                let deny_reason =
-                                    if matches!(verdict, Verdict::RequireApproval { .. }) {
-                                        format!("Requires approval: {}", reason)
-                                    } else {
-                                        reason.clone()
-                                    };
+                            Verdict::Deny { ref reason } => {
                                 if let Err(e) = state
                                     .audit
                                     .log_entry(
                                         &action,
                                         &Verdict::Deny {
-                                            reason: deny_reason.clone(),
+                                            reason: reason.clone(),
                                         },
                                         json!({
                                             "source": "ws_proxy",
@@ -1551,18 +1580,53 @@ async fn relay_client_to_upstream(
                                 // leaking policy names/details. Detailed reason is in audit log.
                                 let denial =
                                     make_ws_error_response(Some(id), -32001, "Denied by policy");
-                                let denial_text = serde_json::to_string(&denial)
-                                    .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Denied"}}"#.to_string());
                                 let mut sink = client_sink.lock().await;
-                                let _ = sink.send(Message::Text(denial_text.into())).await;
+                                let _ = sink.send(Message::Text(denial.into())).await;
+                            }
+                            Verdict::RequireApproval { ref reason, .. } => {
+                                let deny_reason = format!("Requires approval: {}", reason);
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &Verdict::Deny {
+                                            reason: deny_reason,
+                                        },
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "task_method": task_method,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to audit WS task approval request: {}",
+                                        e
+                                    );
+                                }
+                                let approval_reason = "Approval required";
+                                let approval_id =
+                                    create_ws_approval(&state, &session_id, &action, reason).await;
+                                let denial = make_ws_error_response_with_data(
+                                    Some(id),
+                                    -32001,
+                                    approval_reason,
+                                    Some(json!({
+                                        "verdict": "require_approval",
+                                        "reason": approval_reason,
+                                        "approval_id": approval_id,
+                                    })),
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(denial.into())).await;
                             }
                             _ => {
                                 let denial =
                                     make_ws_error_response(Some(id), -32001, "Denied by policy");
-                                let denial_text = serde_json::to_string(&denial)
-                                    .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Denied"}}"#.to_string());
                                 let mut sink = client_sink.lock().await;
-                                let _ = sink.send(Message::Text(denial_text.into())).await;
+                                let _ = sink.send(Message::Text(denial.into())).await;
                             }
                         }
                     }
@@ -1642,14 +1706,7 @@ async fn relay_client_to_upstream(
                                     break;
                                 }
                             }
-                            _ => {
-                                let reason = match &verdict {
-                                    Verdict::Deny { reason } => reason.clone(),
-                                    Verdict::RequireApproval { reason, .. } => {
-                                        format!("Requires approval: {}", reason)
-                                    }
-                                    _ => "Extension call denied — fail-closed".to_string(),
-                                };
+                            Verdict::Deny { ref reason } => {
                                 if let Err(e) = state
                                     .audit
                                     .log_entry(
@@ -1668,11 +1725,56 @@ async fn relay_client_to_upstream(
                                 {
                                     tracing::warn!("Failed to audit WS extension deny: {}", e);
                                 }
-                                let denial = extractor::make_denial_response(id, &reason);
+                                let denial = extractor::make_denial_response(id, reason.as_str());
                                 let denial_text = serde_json::to_string(&denial)
                                     .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Denied"}}"#.to_string());
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(denial_text.into())).await;
+                            }
+                            Verdict::RequireApproval { ref reason, .. } => {
+                                let deny_reason = format!("Requires approval: {}", reason);
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &Verdict::Deny {
+                                            reason: deny_reason,
+                                        },
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "extension_id": extension_id,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to audit WS extension approval request: {}",
+                                        e
+                                    );
+                                }
+                                let approval_reason = "Approval required";
+                                let approval_id =
+                                    create_ws_approval(&state, &session_id, &action, reason).await;
+                                let denial = make_ws_error_response_with_data(
+                                    Some(id),
+                                    -32001,
+                                    approval_reason,
+                                    Some(json!({
+                                        "verdict": "require_approval",
+                                        "reason": approval_reason,
+                                        "approval_id": approval_id,
+                                    })),
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(denial.into())).await;
+                            }
+                            _ => {
+                                let denial =
+                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(denial.into())).await;
                             }
                         }
                     }
@@ -2628,15 +2730,55 @@ fn extract_scannable_text(json_val: &Value) -> String {
     text_parts.join("\n")
 }
 
-/// Build a JSON-RPC error response string for WebSocket.
-fn make_ws_error_response(id: Option<&Value>, code: i64, message: &str) -> String {
+/// Create a pending approval for WebSocket-denied actions when an approval store
+/// is configured. Returns the pending approval ID on success.
+async fn create_ws_approval(
+    state: &ProxyState,
+    session_id: &str,
+    action: &Action,
+    reason: &str,
+) -> Option<String> {
+    let store = state.approval_store.as_ref()?;
+    let requested_by = state.sessions.get_mut(session_id).and_then(|session| {
+        session
+            .agent_identity
+            .as_ref()
+            .and_then(|identity| identity.subject.clone())
+            .or_else(|| session.oauth_subject.clone())
+    });
+    match store
+        .create(action.clone(), reason.to_string(), requested_by)
+        .await
+    {
+        Ok(id) => Some(id),
+        Err(e) => {
+            tracing::error!(
+                session_id = %session_id,
+                "Failed to create WebSocket approval (fail-closed): {}",
+                e
+            );
+            None
+        }
+    }
+}
+
+/// Build a JSON-RPC error response string for WebSocket with optional `error.data`.
+fn make_ws_error_response_with_data(
+    id: Option<&Value>,
+    code: i64,
+    message: &str,
+    data: Option<Value>,
+) -> String {
+    let mut error = serde_json::Map::new();
+    error.insert("code".to_string(), Value::from(code));
+    error.insert("message".to_string(), Value::from(message));
+    if let Some(data) = data {
+        error.insert("data".to_string(), data);
+    }
     let response = json!({
         "jsonrpc": "2.0",
         "id": id.cloned().unwrap_or(Value::Null),
-        "error": {
-            "code": code,
-            "message": message,
-        }
+        "error": Value::Object(error),
     });
     serde_json::to_string(&response).unwrap_or_else(|_| {
         format!(
@@ -2644,6 +2786,11 @@ fn make_ws_error_response(id: Option<&Value>, code: i64, message: &str) -> Strin
             code, message
         )
     })
+}
+
+/// Build a JSON-RPC error response string for WebSocket.
+fn make_ws_error_response(id: Option<&Value>, code: i64, message: &str) -> String {
+    make_ws_error_response_with_data(id, code, message, None)
 }
 
 #[cfg(test)]

@@ -26,6 +26,19 @@ use vellaveto_types::{
 /// Maximum nonces to keep for DPoP replay prevention.
 const MAX_DPOP_NONCES: usize = 10000;
 
+/// Maximum behavioral baselines to store.
+///
+/// SECURITY (FIND-R71-P3-003): Without a cap, an attacker registering
+/// many agent IDs could cause unbounded memory growth in the baselines map.
+const MAX_BASELINES: usize = 100_000;
+
+/// Maximum tool call patterns per baseline.
+///
+/// SECURITY (FIND-R71-P3-004): Without a cap, an attacker calling many
+/// distinct tool names could cause unbounded growth in a single baseline's
+/// tool_call_patterns HashMap.
+const MAX_TOOL_CALL_PATTERNS: usize = 10_000;
+
 /// NHI Manager for agent identity lifecycle management.
 ///
 /// Thread-safe manager that coordinates identity registration, behavioral
@@ -339,6 +352,18 @@ impl NhiManager {
         let now = chrono::Utc::now();
         let mut baselines = self.baselines.write().await;
 
+        // SECURITY (FIND-R71-P3-003): Check capacity before inserting a new baseline.
+        if !baselines.contains_key(agent_id) && baselines.len() >= MAX_BASELINES {
+            tracing::warn!(
+                target: "vellaveto::security",
+                max = MAX_BASELINES,
+                current = baselines.len(),
+                agent_id = agent_id,
+                "NhiManager baselines at capacity, skipping new baseline"
+            );
+            return Ok(());
+        }
+
         let baseline =
             baselines
                 .entry(agent_id.to_string())
@@ -368,9 +393,22 @@ impl NhiManager {
             .copied()
             .unwrap_or(0.0);
         let new_value = alpha + (1.0 - alpha) * current;
-        baseline
-            .tool_call_patterns
-            .insert(tool_call.to_string(), new_value);
+        // SECURITY (FIND-R71-P3-004): Only insert new patterns if under capacity.
+        // Existing patterns are always updated (they don't grow the map).
+        if baseline.tool_call_patterns.contains_key(tool_call)
+            || baseline.tool_call_patterns.len() < MAX_TOOL_CALL_PATTERNS
+        {
+            baseline
+                .tool_call_patterns
+                .insert(tool_call.to_string(), new_value);
+        } else {
+            tracing::warn!(
+                target: "vellaveto::security",
+                max = MAX_TOOL_CALL_PATTERNS,
+                agent_id = agent_id,
+                "tool_call_patterns at capacity, skipping new pattern"
+            );
+        }
 
         // Update request interval if provided
         if let Some(interval) = request_interval_secs {

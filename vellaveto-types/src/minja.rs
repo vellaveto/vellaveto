@@ -494,6 +494,7 @@ impl fmt::Display for QuarantineDetection {
 
 /// Record of a quarantined memory entry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct QuarantineEntry {
     /// ID of the quarantined memory entry.
     pub entry_id: String,
@@ -516,6 +517,15 @@ pub struct QuarantineEntry {
 }
 
 impl QuarantineEntry {
+    /// Maximum length for `entry_id` field.
+    const MAX_ENTRY_ID_LEN: usize = 256;
+    /// Maximum length for timestamp fields (`quarantined_at`, `released_at`).
+    const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for `description` field.
+    const MAX_DESCRIPTION_LEN: usize = 4096;
+    /// Maximum length for `triggered_by` field.
+    const MAX_TRIGGERED_BY_LEN: usize = 256;
+
     /// Create a new quarantine entry.
     pub fn new(entry_id: String, reason: QuarantineDetection, quarantined_at: String) -> Self {
         Self {
@@ -527,6 +537,54 @@ impl QuarantineEntry {
             released: false,
             released_at: None,
         }
+    }
+
+    /// Validate structural bounds on string fields.
+    ///
+    /// SECURITY (FIND-R71-004): Prevents memory exhaustion via oversized quarantine entries.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.entry_id.len() > Self::MAX_ENTRY_ID_LEN {
+            return Err(format!(
+                "QuarantineEntry entry_id length {} exceeds max {}",
+                self.entry_id.len(),
+                Self::MAX_ENTRY_ID_LEN,
+            ));
+        }
+        if self.quarantined_at.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "QuarantineEntry quarantined_at length {} exceeds max {}",
+                self.quarantined_at.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        if let Some(ref desc) = self.description {
+            if desc.len() > Self::MAX_DESCRIPTION_LEN {
+                return Err(format!(
+                    "QuarantineEntry description length {} exceeds max {}",
+                    desc.len(),
+                    Self::MAX_DESCRIPTION_LEN,
+                ));
+            }
+        }
+        if let Some(ref tb) = self.triggered_by {
+            if tb.len() > Self::MAX_TRIGGERED_BY_LEN {
+                return Err(format!(
+                    "QuarantineEntry triggered_by length {} exceeds max {}",
+                    tb.len(),
+                    Self::MAX_TRIGGERED_BY_LEN,
+                ));
+            }
+        }
+        if let Some(ref ra) = self.released_at {
+            if ra.len() > Self::MAX_TIMESTAMP_LEN {
+                return Err(format!(
+                    "QuarantineEntry released_at length {} exceeds max {}",
+                    ra.len(),
+                    Self::MAX_TIMESTAMP_LEN,
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -663,6 +721,7 @@ impl fmt::Display for MemoryAccessDecision {
 
 /// Request to share a namespace with another agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NamespaceSharingRequest {
     /// Namespace ID to share.
     pub namespace_id: String,
@@ -681,6 +740,70 @@ pub struct NamespaceSharingRequest {
     /// ISO 8601 timestamp when the request was resolved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<String>,
+}
+
+impl NamespaceSharingRequest {
+    /// Maximum length for `namespace_id` field.
+    const MAX_NAMESPACE_ID_LEN: usize = 256;
+    /// Maximum length for `requester_agent` field.
+    const MAX_REQUESTER_AGENT_LEN: usize = 256;
+    /// Maximum length for timestamp fields (`requested_at`, `resolved_at`).
+    const MAX_TIMESTAMP_LEN: usize = 64;
+
+    /// Validate structural bounds and control character safety on string fields.
+    ///
+    /// SECURITY (FIND-R71-005): Prevents memory exhaustion via oversized sharing
+    /// requests and rejects control/format characters in identity fields.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.namespace_id.len() > Self::MAX_NAMESPACE_ID_LEN {
+            return Err(format!(
+                "NamespaceSharingRequest namespace_id length {} exceeds max {}",
+                self.namespace_id.len(),
+                Self::MAX_NAMESPACE_ID_LEN,
+            ));
+        }
+        if self.requester_agent.len() > Self::MAX_REQUESTER_AGENT_LEN {
+            return Err(format!(
+                "NamespaceSharingRequest requester_agent length {} exceeds max {}",
+                self.requester_agent.len(),
+                Self::MAX_REQUESTER_AGENT_LEN,
+            ));
+        }
+        if self.requested_at.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "NamespaceSharingRequest requested_at length {} exceeds max {}",
+                self.requested_at.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        if let Some(ref ra) = self.resolved_at {
+            if ra.len() > Self::MAX_TIMESTAMP_LEN {
+                return Err(format!(
+                    "NamespaceSharingRequest resolved_at length {} exceeds max {}",
+                    ra.len(),
+                    Self::MAX_TIMESTAMP_LEN,
+                ));
+            }
+        }
+        // Control character validation on identity fields
+        for c in self.namespace_id.chars() {
+            if c.is_control() || crate::core::is_unicode_format_char(c) {
+                return Err(format!(
+                    "NamespaceSharingRequest namespace_id contains invalid character U+{:04X}",
+                    c as u32,
+                ));
+            }
+        }
+        for c in self.requester_agent.chars() {
+            if c.is_control() || crate::core::is_unicode_format_char(c) {
+                return Err(format!(
+                    "NamespaceSharingRequest requester_agent contains invalid character U+{:04X}",
+                    c as u32,
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Type of namespace access requested.

@@ -47,15 +47,18 @@ pub async fn list_tool_signatures(
     let signatures = store.list_signatures().await;
     // SECURITY (FIND-R67-004-003): Cap response to prevent unbounded serialization.
     let total = signatures.len();
-    let bounded: Vec<_> = signatures.iter()
+    let bounded: Vec<_> = signatures
+        .iter()
         .take(MAX_SIGNATURES_LIST)
-        .map(|(tool, sig)| json!({
-            "tool": tool,
-            "signature_id": sig.signature_id,
-            "algorithm": sig.algorithm.to_string(),
-            "signed_at": sig.signed_at,
-            "expires_at": sig.expires_at,
-        }))
+        .map(|(tool, sig)| {
+            json!({
+                "tool": tool,
+                "signature_id": sig.signature_id,
+                "algorithm": sig.algorithm.to_string(),
+                "signed_at": sig.signed_at,
+                "expires_at": sig.expires_at,
+            })
+        })
         .collect();
     Ok(Json(json!({
         "count": bounded.len(),
@@ -151,17 +154,20 @@ pub async fn list_attestations(
     let attestations = store.list_attestations().await;
     // SECURITY (FIND-R67-004-004): Cap response to prevent unbounded serialization.
     let total = attestations.len();
-    let bounded: Vec<_> = attestations.iter()
+    let bounded: Vec<_> = attestations
+        .iter()
         .take(MAX_ATTESTATIONS_LIST)
-        .map(|(tool, atts)| json!({
-            "tool": tool,
-            "chain_length": atts.len(),
-            "latest": atts.last().map(|a| json!({
-                "attestation_id": a.attestation_id,
-                "type": a.attestation_type,
-                "timestamp": a.timestamp,
-            })),
-        }))
+        .map(|(tool, atts)| {
+            json!({
+                "tool": tool,
+                "chain_length": atts.len(),
+                "latest": atts.last().map(|a| json!({
+                    "attestation_id": a.attestation_id,
+                    "type": a.attestation_type,
+                    "timestamp": a.timestamp,
+                })),
+            })
+        })
         .collect();
     Ok(Json(json!({
         "count": bounded.len(),

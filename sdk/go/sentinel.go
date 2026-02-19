@@ -63,9 +63,22 @@ func WithHTTPClient(hc *http.Client) Option {
 }
 
 // WithHeaders adds custom headers to every request.
+//
+// SECURITY (FIND-R71-SDK-015): Validates headers for CRLF injection and blocks
+// overrides of security-sensitive headers (content-type, authorization).
+// Invalid headers are silently skipped to avoid breaking initialization.
 func WithHeaders(h map[string]string) Option {
 	return func(c *Client) {
 		for k, v := range h {
+			// SECURITY: Block CRLF injection in header keys and values.
+			if strings.ContainsAny(k, "\r\n") || strings.ContainsAny(v, "\r\n") {
+				continue
+			}
+			// SECURITY: Block overriding security-sensitive headers.
+			lower := strings.ToLower(k)
+			if lower == "content-type" || lower == "authorization" {
+				continue
+			}
 			c.headers[k] = v
 		}
 	}

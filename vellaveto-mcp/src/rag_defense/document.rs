@@ -341,7 +341,10 @@ impl DocumentVerifier {
 
         // SECURITY (FIND-R69-004): Cap session tracking entries.
         if !counts.contains_key(session_id) && counts.len() >= MAX_DOC_SESSIONS {
-            tracing::warn!(max = MAX_DOC_SESSIONS, "Session document tracker at capacity");
+            tracing::warn!(
+                max = MAX_DOC_SESSIONS,
+                "Session document tracker at capacity"
+            );
             return Err(RagDefenseError::Internal(
                 "Session document tracker at capacity".to_string(),
             ));

@@ -134,6 +134,10 @@ impl DelegationRule {
     }
 }
 
+/// Maximum number of delegation rules that can be registered.
+/// Prevents unbounded memory growth (FIND-R71-001).
+const MAX_DELEGATION_RULES: usize = 10_000;
+
 /// Maximum number of active delegation contexts tracked concurrently.
 /// Prevents unbounded memory growth (FIND-041-009).
 const MAX_ACTIVE_CONTEXTS: usize = 10_000;
@@ -185,6 +189,8 @@ impl DeputyValidator {
     /// Register a delegation rule.
     ///
     /// Note: If RwLock is poisoned, logs error and does nothing.
+    /// SECURITY (FIND-R71-001): Checks capacity before inserting; logs and
+    /// returns without inserting if at limit.
     pub fn add_rule(&self, rule_id: impl Into<String>, rule: DelegationRule) {
         let mut rules = match self.delegation_rules.write() {
             Ok(r) => r,
@@ -193,7 +199,17 @@ impl DeputyValidator {
                 return;
             }
         };
-        rules.insert(rule_id.into(), rule);
+        let id = rule_id.into();
+        if !rules.contains_key(&id) && rules.len() >= MAX_DELEGATION_RULES {
+            tracing::error!(
+                target: "vellaveto::security",
+                rule_id = %id,
+                limit = MAX_DELEGATION_RULES,
+                "Delegation rule limit reached — ignoring new rule"
+            );
+            return;
+        }
+        rules.insert(id, rule);
     }
 
     /// Register a delegation for a session.

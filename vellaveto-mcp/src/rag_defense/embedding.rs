@@ -188,7 +188,10 @@ impl EmbeddingAnomalyDetector {
         if let Ok(mut recent) = self.recent_embeddings.write() {
             // SECURITY (FIND-R69-005): Cap number of tracked agents.
             if !recent.contains_key(agent_id) && recent.len() >= MAX_AGENT_BASELINES {
-                tracing::warn!(max = MAX_AGENT_BASELINES, "Embedding agent baselines at capacity");
+                tracing::warn!(
+                    max = MAX_AGENT_BASELINES,
+                    "Embedding agent baselines at capacity"
+                );
                 return Err(RagDefenseError::Internal(
                     "Embedding agent tracker at capacity".to_string(),
                 ));

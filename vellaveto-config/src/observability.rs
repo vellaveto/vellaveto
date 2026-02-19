@@ -566,6 +566,41 @@ impl ObservabilityConfig {
             ));
         }
 
+        // SECURITY (FIND-R71-CFG-010): Bound HashMap sizes in sub-configs to prevent
+        // OOM from excessively large config files.
+        const MAX_LANGFUSE_METADATA: usize = 100;
+        const MAX_HELICONE_CUSTOM_PROPERTIES: usize = 50;
+        const MAX_WEBHOOK_HEADERS: usize = 50;
+        const MAX_OTLP_HEADERS: usize = 50;
+        if self.langfuse.metadata.len() > MAX_LANGFUSE_METADATA {
+            return Err(format!(
+                "observability.langfuse.metadata has {} entries, max is {}",
+                self.langfuse.metadata.len(),
+                MAX_LANGFUSE_METADATA
+            ));
+        }
+        if self.helicone.custom_properties.len() > MAX_HELICONE_CUSTOM_PROPERTIES {
+            return Err(format!(
+                "observability.helicone.custom_properties has {} entries, max is {}",
+                self.helicone.custom_properties.len(),
+                MAX_HELICONE_CUSTOM_PROPERTIES
+            ));
+        }
+        if self.webhook.headers.len() > MAX_WEBHOOK_HEADERS {
+            return Err(format!(
+                "observability.webhook.headers has {} entries, max is {}",
+                self.webhook.headers.len(),
+                MAX_WEBHOOK_HEADERS
+            ));
+        }
+        if self.otlp.headers.len() > MAX_OTLP_HEADERS {
+            return Err(format!(
+                "observability.otlp.headers has {} entries, max is {}",
+                self.otlp.headers.len(),
+                MAX_OTLP_HEADERS
+            ));
+        }
+
         // Validate Langfuse config
         if self.langfuse.enabled {
             if self.langfuse.endpoint.is_empty() {

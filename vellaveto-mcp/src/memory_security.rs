@@ -407,7 +407,8 @@ impl MemorySecurityManager {
         ns_manager.add(namespace.clone())?;
 
         let mut stats = self.stats.write().await;
-        stats.namespaces += 1;
+        // SECURITY (FIND-R71-P4-008): Use saturating_add to prevent counter overflow.
+        stats.namespaces = stats.namespaces.saturating_add(1);
 
         Ok(namespace)
     }
@@ -455,7 +456,7 @@ impl MemorySecurityManager {
         };
 
         let mut ns_manager = self.namespaces.write().await;
-        ns_manager.add_share_request(request.clone());
+        ns_manager.add_share_request(request.clone())?;
 
         let mut stats = self.stats.write().await;
         stats.pending_shares = stats.pending_shares.saturating_add(1);
@@ -623,6 +624,12 @@ impl ProvenanceGraph {
     }
 }
 
+/// Maximum pending share requests to prevent unbounded memory growth.
+///
+/// SECURITY (FIND-R71-P3-002): Without a cap, an attacker could submit
+/// share requests faster than they are resolved, causing OOM.
+const MAX_SHARE_REQUESTS: usize = 10_000;
+
 /// Maximum quarantine records to prevent unbounded memory growth.
 ///
 /// SECURITY (FIND-R67-5-005): Without a cap, an attacker could quarantine
@@ -645,7 +652,9 @@ impl QuarantineManager {
 
     fn add(&mut self, entry: QuarantineEntry) -> Result<(), MemorySecurityError> {
         // SECURITY (FIND-R67-5-005): Reject when at capacity.
-        if self.records.len() >= MAX_QUARANTINE_RECORDS && !self.records.contains_key(&entry.entry_id) {
+        if self.records.len() >= MAX_QUARANTINE_RECORDS
+            && !self.records.contains_key(&entry.entry_id)
+        {
             return Err(MemorySecurityError::CapacityExceeded(format!(
                 "quarantine records at maximum of {}",
                 MAX_QUARANTINE_RECORDS,
@@ -744,8 +753,19 @@ impl NamespaceManager {
         }
     }
 
-    fn add_share_request(&mut self, request: NamespaceSharingRequest) {
+    fn add_share_request(
+        &mut self,
+        request: NamespaceSharingRequest,
+    ) -> Result<(), MemorySecurityError> {
+        // SECURITY (FIND-R71-P3-002): Reject when at capacity.
+        if self.share_requests.len() >= MAX_SHARE_REQUESTS {
+            return Err(MemorySecurityError::CapacityExceeded(format!(
+                "share requests at maximum of {}",
+                MAX_SHARE_REQUESTS,
+            )));
+        }
         self.share_requests.push(request);
+        Ok(())
     }
 
     fn approve_share(
