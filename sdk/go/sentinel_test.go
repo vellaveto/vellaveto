@@ -698,16 +698,15 @@ func TestActionValidate_TooManyTargetDomains(t *testing.T) {
 }
 
 // SECURITY (FIND-R46-GO-003): Verify query parameters are properly URL-encoded.
+// SECURITY (FIND-R111-009): After adding sensitivity validation, this test now uses
+// an empty sensitivity filter and focuses URL-encoding verification on server_id,
+// which accepts arbitrary ASCII strings (only control chars and length are bounded).
 func TestDiscoveryTools_QueryParamEncoding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify the query parameters are properly encoded
 		serverID := r.URL.Query().Get("server_id")
-		sensitivity := r.URL.Query().Get("sensitivity")
 		if serverID != "server&evil=1" {
 			t.Errorf("server_id = %q, want %q", serverID, "server&evil=1")
-		}
-		if sensitivity != "high&drop=table" {
-			t.Errorf("sensitivity = %q, want %q", sensitivity, "high&drop=table")
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(DiscoveryToolsResponse{Tools: []ToolMetadata{}, Total: 0})
@@ -715,10 +714,35 @@ func TestDiscoveryTools_QueryParamEncoding(t *testing.T) {
 	defer srv.Close()
 
 	c := mustNewClient(t, srv.URL)
-	// These values contain '&' and '=' which must be URL-encoded
-	_, err := c.DiscoveryTools(context.Background(), "server&evil=1", "high&drop=table")
+	// server_id value contains '&' and '=' which must be URL-encoded by url.Values.
+	// Sensitivity is left empty because it is now validated against an enum.
+	_, err := c.DiscoveryTools(context.Background(), "server&evil=1", "")
 	if err != nil {
 		t.Fatalf("DiscoveryTools() error: %v", err)
+	}
+}
+
+// TestDiscoveryTools_SensitivityValidation verifies that invalid sensitivity values
+// are rejected before the network call.
+// SECURITY (FIND-R111-009): Enum validation for sensitivity parameter.
+func TestDiscoveryTools_SensitivityValidation(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:0") // no server needed
+	_, err := c.DiscoveryTools(context.Background(), "", "invalid")
+	if err == nil {
+		t.Fatal("expected error for invalid sensitivity, got nil")
+	}
+	// Verify valid values are accepted (network not called because server is unreachable,
+	// but validation must pass before the dial attempt).
+	for _, valid := range []string{"low", "medium", "high", ""} {
+		// A dial error is expected; a validation error is not.
+		_, err2 := c.DiscoveryTools(context.Background(), "", valid)
+		if err2 != nil {
+			// Accept connection errors (expected since no server), reject validation errors.
+			errMsg := err2.Error()
+			if strings.Contains(errMsg, "sensitivity must be") {
+				t.Errorf("valid sensitivity %q was rejected: %v", valid, err2)
+			}
+		}
 	}
 }
 

@@ -201,11 +201,26 @@ impl ApprovalStore {
     }
 
     /// Create a new approval store with a custom maximum capacity.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `max_pending` is 0. A zero-capacity store can never accept
+    /// any pending approvals (every `create()` call would immediately return
+    /// `CapacityExceeded`), which is almost certainly a misconfiguration.
+    ///
+    /// SECURITY (FIND-R111-003): Rejecting 0 at construction time surfaces the
+    /// bug immediately rather than silently producing an unusable store that
+    /// denies every approval request.
     pub fn with_max_pending(
         log_path: PathBuf,
         default_ttl: std::time::Duration,
         max_pending: usize,
     ) -> Self {
+        assert!(
+            max_pending > 0,
+            "ApprovalStore::with_max_pending: max_pending must be >= 1 (got 0); \
+             a zero-capacity store can never accept pending approvals"
+        );
         Self {
             pending: RwLock::new(HashMap::new()),
             dedup_index: RwLock::new(HashMap::new()),

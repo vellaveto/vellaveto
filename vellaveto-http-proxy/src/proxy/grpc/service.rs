@@ -382,7 +382,9 @@ impl McpGrpcService {
             );
 
             let action = extractor::extract_action(tool_name, arguments);
-            let verdict = Verdict::Deny {
+            // SECURITY (R111-002): Keep detailed pattern names in the audit verdict only.
+            // The client-facing denial message must not leak internal DLP pattern names.
+            let audit_verdict = Verdict::Deny {
                 reason: format!("DLP blocked: secret detected in parameters: {:?}", patterns),
             };
             if let Err(e) = self
@@ -390,7 +392,7 @@ impl McpGrpcService {
                 .audit
                 .log_entry(
                     &action,
-                    &verdict,
+                    &audit_verdict,
                     json!({
                         "source": "grpc_proxy",
                         "session": session_id,
@@ -406,7 +408,7 @@ impl McpGrpcService {
 
             return make_proto_denial_response(
                 proto_req,
-                &format!("DLP blocked: secret detected in parameters: {:?}", patterns),
+                "Response blocked: sensitive content detected",
             );
         }
 

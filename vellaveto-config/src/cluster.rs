@@ -79,6 +79,10 @@ const VALID_CLUSTER_BACKENDS: &[&str] = &["local", "redis"];
 
 impl ClusterConfig {
     /// Validate cluster configuration fields.
+    ///
+    /// SECURITY (FIND-R111-005): This method is the single authoritative validation
+    /// path for `ClusterConfig`. All validation logic lives here; callers must not
+    /// duplicate checks inline (to avoid constant/logic divergence).
     pub fn validate(&self) -> Result<(), String> {
         // Validate backend
         if !VALID_CLUSTER_BACKENDS.contains(&self.backend.as_str()) {
@@ -101,6 +105,14 @@ impl ClusterConfig {
         }
         if cluster_contains_control_chars(&self.redis_url) {
             return Err("cluster.redis_url contains control characters".to_string());
+        }
+        // SECURITY (FIND-R111-005): When backend="redis", redis_url must be provided.
+        // An empty redis_url with a redis backend would silently use no connection,
+        // causing all cluster operations to fail at runtime instead of at startup.
+        if self.backend == "redis" && self.redis_url.is_empty() {
+            return Err(
+                "cluster.redis_url must not be empty when backend is 'redis'".to_string(),
+            );
         }
         // SECURITY (FIND-R110-CFG-002): Reject non-Redis URL schemes to prevent
         // SSRF via arbitrary protocol URLs (e.g., file://, http://).

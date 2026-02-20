@@ -18,15 +18,29 @@ use unicode_normalization::UnicodeNormalization;
 /// This single shared static eliminates all three issues.
 static DLP_REGEXES: OnceLock<Vec<(&'static str, regex::Regex)>> = OnceLock::new();
 /// Count of DLP patterns that failed to compile (FIND-047: detect silent degradation).
+///
+/// SECURITY (FIND-R111-001): This is a separate OnceLock initialized atomically
+/// inside the DLP_REGEXES initializer closure. Because `OnceLock::get_or_init` is
+/// guaranteed to run the closure at most once and the closure sets both values,
+/// `DLP_FAILED_COUNT` is always consistent with `DLP_REGEXES`. There is no window
+/// where `DLP_REGEXES` is initialized but `DLP_FAILED_COUNT` is not, because the
+/// `DLP_FAILED_COUNT.get_or_init(|| failed_count)` call inside the outer closure
+/// completes before the outer `get_or_init` returns.
 static DLP_FAILED_COUNT: OnceLock<usize> = OnceLock::new();
 
 /// Get or initialize the shared DLP regex patterns.
 ///
 /// SECURITY (FIND-047): Tracks failed pattern count so callers can detect
 /// silent degradation. Use `dlp_pattern_health()` to check.
+///
+/// SECURITY (FIND-R111-001): The failed count is set inside the same `get_or_init`
+/// closure that compiles the patterns, guaranteeing atomic initialization of both
+/// statics. A second caller racing to call `get_dlp_regexes()` will either wait for
+/// the first caller's closure to complete (Rust's `OnceLock` guarantee) or observe
+/// the already-initialized values — never a partial state.
 fn get_dlp_regexes() -> &'static [(&'static str, regex::Regex)] {
-    let mut failed = 0usize;
-    let result = DLP_REGEXES.get_or_init(|| {
+    DLP_REGEXES.get_or_init(|| {
+        let mut failed_count = 0usize;
         let compiled: Vec<_> = DLP_PATTERNS
             .iter()
             .filter_map(|(name, pat)| match regex::Regex::new(pat) {
@@ -39,17 +53,18 @@ fn get_dlp_regexes() -> &'static [(&'static str, regex::Regex)] {
                         name,
                         e
                     );
-                    failed += 1;
+                    failed_count += 1;
                     None
                 }
             })
             .collect();
-        let _ = DLP_FAILED_COUNT.set(failed);
+        // SECURITY (FIND-R111-001): Set the failed count inside the same closure so
+        // it is guaranteed to be set before any caller can observe DLP_REGEXES as
+        // initialized. If DLP_FAILED_COUNT was already set (impossible in practice
+        // since this is the only place it is set), retain the existing value.
+        let _ = DLP_FAILED_COUNT.get_or_init(|| failed_count);
         compiled
-    });
-    // Log on every call if patterns are missing (once per process via OnceLock).
-    let _ = DLP_FAILED_COUNT.get_or_init(|| 0);
-    result
+    })
 }
 
 /// Returns `(active_patterns, total_patterns)`.
@@ -315,6 +330,11 @@ fn scan_value_for_secrets(
                 if findings.len() >= MAX_DLP_FINDINGS {
                     break;
                 }
+                // SECURITY (FIND-R128-002): Scan object keys for secrets, not just values.
+                // A malicious tool response could encode secrets in JSON key names
+                // to bypass DLP scanning of values only.
+                let key_path = format!("{path}.<key:{key}>");
+                scan_string_for_secrets(key, &key_path, regexes, findings);
                 let child_path = format!("{path}.{key}");
                 scan_value_for_secrets(val, &child_path, regexes, findings, depth + 1);
             }
@@ -414,7 +434,20 @@ fn scan_decoded_layer<'a>(
     // homoglyphs or fullwidth characters. For example, Cyrillic 'а' (U+0430) looks
     // identical to Latin 'a' but would bypass ASCII regex patterns without normalization.
     // This matches the approach used in injection detection (injection.rs:370).
-    let normalized: String = decoded.nfkc().collect();
+    let nfkc: String = decoded.nfkc().collect();
+    // SECURITY (FIND-R128-001): Strip combining marks after NFKC to prevent
+    // attackers from inserting combining diacritical marks between characters
+    // of a secret pattern (e.g., "AK\u{0301}IA...") to break DLP regex matching.
+    // Parity with injection scanner's post-NFKC stripping (FIND-R44-005).
+    let normalized: String = nfkc
+        .chars()
+        .filter(|c| {
+            let cp = *c as u32;
+            // Strip Combining Diacritical Marks (U+0300-U+036F) and
+            // Combining Grapheme Joiner (U+034F) — same ranges as injection.rs
+            !((0x0300..=0x036F).contains(&cp) || cp == 0x034F)
+        })
+        .collect();
 
     for (name, re) in regexes {
         // Check both original and normalized forms to catch all cases
@@ -2049,6 +2082,89 @@ mod tests {
             "Clean hex data should not trigger DLP, got: {:?}",
             findings
         );
+    }
+
+    // ── FIND-R44-024: DLP time-budget bypass test ─────────────
+
+    // ── FIND-R128-001: Combining mark stripping in DLP ─────────────
+
+    #[test]
+    fn test_dlp_detects_aws_key_through_combining_marks() {
+        // SECURITY: Combining marks inserted between characters of a secret
+        // should be stripped after NFKC, allowing the regex to match.
+        // U+0301 = COMBINING ACUTE ACCENT, U+034F = COMBINING GRAPHEME JOINER
+        let params = json!({
+            "content": "AK\u{0301}IA\u{034F}IOSFODNN7EXAMPLE"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "aws_access_key"),
+            "Should detect AWS key with combining marks stripped: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_detects_github_token_through_combining_marks() {
+        // Combining Diacritical Marks (U+0300-U+036F range) in a GitHub token
+        let params = json!({
+            "token": "gh\u{0300}p_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "github_token"),
+            "Should detect GitHub token with combining grave accent stripped: {:?}",
+            findings
+        );
+    }
+
+    // ── FIND-R128-002: DLP scans JSON object keys ─────────────
+
+    #[test]
+    fn test_dlp_detects_secret_in_json_object_key() {
+        // A malicious response could hide a secret in the JSON key name
+        let params = json!({
+            "AKIAIOSFODNN7EXAMPLE": "some_value"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "aws_access_key"),
+            "Should detect AWS key hidden in JSON object key: {:?}",
+            findings
+        );
+        // Verify location shows it was found in a key
+        assert!(
+            findings.iter().any(|f| f.location.contains("<key:")),
+            "Finding location should indicate it was in a key: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_detects_github_token_in_nested_key() {
+        let params = json!({
+            "data": {
+                "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk": true
+            }
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "github_token"),
+            "Should detect GitHub token in nested object key: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_clean_keys_no_false_positive() {
+        // Normal keys should not trigger findings
+        let params = json!({
+            "name": "test",
+            "config": { "timeout": 30, "retries": 3 },
+            "items": ["a", "b"]
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(findings.is_empty(), "Clean keys should not trigger DLP: {:?}", findings);
     }
 
     // ── FIND-R44-024: DLP time-budget bypass test ─────────────

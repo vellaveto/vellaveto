@@ -257,6 +257,61 @@ impl Default for SessionGuardConfig {
     }
 }
 
+impl SessionGuardConfig {
+    /// Validate the configuration, returning an error description on failure.
+    ///
+    /// # Security (FIND-R111-002)
+    ///
+    /// Zero thresholds bypass session guard protections:
+    /// - `suspicious_threshold = 0` means the session immediately becomes Suspicious
+    ///   on the very first action, which may prevent all legitimate use.
+    /// - `lock_threshold = 0` means the session immediately locks, denying all
+    ///   requests — effectively a DoS through misconfiguration.
+    /// - `cooldown_secs = 0` allows instant unlock loops with no delay.
+    /// - `max_sessions = 0` prevents any session from being created (fail-open DoS).
+    ///
+    /// All numeric thresholds must be at least 1.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.suspicious_threshold == 0 {
+            return Err(
+                "suspicious_threshold must be at least 1 (zero bypasses anomaly accumulation)"
+                    .to_string(),
+            );
+        }
+        if self.lock_threshold == 0 {
+            return Err(
+                "lock_threshold must be at least 1 (zero causes immediate session lock)"
+                    .to_string(),
+            );
+        }
+        if self.cooldown_secs == 0 {
+            return Err(
+                "cooldown_secs must be at least 1 (zero allows instant unlock loops)".to_string(),
+            );
+        }
+        if self.max_sessions == 0 {
+            return Err(
+                "max_sessions must be at least 1 (zero prevents all session creation)".to_string(),
+            );
+        }
+        // Validate admin_unlock_token length if present
+        if let Some(ref token) = self.admin_unlock_token {
+            if token.is_empty() {
+                return Err("admin_unlock_token must not be empty when set".to_string());
+            }
+            const MAX_ADMIN_TOKEN_LEN: usize = 512;
+            if token.len() > MAX_ADMIN_TOKEN_LEN {
+                return Err(format!(
+                    "admin_unlock_token too long: {} bytes (max {})",
+                    token.len(),
+                    MAX_ADMIN_TOKEN_LEN
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Session Context (internal)
 // ═══════════════════════════════════════════════════════════════════

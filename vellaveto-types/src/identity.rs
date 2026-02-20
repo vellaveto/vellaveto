@@ -65,7 +65,20 @@ impl AgentIdentity {
     /// Maximum number of audience entries to prevent memory abuse.
     pub const MAX_AUDIENCE: usize = 64;
 
-    /// SECURITY (FIND-R49-006): Validate AgentIdentity bounds.
+    /// Maximum byte length of a single claim key.
+    ///
+    /// SECURITY (FIND-R111-002): Prevents memory exhaustion from attacker-controlled
+    /// claim keys supplied in JWTs.
+    pub const MAX_CLAIM_KEY_LEN: usize = 256;
+
+    /// Maximum byte length of a serialized claim value.
+    ///
+    /// SECURITY (FIND-R111-002): Prevents memory exhaustion from attacker-controlled
+    /// claim values supplied in JWTs. Measured on the JSON-serialized value to cover
+    /// both string and structured values.
+    pub const MAX_CLAIM_VALUE_LEN: usize = 4096;
+
+    /// SECURITY (FIND-R49-006, FIND-R111-002): Validate AgentIdentity bounds.
     pub fn validate(&self) -> Result<(), String> {
         if self.claims.len() > Self::MAX_CLAIMS {
             return Err(format!(
@@ -80,6 +93,36 @@ impl AgentIdentity {
                 self.audience.len(),
                 Self::MAX_AUDIENCE
             ));
+        }
+        // SECURITY (FIND-R111-002): Per-key and per-value length bounds.
+        for (key, value) in &self.claims {
+            if key.len() > Self::MAX_CLAIM_KEY_LEN {
+                return Err(format!(
+                    "AgentIdentity claim key length {} exceeds max {} (key starts with: '{}')",
+                    key.len(),
+                    Self::MAX_CLAIM_KEY_LEN,
+                    key.chars().take(32).collect::<String>()
+                ));
+            }
+            // Reject control characters and Unicode format characters in claim keys.
+            if key.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+                return Err(format!(
+                    "AgentIdentity claim key contains control or Unicode format character: '{}'",
+                    key.chars().take(32).collect::<String>()
+                ));
+            }
+            // Measure the serialized value length to cover all JSON value types.
+            let serialized_value = serde_json::to_string(value).map_err(|e| {
+                format!("AgentIdentity claim value for key '{}' failed to serialize: {e}", key)
+            })?;
+            if serialized_value.len() > Self::MAX_CLAIM_VALUE_LEN {
+                return Err(format!(
+                    "AgentIdentity claim value for key '{}' length {} exceeds max {}",
+                    key,
+                    serialized_value.len(),
+                    Self::MAX_CLAIM_VALUE_LEN
+                ));
+            }
         }
         Ok(())
     }

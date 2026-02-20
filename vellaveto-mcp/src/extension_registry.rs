@@ -158,7 +158,7 @@ impl ExtensionRegistry {
         }
         drop(extensions);
 
-        // Check for method conflicts
+        // Check for method conflicts (early fast path under read lock)
         {
             let routes = self
                 .method_routes
@@ -178,11 +178,27 @@ impl ExtensionRegistry {
         handler.on_load(&descriptor)?;
 
         // Register method routes
+        //
+        // SECURITY (FIND-R111-005): Re-check for method conflicts under the write lock
+        // before inserting. The read-lock check above is a fast path that catches most
+        // conflicts, but there is a TOCTOU window between releasing the read lock and
+        // acquiring the write lock during which a concurrent caller may have registered
+        // the same methods. Re-checking under the write lock closes this race and
+        // ensures the check-and-insert is atomic.
         {
             let mut routes = self
                 .method_routes
                 .write()
                 .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {}", e)))?;
+            // Re-check for conflicts under write lock to close TOCTOU race
+            for method in &descriptor.methods {
+                if let Some(existing) = routes.get(method) {
+                    return Err(ExtensionError::AlreadyRegistered(format!(
+                        "Method '{}' already registered by extension '{}' (concurrent registration race)",
+                        method, existing
+                    )));
+                }
+            }
             for method in &descriptor.methods {
                 routes.insert(method.clone(), descriptor.id.clone());
             }

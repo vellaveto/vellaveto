@@ -971,11 +971,38 @@ export class VellavetoClient {
     );
   }
 
-  /** List all indexed tools, optionally filtered by server_id and sensitivity. */
+  /** List all indexed tools, optionally filtered by server_id and sensitivity.
+   *
+   * SECURITY (FIND-R111-009): Validates serverId and sensitivity parameters.
+   * serverId is bounded at 256 chars and checked for control characters.
+   * sensitivity is restricted to the enum values: "low", "medium", "high".
+   */
   async discoveryTools(
     serverId?: string,
     sensitivity?: string
   ): Promise<DiscoveryToolsResponse> {
+    const VALID_SENSITIVITIES = ["low", "medium", "high"] as const;
+    if (serverId !== undefined) {
+      if (typeof serverId !== "string") {
+        throw new VellavetoError("serverId must be a string");
+      }
+      if (serverId.length > 256) {
+        throw new VellavetoError(
+          `serverId exceeds maximum length (256 chars, got ${serverId.length})`
+        );
+      }
+      // Control chars: C0 (0x00-0x1F), DEL (0x7F), C1 (0x80-0x9F)
+      if (/[\x00-\x1f\x7f-\x9f]/.test(serverId)) {
+        throw new VellavetoError("serverId contains control characters");
+      }
+    }
+    if (sensitivity !== undefined) {
+      if (!VALID_SENSITIVITIES.includes(sensitivity as typeof VALID_SENSITIVITIES[number])) {
+        throw new VellavetoError(
+          `sensitivity must be one of ${JSON.stringify(VALID_SENSITIVITIES)}, got ${JSON.stringify(sensitivity)}`
+        );
+      }
+    }
     const params = new URLSearchParams();
     if (serverId) params.set("server_id", serverId);
     if (sensitivity) params.set("sensitivity", sensitivity);

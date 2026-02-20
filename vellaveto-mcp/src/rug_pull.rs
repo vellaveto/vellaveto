@@ -146,7 +146,15 @@ impl RugPullResult {
     /// the agent to use a squatted or replacement tool instead.
     ///
     /// SECURITY (ASI02): Tools with injection in descriptions are also flagged.
+    ///
+    /// SECURITY (FIND-R111-008): The result is deduplicated. A tool may appear in
+    /// multiple source lists simultaneously — for example, a tool whose annotations
+    /// changed AND whose description contains injection would appear in both
+    /// `changed_tools` and `injection_findings`. Returning duplicates could cause
+    /// callers to apply blocking rules multiple times, which is harmless but
+    /// confusing; more importantly it breaks equality assertions in tests.
     pub fn flagged_tool_names(&self) -> Vec<&str> {
+        let mut seen = HashSet::new();
         self.changed_tools
             .iter()
             .chain(self.new_tools.iter())
@@ -158,6 +166,7 @@ impl RugPullResult {
                     .map(|a| a.suspicious_tool.as_str()),
             )
             .chain(self.injection_findings.iter().map(|f| f.tool_name.as_str()))
+            .filter(|name| seen.insert(*name))
             .collect()
     }
 

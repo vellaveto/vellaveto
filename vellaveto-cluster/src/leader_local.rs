@@ -90,6 +90,20 @@ impl LeaderElection for LocalLeaderElection {
             };
             LeaderStatus::Leader { since }
         } else {
+            // DESIGN NOTE (FIND-R111-004): In a true distributed leader election,
+            // `leader_id` in the Follower state would be the ID of the current
+            // cluster leader (obtained from the coordination backend). For
+            // `LocalLeaderElection`, which is only used in standalone (single-node)
+            // mode, there is no external coordination backend. Before `try_acquire()`
+            // is called the instance has not yet designated itself as leader, so
+            // the semantically correct value would be `None`. However, the
+            // standalone node IS the only node in the cluster and will always
+            // become the leader once `try_acquire()` is called. Reporting
+            // `Some(self.instance_id)` gives operators useful context (which
+            // instance is involved) when the status is queried before acquisition.
+            // Callers that need to distinguish "leadership not yet acquired" from
+            // "leadership held by another" should inspect the `LeaderStatus` variant
+            // rather than the inner `leader_id` value.
             LeaderStatus::Follower {
                 leader_id: Some(self.instance_id.clone()),
             }
@@ -97,6 +111,12 @@ impl LeaderElection for LocalLeaderElection {
     }
 
     fn current_leader_id(&self) -> Option<String> {
+        // DESIGN NOTE (FIND-R111-004): In standalone mode this node is always
+        // the only member of the "cluster", so it is the authoritative leader
+        // candidate regardless of whether `try_acquire()` has been called.
+        // Returning `Some(instance_id)` is consistent with `current_status()`
+        // and allows callers to display the node's own identity even before
+        // leadership has been formally acquired.
         Some(self.instance_id.clone())
     }
 }

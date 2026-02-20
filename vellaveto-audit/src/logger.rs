@@ -52,6 +52,16 @@ pub struct AuditLogger {
     /// Incremented after each successful write. Reset to 0 on rotation.
     /// Used to avoid re-reading the file to count entries during rotation.
     pub(crate) entry_count: AtomicU64,
+    /// Monotonically increasing global sequence counter.
+    ///
+    /// SECURITY (FIND-R111-007): Unlike `entry_count`, this counter is NEVER reset
+    /// on log rotation. It is used as the `sequence` field in each audit entry,
+    /// ensuring globally unique and strictly monotonic sequence numbers across all
+    /// rotated log files. Resetting to 0 on rotation would cause sequence number
+    /// reuse (entries 0, 1, 2, … in file 1, then 0, 1, 2, … again in file 2),
+    /// breaking the uniqueness invariant that underpins hash-chain tamper detection
+    /// (SECURITY R33-001) and audit forensics.
+    pub(crate) global_sequence: AtomicU64,
     /// Optional Merkle tree for inclusion proofs.
     /// When enabled, every log entry's hash is appended as a leaf.
     pub(crate) merkle_tree: Option<std::sync::Mutex<MerkleTree>>,
@@ -76,6 +86,7 @@ impl AuditLogger {
             trusted_verifying_key: None,
             pii_scanner: Some(PiiScanner::new(&[])),
             entry_count: AtomicU64::new(0),
+            global_sequence: AtomicU64::new(0),
             merkle_tree: None,
         }
     }
@@ -92,6 +103,7 @@ impl AuditLogger {
             trusted_verifying_key: None,
             pii_scanner: None,
             entry_count: AtomicU64::new(0),
+            global_sequence: AtomicU64::new(0),
             merkle_tree: None,
         }
     }
@@ -379,7 +391,10 @@ impl AuditLogger {
             *last_hash_guard = None; // New file = new hash chain
                                      // SECURITY (FIND-R52-AUDIT-002): Use SeqCst for sequence counter to prevent
                                      // reordering that could cause duplicate sequence numbers under concurrent access.
-            self.entry_count.store(0, Ordering::SeqCst); // Reset counter for new file
+            self.entry_count.store(0, Ordering::SeqCst); // Reset per-file counter for new file
+            // SECURITY (FIND-R111-007): global_sequence is intentionally NOT reset here.
+            // It must increase monotonically across rotations to prevent duplicate
+            // sequence numbers across log files.
         }
 
         // SECURITY (R33-001): Assign monotonic sequence number BEFORE creating entry.
@@ -387,7 +402,10 @@ impl AuditLogger {
         // attacks where two entries might have identical timestamps under high load.
         // SECURITY (FIND-R52-AUDIT-002): Use SeqCst for sequence counter to ensure
         // globally consistent ordering and prevent duplicate sequence numbers.
-        let sequence = self.entry_count.load(Ordering::SeqCst);
+        // SECURITY (FIND-R111-007): Use global_sequence (never reset on rotation)
+        // rather than entry_count (reset to 0 on each rotation) to prevent duplicate
+        // sequence numbers across rotated log files.
+        let sequence = self.global_sequence.load(Ordering::SeqCst);
 
         let mut entry = AuditEntry {
             id: Uuid::new_v4().to_string(),
@@ -477,10 +495,13 @@ impl AuditLogger {
             tree.append(leaf)?;
         }
 
-        // Increment in-memory entry count for rotation metadata
+        // Increment in-memory entry count for rotation metadata (tracks entries in current file).
         // SECURITY (FIND-R52-AUDIT-002): Use SeqCst for sequence counter to ensure
         // the increment is globally visible and prevents reordering.
         self.entry_count.fetch_add(1, Ordering::SeqCst);
+        // SECURITY (FIND-R111-007): Also increment the global sequence counter that
+        // is never reset on rotation, ensuring cross-rotation sequence uniqueness.
+        self.global_sequence.fetch_add(1, Ordering::SeqCst);
 
         Ok(())
     }

@@ -53,6 +53,15 @@ pub struct DlpMatch {
 /// unique session IDs, which could cause OOM.
 const MAX_SESSIONS: usize = 100_000;
 
+/// Maximum number of matches returned by `scan_content()` per call.
+///
+/// SECURITY (FIND-R111-004): Without this cap, an adversarially crafted prompt
+/// that contains a sensitive pattern repeated thousands of times would produce an
+/// unbounded `Vec<DlpMatch>`, potentially exhausting heap memory. With this cap,
+/// a caller that receives `MAX_SCAN_MATCHES` matches knows the content is clearly
+/// malicious and can act accordingly without processing more matches.
+const MAX_SCAN_MATCHES: usize = 1_000;
+
 /// Detects and prevents sampling request abuse.
 #[derive(Debug)]
 pub struct SamplingDetector {
@@ -266,14 +275,28 @@ impl SamplingDetector {
     }
 
     /// Scan content for sensitive patterns.
+    ///
+    /// Returns at most [`MAX_SCAN_MATCHES`] results. If the cap is reached the
+    /// scan stops early — the content is clearly malicious regardless of further
+    /// matches. Callers should treat a full-cap result as a definitive detection.
     pub fn scan_content(&self, content: &str) -> Vec<DlpMatch> {
         let mut matches = Vec::new();
         let content_lower = content.to_lowercase();
 
-        for pattern in &self.sensitive_patterns {
+        'outer: for pattern in &self.sensitive_patterns {
             let pattern_lower = pattern.to_lowercase();
             let mut pos = 0;
             while let Some(found) = content_lower[pos..].find(&pattern_lower) {
+                // SECURITY (FIND-R111-004): Cap matches to prevent OOM from adversarial
+                // input that repeats a sensitive pattern thousands of times.
+                if matches.len() >= MAX_SCAN_MATCHES {
+                    tracing::warn!(
+                        target: "vellaveto::security",
+                        cap = MAX_SCAN_MATCHES,
+                        "scan_content: match cap reached — truncating results (content is clearly malicious)"
+                    );
+                    break 'outer;
+                }
                 matches.push(DlpMatch {
                     pattern: pattern.clone(),
                     position: pos + found,

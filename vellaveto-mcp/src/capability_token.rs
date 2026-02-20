@@ -260,6 +260,27 @@ pub fn verify_capability_token(
         });
     }
 
+    // SECURITY (FIND-R111-003): Validate issued_at is not in the future.
+    //
+    // A token with issued_at far in the future could be pre-minted and held
+    // until the future time, bypassing intended access windows or audit trails.
+    // Reject tokens whose issued_at exceeds `now` by more than the allowed clock
+    // skew tolerance (60 seconds). This tolerates minor NTP drift while preventing
+    // future-dated pre-minting attacks.
+    const MAX_ISSUED_AT_SKEW_SECS: i64 = 60;
+    let issued_at = chrono::DateTime::parse_from_rfc3339(&token.issued_at)
+        .map_err(|e| CapabilityError::VerificationFailed(format!("invalid issued_at: {}", e)))?;
+    let skew = issued_at.signed_duration_since(*now).num_seconds();
+    if skew > MAX_ISSUED_AT_SKEW_SECS {
+        return Ok(CapabilityVerification {
+            valid: false,
+            failure_reason: Some(format!(
+                "token issued_at is {} seconds in the future (max allowed skew: {} seconds)",
+                skew, MAX_ISSUED_AT_SKEW_SECS
+            )),
+        });
+    }
+
     // Check holder match
     // SECURITY (FIND-R52-003): Case-insensitive comparison is intentional to accommodate
     // identity providers with inconsistent casing (e.g., "Alice" vs "alice"). Callers

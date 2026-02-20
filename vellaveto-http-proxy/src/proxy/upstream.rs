@@ -660,7 +660,14 @@ pub(super) async fn forward_to_upstream_url(
                                             "SECURITY: Injection in tool '{}' description! Session: {}, Patterns: {:?}",
                                             finding.tool_name, session_id, finding.matched_patterns
                                         );
-                                        let reason = format!(
+                                        // SECURITY (R111-003): Use a generic client-facing message to
+                                        // avoid leaking matched pattern names to the caller. Detailed
+                                        // pattern info is recorded in the audit log only.
+                                        let client_reason = format!(
+                                            "Tool '{}' blocked: suspicious content detected in description",
+                                            finding.tool_name
+                                        );
+                                        let audit_reason = format!(
                                             "Tool '{}' description contains injection: {:?}",
                                             finding.tool_name, finding.matched_patterns
                                         );
@@ -668,7 +675,7 @@ pub(super) async fn forward_to_upstream_url(
                                         if state.injection_blocking
                                             && blocked_by_injection.is_none()
                                         {
-                                            blocked_by_injection = Some(reason.clone());
+                                            blocked_by_injection = Some(client_reason);
                                         }
                                         let action = Action::new(
                                             "vellaveto",
@@ -682,7 +689,7 @@ pub(super) async fn forward_to_upstream_url(
                                         );
                                         if let Err(e) = state.audit.log_entry(
                                             &action,
-                                            &Verdict::Deny { reason },
+                                            &Verdict::Deny { reason: audit_reason },
                                             json!({"source": "http_proxy", "event": "tool_description_injection"}),
                                         ).await {
                                             tracing::warn!("Failed to audit tool description injection: {}", e);
@@ -925,11 +932,13 @@ pub(super) async fn forward_to_upstream_url(
                                     // SECURITY (R18-DLP-BLOCK): When blocking is enabled,
                                     // record the reason so we can return an error instead
                                     // of forwarding the secret-containing response.
+                                    // SECURITY (R111-001): Use a generic client-facing message to
+                                    // avoid leaking internal DLP pattern names to the caller.
                                     if state.response_dlp_blocking {
-                                        blocked_by_dlp = Some(format!(
-                                            "Response blocked: secrets detected ({:?})",
-                                            patterns
-                                        ));
+                                        blocked_by_dlp = Some(
+                                            "Response blocked: sensitive content detected"
+                                                .to_string(),
+                                        );
                                     }
 
                                     let verdict = if state.response_dlp_blocking {

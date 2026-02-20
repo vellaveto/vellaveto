@@ -653,10 +653,23 @@ class VellavetoClient:
         Args:
             approval_id: ID of the approval request
             approved: Whether to approve or deny
-            reason: Optional reason for the decision
+            reason: Optional reason for the decision (max 4096 chars)
         """
         # SECURITY (FIND-R56-SDK-001): Validate approval_id — aligned with Go/TS SDKs.
         _validate_approval_id(approval_id)
+        # SECURITY (FIND-R111-006): Validate reason length and control characters.
+        # Parity with server-side MAX_REASON_LEN (4096 bytes in vellaveto-approval).
+        # Without this check, an attacker can pass an unbounded reason string that
+        # the server must allocate and store in Redis/disk, enabling OOM attacks.
+        if reason is not None:
+            if not isinstance(reason, str):
+                raise VellavetoError("reason must be a string or None")
+            if len(reason) > 4096:
+                raise VellavetoError(
+                    f"reason exceeds maximum length (4096 chars, got {len(reason)})"
+                )
+            if _CONTROL_CHAR_RE.search(reason):
+                raise VellavetoError("reason contains control characters")
         action = "approve" if approved else "deny"
         json_data: Optional[Dict[str, Any]] = None
         if reason is not None:
@@ -736,12 +749,31 @@ class VellavetoClient:
         List all indexed tools, optionally filtered.
 
         Args:
-            server_id: Filter by originating MCP server ID
+            server_id: Filter by originating MCP server ID (max 256 chars)
             sensitivity: Filter by sensitivity level (low, medium, high)
 
         Returns:
             List of tool metadata objects and total count
         """
+        # SECURITY (FIND-R111-009): Validate filter parameters. Without validation,
+        # an attacker can inject unbounded or control-character-containing strings
+        # into query parameters, potentially causing log injection or server OOM.
+        _VALID_SENSITIVITIES = frozenset({"low", "medium", "high"})
+        if server_id is not None:
+            if not isinstance(server_id, str):
+                raise VellavetoError("server_id must be a string or None")
+            if len(server_id) > 256:
+                raise VellavetoError(
+                    f"server_id exceeds maximum length (256 chars, got {len(server_id)})"
+                )
+            if _CONTROL_CHAR_RE.search(server_id):
+                raise VellavetoError("server_id contains control characters")
+        if sensitivity is not None:
+            if sensitivity not in _VALID_SENSITIVITIES:
+                raise VellavetoError(
+                    f"sensitivity must be one of {sorted(_VALID_SENSITIVITIES)}, "
+                    f"got {sensitivity!r}"
+                )
         params: Dict[str, str] = {}
         if server_id is not None:
             params["server_id"] = server_id
@@ -810,12 +842,19 @@ class VellavetoClient:
         List stored ZK batch proofs with pagination.
 
         Args:
-            limit: Maximum number of proofs to return (default: 20, max: 100)
-            offset: Offset for pagination (default: 0)
+            limit: Maximum number of proofs to return (default: 20, range: [1, 1000])
+            offset: Offset for pagination (default: 0, must be >= 0)
 
         Returns:
             Dictionary with proofs list, total count, offset, and limit
         """
+        # SECURITY (FIND-R111-007): Validate limit and offset bounds. Without
+        # validation, an attacker can request limit=2^63 to cause OOM on the
+        # server, or offset=-1 to trigger undefined server behavior.
+        if not isinstance(limit, int) or limit < 1 or limit > 1000:
+            raise VellavetoError("limit must be an integer in [1, 1000]")
+        if not isinstance(offset, int) or offset < 0:
+            raise VellavetoError("offset must be a non-negative integer")
         params: Dict[str, Any] = {"limit": limit, "offset": offset}
         return self._request("GET", "/api/zk-audit/proofs", params=params)
 
@@ -1225,10 +1264,21 @@ class AsyncVellavetoClient:
         Args:
             approval_id: ID of the approval request
             approved: Whether to approve or deny
-            reason: Optional reason for the decision
+            reason: Optional reason for the decision (max 4096 chars)
         """
         # SECURITY (FIND-R56-SDK-001): Validate approval_id — aligned with Go/TS SDKs.
         _validate_approval_id(approval_id)
+        # SECURITY (FIND-R111-006): Validate reason length and control characters.
+        # Parity with server-side MAX_REASON_LEN (4096 bytes in vellaveto-approval).
+        if reason is not None:
+            if not isinstance(reason, str):
+                raise VellavetoError("reason must be a string or None")
+            if len(reason) > 4096:
+                raise VellavetoError(
+                    f"reason exceeds maximum length (4096 chars, got {len(reason)})"
+                )
+            if _CONTROL_CHAR_RE.search(reason):
+                raise VellavetoError("reason contains control characters")
         action = "approve" if approved else "deny"
         json_data: Optional[Dict[str, Any]] = None
         if reason is not None:
@@ -1285,7 +1335,29 @@ class AsyncVellavetoClient:
         server_id: Optional[str] = None,
         sensitivity: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """List all indexed tools, optionally filtered (async)."""
+        """List all indexed tools, optionally filtered (async).
+
+        Args:
+            server_id: Filter by originating MCP server ID (max 256 chars)
+            sensitivity: Filter by sensitivity level (low, medium, high)
+        """
+        # SECURITY (FIND-R111-009): Validate filter parameters (async parity).
+        _VALID_SENSITIVITIES = frozenset({"low", "medium", "high"})
+        if server_id is not None:
+            if not isinstance(server_id, str):
+                raise VellavetoError("server_id must be a string or None")
+            if len(server_id) > 256:
+                raise VellavetoError(
+                    f"server_id exceeds maximum length (256 chars, got {len(server_id)})"
+                )
+            if _CONTROL_CHAR_RE.search(server_id):
+                raise VellavetoError("server_id contains control characters")
+        if sensitivity is not None:
+            if sensitivity not in _VALID_SENSITIVITIES:
+                raise VellavetoError(
+                    f"sensitivity must be one of {sorted(_VALID_SENSITIVITIES)}, "
+                    f"got {sensitivity!r}"
+                )
         params: Dict[str, str] = {}
         if server_id is not None:
             params["server_id"] = server_id
@@ -1330,7 +1402,17 @@ class AsyncVellavetoClient:
         limit: int = 20,
         offset: int = 0,
     ) -> Dict[str, Any]:
-        """List stored ZK batch proofs with pagination (async)."""
+        """List stored ZK batch proofs with pagination (async).
+
+        Args:
+            limit: Maximum number of proofs to return (default: 20, range: [1, 1000])
+            offset: Offset for pagination (default: 0, must be >= 0)
+        """
+        # SECURITY (FIND-R111-007): Validate limit and offset bounds (async parity).
+        if not isinstance(limit, int) or limit < 1 or limit > 1000:
+            raise VellavetoError("limit must be an integer in [1, 1000]")
+        if not isinstance(offset, int) or offset < 0:
+            raise VellavetoError("offset must be a non-negative integer")
         params: Dict[str, Any] = {"limit": limit, "offset": offset}
         return await self._request("GET", "/api/zk-audit/proofs", params=params)
 

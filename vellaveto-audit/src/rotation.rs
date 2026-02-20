@@ -50,6 +50,20 @@ impl AuditLogger {
         self.entry_count
             .store(entries.len() as u64, Ordering::SeqCst);
 
+        // SECURITY (FIND-R111-007): Initialize the global sequence counter from the
+        // highest sequence number seen across all loaded entries. This ensures that
+        // after a restart the global sequence continues from where it left off,
+        // preventing duplicate sequence numbers across process restarts.
+        // If no entries exist or none have a sequence field, start from 0.
+        let max_sequence = entries
+            .iter()
+            .map(|e| e.sequence)
+            .max()
+            .unwrap_or(0);
+        // Start the next sequence one past the highest observed value.
+        self.global_sequence
+            .store(max_sequence.saturating_add(1), Ordering::SeqCst);
+
         // Initialize Merkle tree from existing leaf file (if enabled)
         if let Some(ref merkle) = self.merkle_tree {
             let mut tree = merkle
@@ -694,12 +708,24 @@ impl AuditLogger {
 
     /// Build the destination path for a rotated log file.
     ///
-    /// Format: `<stem>.<timestamp>.<ext>` where timestamp uses hyphens
-    /// (filesystem-safe) e.g. `audit.2026-02-02T12-00-00.log`.
-    /// If a file with that name already exists (multiple rotations in the
-    /// same second), a counter suffix is appended.
+    /// Format: `<stem>.<timestamp>-<seq>.<ext>` where `<seq>` is the current value
+    /// of the monotonic global sequence counter and `<timestamp>` uses hyphens
+    /// (filesystem-safe) e.g. `audit.2026-02-02T12-00-00-000042.log`.
+    ///
+    /// SECURITY (FIND-R111-006): Using a monotonic counter in the filename (rather
+    /// than only a second-resolution timestamp) prevents filename collisions when
+    /// multiple rotations occur within the same second. The sequence counter
+    /// (`global_sequence`) is atomically incremented on every audit entry and on
+    /// every rotation, so it is guaranteed to increase even when the wall clock does
+    /// not advance between rotations. This eliminates the need for the expensive
+    /// filesystem existence check loop used previously.
     pub(crate) fn rotated_path(&self) -> PathBuf {
         let timestamp = Utc::now().format("%Y-%m-%dT%H-%M-%S");
+        // Include the current global sequence counter in the filename to guarantee
+        // uniqueness even when multiple rotations happen within the same second.
+        let seq = self
+            .global_sequence
+            .load(std::sync::atomic::Ordering::SeqCst);
         let stem = self
             .log_path
             .file_stem()
@@ -712,20 +738,18 @@ impl AuditLogger {
             .unwrap_or_default();
         let parent = self.log_path.parent().unwrap_or(Path::new("."));
 
-        let base = parent.join(format!("{}.{}{}", stem, timestamp, ext));
-        if !base.exists() {
-            return base;
+        let candidate = parent.join(format!("{}.{}-{:010}{}", stem, timestamp, seq, ext));
+        if !candidate.exists() {
+            return candidate;
         }
 
-        // Collision: add incrementing counter suffix
-        for i in 1..10_000 {
-            let path = parent.join(format!("{}.{}-{}{}", stem, timestamp, i, ext));
-            if !path.exists() {
-                return path;
-            }
-        }
-
-        // Fallback with UUID (should never happen)
+        // Extremely unlikely fallback: sequence collision (should never happen in
+        // practice since sequence is strictly monotonic and this runs under the
+        // last_hash write lock). Add a UUID suffix to guarantee uniqueness.
+        tracing::warn!(
+            path = %candidate.display(),
+            "rotated_path: sequence-based candidate already exists — using UUID fallback"
+        );
         parent.join(format!("{}.{}-{}{}", stem, timestamp, Uuid::new_v4(), ext))
     }
 

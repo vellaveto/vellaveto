@@ -653,9 +653,37 @@ func (c *Client) DiscoveryReindex(ctx context.Context) (*DiscoveryReindexRespons
 	return &resp, nil
 }
 
+// validDiscoverySensitivities is the set of accepted sensitivity filter values.
+var validDiscoverySensitivities = map[string]struct{}{
+	"low":    {},
+	"medium": {},
+	"high":   {},
+}
+
+// maxDiscoveryServerIDLen is the maximum length for the server_id filter parameter.
+// SECURITY (FIND-R111-009): Bounds the query parameter to prevent OOM and log injection.
+const maxDiscoveryServerIDLen = 256
+
 // DiscoveryTools lists all indexed tools, optionally filtered by server ID and sensitivity.
 // SECURITY (FIND-R46-GO-003): Use url.Values for proper URL encoding of query parameters.
+// SECURITY (FIND-R111-009): Validates serverID and sensitivity parameters. Pass empty
+// strings to omit filters entirely.
 func (c *Client) DiscoveryTools(ctx context.Context, serverID, sensitivity string) (*DiscoveryToolsResponse, error) {
+	if serverID != "" {
+		if len(serverID) > maxDiscoveryServerIDLen {
+			return nil, fmt.Errorf("vellaveto: serverID exceeds maximum length (%d), got %d", maxDiscoveryServerIDLen, len(serverID))
+		}
+		for _, r := range serverID {
+			if r < ' ' || (r >= 0x7F && r <= 0x9F) {
+				return nil, fmt.Errorf("vellaveto: serverID contains control characters")
+			}
+		}
+	}
+	if sensitivity != "" {
+		if _, ok := validDiscoverySensitivities[sensitivity]; !ok {
+			return nil, fmt.Errorf("vellaveto: sensitivity must be one of [low, medium, high], got %q", sensitivity)
+		}
+	}
 	path := "/api/discovery/tools"
 	q := url.Values{}
 	if serverID != "" {
@@ -739,7 +767,13 @@ func (c *Client) ZkVerify(ctx context.Context, batchID string) (*ZkVerifyResult,
 
 // ZkCommitments lists Pedersen commitments for audit entries in a sequence range.
 // SECURITY (FIND-R46-GO-003): Use url.Values for proper URL encoding of query parameters.
+// SECURITY (FIND-R111-008): Validate that from <= to. Without this check, callers
+// can pass (from=100, to=0) which reaches the server and produces either an error
+// or an unexpectedly empty result, making bugs harder to diagnose.
 func (c *Client) ZkCommitments(ctx context.Context, from, to uint64) (*ZkCommitmentsResponse, error) {
+	if from > to {
+		return nil, fmt.Errorf("vellaveto: ZkCommitments: from (%d) must be <= to (%d)", from, to)
+	}
 	q := url.Values{}
 	q.Set("from", fmt.Sprintf("%d", from))
 	q.Set("to", fmt.Sprintf("%d", to))

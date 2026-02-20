@@ -184,6 +184,16 @@ impl ClusterBackend for RedisBackend {
         reason: String,
         requested_by: Option<String>,
     ) -> Result<String, ClusterError> {
+        // SECURITY (FIND-R111-001): Validate reason length — mirrors vellaveto-approval
+        // store-level check. Without this, an attacker can store arbitrarily large strings
+        // in Redis, causing OOM across all cluster nodes.
+        if reason.len() > vellaveto_approval::MAX_REASON_LEN {
+            return Err(ClusterError::Validation(format!(
+                "reason exceeds maximum length of {} bytes ({} bytes)",
+                vellaveto_approval::MAX_REASON_LEN,
+                reason.len()
+            )));
+        }
         // Validate identity length (mirrors vellaveto-approval store-level check)
         if let Some(ref rb) = requested_by {
             if rb.len() > vellaveto_approval::MAX_IDENTITY_LEN {
@@ -217,7 +227,19 @@ impl ClusterBackend for RedisBackend {
 
         let mut conn = self.get_conn().await?;
 
-        // First, check dedup without Lua for simplicity and correctness
+        // SECURITY (FIND-R111-002): The check-then-SET-EX sequence below is not
+        // fully atomic (TOCTOU limitation). Two concurrent callers can both see
+        // the dedup key as absent and both proceed to create a new approval.
+        // The consequence is that up to N concurrent calls can create N duplicate
+        // approvals instead of deduplicating to one. This is accepted as a
+        // bounded, benign race (the human reviewer will see duplicates but safety
+        // is not compromised). A fully atomic solution would require a Lua script
+        // or Redis SETNX + WATCH transaction; the added complexity is not
+        // warranted for the current use case where concurrent duplicates are rare.
+        //
+        // Note: the `SET_EX` call at the end IS atomic (it sets value + TTL in
+        // a single command), so the dedup key itself is written atomically once
+        // the race window is past.
         let dedup_redis_key = self.dedup_key(&dedup_hash);
         let existing_id: Option<String> = conn
             .get(&dedup_redis_key)

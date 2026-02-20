@@ -254,11 +254,17 @@ pub struct AbacEngine {
     entity_store: EntityStore,
 }
 
+/// Maximum number of ABAC entities to prevent memory exhaustion during engine construction.
+///
+/// SECURITY (FIND-R111-003): Unbounded entity lists from operator-supplied configuration
+/// could cause OOM when building the EntityStore.
+const MAX_ABAC_ENTITIES: usize = 10_000;
+
 impl AbacEngine {
     /// Create an ABAC engine from policies and entities.
     ///
     /// Compiles all policies and builds the entity store. Returns an error
-    /// if any policy pattern is invalid.
+    /// if any policy pattern is invalid or entity bounds are exceeded.
     pub fn new(policies: &[AbacPolicy], entities: &[AbacEntity]) -> Result<Self, String> {
         let mut compiled = Vec::with_capacity(policies.len());
         for policy in policies {
@@ -271,6 +277,22 @@ impl AbacEngine {
         }
         // Sort by priority descending (higher priority first)
         compiled.sort_by(|a, b| b.priority.cmp(&a.priority));
+
+        // SECURITY (FIND-R111-003): Validate entity count and each entity's bounds
+        // before building the EntityStore. Without this, attacker-controlled entity
+        // lists bypass AbacEntity::validate() bounds and can cause OOM.
+        if entities.len() > MAX_ABAC_ENTITIES {
+            return Err(format!(
+                "ABAC entity count {} exceeds maximum {}",
+                entities.len(),
+                MAX_ABAC_ENTITIES
+            ));
+        }
+        for entity in entities {
+            entity
+                .validate()
+                .map_err(|e| format!("ABAC entity '{}::{}' validation failed: {e}", entity.entity_type, entity.id))?;
+        }
 
         let entity_store = EntityStore::from_config(entities);
         Ok(Self {

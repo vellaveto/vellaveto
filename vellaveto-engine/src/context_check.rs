@@ -463,6 +463,11 @@ impl PolicyEngine {
                     // string or as a JSON array under the "capabilities" claim.
                     // SECURITY (FIND-043): Lowercase declared caps to match the
                     // compile-time normalization of required/blocked lists.
+                    // SECURITY (FIND-R111-007): Limit the number of declared capabilities
+                    // extracted from CSV or array claims to prevent OOM via a maliciously
+                    // crafted capabilities string with thousands of comma-separated values.
+                    const MAX_DECLARED_CAPABILITIES: usize = 256;
+
                     let declared_caps: Vec<String> = context
                         .agent_identity
                         .as_ref()
@@ -470,11 +475,15 @@ impl PolicyEngine {
                             // Try array first, then comma-separated string
                             id.claim_str_array("capabilities")
                                 .map(|arr| {
-                                    arr.into_iter().map(|s| s.to_ascii_lowercase()).collect()
+                                    arr.into_iter()
+                                        .take(MAX_DECLARED_CAPABILITIES)
+                                        .map(|s| s.to_ascii_lowercase())
+                                        .collect()
                                 })
                                 .or_else(|| {
                                     id.claim_str("capabilities").map(|s| {
                                         s.split(',')
+                                            .take(MAX_DECLARED_CAPABILITIES)
                                             .map(|p| p.trim().to_ascii_lowercase())
                                             .collect()
                                     })
@@ -682,13 +691,26 @@ impl PolicyEngine {
                     // SECURITY: Fail-closed when capability_token is None.
                     match &context.capability_token {
                         Some(token) => {
-                            // Check holder matches agent_id (prevents token theft)
-                            if let Some(ref agent_id) = context.agent_id {
-                                if !token.holder.eq_ignore_ascii_case(agent_id) {
+                            // Check holder matches agent_id (prevents token theft).
+                            // SECURITY (FIND-R111-001): Fail-closed when agent_id is absent —
+                            // a stolen capability token cannot be used by a caller that omits
+                            // the agent_id field, which would otherwise bypass holder binding.
+                            match &context.agent_id {
+                                Some(ref agent_id) => {
+                                    if !token.holder.eq_ignore_ascii_case(agent_id) {
+                                        return Some(Verdict::Deny {
+                                            reason: format!(
+                                                "{} (token holder '{}' does not match agent_id '{}')",
+                                                deny_reason, token.holder, agent_id
+                                            ),
+                                        });
+                                    }
+                                }
+                                None => {
                                     return Some(Verdict::Deny {
                                         reason: format!(
-                                            "{} (token holder '{}' does not match agent_id '{}')",
-                                            deny_reason, token.holder, agent_id
+                                            "{} (no agent_id in context — cannot verify token holder binding)",
+                                            deny_reason
                                         ),
                                     });
                                 }

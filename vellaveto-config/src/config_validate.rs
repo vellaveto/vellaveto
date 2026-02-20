@@ -673,46 +673,15 @@ impl PolicyConfig {
             }
         }
 
-        // Validate cluster config
-        if self.cluster.enabled {
-            let valid_backends = ["local", "redis"];
-            if !valid_backends.contains(&self.cluster.backend.as_str()) {
-                return Err(format!(
-                    "cluster.backend must be one of {:?}, got '{}'",
-                    valid_backends, self.cluster.backend
-                ));
-            }
-            if self.cluster.backend == "redis" {
-                if self.cluster.redis_url.is_empty() {
-                    return Err(
-                        "cluster.redis_url must not be empty when backend is 'redis'".to_string(),
-                    );
-                }
-                if !self.cluster.redis_url.starts_with("redis://")
-                    && !self.cluster.redis_url.starts_with("rediss://")
-                {
-                    return Err(format!(
-                        "cluster.redis_url must start with redis:// or rediss://, got '{}'",
-                        self.cluster.redis_url
-                    ));
-                }
-            }
-            if self.cluster.redis_pool_size == 0
-                || self.cluster.redis_pool_size > MAX_CLUSTER_REDIS_POOL_SIZE
-            {
-                return Err(format!(
-                    "cluster.redis_pool_size must be in [1, {}], got {}",
-                    MAX_CLUSTER_REDIS_POOL_SIZE, self.cluster.redis_pool_size
-                ));
-            }
-            if self.cluster.key_prefix.len() > MAX_CLUSTER_KEY_PREFIX_LEN {
-                return Err(format!(
-                    "cluster.key_prefix must be at most {} characters, got {}",
-                    MAX_CLUSTER_KEY_PREFIX_LEN,
-                    self.cluster.key_prefix.len()
-                ));
-            }
-        }
+        // SECURITY (FIND-R111-005): Cluster validation is fully delegated to
+        // `ClusterConfig::validate()` which is called unconditionally below
+        // (line ~1508). This removes the previous inline duplicate block that
+        // used different constants (MAX_CLUSTER_REDIS_POOL_SIZE=128 from
+        // threat_detection.rs instead of 512 from cluster.rs, and
+        // MAX_CLUSTER_KEY_PREFIX_LEN from threat_detection.rs) and produced
+        // different error messages for the same conditions, creating a
+        // divergence risk where the two paths could reach different verdicts
+        // for the same input. Single source of truth: `ClusterConfig::validate()`.
 
         // ═══════════════════════════════════════════════════
         // PHASE 2: ADVANCED THREAT DETECTION VALIDATION

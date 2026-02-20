@@ -13,7 +13,7 @@ use crate::matcher::{CompiledToolMatcher, PatternMatcher};
 use crate::PolicyEngine;
 use globset::Glob;
 use ipnet::IpNet;
-use vellaveto_types::{Policy, PolicyType};
+use vellaveto_types::{Policy, PolicyType, MAX_CONDITIONS_SIZE};
 
 impl PolicyEngine {
     /// Compile a set of policies, validating all patterns at load time.
@@ -246,13 +246,18 @@ impl PolicyEngine {
             });
         }
 
-        // Validate JSON size
+        // Validate JSON size against the canonical limit shared with Policy::validate().
+        // SECURITY (FIND-R111-004): Previously used a hardcoded 100_000 while
+        // Policy::validate() uses MAX_CONDITIONS_SIZE = 65_536. An attacker could craft
+        // conditions that pass the compile path (100K) but are rejected by Policy::validate()
+        // (65K), or conversely, conditions that bypass compile-path limits. Both limits must
+        // be the same canonical value.
         let size = conditions.to_string().len();
-        if size > 100_000 {
+        if size > MAX_CONDITIONS_SIZE {
             return Err(PolicyValidationError {
                 policy_id: policy.id.clone(),
                 policy_name: policy.name.clone(),
-                reason: format!("Condition JSON too large: {} bytes (max 100000)", size),
+                reason: format!("Condition JSON too large: {} bytes (max {})", size, MAX_CONDITIONS_SIZE),
             });
         }
 
@@ -812,26 +817,53 @@ impl PolicyEngine {
                 })
             }
             "agent_id" => {
+                // SECURITY (FIND-R111-006): Bounds on agent_id allowed/blocked lists.
+                const MAX_AGENT_ID_LIST: usize = 1000;
+
                 // SECURITY: Normalize agent IDs to lowercase at compile time
                 // to prevent case-variation bypasses (e.g., "Agent-A" vs "agent-a").
-                let allowed = obj
+                let allowed_raw = obj
                     .get("allowed")
                     .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
-                            .collect::<Vec<String>>()
-                    })
+                    .map(|arr| arr.as_slice())
                     .unwrap_or_default();
-                let blocked = obj
+                if allowed_raw.len() > MAX_AGENT_ID_LIST {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "agent_id allowed list count {} exceeds max {}",
+                            allowed_raw.len(),
+                            MAX_AGENT_ID_LIST
+                        ),
+                    });
+                }
+                let allowed: Vec<String> = allowed_raw
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                    .collect();
+
+                let blocked_raw = obj
                     .get("blocked")
                     .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
-                            .collect::<Vec<String>>()
-                    })
+                    .map(|arr| arr.as_slice())
                     .unwrap_or_default();
+                if blocked_raw.len() > MAX_AGENT_ID_LIST {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "agent_id blocked list count {} exceeds max {}",
+                            blocked_raw.len(),
+                            MAX_AGENT_ID_LIST
+                        ),
+                    });
+                }
+                let blocked: Vec<String> = blocked_raw
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                    .collect();
+
                 let deny_reason =
                     format!("Agent identity not authorized by policy '{}'", policy.name);
                 Ok(CompiledContextCondition::AgentId {
@@ -977,41 +1009,109 @@ impl PolicyEngine {
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_lowercase());
 
+                // SECURITY (FIND-R111-005): Per-key/value length bounds on required_claims.
+                const MAX_REQUIRED_CLAIMS: usize = 64;
+                const MAX_CLAIM_KEY_LEN: usize = 256;
+                const MAX_CLAIM_VALUE_LEN: usize = 512;
+
                 // Parse required_claims as a map of string -> string
                 // SECURITY (FIND-044): Lowercase claim values at compile time for
                 // case-insensitive comparison, matching issuer/subject/audience.
-                let required_claims = obj
+                let required_claims = if let Some(m) = obj
                     .get("claims")
                     .and_then(|v| v.as_object())
-                    .map(|m| {
-                        m.iter()
-                            .filter_map(|(k, v)| {
-                                v.as_str().map(|s| (k.clone(), s.to_ascii_lowercase()))
-                            })
-                            .collect::<std::collections::HashMap<String, String>>()
-                    })
-                    .unwrap_or_default();
+                {
+                    if m.len() > MAX_REQUIRED_CLAIMS {
+                        return Err(PolicyValidationError {
+                            policy_id: policy.id.clone(),
+                            policy_name: policy.name.clone(),
+                            reason: format!(
+                                "agent_identity claims count {} exceeds max {}",
+                                m.len(),
+                                MAX_REQUIRED_CLAIMS
+                            ),
+                        });
+                    }
+                    let mut map = std::collections::HashMap::new();
+                    for (k, v) in m {
+                        if k.len() > MAX_CLAIM_KEY_LEN {
+                            return Err(PolicyValidationError {
+                                policy_id: policy.id.clone(),
+                                policy_name: policy.name.clone(),
+                                reason: format!(
+                                    "agent_identity claim key length {} exceeds max {}",
+                                    k.len(),
+                                    MAX_CLAIM_KEY_LEN
+                                ),
+                            });
+                        }
+                        if let Some(s) = v.as_str() {
+                            if s.len() > MAX_CLAIM_VALUE_LEN {
+                                return Err(PolicyValidationError {
+                                    policy_id: policy.id.clone(),
+                                    policy_name: policy.name.clone(),
+                                    reason: format!(
+                                        "agent_identity claim value for key '{}' length {} exceeds max {}",
+                                        k,
+                                        s.len(),
+                                        MAX_CLAIM_VALUE_LEN
+                                    ),
+                                });
+                            }
+                            map.insert(k.clone(), s.to_ascii_lowercase());
+                        }
+                    }
+                    map
+                } else {
+                    std::collections::HashMap::new()
+                };
+
+                // SECURITY (FIND-R111-006): Bounds on blocked_issuers and blocked_subjects lists.
+                const MAX_ISSUER_LIST: usize = 256;
+                const MAX_SUBJECT_LIST: usize = 256;
 
                 // SECURITY: Normalize blocked lists to lowercase for case-insensitive matching
-                let blocked_issuers = obj
+                let blocked_issuers_raw = obj
                     .get("blocked_issuers")
                     .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
-                            .collect::<Vec<String>>()
-                    })
+                    .map(|arr| arr.as_slice())
                     .unwrap_or_default();
+                if blocked_issuers_raw.len() > MAX_ISSUER_LIST {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "agent_identity blocked_issuers count {} exceeds max {}",
+                            blocked_issuers_raw.len(),
+                            MAX_ISSUER_LIST
+                        ),
+                    });
+                }
+                let blocked_issuers: Vec<String> = blocked_issuers_raw
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                    .collect();
 
-                let blocked_subjects = obj
+                let blocked_subjects_raw = obj
                     .get("blocked_subjects")
                     .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
-                            .collect::<Vec<String>>()
-                    })
+                    .map(|arr| arr.as_slice())
                     .unwrap_or_default();
+                if blocked_subjects_raw.len() > MAX_SUBJECT_LIST {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "agent_identity blocked_subjects count {} exceeds max {}",
+                            blocked_subjects_raw.len(),
+                            MAX_SUBJECT_LIST
+                        ),
+                    });
+                }
+                let blocked_subjects: Vec<String> = blocked_subjects_raw
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                    .collect();
 
                 // When true, fail if no agent_identity is present (require JWT attestation)
                 let require_attestation = obj
@@ -1090,16 +1190,30 @@ impl PolicyEngine {
 
             "resource_indicator" => {
                 // RFC 8707: OAuth 2.0 Resource Indicators
-                let allowed_resources: Vec<PatternMatcher> = obj
+                // SECURITY (FIND-R111-006): Bound the allowed_resources list.
+                const MAX_RESOURCE_PATTERNS: usize = 256;
+
+                let allowed_resources_raw = obj
                     .get("allowed_resources")
                     .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str())
-                            .map(PatternMatcher::compile)
-                            .collect()
-                    })
+                    .map(|arr| arr.as_slice())
                     .unwrap_or_default();
+                if allowed_resources_raw.len() > MAX_RESOURCE_PATTERNS {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "resource_indicator allowed_resources count {} exceeds max {}",
+                            allowed_resources_raw.len(),
+                            MAX_RESOURCE_PATTERNS
+                        ),
+                    });
+                }
+                let allowed_resources: Vec<PatternMatcher> = allowed_resources_raw
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .map(PatternMatcher::compile)
+                    .collect();
 
                 let require_resource = obj
                     .get("require_resource")
@@ -1329,16 +1443,30 @@ impl PolicyEngine {
             }
 
             "require_capability_token" => {
+                // SECURITY (FIND-R111-006): Bound the required_issuers list.
+                const MAX_ISSUER_LIST_CAP: usize = 256;
+
                 // Parse required_issuers (optional array of strings)
-                let required_issuers = obj
+                let required_issuers_raw = obj
                     .get("required_issuers")
                     .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_ascii_lowercase()))
-                            .collect::<Vec<String>>()
-                    })
+                    .map(|arr| arr.as_slice())
                     .unwrap_or_default();
+                if required_issuers_raw.len() > MAX_ISSUER_LIST_CAP {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "require_capability_token required_issuers count {} exceeds max {}",
+                            required_issuers_raw.len(),
+                            MAX_ISSUER_LIST_CAP
+                        ),
+                    });
+                }
+                let required_issuers: Vec<String> = required_issuers_raw
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_ascii_lowercase()))
+                    .collect();
 
                 // Parse min_remaining_depth (optional, default 0)
                 let min_remaining_depth = obj

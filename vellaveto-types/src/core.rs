@@ -411,9 +411,11 @@ const MAX_POLICY_NAME_LEN: usize = 512;
 
 /// Maximum serialized size of `Conditional` conditions in bytes (64 KiB).
 ///
-/// SECURITY (FIND-R49-003, FIND-R56-CORE-003): Prevents memory exhaustion
-/// via deeply nested or excessively large JSON condition values.
-const MAX_CONDITIONS_SIZE: usize = 65_536;
+/// SECURITY (FIND-R49-003, FIND-R56-CORE-003, FIND-R111-004): Prevents memory exhaustion
+/// via deeply nested or excessively large JSON condition values. Published so that
+/// `vellaveto-engine`'s compile_conditions() uses the same canonical limit as
+/// `Policy::validate()`, preventing a dual-limit bypass via the compile path.
+pub const MAX_CONDITIONS_SIZE: usize = 65_536;
 
 /// Maximum number of entries in `PathRules.allowed` or `PathRules.blocked`.
 ///
