@@ -167,6 +167,17 @@ impl McpCapability {
                     Self::MAX_SUB_CAPABILITY_LEN,
                 ));
             }
+            // SECURITY (FIND-R83-007): Reject control and Unicode format characters
+            // in sub-capability strings, matching name validation above.
+            if sub
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(format!(
+                    "McpCapability sub_capabilities[{}] contains control or format characters",
+                    i,
+                ));
+            }
         }
         Ok(())
     }

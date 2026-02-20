@@ -5689,3 +5689,115 @@ fn test_least_agency_report_validate_rejects_too_many_unused_permissions() {
     assert!(err.contains("unused_permissions"));
     assert!(err.contains("10000"));
 }
+
+// ═══════════════════════════════════════════════════
+// ROUND 83 AUDIT FIXES
+// ═══════════════════════════════════════════════════
+
+// FIND-R83-002: ABAC structs reject unknown fields
+#[test]
+fn test_abac_principal_constraint_rejects_unknown_fields() {
+    let json = r#"{"principal_type":"Agent","id_patterns":[],"claims":{},"unknown_field":"x"}"#;
+    let result = serde_json::from_str::<crate::abac::PrincipalConstraint>(json);
+    assert!(
+        result.is_err(),
+        "PrincipalConstraint must reject unknown fields"
+    );
+}
+
+#[test]
+fn test_abac_action_constraint_rejects_unknown_fields() {
+    let json = r#"{"patterns":[],"unknown_field":"x"}"#;
+    let result = serde_json::from_str::<crate::abac::ActionConstraint>(json);
+    assert!(
+        result.is_err(),
+        "ActionConstraint must reject unknown fields"
+    );
+}
+
+#[test]
+fn test_abac_resource_constraint_rejects_unknown_fields() {
+    let json = r#"{"path_patterns":[],"domain_patterns":[],"tags":[],"extra":"y"}"#;
+    let result = serde_json::from_str::<crate::abac::ResourceConstraint>(json);
+    assert!(
+        result.is_err(),
+        "ResourceConstraint must reject unknown fields"
+    );
+}
+
+#[test]
+fn test_abac_condition_rejects_unknown_fields() {
+    let json = r#"{"field":"ctx.ok","op":"eq","value":true,"bonus":"z"}"#;
+    let result = serde_json::from_str::<crate::abac::AbacCondition>(json);
+    assert!(result.is_err(), "AbacCondition must reject unknown fields");
+}
+
+#[test]
+fn test_abac_policy_rejects_unknown_fields() {
+    let json = r#"{"id":"p1","description":"d","effect":"permit","sneaky":1}"#;
+    let result = serde_json::from_str::<crate::abac::AbacPolicy>(json);
+    assert!(result.is_err(), "AbacPolicy must reject unknown fields");
+}
+
+#[test]
+fn test_risk_score_rejects_unknown_fields() {
+    let json = r#"{"score":0.5,"factors":[],"updated_at":"2026-01-01T00:00:00Z","extra":1}"#;
+    let result = serde_json::from_str::<crate::abac::RiskScore>(json);
+    assert!(result.is_err(), "RiskScore must reject unknown fields");
+}
+
+#[test]
+fn test_risk_factor_rejects_unknown_fields() {
+    let json = r#"{"name":"f","weight":0.5,"value":0.5,"extra":1}"#;
+    let result = serde_json::from_str::<crate::abac::RiskFactor>(json);
+    assert!(result.is_err(), "RiskFactor must reject unknown fields");
+}
+
+// FIND-R83-003: Capability types reject unknown fields
+#[test]
+fn test_capability_token_rejects_unknown_fields() {
+    let json = r#"{
+        "token_id":"t1","parent_token_id":null,"issuer":"a","holder":"b",
+        "grants":[],"remaining_depth":3,"issued_at":"2026-01-01T00:00:00Z",
+        "expires_at":"2026-12-31T23:59:59Z","signature":"abc","issuer_public_key":"def",
+        "extra_field":"attack"
+    }"#;
+    let result = serde_json::from_str::<crate::capability::CapabilityToken>(json);
+    assert!(
+        result.is_err(),
+        "CapabilityToken must reject unknown fields"
+    );
+}
+
+#[test]
+fn test_capability_grant_rejects_unknown_fields() {
+    let json = r#"{"tool_pattern":"*","function_pattern":"*","extra":"x"}"#;
+    let result = serde_json::from_str::<crate::capability::CapabilityGrant>(json);
+    assert!(
+        result.is_err(),
+        "CapabilityGrant must reject unknown fields"
+    );
+}
+
+// FIND-R83-007: McpCapability sub_capabilities control char validation
+#[test]
+fn test_mcp_capability_sub_capability_control_char_rejected() {
+    let cap = McpCapability {
+        name: "tools".to_string(),
+        version: None,
+        sub_capabilities: vec!["read\x00write".to_string()],
+    };
+    let err = cap.validate().unwrap_err();
+    assert!(err.contains("control or format characters"));
+}
+
+#[test]
+fn test_mcp_capability_sub_capability_zero_width_rejected() {
+    let cap = McpCapability {
+        name: "tools".to_string(),
+        version: None,
+        sub_capabilities: vec!["rea\u{200B}d".to_string()], // zero-width space
+    };
+    let err = cap.validate().unwrap_err();
+    assert!(err.contains("control or format characters"));
+}

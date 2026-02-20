@@ -441,6 +441,7 @@ class VellavetoClient:
         target_domains: Optional[List[str]] = None,
         context: Optional[EvaluationContext] = None,
         trace: bool = False,
+        resolved_ips: Optional[List[str]] = None,
     ) -> EvaluationResult:
         """
         Evaluate a tool call against Vellaveto policies.
@@ -453,6 +454,7 @@ class VellavetoClient:
             target_domains: Network domains the tool will access
             context: Evaluation context for stateful policies
             trace: Whether to include evaluation trace
+            resolved_ips: Pre-resolved IP addresses for DNS rebinding defense
 
         Returns:
             EvaluationResult with verdict and details
@@ -462,7 +464,7 @@ class VellavetoClient:
             ApprovalRequired: If action requires approval (when raise_on_deny=True)
             VellavetoError: On API errors
         """
-        _validate_evaluate_inputs(tool, function, parameters, target_paths, target_domains)
+        _validate_evaluate_inputs(tool, function, parameters, target_paths, target_domains, resolved_ips)
 
         effective_params = parameters or {}
         if self.redactor is not None:
@@ -474,6 +476,7 @@ class VellavetoClient:
             parameters=effective_params,
             target_paths=target_paths or [],
             target_domains=target_domains or [],
+            resolved_ips=resolved_ips or [],
         )
 
         payload = _build_evaluate_payload(action, context)
@@ -499,6 +502,7 @@ class VellavetoClient:
         target_paths: Optional[List[str]] = None,
         target_domains: Optional[List[str]] = None,
         context: Optional[EvaluationContext] = None,
+        resolved_ips: Optional[List[str]] = None,
     ) -> EvaluationResult:
         """
         Evaluate a tool call, raising an exception if not allowed.
@@ -520,6 +524,7 @@ class VellavetoClient:
             target_paths=target_paths,
             target_domains=target_domains,
             context=context,
+            resolved_ips=resolved_ips,
         )
 
         if result.verdict == Verdict.DENY:
@@ -1018,9 +1023,10 @@ class AsyncVellavetoClient:
         target_domains: Optional[List[str]] = None,
         context: Optional[EvaluationContext] = None,
         trace: bool = False,
+        resolved_ips: Optional[List[str]] = None,
     ) -> EvaluationResult:
         """Evaluate a tool call against Vellaveto policies (async)."""
-        _validate_evaluate_inputs(tool, function, parameters, target_paths, target_domains)
+        _validate_evaluate_inputs(tool, function, parameters, target_paths, target_domains, resolved_ips)
 
         effective_params = parameters or {}
         if self.redactor is not None:
@@ -1032,6 +1038,7 @@ class AsyncVellavetoClient:
             parameters=effective_params,
             target_paths=target_paths or [],
             target_domains=target_domains or [],
+            resolved_ips=resolved_ips or [],
         )
 
         payload = _build_evaluate_payload(action, context)
@@ -1057,6 +1064,7 @@ class AsyncVellavetoClient:
         target_paths: Optional[List[str]] = None,
         target_domains: Optional[List[str]] = None,
         context: Optional[EvaluationContext] = None,
+        resolved_ips: Optional[List[str]] = None,
     ) -> EvaluationResult:
         """Evaluate and raise exception if not allowed (async)."""
         result = await self.evaluate(
@@ -1066,6 +1074,7 @@ class AsyncVellavetoClient:
             target_paths=target_paths,
             target_domains=target_domains,
             context=context,
+            resolved_ips=resolved_ips,
         )
 
         if result.verdict == Verdict.DENY:

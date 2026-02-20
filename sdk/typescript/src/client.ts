@@ -1101,9 +1101,10 @@ function parseVerdict(v: unknown): Verdict {
   if (typeof v === "string") {
     const lower = v.toLowerCase();
     if (lower === "allow") return Verdict.Allow;
-    if (lower === "deny" || lower.startsWith("deny")) return Verdict.Deny;
-    if (lower === "require_approval" || lower.startsWith("require"))
-      return Verdict.RequireApproval;
+    // SECURITY (FIND-R83-008): Use exact match instead of startsWith to prevent
+    // mis-parsing extended verdict strings (e.g., "denied_by_policy" → Deny).
+    if (lower === "deny") return Verdict.Deny;
+    if (lower === "require_approval") return Verdict.RequireApproval;
   }
   // For object-style verdicts like { "Deny": { "reason": "..." } }
   if (typeof v === "object" && v !== null) {

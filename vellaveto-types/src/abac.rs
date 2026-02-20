@@ -18,6 +18,7 @@ pub enum AbacEffect {
 
 /// Principal constraint — who is performing the action.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct PrincipalConstraint {
     /// Principal type (e.g., "Agent", "Service", "User"). None = any.
     #[serde(default)]
@@ -32,6 +33,7 @@ pub struct PrincipalConstraint {
 
 /// Action constraint — what operation is being performed.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ActionConstraint {
     /// Tool:function patterns the action must match (e.g., ["filesystem:read_*"]).
     #[serde(default)]
@@ -40,6 +42,7 @@ pub struct ActionConstraint {
 
 /// Resource constraint — what is being acted upon.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ResourceConstraint {
     /// Path glob patterns the resource must match.
     #[serde(default)]
@@ -54,6 +57,7 @@ pub struct ResourceConstraint {
 
 /// ABAC condition — additional constraints on the evaluation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AbacCondition {
     /// Field path to evaluate (e.g., "context.verified", "principal.team").
     pub field: String,
@@ -101,6 +105,7 @@ pub enum AbacOp {
 
 /// A Cedar-style ABAC policy.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AbacPolicy {
     pub id: String,
     pub description: String,
@@ -276,6 +281,7 @@ impl AbacEntity {
 
 /// Risk score for continuous authorization.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RiskScore {
     /// Risk score from 0.0 (safe) to 1.0 (critical).
     pub score: f64,
@@ -288,6 +294,7 @@ pub struct RiskScore {
 
 /// A single contributing factor to the overall risk score.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RiskFactor {
     /// Factor name (e.g., "anomaly_score", "threat_intel", "failed_auth").
     pub name: String,

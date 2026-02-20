@@ -241,6 +241,9 @@ impl McpGrpcService {
                     if let Some(result_val) = json_req.get("result") {
                         dlp_findings.extend(scan_parameters_for_secrets(result_val));
                     }
+                    // SECURITY (FIND-R83-006): Cap combined findings from params+result
+                    // scans to maintain per-scan invariant (1000).
+                    dlp_findings.truncate(1000);
                     if !dlp_findings.is_empty() {
                         for finding in &dlp_findings {
                             record_dlp_finding(&finding.pattern_name);

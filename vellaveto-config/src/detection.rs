@@ -331,6 +331,44 @@ impl Default for AuditExportConfig {
     }
 }
 
+impl AuditExportConfig {
+    /// Maximum batch size to prevent OOM from unbounded batching.
+    /// Aligned with PolicyConfig::validate() which enforces <= 10_000.
+    const MAX_BATCH_SIZE: usize = 10_000;
+
+    /// Validate structural bounds on AuditExportConfig fields.
+    ///
+    /// SECURITY (FIND-R83-004): Prevents zero batch_size (infinite loop),
+    /// unbounded batch_size (OOM), and control character injection in webhook URL.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.batch_size == 0 || self.batch_size > Self::MAX_BATCH_SIZE {
+            return Err(format!(
+                "audit_export.batch_size must be in [1, {}], got {}",
+                Self::MAX_BATCH_SIZE,
+                self.batch_size,
+            ));
+        }
+        let valid_formats = ["cef", "jsonl"];
+        if !valid_formats.contains(&self.format.as_str()) {
+            return Err(format!(
+                "audit_export.format must be one of {:?}, got {:?}",
+                valid_formats, self.format,
+            ));
+        }
+        if let Some(ref url) = self.webhook_url {
+            if url.chars().any(|c| c.is_control()) {
+                return Err("audit_export.webhook_url contains control characters".to_string());
+            }
+            if !url.starts_with("https://") && !url.starts_with("http://") {
+                return Err(
+                    "audit_export.webhook_url must use http:// or https:// scheme".to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Configuration for multimodal content inspection (image/audio/video/PDF).
 ///
 /// Controls which content types are scanned for prompt injection attacks

@@ -29,6 +29,7 @@ pub const MAX_TOKEN_SIZE: usize = 65536;
 /// The `remaining_depth` decrements with each delegation, preventing
 /// unbounded chains.
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct CapabilityToken {
     /// Unique token identifier (UUID v4).
     pub token_id: String,
@@ -75,6 +76,7 @@ impl fmt::Debug for CapabilityToken {
 /// Each grant specifies which tools/functions the holder can invoke,
 /// optionally restricted to specific paths and domains.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct CapabilityGrant {
     /// Tool name pattern (exact or glob, e.g., "file_system" or "db_*").
     pub tool_pattern: String,

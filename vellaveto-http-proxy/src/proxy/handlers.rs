@@ -1812,6 +1812,9 @@ pub async fn handle_mcp_post(
                 if let Some(result_val) = msg.get("result") {
                     dlp_findings.extend(scan_parameters_for_secrets(result_val));
                 }
+                // SECURITY (FIND-R83-006): Cap combined findings from params+result
+                // scans to maintain per-scan invariant (1000).
+                dlp_findings.truncate(1000);
                 if !dlp_findings.is_empty() {
                     // IMPROVEMENT_PLAN 1.1: Record DLP metrics
                     for finding in &dlp_findings {

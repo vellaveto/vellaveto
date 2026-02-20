@@ -491,6 +491,9 @@ pub(super) async fn scan_sse_events_for_dlp(
             if json_val.get("method").is_some() {
                 findings.extend(scan_notification_for_secrets(&json_val));
             }
+            // SECURITY (FIND-R83-006): Cap combined findings from response+notification
+            // scans to maintain per-scan invariant (1000).
+            findings.truncate(1000);
             findings
         } else {
             // SECURITY (R17-SSE-4): Non-JSON SSE data must also be scanned.
