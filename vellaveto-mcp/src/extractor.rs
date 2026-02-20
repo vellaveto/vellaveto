@@ -92,17 +92,21 @@ pub(crate) fn normalize_method(method: &str) -> String {
         .chars()
         .filter(|c| {
             let cp = *c as u32;
-            !(cp == 0
-                || (0x200B..=0x200F).contains(&cp)     // zero-width chars
-                || (0x202A..=0x202E).contains(&cp)     // bidi overrides
-                || (0xFE00..=0xFE0F).contains(&cp)     // variation selectors
-                || cp == 0xFEFF                          // BOM / ZWNBSP
-                || (0x2060..=0x2064).contains(&cp)      // word joiners / invisible operators
-                || (0xFFF9..=0xFFFB).contains(&cp)      // interlinear annotation
-                || cp == 0x180E                          // Mongolian vowel separator
-                || cp == 0x00AD                          // soft hyphen
-                || (0x2066..=0x2069).contains(&cp)      // bidi isolate (LRI, RLI, FSI, PDI)
-                || (0xE0000..=0xE007F).contains(&cp)) // tag characters
+            // SECURITY (FIND-R107-001): Also strip C0 (0x00-0x1F) and C1
+            // (0x7F-0x9F) control characters to prevent log injection via
+            // embedded newlines/carriage returns in method names.
+            !(cp <= 0x1F                                  // C0 control chars (NUL..US)
+                || (0x7F..=0x9F).contains(&cp)            // DEL + C1 control chars
+                || (0x200B..=0x200F).contains(&cp)        // zero-width chars
+                || (0x202A..=0x202E).contains(&cp)        // bidi overrides
+                || (0xFE00..=0xFE0F).contains(&cp)        // variation selectors
+                || cp == 0xFEFF                            // BOM / ZWNBSP
+                || (0x2060..=0x2064).contains(&cp)        // word joiners / invisible operators
+                || (0xFFF9..=0xFFFB).contains(&cp)        // interlinear annotation
+                || cp == 0x180E                            // Mongolian vowel separator
+                || cp == 0x00AD                            // soft hyphen
+                || (0x2066..=0x2069).contains(&cp)        // bidi isolate (LRI, RLI, FSI, PDI)
+                || (0xE0000..=0xE007F).contains(&cp))     // tag characters
         })
         .collect::<String>()
         .trim_end_matches('/')
@@ -1541,5 +1545,24 @@ mod tests {
         assert_eq!(action.tool, "x-vellaveto-audit");
         assert_eq!(action.function, "x-vellaveto-audit/query");
         assert_eq!(action.parameters["query"], "SELECT count(*)");
+    }
+
+    #[test]
+    fn test_normalize_method_strips_control_characters() {
+        // SECURITY (FIND-R107-001): Control characters must be stripped to
+        // prevent log injection via embedded newlines in method names.
+        assert_eq!(
+            normalize_method("tools/call\nFAKE_LOG"),
+            "tools/callfake_log"
+        );
+        assert_eq!(
+            normalize_method("tasks/get\r\n[CRITICAL] breach"),
+            "tasks/get[critical] breach"
+        );
+        assert_eq!(normalize_method("foo\tbar"), "foobar");
+        // C1 control characters (0x7F-0x9F)
+        assert_eq!(normalize_method("foo\x7Fbar"), "foobar");
+        assert_eq!(normalize_method("foo\u{0085}bar"), "foobar");
+        assert_eq!(normalize_method("foo\u{009F}bar"), "foobar");
     }
 }
