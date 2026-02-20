@@ -138,7 +138,11 @@ impl OpenAiBackend {
         })?;
 
         let allow = parsed["allow"].as_bool().unwrap_or(false);
-        let confidence = parsed["confidence"].as_f64().unwrap_or(0.5);
+        // SECURITY (FIND-R111-001): Default missing confidence to 0.0 (fail-closed).
+        // Previously 0.5, which could bypass min_confidence checks when configured
+        // below 0.5. Zero confidence ensures the evaluator wrapper's min_confidence
+        // check catches responses with missing confidence fields.
+        let confidence = parsed["confidence"].as_f64().unwrap_or(0.0);
         let explanation = parsed["explanation"].as_str().map(String::from);
         let intent_str = parsed["intent"].as_str().unwrap_or("unknown");
 
@@ -295,7 +299,8 @@ impl LlmEvaluator for OpenAiBackend {
         })?;
 
         let is_jailbreak = parsed["is_jailbreak"].as_bool().unwrap_or(false);
-        let confidence = parsed["confidence"].as_f64().unwrap_or(0.5);
+        // SECURITY (FIND-R111-001): Default to 0.0 for missing confidence (fail-closed).
+        let confidence = parsed["confidence"].as_f64().unwrap_or(0.0);
         let jailbreak_type = parsed["jailbreak_type"].as_str().map(String::from);
 
         Ok(JailbreakDetection {
