@@ -1546,13 +1546,32 @@ async fn relay_client_to_upstream(
                     }
                     MessageType::SamplingRequest { ref id } => {
                         // SECURITY (FIND-R74-006): Call inspect_sampling() for full
-                        // verdict (enabled + model filter + tool output check),
+                        // verdict (enabled + model filter + tool output check + rate limit),
                         // matching HTTP handler parity (handlers.rs:1681).
                         let params = parsed.get("params").cloned().unwrap_or(json!({}));
-                        let sampling_verdict = vellaveto_mcp::elicitation::inspect_sampling(
-                            &params,
-                            &state.sampling_config,
-                        );
+                        // SECURITY (FIND-R125-001): Per-session sampling rate limit
+                        // parity with elicitation. Atomically read + increment.
+                        let sampling_verdict = {
+                            let mut session_ref = state.sessions.get_mut(&session_id);
+                            let current_count = session_ref
+                                .as_ref()
+                                .map(|s| s.sampling_count)
+                                .unwrap_or(0);
+                            let verdict = vellaveto_mcp::elicitation::inspect_sampling(
+                                &params,
+                                &state.sampling_config,
+                                current_count,
+                            );
+                            if matches!(
+                                verdict,
+                                vellaveto_mcp::elicitation::SamplingVerdict::Allow
+                            ) {
+                                if let Some(ref mut s) = session_ref {
+                                    s.sampling_count = s.sampling_count.saturating_add(1);
+                                }
+                            }
+                            verdict
+                        };
                         match sampling_verdict {
                             vellaveto_mcp::elicitation::SamplingVerdict::Allow => {
                                 // Forward allowed sampling request

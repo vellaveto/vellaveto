@@ -7656,3 +7656,143 @@ fn test_cluster_pool_size_valid_accepted() {
     cfg.redis_pool_size = 16;
     assert!(cfg.validate().is_ok(), "valid pool size should be accepted");
 }
+
+// ════════════════════════════════════════════════════════
+// FIND-R125: Elicitation/Sampling config validation tests
+// ════════════════════════════════════════════════════════
+
+#[test]
+fn test_elicitation_config_validate_empty_blocked_field_type() {
+    let cfg = crate::ElicitationConfig {
+        enabled: true,
+        blocked_field_types: vec!["password".to_string(), "".to_string()],
+        max_per_session: 5,
+    };
+    let result = cfg.validate();
+    assert!(result.is_err(), "should reject empty blocked_field_types entry");
+    assert!(
+        result.unwrap_err().contains("is empty"),
+        "error should mention empty"
+    );
+}
+
+#[test]
+fn test_elicitation_config_validate_control_chars_in_blocked_field_type() {
+    let cfg = crate::ElicitationConfig {
+        enabled: true,
+        blocked_field_types: vec!["pass\x00word".to_string()],
+        max_per_session: 5,
+    };
+    let result = cfg.validate();
+    assert!(
+        result.is_err(),
+        "should reject control characters in blocked_field_types"
+    );
+    assert!(
+        result.unwrap_err().contains("control characters"),
+        "error should mention control characters"
+    );
+}
+
+#[test]
+fn test_elicitation_config_validate_oversized_blocked_field_type() {
+    let cfg = crate::ElicitationConfig {
+        enabled: true,
+        blocked_field_types: vec!["x".repeat(crate::mcp_protocol::MAX_BLOCKED_FIELD_TYPE_LENGTH + 1)],
+        max_per_session: 5,
+    };
+    let result = cfg.validate();
+    assert!(
+        result.is_err(),
+        "should reject oversized blocked_field_types entry"
+    );
+    assert!(
+        result.unwrap_err().contains("exceeds max"),
+        "error should mention exceeds max"
+    );
+}
+
+#[test]
+fn test_elicitation_config_validate_valid_blocked_field_types() {
+    let cfg = crate::ElicitationConfig {
+        enabled: true,
+        blocked_field_types: vec![
+            "password".to_string(),
+            "ssn".to_string(),
+            "credit_card".to_string(),
+        ],
+        max_per_session: 5,
+    };
+    assert!(cfg.validate().is_ok(), "valid config should pass validation");
+}
+
+#[test]
+fn test_sampling_config_validate_empty_allowed_model() {
+    let cfg = crate::SamplingConfig {
+        enabled: true,
+        allowed_models: vec!["claude-3-opus".to_string(), "".to_string()],
+        block_if_contains_tool_output: true,
+        max_per_session: 10,
+    };
+    let result = cfg.validate();
+    assert!(result.is_err(), "should reject empty allowed_models entry");
+    assert!(
+        result.unwrap_err().contains("is empty"),
+        "error should mention empty"
+    );
+}
+
+#[test]
+fn test_sampling_config_validate_control_chars_in_allowed_model() {
+    let cfg = crate::SamplingConfig {
+        enabled: true,
+        allowed_models: vec!["claude\x07-3".to_string()],
+        block_if_contains_tool_output: true,
+        max_per_session: 10,
+    };
+    let result = cfg.validate();
+    assert!(
+        result.is_err(),
+        "should reject control characters in allowed_models"
+    );
+    assert!(
+        result.unwrap_err().contains("control characters"),
+        "error should mention control characters"
+    );
+}
+
+#[test]
+fn test_sampling_config_validate_oversized_allowed_model() {
+    let cfg = crate::SamplingConfig {
+        enabled: true,
+        allowed_models: vec!["x".repeat(crate::mcp_protocol::MAX_ALLOWED_MODEL_LENGTH + 1)],
+        block_if_contains_tool_output: true,
+        max_per_session: 10,
+    };
+    let result = cfg.validate();
+    assert!(
+        result.is_err(),
+        "should reject oversized allowed_models entry"
+    );
+    assert!(
+        result.unwrap_err().contains("exceeds max"),
+        "error should mention exceeds max"
+    );
+}
+
+#[test]
+fn test_sampling_config_validate_valid_allowed_models() {
+    let cfg = crate::SamplingConfig {
+        enabled: true,
+        allowed_models: vec!["claude-3-opus".to_string(), "gpt-4".to_string()],
+        block_if_contains_tool_output: true,
+        max_per_session: 10,
+    };
+    assert!(cfg.validate().is_ok(), "valid config should pass validation");
+}
+
+#[test]
+fn test_sampling_config_default_has_max_per_session() {
+    let cfg = crate::SamplingConfig::default();
+    assert_eq!(cfg.max_per_session, 10, "default max_per_session should be 10");
+}

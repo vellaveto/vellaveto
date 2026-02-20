@@ -752,7 +752,7 @@ mod tests {
             ]
         });
 
-        let verdict = inspect_sampling(&params, &config);
+        let verdict = inspect_sampling(&params, &config, 0);
         match verdict {
             SamplingVerdict::Deny { reason } => {
                 assert!(
@@ -771,6 +771,7 @@ mod tests {
             enabled: true,
             allowed_models: Vec::new(),
             block_if_contains_tool_output: false,
+            max_per_session: 10,
         };
 
         let params = json!({
@@ -780,7 +781,7 @@ mod tests {
             "maxTokens": 100
         });
 
-        let verdict = inspect_sampling(&params, &config);
+        let verdict = inspect_sampling(&params, &config, 0);
         assert!(
             matches!(verdict, SamplingVerdict::Allow),
             "Expected Allow for benign sampling, got: {:?}",
@@ -794,6 +795,7 @@ mod tests {
             enabled: true,
             allowed_models: Vec::new(),
             block_if_contains_tool_output: true,
+            max_per_session: 10,
         };
 
         // Message with role="tool"
@@ -804,7 +806,7 @@ mod tests {
             ]
         });
 
-        let verdict = inspect_sampling(&params, &config);
+        let verdict = inspect_sampling(&params, &config, 0);
         match verdict {
             SamplingVerdict::Deny { reason } => {
                 assert!(
@@ -823,6 +825,7 @@ mod tests {
             enabled: true,
             allowed_models: Vec::new(),
             block_if_contains_tool_output: true,
+            max_per_session: 10,
         };
 
         // Message with tool_result content block
@@ -837,7 +840,7 @@ mod tests {
             ]
         });
 
-        let verdict = inspect_sampling(&params, &config);
+        let verdict = inspect_sampling(&params, &config, 0);
         match verdict {
             SamplingVerdict::Deny { reason } => {
                 assert!(
@@ -856,6 +859,7 @@ mod tests {
             enabled: true,
             allowed_models: vec!["claude-3-opus".to_string(), "claude-3-sonnet".to_string()],
             block_if_contains_tool_output: false,
+            max_per_session: 10,
         };
 
         // Allowed model via modelPreferences.hints
@@ -866,7 +870,7 @@ mod tests {
             }
         });
 
-        let verdict = inspect_sampling(&params, &config);
+        let verdict = inspect_sampling(&params, &config, 0);
         assert!(
             matches!(verdict, SamplingVerdict::Allow),
             "Expected Allow for allowed model, got: {:?}",
@@ -880,6 +884,7 @@ mod tests {
             enabled: true,
             allowed_models: vec!["claude-3-opus".to_string()],
             block_if_contains_tool_output: false,
+            max_per_session: 10,
         };
 
         // Disallowed model
@@ -890,7 +895,7 @@ mod tests {
             }
         });
 
-        let verdict = inspect_sampling(&params, &config);
+        let verdict = inspect_sampling(&params, &config, 0);
         match verdict {
             SamplingVerdict::Deny { reason } => {
                 assert!(
@@ -917,13 +922,14 @@ mod tests {
             enabled: true,
             allowed_models: vec!["claude-3-opus".to_string()],
             block_if_contains_tool_output: false,
+            max_per_session: 10,
         };
 
         let params = json!({
             "messages": [{"role": "user", "content": {"type": "text", "text": "Hi"}}]
         });
 
-        let verdict = inspect_sampling(&params, &config);
+        let verdict = inspect_sampling(&params, &config, 0);
         assert!(
             matches!(verdict, SamplingVerdict::Deny { .. }),
             "Expected Deny when no model specified but allowed_models configured, got: {:?}",
@@ -937,6 +943,7 @@ mod tests {
             enabled: true,
             allowed_models: vec!["claude-3-opus".to_string()],
             block_if_contains_tool_output: false,
+            max_per_session: 10,
         };
 
         // Model specified at top level (simplified form)
@@ -945,7 +952,7 @@ mod tests {
             "model": "gpt-4"
         });
 
-        let verdict = inspect_sampling(&params, &config);
+        let verdict = inspect_sampling(&params, &config, 0);
         assert!(
             matches!(verdict, SamplingVerdict::Deny { .. }),
             "Expected Deny for top-level disallowed model, got: {:?}",
@@ -959,6 +966,7 @@ mod tests {
             enabled: true,
             allowed_models: Vec::new(),
             block_if_contains_tool_output: false,
+            max_per_session: 10,
         };
 
         let params = json!({
@@ -967,7 +975,7 @@ mod tests {
             ]
         });
 
-        let verdict = inspect_sampling(&params, &config);
+        let verdict = inspect_sampling(&params, &config, 0);
         assert!(
             matches!(verdict, SamplingVerdict::Allow),
             "Expected Allow when block_if_contains_tool_output is false, got: {:?}",
@@ -1530,6 +1538,7 @@ mod tests {
             enabled: true,
             allowed_models: vec![],
             block_if_contains_tool_output: true,
+            max_per_session: 10,
         };
 
         let params = json!({
@@ -1543,7 +1552,7 @@ mod tests {
             ]
         });
 
-        let verdict = inspect_sampling(&params, &config);
+        let verdict = inspect_sampling(&params, &config, 0);
         assert!(
             matches!(verdict, SamplingVerdict::Deny { .. }),
             "Resource content type should be blocked to prevent data laundering, got: {:?}",
@@ -1649,5 +1658,147 @@ mod tests {
             "count < max_per_session should allow, got: {:?}",
             verdict
         );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R125-001: Sampling per-session rate limit tests
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_sampling_rate_limited() {
+        let config = SamplingConfig {
+            enabled: true,
+            allowed_models: Vec::new(),
+            block_if_contains_tool_output: false,
+            max_per_session: 3,
+        };
+
+        let params = json!({
+            "messages": [
+                {"role": "user", "content": {"type": "text", "text": "Hello"}}
+            ]
+        });
+
+        // Under limit: allowed
+        let verdict = inspect_sampling(&params, &config, 2);
+        assert!(
+            matches!(verdict, SamplingVerdict::Allow),
+            "Expected Allow when under limit, got: {:?}",
+            verdict
+        );
+
+        // At limit: denied
+        let verdict = inspect_sampling(&params, &config, 3);
+        match verdict {
+            SamplingVerdict::Deny { reason } => {
+                assert!(
+                    reason.contains("rate limit"),
+                    "Expected 'rate limit' in reason, got: {}",
+                    reason
+                );
+                assert!(
+                    reason.contains("3/3"),
+                    "Expected count in reason, got: {}",
+                    reason
+                );
+            }
+            SamplingVerdict::Allow => panic!("Expected Deny when at rate limit"),
+        }
+
+        // Over limit: denied
+        let verdict = inspect_sampling(&params, &config, 10);
+        assert!(
+            matches!(verdict, SamplingVerdict::Deny { .. }),
+            "Expected Deny when over limit"
+        );
+    }
+
+    #[test]
+    fn test_sampling_rate_limit_at_u32_max() {
+        let config = SamplingConfig {
+            enabled: true,
+            allowed_models: Vec::new(),
+            block_if_contains_tool_output: false,
+            max_per_session: 10,
+        };
+
+        let params = json!({
+            "messages": [
+                {"role": "user", "content": {"type": "text", "text": "Hello"}}
+            ]
+        });
+
+        let verdict = inspect_sampling(&params, &config, u32::MAX);
+        assert!(
+            matches!(verdict, SamplingVerdict::Deny { .. }),
+            "u32::MAX count should be denied, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_sampling_rate_limit_boundary() {
+        let config = SamplingConfig {
+            enabled: true,
+            allowed_models: Vec::new(),
+            block_if_contains_tool_output: false,
+            max_per_session: 5,
+        };
+
+        let params = json!({
+            "messages": [
+                {"role": "user", "content": {"type": "text", "text": "Hello"}}
+            ]
+        });
+
+        // At max_per_session - 1: should be allowed
+        let verdict = inspect_sampling(&params, &config, 4);
+        assert!(
+            matches!(verdict, SamplingVerdict::Allow),
+            "count == max_per_session - 1 should allow, got: {:?}",
+            verdict
+        );
+
+        // At exactly max_per_session: should be denied (>= comparison)
+        let verdict = inspect_sampling(&params, &config, 5);
+        assert!(
+            matches!(verdict, SamplingVerdict::Deny { .. }),
+            "count == max_per_session should deny, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_sampling_rate_limit_checked_before_model_filter() {
+        // Rate limit should be checked before model filter for efficiency.
+        // If rate limited, no need to parse model preferences.
+        let config = SamplingConfig {
+            enabled: true,
+            allowed_models: vec!["claude-3-opus".to_string()],
+            block_if_contains_tool_output: false,
+            max_per_session: 2,
+        };
+
+        let params = json!({
+            "messages": [
+                {"role": "user", "content": {"type": "text", "text": "Hello"}}
+            ],
+            "modelPreferences": {
+                "hints": [{"name": "claude-3-opus"}]
+            }
+        });
+
+        // Over rate limit with valid model — should still deny
+        let verdict = inspect_sampling(&params, &config, 5);
+        match verdict {
+            SamplingVerdict::Deny { reason } => {
+                assert!(
+                    reason.contains("rate limit"),
+                    "Should deny for rate limit, not model filter: {}",
+                    reason
+                );
+            }
+            SamplingVerdict::Allow => panic!("Expected Deny when rate limited"),
+        }
     }
 }

@@ -2255,7 +2255,9 @@ impl ProxyBridge {
                             "Server→client sampling/createMessage request (id: {}) — routing to sampling handler",
                             id
                         );
-                        return self.handle_sampling_request(&msg, id, agent_writer).await;
+                        return self
+                            .handle_sampling_request(&msg, id, state, agent_writer)
+                            .await;
                     }
                     "elicitation/create" => {
                         let id = msg.get("id").cloned().unwrap_or(Value::Null);

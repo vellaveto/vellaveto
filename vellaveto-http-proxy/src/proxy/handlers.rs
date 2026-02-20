@@ -1700,8 +1700,29 @@ pub async fn handle_mcp_post(
         }
         MessageType::SamplingRequest { id } => {
             let params = msg.get("params").cloned().unwrap_or(json!({}));
-            let sampling_verdict =
-                vellaveto_mcp::elicitation::inspect_sampling(&params, &state.sampling_config);
+            // SECURITY (FIND-R125-001): Per-session sampling rate limit parity with elicitation.
+            // Atomically read + increment while holding the DashMap lock.
+            let sampling_verdict = {
+                let mut session_ref = state.sessions.get_mut(&session_id);
+                let current_count = session_ref
+                    .as_ref()
+                    .map(|s| s.sampling_count)
+                    .unwrap_or(0);
+                let verdict = vellaveto_mcp::elicitation::inspect_sampling(
+                    &params,
+                    &state.sampling_config,
+                    current_count,
+                );
+                if matches!(
+                    verdict,
+                    vellaveto_mcp::elicitation::SamplingVerdict::Allow
+                ) {
+                    if let Some(ref mut s) = session_ref {
+                        s.sampling_count = s.sampling_count.saturating_add(1);
+                    }
+                }
+                verdict
+            };
             match sampling_verdict {
                 vellaveto_mcp::elicitation::SamplingVerdict::Allow => {
                     // SECURITY (R21-PROXY-2): Use canonicalize_body() consistently
