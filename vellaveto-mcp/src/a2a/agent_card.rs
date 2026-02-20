@@ -23,8 +23,9 @@ use super::error::A2aError;
 /// A2A Agent Card (from specification).
 ///
 /// Describes an agent's identity, capabilities, and how to interact with it.
+/// SECURITY (IMP-R116-009): deny_unknown_fields on externally-deserialized type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentCard {
     /// Human-readable name of the agent.
     pub name: String,
@@ -64,7 +65,9 @@ pub struct AgentCard {
 }
 
 /// Information about the agent provider.
+/// SECURITY (IMP-R116-006): deny_unknown_fields on externally-deserialized type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderInfo {
     /// Organization name.
     pub organization: String,
@@ -75,8 +78,9 @@ pub struct ProviderInfo {
 }
 
 /// Agent capability flags.
+/// SECURITY (IMP-R116-007): deny_unknown_fields on externally-deserialized type.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentCapabilities {
     /// Supports streaming responses (SSE).
     #[serde(default)]
@@ -92,7 +96,9 @@ pub struct AgentCapabilities {
 }
 
 /// Authentication information for the agent.
+/// SECURITY (IMP-R116-008): deny_unknown_fields on externally-deserialized type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuthenticationInfo {
     /// Supported authentication schemes.
     pub schemes: Vec<AuthScheme>,
@@ -110,8 +116,9 @@ pub struct AuthScheme {
 }
 
 /// A skill/function that an agent can perform.
+/// SECURITY (IMP-R116-008): deny_unknown_fields on externally-deserialized type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentSkill {
     /// Unique identifier for the skill.
     pub id: String,
@@ -165,8 +172,14 @@ impl AgentCardCache {
     }
 
     /// Get a cached agent card if available and not expired.
+    ///
+    /// SECURITY (FIND-R112-008): Recovers from RwLock poisoning instead of
+    /// silently returning None, which would hide cache corruption.
     pub fn get_cached(&self, base_url: &str) -> Option<AgentCard> {
-        let cache = self.cache.read().ok()?;
+        let cache = self.cache.read().unwrap_or_else(|e| {
+            tracing::error!("AgentCardCache read lock poisoned");
+            e.into_inner()
+        });
         let entry = cache.get(base_url)?;
 
         if entry.fetched_at.elapsed() < self.ttl {
@@ -186,7 +199,11 @@ impl AgentCardCache {
     /// Previously, concurrent threads could each pass the capacity check
     /// and insert without evicting, causing unbounded growth.
     pub fn store(&self, base_url: &str, card: AgentCard) {
-        if let Ok(mut cache) = self.cache.write() {
+        {
+            let mut cache = self.cache.write().unwrap_or_else(|e| {
+                tracing::error!("AgentCardCache write lock poisoned");
+                e.into_inner()
+            });
             // QUALITY (FIND-GAP-009): Evict expired entries first to prevent
             // unbounded growth from stale cards accumulating over time.
             let ttl = self.ttl;
@@ -223,21 +240,31 @@ impl AgentCardCache {
 
     /// Remove an agent card from the cache.
     pub fn invalidate(&self, base_url: &str) {
-        if let Ok(mut cache) = self.cache.write() {
-            cache.remove(base_url);
-        }
+        let mut cache = self.cache.write().unwrap_or_else(|e| {
+            tracing::error!("AgentCardCache write lock poisoned");
+            e.into_inner()
+        });
+        cache.remove(base_url);
     }
 
     /// Clear all cached entries.
     pub fn clear(&self) {
-        if let Ok(mut cache) = self.cache.write() {
-            cache.clear();
-        }
+        let mut cache = self.cache.write().unwrap_or_else(|e| {
+            tracing::error!("AgentCardCache write lock poisoned");
+            e.into_inner()
+        });
+        cache.clear();
     }
 
     /// Get the number of cached entries.
     pub fn len(&self) -> usize {
-        self.cache.read().map(|c| c.len()).unwrap_or(0)
+        self.cache
+            .read()
+            .unwrap_or_else(|e| {
+                tracing::error!("AgentCardCache read lock poisoned");
+                e.into_inner()
+            })
+            .len()
     }
 
     /// Check if the cache is empty.
@@ -403,6 +430,18 @@ const MAX_AUTH_SCHEMES: usize = 20;
 const MAX_AUTH_SCHEME_DETAILS: usize = 20;
 /// Maximum input/output modes.
 const MAX_IO_MODES: usize = 20;
+/// Maximum length of individual IO mode strings (IMP-R116-012).
+const MAX_IO_MODE_LENGTH: usize = 64;
+/// Maximum length of individual skill tag strings (IMP-R116-013).
+const MAX_SKILL_TAG_LENGTH: usize = 256;
+/// Maximum length of individual skill example strings (IMP-R116-013).
+const MAX_SKILL_EXAMPLE_LENGTH: usize = 4096;
+/// Maximum provider organization name length (IMP-R116-006).
+const MAX_PROVIDER_ORG_LENGTH: usize = 512;
+/// Maximum provider URL length (IMP-R116-006).
+const MAX_PROVIDER_URL_LENGTH: usize = 2048;
+/// Maximum skill description length (IMP-R116-019).
+const MAX_SKILL_DESCRIPTION_LENGTH: usize = 4096;
 
 /// Validate that an agent card has required fields and bounded sizes.
 ///
@@ -453,6 +492,26 @@ pub fn validate_agent_card(card: &AgentCard) -> Result<(), A2aError> {
         }
     }
 
+    // SECURITY (IMP-R116-006): Validate provider sub-fields.
+    if let Some(ref provider) = card.provider {
+        if provider.organization.len() > MAX_PROVIDER_ORG_LENGTH {
+            return Err(A2aError::AgentCardInvalid(format!(
+                "provider.organization length {} exceeds maximum {}",
+                provider.organization.len(),
+                MAX_PROVIDER_ORG_LENGTH
+            )));
+        }
+        if let Some(ref url) = provider.url {
+            if url.len() > MAX_PROVIDER_URL_LENGTH {
+                return Err(A2aError::AgentCardInvalid(format!(
+                    "provider.url length {} exceeds maximum {}",
+                    url.len(),
+                    MAX_PROVIDER_URL_LENGTH
+                )));
+            }
+        }
+    }
+
     // Validate skills bounds
     if card.skills.len() > MAX_AGENT_SKILLS {
         return Err(A2aError::AgentCardInvalid(format!(
@@ -476,6 +535,17 @@ pub fn validate_agent_card(card: &AgentCard) -> Result<(), A2aError> {
                 MAX_SKILL_FIELD_LENGTH
             )));
         }
+        // SECURITY (IMP-R116-019): Validate skill description length.
+        if let Some(ref desc) = skill.description {
+            if desc.len() > MAX_SKILL_DESCRIPTION_LENGTH {
+                return Err(A2aError::AgentCardInvalid(format!(
+                    "skill '{}' description length {} exceeds maximum {}",
+                    skill.id,
+                    desc.len(),
+                    MAX_SKILL_DESCRIPTION_LENGTH
+                )));
+            }
+        }
         if skill.tags.len() > MAX_SKILL_LIST_ENTRIES {
             return Err(A2aError::AgentCardInvalid(format!(
                 "skill tags count {} exceeds maximum {}",
@@ -483,12 +553,59 @@ pub fn validate_agent_card(card: &AgentCard) -> Result<(), A2aError> {
                 MAX_SKILL_LIST_ENTRIES
             )));
         }
+        // SECURITY (IMP-R116-013): Per-element length bounds on tags.
+        for tag in &skill.tags {
+            if tag.len() > MAX_SKILL_TAG_LENGTH {
+                return Err(A2aError::AgentCardInvalid(format!(
+                    "skill '{}' tag length {} exceeds maximum {}",
+                    skill.id,
+                    tag.len(),
+                    MAX_SKILL_TAG_LENGTH
+                )));
+            }
+        }
         if skill.examples.len() > MAX_SKILL_LIST_ENTRIES {
             return Err(A2aError::AgentCardInvalid(format!(
                 "skill examples count {} exceeds maximum {}",
                 skill.examples.len(),
                 MAX_SKILL_LIST_ENTRIES
             )));
+        }
+        // SECURITY (IMP-R116-013): Per-element length bounds on examples.
+        for example in &skill.examples {
+            if example.len() > MAX_SKILL_EXAMPLE_LENGTH {
+                return Err(A2aError::AgentCardInvalid(format!(
+                    "skill '{}' example length {} exceeds maximum {}",
+                    skill.id,
+                    example.len(),
+                    MAX_SKILL_EXAMPLE_LENGTH
+                )));
+            }
+        }
+        // SECURITY (IMP-R116-012): Per-element length bounds on skill input/output modes.
+        if let Some(ref modes) = skill.input_modes {
+            for mode in modes {
+                if mode.len() > MAX_IO_MODE_LENGTH {
+                    return Err(A2aError::AgentCardInvalid(format!(
+                        "skill '{}' input_mode length {} exceeds maximum {}",
+                        skill.id,
+                        mode.len(),
+                        MAX_IO_MODE_LENGTH
+                    )));
+                }
+            }
+        }
+        if let Some(ref modes) = skill.output_modes {
+            for mode in modes {
+                if mode.len() > MAX_IO_MODE_LENGTH {
+                    return Err(A2aError::AgentCardInvalid(format!(
+                        "skill '{}' output_mode length {} exceeds maximum {}",
+                        skill.id,
+                        mode.len(),
+                        MAX_IO_MODE_LENGTH
+                    )));
+                }
+            }
         }
     }
 
@@ -520,12 +637,32 @@ pub fn validate_agent_card(card: &AgentCard) -> Result<(), A2aError> {
             MAX_IO_MODES
         )));
     }
+    // SECURITY (IMP-R116-012): Per-element length bounds on input modes.
+    for mode in &card.default_input_modes {
+        if mode.len() > MAX_IO_MODE_LENGTH {
+            return Err(A2aError::AgentCardInvalid(format!(
+                "default_input_modes element length {} exceeds maximum {}",
+                mode.len(),
+                MAX_IO_MODE_LENGTH
+            )));
+        }
+    }
     if card.default_output_modes.len() > MAX_IO_MODES {
         return Err(A2aError::AgentCardInvalid(format!(
             "default_output_modes count {} exceeds maximum {}",
             card.default_output_modes.len(),
             MAX_IO_MODES
         )));
+    }
+    // SECURITY (IMP-R116-012): Per-element length bounds on output modes.
+    for mode in &card.default_output_modes {
+        if mode.len() > MAX_IO_MODE_LENGTH {
+            return Err(A2aError::AgentCardInvalid(format!(
+                "default_output_modes element length {} exceeds maximum {}",
+                mode.len(),
+                MAX_IO_MODE_LENGTH
+            )));
+        }
     }
 
     Ok(())

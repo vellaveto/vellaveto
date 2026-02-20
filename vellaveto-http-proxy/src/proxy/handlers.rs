@@ -463,15 +463,14 @@ pub async fn handle_mcp_post(
                     tracing::warn!("Failed to audit rug-pull block: {}", e);
                 }
 
+                // SECURITY (FIND-R112-009): Generic client message — the tool name
+                // is NOT included. Detailed tool name is in the audit verdict only.
                 let error_response = json!({
                     "jsonrpc": "2.0",
                     "id": id,
                     "error": {
                         "code": -32001,
-                        "message": format!(
-                            "Denied by Vellaveto: Tool '{}' blocked due to annotation change (rug-pull protection)",
-                            tool_name
-                        ),
+                        "message": "Denied: annotation change detected (rug-pull protection)",
                     }
                 });
                 return attach_session_header(
@@ -2197,6 +2196,86 @@ pub async fn handle_mcp_post(
                 }
             }
 
+            // SECURITY (FIND-R112-008): Injection scanning on PassThrough parameters.
+            // Parity with WebSocket handler (websocket/mod.rs:600-677) which scans ALL
+            // incoming messages. An agent could inject prompt injection payloads via
+            // any PassThrough method's parameters (prompts/get, completion/complete, etc.).
+            if !state.injection_disabled {
+                let scannable = extract_passthrough_text_for_injection(&msg);
+                if !scannable.is_empty() {
+                    let injection_matches: Vec<String> =
+                        if let Some(ref scanner) = state.injection_scanner {
+                            scanner
+                                .inspect(&scannable)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        } else {
+                            inspect_for_injection(&scannable)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        };
+
+                    if !injection_matches.is_empty() {
+                        tracing::warn!(
+                            "SECURITY: Injection in HTTP passthrough params! \
+                             Session: {}, Method: {}, Patterns: {:?}",
+                            session_id,
+                            method_name,
+                            injection_matches,
+                        );
+
+                        let verdict = if state.injection_blocking {
+                            Verdict::Deny {
+                                reason: format!(
+                                    "PassThrough injection blocked: {:?}",
+                                    injection_matches
+                                ),
+                            }
+                        } else {
+                            Verdict::Allow
+                        };
+
+                        let inj_action = Action::new(
+                            "vellaveto",
+                            "passthrough_injection_scan",
+                            json!({
+                                "matched_patterns": injection_matches,
+                                "method": method_name,
+                                "session": session_id,
+                            }),
+                        );
+                        if let Err(e) = state
+                            .audit
+                            .log_entry(
+                                &inj_action,
+                                &verdict,
+                                json!({
+                                    "source": "http_proxy",
+                                    "event": "passthrough_injection_detected",
+                                    "blocking": state.injection_blocking,
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                "Failed to audit passthrough injection: {}",
+                                e
+                            );
+                        }
+
+                        if state.injection_blocking {
+                            return make_jsonrpc_error(
+                                msg.get("id"),
+                                -32001,
+                                "Request blocked: security policy violation",
+                            );
+                        }
+                    }
+                }
+            }
+
             // Canonicalize if configured (KL2 TOCTOU fix)
             let forward_body = match canonicalize_body(&state, &msg, body) {
                 Some(b) => b,
@@ -3610,4 +3689,53 @@ pub async fn handle_mcp_get(
     .await;
 
     attach_session_header(response, &session_id)
+}
+
+/// Extract scannable text from a PassThrough JSON-RPC message for injection scanning.
+///
+/// SECURITY (FIND-R112-008): Recursively extracts string values from `params` and
+/// `result` fields. Bounded to prevent memory amplification from deeply nested or
+/// highly branched JSON structures.
+fn extract_passthrough_text_for_injection(msg: &Value) -> String {
+    const MAX_DEPTH: usize = 10;
+    const MAX_PARTS: usize = 1000;
+    let mut parts = Vec::new();
+
+    // Scan params (client→upstream direction)
+    if let Some(params) = msg.get("params") {
+        extract_strings_for_injection(params, &mut parts, 0, MAX_DEPTH, MAX_PARTS);
+    }
+    // Scan result (upstream→client direction, e.g. sampling/elicitation responses)
+    if let Some(result) = msg.get("result") {
+        extract_strings_for_injection(result, &mut parts, 0, MAX_DEPTH, MAX_PARTS);
+    }
+
+    parts.join("\n")
+}
+
+/// Recursively extract string values from a JSON value with depth and count bounds.
+fn extract_strings_for_injection(
+    val: &Value,
+    parts: &mut Vec<String>,
+    depth: usize,
+    max_depth: usize,
+    max_parts: usize,
+) {
+    if depth > max_depth || parts.len() >= max_parts {
+        return;
+    }
+    match val {
+        Value::String(s) => parts.push(s.clone()),
+        Value::Array(arr) => {
+            for item in arr {
+                extract_strings_for_injection(item, parts, depth + 1, max_depth, max_parts);
+            }
+        }
+        Value::Object(map) => {
+            for (_key, v) in map {
+                extract_strings_for_injection(v, parts, depth + 1, max_depth, max_parts);
+            }
+        }
+        _ => {}
+    }
 }

@@ -26,10 +26,32 @@ const MAX_SCHEMA_DESCRIPTION_LENGTH: usize = 4096;
 const MAX_SCHEMA_DEPTH: usize = 32;
 
 /// SECURITY (FIND-R46-005): Measure JSON value nesting depth.
+/// SECURITY (FIND-R116-011): Bounded recursion to prevent stack overflow
+/// on programmatically-created deeply nested values.
 fn json_depth(value: &serde_json::Value) -> usize {
+    json_depth_bounded(value, 0)
+}
+
+fn json_depth_bounded(value: &serde_json::Value, current: usize) -> usize {
+    // Bail out at MAX_SCHEMA_DEPTH to prevent stack overflow
+    if current >= MAX_SCHEMA_DEPTH {
+        return current;
+    }
     match value {
-        serde_json::Value::Object(map) => 1 + map.values().map(json_depth).max().unwrap_or(0),
-        serde_json::Value::Array(arr) => 1 + arr.iter().map(json_depth).max().unwrap_or(0),
+        serde_json::Value::Object(map) => {
+            1 + map
+                .values()
+                .map(|v| json_depth_bounded(v, current + 1))
+                .max()
+                .unwrap_or(0)
+        }
+        serde_json::Value::Array(arr) => {
+            1 + arr
+                .iter()
+                .map(|v| json_depth_bounded(v, current + 1))
+                .max()
+                .unwrap_or(0)
+        }
         _ => 1,
     }
 }

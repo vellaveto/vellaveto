@@ -722,4 +722,70 @@ mod tests {
         assert_eq!(parsed.intent, Some(Intent::DataRead));
         assert_eq!(parsed.detected_risks.len(), 1);
     }
+
+    // ═══════════════════════════════════════════════════
+    // clamp_confidence TESTS (IMP-R116-017)
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_clamp_confidence_nan_returns_zero() {
+        assert_eq!(clamp_confidence(f64::NAN), 0.0);
+    }
+
+    #[test]
+    fn test_clamp_confidence_positive_infinity_returns_zero() {
+        assert_eq!(clamp_confidence(f64::INFINITY), 0.0);
+    }
+
+    #[test]
+    fn test_clamp_confidence_negative_infinity_returns_zero() {
+        assert_eq!(clamp_confidence(f64::NEG_INFINITY), 0.0);
+    }
+
+    #[test]
+    fn test_clamp_confidence_negative_returns_zero() {
+        assert_eq!(clamp_confidence(-0.5), 0.0);
+    }
+
+    #[test]
+    fn test_clamp_confidence_above_one_clamps() {
+        assert_eq!(clamp_confidence(1.5), 1.0);
+    }
+
+    #[test]
+    fn test_clamp_confidence_valid_unchanged() {
+        assert_eq!(clamp_confidence(0.5), 0.5);
+        assert_eq!(clamp_confidence(0.0), 0.0);
+        assert_eq!(clamp_confidence(1.0), 1.0);
+    }
+
+    #[test]
+    fn test_allow_with_confidence_nan_clamped() {
+        let eval = LlmEvaluation::allow_with_confidence(f64::NAN);
+        assert_eq!(eval.confidence, 0.0);
+    }
+
+    #[test]
+    fn test_allow_with_confidence_negative_clamped() {
+        let eval = LlmEvaluation::allow_with_confidence(-1.0);
+        assert_eq!(eval.confidence, 0.0);
+    }
+
+    #[test]
+    fn test_allow_with_confidence_over_one_clamped() {
+        let eval = LlmEvaluation::allow_with_confidence(2.0);
+        assert_eq!(eval.confidence, 1.0);
+    }
+
+    #[test]
+    fn test_jailbreak_safe_nan_confidence_clamped() {
+        let jb = JailbreakDetection::safe(f64::NAN);
+        assert_eq!(jb.confidence, 0.0);
+    }
+
+    #[test]
+    fn test_jailbreak_detected_negative_confidence_clamped() {
+        let jb = JailbreakDetection::detected("injection", -0.5);
+        assert_eq!(jb.confidence, 0.0);
+    }
 }

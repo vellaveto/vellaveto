@@ -484,12 +484,11 @@ impl McpGrpcService {
                 tracing::warn!("Failed to audit gRPC rug-pull block: {}", e);
             }
 
+            // SECURITY (FIND-R112-009): Generic client message — the tool name
+            // is NOT included. Detailed tool name is in the audit log only.
             return make_proto_denial_response(
                 proto_req,
-                &format!(
-                    "Tool '{}' blocked: annotations changed since initial tools/list (rug-pull detected)",
-                    tool_name
-                ),
+                "Denied: annotation change detected (rug-pull protection)",
             );
         }
 

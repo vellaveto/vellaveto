@@ -125,6 +125,7 @@ impl NlPolicy {
     /// Validates the policy, enforcing bounds on all string and collection fields.
     ///
     /// SECURITY (FIND-R114-013): Unbounded fields in NlPolicy.
+    /// SECURITY (FIND-R116-008): Control character rejection on string fields.
     pub fn validate(&self) -> Result<(), String> {
         if self.id.is_empty() || self.id.len() > MAX_NL_POLICY_ID_LEN {
             return Err(format!(
@@ -133,6 +134,15 @@ impl NlPolicy {
                 self.id.len()
             ));
         }
+        // SECURITY (FIND-R116-008): Control char validation — statement is interpolated into LLM
+        // prompts, so invisible characters could alter prompt interpretation.
+        if self
+            .id
+            .chars()
+            .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+        {
+            return Err("NlPolicy.id contains control or Unicode format characters".to_string());
+        }
         if self.name.len() > MAX_NL_POLICY_NAME_LEN {
             return Err(format!(
                 "NlPolicy.name exceeds max length ({} > {})",
@@ -140,12 +150,38 @@ impl NlPolicy {
                 MAX_NL_POLICY_NAME_LEN
             ));
         }
+        if self
+            .name
+            .chars()
+            .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+        {
+            return Err("NlPolicy.name contains control or Unicode format characters".to_string());
+        }
         if self.statement.is_empty() || self.statement.len() > MAX_NL_POLICY_STATEMENT_LEN {
             return Err(format!(
                 "NlPolicy.statement length must be 1..={}, got {}",
                 MAX_NL_POLICY_STATEMENT_LEN,
                 self.statement.len()
             ));
+        }
+        if self
+            .statement
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\r' && c != '\t')
+        {
+            return Err(
+                "NlPolicy.statement contains control characters (tab/newline permitted)"
+                    .to_string(),
+            );
+        }
+        if self
+            .statement
+            .chars()
+            .any(|c| vellaveto_types::is_unicode_format_char(c))
+        {
+            return Err(
+                "NlPolicy.statement contains Unicode format characters".to_string(),
+            );
         }
         if self.tool_patterns.len() > MAX_NL_POLICY_TOOL_PATTERNS {
             return Err(format!(
@@ -161,6 +197,14 @@ impl NlPolicy {
                     i,
                     p.len(),
                     MAX_NL_POLICY_PATTERN_LEN
+                ));
+            }
+            if p.chars()
+                .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+            {
+                return Err(format!(
+                    "NlPolicy.tool_patterns[{}] contains control or Unicode format characters",
+                    i
                 ));
             }
         }
@@ -716,5 +760,146 @@ mod tests {
         let parsed: NlPolicyMatch = serde_json::from_str(&json).expect("deserialize");
 
         assert_eq!(parsed.policy_id, "test");
+    }
+
+    // ═══════════════════════════════════════════════════
+    // NlPolicy::validate() TESTS (IMP-R116-016)
+    // ═══════════════════════════════════════════════════
+
+    fn make_valid_policy() -> NlPolicy {
+        NlPolicy {
+            id: "test-policy".to_string(),
+            name: "Test Policy".to_string(),
+            statement: "Never allow dangerous operations".to_string(),
+            tool_patterns: vec!["filesystem:*".to_string()],
+            enabled: true,
+            priority: 100,
+        }
+    }
+
+    #[test]
+    fn test_nl_policy_validate_valid() {
+        let p = make_valid_policy();
+        assert!(p.validate().is_ok());
+    }
+
+    #[test]
+    fn test_nl_policy_validate_empty_id() {
+        let mut p = make_valid_policy();
+        p.id = String::new();
+        let err = p.validate().unwrap_err();
+        assert!(err.contains("id length must be"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_nl_policy_validate_id_too_long() {
+        let mut p = make_valid_policy();
+        p.id = "x".repeat(MAX_NL_POLICY_ID_LEN + 1);
+        let err = p.validate().unwrap_err();
+        assert!(err.contains("id length must be"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_nl_policy_validate_id_at_limit() {
+        let mut p = make_valid_policy();
+        p.id = "x".repeat(MAX_NL_POLICY_ID_LEN);
+        assert!(p.validate().is_ok());
+    }
+
+    #[test]
+    fn test_nl_policy_validate_empty_statement() {
+        let mut p = make_valid_policy();
+        p.statement = String::new();
+        let err = p.validate().unwrap_err();
+        assert!(err.contains("statement length must be"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_nl_policy_validate_statement_too_long() {
+        let mut p = make_valid_policy();
+        p.statement = "x".repeat(MAX_NL_POLICY_STATEMENT_LEN + 1);
+        let err = p.validate().unwrap_err();
+        assert!(err.contains("statement length must be"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_nl_policy_validate_too_many_patterns() {
+        let mut p = make_valid_policy();
+        p.tool_patterns = (0..=MAX_NL_POLICY_TOOL_PATTERNS)
+            .map(|i| format!("tool:{}", i))
+            .collect();
+        let err = p.validate().unwrap_err();
+        assert!(err.contains("tool_patterns exceeds max"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_nl_policy_validate_pattern_too_long() {
+        let mut p = make_valid_policy();
+        p.tool_patterns = vec!["x".repeat(MAX_NL_POLICY_PATTERN_LEN + 1)];
+        let err = p.validate().unwrap_err();
+        assert!(err.contains("exceeds max length"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_nl_policy_validate_id_control_chars() {
+        let mut p = make_valid_policy();
+        p.id = "test\x00policy".to_string();
+        let err = p.validate().unwrap_err();
+        assert!(err.contains("control"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_nl_policy_validate_id_unicode_format_chars() {
+        let mut p = make_valid_policy();
+        p.id = "test\u{200B}policy".to_string(); // zero-width space
+        let err = p.validate().unwrap_err();
+        assert!(err.contains("control or Unicode format"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_nl_policy_validate_statement_control_chars() {
+        let mut p = make_valid_policy();
+        p.statement = "Never allow\x01dangerous".to_string();
+        let err = p.validate().unwrap_err();
+        assert!(err.contains("control"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_nl_policy_validate_statement_allows_newlines() {
+        let mut p = make_valid_policy();
+        p.statement = "Line one\nLine two\r\nLine three\ttabbed".to_string();
+        assert!(p.validate().is_ok());
+    }
+
+    #[test]
+    fn test_nl_policy_validate_statement_unicode_format_chars() {
+        let mut p = make_valid_policy();
+        p.statement = "Never allow \u{200B} operations".to_string(); // zero-width space
+        let err = p.validate().unwrap_err();
+        assert!(err.contains("Unicode format"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_nl_policy_validate_pattern_control_chars() {
+        let mut p = make_valid_policy();
+        p.tool_patterns = vec!["tool:\x00*".to_string()];
+        let err = p.validate().unwrap_err();
+        assert!(err.contains("control"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_nl_policy_validate_name_control_chars() {
+        let mut p = make_valid_policy();
+        p.name = "Test\x07Policy".to_string();
+        let err = p.validate().unwrap_err();
+        assert!(err.contains("control"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_nl_policy_validate_name_too_long() {
+        let mut p = make_valid_policy();
+        p.name = "x".repeat(MAX_NL_POLICY_NAME_LEN + 1);
+        let err = p.validate().unwrap_err();
+        assert!(err.contains("name exceeds max length"), "got: {}", err);
     }
 }

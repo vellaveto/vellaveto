@@ -724,4 +724,45 @@ mod tests {
         assert_eq!(parsed.secondary_intents.len(), 1);
         assert_eq!(parsed.detected_risks.len(), 1);
     }
+
+    // ═══════════════════════════════════════════════════
+    // IntentClassification::benign() clamping tests (IMP-R116-018)
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_benign_nan_confidence_clamped_to_zero() {
+        let ic = IntentClassification::benign(f64::NAN);
+        assert_eq!(ic.confidence, 0.0);
+    }
+
+    #[test]
+    fn test_benign_negative_confidence_clamped_to_zero() {
+        let ic = IntentClassification::benign(-1.0);
+        assert_eq!(ic.confidence, 0.0);
+    }
+
+    #[test]
+    fn test_benign_over_one_confidence_clamped() {
+        let ic = IntentClassification::benign(2.0);
+        assert_eq!(ic.confidence, 1.0);
+    }
+
+    #[test]
+    fn test_benign_infinity_confidence_clamped_to_zero() {
+        let ic = IntentClassification::benign(f64::INFINITY);
+        assert_eq!(ic.confidence, 0.0);
+    }
+
+    #[test]
+    fn test_benign_neg_infinity_confidence_clamped_to_zero() {
+        let ic = IntentClassification::benign(f64::NEG_INFINITY);
+        assert_eq!(ic.confidence, 0.0);
+    }
+
+    #[test]
+    fn test_benign_valid_confidence_unchanged() {
+        let ic = IntentClassification::benign(0.75);
+        assert!((ic.confidence - 0.75).abs() < f64::EPSILON);
+        assert_eq!(ic.primary_intent, Intent::Benign);
+    }
 }
