@@ -219,8 +219,10 @@ impl PolicyEngine {
                     deny_reason,
                 } => {
                     // OWASP ASI08: Check call chain depth for multi-agent scenarios
-                    // SECURITY (FIND-R49-002): Use >= for consistency with MaxCalls.
-                    if context.call_chain.len() >= *max_depth {
+                    // SECURITY (FIND-R110-002): Use > so that max_depth=0 means
+                    // "direct calls only" (empty chain allowed) as documented in compiled.rs.
+                    // max_depth is the exclusive upper bound: deny when len > max_depth.
+                    if context.call_chain.len() > *max_depth {
                         return Some(Verdict::Deny {
                             reason: deny_reason.clone(),
                         });

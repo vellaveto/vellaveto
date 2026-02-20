@@ -935,6 +935,18 @@ export class VellavetoClient {
     if (query.length > 1024) {
       throw new VellavetoError("query exceeds max length (1024)");
     }
+    // SECURITY (FIND-R110-SDK-002): Validate maxResults in [1, 20].
+    if (maxResults !== undefined) {
+      if (!Number.isInteger(maxResults) || maxResults < 1 || maxResults > 20) {
+        throw new VellavetoError("maxResults must be an integer in [1, 20]");
+      }
+    }
+    // SECURITY (FIND-R110-SDK-002): Validate tokenBudget non-negative.
+    if (tokenBudget !== undefined) {
+      if (!Number.isInteger(tokenBudget) || tokenBudget < 0) {
+        throw new VellavetoError("tokenBudget must be a non-negative integer");
+      }
+    }
     const body: DiscoverySearchRequest = {
       query,
       max_results: maxResults,

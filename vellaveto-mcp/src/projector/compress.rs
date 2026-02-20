@@ -1,5 +1,9 @@
 use serde_json::Value;
 
+/// Maximum recursion depth for schema compression strategies.
+/// Prevents stack overflow from adversarially nested JSON schemas.
+const MAX_SCHEMA_DEPTH: usize = 64;
+
 /// Compresses JSON Schema tool descriptions to fit within a token budget.
 ///
 /// Applies compression strategies in order of increasing aggressiveness:
@@ -19,7 +23,7 @@ impl SchemaCompressor {
     pub fn compress(schema: &Value, budget: usize) -> Value {
         let mut result = schema.clone();
 
-        let strategies: &[fn(&mut Value)] = &[
+        let strategies: &[fn(&mut Value, usize)] = &[
             strip_redundant_root_type,
             inline_single_value_enums,
             truncate_descriptions,
@@ -31,7 +35,7 @@ impl SchemaCompressor {
             if Self::estimate_tokens(&result) <= budget {
                 break;
             }
-            strategy(&mut result);
+            strategy(&mut result, 0);
         }
 
         result
@@ -52,7 +56,7 @@ impl SchemaCompressor {
 
 /// Remove `"type": "object"` from the root level if `"properties"` exists,
 /// since `"type": "object"` is implied when properties are present.
-fn strip_redundant_root_type(schema: &mut Value) {
+fn strip_redundant_root_type(schema: &mut Value, _depth: usize) {
     if let Some(obj) = schema.as_object_mut() {
         if obj.contains_key("properties") {
             if let Some(Value::String(t)) = obj.get("type") {
@@ -67,7 +71,11 @@ fn strip_redundant_root_type(schema: &mut Value) {
 /// Replace single-value enums with `"const"`.
 /// `{"enum": ["only_value"]}` becomes `{"const": "only_value"}`.
 /// Recurses into all nested objects and arrays.
-fn inline_single_value_enums(schema: &mut Value) {
+fn inline_single_value_enums(schema: &mut Value, depth: usize) {
+    // SECURITY (IMP-R110-003): Prevent stack overflow from deeply nested schemas.
+    if depth > MAX_SCHEMA_DEPTH {
+        return;
+    }
     match schema {
         Value::Object(obj) => {
             // Check if this object itself has a single-value enum
@@ -86,13 +94,13 @@ fn inline_single_value_enums(schema: &mut Value) {
             let keys: Vec<String> = obj.keys().cloned().collect();
             for key in keys {
                 if let Some(val) = obj.get_mut(&key) {
-                    inline_single_value_enums(val);
+                    inline_single_value_enums(val, depth + 1);
                 }
             }
         }
         Value::Array(arr) => {
             for item in arr.iter_mut() {
-                inline_single_value_enums(item);
+                inline_single_value_enums(item, depth + 1);
             }
         }
         _ => {}
@@ -102,7 +110,10 @@ fn inline_single_value_enums(schema: &mut Value) {
 /// Truncate all `"description"` fields to the first sentence.
 /// A sentence ends at the first `.`, `!`, or `?` followed by a space,
 /// newline, or end of string.
-fn truncate_descriptions(schema: &mut Value) {
+fn truncate_descriptions(schema: &mut Value, depth: usize) {
+    if depth > MAX_SCHEMA_DEPTH {
+        return;
+    }
     match schema {
         Value::Object(obj) => {
             if let Some(Value::String(desc)) = obj.get("description") {
@@ -120,14 +131,14 @@ fn truncate_descriptions(schema: &mut Value) {
             for key in keys {
                 if key != "description" {
                     if let Some(val) = obj.get_mut(&key) {
-                        truncate_descriptions(val);
+                        truncate_descriptions(val, depth + 1);
                     }
                 }
             }
         }
         Value::Array(arr) => {
             for item in arr.iter_mut() {
-                truncate_descriptions(item);
+                truncate_descriptions(item, depth + 1);
             }
         }
         _ => {}
@@ -172,14 +183,17 @@ fn first_sentence(text: &str) -> &str {
 /// ```json
 /// { "wrapper": { "type": "string" } }
 /// ```
-fn collapse_single_property_objects(schema: &mut Value) {
+fn collapse_single_property_objects(schema: &mut Value, depth: usize) {
+    if depth > MAX_SCHEMA_DEPTH {
+        return;
+    }
     match schema {
         Value::Object(obj) => {
             // First recurse into children so we collapse bottom-up
             let keys: Vec<String> = obj.keys().cloned().collect();
             for key in &keys {
                 if let Some(val) = obj.get_mut(key) {
-                    collapse_single_property_objects(val);
+                    collapse_single_property_objects(val, depth + 1);
                 }
             }
 
@@ -215,7 +229,7 @@ fn collapse_single_property_objects(schema: &mut Value) {
         }
         Value::Array(arr) => {
             for item in arr.iter_mut() {
-                collapse_single_property_objects(item);
+                collapse_single_property_objects(item, depth + 1);
             }
         }
         _ => {}
@@ -224,7 +238,10 @@ fn collapse_single_property_objects(schema: &mut Value) {
 
 /// Remove `"description"` from properties that are NOT listed in `"required"`.
 /// Required property descriptions are preserved since they are more important.
-fn remove_optional_descriptions(schema: &mut Value) {
+fn remove_optional_descriptions(schema: &mut Value, depth: usize) {
+    if depth > MAX_SCHEMA_DEPTH {
+        return;
+    }
     match schema {
         Value::Object(obj) => {
             // Collect the set of required field names
@@ -253,13 +270,13 @@ fn remove_optional_descriptions(schema: &mut Value) {
             let keys: Vec<String> = obj.keys().cloned().collect();
             for key in keys {
                 if let Some(val) = obj.get_mut(&key) {
-                    remove_optional_descriptions(val);
+                    remove_optional_descriptions(val, depth + 1);
                 }
             }
         }
         Value::Array(arr) => {
             for item in arr.iter_mut() {
-                remove_optional_descriptions(item);
+                remove_optional_descriptions(item, depth + 1);
             }
         }
         _ => {}
@@ -281,7 +298,7 @@ mod tests {
                 "path": {"type": "string"}
             }
         });
-        strip_redundant_root_type(&mut schema);
+        strip_redundant_root_type(&mut schema, 0);
         assert!(schema.get("type").is_none());
         assert!(schema.get("properties").is_some());
     }
@@ -289,7 +306,7 @@ mod tests {
     #[test]
     fn test_compress_keeps_root_type_without_properties() {
         let mut schema = json!({"type": "object"});
-        strip_redundant_root_type(&mut schema);
+        strip_redundant_root_type(&mut schema, 0);
         assert_eq!(schema["type"], "object");
     }
 
@@ -299,7 +316,7 @@ mod tests {
             "type": "string",
             "properties": {"x": {"type": "number"}}
         });
-        strip_redundant_root_type(&mut schema);
+        strip_redundant_root_type(&mut schema, 0);
         // "type": "string" is NOT "object", so it should stay
         assert_eq!(schema["type"], "string");
     }
@@ -313,7 +330,7 @@ mod tests {
                 "mode": {"enum": ["read_only"]}
             }
         });
-        inline_single_value_enums(&mut schema);
+        inline_single_value_enums(&mut schema, 0);
         assert_eq!(schema["properties"]["mode"]["const"], "read_only");
         assert!(schema["properties"]["mode"].get("enum").is_none());
     }
@@ -325,7 +342,7 @@ mod tests {
                 "mode": {"enum": ["read", "write"]}
             }
         });
-        inline_single_value_enums(&mut schema);
+        inline_single_value_enums(&mut schema, 0);
         // Should remain an enum, not converted to const
         assert!(schema["properties"]["mode"].get("enum").is_some());
         assert!(schema["properties"]["mode"].get("const").is_none());
@@ -343,7 +360,7 @@ mod tests {
                 }
             }
         });
-        inline_single_value_enums(&mut schema);
+        inline_single_value_enums(&mut schema, 0);
         assert_eq!(
             schema["properties"]["config"]["properties"]["format"]["const"],
             "json"
@@ -357,7 +374,7 @@ mod tests {
                 "count": {"enum": [1]}
             }
         });
-        inline_single_value_enums(&mut schema);
+        inline_single_value_enums(&mut schema, 0);
         assert_eq!(schema["properties"]["count"]["const"], 1);
     }
 
@@ -371,7 +388,7 @@ mod tests {
                 "path": {"type": "string", "description": "The path to the file. Must be absolute. No symlinks allowed."}
             }
         });
-        truncate_descriptions(&mut schema);
+        truncate_descriptions(&mut schema, 0);
         assert_eq!(schema["description"], "Read a file from disk.");
         assert_eq!(
             schema["properties"]["path"]["description"],
@@ -384,14 +401,14 @@ mod tests {
         let mut schema = json!({
             "description": "Short desc"
         });
-        truncate_descriptions(&mut schema);
+        truncate_descriptions(&mut schema, 0);
         assert_eq!(schema["description"], "Short desc");
     }
 
     #[test]
     fn test_compress_truncate_empty_description() {
         let mut schema = json!({"description": ""});
-        truncate_descriptions(&mut schema);
+        truncate_descriptions(&mut schema, 0);
         assert_eq!(schema["description"], "");
     }
 
@@ -400,7 +417,7 @@ mod tests {
         let mut schema = json!({
             "description": "Warning! This tool is dangerous. Use with caution."
         });
-        truncate_descriptions(&mut schema);
+        truncate_descriptions(&mut schema, 0);
         assert_eq!(schema["description"], "Warning!");
     }
 
@@ -409,7 +426,7 @@ mod tests {
         let mut schema = json!({
             "description": "Ready? Execute the command. Then verify."
         });
-        truncate_descriptions(&mut schema);
+        truncate_descriptions(&mut schema, 0);
         assert_eq!(schema["description"], "Ready?");
     }
 
@@ -419,7 +436,7 @@ mod tests {
         let mut schema = json!({
             "description": "Access api.example.com for data"
         });
-        truncate_descriptions(&mut schema);
+        truncate_descriptions(&mut schema, 0);
         assert_eq!(schema["description"], "Access api.example.com for data");
     }
 
@@ -438,7 +455,7 @@ mod tests {
                 }
             }
         });
-        collapse_single_property_objects(&mut schema);
+        collapse_single_property_objects(&mut schema, 0);
         assert_eq!(schema["properties"]["wrapper"]["type"], "string");
     }
 
@@ -456,7 +473,7 @@ mod tests {
                 }
             }
         });
-        collapse_single_property_objects(&mut schema);
+        collapse_single_property_objects(&mut schema, 0);
         // Should remain unchanged — wrapper has 2 properties
         assert_eq!(schema["properties"]["wrapper"]["type"], "object");
         assert!(schema["properties"]["wrapper"]["properties"]["a"].is_object());
@@ -475,7 +492,7 @@ mod tests {
                 }
             }
         });
-        collapse_single_property_objects(&mut schema);
+        collapse_single_property_objects(&mut schema, 0);
         // Not type:object, should not collapse
         assert_eq!(schema["properties"]["arr"]["type"], "array");
     }
@@ -491,7 +508,7 @@ mod tests {
                 "verbose": {"type": "boolean", "description": "Optional verbose flag"}
             }
         });
-        remove_optional_descriptions(&mut schema);
+        remove_optional_descriptions(&mut schema, 0);
         // Required field keeps its description
         assert_eq!(schema["properties"]["path"]["description"], "Required path");
         // Optional field loses its description
@@ -507,7 +524,7 @@ mod tests {
                 "b": {"type": "integer", "description": "Field B"}
             }
         });
-        remove_optional_descriptions(&mut schema);
+        remove_optional_descriptions(&mut schema, 0);
         assert_eq!(schema["properties"]["a"]["description"], "Field A");
         assert_eq!(schema["properties"]["b"]["description"], "Field B");
     }
@@ -519,7 +536,7 @@ mod tests {
                 "x": {"type": "string", "description": "Will be removed"}
             }
         });
-        remove_optional_descriptions(&mut schema);
+        remove_optional_descriptions(&mut schema, 0);
         // No required array means all are optional, so description removed
         assert!(schema["properties"]["x"].get("description").is_none());
     }
@@ -673,7 +690,7 @@ mod tests {
                 }
             }
         });
-        inline_single_value_enums(&mut schema);
+        inline_single_value_enums(&mut schema, 0);
         assert_eq!(
             schema["properties"]["a"]["properties"]["b"]["properties"]["c"]["const"],
             "deep_value"
@@ -688,7 +705,7 @@ mod tests {
                 {"enum": ["a", "b"]}
             ]
         });
-        inline_single_value_enums(&mut schema);
+        inline_single_value_enums(&mut schema, 0);
         assert_eq!(schema["items"][0]["const"], "only");
         assert!(schema["items"][1].get("const").is_none());
     }
@@ -700,7 +717,7 @@ mod tests {
                 "x": {"enum": []}
             }
         });
-        inline_single_value_enums(&mut schema);
+        inline_single_value_enums(&mut schema, 0);
         // Empty enum should not be converted
         assert!(schema["properties"]["x"].get("enum").is_some());
         assert!(schema["properties"]["x"].get("const").is_none());
@@ -709,7 +726,7 @@ mod tests {
     #[test]
     fn test_compress_description_sentence_at_end() {
         let mut schema = json!({"description": "Only sentence."});
-        truncate_descriptions(&mut schema);
+        truncate_descriptions(&mut schema, 0);
         // Period is at end of string, so entire string is first sentence
         assert_eq!(schema["description"], "Only sentence.");
     }
@@ -734,7 +751,7 @@ mod tests {
                 }
             }
         });
-        collapse_single_property_objects(&mut schema);
+        collapse_single_property_objects(&mut schema, 0);
         // single should be collapsed
         assert_eq!(schema["properties"]["single"]["type"], "integer");
         // multi should remain
@@ -759,5 +776,24 @@ mod tests {
     #[test]
     fn test_first_sentence_whitespace_only() {
         assert_eq!(first_sentence("   "), "");
+    }
+
+    /// SECURITY (IMP-R110-003): Deeply nested schemas do not overflow the stack.
+    #[test]
+    fn test_compress_deeply_nested_schema_no_stack_overflow() {
+        // Build a schema nested > MAX_SCHEMA_DEPTH levels deep
+        let mut schema = json!({"description": "leaf. extra sentence.", "enum": ["only"]});
+        for _ in 0..(MAX_SCHEMA_DEPTH + 20) {
+            schema = json!({
+                "type": "object",
+                "properties": {
+                    "nested": schema
+                }
+            });
+        }
+        // Should not panic/stack overflow — just stops recursing at MAX_SCHEMA_DEPTH
+        let result = SchemaCompressor::compress(&schema, 0);
+        // The top-level type:"object" should still be stripped
+        assert!(result.get("type").is_none());
     }
 }

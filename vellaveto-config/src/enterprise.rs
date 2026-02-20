@@ -105,8 +105,48 @@ pub struct TlsConfig {
     pub crl_path: Option<String>,
 }
 
+/// Maximum number of cipher suites.
+const MAX_CIPHER_SUITES: usize = 64;
+
 fn default_min_tls_version() -> String {
     "1.2".to_string()
+}
+
+impl TlsConfig {
+    /// Validate TLS configuration.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.cipher_suites.len() > MAX_CIPHER_SUITES {
+            return Err(format!(
+                "tls.cipher_suites count {} exceeds maximum {}",
+                self.cipher_suites.len(),
+                MAX_CIPHER_SUITES
+            ));
+        }
+        let valid_versions = ["1.2", "1.3"];
+        if !valid_versions.contains(&self.min_version.as_str()) {
+            return Err(format!(
+                "tls.min_version must be \"1.2\" or \"1.3\" (got: \"{}\")",
+                self.min_version.chars().take(16).collect::<String>()
+            ));
+        }
+        if self.mode == TlsMode::Mtls && self.client_ca_path.is_none() {
+            return Err(
+                "tls.mode = mtls requires tls.client_ca_path to be set".to_string(),
+            );
+        }
+        if self.mode != TlsMode::None && self.cert_path.is_none() {
+            return Err("tls.cert_path required when TLS is enabled".to_string());
+        }
+        if self.mode != TlsMode::None && self.key_path.is_none() {
+            return Err("tls.key_path required when TLS is enabled".to_string());
+        }
+        for suite in &self.cipher_suites {
+            if suite.chars().any(|c| c.is_control()) {
+                return Err("tls.cipher_suites contains control characters".to_string());
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for TlsConfig {
@@ -171,6 +211,43 @@ pub struct SpiffeConfig {
     /// Cache SVID validation results. Default: 60 seconds.
     #[serde(default = "default_svid_cache_ttl")]
     pub svid_cache_ttl_secs: u64,
+}
+
+/// Maximum number of allowed SPIFFE IDs.
+const MAX_SPIFFE_IDS: usize = 1000;
+
+/// Maximum number of SPIFFE ID-to-role mappings.
+const MAX_SPIFFE_ROLE_MAPPINGS: usize = 1000;
+
+impl SpiffeConfig {
+    /// Validate SPIFFE configuration.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.allowed_spiffe_ids.len() > MAX_SPIFFE_IDS {
+            return Err(format!(
+                "spiffe.allowed_spiffe_ids count {} exceeds maximum {}",
+                self.allowed_spiffe_ids.len(),
+                MAX_SPIFFE_IDS
+            ));
+        }
+        if self.id_to_role.len() > MAX_SPIFFE_ROLE_MAPPINGS {
+            return Err(format!(
+                "spiffe.id_to_role count {} exceeds maximum {}",
+                self.id_to_role.len(),
+                MAX_SPIFFE_ROLE_MAPPINGS
+            ));
+        }
+        for sid in &self.allowed_spiffe_ids {
+            if sid.chars().any(|c| c.is_control()) {
+                return Err("spiffe.allowed_spiffe_ids contains control characters".to_string());
+            }
+        }
+        if let Some(ref domain) = self.trust_domain {
+            if domain.chars().any(|c| c.is_control()) {
+                return Err("spiffe.trust_domain contains control characters".to_string());
+            }
+        }
+        Ok(())
+    }
 }
 
 fn default_svid_cache_ttl() -> u64 {
@@ -263,6 +340,53 @@ pub struct OpaConfig {
     /// Higher values improve hit rate but use more memory.
     #[serde(default = "default_opa_cache_size")]
     pub cache_size: usize,
+}
+
+/// Maximum number of OPA headers.
+const MAX_OPA_HEADERS: usize = 50;
+
+/// Maximum OPA cache size.
+const MAX_OPA_CACHE_SIZE: usize = 1_000_000;
+
+impl OpaConfig {
+    /// Validate OPA configuration.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.headers.len() > MAX_OPA_HEADERS {
+            return Err(format!(
+                "opa.headers count {} exceeds maximum {}",
+                self.headers.len(),
+                MAX_OPA_HEADERS
+            ));
+        }
+        if self.cache_size > MAX_OPA_CACHE_SIZE {
+            return Err(format!(
+                "opa.cache_size {} exceeds maximum {}",
+                self.cache_size, MAX_OPA_CACHE_SIZE
+            ));
+        }
+        if let Some(ref endpoint) = self.endpoint {
+            if endpoint.chars().any(|c| c.is_control()) {
+                return Err("opa.endpoint contains control characters".to_string());
+            }
+            if self.require_https
+                && !endpoint.starts_with("https://")
+                && !endpoint.starts_with("http://localhost")
+                && !endpoint.starts_with("http://127.0.0.1")
+            {
+                return Err(format!(
+                    "opa.endpoint must use https:// when require_https is true (got: {})",
+                    endpoint.chars().take(64).collect::<String>()
+                ));
+            }
+        }
+        if self.decision_path.chars().any(|c| c.is_control()) {
+            return Err("opa.decision_path contains control characters".to_string());
+        }
+        if self.fail_open && !self.fail_open_acknowledged {
+            tracing::warn!("SECURITY: opa.fail_open=true without fail_open_acknowledged — fail_open will be ignored");
+        }
+        Ok(())
+    }
 }
 
 fn default_opa_cache_size() -> usize {
@@ -403,6 +527,45 @@ impl std::fmt::Debug for ThreatIntelConfig {
     }
 }
 
+/// Maximum number of IOC types.
+const MAX_IOC_TYPES: usize = 100;
+
+impl ThreatIntelConfig {
+    /// Validate threat intelligence configuration.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.ioc_types.len() > MAX_IOC_TYPES {
+            return Err(format!(
+                "threat_intel.ioc_types count {} exceeds maximum {}",
+                self.ioc_types.len(),
+                MAX_IOC_TYPES
+            ));
+        }
+        let valid_actions = ["deny", "alert", "require_approval"];
+        if !valid_actions.contains(&self.on_match.to_lowercase().as_str()) {
+            return Err(format!(
+                "threat_intel.on_match must be one of {:?} (got: \"{}\")",
+                valid_actions,
+                self.on_match.chars().take(64).collect::<String>()
+            ));
+        }
+        if let Some(ref endpoint) = self.endpoint {
+            if endpoint.chars().any(|c| c.is_control()) {
+                return Err(
+                    "threat_intel.endpoint contains control characters".to_string(),
+                );
+            }
+        }
+        for ioc in &self.ioc_types {
+            if ioc.chars().any(|c| c.is_control()) {
+                return Err(
+                    "threat_intel.ioc_types contains control characters".to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
 fn default_threat_refresh() -> u64 {
     3600
 }
@@ -477,6 +640,49 @@ pub struct JitAccessConfig {
     /// Require re-authentication for JIT elevation. Default: false.
     #[serde(default)]
     pub require_reauth: bool,
+}
+
+/// Maximum number of allowed JIT elevations.
+const MAX_JIT_ELEVATIONS: usize = 50;
+
+impl JitAccessConfig {
+    /// Validate JIT access configuration.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.allowed_elevations.len() > MAX_JIT_ELEVATIONS {
+            return Err(format!(
+                "jit_access.allowed_elevations count {} exceeds maximum {}",
+                self.allowed_elevations.len(),
+                MAX_JIT_ELEVATIONS
+            ));
+        }
+        if self.default_ttl_secs > self.max_ttl_secs {
+            return Err(format!(
+                "jit_access.default_ttl_secs ({}) exceeds max_ttl_secs ({})",
+                self.default_ttl_secs, self.max_ttl_secs
+            ));
+        }
+        if let Some(ref webhook) = self.notification_webhook {
+            if !webhook.starts_with("https://") && !webhook.starts_with("http://localhost") {
+                return Err(format!(
+                    "jit_access.notification_webhook must use https:// (got: {})",
+                    webhook.chars().take(64).collect::<String>()
+                ));
+            }
+            if webhook.chars().any(|c| c.is_control()) {
+                return Err(
+                    "jit_access.notification_webhook contains control characters".to_string(),
+                );
+            }
+        }
+        for elev in &self.allowed_elevations {
+            if elev.chars().any(|c| c.is_control()) {
+                return Err(
+                    "jit_access.allowed_elevations contains control characters".to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 fn default_jit_ttl() -> u64 {

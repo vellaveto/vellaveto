@@ -200,8 +200,10 @@ pub enum CompiledContextCondition {
     /// actions on its behalf. This condition limits how deep such chains can go
     /// to prevent privilege escalation through agent chaining.
     MaxChainDepth {
-        /// Maximum allowed chain depth. A value of 0 means no multi-hop is allowed
-        /// (direct calls only). A value of 1 allows one upstream agent, etc.
+        /// Maximum allowed chain depth. This is an exclusive upper bound: a call
+        /// chain with `len > max_depth` entries is denied. A value of 0 means only
+        /// direct calls are allowed (empty chain); any upstream hop is denied.
+        /// A value of 1 allows exactly one upstream agent, etc.
         max_depth: usize,
         deny_reason: String,
     },

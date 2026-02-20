@@ -534,13 +534,18 @@ const maxApprovalIDLength = 256
 // that can be used for invisible text manipulation attacks.
 // SECURITY (FIND-R80-003): Covers zero-width chars, bidi overrides, BOM,
 // interlinear annotation anchors, and other format characters.
+// SECURITY (FIND-R110-SDK-003): Extended to include U+2028-U+202F, which covers
+// U+2028 LINE SEPARATOR, U+2029 PARAGRAPH SEPARATOR, and the broader bidi
+// embedding controls (U+202A-U+202E). The range 0x2028-0x202F supersedes the
+// old 0x202A-0x202E range, so the narrower check is removed.
 func isUnicodeFormatChar(r rune) bool {
 	// Zero-width and joining chars: U+200B-U+200F
 	if r >= 0x200B && r <= 0x200F {
 		return true
 	}
-	// Bidi overrides: U+202A-U+202E
-	if r >= 0x202A && r <= 0x202E {
+	// Line/paragraph separators + bidi embedding controls: U+2028-U+202F
+	// (supersedes old U+202A-U+202E range — 2028-202F is a strict superset)
+	if r >= 0x2028 && r <= 0x202F {
 		return true
 	}
 	// Word joiner and invisible chars: U+2060-U+2069
@@ -601,11 +606,22 @@ func (c *Client) DenyApproval(ctx context.Context, id string) error {
 	return c.doJSON(ctx, http.MethodPost, "/api/approvals/"+url.PathEscape(id)+"/deny", nil, nil)
 }
 
+// maxDiscoverResults is the maximum allowed value for maxResults in Discover().
+// SECURITY (FIND-R110-SDK-002): Prevents unbounded result set requests.
+const maxDiscoverResults = 20
+
 // Discover searches the tool discovery index for tools matching a query.
 // SECURITY (FIND-R54-SDK-017): Validates query is non-empty before sending.
+// SECURITY (FIND-R110-SDK-002): Validates maxResults in [1, 20] and tokenBudget >= 0.
 func (c *Client) Discover(ctx context.Context, query string, maxResults int, tokenBudget *int) (*DiscoveryResult, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("vellaveto: discovery query must not be empty")
+	}
+	if maxResults < 1 || maxResults > maxDiscoverResults {
+		return nil, fmt.Errorf("vellaveto: maxResults must be in [1, %d], got %d", maxDiscoverResults, maxResults)
+	}
+	if tokenBudget != nil && *tokenBudget < 0 {
+		return nil, fmt.Errorf("vellaveto: tokenBudget must be non-negative")
 	}
 	reqBody := DiscoverRequest{
 		Query:       query,

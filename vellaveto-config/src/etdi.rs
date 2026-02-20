@@ -167,10 +167,120 @@ impl Default for VersionPinningConfig {
     }
 }
 
+/// Maximum number of allowed signer fingerprints or SPIFFE IDs.
+const MAX_ALLOWED_SIGNERS: usize = 1000;
+
+/// Maximum length of a single fingerprint string.
+const MAX_FINGERPRINT_LEN: usize = 256;
+
+/// Maximum length of a single SPIFFE ID string.
+const MAX_SPIFFE_ID_LEN: usize = 512;
+
+impl EtdiConfig {
+    /// Validate the ETDI configuration.
+    pub fn validate(&self) -> Result<(), String> {
+        self.allowed_signers.validate()?;
+        self.attestation.validate()?;
+        self.version_pinning.validate()?;
+        if let Some(ref path) = self.data_path {
+            if path.chars().any(|c| c.is_control()) {
+                return Err("etdi.data_path contains control characters".to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
+impl AllowedSignersConfig {
+    /// Validate bounds on allowed signers collections.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.fingerprints.len() > MAX_ALLOWED_SIGNERS {
+            return Err(format!(
+                "allowed_signers.fingerprints count {} exceeds maximum {}",
+                self.fingerprints.len(),
+                MAX_ALLOWED_SIGNERS
+            ));
+        }
+        if self.spiffe_ids.len() > MAX_ALLOWED_SIGNERS {
+            return Err(format!(
+                "allowed_signers.spiffe_ids count {} exceeds maximum {}",
+                self.spiffe_ids.len(),
+                MAX_ALLOWED_SIGNERS
+            ));
+        }
+        for fp in &self.fingerprints {
+            if fp.len() > MAX_FINGERPRINT_LEN {
+                return Err(format!(
+                    "fingerprint length {} exceeds maximum {}",
+                    fp.len(),
+                    MAX_FINGERPRINT_LEN
+                ));
+            }
+            if fp.chars().any(|c| c.is_control()) {
+                return Err("fingerprint contains control characters".to_string());
+            }
+        }
+        for sid in &self.spiffe_ids {
+            if sid.len() > MAX_SPIFFE_ID_LEN {
+                return Err(format!(
+                    "SPIFFE ID length {} exceeds maximum {}",
+                    sid.len(),
+                    MAX_SPIFFE_ID_LEN
+                ));
+            }
+            if sid.chars().any(|c| c.is_control()) {
+                return Err("SPIFFE ID contains control characters".to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
+impl AttestationConfig {
+    /// Validate attestation configuration.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(ref url) = self.rekor_url {
+            if !url.starts_with("https://") && !url.starts_with("http://localhost") {
+                return Err(format!(
+                    "attestation.rekor_url must use https:// (got: {})",
+                    url.chars().take(64).collect::<String>()
+                ));
+            }
+            if url.chars().any(|c| c.is_control()) {
+                return Err("attestation.rekor_url contains control characters".to_string());
+            }
+        }
+        if self.transparency_log && self.rekor_url.is_none() {
+            return Err(
+                "attestation.transparency_log requires attestation.rekor_url to be set"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+}
+
 impl VersionPinningConfig {
     /// Returns true if enforcement is set to block.
     pub fn is_blocking(&self) -> bool {
         self.enforcement.eq_ignore_ascii_case("block")
+    }
+
+    /// Validate version pinning configuration.
+    pub fn validate(&self) -> Result<(), String> {
+        let lower = self.enforcement.to_lowercase();
+        if lower != "warn" && lower != "block" {
+            return Err(format!(
+                "version_pinning.enforcement must be \"warn\" or \"block\" (got: \"{}\")",
+                self.enforcement.chars().take(64).collect::<String>()
+            ));
+        }
+        if let Some(ref path) = self.pins_path {
+            if path.chars().any(|c| c.is_control()) {
+                return Err("version_pinning.pins_path contains control characters".to_string());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -263,5 +373,105 @@ mod tests {
             auto_pin: false,
         };
         assert!(block_caps.is_blocking());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // ETDI Validation Tests (IMP-R110-002)
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_etdi_config_validate_default_passes() {
+        assert!(EtdiConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn test_allowed_signers_validate_too_many_fingerprints() {
+        let config = AllowedSignersConfig {
+            fingerprints: (0..1001).map(|i| format!("fp{}", i)).collect(),
+            spiffe_ids: vec![],
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("fingerprints count"));
+    }
+
+    #[test]
+    fn test_allowed_signers_validate_too_many_spiffe_ids() {
+        let config = AllowedSignersConfig {
+            fingerprints: vec![],
+            spiffe_ids: (0..1001).map(|i| format!("spiffe://test/{}", i)).collect(),
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("spiffe_ids count"));
+    }
+
+    #[test]
+    fn test_allowed_signers_validate_control_chars_in_fingerprint() {
+        let config = AllowedSignersConfig {
+            fingerprints: vec!["abc\n123".to_string()],
+            spiffe_ids: vec![],
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control characters"));
+    }
+
+    #[test]
+    fn test_attestation_validate_rekor_url_not_https() {
+        let config = AttestationConfig {
+            enabled: true,
+            transparency_log: true,
+            rekor_url: Some("http://rekor.example.com".to_string()),
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("https://"));
+    }
+
+    #[test]
+    fn test_attestation_validate_transparency_log_without_url() {
+        let config = AttestationConfig {
+            enabled: true,
+            transparency_log: true,
+            rekor_url: None,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("rekor_url"));
+    }
+
+    #[test]
+    fn test_attestation_validate_localhost_allowed() {
+        let config = AttestationConfig {
+            enabled: true,
+            transparency_log: true,
+            rekor_url: Some("http://localhost:3000".to_string()),
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_version_pinning_validate_invalid_enforcement() {
+        let config = VersionPinningConfig {
+            enabled: true,
+            enforcement: "allow".to_string(),
+            pins_path: None,
+            auto_pin: false,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("enforcement"));
+    }
+
+    #[test]
+    fn test_version_pinning_validate_warn_ok() {
+        let config = VersionPinningConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_version_pinning_validate_block_ok() {
+        let config = VersionPinningConfig {
+            enabled: true,
+            enforcement: "Block".to_string(),
+            pins_path: None,
+            auto_pin: false,
+        };
+        assert!(config.validate().is_ok());
     }
 }

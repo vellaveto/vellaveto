@@ -7888,10 +7888,10 @@ fn test_context_max_chain_depth_over_limit_denies() {
     );
 }
 
-// SECURITY (FIND-R49-002): MaxChainDepth uses >= for consistency with MaxCalls.
-// Exact limit now denies; one below limit allows.
+// SECURITY (FIND-R110-002): MaxChainDepth uses > (exclusive upper bound).
+// A chain of length max_depth is allowed; length max_depth+1 is denied.
 #[test]
-fn test_context_max_chain_depth_exact_limit_denies() {
+fn test_context_max_chain_depth_exact_limit_allows() {
     let policy = make_context_policy(json!([
         {"type": "max_chain_depth", "max_depth": 2}
     ]));
@@ -7913,8 +7913,8 @@ fn test_context_max_chain_depth_exact_limit_denies() {
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
     assert!(
-        matches!(v, Verdict::Deny { .. }),
-        "Chain depth 2 == max 2 should deny (>= semantics), got: {:?}",
+        matches!(v, Verdict::Allow),
+        "Chain depth 2 == max_depth 2 should allow (> exclusive semantics), got: {:?}",
         v
     );
 }

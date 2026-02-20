@@ -7534,3 +7534,125 @@ fn test_threat_intel_refresh_interval_zero_rejected() {
     assert!(err.contains("refresh_interval_secs"), "Error should mention field: {}", err);
     assert!(err.contains("must be > 0"), "Error should mention > 0: {}", err);
 }
+
+// ── FIND-R110-CFG-001: AuditExportConfig webhook HTTPS-only ──────────────────
+
+#[test]
+fn test_validate_webhook_url_http_rejected() {
+    let cfg = crate::PolicyConfig {
+        audit_export: crate::detection::AuditExportConfig {
+            webhook_url: Some("http://siem.example.com/ingest".to_string()),
+            ..Default::default()
+        },
+        ..crate::PolicyConfig::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("HTTPS"),
+        "HTTP webhook should require HTTPS, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_webhook_url_https_accepted() {
+    let cfg = crate::PolicyConfig {
+        audit_export: crate::detection::AuditExportConfig {
+            webhook_url: Some("https://siem.example.com/ingest".to_string()),
+            ..Default::default()
+        },
+        ..crate::PolicyConfig::default()
+    };
+    // Should not error on the scheme itself (may still error on private IP etc.)
+    // We just verify the scheme check passes with a public HTTPS URL
+    let result = cfg.validate();
+    assert!(result.is_ok(), "https:// webhook should be accepted, got: {:?}", result.err());
+}
+
+#[test]
+fn test_validate_webhook_url_ftp_rejected() {
+    let cfg = crate::PolicyConfig {
+        audit_export: crate::detection::AuditExportConfig {
+            webhook_url: Some("ftp://siem.example.com/ingest".to_string()),
+            ..Default::default()
+        },
+        ..crate::PolicyConfig::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("HTTPS"),
+        "ftp:// webhook should be rejected with HTTPS message, got: {}",
+        err
+    );
+}
+
+// ── FIND-R110-CFG-002: ClusterConfig redis URL scheme + pool size ─────────────
+
+#[test]
+fn test_cluster_redis_url_invalid_scheme_rejected() {
+    let mut cfg = crate::cluster::ClusterConfig::default();
+    cfg.redis_url = "http://localhost:6379".to_string();
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("redis://") || err.contains("rediss://"),
+        "invalid scheme should be rejected, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_cluster_redis_url_file_scheme_rejected() {
+    let mut cfg = crate::cluster::ClusterConfig::default();
+    cfg.redis_url = "file:///etc/passwd".to_string();
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("redis://") || err.contains("rediss://"),
+        "file:// scheme should be rejected, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_cluster_redis_url_redis_scheme_accepted() {
+    let mut cfg = crate::cluster::ClusterConfig::default();
+    cfg.redis_url = "redis://my-redis:6379".to_string();
+    assert!(cfg.validate().is_ok(), "redis:// should be accepted");
+}
+
+#[test]
+fn test_cluster_redis_url_rediss_scheme_accepted() {
+    let mut cfg = crate::cluster::ClusterConfig::default();
+    cfg.redis_url = "rediss://my-redis-tls:6380".to_string();
+    assert!(cfg.validate().is_ok(), "rediss:// should be accepted");
+}
+
+#[test]
+fn test_cluster_pool_size_zero_rejected() {
+    let mut cfg = crate::cluster::ClusterConfig::default();
+    cfg.redis_pool_size = 0;
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("redis_pool_size") && err.contains(">= 1"),
+        "zero pool size should be rejected, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_cluster_pool_size_too_large_rejected() {
+    let mut cfg = crate::cluster::ClusterConfig::default();
+    cfg.redis_pool_size = 1000;
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("redis_pool_size") && err.contains("exceeds maximum"),
+        "oversized pool size should be rejected, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_cluster_pool_size_valid_accepted() {
+    let mut cfg = crate::cluster::ClusterConfig::default();
+    cfg.redis_pool_size = 16;
+    assert!(cfg.validate().is_ok(), "valid pool size should be accepted");
+}

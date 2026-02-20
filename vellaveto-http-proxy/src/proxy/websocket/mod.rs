@@ -2849,14 +2849,30 @@ async fn relay_upstream_to_client(
 /// Convert an HTTP URL to a WebSocket URL.
 ///
 /// `http://` → `ws://`, `https://` → `wss://`.
+///
+/// SECURITY (FIND-R124-001): Only allows http/https/ws/wss schemes.
+/// Unknown schemes (ftp://, file://, gopher://) are rejected with a
+/// warning and fall back to the original URL prefixed with `ws://`
+/// to maintain fail-closed behavior. This gives parity with scheme
+/// validation in HTTP and gRPC transports (FIND-R42-015).
 pub fn convert_to_ws_url(http_url: &str) -> String {
     if let Some(rest) = http_url.strip_prefix("https://") {
         format!("wss://{}", rest)
     } else if let Some(rest) = http_url.strip_prefix("http://") {
         format!("ws://{}", rest)
-    } else {
-        // Already ws(s):// or unknown scheme — use as-is
+    } else if http_url.starts_with("wss://") || http_url.starts_with("ws://") {
+        // Already a WebSocket URL — use as-is
         http_url.to_string()
+    } else {
+        // SECURITY (FIND-R124-001): Reject unknown schemes. Log warning
+        // and return a URL that will fail to connect safely rather than
+        // connecting to an unintended scheme (e.g., ftp://, file://).
+        tracing::warn!(
+            "convert_to_ws_url: rejecting URL with unsupported scheme: {}",
+            http_url.split("://").next().unwrap_or("unknown")
+        );
+        // Return invalid URL that will fail at connect_async()
+        format!("ws://invalid-scheme-rejected.localhost/{}", http_url.len())
     }
 }
 

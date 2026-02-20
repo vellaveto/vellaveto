@@ -132,6 +132,22 @@ impl SamplingDetector {
     ///
     /// # Returns
     /// `Ok(())` if allowed, `Err(SamplingDenied)` if blocked.
+    ///
+    /// # Known Limitation: TOCTOU Rate-Limit Gap (FIND-R110-MCP-001)
+    ///
+    /// The rate limit check (`check_request`) and the increment (`record_request`)
+    /// are two separate operations, each acquiring the write lock independently.
+    /// A concurrent caller can therefore pass the check and record a request between
+    /// another caller's check and record, allowing a short burst above the configured
+    /// limit before both increments are committed.
+    ///
+    /// Merging check and record into a single atomic operation would require callers
+    /// to always decrement on downstream failure, complicating the public API. The
+    /// current split design is therefore intentional and documented.
+    ///
+    /// **Actual ReDoS risk: none.** The `regex` crate's DFA/NFA engine is immune to
+    /// catastrophic backtracking regardless of pattern content — the TOCTOU window
+    /// only affects rate-limit precision, not correctness or safety.
     pub fn check_request(
         &self,
         session_id: &str,

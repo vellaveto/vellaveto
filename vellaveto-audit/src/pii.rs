@@ -35,6 +35,20 @@ const MAX_REGEX_LEN: usize = 1024;
 /// to catastrophic backtracking for most patterns. This validation is
 /// defense-in-depth for patterns that may be used with other engines or
 /// future regex implementations.
+///
+/// # Known Limitation: Flat Boolean Tracking (FIND-R110-AUD-001)
+///
+/// The `has_inner_quantifier` flag is reset on every `(` token. This means
+/// patterns with multiple nested groups lose the outer group's quantifier
+/// context when the inner group is entered. For example, the pattern
+/// `(a+b(c)d)+` is a **false negative**: the outer group `(a+b...d)+` has
+/// an inner quantifier (`+` on `a`), but when `(c)` is parsed, the flag is
+/// reset to `false`, so the outer group's quantifier is no longer detected.
+///
+/// Fixing this correctly would require a stack-based paren-depth tracker.
+/// Given that the `regex` crate's DFA engine prevents actual catastrophic
+/// backtracking regardless of pattern structure, this false-negative only
+/// affects defense-in-depth rather than real ReDoS risk.
 pub fn validate_regex_safety(pattern: &str) -> Result<(), String> {
     if pattern.len() > MAX_REGEX_LEN {
         return Err(format!(

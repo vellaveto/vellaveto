@@ -329,9 +329,12 @@ class TestVellavetoClientErrors:
         client.close()
 
     def test_connection_error(self, httpx_mock):
+        # SECURITY (FIND-R110-SDK-001): ConnectError is now retried (max_retries=3),
+        # so we need is_reusable=True to allow the mock to match all retry attempts.
         httpx_mock.add_exception(
             httpx.ConnectError("Connection refused"),
             url="http://localhost:3000/api/evaluate",
+            is_reusable=True,
         )
 
         client = VellavetoClient()

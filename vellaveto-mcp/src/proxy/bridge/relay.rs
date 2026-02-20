@@ -2258,20 +2258,27 @@ impl ProxyBridge {
                 }
 
                 // All other server-initiated requests are blocked.
+                // SECURITY (FIND-R110-004): Sanitize method name before logging/echoing
+                // to prevent log injection and information leakage from child server.
+                let safe_method: String = method
+                    .chars()
+                    .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
+                    .take(128)
+                    .collect();
                 tracing::warn!(
                     "SECURITY: Server sent request '{}' — blocked (only notifications and sampling/elicitation allowed from server)",
-                    method
+                    safe_method
                 );
                 let action = vellaveto_types::Action::new(
                     "vellaveto",
                     "server_request_blocked",
                     json!({
-                        "method": method,
+                        "method": safe_method,
                         "request_id": msg.get("id"),
                     }),
                 );
                 let verdict = Verdict::Deny {
-                    reason: format!("Server-initiated request '{}' blocked by Vellaveto", method),
+                    reason: "Server-initiated request blocked by Vellaveto".to_string(),
                 };
                 if let Err(e) = self
                     .audit
@@ -2289,10 +2296,7 @@ impl ProxyBridge {
                     "id": msg.get("id").cloned().unwrap_or(Value::Null),
                     "error": {
                         "code": -32001,
-                        "message": format!(
-                            "{} blocked by Vellaveto proxy — server-initiated requests not allowed",
-                            method
-                        )
+                        "message": "Server-initiated request blocked by Vellaveto proxy"
                     }
                 });
                 write_message(child_stdin, &error_response)

@@ -40,11 +40,35 @@ fn test_ws_url_scheme_passthrough_wss() {
     );
 }
 
+/// SECURITY (FIND-R124-001): Unknown schemes are rejected, not passed through.
+/// This gives parity with HTTP/gRPC transport scheme validation (FIND-R42-015).
 #[test]
-fn test_ws_url_scheme_unknown_passthrough() {
-    assert_eq!(
-        convert_to_ws_url("ftp://files.example.com"),
-        "ftp://files.example.com"
+fn test_ws_url_scheme_unknown_rejected() {
+    let result = convert_to_ws_url("ftp://files.example.com");
+    assert!(
+        result.starts_with("ws://invalid-scheme-rejected"),
+        "Unknown scheme should be rejected, got: {}",
+        result
+    );
+}
+
+#[test]
+fn test_ws_url_scheme_file_rejected() {
+    let result = convert_to_ws_url("file:///etc/passwd");
+    assert!(
+        result.starts_with("ws://invalid-scheme-rejected"),
+        "file:// scheme should be rejected, got: {}",
+        result
+    );
+}
+
+#[test]
+fn test_ws_url_scheme_gopher_rejected() {
+    let result = convert_to_ws_url("gopher://evil.example.com");
+    assert!(
+        result.starts_with("ws://invalid-scheme-rejected"),
+        "gopher:// scheme should be rejected, got: {}",
+        result
     );
 }
 

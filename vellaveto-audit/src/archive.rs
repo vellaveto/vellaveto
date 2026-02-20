@@ -28,6 +28,23 @@ pub struct ArchiveConfig {
     pub retention_days: u32,
 }
 
+/// Maximum retention period in days (~100 years).
+const MAX_RETENTION_DAYS: u32 = 36500;
+
+impl ArchiveConfig {
+    /// Validate the archive configuration.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.retention_days > MAX_RETENTION_DAYS {
+            return Err(format!(
+                "archive.retention_days {} exceeds maximum {}",
+                self.retention_days, MAX_RETENTION_DAYS
+            ));
+        }
+        // 0 is explicitly allowed as "keep forever"
+        Ok(())
+    }
+}
+
 impl Default for ArchiveConfig {
     fn default() -> Self {
         Self {
@@ -335,5 +352,39 @@ mod tests {
         let config = ArchiveConfig::default();
         assert!(config.compress);
         assert_eq!(config.retention_days, 365);
+    }
+
+    /// SECURITY (IMP-R110-006): Validate retention_days bounds.
+    #[test]
+    fn test_archive_config_validate_default_passes() {
+        assert!(ArchiveConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn test_archive_config_validate_zero_retention_ok() {
+        let config = ArchiveConfig {
+            compress: true,
+            retention_days: 0,
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_archive_config_validate_max_retention_ok() {
+        let config = ArchiveConfig {
+            compress: true,
+            retention_days: 36500,
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_archive_config_validate_exceeds_max() {
+        let config = ArchiveConfig {
+            compress: true,
+            retention_days: 36501,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("retention_days"));
     }
 }

@@ -160,7 +160,11 @@ import re as _re
 
 _CONTROL_CHAR_RE = _re.compile(r"[\x00-\x1f\x7f-\x9f]")
 _UNICODE_FORMAT_RE = _re.compile(
-    r"[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff\ufff9-\ufffb]"
+    # SECURITY (FIND-R110-SDK-003): Added U+2028-202F (line/paragraph separators
+    # and bidi embedding controls). The broader 2028-202F range supersedes the
+    # old 202A-202E range and also covers U+2028 LINE SEPARATOR and U+2029
+    # PARAGRAPH SEPARATOR which can be used for injection.
+    r"[\u200b-\u200f\u2028-\u202f\u2060-\u2069\ufeff\ufff9-\ufffb]"
 )
 
 
@@ -493,7 +497,10 @@ class VellavetoClient:
                 # leakage. The requests/httpx libraries may include the Authorization
                 # header in exception messages on connection failures.
                 last_exc = e
-                is_connection = "Connection" in str(type(e).__name__)
+                # SECURITY (FIND-R110-SDK-001): Match both "ConnectionError" and
+                # "ConnectError" (httpx raises ConnectError, requests raises
+                # ConnectionError). Check for "Connect" covers both.
+                is_connection = "Connect" in str(type(e).__name__)
                 # SECURITY (FIND-SDK-014): Retry connection errors
                 if is_connection and attempt < self.max_retries:
                     time.sleep(0.5 * (2 ** attempt))
@@ -685,6 +692,14 @@ class VellavetoClient:
         # SECURITY (FIND-R104-SDK-003): Cap query length. Parity with TS SDK (1024).
         if len(query) > 1024:
             raise VellavetoError("discovery query exceeds max length (1024)")
+        # SECURITY (FIND-R110-SDK-002): Validate max_results [1, 20]. The docstring
+        # documents max 20; enforce it to prevent unbounded result sets.
+        if not isinstance(max_results, int) or max_results < 1 or max_results > 20:
+            raise VellavetoError("max_results must be an integer in [1, 20]")
+        # SECURITY (FIND-R110-SDK-002): Validate token_budget non-negative.
+        if token_budget is not None:
+            if not isinstance(token_budget, int) or token_budget < 0:
+                raise VellavetoError("token_budget must be a non-negative integer")
         payload: Dict[str, Any] = {
             "query": query,
             "max_results": max_results,
@@ -1086,7 +1101,10 @@ class AsyncVellavetoClient:
             except Exception as e:
                 # SECURITY (FIND-SDK-001): Sanitize error messages in async client too.
                 last_exc = e
-                is_connection = "Connection" in str(type(e).__name__)
+                # SECURITY (FIND-R110-SDK-001): Match both "ConnectionError" and
+                # "ConnectError" (httpx raises ConnectError). Check for "Connect"
+                # covers both names.
+                is_connection = "Connect" in str(type(e).__name__)
                 # SECURITY (FIND-R51-003): Retry connection errors
                 if is_connection and attempt < self.max_retries:
                     await asyncio.sleep(0.5 * (2 ** attempt))
@@ -1236,6 +1254,13 @@ class AsyncVellavetoClient:
         # SECURITY (FIND-R104-SDK-003): Cap query length. Parity with TS SDK (1024).
         if len(query) > 1024:
             raise VellavetoError("discovery query exceeds max length (1024)")
+        # SECURITY (FIND-R110-SDK-002): Validate max_results [1, 20]. Parity with sync.
+        if not isinstance(max_results, int) or max_results < 1 or max_results > 20:
+            raise VellavetoError("max_results must be an integer in [1, 20]")
+        # SECURITY (FIND-R110-SDK-002): Validate token_budget non-negative.
+        if token_budget is not None:
+            if not isinstance(token_budget, int) or token_budget < 0:
+                raise VellavetoError("token_budget must be a non-negative integer")
         payload: Dict[str, Any] = {
             "query": query,
             "max_results": max_results,

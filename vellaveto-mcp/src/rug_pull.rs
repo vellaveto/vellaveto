@@ -577,14 +577,23 @@ pub fn detect_squatting(tool_name: &str, known_tools: &HashSet<String>) -> Vec<S
                 distance: 0,
                 kind: SquattingKind::MixedScript,
             });
-        } else if let Some(known) = known_tools.iter().next() {
-            // If no homoglyph match, still report mixed-script as standalone warning
-            alerts.push(SquattingAlert {
-                suspicious_tool: tool_name.to_string(),
-                similar_to: known.clone(),
-                distance: 0,
-                kind: SquattingKind::MixedScript,
-            });
+        } else {
+            // SECURITY (FIND-R110-MCP-003): If no homoglyph match, still report
+            // mixed-script as a standalone warning. Sort known tools before
+            // selecting the first so the alert message is deterministic across
+            // runs — HashSet::iter().next() is non-deterministic (hash-order
+            // dependent) and would produce inconsistent audit log entries for
+            // the same input.
+            let mut sorted_known: Vec<&String> = known_tools.iter().collect();
+            sorted_known.sort();
+            if let Some(known) = sorted_known.into_iter().next() {
+                alerts.push(SquattingAlert {
+                    suspicious_tool: tool_name.to_string(),
+                    similar_to: known.clone(),
+                    distance: 0,
+                    kind: SquattingKind::MixedScript,
+                });
+            }
         }
     }
 

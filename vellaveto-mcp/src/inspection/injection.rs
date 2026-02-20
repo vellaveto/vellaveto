@@ -230,8 +230,16 @@ impl InjectionScanner {
         }
 
         if patterns.is_empty() {
+            // SECURITY (FIND-R110-MCP-004): The previous message "scanner will use
+            // defaults" was misleading — returning None means NO scanner is created
+            // and injection detection is DISABLED for this call site, not replaced
+            // with defaults. Callers that receive None must handle this as disabled
+            // detection (fail-open for injection scanning) and should either refuse
+            // to start or fall back to the free `inspect_for_injection()` function.
             tracing::warn!(
-                "InjectionScanner: all patterns disabled by configuration — scanner will use defaults"
+                "InjectionScanner: all patterns disabled by configuration — \
+                 injection detection is DISABLED (returning None). \
+                 Use the free inspect_for_injection() function for default-pattern scanning."
             );
             return None;
         }
@@ -783,9 +791,18 @@ fn decode_emoji(text: &str) -> Option<String> {
             }
         }
 
+        // SECURITY (FIND-R110-MCP-002): Use only exact equality for matching.
+        // The previous `emoji.starts_with(c)` condition caused false positives:
+        // `str::starts_with(char)` checks whether the *string* starts with that
+        // char, so any EMOJI_COMMANDS entry whose first character equals `c`
+        // would match even when the full emoji (including variation selector)
+        // was different (e.g. '🗑' matching '🗑️'). Because `emoji_str` is
+        // always built directly from `c` (and an optional variation selector
+        // already consumed via `chars.next()`), exact equality is sufficient
+        // and avoids spurious matches.
         if let Some((_, command)) = EMOJI_COMMANDS
             .iter()
-            .find(|(emoji, _)| *emoji == emoji_str || emoji.starts_with(c))
+            .find(|(emoji, _)| *emoji == emoji_str)
         {
             if !decoded.is_empty() && !decoded.ends_with(' ') {
                 decoded.push(' ');

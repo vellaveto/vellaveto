@@ -71,6 +71,9 @@ const MAX_CLUSTER_URL_LENGTH: usize = 2048;
 /// Maximum key prefix length.
 const MAX_CLUSTER_PREFIX_LENGTH: usize = 64;
 
+/// Maximum Redis connection pool size.
+const MAX_CLUSTER_REDIS_POOL_SIZE: usize = 512;
+
 /// Valid cluster backend values.
 const VALID_CLUSTER_BACKENDS: &[&str] = &["local", "redis"];
 
@@ -98,6 +101,27 @@ impl ClusterConfig {
         }
         if cluster_contains_control_chars(&self.redis_url) {
             return Err("cluster.redis_url contains control characters".to_string());
+        }
+        // SECURITY (FIND-R110-CFG-002): Reject non-Redis URL schemes to prevent
+        // SSRF via arbitrary protocol URLs (e.g., file://, http://).
+        if !self.redis_url.is_empty()
+            && !self.redis_url.starts_with("redis://")
+            && !self.redis_url.starts_with("rediss://")
+        {
+            return Err(
+                "cluster.redis_url must use redis:// or rediss:// scheme".to_string(),
+            );
+        }
+
+        // Validate redis_pool_size
+        if self.redis_pool_size == 0 {
+            return Err("cluster.redis_pool_size must be >= 1".to_string());
+        }
+        if self.redis_pool_size > MAX_CLUSTER_REDIS_POOL_SIZE {
+            return Err(format!(
+                "cluster.redis_pool_size {} exceeds maximum {}",
+                self.redis_pool_size, MAX_CLUSTER_REDIS_POOL_SIZE
+            ));
         }
 
         // Validate key_prefix

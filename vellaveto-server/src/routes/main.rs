@@ -893,8 +893,13 @@ fn validate_origin(origin: &str, allowed_origins: &[String]) -> bool {
         }
     }
 
-    // Return true if matched or if it's localhost (fallback)
-    matched || is_localhost(&parsed_origin)
+    // SECURITY (FIND-R110-SRV-001): When allowed_origins is non-empty, only origins in the
+    // explicit allowlist are permitted. The localhost fallback is intentionally NOT applied here:
+    // if an operator has configured allowed_origins, localhost requests from unauthorized agents
+    // must be blocked. Localhost-as-fallback only applies when no origins are configured (above).
+    // Previously `matched || is_localhost(&parsed_origin)` allowed any localhost request to bypass
+    // a non-empty allowlist — a CSRF bypass when deployed with an explicit origin allowlist.
+    matched
 }
 
 /// Middleware that requires API key authentication.
@@ -1066,6 +1071,19 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
 ///
 /// Accepts an action plus an optional evaluation context for context-aware
 /// policy evaluation (time windows, call limits, agent identity, etc.).
+///
+/// # Security note (FIND-R110-SRV-003)
+///
+/// `#[serde(deny_unknown_fields)]` is intentionally omitted here.
+/// `serde_json` does not support combining `deny_unknown_fields` with
+/// `#[serde(flatten)]` — when both are present, the flattened fields from
+/// `Action` are treated as unknown and the entire deserialization fails.
+/// This is a known serde limitation tracked at <https://github.com/serde-rs/serde/issues/1358>.
+///
+/// Mitigation: `Action::validate()` is called on every request (see evaluate handler
+/// below), which enforces structural invariants on the deserialized action. Unknown
+/// top-level fields beyond `action` and `context` are silently ignored but cannot
+/// influence policy evaluation.
 #[derive(Deserialize)]
 struct EvaluateRequest {
     #[serde(flatten)]
@@ -3221,11 +3239,32 @@ mod tests {
 
         assert!(validate_origin("https://app.example.com", &origins));
         assert!(validate_origin("https://admin.example.com", &origins));
-        // localhost is always allowed as fallback
-        assert!(validate_origin("http://localhost", &origins));
+        // SECURITY (FIND-R110-SRV-001): localhost is NOT a fallback when origins are configured.
+        // An explicit allowlist means only listed origins are permitted — localhost must be
+        // explicitly added to the allowlist if desired.
+        assert!(!validate_origin("http://localhost", &origins));
         // Other origins blocked
         assert!(!validate_origin("https://attacker.com", &origins));
         assert!(!validate_origin("https://example.com", &origins));
+    }
+
+    #[test]
+    fn test_validate_origin_localhost_blocked_when_origins_configured() {
+        // SECURITY (FIND-R110-SRV-001): When allowed_origins is non-empty, localhost must
+        // NOT bypass the configured allowlist. This prevents CSRF attacks from localhost
+        // agents against servers with an explicit origin policy.
+        let origins = vec!["https://app.example.com".to_string()];
+        assert!(!validate_origin("http://localhost", &origins));
+        assert!(!validate_origin("http://localhost:8080", &origins));
+        assert!(!validate_origin("http://127.0.0.1", &origins));
+        assert!(!validate_origin("http://[::1]", &origins));
+        // But if localhost IS in the allowlist, it should be permitted
+        let origins_with_localhost = vec![
+            "https://app.example.com".to_string(),
+            "http://localhost:3000".to_string(),
+        ];
+        assert!(validate_origin("http://localhost:3000", &origins_with_localhost));
+        assert!(!validate_origin("http://localhost:8080", &origins_with_localhost));
     }
 
     #[test]

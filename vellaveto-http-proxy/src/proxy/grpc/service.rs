@@ -860,6 +860,58 @@ impl McpGrpcService {
         _id: &Value,
         uri: &str,
     ) -> JsonRpcResponse {
+        // SECURITY (FIND-R110-HTTP-002): Memory poisoning detection for resource URIs.
+        // Parity with HTTP handler (handlers.rs:1491-1546, R27-PROXY-2).
+        // ResourceRead is a likely exfiltration vector: a poisoned tool response says
+        // "read this file" and the agent issues resources/read for that URI. Without this
+        // check, the gRPC transport allows poisoned resource reads that HTTP blocks.
+        if let Some(session) = self.state.sessions.get_mut(session_id) {
+            let uri_params = serde_json::json!({"uri": uri});
+            let poisoning_matches = session.memory_tracker.check_parameters(&uri_params);
+            if !poisoning_matches.is_empty() {
+                for m in &poisoning_matches {
+                    tracing::warn!(
+                        "SECURITY: Memory poisoning detected in gRPC resources/read (session {}): \
+                         param '{}' contains replayed data (fingerprint: {})",
+                        session_id,
+                        m.param_location,
+                        m.fingerprint
+                    );
+                }
+                let action = extractor::extract_resource_action(uri);
+                let deny_reason = format!(
+                    "Memory poisoning detected: {} replayed data fragment(s) in resources/read",
+                    poisoning_matches.len()
+                );
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Deny {
+                            reason: deny_reason.clone(),
+                        },
+                        json!({
+                            "source": "grpc_proxy",
+                            "session": session_id,
+                            "transport": "grpc",
+                            "event": "memory_poisoning_detected",
+                            "matches": poisoning_matches.len(),
+                            "uri": uri,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit gRPC resource memory poisoning: {}", e);
+                }
+
+                // Drop session borrow before returning
+                drop(session);
+
+                return make_proto_denial_response(proto_req, &deny_reason);
+            }
+        }
+
         let action = extractor::extract_resource_action(uri);
         let ctx = self.build_evaluation_context(session_id);
 
@@ -1541,6 +1593,60 @@ impl McpService for McpGrpcService {
             }
         }
 
+        // SECURITY (FIND-R110-HTTP-001): Session ownership check + bind for gRPC unary calls.
+        // Parity with HTTP handler (handlers.rs:247, R15-OAUTH-2) and WS handler.
+        // Without this, an attacker with a stolen session ID can send gRPC calls on
+        // another user's session by supplying their session ID in metadata. When OAuth
+        // is active, the session must be owned by the authenticated subject.
+        if let Some(authorization) = metadata.get("authorization") {
+            if let Some(ref oauth_validator) = self.state.oauth {
+                let auth_header = authorization
+                    .to_str()
+                    .unwrap_or("")
+                    .to_string();
+                match oauth_validator.validate_token(&auth_header).await {
+                    Ok(claims) => {
+                        if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
+                            match &session.oauth_subject {
+                                Some(owner) if owner != &claims.sub => {
+                                    tracing::warn!(
+                                        "SECURITY: gRPC session fixation attempt blocked \
+                                         — session {} owned by '{}', request from '{}'",
+                                        session_id, owner, claims.sub
+                                    );
+                                    return Err(Status::permission_denied(
+                                        "Session owned by another user",
+                                    ));
+                                }
+                                None => {
+                                    session.oauth_subject = Some(claims.sub.clone());
+                                    if claims.exp > 0 {
+                                        session.token_expires_at = Some(claims.exp);
+                                    }
+                                }
+                                _ => {
+                                    // SECURITY (R23-PROXY-6): Use the EARLIEST token expiry.
+                                    if claims.exp > 0 {
+                                        session.token_expires_at = Some(
+                                            session
+                                                .token_expires_at
+                                                .map_or(claims.exp, |existing| {
+                                                    existing.min(claims.exp)
+                                                }),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("gRPC unary OAuth validation failed for session ownership check: {}", e);
+                        return Err(Status::unauthenticated("Invalid authorization token"));
+                    }
+                }
+            }
+        }
+
         // SECURITY (FIND-R54-GRPC-005): Extract and validate agent identity.
         // Parity with HTTP handler's validate_agent_identity (auth.rs:345).
         if let Some(identity_token) = super::interceptors::extract_agent_identity_token(&metadata) {
@@ -1605,6 +1711,59 @@ impl McpService for McpGrpcService {
         let metadata = request.metadata().clone();
         let session_id = extract_session_id(&metadata)
             .unwrap_or_else(|| self.state.sessions.get_or_create(None));
+
+        // SECURITY (FIND-R110-HTTP-001): Session ownership check + bind for gRPC streaming.
+        // Parity with HTTP handler (handlers.rs:247, R15-OAUTH-2) and the unary call handler.
+        // Without this, an attacker can hijack another user's gRPC stream by supplying their
+        // session ID in the initial metadata.
+        if let Some(authorization) = metadata.get("authorization") {
+            if let Some(ref oauth_validator) = self.state.oauth {
+                let auth_header = authorization
+                    .to_str()
+                    .unwrap_or("")
+                    .to_string();
+                match oauth_validator.validate_token(&auth_header).await {
+                    Ok(claims) => {
+                        if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
+                            match &session.oauth_subject {
+                                Some(owner) if owner != &claims.sub => {
+                                    tracing::warn!(
+                                        "SECURITY: gRPC stream session fixation attempt blocked \
+                                         — session {} owned by '{}', request from '{}'",
+                                        session_id, owner, claims.sub
+                                    );
+                                    return Err(Status::permission_denied(
+                                        "Session owned by another user",
+                                    ));
+                                }
+                                None => {
+                                    session.oauth_subject = Some(claims.sub.clone());
+                                    if claims.exp > 0 {
+                                        session.token_expires_at = Some(claims.exp);
+                                    }
+                                }
+                                _ => {
+                                    // SECURITY (R23-PROXY-6): Use the EARLIEST token expiry.
+                                    if claims.exp > 0 {
+                                        session.token_expires_at = Some(
+                                            session
+                                                .token_expires_at
+                                                .map_or(claims.exp, |existing| {
+                                                    existing.min(claims.exp)
+                                                }),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("gRPC stream OAuth validation failed for session ownership check: {}", e);
+                        return Err(Status::unauthenticated("Invalid authorization token"));
+                    }
+                }
+            }
+        }
 
         // SECURITY (FIND-R54-GRPC-005): Extract agent identity at stream start.
         if let Some(identity_token) = super::interceptors::extract_agent_identity_token(&metadata) {

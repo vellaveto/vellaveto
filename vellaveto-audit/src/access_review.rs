@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use vellaveto_types::compliance::{
     AccessReviewEntry, AccessReviewReport, AttestationStatus, Cc6Evidence, ReviewerAttestation,
 };
@@ -55,6 +55,15 @@ struct AgentAccumulator {
     functions_called: BTreeSet<String>,
 }
 
+/// Parse an RFC 3339 timestamp string into a UTC `DateTime`.
+///
+/// Returns `None` on any parse failure. Callers must treat `None` as
+/// fail-closed (skip the entry) to prevent incorrectly including or excluding
+/// entries with malformed timestamps.
+fn parse_rfc3339_utc(ts: &str) -> Option<DateTime<Utc>> {
+    ts.parse::<DateTime<Utc>>().ok()
+}
+
 /// Generate a SOC 2 Type II access review report from audit entries.
 ///
 /// # Arguments
@@ -66,15 +75,14 @@ struct AgentAccumulator {
 ///
 /// # Timestamp comparison
 ///
-/// Period filtering uses lexicographic string comparison on the normalized UTC
-/// timestamps. This is correct **only** when both `period_start`/`period_end` and
-/// every `AuditEntry.timestamp` are UTC ISO 8601 / RFC 3339 strings with identical
-/// formatting (e.g. `"2026-01-15T12:00:00Z"`). Timestamps with non-UTC offsets
-/// (e.g. `"+05:30"`) will NOT sort correctly and must be normalized to UTC `"Z"`
-/// suffix before calling this function. The `"+00:00"` variant is normalized
-/// internally, but no other offset is handled. Adding full timezone-aware parsing
-/// would require a datetime library (e.g. `chrono`) which is intentionally avoided
-/// to minimize dependencies.
+/// SECURITY (FIND-R110-AUD-002): Period filtering uses `chrono::DateTime<Utc>`
+/// for all timestamp comparisons. This correctly handles all RFC 3339 UTC offset
+/// variants (`"Z"`, `"+00:00"`, `"+05:30"`, etc.) by parsing to a single
+/// canonical UTC instant before comparison.
+///
+/// Entries with timestamps that fail RFC 3339 parsing are **skipped** (fail-closed):
+/// including a malformed entry could silently produce incorrect reports, while
+/// excluding it is the safer default.
 pub fn generate_access_review(
     entries: &[AuditEntry],
     org_name: &str,
@@ -82,6 +90,80 @@ pub fn generate_access_review(
     period_end: &str,
     least_agency: &std::collections::HashMap<(String, String), LeastAgencyReport>,
 ) -> AccessReviewReport {
+    // SECURITY (FIND-R110-AUD-002): Parse period bounds once upfront with chrono.
+    // If the period bounds themselves are unparseable, return an empty report rather
+    // than silently including all entries (fail-closed).
+    let period_start_dt = match parse_rfc3339_utc(period_start) {
+        Some(dt) => dt,
+        None => {
+            tracing::error!(
+                "Access review: period_start '{}' is not a valid RFC 3339 timestamp — \
+                 returning empty report (fail-closed)",
+                period_start
+            );
+            return AccessReviewReport {
+                generated_at: Utc::now().to_rfc3339(),
+                organization_name: org_name.to_string(),
+                period_start: period_start.to_string(),
+                period_end: period_end.to_string(),
+                total_agents: 0,
+                total_evaluations: 0,
+                entries: Vec::new(),
+                cc6_evidence: vellaveto_types::compliance::Cc6Evidence {
+                    cc6_1_evidence: String::new(),
+                    cc6_2_evidence: String::new(),
+                    cc6_3_evidence: String::new(),
+                    optimal_count: 0,
+                    review_grants_count: 0,
+                    narrow_scope_count: 0,
+                    critical_count: 0,
+                },
+                attestation: vellaveto_types::compliance::ReviewerAttestation {
+                    reviewer_name: String::new(),
+                    reviewer_title: String::new(),
+                    reviewed_at: None,
+                    notes: String::new(),
+                    status: vellaveto_types::compliance::AttestationStatus::Pending,
+                },
+            };
+        }
+    };
+    let period_end_dt = match parse_rfc3339_utc(period_end) {
+        Some(dt) => dt,
+        None => {
+            tracing::error!(
+                "Access review: period_end '{}' is not a valid RFC 3339 timestamp — \
+                 returning empty report (fail-closed)",
+                period_end
+            );
+            return AccessReviewReport {
+                generated_at: Utc::now().to_rfc3339(),
+                organization_name: org_name.to_string(),
+                period_start: period_start.to_string(),
+                period_end: period_end.to_string(),
+                total_agents: 0,
+                total_evaluations: 0,
+                entries: Vec::new(),
+                cc6_evidence: vellaveto_types::compliance::Cc6Evidence {
+                    cc6_1_evidence: String::new(),
+                    cc6_2_evidence: String::new(),
+                    cc6_3_evidence: String::new(),
+                    optimal_count: 0,
+                    review_grants_count: 0,
+                    narrow_scope_count: 0,
+                    critical_count: 0,
+                },
+                attestation: vellaveto_types::compliance::ReviewerAttestation {
+                    reviewer_name: String::new(),
+                    reviewer_title: String::new(),
+                    reviewed_at: None,
+                    notes: String::new(),
+                    status: vellaveto_types::compliance::AttestationStatus::Pending,
+                },
+            };
+        }
+    };
+
     let mut agents: BTreeMap<String, AgentAccumulator> = BTreeMap::new();
     let mut total_evaluations: u64 = 0;
     let mut processed = 0usize;
@@ -101,20 +183,23 @@ pub fn generate_access_review(
             continue;
         }
 
-        // SECURITY (FIND-R49-004): Normalize UTC offset variants before comparison.
-        // RFC 3339 allows both "Z" and "+00:00" for UTC — normalize to "Z" for consistent
-        // lexicographic ordering.
-        let ts = if entry.timestamp.ends_with("+00:00") {
-            let base = &entry.timestamp[..entry.timestamp.len() - 6];
-            std::borrow::Cow::Owned(format!("{}Z", base))
-        } else {
-            std::borrow::Cow::Borrowed(entry.timestamp.as_str())
+        // SECURITY (FIND-R110-AUD-002): Parse the entry timestamp with chrono to
+        // handle all RFC 3339 UTC offset variants correctly. Skip (fail-closed) on
+        // any parse failure — a malformed timestamp could otherwise silently pass the
+        // lexicographic filter and corrupt the report.
+        let entry_dt = match parse_rfc3339_utc(&entry.timestamp) {
+            Some(dt) => dt,
+            None => {
+                tracing::warn!(
+                    "Access review: skipping entry with unparseable timestamp '{}' (fail-closed)",
+                    &entry.timestamp
+                );
+                continue;
+            }
         };
 
-        // Filter by period — RFC 3339 strings sort lexicographically for UTC timestamps.
-        // LIMITATION (FIND-R72-009): This comparison is only valid when all timestamps
-        // use UTC with identical formatting (e.g. "Z" suffix). See doc comment above.
-        if ts.as_ref() < period_start || ts.as_ref() > period_end {
+        // Filter by period using proper UTC datetime comparison.
+        if entry_dt < period_start_dt || entry_dt > period_end_dt {
             continue;
         }
 

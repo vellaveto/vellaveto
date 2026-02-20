@@ -62,7 +62,9 @@ impl PolicyEngine {
     ) -> Result<CompiledPolicy, PolicyValidationError> {
         // SECURITY (FIND-R50-065): Validate policy name length to prevent
         // unboundedly large deny_reason strings derived from policy.name.
-        const MAX_POLICY_NAME_LEN: usize = 256;
+        // SECURITY (FIND-R110-001): Must match vellaveto-types/src/core.rs MAX_POLICY_NAME_LEN
+        // so that a policy passing validate() also passes compile_single_policy().
+        const MAX_POLICY_NAME_LEN: usize = 512;
         if policy.name.len() > MAX_POLICY_NAME_LEN {
             return Err(PolicyValidationError {
                 policy_id: policy.id.clone(),

@@ -1472,6 +1472,54 @@ func TestDiscoverySearch(t *testing.T) {
 	}
 }
 
+// ── FIND-R110-SDK-002: Discover() max_results and token_budget validation ─────
+
+func TestDiscover_MaxResultsZeroRejected(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	_, err := c.Discover(context.Background(), "test", 0, nil)
+	if err == nil {
+		t.Fatal("expected error for maxResults=0")
+	}
+	if !strings.Contains(err.Error(), "maxResults") {
+		t.Errorf("error = %q, want contains 'maxResults'", err.Error())
+	}
+}
+
+func TestDiscover_MaxResultsTooLargeRejected(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	_, err := c.Discover(context.Background(), "test", 21, nil)
+	if err == nil {
+		t.Fatal("expected error for maxResults=21")
+	}
+	if !strings.Contains(err.Error(), "maxResults") {
+		t.Errorf("error = %q, want contains 'maxResults'", err.Error())
+	}
+}
+
+func TestDiscover_MaxResultsValidAccepted(t *testing.T) {
+	srv := testServer(t, "POST", "/api/discovery/search", 200, DiscoveryResult{
+		Tools: []DiscoveredTool{}, Query: "test", TotalCandidates: 0, PolicyFiltered: 0,
+	})
+	defer srv.Close()
+	c := mustNewClient(t, srv.URL)
+	_, err := c.Discover(context.Background(), "test", 20, nil)
+	if err != nil {
+		t.Fatalf("maxResults=20 should be accepted, got: %v", err)
+	}
+}
+
+func TestDiscover_TokenBudgetNegativeRejected(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	negative := -1
+	_, err := c.Discover(context.Background(), "test", 5, &negative)
+	if err == nil {
+		t.Fatal("expected error for negative tokenBudget")
+	}
+	if !strings.Contains(err.Error(), "tokenBudget") {
+		t.Errorf("error = %q, want contains 'tokenBudget'", err.Error())
+	}
+}
+
 func TestDiscoveryStats(t *testing.T) {
 	srv := testServer(t, "GET", "/api/discovery/index/stats", 200,
 		DiscoveryIndexStats{
@@ -2057,8 +2105,12 @@ func TestIsUnicodeFormatChar(t *testing.T) {
 		{0x200D, true, "ZWJ"},
 		{0x200E, true, "LRM"},
 		{0x200F, true, "RLM"},
+		// FIND-R110-SDK-003: U+2028-202F range (supersedes old 202A-202E)
+		{0x2028, true, "LINE SEPARATOR"},
+		{0x2029, true, "PARAGRAPH SEPARATOR"},
 		{0x202A, true, "LRE"},
 		{0x202E, true, "RLO"},
+		{0x202F, true, "NNBSP"},
 		{0x2060, true, "WJ"},
 		{0x2069, true, "PDI"},
 		{0xFEFF, true, "BOM"},
@@ -2068,6 +2120,8 @@ func TestIsUnicodeFormatChar(t *testing.T) {
 		{'0', false, "ASCII digit"},
 		{'-', false, "hyphen"},
 		{0x0100, false, "Latin Extended"},
+		{0x2027, false, "HYPHENATION POINT (just below range)"},
+		{0x2030, false, "PER MILLE SIGN (just above range)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

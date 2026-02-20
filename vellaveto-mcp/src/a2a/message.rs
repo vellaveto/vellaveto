@@ -16,6 +16,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
+/// Maximum number of parts in an A2A message.
+const MAX_A2A_MESSAGE_PARTS: usize = 1000;
+
+/// Maximum number of metadata entries per message or part.
+const MAX_A2A_METADATA_ENTRIES: usize = 100;
+
+/// Maximum length of inline base64 file content (16 MB).
+const MAX_A2A_FILE_BYTES_LEN: usize = 16 * 1024 * 1024;
+
 /// A2A Task state (from A2A specification).
 ///
 /// Represents the lifecycle states of an A2A task.
@@ -67,6 +76,7 @@ pub enum PartContent {
 ///
 /// Files can be provided inline (base64-encoded bytes) or by URI reference.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FileContent {
     /// Optional file name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -95,10 +105,27 @@ pub struct MessagePart {
     pub metadata: Option<HashMap<String, Value>>,
 }
 
+impl FileContent {
+    /// Validate file content bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(ref bytes) = self.bytes {
+            if bytes.len() > MAX_A2A_FILE_BYTES_LEN {
+                return Err(format!(
+                    "file.bytes length {} exceeds maximum {}",
+                    bytes.len(),
+                    MAX_A2A_FILE_BYTES_LEN
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// A2A message structure.
 ///
 /// Represents a message exchanged between agents.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct A2aMessage {
     /// Role of the message sender ("user" or "agent").
     pub role: String,
@@ -107,6 +134,43 @@ pub struct A2aMessage {
     /// Optional metadata for the message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, Value>>,
+}
+
+impl A2aMessage {
+    /// Validate A2A message bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.parts.len() > MAX_A2A_MESSAGE_PARTS {
+            return Err(format!(
+                "message.parts count {} exceeds maximum {}",
+                self.parts.len(),
+                MAX_A2A_MESSAGE_PARTS
+            ));
+        }
+        if let Some(ref meta) = self.metadata {
+            if meta.len() > MAX_A2A_METADATA_ENTRIES {
+                return Err(format!(
+                    "message.metadata count {} exceeds maximum {}",
+                    meta.len(),
+                    MAX_A2A_METADATA_ENTRIES
+                ));
+            }
+        }
+        for part in &self.parts {
+            if let Some(ref meta) = part.metadata {
+                if meta.len() > MAX_A2A_METADATA_ENTRIES {
+                    return Err(format!(
+                        "part.metadata count {} exceeds maximum {}",
+                        meta.len(),
+                        MAX_A2A_METADATA_ENTRIES
+                    ));
+                }
+            }
+            if let PartContent::File { ref file } = part.content {
+                file.validate()?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// A2A message classification (mirrors MCP MessageType pattern).
@@ -305,7 +369,8 @@ pub fn extract_text_content(message: &Value) -> Vec<String> {
     let mut texts = Vec::new();
 
     if let Some(parts) = message.get("parts").and_then(|p| p.as_array()) {
-        for part in parts {
+        // SECURITY (IMP-R110-004): Bound iteration to prevent OOM from huge parts arrays.
+        for part in parts.iter().take(MAX_A2A_MESSAGE_PARTS) {
             // Check for text type
             if let Some(text_type) = part.get("type").and_then(|t| t.as_str()) {
                 if text_type == "text" {
@@ -617,6 +682,95 @@ mod tests {
         assert_eq!(normalize_a2a_method("foo\x7Fbar"), "foobar");
         assert_eq!(normalize_a2a_method("foo\u{0085}bar"), "foobar"); // NEL
         assert_eq!(normalize_a2a_method("foo\u{009F}bar"), "foobar"); // APC
+    }
+
+    // ═══════════════════════════════════════════════════
+    // A2A Validation Tests (IMP-R110-004)
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_a2a_message_validate_too_many_parts() {
+        let parts: Vec<MessagePart> = (0..1001)
+            .map(|i| MessagePart {
+                content: PartContent::Text {
+                    text: format!("part {}", i),
+                },
+                metadata: None,
+            })
+            .collect();
+        let msg = A2aMessage {
+            role: "user".to_string(),
+            parts,
+            metadata: None,
+        };
+        let err = msg.validate().unwrap_err();
+        assert!(err.contains("parts count"));
+    }
+
+    #[test]
+    fn test_a2a_message_validate_too_many_metadata() {
+        let mut meta = HashMap::new();
+        for i in 0..101 {
+            meta.insert(format!("key{}", i), Value::Null);
+        }
+        let msg = A2aMessage {
+            role: "user".to_string(),
+            parts: vec![],
+            metadata: Some(meta),
+        };
+        let err = msg.validate().unwrap_err();
+        assert!(err.contains("metadata count"));
+    }
+
+    #[test]
+    fn test_a2a_message_validate_file_bytes_too_large() {
+        let big_bytes = "A".repeat(MAX_A2A_FILE_BYTES_LEN + 1);
+        let msg = A2aMessage {
+            role: "user".to_string(),
+            parts: vec![MessagePart {
+                content: PartContent::File {
+                    file: FileContent {
+                        name: None,
+                        mime_type: None,
+                        bytes: Some(big_bytes),
+                        uri: None,
+                    },
+                },
+                metadata: None,
+            }],
+            metadata: None,
+        };
+        let err = msg.validate().unwrap_err();
+        assert!(err.contains("file.bytes length"));
+    }
+
+    #[test]
+    fn test_a2a_message_validate_ok() {
+        let msg = A2aMessage {
+            role: "user".to_string(),
+            parts: vec![MessagePart {
+                content: PartContent::Text {
+                    text: "hello".to_string(),
+                },
+                metadata: None,
+            }],
+            metadata: None,
+        };
+        assert!(msg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_a2a_message_deny_unknown_fields() {
+        let json = r#"{"role":"user","parts":[],"unknown_field":"bad"}"#;
+        let result: Result<A2aMessage, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "deny_unknown_fields should reject unknown fields");
+    }
+
+    #[test]
+    fn test_file_content_deny_unknown_fields() {
+        let json = r#"{"name":"test","extra":"bad"}"#;
+        let result: Result<FileContent, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "deny_unknown_fields should reject unknown fields");
     }
 
     #[test]

@@ -359,9 +359,11 @@ impl AuditExportConfig {
             if url.chars().any(|c| c.is_control()) {
                 return Err("audit_export.webhook_url contains control characters".to_string());
             }
-            if !url.starts_with("https://") && !url.starts_with("http://") {
+            // SECURITY (FIND-R110-CFG-001): Only HTTPS is accepted for webhook URLs.
+            // HTTP transmits audit events in cleartext, leaking sensitive policy decisions.
+            if !url.starts_with("https://") {
                 return Err(
-                    "audit_export.webhook_url must use http:// or https:// scheme".to_string(),
+                    "audit_export.webhook_url must use HTTPS scheme (https://)".to_string(),
                 );
             }
         }
