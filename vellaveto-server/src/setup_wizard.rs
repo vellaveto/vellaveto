@@ -1003,7 +1003,13 @@ pub async fn step_audit_post(State(state): State<AppState>, req: Request) -> Res
     if export_target.len() > MAX_EXPORT_TARGET_LEN {
         return error_redirect("/setup/audit", "Export target is too long");
     }
-    if export_target.chars().any(|c| c.is_control()) {
+    // SECURITY (FIND-R101-002): Check for both ASCII control characters AND
+    // Unicode format characters (zero-width, bidi overrides, BOM) that can
+    // bypass simple is_control() checks.
+    if export_target
+        .chars()
+        .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+    {
         return error_redirect("/setup/audit", "Export target contains invalid characters");
     }
 
@@ -1387,9 +1393,27 @@ pub async fn step_apply(State(state): State<AppState>, req: Request) -> Response
         return Html(html).into_response();
     }
 
+    // SECURITY (FIND-R101-001): Atomically claim setup completion before writing
+    // config. Prevents TOCTOU race where two concurrent step_apply requests both
+    // pass the middleware guard and write the config file.
+    if state
+        .setup_completed
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return (
+            StatusCode::CONFLICT,
+            "Setup already completed by another request",
+        )
+            .into_response();
+    }
+
     // Write the config file
     let config_path = state.config_path.as_str();
     if let Err(e) = std::fs::write(config_path, &toml_content) {
+        // SECURITY (FIND-R101-001): Rollback the atomic flag on write failure
+        // so the wizard can be retried.
+        state.setup_completed.store(false, Ordering::Release);
         let mut html = render_head("Error");
         html.push_str(&render_steps(7));
         let _ = write!(
@@ -1436,8 +1460,8 @@ pub async fn step_apply(State(state): State<AppState>, req: Request) -> Response
         );
     }
 
-    // Lock the wizard
-    state.setup_completed.store(true, Ordering::Release);
+    // SECURITY (FIND-R101-001): setup_completed was already set atomically above
+    // via compare_exchange. No need to store again.
 
     // Clean up the session
     state.wizard_sessions.remove(&session_id);
