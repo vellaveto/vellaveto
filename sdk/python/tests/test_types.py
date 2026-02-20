@@ -154,6 +154,41 @@ class TestEvaluationResult:
         result = EvaluationResult.from_dict(data)
         assert result.verdict == Verdict.DENY
 
+    def test_from_dict_non_string_fields_discarded(self):
+        """SECURITY (FIND-R99-001): Non-string response fields are discarded."""
+        data = {
+            "verdict": "deny",
+            "reason": 12345,           # integer, not string
+            "policy_id": ["list"],      # list, not string
+            "policy_name": {"a": "b"},  # dict, not string
+            "approval_id": True,        # bool, not string
+            "trace": "not-a-dict",      # string, not dict
+        }
+        result = EvaluationResult.from_dict(data)
+        assert result.verdict == Verdict.DENY
+        assert result.reason is None
+        assert result.policy_id is None
+        assert result.policy_name is None
+        assert result.approval_id is None
+        assert result.trace is None
+
+    def test_from_dict_valid_string_fields_preserved(self):
+        """Complementary test: valid string fields are preserved."""
+        data = {
+            "verdict": "deny",
+            "reason": "blocked",
+            "policy_id": "pol-1",
+            "policy_name": "my-policy",
+            "approval_id": "appr-1",
+            "trace": {"step": "eval"},
+        }
+        result = EvaluationResult.from_dict(data)
+        assert result.reason == "blocked"
+        assert result.policy_id == "pol-1"
+        assert result.policy_name == "my-policy"
+        assert result.approval_id == "appr-1"
+        assert result.trace == {"step": "eval"}
+
 
 class TestEvaluationContext:
     """Tests for the EvaluationContext dataclass."""

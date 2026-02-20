@@ -82,13 +82,22 @@ class EvaluationResult:
         except ValueError:
             verdict = Verdict.DENY
 
+        # SECURITY (FIND-R99-001): Validate response field types to prevent
+        # type confusion from malicious/buggy servers. Non-string values for
+        # string fields are discarded (fail-closed) rather than propagated.
+        def _str_or_none(val: Any) -> Optional[str]:
+            return val if isinstance(val, str) else None
+
+        raw_trace = data.get("trace")
+        trace = raw_trace if isinstance(raw_trace, dict) else None
+
         return cls(
             verdict=verdict,
-            reason=data.get("reason"),
-            policy_id=data.get("policy_id"),
-            policy_name=data.get("policy_name"),
-            approval_id=data.get("approval_id"),
-            trace=data.get("trace"),
+            reason=_str_or_none(data.get("reason")),
+            policy_id=_str_or_none(data.get("policy_id")),
+            policy_name=_str_or_none(data.get("policy_name")),
+            approval_id=_str_or_none(data.get("approval_id")),
+            trace=trace,
         )
 
 

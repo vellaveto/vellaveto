@@ -14,7 +14,7 @@ use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
     scan_response_for_secrets,
 };
-use vellaveto_types::{Action, EvaluationContext, Verdict};
+use vellaveto_types::{is_unicode_format_char, Action, EvaluationContext, Verdict};
 
 use super::auth::{
     build_effective_request_uri, validate_agent_identity, validate_api_key, validate_oauth,
@@ -148,10 +148,15 @@ pub async fn handle_mcp_post(
 
     // SECURITY (FIND-R73-SRV-011): Validate session ID length and reject control/format
     // characters before OAuth, matching the DELETE handler pattern.
+    // SECURITY (FIND-R86-001): Also reject Unicode format characters (zero-width, bidi)
+    // for parity with gRPC and WebSocket handlers.
     let client_session_id = headers
         .get(MCP_SESSION_ID)
         .and_then(|v| v.to_str().ok())
-        .filter(|id| id.len() <= MAX_SESSION_ID_LENGTH && !id.chars().any(|c| c.is_control()));
+        .filter(|id| {
+            id.len() <= MAX_SESSION_ID_LENGTH
+                && !id.chars().any(|c| c.is_control() || is_unicode_format_char(c))
+        });
 
     // If the header was present but filtered out, return 400.
     if headers.get(MCP_SESSION_ID).is_some() && client_session_id.is_none() {
@@ -2553,10 +2558,15 @@ pub async fn handle_mcp_delete(
     // SECURITY (FIND-R44-053): Reject oversized session IDs to prevent
     // memory abuse or hash-flooding attacks. Server-generated IDs are UUIDs
     // (36 chars); anything over MAX_SESSION_ID_LENGTH is suspicious.
+    // SECURITY (FIND-R86-001): Also reject Unicode format characters for
+    // parity with gRPC and WebSocket handlers.
     let session_id = headers
         .get(MCP_SESSION_ID)
         .and_then(|v| v.to_str().ok())
-        .filter(|id| id.len() <= MAX_SESSION_ID_LENGTH && !id.chars().any(|c| c.is_control()));
+        .filter(|id| {
+            id.len() <= MAX_SESSION_ID_LENGTH
+                && !id.chars().any(|c| c.is_control() || is_unicode_format_char(c))
+        });
 
     // If the header was present but filtered out due to length or control chars, return 400.
     if headers.get(MCP_SESSION_ID).is_some() && session_id.is_none() {
@@ -2935,10 +2945,15 @@ pub async fn handle_mcp_get(
 
     // SECURITY (FIND-R73-SRV-011): Validate session ID length and reject control chars
     // before OAuth, matching the DELETE and POST handler patterns.
+    // SECURITY (FIND-R86-001): Also reject Unicode format characters for
+    // parity with gRPC and WebSocket handlers.
     let client_session_id = headers
         .get(MCP_SESSION_ID)
         .and_then(|v| v.to_str().ok())
-        .filter(|id| id.len() <= MAX_SESSION_ID_LENGTH && !id.chars().any(|c| c.is_control()));
+        .filter(|id| {
+            id.len() <= MAX_SESSION_ID_LENGTH
+                && !id.chars().any(|c| c.is_control() || is_unicode_format_char(c))
+        });
 
     if headers.get(MCP_SESSION_ID).is_some() && client_session_id.is_none() {
         return (
@@ -2990,8 +3005,13 @@ pub async fn handle_mcp_get(
         }
         // SECURITY (FIND-R45-010): Reject event IDs with control characters.
         // Also reject URL-scheme prefixes to prevent SSRF via upstream event ID parsing.
-        if event_id.chars().any(|c| c.is_control()) {
-            tracing::warn!("SECURITY: Rejecting Last-Event-ID with control characters");
+        // SECURITY (FIND-R86-001): Also reject Unicode format characters for
+        // parity with gRPC and WebSocket handlers.
+        if event_id
+            .chars()
+            .any(|c| c.is_control() || is_unicode_format_char(c))
+        {
+            tracing::warn!("SECURITY: Rejecting Last-Event-ID with control/format characters");
             return (
                 StatusCode::BAD_REQUEST,
                 Json(json!({
