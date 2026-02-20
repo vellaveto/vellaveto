@@ -37,6 +37,9 @@ pub use mock::MockEvaluator;
 // BACKEND DISPATCHER
 // ═══════════════════════════════════════════════════
 
+/// Maximum number of fallback backends.
+const MAX_FALLBACK_BACKENDS: usize = 10;
+
 /// Dispatches evaluation requests to the appropriate backend.
 ///
 /// Supports failover to secondary backends if the primary is unhealthy.
@@ -65,7 +68,16 @@ impl BackendDispatcher {
     }
 
     /// Adds a fallback backend.
+    ///
+    /// SECURITY (FIND-R114-007/IMP): Bounded at MAX_FALLBACK_BACKENDS.
     pub fn with_fallback(mut self, backend: impl LlmEvaluator + 'static) -> Self {
+        if self.fallbacks.len() >= MAX_FALLBACK_BACKENDS {
+            tracing::warn!(
+                "BackendDispatcher: fallback backends at capacity ({}), ignoring additional",
+                MAX_FALLBACK_BACKENDS
+            );
+            return self;
+        }
         self.fallbacks.push(Arc::new(backend));
         self
     }
@@ -157,13 +169,26 @@ impl LlmEvaluator for BackendDispatcher {
 // ═══════════════════════════════════════════════════
 
 /// Builder for creating backend configurations.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct BackendBuilder {
     backend_type: BackendType,
     timeout_ms: u64,
     api_key: Option<String>,
     model: Option<String>,
     endpoint: Option<String>,
+}
+
+/// SECURITY (FIND-R114-016): Custom Debug that redacts api_key.
+impl std::fmt::Debug for BackendBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BackendBuilder")
+            .field("backend_type", &self.backend_type)
+            .field("timeout_ms", &self.timeout_ms)
+            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
+            .field("model", &self.model)
+            .field("endpoint", &self.endpoint)
+            .finish()
+    }
 }
 
 /// Supported backend types.

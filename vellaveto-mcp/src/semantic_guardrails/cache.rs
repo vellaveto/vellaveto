@@ -47,6 +47,7 @@ use tokio::sync::RwLock;
 
 /// Configuration for the evaluation cache.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CacheConfig {
     /// Maximum number of entries in the cache.
     /// Default: 10,000

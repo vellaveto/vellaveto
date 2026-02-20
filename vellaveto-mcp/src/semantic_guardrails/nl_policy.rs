@@ -38,8 +38,20 @@ use std::collections::HashMap;
 // POLICY DEFINITION
 // ═══════════════════════════════════════════════════
 
+/// Maximum NlPolicy ID length.
+const MAX_NL_POLICY_ID_LEN: usize = 256;
+/// Maximum NlPolicy name length.
+const MAX_NL_POLICY_NAME_LEN: usize = 256;
+/// Maximum NlPolicy statement length.
+const MAX_NL_POLICY_STATEMENT_LEN: usize = 64_000;
+/// Maximum number of tool patterns per NlPolicy.
+const MAX_NL_POLICY_TOOL_PATTERNS: usize = 100;
+/// Maximum length of a single tool pattern.
+const MAX_NL_POLICY_PATTERN_LEN: usize = 256;
+
 /// A natural language security policy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NlPolicy {
     /// Unique policy identifier.
     pub id: String,
@@ -108,6 +120,51 @@ impl NlPolicy {
     pub fn disabled(mut self) -> Self {
         self.enabled = false;
         self
+    }
+
+    /// Validates the policy, enforcing bounds on all string and collection fields.
+    ///
+    /// SECURITY (FIND-R114-013): Unbounded fields in NlPolicy.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id.is_empty() || self.id.len() > MAX_NL_POLICY_ID_LEN {
+            return Err(format!(
+                "NlPolicy.id length must be 1..={}, got {}",
+                MAX_NL_POLICY_ID_LEN,
+                self.id.len()
+            ));
+        }
+        if self.name.len() > MAX_NL_POLICY_NAME_LEN {
+            return Err(format!(
+                "NlPolicy.name exceeds max length ({} > {})",
+                self.name.len(),
+                MAX_NL_POLICY_NAME_LEN
+            ));
+        }
+        if self.statement.is_empty() || self.statement.len() > MAX_NL_POLICY_STATEMENT_LEN {
+            return Err(format!(
+                "NlPolicy.statement length must be 1..={}, got {}",
+                MAX_NL_POLICY_STATEMENT_LEN,
+                self.statement.len()
+            ));
+        }
+        if self.tool_patterns.len() > MAX_NL_POLICY_TOOL_PATTERNS {
+            return Err(format!(
+                "NlPolicy.tool_patterns exceeds max ({} > {})",
+                self.tool_patterns.len(),
+                MAX_NL_POLICY_TOOL_PATTERNS
+            ));
+        }
+        for (i, p) in self.tool_patterns.iter().enumerate() {
+            if p.len() > MAX_NL_POLICY_PATTERN_LEN {
+                return Err(format!(
+                    "NlPolicy.tool_patterns[{}] exceeds max length ({} > {})",
+                    i,
+                    p.len(),
+                    MAX_NL_POLICY_PATTERN_LEN
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -191,6 +248,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 
 /// Result of matching a tool/function against NL policies.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NlPolicyMatch {
     /// The matched policy ID.
     pub policy_id: String,
@@ -239,6 +297,18 @@ impl NlPolicyCompiler {
     /// Returns `false` if the policy could not be added because the
     /// compiler is at capacity (`MAX_COMPILED_POLICIES`).
     pub fn add_policy(&mut self, policy: NlPolicy) -> bool {
+        // SECURITY (FIND-R130-003): Validate policy before insertion to prevent
+        // oversized statements from consuming memory in the policy map and cache.
+        // Previously validate() was optional — callers could skip it.
+        if let Err(e) = policy.validate() {
+            tracing::warn!(
+                policy_id = %policy.id,
+                error = %e,
+                "NlPolicyCompiler rejecting invalid policy"
+            );
+            return false;
+        }
+
         // If this is a new policy (not a replacement) and we are at capacity, reject.
         if !self.policies.contains_key(&policy.id) && self.policies.len() >= MAX_COMPILED_POLICIES {
             tracing::warn!(

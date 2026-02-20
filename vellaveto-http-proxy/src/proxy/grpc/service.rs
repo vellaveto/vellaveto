@@ -966,15 +966,113 @@ impl McpGrpcService {
             }
         };
 
-        match verdict {
-            Verdict::Allow => self.forward_and_scan(proto_req, json_req, session_id).await,
-            _ => {
-                let reason = match &verdict {
-                    Verdict::Deny { reason } => reason.clone(),
-                    _ => "Resource access denied".to_string(),
-                };
-                make_proto_denial_response(proto_req, &reason)
+        match &verdict {
+            Verdict::Allow => {
+                // SECURITY (FIND-R114-004): ABAC refinement — parity with handle_tool_call (line 674).
+                if let Some(ref abac) = self.state.abac_engine {
+                    let principal_id = ctx.agent_id.as_deref().unwrap_or("anonymous");
+                    let principal_type = ctx
+                        .agent_identity
+                        .as_ref()
+                        .and_then(|aid| aid.claims.get("type"))
+                        .and_then(|v: &serde_json::Value| v.as_str())
+                        .unwrap_or("Agent");
+                    let session_risk = self
+                        .state
+                        .sessions
+                        .get_mut(session_id)
+                        .and_then(|s| s.risk_score.clone());
+                    let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
+                        eval_ctx: &ctx,
+                        principal_type,
+                        principal_id,
+                        risk_score: session_risk.as_ref(),
+                    };
+                    match abac.evaluate(&action, &abac_ctx) {
+                        vellaveto_engine::abac::AbacDecision::Deny { policy_id, reason } => {
+                            let deny_verdict = Verdict::Deny {
+                                reason: format!("ABAC denied by {}: {}", policy_id, reason),
+                            };
+                            if let Err(e) = self.state.audit.log_entry(
+                                &action, &deny_verdict,
+                                json!({
+                                    "source": "grpc_proxy", "session": session_id,
+                                    "transport": "grpc", "abac_policy": policy_id,
+                                    "uri": uri,
+                                }),
+                            ).await {
+                                tracing::warn!("Failed to audit gRPC resource ABAC deny: {}", e);
+                            }
+                            return make_proto_denial_response(
+                                proto_req,
+                                &format!("ABAC denied by {}: {}", policy_id, reason),
+                            );
+                        }
+                        vellaveto_engine::abac::AbacDecision::Allow { .. } => {}
+                        vellaveto_engine::abac::AbacDecision::NoMatch => {}
+                        #[allow(unreachable_patterns)]
+                        _ => {
+                            tracing::warn!("Unknown AbacDecision variant in resource_read — fail-closed");
+                            return make_proto_denial_response(proto_req, "Denied by policy");
+                        }
+                    }
+                }
+
+                // SECURITY (FIND-R114-008): Track resource reads in call_counts/action_history.
+                // Enables ForbiddenActionSequence detection (e.g., resources/read → http_request).
+                if let Some(mut session) = self.state.sessions.get_mut(session_id) {
+                    session.touch();
+                    let resource_key = format!("resources/read:{}", uri.chars().take(128).collect::<String>());
+                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                        || session.call_counts.contains_key(&resource_key)
+                    {
+                        let count = session.call_counts.entry(resource_key).or_insert(0);
+                        *count = count.saturating_add(1);
+                    }
+                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                        session.action_history.pop_front();
+                    }
+                    session.action_history.push_back("resources/read".to_string());
+                }
+
+                // SECURITY (FIND-R114-007): Audit Allow verdict for resource reads.
+                if let Err(e) = self.state.audit.log_entry(
+                    &action, &Verdict::Allow,
+                    json!({
+                        "source": "grpc_proxy", "session": session_id,
+                        "transport": "grpc", "uri": uri,
+                    }),
+                ).await {
+                    tracing::warn!("Failed to audit gRPC resource allow: {}", e);
+                }
+
+                self.forward_and_scan(proto_req, json_req, session_id).await
             }
+            Verdict::Deny { reason } => {
+                if let Err(e) = self.state.audit.log_entry(
+                    &action, &verdict,
+                    json!({
+                        "source": "grpc_proxy", "session": session_id,
+                        "transport": "grpc", "uri": uri,
+                    }),
+                ).await {
+                    tracing::warn!("Failed to audit gRPC resource deny: {}", e);
+                }
+                make_proto_denial_response(proto_req, reason)
+            }
+            Verdict::RequireApproval { reason, .. } => {
+                if let Err(e) = self.state.audit.log_entry(
+                    &action, &verdict,
+                    json!({
+                        "source": "grpc_proxy", "session": session_id,
+                        "transport": "grpc", "uri": uri,
+                    }),
+                ).await {
+                    tracing::warn!("Failed to audit gRPC resource approval request: {}", e);
+                }
+                make_proto_denial_response(proto_req, &format!("Requires approval: {}", reason))
+            }
+            _ => make_proto_denial_response(proto_req, "Resource access denied — fail-closed"),
         }
     }
 
@@ -1286,12 +1384,11 @@ impl McpGrpcService {
                 tracing::warn!("Failed to audit gRPC task parameter DLP: {}", e);
             }
 
+            // SECURITY (FIND-R114-002): Generic client-facing message. Pattern names
+            // are in the audit record only, matching handle_tool_call (line 444).
             return make_proto_denial_response(
                 proto_req,
-                &format!(
-                    "DLP blocked: secret detected in task parameters: {:?}",
-                    patterns
-                ),
+                "Response blocked: sensitive content detected",
             );
         }
 
@@ -1441,6 +1538,72 @@ impl McpGrpcService {
         method: &str,
     ) -> JsonRpcResponse {
         let params = json_req.get("params").cloned().unwrap_or(json!({}));
+
+        // SECURITY (FIND-R114-003): DLP scan extension method parameters.
+        // Parity with handle_tool_call (line 401) and handle_task_request (line 1244).
+        let dlp_findings = scan_parameters_for_secrets(&params);
+        if !dlp_findings.is_empty() {
+            for finding in &dlp_findings {
+                record_dlp_finding(&finding.pattern_name);
+            }
+            let patterns: Vec<String> = dlp_findings
+                .iter()
+                .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                .collect();
+            tracing::warn!(
+                "SECURITY: Secrets in gRPC extension method parameters! Session: {}, Extension: {}:{}, Findings: {:?}",
+                session_id, extension_id, method, patterns,
+            );
+            let action = extractor::extract_extension_action(extension_id, method, &params);
+            let audit_verdict = Verdict::Deny {
+                reason: format!("DLP blocked: secret detected in extension parameters: {:?}", patterns),
+            };
+            if let Err(e) = self.state.audit.log_entry(
+                &action, &audit_verdict,
+                json!({
+                    "source": "grpc_proxy", "session": session_id, "transport": "grpc",
+                    "event": "grpc_extension_parameter_dlp_alert",
+                    "extension_id": extension_id, "method": method, "findings": patterns,
+                }),
+            ).await {
+                tracing::warn!("Failed to audit gRPC extension parameter DLP: {}", e);
+            }
+            return make_proto_denial_response(proto_req, "Response blocked: sensitive content detected");
+        }
+
+        // SECURITY (FIND-R114-003): Memory poisoning detection for extension method params.
+        // Parity with handle_task_request (line 1300).
+        if let Some(session) = self.state.sessions.get_mut(session_id) {
+            let poisoning_matches = session.memory_tracker.check_parameters(&params);
+            if !poisoning_matches.is_empty() {
+                for m in &poisoning_matches {
+                    tracing::warn!(
+                        "SECURITY: Memory poisoning detected in gRPC extension '{}:{}' (session {}): \
+                         param '{}' contains replayed data (fingerprint: {})",
+                        extension_id, method, session_id, m.param_location, m.fingerprint
+                    );
+                }
+                let action = extractor::extract_extension_action(extension_id, method, &params);
+                let deny_reason = format!(
+                    "Memory poisoning detected: {} replayed data fragment(s) in extension '{}:{}'",
+                    poisoning_matches.len(), extension_id, method
+                );
+                if let Err(e) = self.state.audit.log_entry(
+                    &action,
+                    &Verdict::Deny { reason: deny_reason.clone() },
+                    json!({
+                        "source": "grpc_proxy", "session": session_id, "transport": "grpc",
+                        "event": "memory_poisoning_detected",
+                        "matches": poisoning_matches.len(),
+                        "extension_id": extension_id, "method": method,
+                    }),
+                ).await {
+                    tracing::warn!("Failed to audit gRPC extension memory poisoning: {}", e);
+                }
+                return make_proto_denial_response(proto_req, &deny_reason);
+            }
+        }
+
         let action = extractor::extract_extension_action(extension_id, method, &params);
         let ctx = self.build_evaluation_context(session_id);
 

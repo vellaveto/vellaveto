@@ -7,12 +7,14 @@ use super::ModelProjection;
 pub struct DeepSeekProjection;
 
 /// Extract the first sentence from a description for R1's smaller context.
+///
+/// SECURITY (FIND-R114-001/IMP): Added `\r` check for parity with compress.rs version.
 fn first_sentence(desc: &str) -> &str {
     let trimmed = desc.trim();
     if trimmed.is_empty() {
         return trimmed;
     }
-    // Find first sentence-ending punctuation followed by space or end
+    // Find first sentence-ending punctuation followed by whitespace or end
     for (i, ch) in trimmed.char_indices() {
         if ch == '.' || ch == '!' || ch == '?' {
             let next_idx = i + ch.len_utf8();
@@ -20,7 +22,7 @@ fn first_sentence(desc: &str) -> &str {
                 return trimmed;
             }
             let next_ch = trimmed[next_idx..].chars().next();
-            if next_ch == Some(' ') || next_ch == Some('\n') {
+            if next_ch == Some(' ') || next_ch == Some('\n') || next_ch == Some('\r') {
                 return &trimmed[..next_idx];
             }
         }
@@ -34,7 +36,20 @@ fn extract_json_from_response(text: &str) -> Result<Value, ProjectorError> {
     let mut cleaned = text.to_string();
 
     // Remove <think>...</think> blocks (non-greedy)
+    // SECURITY (FIND-R114-002/IMP): Bound iteration count to prevent DoS via
+    // crafted input with many repeated <think> tags.
+    // Parity with repair.rs::extract_json_from_code_block (MAX_THINK_TAG_ITERATIONS=100).
+    const MAX_THINK_TAG_ITERATIONS: usize = 100;
+    let mut think_iterations = 0usize;
     while let Some(start) = cleaned.find("<think>") {
+        think_iterations += 1;
+        if think_iterations > MAX_THINK_TAG_ITERATIONS {
+            tracing::warn!(
+                "extract_json_from_response: exceeded {} think-tag removal iterations, breaking",
+                MAX_THINK_TAG_ITERATIONS
+            );
+            break;
+        }
         if let Some(end) = cleaned[start..].find("</think>") {
             let end_abs = start + end + "</think>".len();
             cleaned.replace_range(start..end_abs, "");

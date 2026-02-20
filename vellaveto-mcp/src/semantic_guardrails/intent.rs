@@ -241,8 +241,15 @@ impl RiskCategory {
 // INTENT CLASSIFICATION RESULT
 // ═══════════════════════════════════════════════════
 
+/// Maximum number of secondary intents in an IntentClassification.
+const MAX_SECONDARY_INTENTS: usize = 50;
+
+/// Maximum number of detected risks in an IntentClassification.
+const MAX_DETECTED_RISKS: usize = 50;
+
 /// Result of intent classification for an action.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct IntentClassification {
     /// Primary classified intent.
     pub primary_intent: Intent,
@@ -278,7 +285,14 @@ impl IntentClassification {
     }
 
     /// Creates a classification indicating a benign action.
+    ///
+    /// SECURITY (FIND-R114-010): NaN/Infinity/negative confidence clamped to [0.0, 1.0].
     pub fn benign(confidence: f64) -> Self {
+        let confidence = if confidence.is_finite() {
+            confidence.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         Self {
             primary_intent: Intent::Benign,
             confidence,
@@ -286,6 +300,41 @@ impl IntentClassification {
             detected_risks: Vec::new(),
             explanation: None,
         }
+    }
+
+    /// Validates the classification, enforcing collection bounds and numeric ranges.
+    ///
+    /// SECURITY (FIND-R114-006): Unbounded secondary_intents/detected_risks vectors.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.confidence.is_finite() || self.confidence < 0.0 || self.confidence > 1.0 {
+            return Err(format!(
+                "IntentClassification.confidence must be finite in [0.0, 1.0], got {}",
+                self.confidence
+            ));
+        }
+        if self.secondary_intents.len() > MAX_SECONDARY_INTENTS {
+            return Err(format!(
+                "IntentClassification.secondary_intents exceeds max ({} > {})",
+                self.secondary_intents.len(),
+                MAX_SECONDARY_INTENTS
+            ));
+        }
+        for (i, (_, conf)) in self.secondary_intents.iter().enumerate() {
+            if !conf.is_finite() || *conf < 0.0 || *conf > 1.0 {
+                return Err(format!(
+                    "IntentClassification.secondary_intents[{}] confidence must be finite in [0.0, 1.0], got {}",
+                    i, conf
+                ));
+            }
+        }
+        if self.detected_risks.len() > MAX_DETECTED_RISKS {
+            return Err(format!(
+                "IntentClassification.detected_risks exceeds max ({} > {})",
+                self.detected_risks.len(),
+                MAX_DETECTED_RISKS
+            ));
+        }
+        Ok(())
     }
 
     /// Returns true if the classification has high confidence (>= threshold).

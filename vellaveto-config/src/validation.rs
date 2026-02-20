@@ -827,7 +827,8 @@ pub fn validate_domain_name(domain: &str) -> Result<(), ConfigValueError> {
 ///
 /// SECURITY (BUG-R110-004/005/006): `starts_with("http://localhost")` is SSRF-vulnerable
 /// because it matches `http://localhost.evil.com`. This function parses the URL properly
-/// and checks the host component.
+/// and checks the host component. Covers the full `127.0.0.0/8` loopback range,
+/// IPv6 loopback (`::1`), and `localhost`.
 ///
 /// # Example
 /// ```
@@ -835,6 +836,7 @@ pub fn validate_domain_name(domain: &str) -> Result<(), ConfigValueError> {
 ///
 /// assert!(is_localhost_url("http://localhost:8080/path"));
 /// assert!(is_localhost_url("http://127.0.0.1:3000"));
+/// assert!(is_localhost_url("http://127.0.0.2:3000"));
 /// assert!(is_localhost_url("http://[::1]:8080"));
 /// assert!(!is_localhost_url("http://localhost.evil.com"));
 /// assert!(!is_localhost_url("http://not-localhost"));
@@ -843,10 +845,42 @@ pub fn is_localhost_url(url_str: &str) -> bool {
     match url::Url::parse(url_str) {
         Ok(parsed) => match parsed.host_str() {
             Some(host) => {
-                host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
+                if host == "localhost" {
+                    return true;
+                }
+                // SECURITY (FIND-R114-001): Check entire 127.0.0.0/8 loopback range,
+                // not just 127.0.0.1. All addresses in this range route to loopback.
+                if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+                    return ip.is_loopback();
+                }
+                // IPv6 loopback: ::1 (may appear as "::1" or "[::1]")
+                let ipv6_host = host.trim_start_matches('[').trim_end_matches(']');
+                if let Ok(ip6) = ipv6_host.parse::<std::net::Ipv6Addr>() {
+                    return ip6.is_loopback();
+                }
+                false
             }
             None => false,
         },
+        Err(_) => false,
+    }
+}
+
+/// Check that a URL uses `http://` or `https://` scheme AND points to localhost.
+///
+/// SECURITY (FIND-R114-005): `is_localhost_url()` is scheme-agnostic — it returns
+/// `true` for `ftp://localhost` which callers intend to allow only for HTTP/HTTPS.
+/// Use this function when the goal is "allow HTTP for localhost, require HTTPS for
+/// non-localhost".
+pub fn is_http_localhost_url(url_str: &str) -> bool {
+    match url::Url::parse(url_str) {
+        Ok(parsed) => {
+            let scheme = parsed.scheme();
+            if scheme != "http" && scheme != "https" {
+                return false;
+            }
+            is_localhost_url(url_str)
+        }
         Err(_) => false,
     }
 }
@@ -1180,6 +1214,17 @@ policy_type = "Allow"
         assert!(is_localhost_url("https://localhost:443"));
     }
 
+    /// SECURITY (FIND-R114-001): Full 127.0.0.0/8 loopback range.
+    #[test]
+    fn test_is_localhost_url_full_loopback_range() {
+        assert!(is_localhost_url("http://127.0.0.2"));
+        assert!(is_localhost_url("http://127.0.0.2:8080"));
+        assert!(is_localhost_url("http://127.255.255.254"));
+        assert!(is_localhost_url("http://127.255.255.255"));
+        // 128.x.x.x is NOT loopback
+        assert!(!is_localhost_url("http://128.0.0.1"));
+    }
+
     /// SECURITY: This is the exact attack vector from BUG-R110-004.
     /// `starts_with("http://localhost")` would match this.
     #[test]
@@ -1195,5 +1240,28 @@ policy_type = "Allow"
         assert!(!is_localhost_url("https://api.example.com"));
         assert!(!is_localhost_url("not a url"));
         assert!(!is_localhost_url(""));
+    }
+
+    /// SECURITY (FIND-R114-005): is_localhost_url is scheme-agnostic.
+    /// Non-HTTP schemes still match if host is localhost.
+    #[test]
+    fn test_is_localhost_url_scheme_agnostic() {
+        // is_localhost_url only checks the host, not the scheme
+        assert!(is_localhost_url("ftp://localhost:21"));
+        assert!(is_localhost_url("gopher://127.0.0.1:70"));
+    }
+
+    /// SECURITY (FIND-R114-005): is_http_localhost_url rejects non-HTTP schemes.
+    #[test]
+    fn test_is_http_localhost_url_rejects_non_http_schemes() {
+        assert!(!is_http_localhost_url("ftp://localhost:21"));
+        assert!(!is_http_localhost_url("gopher://localhost:70"));
+        assert!(!is_http_localhost_url("ftp://127.0.0.1:21/steal"));
+        // HTTP and HTTPS are allowed for localhost
+        assert!(is_http_localhost_url("http://localhost:8080"));
+        assert!(is_http_localhost_url("https://localhost:443"));
+        assert!(is_http_localhost_url("http://127.0.0.2:8080"));
+        // Non-localhost always returns false (not its job to enforce HTTPS)
+        assert!(!is_http_localhost_url("http://example.com"));
     }
 }

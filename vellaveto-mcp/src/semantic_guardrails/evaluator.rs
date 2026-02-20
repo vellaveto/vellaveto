@@ -87,12 +87,22 @@ pub enum LlmEvalError {
     Unhealthy(String),
 }
 
+/// SECURITY (FIND-R114-009): Clamp a confidence value to [0.0, 1.0].
+/// NaN and non-finite values are treated as 0.0 (fail-closed for Allow, conservative for Deny).
+fn clamp_confidence(value: f64) -> f64 {
+    if !value.is_finite() {
+        return 0.0;
+    }
+    value.clamp(0.0, 1.0)
+}
+
 // ═══════════════════════════════════════════════════
 // INPUT TYPES
 // ═══════════════════════════════════════════════════
 
 /// Input for LLM policy evaluation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LlmEvalInput {
     /// The tool being invoked.
     pub tool: String,
@@ -205,6 +215,7 @@ impl LlmEvalInput {
 
 /// A message in the conversation context.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ContextMessage {
     /// Role of the message sender (user, assistant, system, tool).
     pub role: String,
@@ -228,6 +239,7 @@ impl ContextMessage {
 
 /// Result of LLM policy evaluation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LlmEvaluation {
     /// Whether the action is allowed.
     pub allow: bool,
@@ -300,17 +312,21 @@ impl LlmEvaluation {
     }
 
     /// Creates an allow evaluation with confidence.
+    ///
+    /// SECURITY (FIND-R114-009): NaN/Infinity/negative values are clamped to [0.0, 1.0].
     pub fn allow_with_confidence(confidence: f64) -> Self {
         Self {
             allow: true,
-            confidence,
+            confidence: clamp_confidence(confidence),
             ..Default::default()
         }
     }
 
     /// Sets the confidence score.
+    ///
+    /// SECURITY (FIND-R114-009): NaN/Infinity/negative values are clamped to [0.0, 1.0].
     pub fn with_confidence(mut self, confidence: f64) -> Self {
-        self.confidence = confidence;
+        self.confidence = clamp_confidence(confidence);
         self
     }
 
@@ -351,6 +367,7 @@ impl LlmEvaluation {
 
 /// Result of jailbreak detection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JailbreakDetection {
     /// Whether a jailbreak attempt was detected.
     pub is_jailbreak: bool,
@@ -384,19 +401,23 @@ impl Default for JailbreakDetection {
 
 impl JailbreakDetection {
     /// Creates a detection result indicating no jailbreak.
+    ///
+    /// SECURITY (FIND-R114-009): NaN/Infinity/negative values are clamped to [0.0, 1.0].
     pub fn safe(confidence: f64) -> Self {
         Self {
             is_jailbreak: false,
-            confidence,
+            confidence: clamp_confidence(confidence),
             ..Default::default()
         }
     }
 
     /// Creates a detection result indicating a jailbreak was detected.
+    ///
+    /// SECURITY (FIND-R114-009): NaN/Infinity/negative values are clamped to [0.0, 1.0].
     pub fn detected(jailbreak_type: impl Into<String>, confidence: f64) -> Self {
         Self {
             is_jailbreak: true,
-            confidence,
+            confidence: clamp_confidence(confidence),
             jailbreak_type: Some(jailbreak_type.into()),
             ..Default::default()
         }

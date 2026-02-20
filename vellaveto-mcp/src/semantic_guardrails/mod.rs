@@ -92,6 +92,13 @@ use tokio::sync::RwLock;
 /// intent tracking is supplementary, not a primary security gate).
 const MAX_INTENT_SESSIONS: usize = 10_000;
 
+/// Maximum length of a session_id used as intent chain HashMap key.
+///
+/// SECURITY (FIND-R130-002): Unbounded session_id strings used as HashMap keys
+/// can cause memory exhaustion (10K entries × 1MB keys = 10GB). Bound at 256
+/// bytes which is generous for session identifiers.
+const MAX_SESSION_ID_LEN: usize = 256;
+
 // ═══════════════════════════════════════════════════
 // GUARDRAILS SERVICE
 // ═══════════════════════════════════════════════════
@@ -175,6 +182,13 @@ impl ServiceConfig {
         }
         if self.max_latency_ms == 0 {
             return Err("max_latency_ms must be greater than zero".to_string());
+        }
+        // SECURITY (FIND-R114-008/IMP): Bound max_chain_size to match IntentChain hard cap.
+        if self.max_chain_size == 0 || self.max_chain_size > 100 {
+            return Err(format!(
+                "max_chain_size must be in 1..=100, got {}",
+                self.max_chain_size
+            ));
         }
         Ok(())
     }
@@ -304,6 +318,15 @@ impl SemanticGuardrailsService {
         // Update intent chain if tracking enabled
         if self.config.track_intent_chains {
             if let Some(ref session_id) = input.session_id {
+                // SECURITY (FIND-R130-002): Bound session_id length to prevent memory
+                // exhaustion via oversized HashMap keys (10K entries × N-byte keys).
+                if session_id.len() > MAX_SESSION_ID_LEN {
+                    tracing::warn!(
+                        session_id_len = session_id.len(),
+                        max = MAX_SESSION_ID_LEN,
+                        "Intent chain: rejecting oversized session_id"
+                    );
+                } else {
                 let intent = evaluation.intent.unwrap_or(Intent::Unknown);
                 let mut chains = self.intent_chains.write().await;
 
@@ -341,6 +364,7 @@ impl SemanticGuardrailsService {
 
                     chain.push(intent, input.tool.clone(), now);
                 }
+                } // end else (session_id within bounds)
             }
         }
 

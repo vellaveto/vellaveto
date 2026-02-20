@@ -374,11 +374,12 @@ impl OpaConfig {
             if endpoint.chars().any(|c| c.is_control()) {
                 return Err("opa.endpoint contains control characters".to_string());
             }
-            // SECURITY (BUG-R110-004): Use proper URL parsing for localhost check.
-            // starts_with("http://localhost") would match http://localhost.evil.com
+            // SECURITY (BUG-R110-004, FIND-R114-005): Use proper URL parsing for localhost check.
+            // starts_with("http://localhost") would match http://localhost.evil.com.
+            // is_http_localhost_url rejects non-HTTP schemes like ftp://localhost.
             if self.require_https
                 && !endpoint.starts_with("https://")
-                && !crate::validation::is_localhost_url(endpoint)
+                && !crate::validation::is_http_localhost_url(endpoint)
             {
                 return Err(format!(
                     "opa.endpoint must use https:// when require_https is true (got: {})",
@@ -681,8 +682,9 @@ impl JitAccessConfig {
             ));
         }
         if let Some(ref webhook) = self.notification_webhook {
-            // SECURITY (BUG-R110-006): Use proper URL parsing for localhost check
-            if !webhook.starts_with("https://") && !crate::validation::is_localhost_url(webhook) {
+            // SECURITY (BUG-R110-006, FIND-R114-005): Use proper URL parsing for localhost check.
+            // is_http_localhost_url rejects non-HTTP schemes like ftp://localhost.
+            if !webhook.starts_with("https://") && !crate::validation::is_http_localhost_url(webhook) {
                 return Err(format!(
                     "jit_access.notification_webhook must use https:// (got: {})",
                     webhook.chars().take(64).collect::<String>()

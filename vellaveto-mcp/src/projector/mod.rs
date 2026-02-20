@@ -25,6 +25,9 @@ pub trait ModelProjection: Send + Sync {
     fn estimate_tokens(&self, schema: &CanonicalToolSchema) -> usize;
 }
 
+/// Maximum number of registered model projections.
+const MAX_REGISTERED_PROJECTIONS: usize = 100;
+
 /// Registry of model projections.
 pub struct ProjectorRegistry {
     projections: RwLock<HashMap<ModelFamily, Arc<dyn ModelProjection>>>,
@@ -49,12 +52,20 @@ impl ProjectorRegistry {
         Ok(registry)
     }
 
+    /// SECURITY (FIND-R114-005/IMP): Bounded at MAX_REGISTERED_PROJECTIONS.
     pub fn register(&self, projection: Arc<dyn ModelProjection>) -> Result<(), ProjectorError> {
         let family = projection.model_family();
         let mut map = self
             .projections
             .write()
             .map_err(|_| ProjectorError::LockPoisoned)?;
+        // Allow replacement of existing families, but bound new entries
+        if !map.contains_key(&family) && map.len() >= MAX_REGISTERED_PROJECTIONS {
+            return Err(ProjectorError::ParseError(format!(
+                "ProjectorRegistry capacity exceeded ({} projections)",
+                MAX_REGISTERED_PROJECTIONS
+            )));
+        }
         map.insert(family, projection);
         Ok(())
     }

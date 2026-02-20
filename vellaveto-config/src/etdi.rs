@@ -240,8 +240,9 @@ impl AttestationConfig {
     /// Validate attestation configuration.
     pub fn validate(&self) -> Result<(), String> {
         if let Some(ref url) = self.rekor_url {
-            // SECURITY (BUG-R110-005): Use proper URL parsing for localhost check
-            if !url.starts_with("https://") && !crate::validation::is_localhost_url(url) {
+            // SECURITY (BUG-R110-005, FIND-R114-005): Use proper URL parsing for localhost check.
+            // is_http_localhost_url rejects non-HTTP schemes like ftp://localhost.
+            if !url.starts_with("https://") && !crate::validation::is_http_localhost_url(url) {
                 return Err(format!(
                     "attestation.rekor_url must use https:// (got: {})",
                     url.chars().take(64).collect::<String>()
