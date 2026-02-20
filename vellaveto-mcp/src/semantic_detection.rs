@@ -56,6 +56,7 @@ use serde::{Deserialize, Serialize};
 
 /// Configuration for semantic injection detection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SemanticConfig {
     /// Similarity threshold above which text is flagged as a potential injection.
     /// Range: (0.0, 1.0]. Default: 0.45

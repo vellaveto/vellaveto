@@ -659,6 +659,49 @@ mod tests {
         assert_eq!(parsed.priority, 100);
     }
 
+    // ── FIND-R130-003: add_policy validates before insertion ─────────────
+
+    #[test]
+    fn test_add_policy_rejects_empty_id() {
+        let mut compiler = NlPolicyCompiler::new();
+        let policy = NlPolicy {
+            id: "".to_string(),
+            name: "Test".to_string(),
+            statement: "Test statement".to_string(),
+            tool_patterns: vec![],
+            enabled: true,
+            priority: 50,
+        };
+        assert!(!compiler.add_policy(policy), "should reject empty id");
+        assert_eq!(compiler.len(), 0);
+    }
+
+    #[test]
+    fn test_add_policy_rejects_oversized_statement() {
+        let mut compiler = NlPolicyCompiler::new();
+        let policy = NlPolicy {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            statement: "x".repeat(65_000),
+            tool_patterns: vec![],
+            enabled: true,
+            priority: 50,
+        };
+        assert!(
+            !compiler.add_policy(policy),
+            "should reject oversized statement"
+        );
+        assert_eq!(compiler.len(), 0);
+    }
+
+    #[test]
+    fn test_add_policy_accepts_valid() {
+        let mut compiler = NlPolicyCompiler::new();
+        let policy = NlPolicy::new("test", "Valid policy statement");
+        assert!(compiler.add_policy(policy));
+        assert_eq!(compiler.len(), 1);
+    }
+
     #[test]
     fn test_nl_policy_match_serialization() {
         let m = NlPolicyMatch {

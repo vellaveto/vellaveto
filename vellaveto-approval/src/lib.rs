@@ -340,11 +340,23 @@ impl ApprovalStore {
             )));
         }
         // SECURITY (R39-SUP-6): Validate requested_by identity length at the store level.
+        // SECURITY (FIND-R112-008): Also reject control chars and Unicode format chars
+        // in requested_by to prevent identity spoofing via invisible characters.
         if let Some(ref rb) = requested_by {
             if rb.len() > MAX_IDENTITY_LEN {
                 return Err(ApprovalError::Validation(format!(
                     "requested_by exceeds maximum length of {MAX_IDENTITY_LEN} bytes"
                 )));
+            }
+            if rb.chars().any(|c| c.is_control()) {
+                return Err(ApprovalError::Validation(
+                    "requested_by contains control characters".to_string(),
+                ));
+            }
+            if rb.chars().any(vellaveto_types::is_unicode_format_char) {
+                return Err(ApprovalError::Validation(
+                    "requested_by contains Unicode format characters".to_string(),
+                ));
             }
         }
 
@@ -438,6 +450,20 @@ impl ApprovalStore {
             return Err(ApprovalError::Validation(format!(
                 "resolved_by exceeds maximum length of {MAX_IDENTITY_LEN} bytes"
             )));
+        }
+        // SECURITY (FIND-R112-008): Reject control characters and Unicode format
+        // characters in the `by` identity string. Without this check, an attacker
+        // can inject zero-width or bidi override characters to make log entries
+        // appear to have been approved by a different principal.
+        if by.chars().any(|c| c.is_control()) {
+            return Err(ApprovalError::Validation(
+                "resolved_by contains control characters".to_string(),
+            ));
+        }
+        if by.chars().any(vellaveto_types::is_unicode_format_char) {
+            return Err(ApprovalError::Validation(
+                "resolved_by contains Unicode format characters".to_string(),
+            ));
         }
 
         let mut pending = self.pending.write().await;
@@ -546,6 +572,18 @@ impl ApprovalStore {
             return Err(ApprovalError::Validation(format!(
                 "resolved_by exceeds maximum length of {MAX_IDENTITY_LEN} bytes"
             )));
+        }
+        // SECURITY (FIND-R112-008): Reject control characters and Unicode format
+        // characters in the `by` identity string (parity with approve()).
+        if by.chars().any(|c| c.is_control()) {
+            return Err(ApprovalError::Validation(
+                "resolved_by contains control characters".to_string(),
+            ));
+        }
+        if by.chars().any(vellaveto_types::is_unicode_format_char) {
+            return Err(ApprovalError::Validation(
+                "resolved_by contains Unicode format characters".to_string(),
+            ));
         }
 
         let mut pending = self.pending.write().await;

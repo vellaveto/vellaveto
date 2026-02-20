@@ -670,6 +670,11 @@ class VellavetoClient:
                 )
             if _CONTROL_CHAR_RE.search(reason):
                 raise VellavetoError("reason contains control characters")
+            # SECURITY (FIND-R112-004): Reject Unicode format characters (zero-width,
+            # bidi overrides, BOM, etc.) in reason. These can be used for invisible
+            # text manipulation or log injection attacks.
+            if _UNICODE_FORMAT_RE.search(reason):
+                raise VellavetoError("reason contains Unicode format characters")
         action = "approve" if approved else "deny"
         json_data: Optional[Dict[str, Any]] = None
         if reason is not None:
@@ -940,6 +945,10 @@ class VellavetoClient:
             # SECURITY (FIND-R55-SDK-003): Reject control chars. Parity with federation_trust_anchors.
             if any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in agent_id):
                 raise VellavetoError("agent_id contains control characters")
+            # SECURITY (FIND-R112-005): Reject Unicode format characters (zero-width,
+            # bidi overrides, BOM, etc.). Parity with resolve_approval reason check.
+            if _UNICODE_FORMAT_RE.search(agent_id):
+                raise VellavetoError("agent_id contains Unicode format characters")
         params: Dict[str, Any] = {"period": period, "format": export_format}
         if agent_id is not None:
             params["agent_id"] = agent_id
@@ -976,6 +985,10 @@ class VellavetoClient:
             # SECURITY (FIND-R50-037): Catch DEL (0x7F) and C1 control chars (0x80-0x9F)
             if any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in org_id):
                 raise VellavetoError("org_id contains control characters")
+            # SECURITY (FIND-R112-006): Reject Unicode format characters (zero-width,
+            # bidi overrides, BOM, etc.). Parity with Go SDK and evaluation context checks.
+            if _UNICODE_FORMAT_RE.search(org_id):
+                raise VellavetoError("org_id contains Unicode format characters")
             params["org_id"] = org_id
         return self._request(
             "GET", "/api/federation/trust-anchors", params=params if params else None
@@ -1279,6 +1292,9 @@ class AsyncVellavetoClient:
                 )
             if _CONTROL_CHAR_RE.search(reason):
                 raise VellavetoError("reason contains control characters")
+            # SECURITY (FIND-R112-004): Reject Unicode format characters (async parity).
+            if _UNICODE_FORMAT_RE.search(reason):
+                raise VellavetoError("reason contains Unicode format characters")
         action = "approve" if approved else "deny"
         json_data: Optional[Dict[str, Any]] = None
         if reason is not None:
@@ -1482,6 +1498,9 @@ class AsyncVellavetoClient:
             # SECURITY (FIND-R55-SDK-003): Reject control chars.
             if any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in agent_id):
                 raise VellavetoError("agent_id contains control characters")
+            # SECURITY (FIND-R112-005): Reject Unicode format characters (async parity).
+            if _UNICODE_FORMAT_RE.search(agent_id):
+                raise VellavetoError("agent_id contains Unicode format characters")
         params: Dict[str, Any] = {"period": period, "format": export_format}
         if agent_id is not None:
             params["agent_id"] = agent_id
@@ -1507,6 +1526,9 @@ class AsyncVellavetoClient:
             # SECURITY (FIND-R50-037): Catch DEL (0x7F) and C1 control chars (0x80-0x9F)
             if any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in org_id):
                 raise VellavetoError("org_id contains control characters")
+            # SECURITY (FIND-R112-006): Reject Unicode format characters (async parity).
+            if _UNICODE_FORMAT_RE.search(org_id):
+                raise VellavetoError("org_id contains Unicode format characters")
             params["org_id"] = org_id
         return await self._request(
             "GET", "/api/federation/trust-anchors", params=params if params else None

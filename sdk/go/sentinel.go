@@ -610,12 +610,21 @@ func (c *Client) DenyApproval(ctx context.Context, id string) error {
 // SECURITY (FIND-R110-SDK-002): Prevents unbounded result set requests.
 const maxDiscoverResults = 20
 
+// maxDiscoverQueryLen is the maximum allowed length for a discovery query string.
+// SECURITY (FIND-R112-003): Prevents oversized query strings from causing OOM
+// or excessive processing on the server.
+const maxDiscoverQueryLen = 4096
+
 // Discover searches the tool discovery index for tools matching a query.
 // SECURITY (FIND-R54-SDK-017): Validates query is non-empty before sending.
 // SECURITY (FIND-R110-SDK-002): Validates maxResults in [1, 20] and tokenBudget >= 0.
+// SECURITY (FIND-R112-003): Validates query length <= 4096 characters.
 func (c *Client) Discover(ctx context.Context, query string, maxResults int, tokenBudget *int) (*DiscoveryResult, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("vellaveto: discovery query must not be empty")
+	}
+	if len(query) > maxDiscoverQueryLen {
+		return nil, fmt.Errorf("vellaveto: discovery query exceeds max length (%d), got %d", maxDiscoverQueryLen, len(query))
 	}
 	if maxResults < 1 || maxResults > maxDiscoverResults {
 		return nil, fmt.Errorf("vellaveto: maxResults must be in [1, %d], got %d", maxDiscoverResults, maxResults)
@@ -737,9 +746,21 @@ func (c *Client) ZkStatus(ctx context.Context) (*ZkSchedulerStatus, error) {
 	return &resp, nil
 }
 
+// maxZkProofsLimit is the maximum allowed value for limit in ZkProofs().
+// SECURITY (FIND-R112-001): Prevents unbounded result set requests that could
+// cause OOM on the server side.
+const maxZkProofsLimit = 1000
+
 // ZkProofs lists stored ZK batch proofs with pagination.
 // SECURITY (FIND-R46-GO-003): Use url.Values for proper URL encoding of query parameters.
+// SECURITY (FIND-R112-001): Validates limit in [1, 1000] and offset >= 0.
 func (c *Client) ZkProofs(ctx context.Context, limit, offset int) (*ZkProofsResponse, error) {
+	if limit < 1 || limit > maxZkProofsLimit {
+		return nil, fmt.Errorf("vellaveto: ZkProofs: limit must be in [1, %d], got %d", maxZkProofsLimit, limit)
+	}
+	if offset < 0 {
+		return nil, fmt.Errorf("vellaveto: ZkProofs: offset must be non-negative, got %d", offset)
+	}
 	q := url.Values{}
 	q.Set("limit", fmt.Sprintf("%d", limit))
 	q.Set("offset", fmt.Sprintf("%d", offset))

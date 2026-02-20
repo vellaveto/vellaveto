@@ -1545,6 +1545,116 @@ pub async fn handle_mcp_post(
                 }
             }
 
+            // SECURITY (FIND-R112-005): Rug-pull detection for resource URIs.
+            // If the upstream server was flagged (annotations changed since initial tools/list),
+            // block resource reads from that server. The URI itself is checked against the
+            // flagged_tools set, which contains both tool names and server identifiers recorded
+            // during rug-pull detection.
+            let is_flagged = state
+                .sessions
+                .get_mut(&session_id)
+                .map(|s| s.flagged_tools.contains(uri.as_str()))
+                .unwrap_or(false);
+            if is_flagged {
+                let action = extractor::extract_resource_action(&uri);
+                let verdict = Verdict::Deny {
+                    reason: format!(
+                        "Resource '{}' blocked: server flagged by rug-pull detection",
+                        uri
+                    ),
+                };
+                if let Err(e) = state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        build_audit_context(
+                            &session_id,
+                            json!({
+                                "event": "rug_pull_resource_blocked",
+                                "uri": uri,
+                            }),
+                            &oauth_claims,
+                        ),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit resource rug-pull block: {}", e);
+                }
+                let error_response = json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32001,
+                        "message": "Denied by policy",
+                    }
+                });
+                return attach_session_header(
+                    (StatusCode::OK, Json(error_response)).into_response(),
+                    &session_id,
+                );
+            }
+
+            // SECURITY (FIND-R112-001): DLP scan on resource URI.
+            // ResourceRead is a known exfiltration vector; the URI may encode secrets
+            // (e.g., file:///proc/self/environ, paths with embedded API keys). Mirror
+            // the ToolCall DLP scanning pattern to catch secret leakage in the URI.
+            {
+                let uri_params = serde_json::json!({"uri": &uri});
+                let dlp_findings = scan_parameters_for_secrets(&uri_params);
+                if !dlp_findings.is_empty() {
+                    for finding in &dlp_findings {
+                        record_dlp_finding(&finding.pattern_name);
+                    }
+                    let patterns: Vec<String> = dlp_findings
+                        .iter()
+                        .map(|f| format!("{} at {}", f.pattern_name, f.location))
+                        .collect();
+                    let audit_reason =
+                        format!("DLP: secrets detected in resource URI: {:?}", patterns);
+                    tracing::warn!(
+                        "SECURITY: DLP blocking resource read '{}' in session {}: {}",
+                        uri,
+                        session_id,
+                        audit_reason
+                    );
+                    let dlp_action = extractor::extract_resource_action(&uri);
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &dlp_action,
+                            &Verdict::Deny {
+                                reason: audit_reason.clone(),
+                            },
+                            build_audit_context(
+                                &session_id,
+                                json!({
+                                    "event": "dlp_secret_blocked",
+                                    "uri": uri,
+                                    "findings": patterns,
+                                }),
+                                &oauth_claims,
+                            ),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit resource DLP finding: {}", e);
+                    }
+                    let error_response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": "Request blocked: sensitive content detected",
+                        }
+                    });
+                    return attach_session_header(
+                        (StatusCode::OK, Json(error_response)).into_response(),
+                        &session_id,
+                    );
+                }
+            }
+
             let mut action = extractor::extract_resource_action(&uri);
 
             // DNS rebinding protection for resource reads
@@ -1552,22 +1662,211 @@ pub async fn handle_mcp_post(
                 resolve_domains(&mut action).await;
             }
 
-            let eval_ctx = build_evaluation_context(&state.sessions, &session_id);
+            // SECURITY (FIND-R112-004): Circuit breaker check for resource reads.
+            // Mirror ToolCall circuit breaker pattern to prevent resource reads from
+            // hammering a failing upstream server.
+            if let Some(ref circuit_breaker) = state.circuit_breaker {
+                if let Err(reason) = circuit_breaker.can_proceed(uri.as_str()) {
+                    tracing::warn!(
+                        "SECURITY: Circuit breaker open for resource '{}' in session {}: {}",
+                        uri,
+                        session_id,
+                        reason
+                    );
+                    let verdict = Verdict::Deny {
+                        reason: format!("Circuit breaker open: {}", reason),
+                    };
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            build_audit_context(
+                                &session_id,
+                                json!({
+                                    "event": "circuit_breaker_rejected",
+                                    "uri": uri,
+                                }),
+                                &oauth_claims,
+                            ),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit resource circuit breaker rejection: {}", e);
+                    }
+                    let response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": "Service temporarily unavailable — circuit breaker open",
+                        }
+                    });
+                    return attach_session_header(
+                        (StatusCode::OK, Json(response)).into_response(),
+                        &session_id,
+                    );
+                }
+            }
 
-            let eval_result = if params.trace && state.trace_enabled {
-                state
-                    .engine
-                    .evaluate_action_traced_with_context(&action, eval_ctx.as_ref())
-                    .map(|(v, t)| (v, Some(t)))
+            // SECURITY (FIND-R112-002): Build evaluation context and run policy evaluation
+            // inside a single `state.sessions.get_mut` block to eliminate the TOCTOU gap.
+            // Without this, concurrent requests clone the same call_counts snapshot, all pass
+            // max_calls evaluation, and all increment — bypassing rate limits.
+            // Mirror the ToolCall TOCTOU fix (R19-TOCTOU).
+            let eval_result = if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                let eval_ctx = EvaluationContext {
+                    timestamp: None,
+                    agent_id: session.oauth_subject.clone(),
+                    agent_identity: session.agent_identity.clone(),
+                    call_counts: session.call_counts.clone(),
+                    previous_actions: session.action_history.iter().cloned().collect(),
+                    call_chain: session.current_call_chain.clone(),
+                    tenant_id: None,
+                    verification_tier: None,
+                    capability_token: None,
+                    session_state: None,
+                };
+
+                let result = if params.trace && state.trace_enabled {
+                    state
+                        .engine
+                        .evaluate_action_traced_with_context(&action, Some(&eval_ctx))
+                        .map(|(v, t)| (v, Some(t)))
+                } else {
+                    state
+                        .engine
+                        .evaluate_action_with_context(&action, &state.policies, Some(&eval_ctx))
+                        .map(|v| (v, None))
+                };
+
+                // Atomically update session while still holding the shard lock
+                if let Ok((Verdict::Allow, _)) = &result {
+                    let resource_key = format!(
+                        "resources/read:{}",
+                        uri.chars().take(128).collect::<String>()
+                    );
+                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                        || session.call_counts.contains_key(&resource_key)
+                    {
+                        let count = session.call_counts.entry(resource_key).or_insert(0);
+                        *count = count.saturating_add(1);
+                    }
+                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                        session.action_history.pop_front();
+                    }
+                    session.action_history.push_back("resources/read".to_string());
+                }
+
+                result
             } else {
-                state
-                    .engine
-                    .evaluate_action_with_context(&action, &state.policies, eval_ctx.as_ref())
-                    .map(|v| (v, None))
+                // No session found: evaluate without context
+                if params.trace && state.trace_enabled {
+                    state
+                        .engine
+                        .evaluate_action_traced_with_context(&action, None)
+                        .map(|(v, t)| (v, Some(t)))
+                } else {
+                    state
+                        .engine
+                        .evaluate_action_with_context(&action, &state.policies, None)
+                        .map(|v| (v, None))
+                }
             };
 
             match eval_result {
                 Ok((Verdict::Allow, trace)) => {
+                    // SECURITY (FIND-R112-003): ABAC refinement for resource reads.
+                    // Mirror ToolCall ABAC evaluation (R21-PROXY-2): if the PolicyEngine
+                    // allowed the action, ABAC may still deny it based on principal/action/
+                    // resource/condition constraints.
+                    if let Some(ref abac) = state.abac_engine {
+                        let abac_eval_ctx =
+                            build_evaluation_context(&state.sessions, &session_id)
+                                .unwrap_or_default();
+                        let principal_id =
+                            abac_eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
+                        let principal_type = abac_eval_ctx
+                            .agent_identity
+                            .as_ref()
+                            .and_then(|id| id.claims.get("type"))
+                            .and_then(|v: &serde_json::Value| v.as_str())
+                            .unwrap_or("Agent");
+                        let session_risk = state
+                            .sessions
+                            .get_mut(&session_id)
+                            .and_then(|s| s.risk_score.clone());
+                        let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
+                            eval_ctx: &abac_eval_ctx,
+                            principal_type,
+                            principal_id,
+                            risk_score: session_risk.as_ref(),
+                        };
+                        match abac.evaluate(&action, &abac_ctx) {
+                            vellaveto_engine::abac::AbacDecision::Deny { policy_id, reason } => {
+                                let verdict = Verdict::Deny {
+                                    reason: reason.clone(),
+                                };
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &verdict,
+                                        build_audit_context(
+                                            &session_id,
+                                            serde_json::json!({
+                                                "uri": uri,
+                                                "event": "abac_deny",
+                                                "abac_policy_id": policy_id,
+                                            }),
+                                            &oauth_claims,
+                                        ),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!("Failed to audit resource ABAC deny: {}", e);
+                                }
+                                let response = serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "error": {
+                                        "code": -32001,
+                                        "message": "Denied by policy"
+                                    }
+                                });
+                                return attach_session_header(
+                                    (StatusCode::OK, Json(response)).into_response(),
+                                    &session_id,
+                                );
+                            }
+                            vellaveto_engine::abac::AbacDecision::Allow { .. } => {
+                                // ABAC allow — proceed to forward
+                            }
+                            vellaveto_engine::abac::AbacDecision::NoMatch => {
+                                // Fall through — existing Allow verdict stands
+                            }
+                            #[allow(unreachable_patterns)]
+                            _ => {
+                                // SECURITY: Future variants — fail-closed (deny).
+                                tracing::warn!(
+                                    "Unknown AbacDecision variant in resource_read — fail-closed"
+                                );
+                                let response = serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "error": {
+                                        "code": -32001,
+                                        "message": "Denied by policy"
+                                    }
+                                });
+                                return attach_session_header(
+                                    (StatusCode::OK, Json(response)).into_response(),
+                                    &session_id,
+                                );
+                            }
+                        }
+                    }
+
                     // Canonicalize if configured (KL2 TOCTOU fix)
                     let forward_body = match canonicalize_body(&state, &msg, body) {
                         Some(b) => b,

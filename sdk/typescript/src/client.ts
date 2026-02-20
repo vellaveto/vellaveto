@@ -1052,8 +1052,22 @@ export class VellavetoClient {
     return this.request<ZkSchedulerStatus>("GET", "/api/zk-audit/status");
   }
 
-  /** List stored ZK batch proofs with optional pagination. */
+  /** List stored ZK batch proofs with optional pagination.
+   *
+   * SECURITY (FIND-R112-002): Validates limit in [1, 1000] and offset >= 0
+   * to prevent unbounded result set requests that could cause OOM on the server.
+   */
   async zkProofs(limit?: number, offset?: number): Promise<ZkProofsResponse> {
+    if (limit !== undefined) {
+      if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+        throw new VellavetoError("limit must be an integer in [1, 1000]");
+      }
+    }
+    if (offset !== undefined) {
+      if (!Number.isInteger(offset) || offset < 0) {
+        throw new VellavetoError("offset must be a non-negative integer");
+      }
+    }
     const params = new URLSearchParams();
     if (limit !== undefined) params.set("limit", String(limit));
     if (offset !== undefined) params.set("offset", String(offset));
@@ -1135,6 +1149,11 @@ export class VellavetoClient {
       // SECURITY (FIND-R55-SDK-004): Reject control chars. Parity with federationTrustAnchors.
       if (/[\x00-\x1f\x7f-\x9f]/.test(agentId)) {
         throw new VellavetoError("agent_id contains control characters");
+      }
+      // SECURITY (FIND-R112-007): Reject Unicode format characters (zero-width,
+      // bidi overrides, BOM, etc.). Parity with Go SDK and context validation.
+      if (/[\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB]/.test(agentId)) {
+        throw new VellavetoError("agent_id contains Unicode format characters");
       }
       params.set("agent_id", agentId);
     }

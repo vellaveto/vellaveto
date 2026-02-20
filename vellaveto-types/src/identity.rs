@@ -753,6 +753,17 @@ impl StatelessContextBlob {
                 self.agent_id.len(),
             ));
         }
+        // SECURITY (FIND-R112-001): Reject control/format chars in agent_id to
+        // prevent log injection and ForbiddenActionSequence bypass.
+        if self
+            .agent_id
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "StatelessContextBlob agent_id contains control or format characters".to_string(),
+            );
+        }
         if self.call_counts.len() > Self::MAX_BLOB_CALL_COUNTS {
             return Err(format!(
                 "StatelessContextBlob call_counts has {} entries, max {}",
@@ -786,6 +797,17 @@ impl StatelessContextBlob {
                     MAX_ENTRY_LEN,
                 ));
             }
+            // SECURITY (FIND-R112-001): Reject control/format chars in call_counts keys
+            // to prevent ForbiddenActionSequence bypass via homoglyph tool names.
+            if key
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(
+                    "StatelessContextBlob call_counts key contains control or format characters"
+                        .to_string(),
+                );
+            }
         }
         for (i, action) in self.recent_actions.iter().enumerate() {
             if action.len() > MAX_ENTRY_LEN {
@@ -794,6 +816,17 @@ impl StatelessContextBlob {
                     i,
                     action.len(),
                     MAX_ENTRY_LEN,
+                ));
+            }
+            // SECURITY (FIND-R112-001): Reject control/format chars in recent_actions
+            // to prevent ForbiddenActionSequence bypass via invisible characters.
+            if action
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(format!(
+                    "StatelessContextBlob recent_actions[{}] contains control or format characters",
+                    i
                 ));
             }
         }

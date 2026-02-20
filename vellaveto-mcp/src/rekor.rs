@@ -15,6 +15,7 @@ use thiserror::Error;
 
 /// A Rekor log entry for tool signature transparency.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RekorEntry {
     /// Index of this entry in the log.
     pub log_index: u64,
@@ -31,6 +32,7 @@ pub struct RekorEntry {
 
 /// Body of a Rekor log entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RekorBody {
     /// API version (e.g., "0.0.1").
     pub api_version: String,
@@ -42,6 +44,7 @@ pub struct RekorBody {
 
 /// Specification of a Rekor hashedrekord entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RekorSpec {
     /// Signature information.
     pub signature: RekorSignature,
@@ -51,6 +54,7 @@ pub struct RekorSpec {
 
 /// Signature within a Rekor entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RekorSignature {
     /// Base64-encoded signature bytes.
     pub content: String,
@@ -60,6 +64,7 @@ pub struct RekorSignature {
 
 /// Public key in a Rekor entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RekorPublicKey {
     /// Base64-encoded public key (PEM or raw).
     pub content: String,
@@ -67,6 +72,7 @@ pub struct RekorPublicKey {
 
 /// Data reference in a Rekor entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RekorData {
     /// Hash of the signed data.
     pub hash: RekorHash,
@@ -74,6 +80,7 @@ pub struct RekorData {
 
 /// Hash in a Rekor entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RekorHash {
     /// Hash algorithm (e.g., "sha256").
     pub algorithm: String,
@@ -83,6 +90,7 @@ pub struct RekorHash {
 
 /// Merkle tree inclusion proof from Rekor.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RekorInclusionProof {
     /// Log index of this entry.
     pub log_index: u64,

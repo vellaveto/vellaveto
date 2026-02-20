@@ -1546,16 +1546,47 @@ impl PolicyEngine {
             }
 
             "session_state_required" => {
+                // SECURITY (FIND-R112-002): Bound allowed_states to prevent
+                // memory exhaustion from attacker-controlled policy JSON.
+                const MAX_ALLOWED_STATES: usize = 1000;
+                const MAX_STATE_NAME_LEN: usize = 256;
+
                 // Parse allowed_states (required array of strings)
-                let allowed_states = obj
+                let raw_arr = obj
                     .get("allowed_states")
                     .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_ascii_lowercase()))
-                            .collect::<Vec<String>>()
-                    })
+                    .cloned()
                     .unwrap_or_default();
+
+                if raw_arr.len() > MAX_ALLOWED_STATES {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "session_state_required allowed_states has {} entries, max {}",
+                            raw_arr.len(),
+                            MAX_ALLOWED_STATES,
+                        ),
+                    });
+                }
+
+                let mut allowed_states = Vec::with_capacity(raw_arr.len());
+                for entry in &raw_arr {
+                    if let Some(s) = entry.as_str() {
+                        if s.len() > MAX_STATE_NAME_LEN {
+                            return Err(PolicyValidationError {
+                                policy_id: policy.id.clone(),
+                                policy_name: policy.name.clone(),
+                                reason: format!(
+                                    "session_state_required allowed_states entry length {} exceeds max {}",
+                                    s.len(),
+                                    MAX_STATE_NAME_LEN,
+                                ),
+                            });
+                        }
+                        allowed_states.push(s.to_ascii_lowercase());
+                    }
+                }
 
                 if allowed_states.is_empty() {
                     return Err(PolicyValidationError {

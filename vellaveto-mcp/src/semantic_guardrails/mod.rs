@@ -552,4 +552,38 @@ mod tests {
         assert_eq!(config.max_latency_ms, 500);
         assert_eq!(config.fallback, FallbackBehavior::Deny);
     }
+
+    // ── FIND-R130-002: Oversized session_id rejection ─────────────
+
+    #[tokio::test]
+    async fn test_service_rejects_oversized_session_id() {
+        let service = SemanticGuardrailsService::mock();
+
+        let huge_session = "x".repeat(MAX_SESSION_ID_LEN + 1);
+        let input = LlmEvalInput::new("fs", "read").with_session(&huge_session);
+        let _ = service.evaluate(&input).await;
+
+        // Should NOT create an intent chain for the oversized session
+        let chain = service.get_intent_chain(&huge_session).await;
+        assert!(
+            chain.is_none(),
+            "Oversized session_id should not create intent chain"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_service_accepts_max_length_session_id() {
+        let service = SemanticGuardrailsService::mock();
+
+        let max_session = "x".repeat(MAX_SESSION_ID_LEN);
+        let input = LlmEvalInput::new("fs", "read").with_session(&max_session);
+        let _ = service.evaluate(&input).await;
+
+        // Should create an intent chain at exactly max length
+        let chain = service.get_intent_chain(&max_session).await;
+        assert!(
+            chain.is_some(),
+            "Max-length session_id should create intent chain"
+        );
+    }
 }

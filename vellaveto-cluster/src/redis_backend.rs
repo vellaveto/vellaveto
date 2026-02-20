@@ -41,6 +41,47 @@ const DEFAULT_TTL_SECS: u64 = 900;
 /// entries into memory. (FIND-R84-002)
 const MAX_APPROVAL_FETCH: usize = 10_000;
 
+/// Maximum length of an approval ID passed to Redis operations.
+///
+/// SECURITY (FIND-R112-009): Prevents oversized IDs from causing OOM and
+/// blocks Redis cluster slot manipulation via hash tag characters.
+const MAX_APPROVAL_ID_LEN: usize = 512;
+
+/// Validate an approval ID before using it to construct Redis keys.
+///
+/// SECURITY (FIND-R112-009): Rejects:
+/// - Empty IDs
+/// - IDs exceeding MAX_APPROVAL_ID_LEN (512)
+/// - Control characters (0x00-0x1F, 0x7F, 0x80-0x9F) that can cause log injection
+/// - Redis hash tag characters `{` and `}` that can manipulate cluster slot routing
+fn validate_approval_id_for_redis(id: &str) -> Result<(), ClusterError> {
+    if id.is_empty() {
+        return Err(ClusterError::Validation("approval ID must not be empty".to_string()));
+    }
+    if id.len() > MAX_APPROVAL_ID_LEN {
+        return Err(ClusterError::Validation(format!(
+            "approval ID exceeds maximum length of {MAX_APPROVAL_ID_LEN} bytes"
+        )));
+    }
+    for c in id.chars() {
+        // Reject C0 control chars, DEL, and C1 control chars
+        if c.is_control() {
+            return Err(ClusterError::Validation(
+                "approval ID contains control characters".to_string(),
+            ));
+        }
+        // SECURITY: Reject Redis hash tag characters to prevent cluster slot manipulation.
+        // An attacker could craft an ID like "{slot1}attack" to force all related keys
+        // onto the same Redis shard, bypassing intended data distribution.
+        if c == '{' || c == '}' {
+            return Err(ClusterError::Validation(
+                "approval ID contains invalid characters ('{' or '}')".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 impl RedisBackend {
     /// Create a new Redis backend.
     ///
@@ -299,6 +340,8 @@ impl ClusterBackend for RedisBackend {
     }
 
     async fn approval_get(&self, id: &str) -> Result<PendingApproval, ClusterError> {
+        // SECURITY (FIND-R112-009): Validate ID before constructing Redis key.
+        validate_approval_id_for_redis(id)?;
         let mut conn = self.get_conn().await?;
         let json: Option<String> = conn
             .get(self.approval_key(id))
@@ -314,6 +357,8 @@ impl ClusterBackend for RedisBackend {
     }
 
     async fn approval_approve(&self, id: &str, by: &str) -> Result<PendingApproval, ClusterError> {
+        // SECURITY (FIND-R112-009): Validate ID before constructing Redis key.
+        validate_approval_id_for_redis(id)?;
         if by.len() > vellaveto_approval::MAX_IDENTITY_LEN {
             return Err(ClusterError::Validation(format!(
                 "resolved_by exceeds maximum length of {} bytes",
@@ -392,6 +437,8 @@ impl ClusterBackend for RedisBackend {
     }
 
     async fn approval_deny(&self, id: &str, by: &str) -> Result<PendingApproval, ClusterError> {
+        // SECURITY (FIND-R112-009): Validate ID before constructing Redis key.
+        validate_approval_id_for_redis(id)?;
         if by.len() > vellaveto_approval::MAX_IDENTITY_LEN {
             return Err(ClusterError::Validation(format!(
                 "resolved_by exceeds maximum length of {} bytes",
