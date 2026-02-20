@@ -153,7 +153,12 @@ pub fn normalize_a2a_method(method: &str) -> String {
         .chars()
         .filter(|c| {
             let cp = *c as u32;
-            !(cp == 0
+            // SECURITY (FIND-R110-001): Also strip C0 (0x00-0x1F) and C1
+            // (0x7F-0x9F) control characters to prevent log injection via
+            // embedded newlines/carriage returns in method names.
+            // Parity with MCP normalize_method() fix FIND-R107-001.
+            !(cp <= 0x1F                               // C0 control chars (NUL..US)
+                || (0x7F..=0x9F).contains(&cp)         // DEL + C1 control chars
                 || (0x200B..=0x200F).contains(&cp)     // zero-width chars
                 || (0x202A..=0x202E).contains(&cp)     // bidi overrides
                 || (0xFE00..=0xFE0F).contains(&cp)     // variation selectors
@@ -163,7 +168,7 @@ pub fn normalize_a2a_method(method: &str) -> String {
                 || cp == 0x180E                        // Mongolian vowel separator
                 || cp == 0x00AD                        // soft hyphen
                 || (0x2066..=0x2069).contains(&cp)     // bidi isolate (LRI, RLI, FSI, PDI)
-                || (0xE0000..=0xE007F).contains(&cp)) // tag characters
+                || (0xE0000..=0xE007F).contains(&cp))  // tag characters
         })
         .collect::<String>()
         .trim_end_matches('/')
@@ -593,6 +598,19 @@ mod tests {
 
         let texts = extract_text_content(&message);
         assert!(texts.is_empty());
+    }
+
+    /// SECURITY (FIND-R110-001): C0/C1 control chars stripped from A2A methods.
+    #[test]
+    fn test_normalize_a2a_method_strips_control_characters() {
+        // C0: newline, carriage return, tab
+        assert_eq!(normalize_a2a_method("message/send\nFAKE_LOG"), "message/sendfake_log");
+        assert_eq!(normalize_a2a_method("tasks/get\r\n[CRITICAL]"), "tasks/get[critical]");
+        assert_eq!(normalize_a2a_method("foo\tbar"), "foobar");
+        // DEL (0x7F) and C1 control chars (0x80-0x9F)
+        assert_eq!(normalize_a2a_method("foo\x7Fbar"), "foobar");
+        assert_eq!(normalize_a2a_method("foo\u{0085}bar"), "foobar"); // NEL
+        assert_eq!(normalize_a2a_method("foo\u{009F}bar"), "foobar"); // APC
     }
 
     #[test]

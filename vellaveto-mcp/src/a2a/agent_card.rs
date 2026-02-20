@@ -383,19 +383,151 @@ pub fn parse_agent_card(json: &str) -> Result<AgentCard, A2aError> {
     serde_json::from_str(json).map_err(|e| A2aError::AgentCardInvalid(e.to_string()))
 }
 
-/// Validate that an agent card has required fields.
+/// Maximum agent card name length.
+const MAX_AGENT_NAME_LENGTH: usize = 512;
+/// Maximum agent card description length.
+const MAX_AGENT_DESCRIPTION_LENGTH: usize = 4096;
+/// Maximum agent card URL length.
+const MAX_AGENT_URL_LENGTH: usize = 2048;
+/// Maximum agent card version length.
+const MAX_AGENT_VERSION_LENGTH: usize = 128;
+/// Maximum number of skills per agent card.
+const MAX_AGENT_SKILLS: usize = 1000;
+/// Maximum skill ID/name length.
+const MAX_SKILL_FIELD_LENGTH: usize = 256;
+/// Maximum tags/examples per skill.
+const MAX_SKILL_LIST_ENTRIES: usize = 50;
+/// Maximum number of auth schemes.
+const MAX_AUTH_SCHEMES: usize = 20;
+/// Maximum auth scheme details entries.
+const MAX_AUTH_SCHEME_DETAILS: usize = 20;
+/// Maximum input/output modes.
+const MAX_IO_MODES: usize = 20;
+
+/// Validate that an agent card has required fields and bounded sizes.
+///
+/// SECURITY (FIND-R110-002): In addition to checking required fields,
+/// validates field lengths and collection sizes to prevent OOM from
+/// maliciously crafted agent cards with megabyte-long strings or
+/// thousands of skills/auth schemes.
 pub fn validate_agent_card(card: &AgentCard) -> Result<(), A2aError> {
     if card.name.is_empty() {
         return Err(A2aError::AgentCardInvalid("name is required".to_string()));
     }
+    if card.name.len() > MAX_AGENT_NAME_LENGTH {
+        return Err(A2aError::AgentCardInvalid(format!(
+            "name length {} exceeds maximum {}",
+            card.name.len(),
+            MAX_AGENT_NAME_LENGTH
+        )));
+    }
     if card.url.is_empty() {
         return Err(A2aError::AgentCardInvalid("url is required".to_string()));
+    }
+    if card.url.len() > MAX_AGENT_URL_LENGTH {
+        return Err(A2aError::AgentCardInvalid(format!(
+            "url length {} exceeds maximum {}",
+            card.url.len(),
+            MAX_AGENT_URL_LENGTH
+        )));
     }
     if card.version.is_empty() {
         return Err(A2aError::AgentCardInvalid(
             "version is required".to_string(),
         ));
     }
+    if card.version.len() > MAX_AGENT_VERSION_LENGTH {
+        return Err(A2aError::AgentCardInvalid(format!(
+            "version length {} exceeds maximum {}",
+            card.version.len(),
+            MAX_AGENT_VERSION_LENGTH
+        )));
+    }
+    if let Some(ref desc) = card.description {
+        if desc.len() > MAX_AGENT_DESCRIPTION_LENGTH {
+            return Err(A2aError::AgentCardInvalid(format!(
+                "description length {} exceeds maximum {}",
+                desc.len(),
+                MAX_AGENT_DESCRIPTION_LENGTH
+            )));
+        }
+    }
+
+    // Validate skills bounds
+    if card.skills.len() > MAX_AGENT_SKILLS {
+        return Err(A2aError::AgentCardInvalid(format!(
+            "skills count {} exceeds maximum {}",
+            card.skills.len(),
+            MAX_AGENT_SKILLS
+        )));
+    }
+    for skill in &card.skills {
+        if skill.id.len() > MAX_SKILL_FIELD_LENGTH {
+            return Err(A2aError::AgentCardInvalid(format!(
+                "skill id length {} exceeds maximum {}",
+                skill.id.len(),
+                MAX_SKILL_FIELD_LENGTH
+            )));
+        }
+        if skill.name.len() > MAX_SKILL_FIELD_LENGTH {
+            return Err(A2aError::AgentCardInvalid(format!(
+                "skill name length {} exceeds maximum {}",
+                skill.name.len(),
+                MAX_SKILL_FIELD_LENGTH
+            )));
+        }
+        if skill.tags.len() > MAX_SKILL_LIST_ENTRIES {
+            return Err(A2aError::AgentCardInvalid(format!(
+                "skill tags count {} exceeds maximum {}",
+                skill.tags.len(),
+                MAX_SKILL_LIST_ENTRIES
+            )));
+        }
+        if skill.examples.len() > MAX_SKILL_LIST_ENTRIES {
+            return Err(A2aError::AgentCardInvalid(format!(
+                "skill examples count {} exceeds maximum {}",
+                skill.examples.len(),
+                MAX_SKILL_LIST_ENTRIES
+            )));
+        }
+    }
+
+    // Validate auth schemes bounds
+    if let Some(ref auth) = card.authentication {
+        if auth.schemes.len() > MAX_AUTH_SCHEMES {
+            return Err(A2aError::AgentCardInvalid(format!(
+                "auth schemes count {} exceeds maximum {}",
+                auth.schemes.len(),
+                MAX_AUTH_SCHEMES
+            )));
+        }
+        for scheme in &auth.schemes {
+            if scheme.details.len() > MAX_AUTH_SCHEME_DETAILS {
+                return Err(A2aError::AgentCardInvalid(format!(
+                    "auth scheme details count {} exceeds maximum {}",
+                    scheme.details.len(),
+                    MAX_AUTH_SCHEME_DETAILS
+                )));
+            }
+        }
+    }
+
+    // Validate input/output mode bounds
+    if card.default_input_modes.len() > MAX_IO_MODES {
+        return Err(A2aError::AgentCardInvalid(format!(
+            "default_input_modes count {} exceeds maximum {}",
+            card.default_input_modes.len(),
+            MAX_IO_MODES
+        )));
+    }
+    if card.default_output_modes.len() > MAX_IO_MODES {
+        return Err(A2aError::AgentCardInvalid(format!(
+            "default_output_modes count {} exceeds maximum {}",
+            card.default_output_modes.len(),
+            MAX_IO_MODES
+        )));
+    }
+
     Ok(())
 }
 
@@ -773,6 +905,90 @@ mod tests {
             cache.get_cached("https://b.com").is_some(),
             "New entry should be retrievable"
         );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R110-002: Agent card field bounds validation
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_validate_agent_card_name_too_long() {
+        let mut card = sample_agent_card();
+        card.name = "A".repeat(513);
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("name length"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_url_too_long() {
+        let mut card = sample_agent_card();
+        card.url = "https://".to_string() + &"a".repeat(2050);
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("url length"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_description_too_long() {
+        let mut card = sample_agent_card();
+        card.description = Some("D".repeat(4097));
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("description length"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_too_many_skills() {
+        let mut card = sample_agent_card();
+        card.skills = (0..1001)
+            .map(|i| AgentSkill {
+                id: format!("s{}", i),
+                name: format!("Skill {}", i),
+                description: None,
+                tags: vec![],
+                examples: vec![],
+                input_modes: None,
+                output_modes: None,
+            })
+            .collect();
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("skills count"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_too_many_auth_schemes() {
+        let mut card = sample_agent_card();
+        card.authentication = Some(AuthenticationInfo {
+            schemes: (0..21)
+                .map(|i| AuthScheme {
+                    scheme: format!("scheme{}", i),
+                    details: HashMap::new(),
+                })
+                .collect(),
+        });
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("auth schemes count"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_auth_details_too_many() {
+        let mut card = sample_agent_card();
+        let mut details = HashMap::new();
+        for i in 0..21 {
+            details.insert(format!("key{}", i), Value::String("val".to_string()));
+        }
+        card.authentication = Some(AuthenticationInfo {
+            schemes: vec![AuthScheme {
+                scheme: "oauth2".to_string(),
+                details,
+            }],
+        });
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("auth scheme details count"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_valid_passes_bounds() {
+        let card = sample_agent_card();
+        assert!(validate_agent_card(&card).is_ok());
     }
 
     // ════════════════════════════════════════════════════════
