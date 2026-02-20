@@ -94,9 +94,7 @@ impl PolicyRule {
             ));
         }
         if self.function_pattern.chars().any(|c| c.is_control()) {
-            return Err(
-                "policy_rule.function_pattern contains control characters".to_string(),
-            );
+            return Err("policy_rule.function_pattern contains control characters".to_string());
         }
         if let Some(ref id) = self.id {
             if id.is_empty() {

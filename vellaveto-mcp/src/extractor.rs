@@ -106,7 +106,7 @@ pub(crate) fn normalize_method(method: &str) -> String {
                 || cp == 0x180E                            // Mongolian vowel separator
                 || cp == 0x00AD                            // soft hyphen
                 || (0x2066..=0x2069).contains(&cp)        // bidi isolate (LRI, RLI, FSI, PDI)
-                || (0xE0000..=0xE007F).contains(&cp))     // tag characters
+                || (0xE0000..=0xE007F).contains(&cp)) // tag characters
         })
         .collect::<String>()
         .trim_end_matches('/')

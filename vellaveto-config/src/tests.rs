@@ -6670,7 +6670,8 @@ fn test_extension_config_trusted_key_empty() {
 #[test]
 fn test_extension_config_valid_hex_key_passes() {
     let mut cfg = crate::extension::ExtensionConfig::default();
-    cfg.trusted_public_keys = vec!["abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string()];
+    cfg.trusted_public_keys =
+        vec!["abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string()];
     assert!(cfg.validate().is_ok());
 }
 
