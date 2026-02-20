@@ -80,6 +80,13 @@ impl LeaderElectionConfig {
                 self.lease_duration_secs
             ));
         }
+        // SECURITY (FIND-R86-003): Reject zero renewal interval — it would cause
+        // the leader election loop to spin continuously without meaningful renewal.
+        if self.renew_interval_secs == 0 {
+            return Err(
+                "deployment.leader_election.renew_interval_secs must be > 0".to_string(),
+            );
+        }
         if self.renew_interval_secs >= self.lease_duration_secs {
             return Err(format!(
                 "deployment.leader_election.renew_interval_secs ({}) must be < lease_duration_secs ({})",

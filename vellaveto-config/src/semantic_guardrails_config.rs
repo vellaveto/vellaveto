@@ -431,12 +431,35 @@ impl NlPolicyConfig {
                 MAX_NL_POLICY_STATEMENT_LEN
             ));
         }
+        // SECURITY (FIND-R86-002): Reject control characters in statement to prevent
+        // log injection and prompt injection via invisible characters.
+        if self.statement.chars().any(|c| c.is_control()) {
+            return Err("nl_policy.statement contains control characters".to_string());
+        }
         if self.tool_patterns.len() > MAX_NL_TOOL_PATTERNS {
             return Err(format!(
                 "nl_policy.tool_patterns has {} entries, max is {}",
                 self.tool_patterns.len(),
                 MAX_NL_TOOL_PATTERNS
             ));
+        }
+        // SECURITY (FIND-R86-002): Validate individual tool_patterns entries
+        // for length and control characters.
+        for (i, pattern) in self.tool_patterns.iter().enumerate() {
+            if pattern.len() > MAX_NL_POLICY_ID_LEN {
+                return Err(format!(
+                    "nl_policy.tool_patterns[{}] length {} exceeds maximum {}",
+                    i,
+                    pattern.len(),
+                    MAX_NL_POLICY_ID_LEN
+                ));
+            }
+            if pattern.chars().any(|c| c.is_control()) {
+                return Err(format!(
+                    "nl_policy.tool_patterns[{}] contains control characters",
+                    i
+                ));
+            }
         }
         Ok(())
     }

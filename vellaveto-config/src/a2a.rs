@@ -167,6 +167,11 @@ impl A2aConfig {
         }
 
         // Validate agent_card_cache_secs
+        // SECURITY (FIND-R86-004): Reject zero cache TTL — it disables caching entirely,
+        // causing every request to re-fetch the agent card (performance DoS vector).
+        if self.agent_card_cache_secs == 0 {
+            return Err("a2a.agent_card_cache_secs must be > 0".to_string());
+        }
         if self.agent_card_cache_secs > MAX_A2A_CARD_CACHE_SECS {
             return Err(format!(
                 "a2a.agent_card_cache_secs {} exceeds maximum {} (7 days)",
