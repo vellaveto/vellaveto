@@ -68,11 +68,71 @@ impl ToolMetadata {
     /// Unbounded input_schema could be used for memory exhaustion.
     pub const MAX_INPUT_SCHEMA_SIZE: usize = 65536;
 
+    /// Maximum length of tool name in bytes.
+    ///
+    /// SECURITY (FIND-R121-001): Unbounded name from malicious MCP server
+    /// causes memory exhaustion during TF-IDF indexing.
+    pub const MAX_NAME_LENGTH: usize = 256;
+
+    /// Maximum length of tool description in bytes.
+    ///
+    /// SECURITY (FIND-R121-001): Unbounded description from malicious MCP
+    /// server causes memory exhaustion in `build_searchable_text()`.
+    pub const MAX_DESCRIPTION_LENGTH: usize = 4096;
+
+    /// Maximum number of domain tags per tool.
+    ///
+    /// SECURITY (FIND-R121-001): Matches `MAX_DOMAIN_TAGS_PER_TOOL` from
+    /// discovery config.
+    pub const MAX_DOMAIN_TAGS: usize = 20;
+
+    /// Maximum length of a single domain tag in bytes.
+    ///
+    /// SECURITY (FIND-R121-001): Matches `MAX_DOMAIN_TAG_LENGTH` from
+    /// discovery config.
+    pub const MAX_DOMAIN_TAG_LENGTH: usize = 64;
+
     /// Validate bounds on deserialized data.
     ///
     /// SECURITY (FIND-R51-015): Checks that the serialized size of
     /// `input_schema` does not exceed `MAX_INPUT_SCHEMA_SIZE`.
+    /// SECURITY (FIND-R121-001): Also validates name, description,
+    /// and domain_tags bounds to prevent memory exhaustion.
     pub fn validate(&self) -> Result<(), String> {
+        if self.name.len() > Self::MAX_NAME_LENGTH {
+            return Err(format!(
+                "ToolMetadata '{}' name length {} exceeds max {}",
+                self.tool_id,
+                self.name.len(),
+                Self::MAX_NAME_LENGTH
+            ));
+        }
+        if self.description.len() > Self::MAX_DESCRIPTION_LENGTH {
+            return Err(format!(
+                "ToolMetadata '{}' description length {} exceeds max {}",
+                self.tool_id,
+                self.description.len(),
+                Self::MAX_DESCRIPTION_LENGTH
+            ));
+        }
+        if self.domain_tags.len() > Self::MAX_DOMAIN_TAGS {
+            return Err(format!(
+                "ToolMetadata '{}' domain_tags count {} exceeds max {}",
+                self.tool_id,
+                self.domain_tags.len(),
+                Self::MAX_DOMAIN_TAGS
+            ));
+        }
+        for tag in &self.domain_tags {
+            if tag.len() > Self::MAX_DOMAIN_TAG_LENGTH {
+                return Err(format!(
+                    "ToolMetadata '{}' domain_tag length {} exceeds max {}",
+                    self.tool_id,
+                    tag.len(),
+                    Self::MAX_DOMAIN_TAG_LENGTH
+                ));
+            }
+        }
         let schema_size = serde_json::to_string(&self.input_schema)
             .map_err(|e| {
                 format!(

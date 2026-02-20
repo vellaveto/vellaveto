@@ -157,6 +157,18 @@ impl DiscoveryEngine {
                 token_cost: token_cost.max(1),
             };
 
+            // SECURITY (FIND-R121-001): Validate metadata bounds before ingesting.
+            // Without this, a malicious MCP server can send tools with multi-MB
+            // name/description fields causing memory exhaustion during indexing.
+            if let Err(e) = metadata.validate() {
+                tracing::warn!(
+                    "ingest_tools_list: skipping tool '{}': {}",
+                    metadata.tool_id,
+                    e
+                );
+                continue;
+            }
+
             match self.index.ingest(&metadata) {
                 Ok(()) => ingested += 1,
                 Err(DiscoveryError::IndexFull(_)) => break,
@@ -710,6 +722,48 @@ mod tests {
     }
 
     // ── Index stats ─────────────────────────────────────────────────────
+
+    // ── FIND-R121-001: Validate metadata during ingestion ─────────────
+
+    #[test]
+    fn test_ingest_rejects_oversized_name() {
+        let engine = DiscoveryEngine::new(test_config());
+        let response = json!({
+            "tools": [{
+                "name": "x".repeat(257),
+                "description": "normal description"
+            }]
+        });
+        let count = engine.ingest_tools_list("srv", &response).unwrap();
+        assert_eq!(count, 0, "oversized name should be rejected");
+    }
+
+    #[test]
+    fn test_ingest_rejects_oversized_description() {
+        let engine = DiscoveryEngine::new(test_config());
+        let response = json!({
+            "tools": [{
+                "name": "valid_tool",
+                "description": "x".repeat(4097)
+            }]
+        });
+        let count = engine.ingest_tools_list("srv", &response).unwrap();
+        assert_eq!(count, 0, "oversized description should be rejected");
+    }
+
+    #[test]
+    fn test_ingest_accepts_at_limit_name() {
+        let engine = DiscoveryEngine::new(test_config());
+        let name = "x".repeat(256);
+        let response = json!({
+            "tools": [{
+                "name": name,
+                "description": "normal description"
+            }]
+        });
+        let count = engine.ingest_tools_list("srv", &response).unwrap();
+        assert_eq!(count, 1, "name at limit should be accepted");
+    }
 
     #[test]
     fn test_index_stats_empty() {

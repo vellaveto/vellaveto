@@ -350,11 +350,21 @@ fn tokenize(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// Maximum length of searchable text blob (defense-in-depth).
+///
+/// SECURITY (FIND-R121-001): Even with upstream validation in
+/// `ToolMetadata::validate()`, cap the searchable text to prevent
+/// memory exhaustion if validation is bypassed via direct `ingest()`.
+const MAX_SEARCHABLE_TEXT_SIZE: usize = 16_384; // 16 KiB
+
 /// Build a single searchable text blob from tool metadata.
 fn build_searchable_text(metadata: &ToolMetadata) -> String {
-    let mut text = String::with_capacity(
-        metadata.name.len() + metadata.description.len() + metadata.domain_tags.len() * 16,
-    );
+    let cap = (metadata.name.len() * 2
+        + metadata.description.len()
+        + metadata.domain_tags.len() * 16
+        + 16)
+        .min(MAX_SEARCHABLE_TEXT_SIZE);
+    let mut text = String::with_capacity(cap);
     // Name is repeated to give it higher weight
     text.push_str(&metadata.name);
     text.push(' ');
@@ -364,6 +374,16 @@ fn build_searchable_text(metadata: &ToolMetadata) -> String {
     for tag in &metadata.domain_tags {
         text.push(' ');
         text.push_str(tag);
+    }
+    // SECURITY (FIND-R121-001): Truncate to prevent memory exhaustion
+    // in tokenization if metadata validation was bypassed.
+    if text.len() > MAX_SEARCHABLE_TEXT_SIZE {
+        // Truncate at a char boundary
+        let mut end = MAX_SEARCHABLE_TEXT_SIZE;
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
     }
     text
 }

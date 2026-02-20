@@ -3112,6 +3112,98 @@ fn test_discovery_result_empty_tools() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// TOOL METADATA VALIDATE BOUNDS (FIND-R121-001)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_tool_metadata_validate_name_too_long() {
+    let meta = ToolMetadata {
+        tool_id: "s:t".to_string(),
+        name: "x".repeat(ToolMetadata::MAX_NAME_LENGTH + 1),
+        description: "d".to_string(),
+        server_id: "s".to_string(),
+        input_schema: json!({}),
+        schema_hash: "h".to_string(),
+        sensitivity: ToolSensitivity::Low,
+        domain_tags: vec![],
+        token_cost: 0,
+    };
+    let err = meta.validate().unwrap_err();
+    assert!(err.contains("name length"), "got: {}", err);
+}
+
+#[test]
+fn test_tool_metadata_validate_description_too_long() {
+    let meta = ToolMetadata {
+        tool_id: "s:t".to_string(),
+        name: "t".to_string(),
+        description: "d".repeat(ToolMetadata::MAX_DESCRIPTION_LENGTH + 1),
+        server_id: "s".to_string(),
+        input_schema: json!({}),
+        schema_hash: "h".to_string(),
+        sensitivity: ToolSensitivity::Low,
+        domain_tags: vec![],
+        token_cost: 0,
+    };
+    let err = meta.validate().unwrap_err();
+    assert!(err.contains("description length"), "got: {}", err);
+}
+
+#[test]
+fn test_tool_metadata_validate_too_many_domain_tags() {
+    let meta = ToolMetadata {
+        tool_id: "s:t".to_string(),
+        name: "t".to_string(),
+        description: "d".to_string(),
+        server_id: "s".to_string(),
+        input_schema: json!({}),
+        schema_hash: "h".to_string(),
+        sensitivity: ToolSensitivity::Low,
+        domain_tags: (0..ToolMetadata::MAX_DOMAIN_TAGS + 1)
+            .map(|i| format!("tag{}", i))
+            .collect(),
+        token_cost: 0,
+    };
+    let err = meta.validate().unwrap_err();
+    assert!(err.contains("domain_tags count"), "got: {}", err);
+}
+
+#[test]
+fn test_tool_metadata_validate_domain_tag_too_long() {
+    let meta = ToolMetadata {
+        tool_id: "s:t".to_string(),
+        name: "t".to_string(),
+        description: "d".to_string(),
+        server_id: "s".to_string(),
+        input_schema: json!({}),
+        schema_hash: "h".to_string(),
+        sensitivity: ToolSensitivity::Low,
+        domain_tags: vec!["x".repeat(ToolMetadata::MAX_DOMAIN_TAG_LENGTH + 1)],
+        token_cost: 0,
+    };
+    let err = meta.validate().unwrap_err();
+    assert!(err.contains("domain_tag length"), "got: {}", err);
+}
+
+#[test]
+fn test_tool_metadata_validate_ok_at_limits() {
+    let meta = ToolMetadata {
+        tool_id: "s:t".to_string(),
+        name: "x".repeat(ToolMetadata::MAX_NAME_LENGTH),
+        description: "d".repeat(ToolMetadata::MAX_DESCRIPTION_LENGTH),
+        server_id: "s".to_string(),
+        input_schema: json!({}),
+        schema_hash: "h".to_string(),
+        sensitivity: ToolSensitivity::Low,
+        domain_tags: (0..ToolMetadata::MAX_DOMAIN_TAGS)
+            .map(|i| format!("{:0>width$}", i, width = ToolMetadata::MAX_DOMAIN_TAG_LENGTH))
+            .collect(),
+        token_cost: 0,
+    };
+    assert!(meta.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // PROJECTOR TYPES (Phase 35.1)
 // ═══════════════════════════════════════════════════════════════════════════════
 
