@@ -129,6 +129,13 @@ fn parse_string_arguments(mut call: Value) -> Value {
     call
 }
 
+/// Maximum tool name length for Levenshtein distance computation.
+///
+/// Levenshtein is O(m*n) time and space. User-supplied tool names are unbounded,
+/// so we skip the expensive computation for names exceeding this threshold.
+/// (FIND-R84-001)
+const MAX_TOOL_NAME_LEN_FOR_REPAIR: usize = 256;
+
 /// Correct a hallucinated tool name if it is within Levenshtein distance 3 of the schema name.
 fn correct_tool_name(mut call: Value, schema_name: &str) -> Result<Value, ProjectorError> {
     if let Some(obj) = call.as_object_mut() {
@@ -136,6 +143,18 @@ fn correct_tool_name(mut call: Value, schema_name: &str) -> Result<Value, Projec
         for field in &["tool_name", "name"] {
             if let Some(Value::String(call_name)) = obj.get(*field) {
                 if call_name != schema_name {
+                    // SECURITY (FIND-R84-001): Skip Levenshtein (O(m*n)) for oversized names
+                    if call_name.len() > MAX_TOOL_NAME_LEN_FOR_REPAIR
+                        || schema_name.len() > MAX_TOOL_NAME_LEN_FOR_REPAIR
+                    {
+                        tracing::warn!(
+                            call_name_len = call_name.len(),
+                            schema_name_len = schema_name.len(),
+                            max = MAX_TOOL_NAME_LEN_FOR_REPAIR,
+                            "skipping Levenshtein repair: tool name exceeds length bound"
+                        );
+                        continue;
+                    }
                     let dist = levenshtein(call_name, schema_name);
                     if dist <= 3 {
                         obj.insert(field.to_string(), Value::String(schema_name.to_string()));
@@ -149,9 +168,21 @@ fn correct_tool_name(mut call: Value, schema_name: &str) -> Result<Value, Projec
         if let Some(Value::Object(func)) = obj.get_mut("function") {
             if let Some(Value::String(call_name)) = func.get("name") {
                 if call_name != schema_name {
-                    let dist = levenshtein(call_name, schema_name);
-                    if dist <= 3 {
-                        func.insert("name".to_string(), Value::String(schema_name.to_string()));
+                    // SECURITY (FIND-R84-001): Skip Levenshtein (O(m*n)) for oversized names
+                    if call_name.len() > MAX_TOOL_NAME_LEN_FOR_REPAIR
+                        || schema_name.len() > MAX_TOOL_NAME_LEN_FOR_REPAIR
+                    {
+                        tracing::warn!(
+                            call_name_len = call_name.len(),
+                            schema_name_len = schema_name.len(),
+                            max = MAX_TOOL_NAME_LEN_FOR_REPAIR,
+                            "skipping Levenshtein repair: function name exceeds length bound"
+                        );
+                    } else {
+                        let dist = levenshtein(call_name, schema_name);
+                        if dist <= 3 {
+                            func.insert("name".to_string(), Value::String(schema_name.to_string()));
+                        }
                     }
                 }
             }
@@ -644,6 +675,49 @@ mod tests {
         });
         let result = CallRepairer::repair(&call, &schema, &ModelFamily::Generic).unwrap();
         assert_eq!(result["function"]["name"], "read_file");
+    }
+
+    #[test]
+    fn test_repair_hallucinated_name_skips_levenshtein_for_long_names() {
+        let schema = make_schema("read_file", json!({"type": "object"}));
+        // Name exceeds MAX_TOOL_NAME_LEN_FOR_REPAIR (256)
+        let long_name = "a".repeat(300);
+        let call = json!({
+            "name": long_name,
+            "arguments": {}
+        });
+        let result = CallRepairer::repair(&call, &schema, &ModelFamily::Generic).unwrap();
+        // Should NOT attempt repair — name left as-is
+        assert_eq!(result["name"], long_name);
+    }
+
+    #[test]
+    fn test_repair_hallucinated_function_name_skips_levenshtein_for_long_names() {
+        let schema = make_schema("read_file", json!({"type": "object"}));
+        let long_name = "b".repeat(300);
+        let call = json!({
+            "function": {
+                "name": long_name,
+                "arguments": {}
+            }
+        });
+        let result = CallRepairer::repair(&call, &schema, &ModelFamily::Generic).unwrap();
+        // Should NOT attempt repair — function name left as-is
+        assert_eq!(result["function"]["name"], long_name);
+    }
+
+    #[test]
+    fn test_repair_hallucinated_name_at_boundary_length() {
+        let schema = make_schema("read_file", json!({"type": "object"}));
+        // Exactly at the limit (256 chars) — should still compute Levenshtein
+        let at_limit_name = "x".repeat(256);
+        let call = json!({
+            "name": at_limit_name,
+            "arguments": {}
+        });
+        let result = CallRepairer::repair(&call, &schema, &ModelFamily::Generic).unwrap();
+        // Distance > 3, so not corrected, but Levenshtein was computed
+        assert_eq!(result["name"], at_limit_name);
     }
 
     // ── arguments as string ──────────────────────────────────────────────

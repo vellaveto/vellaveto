@@ -24,9 +24,9 @@ const MAX_PARAMETERS_SIZE: usize = 1_048_576;
 /// that could cause identity confusion or log injection.
 ///
 /// SECURITY (FIND-R55-CORE-001, FIND-R56-CORE-001): Covers zero-width chars,
-/// bidi overrides, and BOM. Canonical implementation — identity.rs and threat.rs
-/// call this via `crate::core::is_unicode_format_char()`.
-pub(crate) fn is_unicode_format_char(c: char) -> bool {
+/// bidi overrides, and BOM. Canonical implementation — other crates should import
+/// this via `vellaveto_types::is_unicode_format_char()` instead of duplicating.
+pub fn is_unicode_format_char(c: char) -> bool {
     matches!(c,
         '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
         '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
