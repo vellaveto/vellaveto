@@ -357,13 +357,21 @@ impl SessionGuard {
         // Create session if it doesn't exist
         if !sessions.contains_key(session_id) {
             // Enforce max_sessions — evict oldest if at capacity.
-            // SECURITY: Never evict Locked or Ended sessions — they carry
-            // security state that must be preserved (FIND-P23-S12).
+            // SECURITY: Never evict Locked, Ended, or Suspicious sessions —
+            // they carry security state that must be preserved (FIND-P23-S12).
+            // SECURITY (FIND-R113-001): Also protect Suspicious sessions to
+            // prevent state reset attacks where an attacker accumulates
+            // violations near the lock threshold, then evicts to reset counters.
             if sessions.len() >= self.config.max_sessions {
                 let evictable = sessions
                     .iter()
                     .filter(|(_, ctx)| {
-                        !matches!(ctx.state, SessionState::Locked | SessionState::Ended)
+                        !matches!(
+                            ctx.state,
+                            SessionState::Locked
+                                | SessionState::Ended
+                                | SessionState::Suspicious
+                        )
                     })
                     .min_by_key(|(_, ctx)| ctx.last_action_at)
                     .map(|(k, _)| k.clone());
@@ -1292,6 +1300,60 @@ mod tests {
 
         // s1 should still be Locked (not evicted)
         assert_eq!(guard.get_state("s1"), SessionState::Locked);
+        // s2 was evicted
+        assert_eq!(guard.get_state("s2"), SessionState::Init);
+        assert_eq!(guard.get_state("s3"), SessionState::Active);
+    }
+
+    /// SECURITY (FIND-R113-001): Suspicious sessions are not evicted.
+    #[test]
+    fn test_suspicious_sessions_not_evicted() {
+        let guard = SessionGuard::new(SessionGuardConfig {
+            max_sessions: 2,
+            suspicious_threshold: 2,
+            lock_threshold: 5,
+            ..Default::default()
+        });
+
+        // Create s1 and push to Suspicious
+        guard
+            .process_event_at("s1", SessionEvent::FirstAction, 100)
+            .unwrap();
+        guard
+            .process_event_at(
+                "s1",
+                SessionEvent::AnomalyDetected {
+                    severity: AnomalySeverity::Medium,
+                    description: "test".to_string(),
+                },
+                101,
+            )
+            .unwrap();
+        guard
+            .process_event_at(
+                "s1",
+                SessionEvent::AnomalyDetected {
+                    severity: AnomalySeverity::Medium,
+                    description: "test".to_string(),
+                },
+                102,
+            )
+            .unwrap();
+        assert_eq!(guard.get_state("s1"), SessionState::Suspicious);
+
+        // Create s2
+        guard
+            .process_event_at("s2", SessionEvent::FirstAction, 200)
+            .unwrap();
+
+        // Creating s3 should fail (s1=Suspicious, s2=Active — only s2 is evictable,
+        // but we need space for s3, so s2 gets evicted)
+        guard
+            .process_event_at("s3", SessionEvent::FirstAction, 300)
+            .unwrap();
+
+        // s1 should still be Suspicious (not evicted)
+        assert_eq!(guard.get_state("s1"), SessionState::Suspicious);
         // s2 was evicted
         assert_eq!(guard.get_state("s2"), SessionState::Init);
         assert_eq!(guard.get_state("s3"), SessionState::Active);
