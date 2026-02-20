@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use vellaveto_types::is_unicode_format_char;
 
 use crate::default_true;
 
@@ -130,10 +131,21 @@ fn default_min_trackable_length() -> usize {
     20
 }
 
+/// Maximum memory age cap in hours (365 days).
+const MAX_MEMORY_AGE_HOURS_CAP: u64 = 365 * 24;
+/// Maximum entries per session cap (aligned with config_validate.rs).
+const MAX_ENTRIES_PER_SESSION_CAP: usize = 100_000;
+/// Maximum provenance nodes cap.
+const MAX_PROVENANCE_NODES_CAP: usize = 1_000_000;
+/// Maximum fingerprints cap.
+const MAX_FINGERPRINTS_CAP: usize = 100_000;
+
 impl MemorySecurityConfig {
-    /// Validate memory security configuration (FIND-R58-CFG-019).
+    /// Validate memory security configuration.
     ///
-    /// Ensures float thresholds are finite and within valid ranges.
+    /// SECURITY (FIND-R58-CFG-019, FIND-R102-006): Ensures float thresholds
+    /// are finite and within valid ranges, numeric fields are bounded, and
+    /// namespace config is validated.
     pub fn validate(&self) -> Result<(), String> {
         if !self.trust_decay_rate.is_finite()
             || self.trust_decay_rate <= 0.0
@@ -153,15 +165,35 @@ impl MemorySecurityConfig {
                 self.trust_threshold
             ));
         }
-        // SECURITY (FIND-R71-CFG-014): Validate namespace default_isolation is
-        // a recognized value. Unrecognized values could silently fail-open.
-        let valid_isolations = ["session", "agent", "shared"];
-        if !valid_isolations.contains(&self.namespaces.default_isolation.as_str()) {
+        // Numeric bounds
+        if self.max_memory_age_hours > MAX_MEMORY_AGE_HOURS_CAP {
             return Err(format!(
-                "memory.namespaces.default_isolation must be one of {:?}, got '{}'",
-                valid_isolations, self.namespaces.default_isolation
+                "memory.max_memory_age_hours must be <= {}, got {}",
+                MAX_MEMORY_AGE_HOURS_CAP, self.max_memory_age_hours
             ));
         }
+        if self.max_entries_per_session > MAX_ENTRIES_PER_SESSION_CAP {
+            return Err(format!(
+                "memory.max_entries_per_session must be <= {}, got {}",
+                MAX_ENTRIES_PER_SESSION_CAP, self.max_entries_per_session
+            ));
+        }
+        if self.max_provenance_nodes > MAX_PROVENANCE_NODES_CAP {
+            return Err(format!(
+                "memory.max_provenance_nodes must be <= {}, got {}",
+                MAX_PROVENANCE_NODES_CAP, self.max_provenance_nodes
+            ));
+        }
+        if self.max_fingerprints > MAX_FINGERPRINTS_CAP {
+            return Err(format!(
+                "memory.max_fingerprints must be <= {}, got {}",
+                MAX_FINGERPRINTS_CAP, self.max_fingerprints
+            ));
+        }
+        // Delegate to namespace config
+        self.namespaces
+            .validate()
+            .map_err(|e| format!("memory.{}", e))?;
         Ok(())
     }
 }
@@ -226,6 +258,50 @@ fn default_namespace_isolation() -> String {
 
 fn default_max_namespaces() -> usize {
     1000
+}
+
+/// Maximum namespaces cap.
+const MAX_NAMESPACES_CAP: usize = 100_000;
+/// Maximum length for namespace isolation string.
+const MAX_NAMESPACE_ISOLATION_LEN: usize = 64;
+
+impl NamespaceConfig {
+    /// Validate namespace configuration bounds.
+    ///
+    /// SECURITY (FIND-R102-008): Validates default_isolation against known
+    /// values, bounds max_namespaces, rejects control/format characters.
+    pub fn validate(&self) -> Result<(), String> {
+        let valid_isolations = ["session", "agent", "shared"];
+        if !valid_isolations.contains(&self.default_isolation.as_str()) {
+            return Err(format!(
+                "namespaces.default_isolation must be one of {:?}, got '{}'",
+                valid_isolations, self.default_isolation
+            ));
+        }
+        if self.default_isolation.len() > MAX_NAMESPACE_ISOLATION_LEN {
+            return Err(format!(
+                "namespaces.default_isolation length {} exceeds maximum {}",
+                self.default_isolation.len(),
+                MAX_NAMESPACE_ISOLATION_LEN
+            ));
+        }
+        if self
+            .default_isolation
+            .chars()
+            .any(|c| c.is_control() || is_unicode_format_char(c))
+        {
+            return Err(
+                "namespaces.default_isolation contains control or format characters".to_string(),
+            );
+        }
+        if self.max_namespaces > MAX_NAMESPACES_CAP {
+            return Err(format!(
+                "namespaces.max_namespaces must be <= {}, got {}",
+                MAX_NAMESPACES_CAP, self.max_namespaces
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Default for NamespaceConfig {
@@ -515,9 +591,12 @@ impl NhiConfig {
                     MAX_NHI_STRING_FIELD_LEN
                 ));
             }
-            if at.chars().any(|c| c.is_control()) {
+            if at
+                .chars()
+                .any(|c| c.is_control() || is_unicode_format_char(c))
+            {
                 return Err(format!(
-                    "nhi.attestation_types[{}] contains control characters",
+                    "nhi.attestation_types[{}] contains control or format characters",
                     i
                 ));
             }
@@ -537,9 +616,12 @@ impl NhiConfig {
                     MAX_NHI_STRING_FIELD_LEN
                 ));
             }
-            if td.chars().any(|c| c.is_control()) {
+            if td
+                .chars()
+                .any(|c| c.is_control() || is_unicode_format_char(c))
+            {
                 return Err(format!(
-                    "nhi.additional_trust_domains[{}] contains control characters",
+                    "nhi.additional_trust_domains[{}] contains control or format characters",
                     i
                 ));
             }
@@ -556,9 +638,12 @@ impl NhiConfig {
                     MAX_NHI_STRING_FIELD_LEN
                 ));
             }
-            if tag.chars().any(|c| c.is_control()) {
+            if tag
+                .chars()
+                .any(|c| c.is_control() || is_unicode_format_char(c))
+            {
                 return Err(format!(
-                    "nhi.privileged_tags[{}] contains control characters",
+                    "nhi.privileged_tags[{}] contains control or format characters",
                     i
                 ));
             }
@@ -741,9 +826,14 @@ impl VerificationConfig {
                     "nhi.verification.plc_directory_url must use https:// scheme".to_string(),
                 );
             }
-            if self.plc_directory_url.chars().any(|c| c.is_control()) {
+            if self
+                .plc_directory_url
+                .chars()
+                .any(|c| c.is_control() || is_unicode_format_char(c))
+            {
                 return Err(
-                    "nhi.verification.plc_directory_url contains control characters".to_string(),
+                    "nhi.verification.plc_directory_url contains control or format characters"
+                        .to_string(),
                 );
             }
         }
@@ -888,9 +978,12 @@ impl DpopConfig {
                     MAX_DPOP_ALGORITHM_LEN
                 ));
             }
-            if alg.chars().any(|c| c.is_control()) {
+            if alg
+                .chars()
+                .any(|c| c.is_control() || is_unicode_format_char(c))
+            {
                 return Err(format!(
-                    "nhi.dpop.allowed_algorithms[{}] contains control characters",
+                    "nhi.dpop.allowed_algorithms[{}] contains control or format characters",
                     i
                 ));
             }

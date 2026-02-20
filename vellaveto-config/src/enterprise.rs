@@ -341,7 +341,7 @@ pub enum ThreatIntelProvider {
 /// refresh_interval_secs = 3600
 /// cache_ttl_secs = 86400
 /// ```
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ThreatIntelConfig {
     /// Enable threat intelligence integration. Default: false.
@@ -383,6 +383,24 @@ pub struct ThreatIntelConfig {
     /// Minimum confidence score (0-100) for IOC to be actionable. Default: 70.
     #[serde(default = "default_threat_confidence")]
     pub min_confidence: u8,
+}
+
+/// SECURITY (IMP-R102-003): Custom Debug impl to redact api_key.
+impl std::fmt::Debug for ThreatIntelConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ThreatIntelConfig")
+            .field("enabled", &self.enabled)
+            .field("provider", &self.provider)
+            .field("endpoint", &self.endpoint)
+            .field("collection_id", &self.collection_id)
+            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
+            .field("refresh_interval_secs", &self.refresh_interval_secs)
+            .field("cache_ttl_secs", &self.cache_ttl_secs)
+            .field("ioc_types", &self.ioc_types)
+            .field("on_match", &self.on_match)
+            .field("min_confidence", &self.min_confidence)
+            .finish()
+    }
 }
 
 fn default_threat_refresh() -> u64 {

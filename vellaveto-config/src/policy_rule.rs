@@ -1,7 +1,7 @@
 //! Policy rule types — PolicyRule struct and default_priority helper.
 
 use serde::{Deserialize, Serialize};
-use vellaveto_types::{NetworkRules, PathRules, PolicyType};
+use vellaveto_types::{is_unicode_format_char, NetworkRules, PathRules, PolicyType};
 
 /// Default priority for policies when not explicitly specified.
 /// SECURITY (R19-CFG-1): Default to 0 (lowest priority) so that policies
@@ -11,7 +11,7 @@ fn default_priority() -> Option<i32> {
     Some(0)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PolicyRule {
     pub name: String,
@@ -67,8 +67,12 @@ impl PolicyRule {
                 MAX_POLICY_RULE_NAME_LEN
             ));
         }
-        if self.name.chars().any(|c| c.is_control()) {
-            return Err("policy_rule.name contains control characters".to_string());
+        if self
+            .name
+            .chars()
+            .any(|c| c.is_control() || is_unicode_format_char(c))
+        {
+            return Err("policy_rule.name contains control or format characters".to_string());
         }
         if self.tool_pattern.is_empty() {
             return Err("policy_rule.tool_pattern must not be empty".to_string());
@@ -80,8 +84,14 @@ impl PolicyRule {
                 MAX_POLICY_RULE_FIELD_LEN
             ));
         }
-        if self.tool_pattern.chars().any(|c| c.is_control()) {
-            return Err("policy_rule.tool_pattern contains control characters".to_string());
+        if self
+            .tool_pattern
+            .chars()
+            .any(|c| c.is_control() || is_unicode_format_char(c))
+        {
+            return Err(
+                "policy_rule.tool_pattern contains control or format characters".to_string(),
+            );
         }
         if self.function_pattern.is_empty() {
             return Err("policy_rule.function_pattern must not be empty".to_string());
@@ -93,8 +103,14 @@ impl PolicyRule {
                 MAX_POLICY_RULE_FIELD_LEN
             ));
         }
-        if self.function_pattern.chars().any(|c| c.is_control()) {
-            return Err("policy_rule.function_pattern contains control characters".to_string());
+        if self
+            .function_pattern
+            .chars()
+            .any(|c| c.is_control() || is_unicode_format_char(c))
+        {
+            return Err(
+                "policy_rule.function_pattern contains control or format characters".to_string(),
+            );
         }
         if let Some(ref id) = self.id {
             if id.is_empty() {
@@ -107,8 +123,11 @@ impl PolicyRule {
                     MAX_POLICY_RULE_FIELD_LEN
                 ));
             }
-            if id.chars().any(|c| c.is_control()) {
-                return Err("policy_rule.id contains control characters".to_string());
+            if id
+                .chars()
+                .any(|c| c.is_control() || is_unicode_format_char(c))
+            {
+                return Err("policy_rule.id contains control or format characters".to_string());
             }
         }
         Ok(())

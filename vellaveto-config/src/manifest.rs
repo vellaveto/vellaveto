@@ -7,6 +7,7 @@ use crate::default_true;
 /// These hints describe behavioral properties of a tool. Changes to annotations
 /// between manifest versions may indicate a rug-pull attack.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ManifestAnnotations {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub read_only_hint: Option<bool>,
@@ -24,6 +25,7 @@ pub struct ManifestAnnotations {
 /// `tools/list` responses, the live tools are compared against this manifest
 /// to detect unexpected changes (new tools, removed tools, schema mutations).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ToolManifest {
     /// Schema version for forward compatibility.
     pub schema_version: String,
@@ -42,6 +44,7 @@ pub struct ToolManifest {
 
 /// A single tool entry in a pinned manifest.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ManifestToolEntry {
     /// Tool name as reported by the MCP server.
     pub name: String,
@@ -69,16 +72,25 @@ pub struct ManifestVerification {
     pub discrepancies: Vec<String>,
 }
 
+/// Maximum tools in a manifest.
+const MAX_MANIFEST_TOOLS: usize = 10_000;
+
 impl ToolManifest {
     /// Build a manifest from a live `tools/list` JSON-RPC response.
     ///
     /// Expects `response` to contain `result.tools[]` with `name` and
     /// optional `inputSchema` fields per the MCP specification.
+    /// Returns `None` if parsing fails or tool count exceeds `MAX_MANIFEST_TOOLS`.
     pub fn from_tools_list(response: &serde_json::Value) -> Option<Self> {
         let tools_array = response
             .get("result")
             .and_then(|r| r.get("tools"))
             .and_then(|t| t.as_array())?;
+
+        // SECURITY (FIND-R102-005): Bound the tools Vec to prevent OOM.
+        if tools_array.len() > MAX_MANIFEST_TOOLS {
+            return None;
+        }
 
         let mut entries: Vec<ManifestToolEntry> = tools_array
             .iter()
@@ -415,13 +427,45 @@ impl Default for ManifestConfig {
 
 /// Maximum length for manifest_path.
 const MAX_MANIFEST_PATH_LEN: usize = 4096;
+/// Maximum trusted keys for manifest signatures.
+const MAX_MANIFEST_TRUSTED_KEYS: usize = 64;
+/// Maximum length for a trusted key hex string (Ed25519 = 64 hex chars).
+const MAX_MANIFEST_KEY_LEN: usize = 128;
 
 impl ManifestConfig {
     /// Validate manifest configuration bounds.
     ///
-    /// SECURITY (FIND-R100-009): Validates manifest_path for length, control characters,
-    /// and path traversal (..) to prevent filesystem-based attacks.
+    /// SECURITY (FIND-R100-009, FIND-R102-003): Validates manifest_path for
+    /// length, control characters, and path traversal (..) to prevent
+    /// filesystem-based attacks. Validates trusted_keys per-element.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R102-007): ManifestEnforcement::Warn is the fail-open default.
+        // For production deployments, users should set enforcement = "Block".
+        // Note: validate() must not emit tracing output (side-effect-free).
+        // Trusted keys validation (FIND-R102-003)
+        if self.trusted_keys.len() > MAX_MANIFEST_TRUSTED_KEYS {
+            return Err(format!(
+                "manifest.trusted_keys has {} entries, max is {}",
+                self.trusted_keys.len(),
+                MAX_MANIFEST_TRUSTED_KEYS
+            ));
+        }
+        for (i, key) in self.trusted_keys.iter().enumerate() {
+            if key.is_empty() {
+                return Err(format!("manifest.trusted_keys[{}] must not be empty", i));
+            }
+            if key.len() > MAX_MANIFEST_KEY_LEN {
+                return Err(format!(
+                    "manifest.trusted_keys[{}] length {} exceeds maximum {}",
+                    i,
+                    key.len(),
+                    MAX_MANIFEST_KEY_LEN
+                ));
+            }
+            if !key.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(format!("manifest.trusted_keys[{}] must be hex-encoded", i));
+            }
+        }
         if let Some(ref path) = self.manifest_path {
             if path.is_empty() {
                 return Err("manifest.manifest_path must not be empty".to_string());
