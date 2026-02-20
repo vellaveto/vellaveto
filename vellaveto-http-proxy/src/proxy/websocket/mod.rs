@@ -1440,6 +1440,40 @@ async fn relay_client_to_upstream(
                             super::helpers::resolve_domains(&mut action).await;
                         }
 
+                        // SECURITY (FIND-R116-004): DLP scan on resource URI.
+                        // Parity with HTTP handler (handlers.rs:1598).
+                        {
+                            let uri_params = json!({"uri": uri});
+                            let dlp_findings = scan_parameters_for_secrets(&uri_params);
+                            if !dlp_findings.is_empty() {
+                                for finding in &dlp_findings {
+                                    record_dlp_finding(&finding.pattern_name);
+                                }
+                                tracing::warn!(
+                                    "SECURITY: Secret detected in WS resource URI! Session: {}, URI: [redacted]",
+                                    session_id,
+                                );
+                                let audit_verdict = Verdict::Deny {
+                                    reason: "DLP blocked: secret detected in resource URI".to_string(),
+                                };
+                                if let Err(e) = state.audit.log_entry(
+                                    &action, &audit_verdict,
+                                    json!({
+                                        "source": "ws_proxy", "session": session_id,
+                                        "transport": "websocket", "event": "resource_uri_dlp_alert",
+                                    }),
+                                ).await {
+                                    tracing::warn!("Failed to audit WS resource URI DLP: {}", e);
+                                }
+                                let error = make_ws_error_response(
+                                    Some(id), -32001, "Request blocked: security policy violation",
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                                continue;
+                            }
+                        }
+
                         let ctx = build_ws_evaluation_context(&state, &session_id);
                         let verdict = match state.engine.evaluate_action_with_context(
                             &action,
@@ -1461,6 +1495,120 @@ async fn relay_client_to_upstream(
 
                         match verdict {
                             Verdict::Allow => {
+                                // SECURITY (FIND-R116-002): ABAC refinement for resource reads.
+                                // Parity with HTTP handler (handlers.rs:1783) and gRPC (service.rs:972).
+                                if let Some(ref abac) = state.abac_engine {
+                                    let principal_id =
+                                        ctx.agent_id.as_deref().unwrap_or("anonymous");
+                                    let principal_type = ctx
+                                        .agent_identity
+                                        .as_ref()
+                                        .and_then(|aid| aid.claims.get("type"))
+                                        .and_then(|v: &serde_json::Value| v.as_str())
+                                        .unwrap_or("Agent");
+                                    let session_risk = state
+                                        .sessions
+                                        .get_mut(&session_id)
+                                        .and_then(|s| s.risk_score.clone());
+                                    let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
+                                        eval_ctx: &ctx,
+                                        principal_type,
+                                        principal_id,
+                                        risk_score: session_risk.as_ref(),
+                                    };
+                                    match abac.evaluate(&action, &abac_ctx) {
+                                        vellaveto_engine::abac::AbacDecision::Deny {
+                                            policy_id,
+                                            reason,
+                                        } => {
+                                            let deny_verdict = Verdict::Deny {
+                                                reason: format!(
+                                                    "ABAC denied by {}: {}",
+                                                    policy_id, reason
+                                                ),
+                                            };
+                                            if let Err(e) = state
+                                                .audit
+                                                .log_entry(
+                                                    &action,
+                                                    &deny_verdict,
+                                                    json!({
+                                                        "source": "ws_proxy",
+                                                        "session": session_id,
+                                                        "transport": "websocket",
+                                                        "abac_policy": policy_id,
+                                                        "resource_uri": uri,
+                                                    }),
+                                                )
+                                                .await
+                                            {
+                                                tracing::warn!(
+                                                    "Failed to audit WS resource ABAC deny: {}",
+                                                    e
+                                                );
+                                            }
+                                            let error_resp = make_ws_error_response(
+                                                Some(id),
+                                                -32001,
+                                                "Denied by policy",
+                                            );
+                                            let mut sink = client_sink.lock().await;
+                                            let _ =
+                                                sink.send(Message::Text(error_resp.into())).await;
+                                            continue;
+                                        }
+                                        vellaveto_engine::abac::AbacDecision::Allow { .. } => {
+                                            // ABAC allow — proceed
+                                        }
+                                        vellaveto_engine::abac::AbacDecision::NoMatch => {
+                                            // Fall through — existing Allow stands
+                                        }
+                                        #[allow(unreachable_patterns)]
+                                        _ => {
+                                            tracing::warn!(
+                                                "Unknown AbacDecision variant in WS resource_read — fail-closed"
+                                            );
+                                            let error_resp = make_ws_error_response(
+                                                Some(id),
+                                                -32001,
+                                                "Denied by policy",
+                                            );
+                                            let mut sink = client_sink.lock().await;
+                                            let _ =
+                                                sink.send(Message::Text(error_resp.into())).await;
+                                            continue;
+                                        }
+                                    }
+                                }
+
+                                // SECURITY (FIND-R116-006): Track resource reads in call_counts/action_history.
+                                // Parity with HTTP handler (handlers.rs:1744) and gRPC (service.rs:1021).
+                                {
+                                    use crate::proxy::call_chain::{
+                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+                                    };
+                                    if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                                        session.touch();
+                                        let resource_key = format!(
+                                            "resources/read:{}",
+                                            uri.chars().take(128).collect::<String>()
+                                        );
+                                        if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                                            || session.call_counts.contains_key(&resource_key)
+                                        {
+                                            let count =
+                                                session.call_counts.entry(resource_key).or_insert(0);
+                                            *count = count.saturating_add(1);
+                                        }
+                                        if session.action_history.len() >= MAX_ACTION_HISTORY {
+                                            session.action_history.pop_front();
+                                        }
+                                        session
+                                            .action_history
+                                            .push_back("resources/read".to_string());
+                                    }
+                                }
+
                                 // SECURITY (FIND-R46-WS-004): Audit log allowed resource reads
                                 if let Err(e) = state
                                     .audit
@@ -1514,9 +1662,71 @@ async fn relay_client_to_upstream(
                                     break;
                                 }
                             }
+                            // SECURITY (FIND-R116-009): Separate handling for Deny vs RequireApproval
+                            // with per-verdict audit logging. Parity with gRPC (service.rs:1051-1076).
+                            Verdict::Deny { ref reason } => {
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &Verdict::Deny {
+                                            reason: reason.clone(),
+                                        },
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "resource_uri": uri,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to audit WS resource read deny: {}",
+                                        e
+                                    );
+                                }
+                                let error =
+                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                            }
+                            Verdict::RequireApproval { ref reason, .. } => {
+                                let deny_reason =
+                                    format!("Requires approval: {}", reason);
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &Verdict::Deny {
+                                            reason: deny_reason,
+                                        },
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "resource_uri": uri,
+                                            "event": "require_approval",
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to audit WS resource read approval: {}",
+                                        e
+                                    );
+                                }
+                                let error =
+                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                            }
+                            #[allow(unreachable_patterns)]
                             _ => {
-                                // SECURITY (FIND-R46-012): Generic message to client.
-                                // Detailed reason is preserved in audit log above.
+                                // SECURITY: Future variants — fail-closed.
+                                tracing::warn!(
+                                    "Unknown Verdict variant in WS resource_read — fail-closed"
+                                );
                                 let error =
                                     make_ws_error_response(Some(id), -32001, "Denied by policy");
                                 let mut sink = client_sink.lock().await;
@@ -1936,6 +2146,78 @@ async fn relay_client_to_upstream(
                     } => {
                         // Policy-evaluate extension method calls
                         let params = parsed.get("params").cloned().unwrap_or(json!({}));
+
+                        // SECURITY (FIND-R116-001): DLP scan extension method parameters.
+                        // Parity with gRPC handle_extension_method (service.rs:1542).
+                        let dlp_findings = scan_parameters_for_secrets(&params);
+                        if !dlp_findings.is_empty() {
+                            for finding in &dlp_findings {
+                                record_dlp_finding(&finding.pattern_name);
+                            }
+                            let patterns: Vec<String> = dlp_findings
+                                .iter()
+                                .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                                .collect();
+                            tracing::warn!(
+                                "SECURITY: Secrets in WS extension method parameters! Session: {}, Extension: {}:{}, Findings: {:?}",
+                                session_id, extension_id, method, patterns,
+                            );
+                            let action = extractor::extract_extension_action(extension_id, method, &params);
+                            let audit_verdict = Verdict::Deny {
+                                reason: format!("DLP blocked: secret detected in extension parameters: {:?}", patterns),
+                            };
+                            if let Err(e) = state.audit.log_entry(
+                                &action, &audit_verdict,
+                                json!({
+                                    "source": "ws_proxy", "session": session_id, "transport": "websocket",
+                                    "event": "ws_extension_parameter_dlp_alert",
+                                    "extension_id": extension_id, "method": method, "findings": patterns,
+                                }),
+                            ).await {
+                                tracing::warn!("Failed to audit WS extension parameter DLP: {}", e);
+                            }
+                            let denial = make_ws_error_response(Some(id), -32001, "Denied by policy");
+                            let mut sink = client_sink.lock().await;
+                            let _ = sink.send(Message::Text(denial.into())).await;
+                            continue;
+                        }
+
+                        // SECURITY (FIND-R116-001): Memory poisoning detection for extension params.
+                        // Parity with gRPC handle_extension_method (service.rs:1574).
+                        if let Some(session) = state.sessions.get_mut(&session_id) {
+                            let poisoning_matches = session.memory_tracker.check_parameters(&params);
+                            if !poisoning_matches.is_empty() {
+                                for m in &poisoning_matches {
+                                    tracing::warn!(
+                                        "SECURITY: Memory poisoning in WS extension '{}:{}' (session {}): \
+                                         param '{}' replayed data (fingerprint: {})",
+                                        extension_id, method, session_id, m.param_location, m.fingerprint
+                                    );
+                                }
+                                let action = extractor::extract_extension_action(extension_id, method, &params);
+                                let deny_reason = format!(
+                                    "Memory poisoning detected: {} replayed data fragment(s) in extension '{}:{}'",
+                                    poisoning_matches.len(), extension_id, method
+                                );
+                                if let Err(e) = state.audit.log_entry(
+                                    &action,
+                                    &Verdict::Deny { reason: deny_reason.clone() },
+                                    json!({
+                                        "source": "ws_proxy", "session": session_id, "transport": "websocket",
+                                        "event": "memory_poisoning_detected",
+                                        "matches": poisoning_matches.len(),
+                                        "extension_id": extension_id, "method": method,
+                                    }),
+                                ).await {
+                                    tracing::warn!("Failed to audit WS extension memory poisoning: {}", e);
+                                }
+                                let denial = make_ws_error_response(Some(id), -32001, "Denied by policy");
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(denial.into())).await;
+                                continue;
+                            }
+                        }
+
                         let action =
                             extractor::extract_extension_action(extension_id, method, &params);
                         let ctx = build_ws_evaluation_context(&state, &session_id);

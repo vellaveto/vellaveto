@@ -80,7 +80,11 @@ impl ModelProjection for OpenAiProjection {
     }
 
     fn estimate_tokens(&self, schema: &CanonicalToolSchema) -> usize {
-        let json_str = serde_json::to_string(schema).unwrap_or_default();
+        // SECURITY (FIND-R131-001): Fail-closed on serialization failure.
+        let json_str = match serde_json::to_string(schema) {
+            Ok(s) => s,
+            Err(_) => return super::FAILSAFE_TOKEN_ESTIMATE,
+        };
         // OpenAI: ~4 chars per token
         json_str.len() / 4
     }

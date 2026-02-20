@@ -188,7 +188,11 @@ impl ModelProjection for DeepSeekProjection {
     }
 
     fn estimate_tokens(&self, schema: &CanonicalToolSchema) -> usize {
-        let json_str = serde_json::to_string(schema).unwrap_or_default();
+        // SECURITY (FIND-R131-001): Fail-closed on serialization failure.
+        let json_str = match serde_json::to_string(schema) {
+            Ok(s) => s,
+            Err(_) => return super::FAILSAFE_TOKEN_ESTIMATE,
+        };
         // DeepSeek: larger tokenizer, ~3 chars per token
         (json_str.len() as f64 / 3.0).ceil() as usize
     }

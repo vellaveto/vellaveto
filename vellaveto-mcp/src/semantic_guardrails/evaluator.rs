@@ -89,7 +89,7 @@ pub enum LlmEvalError {
 
 /// SECURITY (FIND-R114-009): Clamp a confidence value to [0.0, 1.0].
 /// NaN and non-finite values are treated as 0.0 (fail-closed for Allow, conservative for Deny).
-fn clamp_confidence(value: f64) -> f64 {
+pub(crate) fn clamp_confidence(value: f64) -> f64 {
     if !value.is_finite() {
         return 0.0;
     }

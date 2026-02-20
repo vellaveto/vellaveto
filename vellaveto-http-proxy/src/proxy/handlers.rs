@@ -2735,6 +2735,70 @@ pub async fn handle_mcp_post(
         } => {
             // Policy-evaluate extension method calls
             let params = msg.get("params").cloned().unwrap_or(json!({}));
+
+            // SECURITY (FIND-R116-001): DLP scan extension method parameters.
+            // Parity with gRPC handle_extension_method (service.rs:1542).
+            let dlp_findings = scan_parameters_for_secrets(&params);
+            if !dlp_findings.is_empty() {
+                for finding in &dlp_findings {
+                    record_dlp_finding(&finding.pattern_name);
+                }
+                let patterns: Vec<String> = dlp_findings
+                    .iter()
+                    .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                    .collect();
+                tracing::warn!(
+                    "SECURITY: Secrets in HTTP extension method parameters! Session: {}, Extension: {}:{}, Findings: {:?}",
+                    session_id, extension_id, method, patterns,
+                );
+                let action = extractor::extract_extension_action(extension_id, method, &params);
+                let audit_verdict = Verdict::Deny {
+                    reason: format!("DLP blocked: secret detected in extension parameters: {:?}", patterns),
+                };
+                if let Err(e) = state.audit.log_entry(
+                    &action, &audit_verdict,
+                    build_audit_context(&session_id, json!({
+                        "event": "extension_parameter_dlp_alert",
+                        "extension_id": extension_id, "method": method, "findings": patterns,
+                    }), &oauth_claims),
+                ).await {
+                    tracing::warn!("Failed to audit extension parameter DLP: {}", e);
+                }
+                return make_jsonrpc_error(Some(id), -32001, "Denied by policy");
+            }
+
+            // SECURITY (FIND-R116-001): Memory poisoning detection for extension params.
+            // Parity with gRPC handle_extension_method (service.rs:1574).
+            if let Some(session) = state.sessions.get_mut(&session_id) {
+                let poisoning_matches = session.memory_tracker.check_parameters(&params);
+                if !poisoning_matches.is_empty() {
+                    for m in &poisoning_matches {
+                        tracing::warn!(
+                            "SECURITY: Memory poisoning in HTTP extension '{}:{}' (session {}): \
+                             param '{}' replayed data (fingerprint: {})",
+                            extension_id, method, session_id, m.param_location, m.fingerprint
+                        );
+                    }
+                    let action = extractor::extract_extension_action(extension_id, method, &params);
+                    let deny_reason = format!(
+                        "Memory poisoning detected: {} replayed data fragment(s) in extension '{}:{}'",
+                        poisoning_matches.len(), extension_id, method
+                    );
+                    if let Err(e) = state.audit.log_entry(
+                        &action,
+                        &Verdict::Deny { reason: deny_reason.clone() },
+                        build_audit_context(&session_id, json!({
+                            "event": "memory_poisoning_detected",
+                            "matches": poisoning_matches.len(),
+                            "extension_id": extension_id, "method": method,
+                        }), &oauth_claims),
+                    ).await {
+                        tracing::warn!("Failed to audit extension memory poisoning: {}", e);
+                    }
+                    return make_jsonrpc_error(Some(id), -32001, "Denied by policy");
+                }
+            }
+
             let action = extractor::extract_extension_action(extension_id, method, &params);
             let eval_ctx = build_evaluation_context(&state.sessions, &session_id);
 

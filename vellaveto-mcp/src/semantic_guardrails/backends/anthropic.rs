@@ -238,9 +238,12 @@ impl LlmEvaluator for AnthropicBackend {
         // Use the evaluation endpoint and extract intent
         let eval = self.evaluate(input).await?;
 
+        // SECURITY (FIND-R116-005): Clamp confidence to [0.0, 1.0].
+        // A compromised or misconfigured LLM proxy could return values outside range.
+        let confidence = crate::semantic_guardrails::evaluator::clamp_confidence(eval.confidence);
         Ok(IntentClassification {
             primary_intent: eval.intent.unwrap_or(Intent::Unknown),
-            confidence: eval.confidence,
+            confidence,
             secondary_intents: Vec::new(),
             detected_risks: Vec::new(),
             explanation: eval.explanation,

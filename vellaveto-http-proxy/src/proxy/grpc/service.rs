@@ -712,9 +712,11 @@ impl McpGrpcService {
                             {
                                 tracing::warn!("Failed to audit gRPC ABAC deny: {}", e);
                             }
+                            // SECURITY (FIND-R116-003): Generic client-facing message.
+                            // The policy_id and reason are preserved in the audit log above.
                             return make_proto_denial_response(
                                 proto_req,
-                                &format!("ABAC denied by {}: {}", policy_id, reason),
+                                "Denied by policy",
                             );
                         }
                         vellaveto_engine::abac::AbacDecision::Allow { policy_id } => {
@@ -949,7 +951,41 @@ impl McpGrpcService {
             }
         }
 
-        let action = extractor::extract_resource_action(uri);
+        let mut action = extractor::extract_resource_action(uri);
+
+        // SECURITY (FIND-R116-007): DNS resolution for resource reads.
+        // Parity with HTTP handler (handlers.rs:1662) and WS handler (websocket/mod.rs:1439).
+        if self.state.engine.has_ip_rules() {
+            super::super::helpers::resolve_domains(&mut action).await;
+        }
+
+        // SECURITY (FIND-R116-004): DLP scan on resource URI.
+        // Parity with HTTP handler (handlers.rs:1598).
+        let uri_params = json!({"uri": uri});
+        let dlp_findings = scan_parameters_for_secrets(&uri_params);
+        if !dlp_findings.is_empty() {
+            for finding in &dlp_findings {
+                record_dlp_finding(&finding.pattern_name);
+            }
+            tracing::warn!(
+                "SECURITY: Secret detected in gRPC resource URI! Session: {}, URI: [redacted]",
+                session_id,
+            );
+            let audit_verdict = Verdict::Deny {
+                reason: format!("DLP blocked: secret detected in resource URI"),
+            };
+            if let Err(e) = self.state.audit.log_entry(
+                &action, &audit_verdict,
+                json!({
+                    "source": "grpc_proxy", "session": session_id,
+                    "transport": "grpc", "event": "resource_uri_dlp_alert",
+                }),
+            ).await {
+                tracing::warn!("Failed to audit gRPC resource URI DLP: {}", e);
+            }
+            return make_proto_denial_response(proto_req, "Response blocked: sensitive content detected");
+        }
+
         let ctx = self.build_evaluation_context(session_id);
 
         let verdict = match self.state.engine.evaluate_action_with_context(
@@ -1003,9 +1039,11 @@ impl McpGrpcService {
                             ).await {
                                 tracing::warn!("Failed to audit gRPC resource ABAC deny: {}", e);
                             }
+                            // SECURITY (FIND-R116-003): Generic client-facing message.
+                            // The policy_id and reason are preserved in the audit log above.
                             return make_proto_denial_response(
                                 proto_req,
-                                &format!("ABAC denied by {}: {}", policy_id, reason),
+                                "Denied by policy",
                             );
                         }
                         vellaveto_engine::abac::AbacDecision::Allow { .. } => {}

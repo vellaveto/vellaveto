@@ -25,6 +25,14 @@ pub trait ModelProjection: Send + Sync {
     fn estimate_tokens(&self, schema: &CanonicalToolSchema) -> usize;
 }
 
+/// Fail-closed token estimate returned when serialization fails.
+///
+/// SECURITY (FIND-R131-001): Using `unwrap_or_default()` on `serde_json::to_string()`
+/// returns an empty string → 0 tokens → fail-open (compression thinks schema fits).
+/// All `estimate_tokens()` implementations must return this on serialization failure
+/// to trigger compression strategies as a fail-closed defense.
+pub(crate) const FAILSAFE_TOKEN_ESTIMATE: usize = 100_000;
+
 /// Maximum number of registered model projections.
 const MAX_REGISTERED_PROJECTIONS: usize = 100;
 

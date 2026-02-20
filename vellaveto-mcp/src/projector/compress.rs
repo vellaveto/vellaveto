@@ -45,12 +45,21 @@ impl SchemaCompressor {
     ///
     /// Uses a simple heuristic: 1 token ~ 4 characters of compact JSON.
     /// Returns at least 1 for any non-empty value.
+    ///
+    /// SECURITY (FIND-R131-001): On serialization failure, returns a high
+    /// estimate (fail-closed) so compression strategies are still applied.
+    /// Previously used `unwrap_or_default()` which returned 0 (fail-open),
+    /// causing the compressor to think any schema fits within budget.
     pub fn estimate_tokens(schema: &Value) -> usize {
-        let json = serde_json::to_string(schema).unwrap_or_default();
-        if json.is_empty() {
-            return 0;
+        /// Fail-closed estimate when serialization unexpectedly fails.
+        /// High enough to trigger all compression strategies.
+        const FAILSAFE_TOKEN_ESTIMATE: usize = 100_000;
+
+        match serde_json::to_string(schema) {
+            Ok(json) if json.is_empty() => 0,
+            Ok(json) => json.len().div_ceil(4),
+            Err(_) => FAILSAFE_TOKEN_ESTIMATE,
         }
-        json.len().div_ceil(4)
     }
 }
 
@@ -795,5 +804,23 @@ mod tests {
         let result = SchemaCompressor::compress(&schema, 0);
         // The top-level type:"object" should still be stripped
         assert!(result.get("type").is_none());
+    }
+
+    // ── FIND-R131-001: estimate_tokens fail-closed ────────────────────────
+
+    #[test]
+    fn test_estimate_tokens_nonzero_for_any_valid_value() {
+        // All non-"" JSON values should produce a non-zero estimate
+        for val in [
+            json!(null),
+            json!(true),
+            json!(42),
+            json!("x"),
+            json!([]),
+            json!({}),
+        ] {
+            let tokens = SchemaCompressor::estimate_tokens(&val);
+            assert!(tokens > 0, "Expected >0 tokens for {:?}", val);
+        }
     }
 }
