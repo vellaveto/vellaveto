@@ -59,6 +59,21 @@ pub enum ExportError {
 }
 
 /// Configuration for exporter batching and retry behavior.
+///
+/// NOTE: `#[serde(deny_unknown_fields)]` is intentionally omitted here.
+/// `ExporterConfig` is embedded via `#[serde(flatten)]` in `SplunkConfig`,
+/// `WebhookConfig`, `DatadogConfig`, `ElasticsearchConfig`, and `SyslogConfig`.
+/// serde does not support combining `deny_unknown_fields` with `flatten` --
+/// the flattened fields from the outer struct would be treated as unknown and
+/// deserialization would fail. This is a known serde limitation tracked at
+/// <https://github.com/serde-rs/serde/issues/1358>.
+///
+/// Mitigation: `ExporterConfig::validate()` is called by each outer config's
+/// `validate()` method, which enforces structural invariants on the deserialized
+/// values. Unknown top-level fields are silently ignored but cannot influence
+/// export behavior.
+///
+/// SECURITY (FIND-R112-006): Documented limitation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExporterConfig {
     /// Maximum entries per batch.
@@ -174,6 +189,10 @@ pub trait SiemExporter: Send + Sync {
 }
 
 /// Splunk HTTP Event Collector (HEC) configuration.
+///
+/// SECURITY (FIND-R112-006): `deny_unknown_fields` cannot be applied due to
+/// `#[serde(flatten)]` on the `common` field (serde#1358). Validated via
+/// `ExporterConfig::validate()`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SplunkConfig {
     /// HEC endpoint URL (e.g., "https://splunk:8088/services/collector").
@@ -498,6 +517,10 @@ const MAX_HEADER_KEY_LEN: usize = 256;
 const MAX_HEADER_VALUE_LEN: usize = 8192;
 
 /// Generic webhook exporter configuration.
+///
+/// SECURITY (FIND-R112-006): `deny_unknown_fields` cannot be applied due to
+/// `#[serde(flatten)]` on the `common` field (serde#1358). Validated via
+/// `WebhookConfig::validate()` + `ExporterConfig::validate()`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookConfig {
     /// Webhook endpoint URL.
@@ -728,6 +751,10 @@ const MAX_TAG_COUNT: usize = 100;
 const MAX_TAG_LEN: usize = 256;
 
 /// Datadog logs intake configuration.
+///
+/// SECURITY (FIND-R112-006): `deny_unknown_fields` cannot be applied due to
+/// `#[serde(flatten)]` on the `common` field (serde#1358). Validated via
+/// `DatadogConfig::validate()` + `ExporterConfig::validate()`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatadogConfig {
     /// Datadog logs intake endpoint.
@@ -1023,6 +1050,10 @@ impl SiemExporter for DatadogExporter {
 // ────────────────────────────────────────────────────────────────────────────
 
 /// Elasticsearch bulk index configuration.
+///
+/// SECURITY (FIND-R112-006): `deny_unknown_fields` cannot be applied due to
+/// `#[serde(flatten)]` on the `common` field (serde#1358). Validated via
+/// `ExporterConfig::validate()`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ElasticsearchConfig {
     /// Elasticsearch endpoint (e.g., "https://elasticsearch:9200").
@@ -1416,6 +1447,10 @@ impl SyslogSeverity {
 }
 
 /// Configuration for syslog exporter.
+///
+/// SECURITY (FIND-R112-006): `deny_unknown_fields` cannot be applied due to
+/// `#[serde(flatten)]` on the `common` field (serde#1358). Validated via
+/// `ExporterConfig::validate()`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyslogConfig {
     /// Syslog server host.

@@ -579,12 +579,46 @@ impl ObservabilityConfig {
                 MAX_LANGFUSE_METADATA
             ));
         }
+        // SECURITY (FIND-R112-018): Validate langfuse.metadata keys for length
+        // and control characters to prevent log injection and memory abuse.
+        const MAX_METADATA_KEY_LEN: usize = 256;
+        for key in self.langfuse.metadata.keys() {
+            if key.len() > MAX_METADATA_KEY_LEN {
+                return Err(format!(
+                    "observability.langfuse.metadata key exceeds max length ({} > {})",
+                    key.len(),
+                    MAX_METADATA_KEY_LEN
+                ));
+            }
+            if key.chars().any(|c| c.is_control()) {
+                return Err(
+                    "observability.langfuse.metadata key contains control characters".to_string(),
+                );
+            }
+        }
         if self.helicone.custom_properties.len() > MAX_HELICONE_CUSTOM_PROPERTIES {
             return Err(format!(
                 "observability.helicone.custom_properties has {} entries, max is {}",
                 self.helicone.custom_properties.len(),
                 MAX_HELICONE_CUSTOM_PROPERTIES
             ));
+        }
+        // SECURITY (FIND-R112-018): Validate helicone.custom_properties keys for length
+        // and control characters to prevent log injection and memory abuse.
+        for key in self.helicone.custom_properties.keys() {
+            if key.len() > MAX_METADATA_KEY_LEN {
+                return Err(format!(
+                    "observability.helicone.custom_properties key exceeds max length ({} > {})",
+                    key.len(),
+                    MAX_METADATA_KEY_LEN
+                ));
+            }
+            if key.chars().any(|c| c.is_control()) {
+                return Err(
+                    "observability.helicone.custom_properties key contains control characters"
+                        .to_string(),
+                );
+            }
         }
         if self.webhook.headers.len() > MAX_WEBHOOK_HEADERS {
             return Err(format!(
@@ -637,6 +671,12 @@ impl ObservabilityConfig {
                 );
             }
             Self::validate_url(&self.langfuse.endpoint, "observability.langfuse.endpoint")?;
+            // SECURITY (FIND-R112-014): Langfuse is an external cloud service —
+            // reject private/loopback URLs to prevent SSRF.
+            Self::validate_not_private(
+                &self.langfuse.endpoint,
+                "observability.langfuse.endpoint",
+            )?;
 
             if self.langfuse.batch_size == 0 || self.langfuse.batch_size > 10_000 {
                 return Err(format!(
@@ -660,6 +700,12 @@ impl ObservabilityConfig {
                 );
             }
             Self::validate_url(&self.arize.endpoint, "observability.arize.endpoint")?;
+            // SECURITY (FIND-R112-014): Arize is an external cloud service —
+            // reject private/loopback URLs to prevent SSRF.
+            Self::validate_not_private(
+                &self.arize.endpoint,
+                "observability.arize.endpoint",
+            )?;
 
             if self.arize.batch_size == 0 || self.arize.batch_size > 10_000 {
                 return Err(format!(
@@ -683,6 +729,12 @@ impl ObservabilityConfig {
                 );
             }
             Self::validate_url(&self.helicone.endpoint, "observability.helicone.endpoint")?;
+            // SECURITY (FIND-R112-014): Helicone is an external cloud service —
+            // reject private/loopback URLs to prevent SSRF.
+            Self::validate_not_private(
+                &self.helicone.endpoint,
+                "observability.helicone.endpoint",
+            )?;
 
             if self.helicone.batch_size == 0 || self.helicone.batch_size > 10_000 {
                 return Err(format!(

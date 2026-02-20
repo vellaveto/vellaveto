@@ -124,6 +124,35 @@ pub struct EscalationDetectorConfig {
     pub cache_ttl: Duration,
 }
 
+impl EscalationDetectorConfig {
+    /// Validate configuration bounds.
+    ///
+    /// SECURITY (FIND-R112-005): Ensures alert_threshold and deny_threshold are
+    /// finite and in [0.0, 1.0]. NaN/Infinity values bypass threshold comparisons,
+    /// allowing undetected escalation or false positives.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.alert_threshold.is_finite()
+            || self.alert_threshold < 0.0
+            || self.alert_threshold > 1.0
+        {
+            return Err(format!(
+                "EscalationDetectorConfig alert_threshold must be in [0.0, 1.0], got {}",
+                self.alert_threshold
+            ));
+        }
+        if !self.deny_threshold.is_finite()
+            || self.deny_threshold < 0.0
+            || self.deny_threshold > 1.0
+        {
+            return Err(format!(
+                "EscalationDetectorConfig deny_threshold must be in [0.0, 1.0], got {}",
+                self.deny_threshold
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl Default for EscalationDetectorConfig {
     fn default() -> Self {
         Self {

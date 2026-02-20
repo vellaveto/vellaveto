@@ -496,7 +496,11 @@ impl SecuritySpanBuilder {
 }
 
 /// Configuration for observability exporter batching and retry behavior.
+///
+/// SECURITY (FIND-R112-012): `deny_unknown_fields` rejects unexpected fields
+/// during deserialization, preventing config injection via typo'd field names.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ObservabilityExporterConfig {
     /// Maximum spans per batch.
     #[serde(default = "default_batch_size")]

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use vellaveto_types::is_unicode_format_char;
 
 use crate::default_true;
 
@@ -240,10 +241,34 @@ impl SpiffeConfig {
             if sid.chars().any(|c| c.is_control()) {
                 return Err("spiffe.allowed_spiffe_ids contains control characters".to_string());
             }
+            // SECURITY (FIND-R112-020): Reject Unicode format characters (zero-width,
+            // bidi overrides, BOM) in SPIFFE IDs to prevent identity confusion.
+            if sid.chars().any(is_unicode_format_char) {
+                return Err(
+                    "spiffe.allowed_spiffe_ids contains Unicode format characters".to_string(),
+                );
+            }
+        }
+        // SECURITY (FIND-R112-020): Also validate id_to_role keys for Unicode format chars.
+        for key in self.id_to_role.keys() {
+            if key.chars().any(|c| c.is_control()) {
+                return Err("spiffe.id_to_role key contains control characters".to_string());
+            }
+            if key.chars().any(is_unicode_format_char) {
+                return Err(
+                    "spiffe.id_to_role key contains Unicode format characters".to_string(),
+                );
+            }
         }
         if let Some(ref domain) = self.trust_domain {
             if domain.chars().any(|c| c.is_control()) {
                 return Err("spiffe.trust_domain contains control characters".to_string());
+            }
+            // SECURITY (FIND-R112-020): Trust domain also checked for format chars.
+            if domain.chars().any(is_unicode_format_char) {
+                return Err(
+                    "spiffe.trust_domain contains Unicode format characters".to_string(),
+                );
             }
         }
         // SECURITY (BUG-R110-003): Fail-closed when enabled without trust_domain
@@ -568,6 +593,17 @@ impl ThreatIntelConfig {
                     "threat_intel.endpoint contains control characters".to_string(),
                 );
             }
+            // SECURITY (FIND-R112-016): Validate URL scheme for threat intel endpoint.
+            // Threat intel feeds are external services — require HTTPS except for
+            // localhost development environments.
+            if !endpoint.starts_with("https://")
+                && !crate::validation::is_http_localhost_url(endpoint)
+            {
+                return Err(
+                    "threat_intel.endpoint must use https:// (or http://localhost for development)"
+                        .to_string(),
+                );
+            }
         }
         for ioc in &self.ioc_types {
             if ioc.chars().any(|c| c.is_control()) {
@@ -696,11 +732,29 @@ impl JitAccessConfig {
                 );
             }
         }
-        for elev in &self.allowed_elevations {
+        // SECURITY (FIND-R112-015): Per-entry length bound to prevent
+        // excessively long elevation names that waste memory and cause log bloat.
+        const MAX_ELEVATION_STRING_LEN: usize = 256;
+        for (i, elev) in self.allowed_elevations.iter().enumerate() {
+            if elev.is_empty() {
+                return Err(format!(
+                    "jit_access.allowed_elevations[{}] must not be empty",
+                    i
+                ));
+            }
+            if elev.len() > MAX_ELEVATION_STRING_LEN {
+                return Err(format!(
+                    "jit_access.allowed_elevations[{}] exceeds max length ({} > {})",
+                    i,
+                    elev.len(),
+                    MAX_ELEVATION_STRING_LEN
+                ));
+            }
             if elev.chars().any(|c| c.is_control()) {
-                return Err(
-                    "jit_access.allowed_elevations contains control characters".to_string(),
-                );
+                return Err(format!(
+                    "jit_access.allowed_elevations[{}] contains control characters",
+                    i
+                ));
             }
         }
         Ok(())

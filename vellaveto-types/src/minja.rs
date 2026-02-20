@@ -112,6 +112,14 @@ impl MemoryEntry {
     /// perfect trust score of 1.0. A trust_score of 1.0 on tainted data
     /// could cause downstream consumers to skip security checks.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R112-006): Enforce MAX_TAINT_LABELS on deserialized data.
+        if self.taint_labels.len() > MAX_TAINT_LABELS {
+            return Err(format!(
+                "MemoryEntry '{}' has {} taint_labels, max {}",
+                self.id, self.taint_labels.len(), MAX_TAINT_LABELS
+            ));
+        }
+
         if !self.trust_score.is_finite() {
             return Err(format!(
                 "MemoryEntry '{}' trust_score is not finite: {}",

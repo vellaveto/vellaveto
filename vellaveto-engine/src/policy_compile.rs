@@ -1236,6 +1236,11 @@ impl PolicyEngine {
                 // CIMD: Capability-Indexed Message Dispatch
                 // SECURITY (FIND-043): Normalize to lowercase at compile time,
                 // matching the pattern used by AgentId and MaxCalls.
+
+                // SECURITY (FIND-R112-003): Bound capability list sizes and per-entry length.
+                const MAX_CAPABILITY_LIST: usize = 256;
+                const MAX_CAPABILITY_NAME_LEN: usize = 256;
+
                 let required_capabilities: Vec<String> = obj
                     .get("required_capabilities")
                     .and_then(|v| v.as_array())
@@ -1246,6 +1251,29 @@ impl PolicyEngine {
                     })
                     .unwrap_or_default();
 
+                if required_capabilities.len() > MAX_CAPABILITY_LIST {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "capability_required has {} required_capabilities (max {MAX_CAPABILITY_LIST})",
+                            required_capabilities.len()
+                        ),
+                    });
+                }
+                for (i, cap) in required_capabilities.iter().enumerate() {
+                    if cap.len() > MAX_CAPABILITY_NAME_LEN {
+                        return Err(PolicyValidationError {
+                            policy_id: policy.id.clone(),
+                            policy_name: policy.name.clone(),
+                            reason: format!(
+                                "capability_required required_capabilities[{i}] length {} exceeds max {MAX_CAPABILITY_NAME_LEN}",
+                                cap.len()
+                            ),
+                        });
+                    }
+                }
+
                 let blocked_capabilities: Vec<String> = obj
                     .get("blocked_capabilities")
                     .and_then(|v| v.as_array())
@@ -1255,6 +1283,29 @@ impl PolicyEngine {
                             .collect()
                     })
                     .unwrap_or_default();
+
+                if blocked_capabilities.len() > MAX_CAPABILITY_LIST {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "capability_required has {} blocked_capabilities (max {MAX_CAPABILITY_LIST})",
+                            blocked_capabilities.len()
+                        ),
+                    });
+                }
+                for (i, cap) in blocked_capabilities.iter().enumerate() {
+                    if cap.len() > MAX_CAPABILITY_NAME_LEN {
+                        return Err(PolicyValidationError {
+                            policy_id: policy.id.clone(),
+                            policy_name: policy.name.clone(),
+                            reason: format!(
+                                "capability_required blocked_capabilities[{i}] length {} exceeds max {MAX_CAPABILITY_NAME_LEN}",
+                                cap.len()
+                            ),
+                        });
+                    }
+                }
 
                 let deny_reason = format!(
                     "Capability requirement not met for policy '{}'",
@@ -1688,12 +1739,12 @@ impl PolicyEngine {
                 });
             }
 
-            // Reject control characters in tool names.
-            if s.chars().any(|c| c.is_control()) {
+            // SECURITY (FIND-R112-004): Reject control and Unicode format characters in tool names.
+            if s.chars().any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c)) {
                 return Err(PolicyValidationError {
                     policy_id: policy.id.clone(),
                     policy_name: policy.name.clone(),
-                    reason: format!("{kind} sequence[{i}] contains control characters"),
+                    reason: format!("{kind} sequence[{i}] contains control or format characters"),
                 });
             }
 
@@ -1828,12 +1879,13 @@ impl PolicyEngine {
                 });
             }
 
-            if tool.chars().any(|c| c.is_control()) {
+            // SECURITY (FIND-R112-004): Reject control and Unicode format characters.
+            if tool.chars().any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c)) {
                 return Err(PolicyValidationError {
                     policy_id: policy.id.clone(),
                     policy_name: policy.name.clone(),
                     reason: format!(
-                        "workflow_template steps[{i}].tool contains control characters"
+                        "workflow_template steps[{i}].tool contains control or format characters"
                     ),
                 });
             }
@@ -1900,12 +1952,13 @@ impl PolicyEngine {
                     });
                 }
 
-                if s.chars().any(|c| c.is_control()) {
+                // SECURITY (FIND-R112-004): Reject control and Unicode format characters.
+                if s.chars().any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c)) {
                     return Err(PolicyValidationError {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
                         reason: format!(
-                            "workflow_template steps[{i}].then[{j}] contains control characters"
+                            "workflow_template steps[{i}].then[{j}] contains control or format characters"
                         ),
                     });
                 }

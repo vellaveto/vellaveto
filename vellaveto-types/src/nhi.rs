@@ -162,11 +162,54 @@ impl NhiAgentIdentity {
     pub const MAX_METADATA_ENTRIES: usize = 100;
     /// Maximum attestations per identity.
     pub const MAX_ATTESTATIONS: usize = 100;
+    /// Maximum length for a single tag.
+    pub const MAX_TAG_LEN: usize = 256;
+    /// Maximum length for a metadata key.
+    pub const MAX_METADATA_KEY_LEN: usize = 256;
+    /// Maximum length for a metadata value.
+    pub const MAX_METADATA_VALUE_LEN: usize = 4096;
+    /// Maximum length for the `id` field.
+    pub const MAX_ID_LEN: usize = 256;
+    /// Maximum length for the `name` field.
+    pub const MAX_NAME_LEN: usize = 256;
 
     /// Validate bounds on deserialized data.
     ///
     /// SECURITY (FIND-R48-005): Unbounded tags, metadata, attestations from deserialization.
+    /// SECURITY (FIND-R112-007): Per-entry tag/metadata content validation.
+    /// SECURITY (FIND-R112-011): id and name field validation.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R112-011): Validate id field.
+        if self.id.is_empty() {
+            return Err("NhiAgentIdentity id must not be empty".to_string());
+        }
+        if self.id.len() > Self::MAX_ID_LEN {
+            return Err(format!(
+                "NhiAgentIdentity id length {} exceeds max {}",
+                self.id.len(),
+                Self::MAX_ID_LEN
+            ));
+        }
+        if self.id.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+            return Err("NhiAgentIdentity id contains control or format characters".to_string());
+        }
+
+        // SECURITY (FIND-R112-011): Validate name field.
+        if self.name.len() > Self::MAX_NAME_LEN {
+            return Err(format!(
+                "NhiAgentIdentity '{}' name length {} exceeds max {}",
+                self.id,
+                self.name.len(),
+                Self::MAX_NAME_LEN
+            ));
+        }
+        if self.name.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+            return Err(format!(
+                "NhiAgentIdentity '{}' name contains control or format characters",
+                self.id
+            ));
+        }
+
         if self.tags.len() > Self::MAX_TAGS {
             return Err(format!(
                 "NhiAgentIdentity '{}' has {} tags (max {})",
@@ -175,6 +218,24 @@ impl NhiAgentIdentity {
                 Self::MAX_TAGS
             ));
         }
+        // SECURITY (FIND-R112-007): Per-entry tag validation.
+        for (i, tag) in self.tags.iter().enumerate() {
+            if tag.len() > Self::MAX_TAG_LEN {
+                return Err(format!(
+                    "NhiAgentIdentity '{}' tag[{i}] length {} exceeds max {}",
+                    self.id,
+                    tag.len(),
+                    Self::MAX_TAG_LEN
+                ));
+            }
+            if tag.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+                return Err(format!(
+                    "NhiAgentIdentity '{}' tag[{i}] contains control or format characters",
+                    self.id
+                ));
+            }
+        }
+
         if self.metadata.len() > Self::MAX_METADATA_ENTRIES {
             return Err(format!(
                 "NhiAgentIdentity '{}' has {} metadata entries (max {})",
@@ -183,6 +244,38 @@ impl NhiAgentIdentity {
                 Self::MAX_METADATA_ENTRIES
             ));
         }
+        // SECURITY (FIND-R112-007): Per-entry metadata key/value validation.
+        for (key, value) in &self.metadata {
+            if key.len() > Self::MAX_METADATA_KEY_LEN {
+                return Err(format!(
+                    "NhiAgentIdentity '{}' metadata key length {} exceeds max {}",
+                    self.id,
+                    key.len(),
+                    Self::MAX_METADATA_KEY_LEN
+                ));
+            }
+            if key.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+                return Err(format!(
+                    "NhiAgentIdentity '{}' metadata key contains control or format characters",
+                    self.id
+                ));
+            }
+            if value.len() > Self::MAX_METADATA_VALUE_LEN {
+                return Err(format!(
+                    "NhiAgentIdentity '{}' metadata value length {} exceeds max {}",
+                    self.id,
+                    value.len(),
+                    Self::MAX_METADATA_VALUE_LEN
+                ));
+            }
+            if value.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+                return Err(format!(
+                    "NhiAgentIdentity '{}' metadata value contains control or format characters",
+                    self.id
+                ));
+            }
+        }
+
         if self.attestations.len() > Self::MAX_ATTESTATIONS {
             return Err(format!(
                 "NhiAgentIdentity '{}' has {} attestations (max {})",
@@ -697,6 +790,10 @@ impl NhiDpopProof {
                     Self::MAX_FIELD_LEN,
                 ));
             }
+            // SECURITY (FIND-R112-008): Reject control and format characters in ath.
+            if ath.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+                return Err("NhiDpopProof ath contains control or format characters".to_string());
+            }
         }
         if let Some(ref nonce) = self.nonce {
             if nonce.len() > Self::MAX_FIELD_LEN {
@@ -705,6 +802,10 @@ impl NhiDpopProof {
                     nonce.len(),
                     Self::MAX_FIELD_LEN,
                 ));
+            }
+            // SECURITY (FIND-R112-008): Reject control and format characters in nonce.
+            if nonce.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+                return Err("NhiDpopProof nonce contains control or format characters".to_string());
             }
         }
         if self.iat.len() > Self::MAX_FIELD_LEN {
@@ -826,6 +927,8 @@ impl NhiCredentialRotation {
     const MAX_TRIGGER_LEN: usize = 128;
 
     /// Validate structural bounds on string fields.
+    ///
+    /// SECURITY (FIND-R112-009): Control and Unicode format character validation on all string fields.
     pub fn validate(&self) -> Result<(), String> {
         if self.agent_id.len() > Self::MAX_AGENT_ID_LEN {
             return Err(format!(
@@ -834,6 +937,10 @@ impl NhiCredentialRotation {
                 Self::MAX_AGENT_ID_LEN,
             ));
         }
+        if self.agent_id.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+            return Err("NhiCredentialRotation agent_id contains control or format characters".to_string());
+        }
+
         if let Some(ref pt) = self.previous_thumbprint {
             if pt.len() > Self::MAX_THUMBPRINT_LEN {
                 return Err(format!(
@@ -842,7 +949,11 @@ impl NhiCredentialRotation {
                     Self::MAX_THUMBPRINT_LEN,
                 ));
             }
+            if pt.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+                return Err("NhiCredentialRotation previous_thumbprint contains control or format characters".to_string());
+            }
         }
+
         if self.new_thumbprint.len() > Self::MAX_THUMBPRINT_LEN {
             return Err(format!(
                 "NhiCredentialRotation new_thumbprint length {} exceeds max {}",
@@ -850,6 +961,10 @@ impl NhiCredentialRotation {
                 Self::MAX_THUMBPRINT_LEN,
             ));
         }
+        if self.new_thumbprint.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+            return Err("NhiCredentialRotation new_thumbprint contains control or format characters".to_string());
+        }
+
         if self.rotated_at.len() > Self::MAX_TIMESTAMP_LEN {
             return Err(format!(
                 "NhiCredentialRotation rotated_at length {} exceeds max {}",
@@ -857,6 +972,10 @@ impl NhiCredentialRotation {
                 Self::MAX_TIMESTAMP_LEN,
             ));
         }
+        if self.rotated_at.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+            return Err("NhiCredentialRotation rotated_at contains control or format characters".to_string());
+        }
+
         if self.trigger.len() > Self::MAX_TRIGGER_LEN {
             return Err(format!(
                 "NhiCredentialRotation trigger length {} exceeds max {}",
@@ -864,6 +983,10 @@ impl NhiCredentialRotation {
                 Self::MAX_TRIGGER_LEN,
             ));
         }
+        if self.trigger.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+            return Err("NhiCredentialRotation trigger contains control or format characters".to_string());
+        }
+
         if self.new_expires_at.len() > Self::MAX_TIMESTAMP_LEN {
             return Err(format!(
                 "NhiCredentialRotation new_expires_at length {} exceeds max {}",
@@ -871,6 +994,10 @@ impl NhiCredentialRotation {
                 Self::MAX_TIMESTAMP_LEN,
             ));
         }
+        if self.new_expires_at.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+            return Err("NhiCredentialRotation new_expires_at contains control or format characters".to_string());
+        }
+
         Ok(())
     }
 }

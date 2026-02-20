@@ -329,6 +329,29 @@ pub struct CircuitBreakerConfig {
     pub half_open_max_requests: u32,
 }
 
+impl CircuitBreakerConfig {
+    /// Validate circuit breaker configuration fields.
+    ///
+    /// SECURITY (FIND-R112-013): Reject zero values which would disable circuit
+    /// breaker protection (zero failure_threshold = always open, zero success_threshold
+    /// = never close, zero open_duration = no cooldown, zero half_open = no probe).
+    pub fn validate(&self) -> Result<(), String> {
+        if self.failure_threshold == 0 {
+            return Err("circuit_breaker.failure_threshold must be > 0".to_string());
+        }
+        if self.success_threshold == 0 {
+            return Err("circuit_breaker.success_threshold must be > 0".to_string());
+        }
+        if self.open_duration_secs == 0 {
+            return Err("circuit_breaker.open_duration_secs must be > 0".to_string());
+        }
+        if self.half_open_max_requests == 0 {
+            return Err("circuit_breaker.half_open_max_requests must be > 0".to_string());
+        }
+        Ok(())
+    }
+}
+
 impl Default for CircuitBreakerConfig {
     fn default() -> Self {
         Self {
@@ -379,6 +402,48 @@ pub struct DeputyConfig {
     /// Tool patterns that cannot be delegated (glob patterns).
     #[serde(default)]
     pub non_delegatable_tools: Vec<String>,
+}
+
+/// Maximum length for a non-delegatable tool pattern.
+const MAX_NON_DELEGATABLE_TOOL_LEN: usize = 256;
+
+impl DeputyConfig {
+    /// Validate deputy configuration fields.
+    ///
+    /// SECURITY (FIND-R112-013): Validate non_delegatable_tools entries are not empty,
+    /// not too long, and do not contain control characters.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.non_delegatable_tools.len() > MAX_NON_DELEGATABLE_TOOLS {
+            return Err(format!(
+                "deputy.non_delegatable_tools has {} entries, max is {}",
+                self.non_delegatable_tools.len(),
+                MAX_NON_DELEGATABLE_TOOLS
+            ));
+        }
+        for (i, tool) in self.non_delegatable_tools.iter().enumerate() {
+            if tool.is_empty() {
+                return Err(format!(
+                    "deputy.non_delegatable_tools[{}] must not be empty",
+                    i
+                ));
+            }
+            if tool.len() > MAX_NON_DELEGATABLE_TOOL_LEN {
+                return Err(format!(
+                    "deputy.non_delegatable_tools[{}] exceeds max length ({} > {})",
+                    i,
+                    tool.len(),
+                    MAX_NON_DELEGATABLE_TOOL_LEN
+                ));
+            }
+            if tool.chars().any(|c| c.is_control()) {
+                return Err(format!(
+                    "deputy.non_delegatable_tools[{}] contains control characters",
+                    i
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for DeputyConfig {

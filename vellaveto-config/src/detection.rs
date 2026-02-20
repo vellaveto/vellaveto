@@ -444,8 +444,23 @@ pub struct MultimodalPolicyConfig {
 const MAX_CONTENT_TYPES: usize = 20;
 
 impl MultimodalPolicyConfig {
-    /// Validate float fields and collection bounds.
+    /// Validate float fields, collection bounds, and size limits.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R112-010): Reject zero-byte size limits.
+        // Zero values would disable size-based rejection, allowing arbitrarily large
+        // files to be processed, causing OOM or excessive CPU usage.
+        if self.max_image_size == 0 {
+            return Err("multimodal.max_image_size must be > 0".to_string());
+        }
+        if self.max_audio_size == 0 {
+            return Err("multimodal.max_audio_size must be > 0".to_string());
+        }
+        if self.max_video_size == 0 {
+            return Err("multimodal.max_video_size must be > 0".to_string());
+        }
+        if self.ocr_timeout_ms == 0 {
+            return Err("multimodal.ocr_timeout_ms must be > 0".to_string());
+        }
         if !self.min_ocr_confidence.is_finite()
             || self.min_ocr_confidence < 0.0
             || self.min_ocr_confidence > 1.0

@@ -267,9 +267,10 @@ impl TaskStateTransition {
                     MAX_ENTRY_LEN,
                 ));
             }
-            if tb.chars().any(|c| c.is_control()) {
+            // SECURITY (FIND-R112-005): Reject Unicode format characters in addition to control chars.
+            if tb.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
                 return Err(
-                    "TaskStateTransition triggered_by contains control characters".to_string(),
+                    "TaskStateTransition triggered_by contains control or format characters".to_string(),
                 );
             }
         }

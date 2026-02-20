@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 /// redis_pool_size = 8
 /// key_prefix = "vellaveto:"
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ClusterConfig {
     /// Enable clustering. When false (default), local in-process state is used.
@@ -42,6 +42,20 @@ pub struct ClusterConfig {
     /// Allows multiple Vellaveto deployments to share a Redis instance.
     #[serde(default = "default_cluster_key_prefix")]
     pub key_prefix: String,
+}
+
+/// SECURITY (FIND-R112-019): Custom Debug impl to redact redis_url which may
+/// contain embedded credentials (e.g., redis://user:password@host:6379).
+impl std::fmt::Debug for ClusterConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClusterConfig")
+            .field("enabled", &self.enabled)
+            .field("backend", &self.backend)
+            .field("redis_url", &"[REDACTED]")
+            .field("redis_pool_size", &self.redis_pool_size)
+            .field("key_prefix", &self.key_prefix)
+            .finish()
+    }
 }
 
 fn default_cluster_backend() -> String {

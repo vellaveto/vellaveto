@@ -83,6 +83,22 @@ pub struct OutcomePrediction {
     pub suggested_action: SuggestedAction,
 }
 
+impl OutcomePrediction {
+    /// Validate that the confidence score is finite and in [0.0, 1.0].
+    ///
+    /// SECURITY (FIND-R112-007): Prevents NaN/Infinity confidence values from
+    /// bypassing threshold comparisons in workflow decision logic.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.confidence.is_finite() || self.confidence < 0.0 || self.confidence > 1.0 {
+            return Err(format!(
+                "OutcomePrediction confidence must be in [0.0, 1.0], got {}",
+                self.confidence
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Categories of predicted outcomes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutcomeCategory {
@@ -124,6 +140,22 @@ pub struct WorkflowTrackerConfig {
     pub detect_patterns: bool,
     /// Patterns that indicate suspicious workflows.
     pub suspicious_patterns: Vec<SuspiciousPattern>,
+}
+
+impl WorkflowTrackerConfig {
+    /// Validate configuration bounds.
+    ///
+    /// SECURITY (FIND-R112-004): Rejects zero-valued budgets and session limits
+    /// that would cause division-by-zero or effectively disable workflow tracking.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.step_budget == 0 {
+            return Err("WorkflowTrackerConfig step_budget must be > 0".to_string());
+        }
+        if self.max_sessions == 0 {
+            return Err("WorkflowTrackerConfig max_sessions must be > 0".to_string());
+        }
+        Ok(())
+    }
 }
 
 impl Default for WorkflowTrackerConfig {

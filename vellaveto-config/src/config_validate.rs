@@ -1492,6 +1492,10 @@ impl PolicyConfig {
         self.schema_poisoning.validate()?;
         self.cross_agent.validate()?;
 
+        // SECURITY (FIND-R112-013): Circuit breaker and deputy sub-config bounds.
+        self.circuit_breaker.validate()?;
+        self.deputy.validate()?;
+
         // SECURITY (IMP-R100-005): NHI configuration bounds — anomaly_threshold
         // float range, Vec bounds, TTL consistency, string field validation.
         self.nhi.validate()?;

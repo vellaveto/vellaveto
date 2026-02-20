@@ -13,6 +13,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use std::fmt::Write;
 use std::sync::atomic::Ordering;
 
+use crate::routes::is_unsafe_char;
 use crate::AppState;
 
 // ═══════════════════════════════════════════════════════════════════
@@ -385,6 +386,11 @@ fn get_session_id(req: &Request) -> Option<String> {
         if let Some(val) = trimmed.strip_prefix("wizard_session=") {
             let val = val.trim();
             if !val.is_empty() && val.len() <= 64 {
+                // SECURITY (FIND-R112-007): Reject session IDs containing control
+                // or Unicode format characters to prevent log injection and bypass.
+                if val.chars().any(is_unsafe_char) {
+                    return None;
+                }
                 return Some(val.to_string());
             }
         }
@@ -467,8 +473,47 @@ fn percent_decode(s: &str) -> String {
 // ═══════════════════════════════════════════════════════════════════
 
 /// Step 1 — Welcome page (GET /setup)
-pub async fn step_welcome(State(state): State<AppState>) -> Response {
-    // Create a new session
+pub async fn step_welcome(State(state): State<AppState>, req: Request) -> Response {
+    // SECURITY (FIND-R112-010): Reuse an existing valid session if the cookie
+    // is present and the session has not expired. This prevents unbounded
+    // session creation on repeated GET /setup requests.
+    if let Some(existing_id) = get_session_id(&req) {
+        let session_valid = state
+            .wizard_sessions
+            .get(&existing_id)
+            .map(|s| !s.is_expired())
+            .unwrap_or(false);
+        if session_valid {
+            let mut html = render_head("Welcome");
+            html.push_str(&render_steps(1));
+
+            let _ = write!(
+                html,
+                r#"
+<h1>Welcome to Vellaveto Setup</h1>
+<div class="card">
+<p>Vellaveto is a runtime security engine for AI agent tool calls. This wizard will walk you through configuring:</p>
+<ul style="color: #8b949e; margin: 12px 0 12px 24px;">
+<li><strong style="color: #c9d1d9;">Security</strong> &mdash; API key, CORS, authentication</li>
+<li><strong style="color: #c9d1d9;">Policies</strong> &mdash; Allow/deny rules for tool access</li>
+<li><strong style="color: #c9d1d9;">Detection</strong> &mdash; Injection, DLP, behavioral anomaly</li>
+<li><strong style="color: #c9d1d9;">Audit</strong> &mdash; Logging, redaction, export</li>
+<li><strong style="color: #c9d1d9;">Compliance</strong> &mdash; EU AI Act, NIS2, DORA, SOC 2, ISO 42001</li>
+</ul>
+<p>At the end, a TOML configuration file will be generated and applied. You can always reconfigure by editing the file directly.</p>
+</div>
+<div class="btn-row">
+<a href="/setup/security" class="btn btn-primary">Start Setup &rarr;</a>
+</div>
+"#
+            );
+            html.push_str(render_footer());
+
+            return Html(html).into_response();
+        }
+    }
+
+    // No valid session — create a new one
     if state.wizard_sessions.len() >= MAX_WIZARD_SESSIONS {
         cleanup_expired_sessions(&state);
         if state.wizard_sessions.len() >= MAX_WIZARD_SESSIONS {
@@ -614,8 +659,13 @@ pub async fn step_security_post(State(state): State<AppState>, req: Request) -> 
     if api_key.len() > MAX_API_KEY_LEN {
         return error_redirect("/setup/security", "API key is too long");
     }
-    if api_key.chars().any(|c| c.is_control()) {
-        return error_redirect("/setup/security", "API key contains invalid characters");
+    // SECURITY (FIND-R112-006): Use canonical is_unsafe_char which checks both
+    // ASCII control characters AND Unicode format characters (zero-width, bidi, BOM).
+    if api_key.chars().any(is_unsafe_char) {
+        return error_redirect(
+            "/setup/security",
+            "API key contains control or format characters",
+        );
     }
 
     let origins_str = form.get("cors_origins").cloned().unwrap_or_default();
@@ -631,8 +681,13 @@ pub async fn step_security_post(State(state): State<AppState>, req: Request) -> 
         if origin.len() > MAX_ORIGIN_LEN {
             return error_redirect("/setup/security", "CORS origin is too long");
         }
-        if origin.chars().any(|c| c.is_control()) {
-            return error_redirect("/setup/security", "CORS origin contains invalid characters");
+        // SECURITY (FIND-R112-006): Use canonical is_unsafe_char which checks both
+        // ASCII control characters AND Unicode format characters (zero-width, bidi, BOM).
+        if origin.chars().any(is_unsafe_char) {
+            return error_redirect(
+                "/setup/security",
+                "CORS origin contains control or format characters",
+            );
         }
     }
 
@@ -1003,14 +1058,14 @@ pub async fn step_audit_post(State(state): State<AppState>, req: Request) -> Res
     if export_target.len() > MAX_EXPORT_TARGET_LEN {
         return error_redirect("/setup/audit", "Export target is too long");
     }
-    // SECURITY (FIND-R101-002): Check for both ASCII control characters AND
-    // Unicode format characters (zero-width, bidi overrides, BOM) that can
-    // bypass simple is_control() checks.
-    if export_target
-        .chars()
-        .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
-    {
-        return error_redirect("/setup/audit", "Export target contains invalid characters");
+    // SECURITY (FIND-R101-002, FIND-R112-011): Use canonical is_unsafe_char
+    // which checks both ASCII control characters AND Unicode format characters
+    // (zero-width, bidi overrides, BOM) for consistency with other wizard steps.
+    if export_target.chars().any(is_unsafe_char) {
+        return error_redirect(
+            "/setup/audit",
+            "Export target contains control or format characters",
+        );
     }
 
     let checkpoint_interval: u64 = form

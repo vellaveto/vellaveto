@@ -42,6 +42,8 @@ impl ToolRegistryConfig {
     /// Validate tool registry configuration (FIND-R58-CFG-022).
     ///
     /// Ensures trust_threshold is finite and in `[0.0, 1.0]`.
+    /// Also validates persistence_path for control characters and length
+    /// (FIND-R112-017).
     pub fn validate(&self) -> Result<(), String> {
         if !self.trust_threshold.is_finite()
             || self.trust_threshold < 0.0
@@ -50,6 +52,23 @@ impl ToolRegistryConfig {
             return Err(format!(
                 "tool_registry.trust_threshold must be in [0.0, 1.0], got {}",
                 self.trust_threshold
+            ));
+        }
+        // SECURITY (FIND-R112-017): Reject control characters in persistence_path
+        // to prevent filesystem confusion and log injection.
+        if self.persistence_path.chars().any(|c| c.is_control()) {
+            return Err(
+                "tool_registry.persistence_path contains control characters".to_string(),
+            );
+        }
+        // SECURITY (FIND-R112-017): Cap path length to prevent OS-level path
+        // length limit bypasses and memory abuse from excessively long paths.
+        const MAX_PERSISTENCE_PATH_LEN: usize = 4096;
+        if self.persistence_path.len() > MAX_PERSISTENCE_PATH_LEN {
+            return Err(format!(
+                "tool_registry.persistence_path exceeds max length ({} > {})",
+                self.persistence_path.len(),
+                MAX_PERSISTENCE_PATH_LEN,
             ));
         }
         Ok(())

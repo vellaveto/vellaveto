@@ -300,8 +300,19 @@ impl RelayState {
         tool_name: String,
         trace: Option<EvaluationTrace>,
     ) {
+        /// SECURITY (FIND-R112-003): Maximum length for a pending request ID key.
+        /// Prevents memory exhaustion from oversized JSON-RPC request IDs.
+        const MAX_REQUEST_ID_KEY_LEN: usize = 1024;
+
         if !id.is_null() {
             let id_key = id.to_string();
+            if id_key.len() > MAX_REQUEST_ID_KEY_LEN {
+                tracing::warn!(
+                    "dropping oversized request id key ({} bytes)",
+                    id_key.len()
+                );
+                return;
+            }
             if self.pending_requests.len() < MAX_PENDING_REQUESTS {
                 self.pending_requests.insert(
                     id_key,
