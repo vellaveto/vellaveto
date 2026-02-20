@@ -1796,8 +1796,15 @@ pub async fn handle_mcp_post(
             // params for secrets, not just notifications. An agent could
             // exfiltrate secrets via prompts/get, completion/complete, or any
             // PassThrough method's parameters.
-            if state.response_dlp_enabled && msg.get("method").is_some() {
-                let dlp_findings = scan_notification_for_secrets(&msg);
+            // SECURITY (FIND-R97-001): Remove method gate — JSON-RPC responses
+            // (sampling/elicitation replies) have no `method` field but carry
+            // data in `result`. Parity with stdio proxy FIND-R96-001.
+            if state.response_dlp_enabled {
+                let mut dlp_findings = scan_notification_for_secrets(&msg);
+                // SECURITY (FIND-R97-001): Also scan `result` field for responses.
+                if let Some(result_val) = msg.get("result") {
+                    dlp_findings.extend(scan_parameters_for_secrets(result_val));
+                }
                 if !dlp_findings.is_empty() {
                     // IMPROVEMENT_PLAN 1.1: Record DLP metrics
                     for finding in &dlp_findings {

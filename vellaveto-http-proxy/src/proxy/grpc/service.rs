@@ -232,8 +232,15 @@ impl McpGrpcService {
                 // Parity with HTTP handler (handlers.rs:1795-1859) and WS handler.
                 // Agents could exfiltrate secrets via prompts/get, completion/complete,
                 // or any PassThrough method's parameters.
-                if self.state.response_dlp_enabled && json_req.get("method").is_some() {
-                    let dlp_findings = scan_notification_for_secrets(&json_req);
+                // SECURITY (FIND-R97-001): Remove method gate — JSON-RPC responses
+                // (sampling/elicitation replies) have no `method` field but carry
+                // data in `result`. Parity with stdio proxy FIND-R96-001.
+                if self.state.response_dlp_enabled {
+                    let mut dlp_findings = scan_notification_for_secrets(&json_req);
+                    // SECURITY (FIND-R97-001): Also scan `result` field for responses.
+                    if let Some(result_val) = json_req.get("result") {
+                        dlp_findings.extend(scan_parameters_for_secrets(result_val));
+                    }
                     if !dlp_findings.is_empty() {
                         for finding in &dlp_findings {
                             record_dlp_finding(&finding.pattern_name);
