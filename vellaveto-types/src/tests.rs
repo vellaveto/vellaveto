@@ -1855,6 +1855,173 @@ fn test_extension_descriptor_validate_empty_name() {
     assert!(err.to_string().contains("name must not be empty"));
 }
 
+// ── FIND-R129-002: ExtensionDescriptor per-field validation ─────────────
+
+#[test]
+fn test_extension_descriptor_validate_name_too_long() {
+    let desc = ExtensionDescriptor {
+        id: "my-ext".to_string(),
+        name: "x".repeat(257),
+        version: "0.1.0".to_string(),
+        capabilities: vec![],
+        methods: vec![],
+        signature: None,
+        public_key: None,
+    };
+    let err = desc.validate().unwrap_err();
+    assert!(err.to_string().contains("name length"));
+}
+
+#[test]
+fn test_extension_descriptor_validate_name_control_chars() {
+    let desc = ExtensionDescriptor {
+        id: "my-ext".to_string(),
+        name: "My\nExtension".to_string(),
+        version: "0.1.0".to_string(),
+        capabilities: vec![],
+        methods: vec![],
+        signature: None,
+        public_key: None,
+    };
+    let err = desc.validate().unwrap_err();
+    assert!(err.to_string().contains("name contains control"));
+}
+
+#[test]
+fn test_extension_descriptor_validate_version_too_long() {
+    let desc = ExtensionDescriptor {
+        id: "my-ext".to_string(),
+        name: "My Extension".to_string(),
+        version: "v".repeat(65),
+        capabilities: vec![],
+        methods: vec![],
+        signature: None,
+        public_key: None,
+    };
+    let err = desc.validate().unwrap_err();
+    assert!(err.to_string().contains("version length"));
+}
+
+#[test]
+fn test_extension_descriptor_validate_version_control_chars() {
+    let desc = ExtensionDescriptor {
+        id: "my-ext".to_string(),
+        name: "My Extension".to_string(),
+        version: "1.0\x00".to_string(),
+        capabilities: vec![],
+        methods: vec![],
+        signature: None,
+        public_key: None,
+    };
+    let err = desc.validate().unwrap_err();
+    assert!(err.to_string().contains("version contains control"));
+}
+
+#[test]
+fn test_extension_descriptor_validate_id_control_chars() {
+    let desc = ExtensionDescriptor {
+        id: "my\text".to_string(),
+        name: "My Extension".to_string(),
+        version: "1.0.0".to_string(),
+        capabilities: vec![],
+        methods: vec![],
+        signature: None,
+        public_key: None,
+    };
+    let err = desc.validate().unwrap_err();
+    assert!(err.to_string().contains("id contains control"));
+}
+
+#[test]
+fn test_extension_descriptor_validate_empty_method() {
+    let desc = ExtensionDescriptor {
+        id: "my-ext".to_string(),
+        name: "My Extension".to_string(),
+        version: "1.0.0".to_string(),
+        capabilities: vec![],
+        methods: vec!["".to_string()],
+        signature: None,
+        public_key: None,
+    };
+    let err = desc.validate().unwrap_err();
+    assert!(err.to_string().contains("method[0] must not be empty"));
+}
+
+#[test]
+fn test_extension_descriptor_validate_method_too_long() {
+    let desc = ExtensionDescriptor {
+        id: "my-ext".to_string(),
+        name: "My Extension".to_string(),
+        version: "1.0.0".to_string(),
+        capabilities: vec![],
+        methods: vec!["m".repeat(513)],
+        signature: None,
+        public_key: None,
+    };
+    let err = desc.validate().unwrap_err();
+    assert!(err.to_string().contains("method[0] length"));
+}
+
+#[test]
+fn test_extension_descriptor_validate_method_control_chars() {
+    let desc = ExtensionDescriptor {
+        id: "my-ext".to_string(),
+        name: "My Extension".to_string(),
+        version: "1.0.0".to_string(),
+        capabilities: vec![],
+        methods: vec!["x-my-ext/do\x1bthing".to_string()],
+        signature: None,
+        public_key: None,
+    };
+    let err = desc.validate().unwrap_err();
+    assert!(err.to_string().contains("method[0] contains control"));
+}
+
+#[test]
+fn test_extension_descriptor_validate_method_unicode_format_char() {
+    let desc = ExtensionDescriptor {
+        id: "my-ext".to_string(),
+        name: "My Extension".to_string(),
+        version: "1.0.0".to_string(),
+        capabilities: vec![],
+        methods: vec!["x-my-ext/do\u{200B}thing".to_string()],  // zero-width space
+        signature: None,
+        public_key: None,
+    };
+    let err = desc.validate().unwrap_err();
+    assert!(err.to_string().contains("method[0] contains control"));
+}
+
+#[test]
+fn test_extension_descriptor_validate_empty_capability() {
+    let desc = ExtensionDescriptor {
+        id: "my-ext".to_string(),
+        name: "My Extension".to_string(),
+        version: "1.0.0".to_string(),
+        capabilities: vec!["".to_string()],
+        methods: vec![],
+        signature: None,
+        public_key: None,
+    };
+    let err = desc.validate().unwrap_err();
+    assert!(err.to_string().contains("capability[0] must not be empty"));
+}
+
+#[test]
+fn test_extension_descriptor_validate_capability_control_chars() {
+    let desc = ExtensionDescriptor {
+        id: "my-ext".to_string(),
+        name: "My Extension".to_string(),
+        version: "1.0.0".to_string(),
+        capabilities: vec!["read\nwrite".to_string()],
+        methods: vec![],
+        signature: None,
+        public_key: None,
+    };
+    let err = desc.validate().unwrap_err();
+    assert!(err.to_string().contains("capability[0] contains control"));
+}
+
 #[test]
 fn test_extension_resource_limits_defaults() {
     let limits = ExtensionResourceLimits::default();

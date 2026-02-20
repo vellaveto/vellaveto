@@ -21,6 +21,18 @@ pub const MAX_EXTENSION_CAPABILITIES: usize = 64;
 /// to prevent memory exhaustion.
 pub const MAX_EXTENSION_CAPABILITY_LEN: usize = 512;
 
+/// Maximum length of a single method string.
+///
+/// SECURITY (FIND-R129-002): Individual method strings must be bounded
+/// to prevent memory exhaustion and match capability validation parity.
+pub const MAX_EXTENSION_METHOD_LEN: usize = 512;
+
+/// Maximum length of the extension name field.
+pub const MAX_EXTENSION_NAME_LEN: usize = 256;
+
+/// Maximum length of the extension version field.
+pub const MAX_EXTENSION_VERSION_LEN: usize = 64;
+
 /// Maximum length of an extension ID.
 pub const MAX_EXTENSION_ID_LEN: usize = 256;
 
@@ -93,9 +105,53 @@ impl ExtensionDescriptor {
                 "extension name must not be empty".to_string(),
             ));
         }
+        // SECURITY (FIND-R129-002): Bound name length and reject control chars.
+        if self.name.len() > MAX_EXTENSION_NAME_LEN {
+            return Err(ExtensionError::Validation(format!(
+                "extension name length {} exceeds max {}",
+                self.name.len(),
+                MAX_EXTENSION_NAME_LEN
+            )));
+        }
+        if self
+            .name
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(ExtensionError::Validation(
+                "extension name contains control or format characters".to_string(),
+            ));
+        }
         if self.version.is_empty() {
             return Err(ExtensionError::Validation(
                 "extension version must not be empty".to_string(),
+            ));
+        }
+        // SECURITY (FIND-R129-002): Bound version length and reject control chars.
+        if self.version.len() > MAX_EXTENSION_VERSION_LEN {
+            return Err(ExtensionError::Validation(format!(
+                "extension version length {} exceeds max {}",
+                self.version.len(),
+                MAX_EXTENSION_VERSION_LEN
+            )));
+        }
+        if self
+            .version
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(ExtensionError::Validation(
+                "extension version contains control or format characters".to_string(),
+            ));
+        }
+        // SECURITY (FIND-R129-002): Validate id for control/format characters.
+        if self
+            .id
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(ExtensionError::Validation(
+                "extension id contains control or format characters".to_string(),
             ));
         }
         if self.methods.len() > MAX_EXTENSION_METHODS {
@@ -104,6 +160,32 @@ impl ExtensionDescriptor {
                 self.methods.len(),
                 MAX_EXTENSION_METHODS
             )));
+        }
+        // SECURITY (FIND-R129-002): Validate individual method strings.
+        for (i, method) in self.methods.iter().enumerate() {
+            if method.is_empty() {
+                return Err(ExtensionError::Validation(format!(
+                    "method[{}] must not be empty",
+                    i
+                )));
+            }
+            if method.len() > MAX_EXTENSION_METHOD_LEN {
+                return Err(ExtensionError::Validation(format!(
+                    "method[{}] length {} exceeds max {}",
+                    i,
+                    method.len(),
+                    MAX_EXTENSION_METHOD_LEN
+                )));
+            }
+            if method
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(ExtensionError::Validation(format!(
+                    "method[{}] contains control or format characters",
+                    i
+                )));
+            }
         }
         // SECURITY (FIND-R51-013): Bound capabilities vector size.
         if self.capabilities.len() > MAX_EXTENSION_CAPABILITIES {
@@ -115,12 +197,28 @@ impl ExtensionDescriptor {
         }
         // SECURITY (FIND-R51-013): Bound individual capability string lengths.
         for (i, cap) in self.capabilities.iter().enumerate() {
+            if cap.is_empty() {
+                return Err(ExtensionError::Validation(format!(
+                    "capability[{}] must not be empty",
+                    i
+                )));
+            }
             if cap.len() > MAX_EXTENSION_CAPABILITY_LEN {
                 return Err(ExtensionError::Validation(format!(
                     "capability[{}] length {} exceeds max {}",
                     i,
                     cap.len(),
                     MAX_EXTENSION_CAPABILITY_LEN
+                )));
+            }
+            // SECURITY (FIND-R129-002): Validate capability content for control chars.
+            if cap
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(ExtensionError::Validation(format!(
+                    "capability[{}] contains control or format characters",
+                    i
                 )));
             }
         }
