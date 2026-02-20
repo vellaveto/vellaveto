@@ -1504,6 +1504,21 @@ impl PolicyConfig {
         self.schema_poisoning.validate()?;
         self.cross_agent.validate()?;
 
+        // SECURITY (IMP-R100-005): NHI configuration bounds — anomaly_threshold
+        // float range, Vec bounds, TTL consistency, string field validation.
+        self.nhi.validate()?;
+
+        // SECURITY (FIND-R100-009): Manifest path validation — length, control
+        // characters, path traversal prevention.
+        self.manifest.validate()?;
+
+        // SECURITY (FIND-R100-012): Per-policy rule validation — field bounds
+        // and control character rejection.
+        for (i, rule) in self.policies.iter().enumerate() {
+            rule.validate()
+                .map_err(|e| format!("policies[{}]: {}", i, e))?;
+        }
+
         Ok(())
     }
 

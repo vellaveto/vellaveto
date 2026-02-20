@@ -407,6 +407,167 @@ fn default_nhi_session_timeout() -> u64 {
     3600 // 1 hour
 }
 
+/// Maximum allowed attestation types in NHI config.
+const MAX_NHI_ATTESTATION_TYPES: usize = 20;
+/// Maximum allowed additional trust domains in NHI config.
+const MAX_NHI_ADDITIONAL_TRUST_DOMAINS: usize = 50;
+/// Maximum allowed privileged tags in NHI config.
+const MAX_NHI_PRIVILEGED_TAGS: usize = 50;
+/// Maximum length for string fields in NHI config.
+const MAX_NHI_STRING_FIELD_LEN: usize = 256;
+/// Maximum credential TTL cap in seconds (7 days).
+const MAX_NHI_CREDENTIAL_TTL_CAP: u64 = 7 * 86_400;
+/// Maximum delegation chain depth cap.
+const MAX_NHI_CHAIN_DEPTH_CAP: usize = 50;
+/// Maximum identities cap.
+const MAX_NHI_IDENTITIES_CAP: usize = 1_000_000;
+/// Maximum delegations cap.
+const MAX_NHI_DELEGATIONS_CAP: usize = 100_000;
+
+impl NhiConfig {
+    /// Validate NHI configuration bounds.
+    ///
+    /// SECURITY (IMP-R100-005): Ensures anomaly_threshold is within [0.0, 1.0],
+    /// Vec fields are bounded, TTL consistency is checked, and string fields
+    /// reject control/Unicode format characters.
+    pub fn validate(&self) -> Result<(), String> {
+        // Float range validation
+        if !self.anomaly_threshold.is_finite()
+            || self.anomaly_threshold < 0.0
+            || self.anomaly_threshold > 1.0
+        {
+            return Err(format!(
+                "nhi.anomaly_threshold must be in [0.0, 1.0], got {}",
+                self.anomaly_threshold
+            ));
+        }
+
+        // TTL consistency: credential_ttl must not exceed max_credential_ttl
+        if self.credential_ttl_secs > self.max_credential_ttl_secs {
+            return Err(format!(
+                "nhi.credential_ttl_secs ({}) must be <= max_credential_ttl_secs ({})",
+                self.credential_ttl_secs, self.max_credential_ttl_secs
+            ));
+        }
+        // TTL upper bound
+        if self.max_credential_ttl_secs > MAX_NHI_CREDENTIAL_TTL_CAP {
+            return Err(format!(
+                "nhi.max_credential_ttl_secs must be <= {}, got {}",
+                MAX_NHI_CREDENTIAL_TTL_CAP, self.max_credential_ttl_secs
+            ));
+        }
+
+        // Delegation chain depth cap
+        if self.max_delegation_chain_depth > MAX_NHI_CHAIN_DEPTH_CAP {
+            return Err(format!(
+                "nhi.max_delegation_chain_depth must be <= {}, got {}",
+                MAX_NHI_CHAIN_DEPTH_CAP, self.max_delegation_chain_depth
+            ));
+        }
+
+        // Identity/delegation count caps
+        if self.max_identities > MAX_NHI_IDENTITIES_CAP {
+            return Err(format!(
+                "nhi.max_identities must be <= {}, got {}",
+                MAX_NHI_IDENTITIES_CAP, self.max_identities
+            ));
+        }
+        if self.max_delegations > MAX_NHI_DELEGATIONS_CAP {
+            return Err(format!(
+                "nhi.max_delegations must be <= {}, got {}",
+                MAX_NHI_DELEGATIONS_CAP, self.max_delegations
+            ));
+        }
+
+        // Vec bounds
+        if self.attestation_types.len() > MAX_NHI_ATTESTATION_TYPES {
+            return Err(format!(
+                "nhi.attestation_types has {} entries, max is {}",
+                self.attestation_types.len(),
+                MAX_NHI_ATTESTATION_TYPES
+            ));
+        }
+        if self.additional_trust_domains.len() > MAX_NHI_ADDITIONAL_TRUST_DOMAINS {
+            return Err(format!(
+                "nhi.additional_trust_domains has {} entries, max is {}",
+                self.additional_trust_domains.len(),
+                MAX_NHI_ADDITIONAL_TRUST_DOMAINS
+            ));
+        }
+        if self.privileged_tags.len() > MAX_NHI_PRIVILEGED_TAGS {
+            return Err(format!(
+                "nhi.privileged_tags has {} entries, max is {}",
+                self.privileged_tags.len(),
+                MAX_NHI_PRIVILEGED_TAGS
+            ));
+        }
+
+        // Per-string validation for Vec<String> fields
+        for (i, at) in self.attestation_types.iter().enumerate() {
+            if at.is_empty() {
+                return Err(format!("nhi.attestation_types[{}] must not be empty", i));
+            }
+            if at.len() > MAX_NHI_STRING_FIELD_LEN {
+                return Err(format!(
+                    "nhi.attestation_types[{}] length {} exceeds maximum {}",
+                    i,
+                    at.len(),
+                    MAX_NHI_STRING_FIELD_LEN
+                ));
+            }
+            if at.chars().any(|c| c.is_control()) {
+                return Err(format!(
+                    "nhi.attestation_types[{}] contains control characters",
+                    i
+                ));
+            }
+        }
+        for (i, td) in self.additional_trust_domains.iter().enumerate() {
+            if td.is_empty() {
+                return Err(format!(
+                    "nhi.additional_trust_domains[{}] must not be empty",
+                    i
+                ));
+            }
+            if td.len() > MAX_NHI_STRING_FIELD_LEN {
+                return Err(format!(
+                    "nhi.additional_trust_domains[{}] length {} exceeds maximum {}",
+                    i,
+                    td.len(),
+                    MAX_NHI_STRING_FIELD_LEN
+                ));
+            }
+            if td.chars().any(|c| c.is_control()) {
+                return Err(format!(
+                    "nhi.additional_trust_domains[{}] contains control characters",
+                    i
+                ));
+            }
+        }
+        for (i, tag) in self.privileged_tags.iter().enumerate() {
+            if tag.is_empty() {
+                return Err(format!("nhi.privileged_tags[{}] must not be empty", i));
+            }
+            if tag.len() > MAX_NHI_STRING_FIELD_LEN {
+                return Err(format!(
+                    "nhi.privileged_tags[{}] length {} exceeds maximum {}",
+                    i,
+                    tag.len(),
+                    MAX_NHI_STRING_FIELD_LEN
+                ));
+            }
+            if tag.chars().any(|c| c.is_control()) {
+                return Err(format!(
+                    "nhi.privileged_tags[{}] contains control characters",
+                    i
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
 impl Default for NhiConfig {
     fn default() -> Self {
         Self {

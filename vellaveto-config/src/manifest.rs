@@ -413,7 +413,47 @@ impl Default for ManifestConfig {
     }
 }
 
+/// Maximum length for manifest_path.
+const MAX_MANIFEST_PATH_LEN: usize = 4096;
+
 impl ManifestConfig {
+    /// Validate manifest configuration bounds.
+    ///
+    /// SECURITY (FIND-R100-009): Validates manifest_path for length, control characters,
+    /// and path traversal (..) to prevent filesystem-based attacks.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(ref path) = self.manifest_path {
+            if path.is_empty() {
+                return Err("manifest.manifest_path must not be empty".to_string());
+            }
+            if path.len() > MAX_MANIFEST_PATH_LEN {
+                return Err(format!(
+                    "manifest.manifest_path length {} exceeds maximum {}",
+                    path.len(),
+                    MAX_MANIFEST_PATH_LEN
+                ));
+            }
+            if path
+                .bytes()
+                .any(|b| b == 0x00 || b < 0x20 || (0x7F..=0x9F).contains(&b))
+            {
+                return Err(
+                    "manifest.manifest_path contains null bytes or control characters".to_string(),
+                );
+            }
+            // Path traversal check
+            use std::path::{Component, Path};
+            let p = Path::new(path);
+            if p.components().any(|c| matches!(c, Component::ParentDir)) {
+                return Err(format!(
+                    "manifest.manifest_path must not contain '..' components, got '{}'",
+                    path
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Verify a live tools/list response against a pinned manifest.
     ///
     /// Returns `Ok(())` if verification passes or is disabled.

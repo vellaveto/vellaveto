@@ -33,6 +33,12 @@ pub struct PolicyRule {
     pub network_rules: Option<NetworkRules>,
 }
 
+/// Maximum length for PolicyRule string fields.
+const MAX_POLICY_RULE_FIELD_LEN: usize = 512;
+
+/// Maximum length for a PolicyRule name.
+const MAX_POLICY_RULE_NAME_LEN: usize = 256;
+
 impl PolicyRule {
     /// Effective priority (defaults to 0 — lowest priority).
     pub fn effective_priority(&self) -> i32 {
@@ -44,5 +50,69 @@ impl PolicyRule {
         self.id
             .clone()
             .unwrap_or_else(|| format!("{}:{}", self.tool_pattern, self.function_pattern))
+    }
+
+    /// Validate policy rule fields.
+    ///
+    /// SECURITY (FIND-R100-012): Validates name, patterns, and optional id
+    /// for length bounds and control character rejection.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.is_empty() {
+            return Err("policy_rule.name must not be empty".to_string());
+        }
+        if self.name.len() > MAX_POLICY_RULE_NAME_LEN {
+            return Err(format!(
+                "policy_rule.name length {} exceeds maximum {}",
+                self.name.len(),
+                MAX_POLICY_RULE_NAME_LEN
+            ));
+        }
+        if self.name.chars().any(|c| c.is_control()) {
+            return Err("policy_rule.name contains control characters".to_string());
+        }
+        if self.tool_pattern.is_empty() {
+            return Err("policy_rule.tool_pattern must not be empty".to_string());
+        }
+        if self.tool_pattern.len() > MAX_POLICY_RULE_FIELD_LEN {
+            return Err(format!(
+                "policy_rule.tool_pattern length {} exceeds maximum {}",
+                self.tool_pattern.len(),
+                MAX_POLICY_RULE_FIELD_LEN
+            ));
+        }
+        if self.tool_pattern.chars().any(|c| c.is_control()) {
+            return Err("policy_rule.tool_pattern contains control characters".to_string());
+        }
+        if self.function_pattern.is_empty() {
+            return Err("policy_rule.function_pattern must not be empty".to_string());
+        }
+        if self.function_pattern.len() > MAX_POLICY_RULE_FIELD_LEN {
+            return Err(format!(
+                "policy_rule.function_pattern length {} exceeds maximum {}",
+                self.function_pattern.len(),
+                MAX_POLICY_RULE_FIELD_LEN
+            ));
+        }
+        if self.function_pattern.chars().any(|c| c.is_control()) {
+            return Err(
+                "policy_rule.function_pattern contains control characters".to_string(),
+            );
+        }
+        if let Some(ref id) = self.id {
+            if id.is_empty() {
+                return Err("policy_rule.id must not be empty when provided".to_string());
+            }
+            if id.len() > MAX_POLICY_RULE_FIELD_LEN {
+                return Err(format!(
+                    "policy_rule.id length {} exceeds maximum {}",
+                    id.len(),
+                    MAX_POLICY_RULE_FIELD_LEN
+                ));
+            }
+            if id.chars().any(|c| c.is_control()) {
+                return Err("policy_rule.id contains control characters".to_string());
+            }
+        }
+        Ok(())
     }
 }

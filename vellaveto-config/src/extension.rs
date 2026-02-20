@@ -12,6 +12,12 @@ pub const MAX_TRUSTED_EXTENSION_KEYS: usize = 64;
 /// Maximum number of allow/block patterns.
 pub const MAX_EXTENSION_PATTERNS: usize = 256;
 
+/// Maximum length for a single extension pattern string.
+const MAX_EXTENSION_PATTERN_LEN: usize = 256;
+
+/// Maximum length for a trusted public key hex string (Ed25519 = 64 hex chars).
+const MAX_TRUSTED_KEY_LEN: usize = 128;
+
 /// Configuration for the protocol extension framework.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -66,6 +72,75 @@ impl ExtensionConfig {
         if self.default_resource_limits.max_requests_per_sec == 0 {
             return Err("max_requests_per_sec must be > 0".to_string());
         }
+
+        // SECURITY (FIND-R100-006): Per-string validation for extension patterns.
+        for (i, pat) in self.allowed_extensions.iter().enumerate() {
+            if pat.is_empty() {
+                return Err(format!(
+                    "extension.allowed_extensions[{}] must not be empty",
+                    i
+                ));
+            }
+            if pat.len() > MAX_EXTENSION_PATTERN_LEN {
+                return Err(format!(
+                    "extension.allowed_extensions[{}] length {} exceeds maximum {}",
+                    i,
+                    pat.len(),
+                    MAX_EXTENSION_PATTERN_LEN
+                ));
+            }
+            if pat.chars().any(|c| c.is_control()) {
+                return Err(format!(
+                    "extension.allowed_extensions[{}] contains control characters",
+                    i
+                ));
+            }
+        }
+        for (i, pat) in self.blocked_extensions.iter().enumerate() {
+            if pat.is_empty() {
+                return Err(format!(
+                    "extension.blocked_extensions[{}] must not be empty",
+                    i
+                ));
+            }
+            if pat.len() > MAX_EXTENSION_PATTERN_LEN {
+                return Err(format!(
+                    "extension.blocked_extensions[{}] length {} exceeds maximum {}",
+                    i,
+                    pat.len(),
+                    MAX_EXTENSION_PATTERN_LEN
+                ));
+            }
+            if pat.chars().any(|c| c.is_control()) {
+                return Err(format!(
+                    "extension.blocked_extensions[{}] contains control characters",
+                    i
+                ));
+            }
+        }
+        for (i, key) in self.trusted_public_keys.iter().enumerate() {
+            if key.is_empty() {
+                return Err(format!(
+                    "extension.trusted_public_keys[{}] must not be empty",
+                    i
+                ));
+            }
+            if key.len() > MAX_TRUSTED_KEY_LEN {
+                return Err(format!(
+                    "extension.trusted_public_keys[{}] length {} exceeds maximum {}",
+                    i,
+                    key.len(),
+                    MAX_TRUSTED_KEY_LEN
+                ));
+            }
+            if !key.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(format!(
+                    "extension.trusted_public_keys[{}] must be hex-encoded",
+                    i
+                ));
+            }
+        }
+
         Ok(())
     }
 }

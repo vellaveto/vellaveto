@@ -6524,3 +6524,370 @@ fn test_audit_export_config_validate_default_is_valid() {
     let cfg = crate::detection::AuditExportConfig::default();
     assert!(cfg.validate().is_ok());
 }
+
+// ═══════════════════════════════════════════════════════════
+// NhiConfig::validate() tests (IMP-R100-005)
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn test_nhi_config_default_validates() {
+    let cfg = crate::memory_nhi::NhiConfig::default();
+    assert!(cfg.validate().is_ok());
+}
+
+#[test]
+fn test_nhi_config_anomaly_threshold_nan() {
+    let mut cfg = crate::memory_nhi::NhiConfig::default();
+    cfg.anomaly_threshold = f64::NAN;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("anomaly_threshold"));
+}
+
+#[test]
+fn test_nhi_config_anomaly_threshold_negative() {
+    let mut cfg = crate::memory_nhi::NhiConfig::default();
+    cfg.anomaly_threshold = -0.1;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("anomaly_threshold"));
+}
+
+#[test]
+fn test_nhi_config_anomaly_threshold_above_one() {
+    let mut cfg = crate::memory_nhi::NhiConfig::default();
+    cfg.anomaly_threshold = 1.1;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("anomaly_threshold"));
+}
+
+#[test]
+fn test_nhi_config_ttl_consistency() {
+    let mut cfg = crate::memory_nhi::NhiConfig::default();
+    cfg.credential_ttl_secs = 100_000;
+    cfg.max_credential_ttl_secs = 50_000;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("credential_ttl_secs"));
+}
+
+#[test]
+fn test_nhi_config_max_credential_ttl_exceeds_cap() {
+    let mut cfg = crate::memory_nhi::NhiConfig::default();
+    cfg.max_credential_ttl_secs = 700_000; // > 7 * 86400
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("max_credential_ttl_secs"));
+}
+
+#[test]
+fn test_nhi_config_delegation_chain_depth_exceeds_cap() {
+    let mut cfg = crate::memory_nhi::NhiConfig::default();
+    cfg.max_delegation_chain_depth = 100; // > 50
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("max_delegation_chain_depth"));
+}
+
+#[test]
+fn test_nhi_config_attestation_types_control_chars() {
+    let mut cfg = crate::memory_nhi::NhiConfig::default();
+    cfg.attestation_types = vec!["jwt\x00".to_string()];
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("control characters"));
+}
+
+#[test]
+fn test_nhi_config_attestation_types_empty_entry() {
+    let mut cfg = crate::memory_nhi::NhiConfig::default();
+    cfg.attestation_types = vec!["".to_string()];
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("must not be empty"));
+}
+
+#[test]
+fn test_nhi_config_privileged_tags_too_many() {
+    let mut cfg = crate::memory_nhi::NhiConfig::default();
+    cfg.privileged_tags = (0..51).map(|i| format!("tag-{}", i)).collect();
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("privileged_tags"));
+}
+
+#[test]
+fn test_nhi_config_additional_trust_domains_control_chars() {
+    let mut cfg = crate::memory_nhi::NhiConfig::default();
+    cfg.additional_trust_domains = vec!["domain\n.local".to_string()];
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("control characters"));
+}
+
+// ═══════════════════════════════════════════════════════════
+// ExtensionConfig::validate() per-string tests (FIND-R100-006)
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn test_extension_config_default_validates() {
+    let cfg = crate::extension::ExtensionConfig::default();
+    assert!(cfg.validate().is_ok());
+}
+
+#[test]
+fn test_extension_config_allowed_ext_empty_string() {
+    let mut cfg = crate::extension::ExtensionConfig::default();
+    cfg.allowed_extensions = vec!["".to_string()];
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("allowed_extensions"));
+    assert!(err.contains("must not be empty"));
+}
+
+#[test]
+fn test_extension_config_allowed_ext_control_chars() {
+    let mut cfg = crate::extension::ExtensionConfig::default();
+    cfg.allowed_extensions = vec!["ext\x07id".to_string()];
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("control characters"));
+}
+
+#[test]
+fn test_extension_config_blocked_ext_too_long() {
+    let mut cfg = crate::extension::ExtensionConfig::default();
+    cfg.blocked_extensions = vec!["x".repeat(300)];
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("exceeds maximum"));
+}
+
+#[test]
+fn test_extension_config_trusted_key_non_hex() {
+    let mut cfg = crate::extension::ExtensionConfig::default();
+    cfg.trusted_public_keys = vec!["not-hex-data!".to_string()];
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("hex-encoded"));
+}
+
+#[test]
+fn test_extension_config_trusted_key_empty() {
+    let mut cfg = crate::extension::ExtensionConfig::default();
+    cfg.trusted_public_keys = vec!["".to_string()];
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("must not be empty"));
+}
+
+#[test]
+fn test_extension_config_valid_hex_key_passes() {
+    let mut cfg = crate::extension::ExtensionConfig::default();
+    cfg.trusted_public_keys = vec!["abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string()];
+    assert!(cfg.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════
+// ManifestConfig::validate() tests (FIND-R100-009)
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn test_manifest_config_validate_default_ok() {
+    let cfg = crate::manifest::ManifestConfig::default();
+    assert!(cfg.validate().is_ok());
+}
+
+#[test]
+fn test_manifest_config_validate_empty_path() {
+    let mut cfg = crate::manifest::ManifestConfig::default();
+    cfg.manifest_path = Some(String::new());
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("must not be empty"));
+}
+
+#[test]
+fn test_manifest_config_validate_path_too_long() {
+    let mut cfg = crate::manifest::ManifestConfig::default();
+    cfg.manifest_path = Some("x".repeat(5000));
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("exceeds maximum"));
+}
+
+#[test]
+fn test_manifest_config_validate_path_control_chars() {
+    let mut cfg = crate::manifest::ManifestConfig::default();
+    cfg.manifest_path = Some("/etc/\x00evil".to_string());
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("control characters"));
+}
+
+#[test]
+fn test_manifest_config_validate_path_traversal() {
+    let mut cfg = crate::manifest::ManifestConfig::default();
+    cfg.manifest_path = Some("/etc/../../../shadow".to_string());
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains(".."));
+}
+
+#[test]
+fn test_manifest_config_validate_valid_path() {
+    let mut cfg = crate::manifest::ManifestConfig::default();
+    cfg.manifest_path = Some("/etc/vellaveto/manifest.json".to_string());
+    assert!(cfg.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════
+// PolicyRule::validate() tests (FIND-R100-012)
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn test_policy_rule_validate_valid() {
+    let rule = crate::policy_rule::PolicyRule {
+        name: "test-rule".to_string(),
+        tool_pattern: "*".to_string(),
+        function_pattern: "*".to_string(),
+        policy_type: vellaveto_types::PolicyType::Allow,
+        priority: Some(0),
+        id: None,
+        path_rules: None,
+        network_rules: None,
+    };
+    assert!(rule.validate().is_ok());
+}
+
+#[test]
+fn test_policy_rule_validate_empty_name() {
+    let rule = crate::policy_rule::PolicyRule {
+        name: "".to_string(),
+        tool_pattern: "*".to_string(),
+        function_pattern: "*".to_string(),
+        policy_type: vellaveto_types::PolicyType::Allow,
+        priority: Some(0),
+        id: None,
+        path_rules: None,
+        network_rules: None,
+    };
+    let err = rule.validate().unwrap_err();
+    assert!(err.contains("name must not be empty"));
+}
+
+#[test]
+fn test_policy_rule_validate_name_control_chars() {
+    let rule = crate::policy_rule::PolicyRule {
+        name: "rule\nname".to_string(),
+        tool_pattern: "*".to_string(),
+        function_pattern: "*".to_string(),
+        policy_type: vellaveto_types::PolicyType::Allow,
+        priority: Some(0),
+        id: None,
+        path_rules: None,
+        network_rules: None,
+    };
+    let err = rule.validate().unwrap_err();
+    assert!(err.contains("control characters"));
+}
+
+#[test]
+fn test_policy_rule_validate_empty_tool_pattern() {
+    let rule = crate::policy_rule::PolicyRule {
+        name: "test".to_string(),
+        tool_pattern: "".to_string(),
+        function_pattern: "*".to_string(),
+        policy_type: vellaveto_types::PolicyType::Allow,
+        priority: Some(0),
+        id: None,
+        path_rules: None,
+        network_rules: None,
+    };
+    let err = rule.validate().unwrap_err();
+    assert!(err.contains("tool_pattern must not be empty"));
+}
+
+#[test]
+fn test_policy_rule_validate_empty_function_pattern() {
+    let rule = crate::policy_rule::PolicyRule {
+        name: "test".to_string(),
+        tool_pattern: "*".to_string(),
+        function_pattern: "".to_string(),
+        policy_type: vellaveto_types::PolicyType::Allow,
+        priority: Some(0),
+        id: None,
+        path_rules: None,
+        network_rules: None,
+    };
+    let err = rule.validate().unwrap_err();
+    assert!(err.contains("function_pattern must not be empty"));
+}
+
+#[test]
+fn test_policy_rule_validate_empty_id_when_set() {
+    let rule = crate::policy_rule::PolicyRule {
+        name: "test".to_string(),
+        tool_pattern: "*".to_string(),
+        function_pattern: "*".to_string(),
+        policy_type: vellaveto_types::PolicyType::Allow,
+        priority: Some(0),
+        id: Some("".to_string()),
+        path_rules: None,
+        network_rules: None,
+    };
+    let err = rule.validate().unwrap_err();
+    assert!(err.contains("id must not be empty"));
+}
+
+#[test]
+fn test_policy_rule_validate_id_control_chars() {
+    let rule = crate::policy_rule::PolicyRule {
+        name: "test".to_string(),
+        tool_pattern: "*".to_string(),
+        function_pattern: "*".to_string(),
+        policy_type: vellaveto_types::PolicyType::Allow,
+        priority: Some(0),
+        id: Some("id\x07bell".to_string()),
+        path_rules: None,
+        network_rules: None,
+    };
+    let err = rule.validate().unwrap_err();
+    assert!(err.contains("id contains control characters"));
+}
+
+#[test]
+fn test_policy_rule_validate_tool_pattern_too_long() {
+    let rule = crate::policy_rule::PolicyRule {
+        name: "test".to_string(),
+        tool_pattern: "x".repeat(600),
+        function_pattern: "*".to_string(),
+        policy_type: vellaveto_types::PolicyType::Allow,
+        priority: Some(0),
+        id: None,
+        path_rules: None,
+        network_rules: None,
+    };
+    let err = rule.validate().unwrap_err();
+    assert!(err.contains("tool_pattern length"));
+}
+
+// ═══════════════════════════════════════════════════════════
+// Wiring: PolicyConfig propagates sub-config validation errors
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn test_policy_config_propagates_nhi_validation_error() {
+    let mut cfg = PolicyConfig::default();
+    cfg.nhi.anomaly_threshold = f64::NAN;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("anomaly_threshold"));
+}
+
+#[test]
+fn test_policy_config_propagates_manifest_validation_error() {
+    let mut cfg = PolicyConfig::default();
+    cfg.manifest.manifest_path = Some("/foo/../../../etc/shadow".to_string());
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains(".."));
+}
+
+#[test]
+fn test_policy_config_propagates_policy_rule_validation_error() {
+    let mut cfg = PolicyConfig::default();
+    cfg.policies.push(crate::policy_rule::PolicyRule {
+        name: "".to_string(),
+        tool_pattern: "*".to_string(),
+        function_pattern: "*".to_string(),
+        policy_type: vellaveto_types::PolicyType::Allow,
+        priority: Some(0),
+        id: None,
+        path_rules: None,
+        network_rules: None,
+    });
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("policies[0]"));
+    assert!(err.contains("name must not be empty"));
+}
