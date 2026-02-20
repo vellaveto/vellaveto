@@ -93,6 +93,9 @@ def _validate_approval_id(approval_id: str) -> None:
         )
     if any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in approval_id):
         raise VellavetoError("Invalid approval_id: contains control characters")
+    # SECURITY (FIND-R104-SDK-002): Reject Unicode format characters — parity with Go SDK.
+    if _UNICODE_FORMAT_RE.search(approval_id):
+        raise VellavetoError("Invalid approval_id: contains Unicode format characters")
 
 
 def _validate_evaluate_inputs(
@@ -679,6 +682,9 @@ class VellavetoClient:
         # SECURITY (FIND-R55-SDK-001): Validate query non-empty. Parity with TS/Go.
         if not isinstance(query, str) or not query.strip():
             raise VellavetoError("discovery query must not be empty")
+        # SECURITY (FIND-R104-SDK-003): Cap query length. Parity with TS SDK (1024).
+        if len(query) > 1024:
+            raise VellavetoError("discovery query exceeds max length (1024)")
         payload: Dict[str, Any] = {
             "query": query,
             "max_results": max_results,
@@ -830,6 +836,13 @@ class VellavetoClient:
         Returns:
             Dictionary with commitments list, total count, and range
         """
+        # SECURITY (FIND-R104-SDK-004): Validate sequence range. Parity with TS SDK.
+        if not isinstance(from_seq, int) or from_seq < 0:
+            raise VellavetoError("from_seq must be a non-negative integer")
+        if not isinstance(to_seq, int) or to_seq < 0:
+            raise VellavetoError("to_seq must be a non-negative integer")
+        if from_seq > to_seq:
+            raise VellavetoError("from_seq must be <= to_seq")
         params = {"from": from_seq, "to": to_seq}
         return self._request("GET", "/api/zk-audit/commitments", params=params)
 
@@ -1220,6 +1233,9 @@ class AsyncVellavetoClient:
         # SECURITY (FIND-R55-SDK-001): Validate query non-empty.
         if not isinstance(query, str) or not query.strip():
             raise VellavetoError("discovery query must not be empty")
+        # SECURITY (FIND-R104-SDK-003): Cap query length. Parity with TS SDK (1024).
+        if len(query) > 1024:
+            raise VellavetoError("discovery query exceeds max length (1024)")
         payload: Dict[str, Any] = {
             "query": query,
             "max_results": max_results,
@@ -1308,6 +1324,13 @@ class AsyncVellavetoClient:
         to_seq: int,
     ) -> Dict[str, Any]:
         """List Pedersen commitments for entries in a sequence range (async)."""
+        # SECURITY (FIND-R104-SDK-004): Validate sequence range. Parity with TS SDK.
+        if not isinstance(from_seq, int) or from_seq < 0:
+            raise VellavetoError("from_seq must be a non-negative integer")
+        if not isinstance(to_seq, int) or to_seq < 0:
+            raise VellavetoError("to_seq must be a non-negative integer")
+        if from_seq > to_seq:
+            raise VellavetoError("from_seq must be <= to_seq")
         params = {"from": from_seq, "to": to_seq}
         return await self._request(
             "GET", "/api/zk-audit/commitments", params=params

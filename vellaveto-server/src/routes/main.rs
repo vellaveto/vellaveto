@@ -592,7 +592,8 @@ pub fn build_router(state: AppState) -> Router {
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             crate::setup_wizard::setup_guard,
-        ));
+        ))
+        .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit));
 
     Router::new()
         .merge(authenticated)

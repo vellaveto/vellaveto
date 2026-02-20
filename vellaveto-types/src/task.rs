@@ -367,9 +367,15 @@ impl SecureTask {
         if self.seen_nonces.len() >= effective_max {
             self.seen_nonces.remove(0); // FIFO eviction
         }
-        // Enforce MAX_ENTRY_LEN at runtime, not just in validate()
+        // Enforce MAX_ENTRY_LEN at runtime, not just in validate().
+        // SECURITY (FIND-R104-001): Walk back to a char boundary to avoid
+        // a panic on multi-byte UTF-8 sequences straddling the limit.
         let nonce = if nonce.len() > MAX_ENTRY_LEN {
-            nonce[..MAX_ENTRY_LEN].to_string()
+            let mut end = MAX_ENTRY_LEN;
+            while end > 0 && !nonce.is_char_boundary(end) {
+                end -= 1;
+            }
+            nonce[..end].to_string()
         } else {
             nonce
         };

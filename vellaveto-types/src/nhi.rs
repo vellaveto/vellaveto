@@ -77,6 +77,7 @@ impl fmt::Display for NhiIdentityStatus {
 /// - Attestation type and credentials
 /// - Behavioral baseline for continuous authentication
 /// - Credential rotation and expiration
+///
 /// SECURITY (IMP-R104-003): Custom Debug impl redacts public_key.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(deny_unknown_fields)]
@@ -665,12 +666,28 @@ impl NhiDpopProof {
                 Self::MAX_FIELD_LEN,
             ));
         }
+        // SECURITY (FIND-R104-005): Reject Unicode format characters in htm/htu/iat/jti
+        // to prevent bidi-override and zero-width character injection.
+        if self
+            .htm
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err("NhiDpopProof htm contains control or format characters".to_string());
+        }
         if self.htu.len() > Self::MAX_FIELD_LEN {
             return Err(format!(
                 "NhiDpopProof htu length {} exceeds max {}",
                 self.htu.len(),
                 Self::MAX_FIELD_LEN,
             ));
+        }
+        if self
+            .htu
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err("NhiDpopProof htu contains control or format characters".to_string());
         }
         if let Some(ref ath) = self.ath {
             if ath.len() > Self::MAX_FIELD_LEN {
@@ -697,12 +714,26 @@ impl NhiDpopProof {
                 Self::MAX_FIELD_LEN,
             ));
         }
+        if self
+            .iat
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err("NhiDpopProof iat contains control or format characters".to_string());
+        }
         if self.jti.len() > Self::MAX_FIELD_LEN {
             return Err(format!(
                 "NhiDpopProof jti length {} exceeds max {}",
                 self.jti.len(),
                 Self::MAX_FIELD_LEN,
             ));
+        }
+        if self
+            .jti
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err("NhiDpopProof jti contains control or format characters".to_string());
         }
         Ok(())
     }

@@ -23,7 +23,7 @@ use std::time::Duration;
 // ═══════════════════════════════════════════════════
 
 /// Anthropic backend configuration.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AnthropicConfig {
     /// API key for authentication.
     pub api_key: String,
@@ -35,6 +35,18 @@ pub struct AnthropicConfig {
     pub max_tokens: u32,
     /// Optional custom endpoint URL.
     pub endpoint: Option<String>,
+}
+
+impl std::fmt::Debug for AnthropicConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AnthropicConfig")
+            .field("api_key", &"[REDACTED]")
+            .field("model", &self.model)
+            .field("timeout_ms", &self.timeout_ms)
+            .field("max_tokens", &self.max_tokens)
+            .field("endpoint", &self.endpoint)
+            .finish()
+    }
 }
 
 impl Default for AnthropicConfig {

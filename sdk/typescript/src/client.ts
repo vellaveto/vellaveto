@@ -664,8 +664,8 @@ export class VellavetoClient {
           `context.${name} contains control characters`
         );
       }
-      // Unicode format chars: zero-width, bidi overrides, BOM
-      if (/[\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2064\uFFF9-\uFFFB]/.test(value)) {
+      // Unicode format chars: zero-width, bidi overrides, BOM, bidi isolates (\u2065-\u2069)
+      if (/[\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB]/.test(value)) {
         throw new VellavetoError(
           `context.${name} contains Unicode format characters`
         );
@@ -1181,6 +1181,10 @@ function validateApprovalId(id: string): void {
   }
   if (/[\x00-\x1f\x7f-\x9f]/.test(id)) {
     throw new VellavetoError("approval ID contains control characters");
+  }
+  // SECURITY (FIND-R104-SDK-002): Reject Unicode format characters (parity with Go SDK).
+  if (/[\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB]/.test(id)) {
+    throw new VellavetoError("approval ID contains Unicode format characters");
   }
 }
 

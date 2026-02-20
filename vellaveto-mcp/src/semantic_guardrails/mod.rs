@@ -149,6 +149,37 @@ impl Default for ServiceConfig {
     }
 }
 
+impl ServiceConfig {
+    /// Validates the configuration, returning an error string if invalid.
+    ///
+    /// Checks that `min_confidence` and `jailbreak_threshold` are finite and in
+    /// `[0.0, 1.0]`, and that `max_latency_ms` is greater than zero.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.min_confidence.is_finite()
+            || self.min_confidence < 0.0
+            || self.min_confidence > 1.0
+        {
+            return Err(format!(
+                "min_confidence must be a finite value in [0.0, 1.0], got {}",
+                self.min_confidence
+            ));
+        }
+        if !self.jailbreak_threshold.is_finite()
+            || self.jailbreak_threshold < 0.0
+            || self.jailbreak_threshold > 1.0
+        {
+            return Err(format!(
+                "jailbreak_threshold must be a finite value in [0.0, 1.0], got {}",
+                self.jailbreak_threshold
+            ));
+        }
+        if self.max_latency_ms == 0 {
+            return Err("max_latency_ms must be greater than zero".to_string());
+        }
+        Ok(())
+    }
+}
+
 impl SemanticGuardrailsService {
     /// Creates a new service with the given evaluator and configuration.
     pub fn new(evaluator: Arc<dyn LlmEvaluator>, config: ServiceConfig) -> Self {

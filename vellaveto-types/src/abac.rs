@@ -404,9 +404,15 @@ impl FederationTrustAnchor {
         if self.org_id.is_empty() {
             return Err("FederationTrustAnchor org_id must not be empty".to_string());
         }
-        if self.org_id.chars().any(|c| c.is_control()) {
+        // SECURITY (FIND-R104-003): Also reject Unicode format characters
+        // (zero-width, bidi overrides, BOM) which bypass visual inspection.
+        if self
+            .org_id
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
             return Err(format!(
-                "FederationTrustAnchor '{}' org_id contains control characters",
+                "FederationTrustAnchor '{}' org_id contains control or format characters",
                 self.org_id
             ));
         }
@@ -580,9 +586,15 @@ impl IdentityMapping {
         if self.external_claim.is_empty() {
             return Err("external_claim must not be empty".to_string());
         }
-        if self.external_claim.chars().any(|c| c.is_control()) {
+        // SECURITY (FIND-R104-002): Also reject Unicode format characters
+        // (zero-width, bidi overrides, BOM) which bypass visual inspection.
+        if self
+            .external_claim
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
             return Err(format!(
-                "external_claim '{}' contains control characters",
+                "external_claim '{}' contains control or format characters",
                 self.external_claim
             ));
         }
@@ -592,9 +604,15 @@ impl IdentityMapping {
                 self.id_template
             ));
         }
-        if self.id_template.chars().any(|c| c.is_control()) {
+        // SECURITY (FIND-R104-002): Also reject Unicode format characters
+        // (zero-width, bidi overrides, BOM) which bypass visual inspection.
+        if self
+            .id_template
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
             return Err(format!(
-                "id_template '{}' contains control characters",
+                "id_template '{}' contains control or format characters",
                 self.id_template
             ));
         }
