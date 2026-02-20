@@ -103,8 +103,7 @@ pub async fn handle_mcp_post(
                         "error": {
                             "code": -32600,
                             "message": format!(
-                                "Unsupported MCP protocol version '{}'. Supported versions: {}",
-                                version,
+                                "Unsupported MCP protocol version. Supported versions: {}",
                                 SUPPORTED_PROTOCOL_VERSIONS.join(", ")
                             )
                         },
@@ -763,7 +762,10 @@ pub async fn handle_mcp_post(
                     if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
                         || session.call_counts.contains_key(&tool_name)
                     {
-                        *session.call_counts.entry(tool_name.clone()).or_insert(0) += 1;
+                        // SECURITY (FIND-R108-003): Use saturating_add to prevent
+                        // wrapping to zero which would bypass call-limit policies.
+                        let count = session.call_counts.entry(tool_name.clone()).or_insert(0);
+                        *count = count.saturating_add(1);
                     }
                     if session.action_history.len() >= MAX_ACTION_HISTORY {
                         session.action_history.pop_front();
@@ -2912,8 +2914,7 @@ pub async fn handle_mcp_get(
                         "error": {
                             "code": -32600,
                             "message": format!(
-                                "Unsupported MCP protocol version '{}'. Supported versions: {}",
-                                version,
+                                "Unsupported MCP protocol version. Supported versions: {}",
                                 SUPPORTED_PROTOCOL_VERSIONS.join(", ")
                             )
                         },

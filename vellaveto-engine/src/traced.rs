@@ -20,6 +20,7 @@ impl PolicyEngine {
     /// Opt-in alternative to [`Self::evaluate_action`] that records per-policy match
     /// details for OPA-style decision explanations. Has ~20% allocation overhead
     /// compared to the non-traced hot path, so use only when `?trace=true`.
+    #[must_use = "security verdicts must not be discarded"]
     pub fn evaluate_action_traced(
         &self,
         action: &Action,

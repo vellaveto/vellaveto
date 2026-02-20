@@ -82,6 +82,7 @@ const MAX_MEMBERSHIP_DEPTH: usize = 16;
 /// Result of ABAC policy evaluation.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+#[must_use = "ABAC decisions must not be discarded"]
 pub enum AbacDecision {
     /// An ABAC permit policy matched — allow the action.
     Allow { policy_id: String },
@@ -286,6 +287,7 @@ impl AbacEngine {
     /// 2. If any matching policy is Forbid → Deny
     /// 3. If any matching policy is Permit (and no Forbid) → Allow
     /// 4. If nothing matches → NoMatch (caller decides)
+    #[must_use = "ABAC decisions must not be discarded"]
     pub fn evaluate(&self, action: &Action, ctx: &AbacEvalContext<'_>) -> AbacDecision {
         let mut best_permit: Option<&str> = None;
 

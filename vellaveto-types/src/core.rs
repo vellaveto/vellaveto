@@ -295,6 +295,7 @@ impl Action {
 /// Marked `#[non_exhaustive]` to allow future variants without breaking downstream matches.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
+#[must_use = "security verdicts must not be discarded"]
 pub enum Verdict {
     Allow,
     Deny { reason: String },

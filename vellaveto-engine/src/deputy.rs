@@ -329,6 +329,7 @@ impl DeputyValidator {
     /// `Ok(())` if authorized, `Err(DeputyError)` if not.
     ///
     /// SECURITY: Fails closed if RwLock is poisoned.
+    #[must_use = "deputy validation results must not be discarded"]
     pub fn validate_action(
         &self,
         session_id: &str,

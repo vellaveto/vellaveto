@@ -771,10 +771,12 @@ impl McpGrpcService {
                     if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
                         || session.call_counts.contains_key(tool_name)
                     {
-                        *session
+                        // SECURITY (FIND-R108-003): saturating_add.
+                        let count = session
                             .call_counts
                             .entry(tool_name.to_string())
-                            .or_insert(0) += 1;
+                            .or_insert(0);
+                        *count = count.saturating_add(1);
                     }
                     if session.action_history.len() >= MAX_ACTION_HISTORY {
                         session.action_history.pop_front();
