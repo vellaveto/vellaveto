@@ -24,7 +24,9 @@ pub struct ManifestAnnotations {
 /// Created from a `tools/list` response, then persisted. On subsequent
 /// `tools/list` responses, the live tools are compared against this manifest
 /// to detect unexpected changes (new tools, removed tools, schema mutations).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+///
+/// SECURITY (IMP-R104-005): Custom Debug impl redacts `signature` and `verifying_key`.
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ToolManifest {
     /// Schema version for forward compatibility.
@@ -40,6 +42,21 @@ pub struct ToolManifest {
     /// Hex-encoded Ed25519 verifying key (32 bytes) for signature verification.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verifying_key: Option<String>,
+}
+
+impl std::fmt::Debug for ToolManifest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolManifest")
+            .field("schema_version", &self.schema_version)
+            .field("tools", &self.tools)
+            .field("signature", &self.signature.as_ref().map(|_| "[REDACTED]"))
+            .field("created_at", &self.created_at)
+            .field(
+                "verifying_key",
+                &self.verifying_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 /// A single tool entry in a pinned manifest.
@@ -162,12 +179,37 @@ impl ToolManifest {
         })
     }
 
+    /// Maximum manifest file size in bytes (16 MB).
+    const MAX_MANIFEST_FILE_SIZE: u64 = 16 * 1024 * 1024;
+
     /// Load a pinned manifest from a JSON file.
+    ///
+    /// SECURITY (FIND-R104-005): Enforces file size limit and tools count bound
+    /// to prevent OOM from crafted manifest files.
     pub fn load_pinned_manifest(
         path: &str,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Check file size before reading into memory.
+        let metadata = std::fs::metadata(path)?;
+        if metadata.len() > Self::MAX_MANIFEST_FILE_SIZE {
+            return Err(format!(
+                "Manifest file size {} exceeds maximum of {} bytes",
+                metadata.len(),
+                Self::MAX_MANIFEST_FILE_SIZE
+            )
+            .into());
+        }
         let content = std::fs::read_to_string(path)?;
         let manifest: ToolManifest = serde_json::from_str(&content)?;
+        // Enforce tools count bound (same as from_tools_list).
+        if manifest.tools.len() > MAX_MANIFEST_TOOLS {
+            return Err(format!(
+                "Manifest tools count {} exceeds maximum of {}",
+                manifest.tools.len(),
+                MAX_MANIFEST_TOOLS
+            )
+            .into());
+        }
         Ok(manifest)
     }
 

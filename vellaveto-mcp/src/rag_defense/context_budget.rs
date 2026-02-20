@@ -14,6 +14,14 @@ use vellaveto_config::ContextBudgetConfig;
 
 use super::error::RagDefenseError;
 
+/// Maximum number of tracked sessions to prevent unbounded HashMap growth.
+/// SECURITY (FIND-R104-006): Without a bound, an attacker generating unique
+/// session IDs can cause OOM.
+const MAX_BUDGET_SESSIONS: usize = 100_000;
+
+/// Maximum retrieval records per session to prevent unbounded Vec growth.
+const MAX_RETRIEVALS_PER_SESSION: usize = 10_000;
+
 /// Tracks context budget usage per session.
 pub struct ContextBudgetTracker {
     config: ContextBudgetConfig,
@@ -246,16 +254,32 @@ impl ContextBudgetTracker {
     }
 
     /// Records token usage for a session.
+    ///
+    /// SECURITY (FIND-R104-006): Enforces session count and per-session retrieval
+    /// bounds. Uses saturating_add for total_tokens (FIND-R104-009).
     pub fn record_usage(&self, session_id: &str, doc_id: &str, tokens: u32) {
         if !self.config.enabled {
             return;
         }
 
         if let Ok(mut usage_map) = self.usage.write() {
+            // SECURITY (FIND-R104-006): Reject new sessions if at capacity.
+            if !usage_map.contains_key(session_id) && usage_map.len() >= MAX_BUDGET_SESSIONS {
+                tracing::warn!(
+                    max = MAX_BUDGET_SESSIONS,
+                    "Context budget tracker at session capacity — dropping new session"
+                );
+                return;
+            }
+
             let usage = usage_map.entry(session_id.to_string()).or_default();
 
-            usage.total_tokens += tokens;
-            usage.retrievals.push(RetrievalUsage::new(doc_id, tokens));
+            // SECURITY (FIND-R104-009): Use saturating_add to prevent wrapping to zero.
+            usage.total_tokens = usage.total_tokens.saturating_add(tokens);
+            // SECURITY (FIND-R104-006): Cap retrievals Vec to prevent unbounded growth.
+            if usage.retrievals.len() < MAX_RETRIEVALS_PER_SESSION {
+                usage.retrievals.push(RetrievalUsage::new(doc_id, tokens));
+            }
             usage.last_updated = Utc::now();
         }
     }
@@ -555,5 +579,79 @@ mod tests {
             reason: "test".to_string()
         }
         .is_allowed());
+    }
+
+    // =================================================================
+    // ROUND 104: Bounds enforcement tests
+    // =================================================================
+
+    #[test]
+    fn test_record_usage_session_bound() {
+        let config = ContextBudgetConfig {
+            enabled: true,
+            max_tokens_per_retrieval: 1000,
+            max_total_context_tokens: 10000,
+            enforcement: "reject".to_string(),
+            alert_threshold: 0.8,
+        };
+        let tracker = ContextBudgetTracker::new(config);
+
+        // Fill up to MAX_BUDGET_SESSIONS
+        for i in 0..MAX_BUDGET_SESSIONS {
+            tracker.record_usage(&format!("session_{}", i), "doc1", 1);
+        }
+
+        // Next session should be silently dropped
+        tracker.record_usage("overflow_session", "doc1", 1);
+        assert_eq!(tracker.get_current_usage("overflow_session"), 0);
+    }
+
+    #[test]
+    fn test_record_usage_retrievals_bound() {
+        let config = ContextBudgetConfig {
+            enabled: true,
+            max_tokens_per_retrieval: 1,
+            max_total_context_tokens: u32::MAX,
+            enforcement: "truncate".to_string(),
+            alert_threshold: 0.99,
+        };
+        let tracker = ContextBudgetTracker::new(config);
+
+        // Record MAX_RETRIEVALS_PER_SESSION + 100 retrievals
+        for i in 0..(MAX_RETRIEVALS_PER_SESSION + 100) {
+            tracker.record_usage("session1", &format!("doc_{}", i), 1);
+        }
+
+        let usage = tracker.get_usage("session1").unwrap();
+        assert_eq!(
+            usage.retrievals.len(),
+            MAX_RETRIEVALS_PER_SESSION,
+            "Retrievals should be capped at MAX_RETRIEVALS_PER_SESSION"
+        );
+        // But total_tokens should still reflect all calls
+        assert_eq!(
+            usage.total_tokens,
+            (MAX_RETRIEVALS_PER_SESSION + 100) as u32
+        );
+    }
+
+    #[test]
+    fn test_record_usage_saturating_add() {
+        let config = ContextBudgetConfig {
+            enabled: true,
+            max_tokens_per_retrieval: u32::MAX,
+            max_total_context_tokens: u32::MAX,
+            enforcement: "truncate".to_string(),
+            alert_threshold: 0.99,
+        };
+        let tracker = ContextBudgetTracker::new(config);
+
+        // Push near u32::MAX
+        tracker.record_usage("session1", "doc1", u32::MAX - 10);
+        tracker.record_usage("session1", "doc2", 100);
+
+        // Should saturate at u32::MAX, not wrap to 89
+        let usage = tracker.get_current_usage("session1");
+        assert_eq!(usage, u32::MAX, "total_tokens should saturate, not wrap");
     }
 }

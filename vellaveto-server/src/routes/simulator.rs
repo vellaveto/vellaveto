@@ -173,6 +173,12 @@ fn compile_from_toml_bounded(
     }
     let config =
         PolicyConfig::from_toml(toml_str).map_err(|e| format!("TOML parse error: {}", e))?;
+    // SECURITY (FIND-R104-001): Validate config before converting to policies.
+    // Without this, unbounded collections, invalid float ranges, SSRF webhooks,
+    // and other semantically invalid configs bypass PolicyConfig::validate().
+    config
+        .validate()
+        .map_err(|e| format!("Config validation error: {}", e))?;
     let mut policies = config.to_policies();
     // SECURITY (FIND-R46-001): Cap policy count.
     if policies.len() > MAX_POLICY_COUNT {
@@ -443,6 +449,18 @@ pub async fn simulate_validate(
         },
     };
 
+    // SECURITY (FIND-R104-002): Validate config semantics before running lint validator.
+    // Without this, the validate endpoint can report a config as "valid" even though
+    // it would fail PolicyConfig::validate() at server load time.
+    if let Err(e) = config.validate() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("Config validation error: {}", e),
+            }),
+        ));
+    }
+
     let mut validator = PolicyValidator::new();
     if req.strict {
         validator = validator.strict();
@@ -504,6 +522,24 @@ pub async fn simulate_diff(
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
                 error: format!("'after' config parse error: {}", e),
+            }),
+        )
+    })?;
+
+    // SECURITY (FIND-R104-003): Validate both configs before proceeding.
+    before_config.validate().map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("'before' config validation error: {}", e),
+            }),
+        )
+    })?;
+    after_config.validate().map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("'after' config validation error: {}", e),
             }),
         )
     })?;

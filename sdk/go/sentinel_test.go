@@ -2178,3 +2178,97 @@ func TestOwaspAsiCoverage(t *testing.T) {
 		t.Errorf("CoveragePercent = %f, want 100.0", resp.CoveragePercent)
 	}
 }
+
+// SECURITY (FIND-R101-004): Oversized Parameters should be rejected.
+func TestActionValidate_OversizedParameters(t *testing.T) {
+	largeParams := make(map[string]interface{})
+	for i := 0; i < 50000; i++ {
+		largeParams[fmt.Sprintf("key_%06d", i)] = "value"
+	}
+	a := &Action{Tool: "x", Parameters: largeParams}
+	err := validateParameters(a.Parameters)
+	if err == nil {
+		t.Fatal("validateParameters() should reject oversized Parameters")
+	}
+	if !strings.Contains(err.Error(), "Parameters exceeds max serialized size") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// SECURITY (FIND-R101-003): EvaluationContext validation tests.
+func TestEvaluationContextValidate_Valid(t *testing.T) {
+	ctx := &EvaluationContext{
+		SessionID: "session-123",
+		AgentID:   "agent-1",
+		TenantID:  "tenant-1",
+		CallChain: []string{"tool_a", "tool_b"},
+		Metadata:  map[string]interface{}{"key": "value"},
+	}
+	if err := ctx.Validate(); err != nil {
+		t.Fatalf("Validate() unexpected error: %v", err)
+	}
+}
+
+func TestEvaluationContextValidate_ControlCharsInAgentID(t *testing.T) {
+	ctx := &EvaluationContext{AgentID: "agent" + string(rune(0)) + "evil"}
+	err := ctx.Validate()
+	if err == nil {
+		t.Fatal("Validate() should reject control chars in agent_id")
+	}
+	if !strings.Contains(err.Error(), "control characters") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestEvaluationContextValidate_UnicodeFormatCharsInSessionID(t *testing.T) {
+	ctx := &EvaluationContext{SessionID: "session" + string(rune(0x200B)) + "hidden"}
+	err := ctx.Validate()
+	if err == nil {
+		t.Fatal("Validate() should reject Unicode format chars in session_id")
+	}
+	if !strings.Contains(err.Error(), "Unicode format characters") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestEvaluationContextValidate_TooManyCallChain(t *testing.T) {
+	chain := make([]string, 101)
+	for i := range chain {
+		chain[i] = "tool"
+	}
+	ctx := &EvaluationContext{CallChain: chain}
+	err := ctx.Validate()
+	if err == nil {
+		t.Fatal("Validate() should reject >100 CallChain entries")
+	}
+}
+
+func TestEvaluationContextValidate_LongCallChainEntry(t *testing.T) {
+	longEntry := strings.Repeat("x", 300)
+	ctx := &EvaluationContext{CallChain: []string{longEntry}}
+	err := ctx.Validate()
+	if err == nil {
+		t.Fatal("Validate() should reject oversized CallChain entry")
+	}
+}
+
+func TestEvaluationContextValidate_TooManyMetadataKeys(t *testing.T) {
+	meta := make(map[string]interface{})
+	for i := 0; i < 101; i++ {
+		meta[fmt.Sprintf("key_%d", i)] = "val"
+	}
+	ctx := &EvaluationContext{Metadata: meta}
+	err := ctx.Validate()
+	if err == nil {
+		t.Fatal("Validate() should reject >100 Metadata keys")
+	}
+}
+
+func TestEvaluationContextValidate_LongFieldLength(t *testing.T) {
+	longID := strings.Repeat("a", 300)
+	ctx := &EvaluationContext{TenantID: longID}
+	err := ctx.Validate()
+	if err == nil {
+		t.Fatal("Validate() should reject oversized tenant_id")
+	}
+}

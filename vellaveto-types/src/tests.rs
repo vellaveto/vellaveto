@@ -5801,3 +5801,76 @@ fn test_mcp_capability_sub_capability_zero_width_rejected() {
     let err = cap.validate().unwrap_err();
     assert!(err.contains("control or format characters"));
 }
+
+// =============================================================================
+// ROUND 104: Debug redaction tests
+// =============================================================================
+
+#[test]
+fn test_nhi_agent_identity_debug_redacts_public_key() {
+    let identity = NhiAgentIdentity {
+        id: "agent-1".to_string(),
+        name: "Test Agent".to_string(),
+        public_key: Some("deadbeef0123456789abcdef".to_string()),
+        ..Default::default()
+    };
+    let debug = format!("{:?}", identity);
+    assert!(
+        !debug.contains("deadbeef0123456789abcdef"),
+        "Debug output must not contain raw public_key"
+    );
+    assert!(
+        debug.contains("[REDACTED]"),
+        "Debug output should contain [REDACTED]"
+    );
+    assert!(
+        debug.contains("agent-1"),
+        "Debug output should still contain non-sensitive fields"
+    );
+}
+
+#[test]
+fn test_nhi_agent_identity_debug_none_public_key() {
+    let identity = NhiAgentIdentity {
+        id: "agent-2".to_string(),
+        name: "Agent Two".to_string(),
+        public_key: None,
+        ..Default::default()
+    };
+    let debug = format!("{:?}", identity);
+    assert!(debug.contains("None"), "Debug should show None for missing public_key");
+}
+
+#[test]
+fn test_nhi_dpop_proof_debug_redacts_proof_and_ath() {
+    let proof = NhiDpopProof {
+        proof: "eyJhbGciOiJFUzI1NiJ9.secret_jwt_body.signature_here".to_string(),
+        htm: "POST".to_string(),
+        htu: "https://example.com/api".to_string(),
+        ath: Some("sha256_hash_of_access_token".to_string()),
+        nonce: Some("server-nonce-123".to_string()),
+        iat: "2026-01-01T00:00:00Z".to_string(),
+        jti: "jti-unique-id".to_string(),
+    };
+    let debug = format!("{:?}", proof);
+    assert!(
+        !debug.contains("secret_jwt_body"),
+        "Debug must not contain proof JWT content"
+    );
+    assert!(
+        !debug.contains("sha256_hash_of_access_token"),
+        "Debug must not contain ath hash"
+    );
+    assert!(
+        debug.contains("[REDACTED]"),
+        "Debug should contain [REDACTED]"
+    );
+    assert!(
+        debug.contains("POST"),
+        "Debug should still contain non-sensitive fields like htm"
+    );
+    assert!(
+        debug.contains("server-nonce-123"),
+        "Debug should still show nonce"
+    );
+}

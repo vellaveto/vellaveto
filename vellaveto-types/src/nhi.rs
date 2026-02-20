@@ -77,7 +77,8 @@ impl fmt::Display for NhiIdentityStatus {
 /// - Attestation type and credentials
 /// - Behavioral baseline for continuous authentication
 /// - Credential rotation and expiration
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+/// SECURITY (IMP-R104-003): Custom Debug impl redacts public_key.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct NhiAgentIdentity {
     /// Unique agent identifier.
@@ -125,6 +126,32 @@ pub struct NhiAgentIdentity {
     /// Accountability attestations signed by this identity.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attestations: Vec<AccountabilityAttestation>,
+}
+
+/// SECURITY (IMP-R104-003): Custom Debug redacts `public_key` to prevent
+/// cryptographic material from leaking into logs. Follows the ToolSignature pattern.
+impl std::fmt::Debug for NhiAgentIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NhiAgentIdentity")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("attestation_type", &self.attestation_type)
+            .field("status", &self.status)
+            .field("spiffe_id", &self.spiffe_id)
+            .field("public_key", &self.public_key.as_ref().map(|_| "[REDACTED]"))
+            .field("key_algorithm", &self.key_algorithm)
+            .field("issued_at", &self.issued_at)
+            .field("expires_at", &self.expires_at)
+            .field("last_rotation", &self.last_rotation)
+            .field("auth_count", &self.auth_count)
+            .field("last_auth", &self.last_auth)
+            .field("tags", &self.tags)
+            .field("metadata", &self.metadata)
+            .field("verification_tier", &self.verification_tier)
+            .field("did_plc", &self.did_plc)
+            .field("attestations", &self.attestations)
+            .finish()
+    }
 }
 
 impl NhiAgentIdentity {
@@ -577,7 +604,9 @@ impl NhiDelegationChain {
 }
 
 /// DPoP (Demonstration of Proof-of-Possession) proof for RFC 9449 compliance.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+///
+/// SECURITY (IMP-R104-004): Custom Debug impl redacts `proof` JWT and `ath` hash.
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NhiDpopProof {
     /// The DPoP proof JWT.
@@ -596,6 +625,20 @@ pub struct NhiDpopProof {
     pub iat: String,
     /// Unique identifier for replay prevention (jti claim).
     pub jti: String,
+}
+
+impl std::fmt::Debug for NhiDpopProof {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NhiDpopProof")
+            .field("proof", &"[REDACTED]")
+            .field("htm", &self.htm)
+            .field("htu", &self.htu)
+            .field("ath", &self.ath.as_ref().map(|_| "[REDACTED]"))
+            .field("nonce", &self.nonce)
+            .field("iat", &self.iat)
+            .field("jti", &self.jti)
+            .finish()
+    }
 }
 
 impl NhiDpopProof {

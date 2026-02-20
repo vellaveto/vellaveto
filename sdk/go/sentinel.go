@@ -143,6 +143,10 @@ func NewClient(baseURL string, opts ...Option) (*Client, error) {
 				if len(via) >= 10 {
 					return fmt.Errorf("vellaveto: stopped after 10 redirects")
 				}
+				// SECURITY (FIND-R101-005): Reject redirects to non-HTTP(S) schemes.
+				if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+					return fmt.Errorf("vellaveto: redirect to unsupported scheme %q", req.URL.Scheme)
+				}
 				if len(via) > 0 && req.URL.Host != via[0].URL.Host {
 					// Cross-domain redirect: strip Authorization to prevent API key leak.
 					req.Header.Del("Authorization")
@@ -319,6 +323,16 @@ func (c *Client) Evaluate(ctx context.Context, action Action, evalCtx *Evaluatio
 	// SECURITY (FIND-R54-SDK-008): Validate action fields before sending to server.
 	if err := action.Validate(); err != nil {
 		return nil, err
+	}
+	// SECURITY (FIND-R101-004): Validate parameters size.
+	if err := validateParameters(action.Parameters); err != nil {
+		return nil, err
+	}
+	// SECURITY (FIND-R101-003): Validate evaluation context bounds and chars.
+	if evalCtx != nil {
+		if err := evalCtx.Validate(); err != nil {
+			return nil, err
+		}
 	}
 
 	reqBody := EvaluateRequest{

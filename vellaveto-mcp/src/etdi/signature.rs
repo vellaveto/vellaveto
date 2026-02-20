@@ -306,8 +306,15 @@ impl ToolSigner {
         let signature = self.signing_key.sign(tool_hash.as_bytes());
 
         let now = Utc::now();
-        let expires_at = expires_in_days
-            .map(|days| (now + chrono::Duration::days(i64::from(days))).to_rfc3339());
+        // SECURITY: Use strict ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ) to match
+        // is_valid_iso8601_basic() validation in is_expired(). to_rfc3339() produces
+        // fractional seconds and +00:00 offset which fail the 20-char Z-suffix check.
+        let now_str = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let expires_at = expires_in_days.map(|days| {
+            (now + chrono::Duration::days(i64::from(days)))
+                .format("%Y-%m-%dT%H:%M:%SZ")
+                .to_string()
+        });
 
         ToolSignature {
             signature_id: format!("sig-{}", uuid::Uuid::new_v4()),
@@ -315,7 +322,7 @@ impl ToolSigner {
             algorithm: SignatureAlgorithm::Ed25519,
             public_key: self.public_key_hex.clone(),
             key_fingerprint: Some(self.fingerprint.clone()),
-            signed_at: now.to_rfc3339(),
+            signed_at: now_str,
             expires_at,
             signer_spiffe_id: self.signer_identity.clone(),
             rekor_entry: None,

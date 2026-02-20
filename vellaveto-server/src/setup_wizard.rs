@@ -1343,15 +1343,39 @@ pub async fn step_apply(State(state): State<AppState>, req: Request) -> Response
         toml_content = generate_config_toml(&session);
     }
 
-    // Validate the generated TOML parses correctly
-    if let Err(e) = vellaveto_config::PolicyConfig::from_toml(&toml_content) {
+    // Validate the generated TOML parses correctly AND passes semantic validation.
+    // SECURITY (FIND-R104-004): Previously only checked from_toml() (parse), not
+    // validate() (semantic checks). Without validate(), configs with unbounded
+    // collections, invalid float ranges, or SSRF webhooks could be written to disk.
+    let parsed_config = match vellaveto_config::PolicyConfig::from_toml(&toml_content) {
+        Ok(c) => c,
+        Err(e) => {
+            let mut html = render_head("Error");
+            html.push_str(&render_steps(7));
+            let _ = write!(
+                html,
+                r#"
+<h1>Configuration Error</h1>
+<div class="banner banner-error">Failed to parse generated configuration: {}</div>
+<p>Please go back and adjust your settings.</p>
+<div class="btn-row">
+<a href="/setup/review" class="btn btn-secondary">&larr; Back to Review</a>
+</div>
+"#,
+                html_escape(&e.to_string())
+            );
+            html.push_str(render_footer());
+            return Html(html).into_response();
+        }
+    };
+    if let Err(e) = parsed_config.validate() {
         let mut html = render_head("Error");
         html.push_str(&render_steps(7));
         let _ = write!(
             html,
             r#"
-<h1>Configuration Error</h1>
-<div class="banner banner-error">Failed to validate generated configuration: {}</div>
+<h1>Configuration Validation Error</h1>
+<div class="banner banner-error">Generated configuration failed validation: {}</div>
 <p>Please go back and adjust your settings.</p>
 <div class="btn-row">
 <a href="/setup/review" class="btn btn-secondary">&larr; Back to Review</a>

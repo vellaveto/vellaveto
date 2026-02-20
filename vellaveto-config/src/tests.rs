@@ -7330,3 +7330,62 @@ fn test_policy_rule_partial_eq() {
     let r2 = r1.clone();
     assert_eq!(r1, r2);
 }
+
+// =============================================================================
+// ROUND 104 FIXES
+// =============================================================================
+
+#[test]
+fn test_tool_manifest_debug_redacts_signature() {
+    let manifest = ToolManifest {
+        schema_version: "2.0".to_string(),
+        tools: vec![],
+        signature: Some("deadbeef01234567".to_string()),
+        created_at: Some("2026-01-01T00:00:00Z".to_string()),
+        verifying_key: Some("aabbccdd".to_string()),
+    };
+    let debug = format!("{:?}", manifest);
+    assert!(
+        !debug.contains("deadbeef01234567"),
+        "Debug output must not contain raw signature"
+    );
+    assert!(
+        !debug.contains("aabbccdd"),
+        "Debug output must not contain raw verifying_key"
+    );
+    assert!(
+        debug.contains("[REDACTED]"),
+        "Debug output should show [REDACTED]"
+    );
+}
+
+#[test]
+fn test_tool_manifest_load_pinned_rejects_too_many_tools() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("manifest.json");
+
+    // Build a manifest with MAX_MANIFEST_TOOLS + 1 entries.
+    let mut tools = Vec::new();
+    for i in 0..=10_000 {
+        tools.push(serde_json::json!({
+            "name": format!("tool_{}", i),
+            "input_schema_hash": "abcd1234"
+        }));
+    }
+    let manifest_json = serde_json::json!({
+        "schema_version": "2.0",
+        "tools": tools
+    });
+    let mut f = std::fs::File::create(&path).unwrap();
+    f.write_all(manifest_json.to_string().as_bytes()).unwrap();
+
+    let result = ToolManifest::load_pinned_manifest(path.to_str().unwrap());
+    assert!(result.is_err(), "Should reject manifest with too many tools");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("exceeds maximum"),
+        "Error should mention exceeds maximum, got: {}",
+        err
+    );
+}
