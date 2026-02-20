@@ -6891,3 +6891,176 @@ fn test_policy_config_propagates_policy_rule_validation_error() {
     assert!(err.contains("policies[0]"));
     assert!(err.contains("name must not be empty"));
 }
+
+// ═══════════════════════════════════════════════════════════
+// VerificationConfig::validate() tests
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn test_verification_config_default_validates() {
+    let cfg = crate::memory_nhi::VerificationConfig::default();
+    assert!(cfg.validate().is_ok());
+}
+
+#[test]
+fn test_verification_config_invalid_default_tier() {
+    let mut cfg = crate::memory_nhi::VerificationConfig::default();
+    cfg.default_tier = "admin".to_string();
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("default_tier"));
+}
+
+#[test]
+fn test_verification_config_invalid_global_minimum_tier() {
+    let mut cfg = crate::memory_nhi::VerificationConfig::default();
+    cfg.global_minimum_tier = "superuser".to_string();
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("global_minimum_tier"));
+}
+
+#[test]
+fn test_verification_config_attestation_cap_exceeded() {
+    let mut cfg = crate::memory_nhi::VerificationConfig::default();
+    cfg.max_attestations_per_identity = 20_000;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("max_attestations_per_identity"));
+}
+
+#[test]
+fn test_verification_config_zero_attestations_when_enabled() {
+    let mut cfg = crate::memory_nhi::VerificationConfig::default();
+    cfg.enabled = true;
+    cfg.max_attestations_per_identity = 0;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("max_attestations_per_identity must be > 0"));
+}
+
+#[test]
+fn test_verification_config_zero_ttl_when_enabled() {
+    let mut cfg = crate::memory_nhi::VerificationConfig::default();
+    cfg.enabled = true;
+    cfg.attestation_ttl_secs = 0;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("attestation_ttl_secs must be > 0"));
+}
+
+#[test]
+fn test_verification_config_plc_url_empty_when_did_enabled() {
+    let mut cfg = crate::memory_nhi::VerificationConfig::default();
+    cfg.did_plc_enabled = true;
+    cfg.plc_directory_url = String::new();
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("plc_directory_url must not be empty"));
+}
+
+#[test]
+fn test_verification_config_plc_url_not_https() {
+    let mut cfg = crate::memory_nhi::VerificationConfig::default();
+    cfg.did_plc_enabled = true;
+    cfg.plc_directory_url = "http://plc.directory".to_string();
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("https://"));
+}
+
+#[test]
+fn test_verification_config_plc_url_control_chars() {
+    let mut cfg = crate::memory_nhi::VerificationConfig::default();
+    cfg.did_plc_enabled = true;
+    cfg.plc_directory_url = "https://plc.directory\x00".to_string();
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("control characters"));
+}
+
+// ═══════════════════════════════════════════════════════════
+// DpopConfig::validate() tests
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn test_dpop_config_default_validates() {
+    let cfg = crate::memory_nhi::DpopConfig::default();
+    assert!(cfg.validate().is_ok());
+}
+
+#[test]
+fn test_dpop_config_clock_skew_exceeds_cap() {
+    let mut cfg = crate::memory_nhi::DpopConfig::default();
+    cfg.max_clock_skew_secs = 5_000;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("max_clock_skew_secs"));
+}
+
+#[test]
+fn test_dpop_config_nonce_ttl_exceeds_cap() {
+    let mut cfg = crate::memory_nhi::DpopConfig::default();
+    cfg.nonce_ttl_secs = 5_000;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("nonce_ttl_secs"));
+}
+
+#[test]
+fn test_dpop_config_proof_lifetime_zero() {
+    let mut cfg = crate::memory_nhi::DpopConfig::default();
+    cfg.max_proof_lifetime_secs = 0;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("max_proof_lifetime_secs must be > 0"));
+}
+
+#[test]
+fn test_dpop_config_proof_lifetime_exceeds_cap() {
+    let mut cfg = crate::memory_nhi::DpopConfig::default();
+    cfg.max_proof_lifetime_secs = 1_000;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("max_proof_lifetime_secs"));
+}
+
+#[test]
+fn test_dpop_config_algorithms_empty_entry() {
+    let mut cfg = crate::memory_nhi::DpopConfig::default();
+    cfg.allowed_algorithms = vec!["".to_string()];
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("must not be empty"));
+}
+
+#[test]
+fn test_dpop_config_algorithms_control_chars() {
+    let mut cfg = crate::memory_nhi::DpopConfig::default();
+    cfg.allowed_algorithms = vec!["ES256\n".to_string()];
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("control characters"));
+}
+
+#[test]
+fn test_dpop_config_too_many_algorithms() {
+    let mut cfg = crate::memory_nhi::DpopConfig::default();
+    cfg.allowed_algorithms = (0..25).map(|i| format!("ALG{}", i)).collect();
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("allowed_algorithms"));
+}
+
+#[test]
+fn test_dpop_config_max_nonces_exceeds_cap() {
+    let mut cfg = crate::memory_nhi::DpopConfig::default();
+    cfg.max_nonces = 2_000_000;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("max_nonces"));
+}
+
+// ═══════════════════════════════════════════════════════════
+// NhiConfig propagates sub-config validation errors
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn test_nhi_config_propagates_verification_error() {
+    let mut cfg = crate::memory_nhi::NhiConfig::default();
+    cfg.verification.default_tier = "invalid-tier".to_string();
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("default_tier"));
+}
+
+#[test]
+fn test_nhi_config_propagates_dpop_error() {
+    let mut cfg = crate::memory_nhi::NhiConfig::default();
+    cfg.dpop.max_proof_lifetime_secs = 0;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("max_proof_lifetime_secs"));
+}
