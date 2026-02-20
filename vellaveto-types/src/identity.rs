@@ -348,9 +348,15 @@ impl EvaluationContext {
                     Self::MAX_TIMESTAMP_LEN,
                 ));
             }
-            if entry.timestamp.chars().any(|c| c.is_control()) {
+            // SECURITY (FIND-R85-001): Check both control and Unicode format characters,
+            // matching validate_call_chain_field() parity for agent_id/tool/function.
+            if entry
+                .timestamp
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
                 return Err(format!(
-                    "EvaluationContext call_chain[{}].timestamp contains control characters",
+                    "EvaluationContext call_chain[{}].timestamp contains control or format characters",
                     i,
                 ));
             }

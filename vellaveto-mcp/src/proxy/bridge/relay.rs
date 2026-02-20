@@ -115,17 +115,7 @@ const MAX_CALL_COUNTS: usize = 10_000;
 /// Matches vellaveto-config/src/governance.rs::MAX_AGENT_ID_LENGTH.
 const MAX_ENV_AGENT_ID_LENGTH: usize = 256;
 
-/// SECURITY (FIND-R80-003): Check if a character is a Unicode format character
-/// (zero-width, bidi overrides, BOM). Duplicated from vellaveto-types as that
-/// function is pub(crate).
-fn is_unicode_format_char(c: char) -> bool {
-    matches!(c,
-        '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
-        '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
-        '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
-        '\u{FEFF}'                  // BOM / zero-width no-break space
-    )
-}
+use vellaveto_types::is_unicode_format_char;
 
 /// SECURITY (FIND-R46-011): Maximum channel buffer for child→agent relay.
 /// Each buffered message can be up to ~1MB; keeping the buffer small

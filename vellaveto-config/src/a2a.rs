@@ -132,20 +132,6 @@ fn a2a_contains_control_chars(s: &str) -> bool {
     s.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b))
 }
 
-/// Check if a character is a Unicode format character that can be used for
-/// invisible text injection (zero-width chars, bidi overrides, BOM).
-///
-/// SECURITY (FIND-R83-004): Mirrors `vellaveto_types::core::is_unicode_format_char()`
-/// which is `pub(crate)` and not accessible from this crate.
-fn a2a_is_unicode_format_char(c: char) -> bool {
-    matches!(c,
-        '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
-        '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
-        '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
-        '\u{FEFF}'                  // BOM / zero-width no-break space
-    )
-}
-
 impl A2aConfig {
     /// Validate A2A configuration fields.
     pub fn validate(&self) -> Result<(), String> {
@@ -215,7 +201,7 @@ impl A2aConfig {
             }
             // SECURITY (FIND-R83-004): Reject Unicode format characters (zero-width,
             // bidi overrides, BOM) that can bypass visual inspection of auth method names.
-            if method.chars().any(a2a_is_unicode_format_char) {
+            if method.chars().any(vellaveto_types::is_unicode_format_char) {
                 return Err(
                     "a2a.allowed_auth_methods entry contains Unicode format characters".to_string(),
                 );
@@ -275,6 +261,13 @@ impl A2aConfig {
                     "a2a.allowed_task_operations entry '{}' contains control characters",
                     op
                 ));
+            }
+            // SECURITY (IMP-R84-003): Parity with allowed_auth_methods Unicode format char check.
+            if op.chars().any(vellaveto_types::is_unicode_format_char) {
+                return Err(
+                    "a2a.allowed_task_operations entry contains Unicode format characters"
+                        .to_string(),
+                );
             }
             if !VALID_A2A_TASK_OPERATIONS.contains(&op.as_str()) {
                 return Err(format!(

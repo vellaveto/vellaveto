@@ -52,6 +52,7 @@ use crate::default_true;
 /// tool_patterns = ["filesystem:*", "shell:*"]
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SemanticGuardrailsConfig {
     /// Enable semantic guardrails. Default: false.
     #[serde(default)]
@@ -153,6 +154,12 @@ impl SemanticGuardrailsConfig {
                 MAX_NL_POLICIES
             ));
         }
+        // SECURITY (FIND-R84-004): Validate each NL policy entry for bounds + control chars.
+        for (i, policy) in self.nl_policies.iter().enumerate() {
+            policy
+                .validate()
+                .map_err(|e| format!("semantic_guardrails.nl_policies[{}]: {}", i, e))?;
+        }
         Ok(())
     }
 }
@@ -179,6 +186,7 @@ fn default_semantic_confidence() -> f64 {
 
 /// OpenAI backend configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct OpenAiBackendConfig {
     /// Model name. Default: "gpt-4o-mini".
     #[serde(default = "default_openai_model")]
@@ -231,6 +239,7 @@ impl Default for OpenAiBackendConfig {
 
 /// Anthropic backend configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AnthropicBackendConfig {
     /// Model name. Default: "claude-3-haiku-20240307".
     #[serde(default = "default_anthropic_model")]
@@ -283,6 +292,7 @@ impl Default for AnthropicBackendConfig {
 
 /// Intent classification configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct IntentClassificationConfig {
     /// Enable intent classification. Default: true.
     #[serde(default = "default_true")]
@@ -322,6 +332,7 @@ impl Default for IntentClassificationConfig {
 
 /// Jailbreak detection configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct JailbreakDetectionConfig {
     /// Enable jailbreak detection. Default: true.
     #[serde(default = "default_true")]
@@ -352,6 +363,7 @@ impl Default for JailbreakDetectionConfig {
 
 /// Natural language policy configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NlPolicyConfig {
     /// Unique policy identifier.
     pub id: String,
@@ -374,4 +386,58 @@ pub struct NlPolicyConfig {
     /// Policy priority (higher = evaluated first). Default: 0.
     #[serde(default)]
     pub priority: i32,
+}
+
+/// Maximum NL policy ID/name length.
+const MAX_NL_POLICY_ID_LEN: usize = 256;
+/// Maximum NL policy statement length.
+const MAX_NL_POLICY_STATEMENT_LEN: usize = 4096;
+/// Maximum tool patterns per NL policy.
+const MAX_NL_TOOL_PATTERNS: usize = 50;
+
+impl NlPolicyConfig {
+    /// Validate NL policy fields for bounds and control character injection.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id.is_empty() {
+            return Err("nl_policy.id is empty".to_string());
+        }
+        if self.id.len() > MAX_NL_POLICY_ID_LEN {
+            return Err(format!(
+                "nl_policy.id length {} exceeds maximum {}",
+                self.id.len(),
+                MAX_NL_POLICY_ID_LEN
+            ));
+        }
+        if self.id.chars().any(|c| c.is_control()) {
+            return Err("nl_policy.id contains control characters".to_string());
+        }
+        if self.name.len() > MAX_NL_POLICY_ID_LEN {
+            return Err(format!(
+                "nl_policy.name length {} exceeds maximum {}",
+                self.name.len(),
+                MAX_NL_POLICY_ID_LEN
+            ));
+        }
+        if self.name.chars().any(|c| c.is_control()) {
+            return Err("nl_policy.name contains control characters".to_string());
+        }
+        if self.statement.is_empty() {
+            return Err("nl_policy.statement is empty".to_string());
+        }
+        if self.statement.len() > MAX_NL_POLICY_STATEMENT_LEN {
+            return Err(format!(
+                "nl_policy.statement length {} exceeds maximum {}",
+                self.statement.len(),
+                MAX_NL_POLICY_STATEMENT_LEN
+            ));
+        }
+        if self.tool_patterns.len() > MAX_NL_TOOL_PATTERNS {
+            return Err(format!(
+                "nl_policy.tool_patterns has {} entries, max is {}",
+                self.tool_patterns.len(),
+                MAX_NL_TOOL_PATTERNS
+            ));
+        }
+        Ok(())
+    }
 }

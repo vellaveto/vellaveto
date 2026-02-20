@@ -4348,7 +4348,7 @@ fn test_evaluation_context_validate_call_chain_control_char_timestamp() {
     };
     let err = ctx.validate().unwrap_err();
     assert!(err.contains("call_chain[0].timestamp"));
-    assert!(err.contains("control characters"));
+    assert!(err.contains("control or format characters"));
 }
 
 #[test]
@@ -4385,6 +4385,43 @@ fn test_evaluation_context_validate_call_chain_oversized_timestamp() {
     let err = ctx.validate().unwrap_err();
     assert!(err.contains("call_chain[0].timestamp"));
     assert!(err.contains("exceeds max 64"));
+}
+
+// SECURITY (FIND-R85-001): Unicode format chars in timestamp must be rejected,
+// matching parity with validate_call_chain_field() for agent_id/tool/function.
+#[test]
+fn test_evaluation_context_validate_call_chain_unicode_format_char_timestamp() {
+    // Zero-width space (U+200B) in timestamp
+    let ctx = EvaluationContext {
+        call_chain: vec![CallChainEntry {
+            agent_id: "agent-1".to_string(),
+            tool: "read_file".to_string(),
+            function: "read".to_string(),
+            timestamp: "2026-02-15T10:00:00Z\u{200B}".to_string(),
+            hmac: None,
+            verified: None,
+        }],
+        ..Default::default()
+    };
+    let err = ctx.validate().unwrap_err();
+    assert!(err.contains("call_chain[0].timestamp"));
+    assert!(err.contains("format characters"));
+
+    // Bidi override (U+202E) in timestamp
+    let ctx2 = EvaluationContext {
+        call_chain: vec![CallChainEntry {
+            agent_id: "agent-1".to_string(),
+            tool: "read_file".to_string(),
+            function: "read".to_string(),
+            timestamp: "2026-02-15\u{202E}T10:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        }],
+        ..Default::default()
+    };
+    let err2 = ctx2.validate().unwrap_err();
+    assert!(err2.contains("call_chain[0].timestamp"));
+    assert!(err2.contains("format characters"));
 }
 
 #[test]

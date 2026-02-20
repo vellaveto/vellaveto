@@ -110,19 +110,7 @@ pub(crate) fn ws_messages_count() -> u64 {
     WS_MESSAGES_TOTAL.load(Ordering::Relaxed)
 }
 
-/// Returns true if the character is a Unicode format character that can bypass
-/// string-based security checks (zero-width chars, bidi overrides, BOM).
-///
-/// SECURITY (FIND-R81-WS-001): Mirrors `vellaveto_types::core::is_unicode_format_char()`
-/// which is `pub(crate)` and not accessible from this crate.
-fn is_unicode_format_char_ws(c: char) -> bool {
-    matches!(c,
-        '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
-        '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
-        '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
-        '\u{FEFF}'                  // BOM / zero-width no-break space
-    )
-}
+use vellaveto_types::is_unicode_format_char as is_unicode_format_char_ws;
 
 /// Query parameters for the WebSocket upgrade endpoint.
 #[derive(Debug, serde::Deserialize, Default)]
@@ -576,15 +564,8 @@ async fn relay_client_to_upstream(
                 if text.chars().any(|c| {
                     // Allow standard JSON whitespace (\t, \n, \r) but reject other
                     // ASCII control chars and Unicode format chars (FIND-R54-011).
-                    // SECURITY: Also detect zero-width, bidi overrides, BOM
-                    // that could bypass string-based security checks.
                     (c.is_control() && c != '\n' && c != '\r' && c != '\t')
-                        || matches!(c,
-                            '\u{200B}'..='\u{200F}' |
-                            '\u{202A}'..='\u{202E}' |
-                            '\u{2060}'..='\u{2069}' |
-                            '\u{FEFF}'
-                        )
+                        || is_unicode_format_char_ws(c)
                 }) {
                     tracing::warn!(
                         session_id = %session_id,

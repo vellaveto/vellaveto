@@ -1,7 +1,7 @@
 //! Governance configuration for Shadow AI Discovery and Least Agency Enforcement (Phase 26).
 
 use serde::{Deserialize, Serialize};
-use vellaveto_types::EnforcementMode;
+use vellaveto_types::{is_unicode_format_char, EnforcementMode};
 
 /// Maximum number of approved tools in governance config.
 pub const MAX_GOVERNANCE_APPROVED_TOOLS: usize = 1_000;
@@ -26,20 +26,6 @@ pub const MAX_AGENT_ID_LENGTH: usize = 256;
 
 /// Maximum discovery window (24 hours) (FIND-R44-048).
 pub const MAX_DISCOVERY_WINDOW_SECS: u64 = 86_400;
-
-/// Check if a character is a Unicode format character that can be used for
-/// invisible text injection (zero-width chars, bidi overrides, BOM).
-///
-/// SECURITY (FIND-R63-CFG-005): Mirrors `vellaveto_types::core::is_unicode_format_char()`
-/// which is `pub(crate)` and not accessible from this crate.
-fn is_unicode_format_char(c: char) -> bool {
-    matches!(c,
-        '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
-        '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
-        '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
-        '\u{FEFF}'                  // BOM / zero-width no-break space
-    )
-}
 
 /// Governance configuration for shadow AI discovery and least agency enforcement.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

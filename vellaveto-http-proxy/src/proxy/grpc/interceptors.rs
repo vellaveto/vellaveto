@@ -11,17 +11,7 @@ use tonic::{service::Interceptor, Request, Status};
 
 use super::super::ProxyState;
 
-/// SECURITY (FIND-R54-009, FIND-R54-010): Check for Unicode format characters
-/// that could bypass identity/session checks via invisible chars.
-/// Mirrors `EvaluationContext::is_unicode_format_char()` from vellaveto-types.
-pub(crate) fn is_unicode_format_char(c: char) -> bool {
-    matches!(c,
-        '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
-        '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
-        '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
-        '\u{FEFF}'                  // BOM / zero-width no-break space
-    )
-}
+pub(crate) use vellaveto_types::is_unicode_format_char;
 
 /// Check if a string contains ASCII control characters or Unicode format characters.
 ///

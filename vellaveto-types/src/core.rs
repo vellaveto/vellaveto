@@ -23,15 +23,19 @@ const MAX_PARAMETERS_SIZE: usize = 1_048_576;
 /// Returns true if the character is a Unicode format character (category Cf)
 /// that could cause identity confusion or log injection.
 ///
-/// SECURITY (FIND-R55-CORE-001, FIND-R56-CORE-001): Covers zero-width chars,
-/// bidi overrides, and BOM. Canonical implementation — other crates should import
-/// this via `vellaveto_types::is_unicode_format_char()` instead of duplicating.
+/// SECURITY (FIND-R55-CORE-001, FIND-R56-CORE-001, FIND-R84-002): Covers zero-width
+/// chars, bidi overrides, BOM, interlinear annotations, TAG characters, and soft
+/// hyphen. Canonical implementation — other crates should import this via
+/// `vellaveto_types::is_unicode_format_char()` instead of duplicating.
 pub fn is_unicode_format_char(c: char) -> bool {
     matches!(c,
+        '\u{00AD}'              |  // soft hyphen
         '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
         '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
         '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
-        '\u{FEFF}'                  // BOM / zero-width no-break space
+        '\u{FEFF}'              |  // BOM / zero-width no-break space
+        '\u{FFF9}'..='\u{FFFB}' |  // interlinear annotation anchors
+        '\u{E0001}'..='\u{E007F}'  // TAG characters
     )
 }
 
