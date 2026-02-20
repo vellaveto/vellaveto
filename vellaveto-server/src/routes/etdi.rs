@@ -40,7 +40,7 @@ pub async fn list_tool_signatures(
     let Some(ref store) = state.etdi_store else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "ETDI not enabled"})),
+            Json(json!({"error": "ETDI (Enhanced Tool Definition Integrity) is not enabled. Set [etdi] enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -79,7 +79,7 @@ pub async fn get_tool_signature(
     let Some(ref store) = state.etdi_store else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "ETDI not enabled"})),
+            Json(json!({"error": "ETDI (Enhanced Tool Definition Integrity) is not enabled. Set [etdi] enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -114,7 +114,7 @@ pub async fn verify_tool_signature(
     let Some(ref store) = state.etdi_store else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "ETDI not enabled"})),
+            Json(json!({"error": "ETDI (Enhanced Tool Definition Integrity) is not enabled. Set [etdi] enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -147,7 +147,7 @@ pub async fn list_attestations(
     let Some(ref store) = state.etdi_store else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "ETDI not enabled"})),
+            Json(json!({"error": "ETDI (Enhanced Tool Definition Integrity) is not enabled. Set [etdi] enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -188,7 +188,7 @@ pub async fn get_tool_attestations(
     let Some(ref store) = state.etdi_store else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "ETDI not enabled"})),
+            Json(json!({"error": "ETDI (Enhanced Tool Definition Integrity) is not enabled. Set [etdi] enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -211,7 +211,7 @@ pub async fn verify_attestation_chain(
     let Some(ref chain_manager) = state.etdi_attestations else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "ETDI attestation tracking not enabled"})),
+            Json(json!({"error": "ETDI attestation tracking is not enabled. Set [etdi] attestation.enabled = true in your config file."})),
         ));
     };
 
@@ -231,7 +231,7 @@ pub async fn list_version_pins(
     let Some(ref pin_manager) = state.etdi_version_pins else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "ETDI version pinning not enabled"})),
+            Json(json!({"error": "ETDI version pinning is not enabled. Set [etdi] version_pinning.enabled = true in your config file."})),
         ));
     };
 
@@ -259,7 +259,7 @@ pub async fn get_version_pin(
     let Some(ref pin_manager) = state.etdi_version_pins else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "ETDI version pinning not enabled"})),
+            Json(json!({"error": "ETDI version pinning is not enabled. Set [etdi] version_pinning.enabled = true in your config file."})),
         ));
     };
 
@@ -304,7 +304,7 @@ pub async fn create_version_pin(
     let Some(ref pin_manager) = state.etdi_version_pins else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "ETDI version pinning not enabled"})),
+            Json(json!({"error": "ETDI version pinning is not enabled. Set [etdi] version_pinning.enabled = true in your config file."})),
         ));
     };
 
@@ -348,7 +348,7 @@ pub async fn remove_version_pin(
     let Some(ref pin_manager) = state.etdi_version_pins else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "ETDI version pinning not enabled"})),
+            Json(json!({"error": "ETDI version pinning is not enabled. Set [etdi] version_pinning.enabled = true in your config file."})),
         ));
     };
 

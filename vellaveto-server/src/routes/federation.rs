@@ -34,7 +34,7 @@ pub async fn federation_status(
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "federation not enabled".to_string(),
+                error: "Agent identity federation is not enabled. Configure [federation] trust_anchors in your config file and restart the server.".to_string(),
             }),
         )
     })?;
@@ -67,7 +67,7 @@ pub async fn federation_trust_anchors(
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "federation not enabled".to_string(),
+                error: "Agent identity federation is not enabled. Configure [federation] trust_anchors in your config file and restart the server.".to_string(),
             }),
         )
     })?;

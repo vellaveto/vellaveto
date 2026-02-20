@@ -45,7 +45,7 @@ pub async fn projector_models(
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "Model projector is not enabled".to_string(),
+                error: "Model projector is not enabled. Set [projector] enabled = true in your config file and restart the server.".to_string(),
             }),
         )
     })?;
@@ -114,7 +114,7 @@ pub async fn projector_transform(
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "Model projector is not enabled".to_string(),
+                error: "Model projector is not enabled. Set [projector] enabled = true in your config file and restart the server.".to_string(),
             }),
         )
     })?;

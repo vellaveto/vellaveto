@@ -1747,12 +1747,41 @@ async fn evaluate(
     // SECURITY (R10-1): Validate the deserialized action to catch null bytes,
     // oversized fields, and other malformed input before processing.
     if let Err(e) = action.validate() {
-        // SECURITY (FIND-051): Don't leak validation details to clients.
+        // SECURITY (FIND-051): Don't leak internal state, but DO tell users
+        // which field failed so they can fix their request. The ValidationError
+        // variants only reference user-supplied field names (tool, function,
+        // target_paths, parameters), not internal server details.
+        // UX (UX-R110-001): "Invalid action" alone gave users no guidance.
         tracing::warn!("Action validation failed: {}", e);
+        let hint = match &e {
+            vellaveto_types::ValidationError::EmptyField { field } => {
+                format!("The '{}' field must not be empty", field)
+            }
+            vellaveto_types::ValidationError::TooLong { field, max, .. } => {
+                format!("The '{}' field exceeds the maximum length of {} bytes", field, max)
+            }
+            vellaveto_types::ValidationError::NullByte { field }
+            | vellaveto_types::ValidationError::ControlCharacter { field } => {
+                format!("The '{}' field contains invalid characters", field)
+            }
+            vellaveto_types::ValidationError::ParametersTooLarge { max, .. } => {
+                format!(
+                    "The 'parameters' payload is too large (max {} bytes)",
+                    max
+                )
+            }
+            vellaveto_types::ValidationError::TooManyTargets { max, .. } => {
+                format!(
+                    "Too many target_paths + target_domains entries (max {})",
+                    max
+                )
+            }
+            _ => "Check that tool, function, and parameters are well-formed".to_string(),
+        };
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: "Invalid action".to_string(),
+                error: format!("Invalid action: {}", hint),
             }),
         ));
     }

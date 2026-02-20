@@ -232,12 +232,13 @@ pub async fn simulate_evaluate(
     let action = req.action;
 
     // Validate action
+    // UX (UX-R110-001): Show the validation error category to help users fix their request.
     if let Err(e) = action.validate() {
         tracing::warn!("Simulator: action validation failed: {}", e);
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: "Invalid action".to_string(),
+                error: format!("Invalid action: {}", e),
             }),
         ));
     }
@@ -351,11 +352,13 @@ pub async fn simulate_batch(
 
     for (i, action) in req.actions.into_iter().enumerate() {
         // Validate action
+        // UX (UX-R110-001): Include validation error in both reason and error fields
+        // so users can identify which action in the batch failed and why.
         if let Err(e) = action.validate() {
             results.push(BatchResult {
                 action_index: i,
                 verdict: Verdict::Deny {
-                    reason: "Invalid action".to_string(),
+                    reason: format!("Invalid action: {}", e),
                 },
                 trace: None,
                 error: Some(format!("Validation failed: {}", e)),

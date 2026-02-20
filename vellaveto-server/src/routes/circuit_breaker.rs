@@ -32,7 +32,7 @@ pub async fn list_circuit_breakers(
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "Circuit breaker is not enabled".to_string(),
+                error: "Circuit breaker is not enabled. Set [circuit_breaker] enabled = true in your config file and restart the server.".to_string(),
             }),
         )
     })?;
@@ -70,7 +70,7 @@ pub async fn circuit_breaker_stats(
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "Circuit breaker is not enabled".to_string(),
+                error: "Circuit breaker is not enabled. Set [circuit_breaker] enabled = true in your config file and restart the server.".to_string(),
             }),
         )
     })?;
@@ -98,7 +98,7 @@ pub async fn get_circuit_state(
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "Circuit breaker is not enabled".to_string(),
+                error: "Circuit breaker is not enabled. Set [circuit_breaker] enabled = true in your config file and restart the server.".to_string(),
             }),
         )
     })?;
@@ -129,7 +129,7 @@ pub async fn reset_circuit(
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "Circuit breaker is not enabled".to_string(),
+                error: "Circuit breaker is not enabled. Set [circuit_breaker] enabled = true in your config file and restart the server.".to_string(),
             }),
         )
     })?;

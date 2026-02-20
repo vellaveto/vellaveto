@@ -64,7 +64,7 @@ pub async fn discovery_search(
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "Tool discovery is not enabled".to_string(),
+                error: "Tool discovery is not enabled. Set [discovery] enabled = true in your config file and restart the server.".to_string(),
             }),
         )
     })?;
@@ -180,7 +180,7 @@ pub async fn discovery_stats(
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "Tool discovery is not enabled".to_string(),
+                error: "Tool discovery is not enabled. Set [discovery] enabled = true in your config file and restart the server.".to_string(),
             }),
         )
     })?;
@@ -223,7 +223,7 @@ pub async fn discovery_reindex(
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "Tool discovery is not enabled".to_string(),
+                error: "Tool discovery is not enabled. Set [discovery] enabled = true in your config file and restart the server.".to_string(),
             }),
         )
     })?;
@@ -296,7 +296,7 @@ pub async fn discovery_tools(
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "Tool discovery is not enabled".to_string(),
+                error: "Tool discovery is not enabled. Set [discovery] enabled = true in your config file and restart the server.".to_string(),
             }),
         )
     })?;

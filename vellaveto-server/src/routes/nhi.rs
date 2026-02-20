@@ -184,7 +184,7 @@ pub async fn list_nhi_agents(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -207,7 +207,7 @@ pub async fn register_nhi_agent(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -291,7 +291,7 @@ pub async fn get_nhi_agent(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -314,7 +314,7 @@ pub async fn revoke_nhi_agent(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -340,7 +340,7 @@ pub async fn activate_nhi_agent(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -366,7 +366,7 @@ pub async fn suspend_nhi_agent(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -395,7 +395,7 @@ pub async fn get_nhi_baseline(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -419,7 +419,7 @@ pub async fn check_nhi_behavior(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -448,7 +448,7 @@ pub async fn list_nhi_delegations(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -480,7 +480,7 @@ pub async fn create_nhi_delegation(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -574,7 +574,7 @@ pub async fn get_nhi_delegation(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -598,7 +598,7 @@ pub async fn revoke_nhi_delegation(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -624,7 +624,7 @@ pub async fn get_nhi_delegation_chain(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -653,7 +653,7 @@ pub async fn rotate_nhi_credentials(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -711,7 +711,7 @@ pub async fn get_expiring_nhi_identities(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -731,7 +731,7 @@ pub async fn generate_dpop_nonce(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 
@@ -746,7 +746,7 @@ pub async fn nhi_stats(
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "NHI not enabled"})),
+            Json(json!({"error": "NHI (Non-Human Identity) management is not enabled. Set [nhi] verification.enabled = true in your config file and restart the server."})),
         ));
     };
 

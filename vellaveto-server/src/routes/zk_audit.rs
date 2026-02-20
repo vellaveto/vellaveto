@@ -110,7 +110,7 @@ pub async fn zk_audit_proofs(
         return Err((
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "ZK audit is not enabled".to_string(),
+                error: "ZK audit is not enabled. Set [zk_audit] enabled = true in your config file and restart the server.".to_string(),
             }),
         ));
     }
@@ -199,7 +199,7 @@ pub async fn zk_audit_verify(
         return Err((
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "ZK audit is not enabled".to_string(),
+                error: "ZK audit is not enabled. Set [zk_audit] enabled = true in your config file and restart the server.".to_string(),
             }),
         ));
     }
@@ -332,7 +332,7 @@ pub async fn zk_audit_commitments(
         return Err((
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "ZK audit is not enabled".to_string(),
+                error: "ZK audit is not enabled. Set [zk_audit] enabled = true in your config file and restart the server.".to_string(),
             }),
         ));
     }
