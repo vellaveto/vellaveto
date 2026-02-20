@@ -170,7 +170,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 + Phase 41 implemented, tested, and hardened through 99 audit rounds. Details in CHANGELOG.md.
+All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 + Phase 41 implemented, tested, and hardened through 102 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
 - **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention
@@ -178,7 +178,7 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - **Auth & Transport:** OAuth 2.1/JWT/JWKS, CSRF, rate limiting, MCP 2025-06-18 compliance, 6 deployment modes (HTTP, stdio, HTTP proxy, WebSocket proxy, gRPC proxy, MCP gateway)
 - **Advanced Authorization (Phase 21):** ABAC with forbid-overrides, capability-based delegation tokens, least-agency tracking, identity federation, continuous authorization
 - **MCP Gateway (Phase 20):** Multi-backend routing, health state machine, session affinity, tool conflict detection
-- **Compliance (Phase 19):** EU AI Act registry + Art 50 transparency marking, SOC 2 evidence, CoSAI 38/38, Adversa TOP 25 25/25, 7-framework gap analysis, OTLP export, Merkle inclusion proofs
+- **Compliance (Phase 19):** EU AI Act registry + Art 50 transparency marking, SOC 2 evidence, CoSAI 38/38, Adversa TOP 25 25/25, 8-framework gap analysis, OTLP export, Merkle inclusion proofs
 - **EU AI Act Final Compliance (Phase 24):** Art 50(2) automated decision explanations (VerdictExplanation at configurable verbosity), Art 10 data governance registry (DataGovernanceRecord with classification/purpose/provenance/retention), decision explanation injection into `_meta`
 - **MCP Ecosystem:** Tool registry with trust scoring, elicitation interception, sampling enforcement, semantic guardrails (LLM-based), A2A protocol security
 - **Transport (Phases 17–18):** WebSocket bidirectional proxy, gRPC reverse proxy (tonic), extension registry, transport discovery/negotiation/fallback
