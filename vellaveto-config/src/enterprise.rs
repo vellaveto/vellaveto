@@ -246,6 +246,12 @@ impl SpiffeConfig {
                 return Err("spiffe.trust_domain contains control characters".to_string());
             }
         }
+        // SECURITY (BUG-R110-003): Fail-closed when enabled without trust_domain
+        if self.enabled && self.trust_domain.is_none() {
+            return Err(
+                "spiffe.trust_domain is required when spiffe.enabled is true".to_string(),
+            );
+        }
         Ok(())
     }
 }
@@ -368,10 +374,11 @@ impl OpaConfig {
             if endpoint.chars().any(|c| c.is_control()) {
                 return Err("opa.endpoint contains control characters".to_string());
             }
+            // SECURITY (BUG-R110-004): Use proper URL parsing for localhost check.
+            // starts_with("http://localhost") would match http://localhost.evil.com
             if self.require_https
                 && !endpoint.starts_with("https://")
-                && !endpoint.starts_with("http://localhost")
-                && !endpoint.starts_with("http://127.0.0.1")
+                && !crate::validation::is_localhost_url(endpoint)
             {
                 return Err(format!(
                     "opa.endpoint must use https:// when require_https is true (got: {})",
@@ -384,6 +391,12 @@ impl OpaConfig {
         }
         if self.fail_open && !self.fail_open_acknowledged {
             tracing::warn!("SECURITY: opa.fail_open=true without fail_open_acknowledged — fail_open will be ignored");
+        }
+        // SECURITY (BUG-R110-002): Fail-closed when enabled without endpoint or bundle
+        if self.enabled && self.endpoint.is_none() && self.bundle_path.is_none() {
+            return Err(
+                "opa.endpoint or opa.bundle_path is required when opa.enabled is true".to_string(),
+            );
         }
         Ok(())
     }
@@ -562,6 +575,12 @@ impl ThreatIntelConfig {
                 );
             }
         }
+        // SECURITY (BUG-R110-012): Fail-closed when enabled without endpoint
+        if self.enabled && self.endpoint.is_none() {
+            return Err(
+                "threat_intel.endpoint is required when threat_intel.enabled is true".to_string(),
+            );
+        }
         Ok(())
     }
 }
@@ -662,7 +681,8 @@ impl JitAccessConfig {
             ));
         }
         if let Some(ref webhook) = self.notification_webhook {
-            if !webhook.starts_with("https://") && !webhook.starts_with("http://localhost") {
+            // SECURITY (BUG-R110-006): Use proper URL parsing for localhost check
+            if !webhook.starts_with("https://") && !crate::validation::is_localhost_url(webhook) {
                 return Err(format!(
                     "jit_access.notification_webhook must use https:// (got: {})",
                     webhook.chars().take(64).collect::<String>()

@@ -823,6 +823,34 @@ pub fn validate_domain_name(domain: &str) -> Result<(), ConfigValueError> {
     Ok(())
 }
 
+/// Check whether a URL points to localhost or a loopback address.
+///
+/// SECURITY (BUG-R110-004/005/006): `starts_with("http://localhost")` is SSRF-vulnerable
+/// because it matches `http://localhost.evil.com`. This function parses the URL properly
+/// and checks the host component.
+///
+/// # Example
+/// ```
+/// use vellaveto_config::validation::is_localhost_url;
+///
+/// assert!(is_localhost_url("http://localhost:8080/path"));
+/// assert!(is_localhost_url("http://127.0.0.1:3000"));
+/// assert!(is_localhost_url("http://[::1]:8080"));
+/// assert!(!is_localhost_url("http://localhost.evil.com"));
+/// assert!(!is_localhost_url("http://not-localhost"));
+/// ```
+pub fn is_localhost_url(url_str: &str) -> bool {
+    match url::Url::parse(url_str) {
+        Ok(parsed) => match parsed.host_str() {
+            Some(host) => {
+                host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
+            }
+            None => false,
+        },
+        Err(_) => false,
+    }
+}
+
 /// Validate a webhook URL (HTTP/HTTPS).
 ///
 /// # Example
@@ -1130,5 +1158,42 @@ policy_type = "Allow"
 
         let err = ConfigValueError::InvalidHex("test".to_string());
         assert!(err.to_string().contains("Invalid hex"));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SSRF localhost validation tests (BUG-R110-004/005/006)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_is_localhost_url_valid_localhost() {
+        assert!(is_localhost_url("http://localhost"));
+        assert!(is_localhost_url("http://localhost:8080"));
+        assert!(is_localhost_url("http://localhost:8080/path"));
+        assert!(is_localhost_url("http://localhost/path?query=1"));
+    }
+
+    #[test]
+    fn test_is_localhost_url_valid_loopback() {
+        assert!(is_localhost_url("http://127.0.0.1"));
+        assert!(is_localhost_url("http://127.0.0.1:3000"));
+        assert!(is_localhost_url("http://[::1]:8080"));
+        assert!(is_localhost_url("https://localhost:443"));
+    }
+
+    /// SECURITY: This is the exact attack vector from BUG-R110-004.
+    /// `starts_with("http://localhost")` would match this.
+    #[test]
+    fn test_is_localhost_url_rejects_ssrf_via_subdomain() {
+        assert!(!is_localhost_url("http://localhost.evil.com"));
+        assert!(!is_localhost_url("http://localhost.evil.com:8080"));
+        assert!(!is_localhost_url("http://localhost.attacker.org/steal"));
+    }
+
+    #[test]
+    fn test_is_localhost_url_rejects_non_local() {
+        assert!(!is_localhost_url("http://example.com"));
+        assert!(!is_localhost_url("https://api.example.com"));
+        assert!(!is_localhost_url("not a url"));
+        assert!(!is_localhost_url(""));
     }
 }

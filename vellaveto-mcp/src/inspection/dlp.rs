@@ -430,16 +430,16 @@ fn scan_decoded_layer<'a>(
     matched_patterns: &mut HashSet<&'a str>,
     findings: &mut Vec<DlpFinding>,
 ) {
-    // SECURITY: Apply NFKC normalization to detect secrets obfuscated with Unicode
-    // homoglyphs or fullwidth characters. For example, Cyrillic 'а' (U+0430) looks
-    // identical to Latin 'a' but would bypass ASCII regex patterns without normalization.
-    // This matches the approach used in injection detection (injection.rs:370).
-    let nfkc: String = decoded.nfkc().collect();
-    // SECURITY (FIND-R128-001): Strip combining marks after NFKC to prevent
-    // attackers from inserting combining diacritical marks between characters
-    // of a secret pattern (e.g., "AK\u{0301}IA...") to break DLP regex matching.
-    // Parity with injection scanner's post-NFKC stripping (FIND-R44-005).
-    let normalized: String = nfkc
+    // SECURITY (FIND-R128-001): Use NFKD (compatibility decomposition WITHOUT
+    // recomposition) to normalize Unicode for secret detection. NFKD is chosen
+    // over NFKC because:
+    // 1. It converts fullwidth chars to ASCII (e.g., "Ａ" → "A") — same as NFKC
+    // 2. It decomposes precomposed chars (e.g., "Ḱ" → "K" + U+0301) — unlike NFKC
+    //    which would keep them composed, making combining marks unstrippable
+    // After NFKD, we strip combining marks so that "AK\u{0301}IA..." → "AKIA..."
+    // and the regex can match. This prevents evasion via inserted diacritical marks.
+    let nfkd: String = decoded.nfkd().collect();
+    let normalized: String = nfkd
         .chars()
         .filter(|c| {
             let cp = *c as u32;
@@ -2091,7 +2091,7 @@ mod tests {
     #[test]
     fn test_dlp_detects_aws_key_through_combining_marks() {
         // SECURITY: Combining marks inserted between characters of a secret
-        // should be stripped after NFKC, allowing the regex to match.
+        // should be stripped after NFKD decomposition, allowing the regex to match.
         // U+0301 = COMBINING ACUTE ACCENT, U+034F = COMBINING GRAPHEME JOINER
         let params = json!({
             "content": "AK\u{0301}IA\u{034F}IOSFODNN7EXAMPLE"

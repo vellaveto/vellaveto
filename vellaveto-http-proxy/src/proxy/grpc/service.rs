@@ -136,11 +136,46 @@ impl McpGrpcService {
                     .await
             }
             MessageType::SamplingRequest { id: _ } => {
-                if !self.state.sampling_config.enabled {
-                    return make_proto_denial_response(proto_req, "Sampling requests are disabled");
+                // SECURITY (BUG-R110-007): Full inspect_sampling() parity with HTTP handler
+                // (handlers.rs:1711) and WebSocket handler (websocket/mod.rs:1560).
+                // Previous code only checked `enabled` — missing rate limit, model filter,
+                // and tool output checks.
+                let params = json_req.get("params").cloned().unwrap_or(json!({}));
+                let sampling_verdict = {
+                    let mut session_ref = self.state.sessions.get_mut(session_id);
+                    let current_count = session_ref
+                        .as_ref()
+                        .map(|s| s.sampling_count)
+                        .unwrap_or(0);
+                    let verdict = vellaveto_mcp::elicitation::inspect_sampling(
+                        &params,
+                        &self.state.sampling_config,
+                        current_count,
+                    );
+                    if matches!(
+                        verdict,
+                        vellaveto_mcp::elicitation::SamplingVerdict::Allow
+                    ) {
+                        if let Some(ref mut s) = session_ref {
+                            s.sampling_count = s.sampling_count.saturating_add(1);
+                        }
+                    }
+                    verdict
+                };
+                match sampling_verdict {
+                    vellaveto_mcp::elicitation::SamplingVerdict::Allow => {
+                        self.forward_and_scan(proto_req, &json_req, session_id)
+                            .await
+                    }
+                    vellaveto_mcp::elicitation::SamplingVerdict::Deny { reason } => {
+                        tracing::warn!(
+                            "Blocked sampling/createMessage in gRPC session {}: {}",
+                            session_id,
+                            reason
+                        );
+                        make_proto_denial_response(proto_req, "Sampling request denied")
+                    }
                 }
-                self.forward_and_scan(proto_req, &json_req, session_id)
-                    .await
             }
             MessageType::ElicitationRequest { .. } => {
                 // SECURITY (FIND-R54-GRPC-007): Inspect elicitation requests.

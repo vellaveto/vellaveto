@@ -1195,8 +1195,9 @@ impl PolicyConfig {
             }
             // SECURITY (FIND-R71-CFG-013): Validate on_match is a recognized action.
             // Unrecognized values could silently default to no-op, bypassing threat response.
+            // SECURITY (BUG-R110-001): Case-insensitive, consistent with standalone validate().
             let valid_on_match = ["deny", "alert", "require_approval"];
-            if !valid_on_match.contains(&self.threat_intel.on_match.as_str()) {
+            if !valid_on_match.contains(&self.threat_intel.on_match.to_lowercase().as_str()) {
                 return Err(format!(
                     "threat_intel.on_match must be one of {:?}, got '{}'",
                     valid_on_match, self.threat_intel.on_match
