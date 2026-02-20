@@ -174,6 +174,9 @@ struct RelayState {
     action_history: VecDeque<String>,
     /// Elicitation rate limiting counter (per session/proxy lifetime).
     elicitation_count: u32,
+    /// Sampling rate limiting counter (per session/proxy lifetime).
+    /// SECURITY (FIND-R125-001): Parity with elicitation rate limiting.
+    sampling_count: u32,
     /// SECURITY (FIND-R46-013): Cached agent_id from environment variable.
     /// Set once at relay start from `VELLAVETO_AGENT_ID` env var.
     agent_id: Option<String>,
@@ -235,6 +238,7 @@ impl RelayState {
             call_counts: HashMap::with_capacity(INITIAL_CALL_COUNTS_CAPACITY),
             action_history: VecDeque::with_capacity(MAX_ACTION_HISTORY),
             elicitation_count: 0,
+            sampling_count: 0,
             agent_id,
         }
     }
@@ -450,7 +454,8 @@ impl ProxyBridge {
                 self.handle_resource_read(msg, id, uri, state, io).await
             }
             MessageType::SamplingRequest { id } => {
-                self.handle_sampling_request(&msg, id, io.agent).await
+                self.handle_sampling_request(&msg, id, state, io.agent)
+                    .await
             }
             MessageType::ElicitationRequest { id } => {
                 self.handle_elicitation_request(&msg, id, state, io.agent)
@@ -1244,17 +1249,25 @@ impl ProxyBridge {
         &self,
         msg: &Value,
         id: Value,
+        state: &mut RelayState,
         agent_writer: &mut tokio::io::Stdout,
     ) -> Result<(), ProxyError> {
         let params = msg.get("params").cloned().unwrap_or(json!({}));
-        let verdict = crate::elicitation::inspect_sampling(&params, &self.sampling_config);
+        let verdict = crate::elicitation::inspect_sampling(
+            &params,
+            &self.sampling_config,
+            state.sampling_count,
+        );
         match verdict {
             crate::elicitation::SamplingVerdict::Allow => {
+                // SECURITY (FIND-R125-001): Saturating add prevents
+                // panic from overflow-checks in release profile.
+                state.sampling_count = state.sampling_count.saturating_add(1);
                 // SECURITY (FIND-R46-008): Audit allowed sampling decisions.
                 let action = vellaveto_types::Action::new(
                     "vellaveto",
                     "sampling_allowed",
-                    json!({"source": "proxy"}),
+                    json!({"source": "proxy", "count": state.sampling_count}),
                 );
                 if let Err(e) = self
                     .audit

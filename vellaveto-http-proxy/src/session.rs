@@ -57,6 +57,10 @@ pub struct SessionState {
     /// Number of elicitation requests processed in this session.
     /// Used for per-session rate limiting of `elicitation/create` requests.
     pub elicitation_count: u32,
+    /// Number of sampling requests processed in this session.
+    /// Used for per-session rate limiting of `sampling/createMessage` requests.
+    /// SECURITY (FIND-R125-001): Parity with elicitation rate limiting.
+    pub sampling_count: u32,
     /// Pending tool call correlation map: JSON-RPC response id key -> tool name.
     /// Used to recover tool context for `structuredContent` validation when
     /// upstream responses omit `result._meta.tool`.
@@ -151,6 +155,7 @@ impl SessionState {
             action_history: VecDeque::new(),
             memory_tracker: MemoryTracker::new(),
             elicitation_count: 0,
+            sampling_count: 0,
             pending_tool_calls: HashMap::new(),
             token_expires_at: None,
             current_call_chain: Vec::new(),

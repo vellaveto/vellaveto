@@ -50,6 +50,12 @@ impl Default for ElicitationConfig {
 /// Maximum number of blocked field types for elicitation config.
 pub const MAX_BLOCKED_FIELD_TYPES: usize = 100;
 
+/// Maximum length of a single blocked field type entry.
+///
+/// SECURITY (FIND-R125-002): Unbounded entries could waste memory during
+/// case-insensitive matching in `schema_contains_field_type()`.
+pub const MAX_BLOCKED_FIELD_TYPE_LENGTH: usize = 128;
+
 impl ElicitationConfig {
     /// Validate configuration bounds.
     pub fn validate(&self) -> Result<(), String> {
@@ -58,6 +64,29 @@ impl ElicitationConfig {
                 "elicitation.blocked_field_types exceeds {} entries",
                 MAX_BLOCKED_FIELD_TYPES
             ));
+        }
+        // SECURITY (FIND-R125-002): Validate individual entry content.
+        for (i, entry) in self.blocked_field_types.iter().enumerate() {
+            if entry.is_empty() {
+                return Err(format!(
+                    "elicitation.blocked_field_types[{}] is empty",
+                    i
+                ));
+            }
+            if entry.len() > MAX_BLOCKED_FIELD_TYPE_LENGTH {
+                return Err(format!(
+                    "elicitation.blocked_field_types[{}] length {} exceeds max {}",
+                    i,
+                    entry.len(),
+                    MAX_BLOCKED_FIELD_TYPE_LENGTH
+                ));
+            }
+            if entry.chars().any(char::is_control) {
+                return Err(format!(
+                    "elicitation.blocked_field_types[{}] contains control characters",
+                    i
+                ));
+            }
         }
         Ok(())
     }
@@ -92,6 +121,17 @@ pub struct SamplingConfig {
     /// plants instructions that get fed back to the LLM via sampling.
     #[serde(default = "default_true")]
     pub block_if_contains_tool_output: bool,
+    /// Maximum sampling requests per session. Default: 10.
+    ///
+    /// SECURITY (FIND-R125-001): Without per-session rate limiting, a malicious
+    /// MCP server can issue unlimited `sampling/createMessage` requests, unlike
+    /// elicitation which has `max_per_session`.
+    #[serde(default = "default_max_sampling")]
+    pub max_per_session: u32,
+}
+
+fn default_max_sampling() -> u32 {
+    10
 }
 
 impl Default for SamplingConfig {
@@ -100,12 +140,19 @@ impl Default for SamplingConfig {
             enabled: false,
             allowed_models: Vec::new(),
             block_if_contains_tool_output: true,
+            max_per_session: default_max_sampling(),
         }
     }
 }
 
 /// Maximum number of allowed models for sampling config.
 pub const MAX_ALLOWED_MODELS: usize = 100;
+
+/// Maximum length of a single allowed model entry.
+///
+/// SECURITY (FIND-R125-003): Unbounded entries could waste memory during
+/// model name matching in `inspect_sampling()`.
+pub const MAX_ALLOWED_MODEL_LENGTH: usize = 256;
 
 impl SamplingConfig {
     /// Validate configuration bounds.
@@ -115,6 +162,29 @@ impl SamplingConfig {
                 "sampling.allowed_models exceeds {} entries",
                 MAX_ALLOWED_MODELS
             ));
+        }
+        // SECURITY (FIND-R125-003): Validate individual entry content.
+        for (i, entry) in self.allowed_models.iter().enumerate() {
+            if entry.is_empty() {
+                return Err(format!(
+                    "sampling.allowed_models[{}] is empty",
+                    i
+                ));
+            }
+            if entry.len() > MAX_ALLOWED_MODEL_LENGTH {
+                return Err(format!(
+                    "sampling.allowed_models[{}] length {} exceeds max {}",
+                    i,
+                    entry.len(),
+                    MAX_ALLOWED_MODEL_LENGTH
+                ));
+            }
+            if entry.chars().any(char::is_control) {
+                return Err(format!(
+                    "sampling.allowed_models[{}] contains control characters",
+                    i
+                ));
+            }
         }
         Ok(())
     }

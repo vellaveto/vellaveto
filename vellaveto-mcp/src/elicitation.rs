@@ -344,19 +344,34 @@ pub enum SamplingVerdict {
 ///
 /// Checks:
 /// 1. Master toggle (`enabled`). Default is disabled (fail-closed).
-/// 2. Model filter (`allowed_models`).
-/// 3. Tool output in messages (`block_if_contains_tool_output`).
+/// 2. Per-session rate limit (`max_per_session`).
+/// 3. Model filter (`allowed_models`).
+/// 4. Tool output in messages (`block_if_contains_tool_output`).
 ///
 /// # Arguments
 /// - `params`: The JSON-RPC params from the `sampling/createMessage` request.
 /// - `config`: The sampling policy configuration.
+/// - `session_sampling_count`: Number of sampling requests already
+///   processed in this session.
 pub fn inspect_sampling(
     params: &Value,
     config: &vellaveto_config::SamplingConfig,
+    session_sampling_count: u32,
 ) -> SamplingVerdict {
     if !config.enabled {
         return SamplingVerdict::Deny {
             reason: "sampling is disabled".to_string(),
+        };
+    }
+
+    // SECURITY (FIND-R125-001): Per-session rate limit for sampling requests.
+    // Without this, a malicious MCP server can issue unlimited sampling calls.
+    if session_sampling_count >= config.max_per_session {
+        return SamplingVerdict::Deny {
+            reason: format!(
+                "sampling rate limit exceeded ({}/{})",
+                session_sampling_count, config.max_per_session
+            ),
         };
     }
 
