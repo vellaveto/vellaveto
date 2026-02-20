@@ -155,7 +155,9 @@ pub async fn handle_mcp_post(
         .and_then(|v| v.to_str().ok())
         .filter(|id| {
             id.len() <= MAX_SESSION_ID_LENGTH
-                && !id.chars().any(|c| c.is_control() || is_unicode_format_char(c))
+                && !id
+                    .chars()
+                    .any(|c| c.is_control() || is_unicode_format_char(c))
         });
 
     // If the header was present but filtered out, return 400.
@@ -2565,7 +2567,9 @@ pub async fn handle_mcp_delete(
         .and_then(|v| v.to_str().ok())
         .filter(|id| {
             id.len() <= MAX_SESSION_ID_LENGTH
-                && !id.chars().any(|c| c.is_control() || is_unicode_format_char(c))
+                && !id
+                    .chars()
+                    .any(|c| c.is_control() || is_unicode_format_char(c))
         });
 
     // If the header was present but filtered out due to length or control chars, return 400.
@@ -2952,7 +2956,9 @@ pub async fn handle_mcp_get(
         .and_then(|v| v.to_str().ok())
         .filter(|id| {
             id.len() <= MAX_SESSION_ID_LENGTH
-                && !id.chars().any(|c| c.is_control() || is_unicode_format_char(c))
+                && !id
+                    .chars()
+                    .any(|c| c.is_control() || is_unicode_format_char(c))
         });
 
     if headers.get(MCP_SESSION_ID).is_some() && client_session_id.is_none() {
