@@ -3203,6 +3203,49 @@ fn test_tool_metadata_validate_ok_at_limits() {
     assert!(meta.validate().is_ok());
 }
 
+// ── FIND-R103-P3: deny_unknown_fields on discovery structs ──
+
+#[test]
+fn test_tool_metadata_deny_unknown_fields() {
+    let json = r#"{
+        "tool_id": "s:t", "name": "t", "description": "d",
+        "server_id": "s", "input_schema": {}, "schema_hash": "h",
+        "sensitivity": "low", "domain_tags": [], "token_cost": 0,
+        "extra_field": true
+    }"#;
+    let result = serde_json::from_str::<ToolMetadata>(json);
+    assert!(result.is_err(), "should reject unknown field");
+    assert!(result.unwrap_err().to_string().contains("unknown field"));
+}
+
+#[test]
+fn test_discovery_result_deny_unknown_fields() {
+    let json = r#"{
+        "tools": [], "query": "q",
+        "total_candidates": 0, "policy_filtered": 0,
+        "sneaky": 42
+    }"#;
+    let result = serde_json::from_str::<DiscoveryResult>(json);
+    assert!(result.is_err(), "should reject unknown field");
+    assert!(result.unwrap_err().to_string().contains("unknown field"));
+}
+
+#[test]
+fn test_discovered_tool_deny_unknown_fields() {
+    let json = r#"{
+        "metadata": {
+            "tool_id": "s:t", "name": "t", "description": "d",
+            "server_id": "s", "input_schema": {}, "schema_hash": "h",
+            "sensitivity": "low", "domain_tags": [], "token_cost": 0
+        },
+        "relevance_score": 0.5, "ttl_secs": 60,
+        "injected": "evil"
+    }"#;
+    let result = serde_json::from_str::<DiscoveredTool>(json);
+    assert!(result.is_err(), "should reject unknown field");
+    assert!(result.unwrap_err().to_string().contains("unknown field"));
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // PROJECTOR TYPES (Phase 35.1)
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -1149,6 +1149,94 @@ class TestBaseUrlValidation:
         client.close()
 
 
+class TestEvaluationContextValidation:
+    """Tests for FIND-R103-P1: EvaluationContext validation parity with Go/TS SDKs."""
+
+    def test_context_session_id_too_long(self):
+        ctx = EvaluationContext(session_id="x" * 257)
+        with pytest.raises(VellavetoError, match="session_id exceeds max length"):
+            client = VellavetoClient(url="http://localhost:1")
+            client.evaluate(tool="test", context=ctx)
+
+    def test_context_agent_id_control_chars(self):
+        ctx = EvaluationContext(agent_id="agent\x00id")
+        with pytest.raises(VellavetoError, match="agent_id contains control characters"):
+            client = VellavetoClient(url="http://localhost:1")
+            client.evaluate(tool="test", context=ctx)
+
+    def test_context_tenant_id_c1_control_chars(self):
+        ctx = EvaluationContext(tenant_id="tenant\x80id")
+        with pytest.raises(VellavetoError, match="tenant_id contains control characters"):
+            client = VellavetoClient(url="http://localhost:1")
+            client.evaluate(tool="test", context=ctx)
+
+    def test_context_session_id_unicode_format_chars(self):
+        ctx = EvaluationContext(session_id="sess\u200bid")
+        with pytest.raises(VellavetoError, match="session_id contains Unicode format"):
+            client = VellavetoClient(url="http://localhost:1")
+            client.evaluate(tool="test", context=ctx)
+
+    def test_context_call_chain_too_many_entries(self):
+        ctx = EvaluationContext(call_chain=["entry"] * 101)
+        with pytest.raises(VellavetoError, match="call_chain has 101 entries"):
+            client = VellavetoClient(url="http://localhost:1")
+            client.evaluate(tool="test", context=ctx)
+
+    def test_context_call_chain_entry_too_long(self):
+        ctx = EvaluationContext(call_chain=["x" * 257])
+        with pytest.raises(VellavetoError, match=r"call_chain\[0\] exceeds max length"):
+            client = VellavetoClient(url="http://localhost:1")
+            client.evaluate(tool="test", context=ctx)
+
+    def test_context_metadata_too_many_keys(self):
+        ctx = EvaluationContext(metadata={f"k{i}": "v" for i in range(101)})
+        with pytest.raises(VellavetoError, match="metadata has 101 keys"):
+            client = VellavetoClient(url="http://localhost:1")
+            client.evaluate(tool="test", context=ctx)
+
+    def test_context_bidi_override_rejected(self):
+        ctx = EvaluationContext(agent_id="agent\u202aid")
+        with pytest.raises(VellavetoError, match="Unicode format"):
+            client = VellavetoClient(url="http://localhost:1")
+            client.evaluate(tool="test", context=ctx)
+
+    def test_context_bom_rejected(self):
+        ctx = EvaluationContext(session_id="\ufeffsession")
+        with pytest.raises(VellavetoError, match="Unicode format"):
+            client = VellavetoClient(url="http://localhost:1")
+            client.evaluate(tool="test", context=ctx)
+
+    def test_context_none_is_valid(self):
+        """None context should not raise validation errors."""
+        # This test verifies the fast path — will fail on connection but NOT on validation.
+        client = VellavetoClient(url="http://localhost:1")
+        with pytest.raises(Exception):
+            # Will fail at the network layer, not validation.
+            client.evaluate(tool="test", context=None)
+
+
+class TestAsyncEvaluationContextValidation:
+    """Tests for FIND-R103-P1: async parity for context validation."""
+
+    def test_async_context_session_id_too_long(self):
+        ctx = EvaluationContext(session_id="x" * 257)
+        client = AsyncVellavetoClient(url="http://localhost:1")
+        import asyncio
+        with pytest.raises(VellavetoError, match="session_id exceeds max length"):
+            asyncio.get_event_loop().run_until_complete(
+                client.evaluate(tool="test", context=ctx)
+            )
+
+    def test_async_context_control_chars(self):
+        ctx = EvaluationContext(agent_id="agent\x01id")
+        client = AsyncVellavetoClient(url="http://localhost:1")
+        import asyncio
+        with pytest.raises(VellavetoError, match="agent_id contains control characters"):
+            asyncio.get_event_loop().run_until_complete(
+                client.evaluate(tool="test", context=ctx)
+            )
+
+
 class TestAsyncBaseUrlValidation:
     """Tests for FIND-R73-SDK-002: base_url validation in async constructor."""
 

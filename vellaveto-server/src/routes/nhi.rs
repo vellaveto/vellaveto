@@ -126,13 +126,11 @@ fn parse_status_filter(
         Some("revoked") => Ok(Some(NhiIdentityStatus::Revoked)),
         Some("expired") => Ok(Some(NhiIdentityStatus::Expired)),
         Some("probationary") => Ok(Some(NhiIdentityStatus::Probationary)),
-        Some(other) => Err((
+        // SECURITY (FIND-R108-002): Do not echo raw user input in error responses.
+        Some(_other) => Err((
             StatusCode::BAD_REQUEST,
             Json(json!({
-                "error": format!(
-                    "invalid status filter '{}': valid values are active, suspended, revoked, expired, probationary",
-                    other
-                )
+                "error": "invalid status filter: valid values are active, suspended, revoked, expired, probationary"
             })),
         )),
         None => Ok(None),
@@ -150,13 +148,11 @@ fn parse_attestation_type(
         "spiffe" => Ok(NhiAttestationType::Spiffe),
         "dpop" => Ok(NhiAttestationType::DPoP),
         "api_key" => Ok(NhiAttestationType::ApiKey),
-        other => Err((
+        // SECURITY (FIND-R108-002): Do not echo raw user input in error responses.
+        _other => Err((
             StatusCode::BAD_REQUEST,
             Json(json!({
-                "error": format!(
-                    "invalid attestation_type '{}': valid values are jwt, mtls, spiffe, dpop, api_key",
-                    other
-                )
+                "error": "invalid attestation_type: valid values are jwt, mtls, spiffe, dpop, api_key"
             })),
         )),
     }

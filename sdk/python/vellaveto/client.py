@@ -145,6 +145,82 @@ def _validate_evaluate_inputs(
         raise VellavetoError("resolved_ips exceeds max entries (100)")
 
 
+# ── Constants for EvaluationContext validation ──
+_MAX_CONTEXT_FIELD_LEN = 256
+_MAX_CALL_CHAIN_LEN = 100
+_MAX_CALL_CHAIN_ENTRY_LEN = 256
+_MAX_METADATA_KEYS = 100
+
+# SECURITY (FIND-R103-P1): Unicode format character ranges — zero-width,
+# bidi overrides, BOM, interlinear annotation anchors.
+import re as _re
+
+_CONTROL_CHAR_RE = _re.compile(r"[\x00-\x1f\x7f-\x9f]")
+_UNICODE_FORMAT_RE = _re.compile(
+    r"[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff\ufff9-\ufffb]"
+)
+
+
+def _validate_evaluation_context(context: Optional["EvaluationContext"]) -> None:
+    """Validate EvaluationContext fields match Go/TS SDK parity.
+
+    SECURITY (FIND-R103-P1): The Go SDK validates context fields for length,
+    control characters, and Unicode format characters in Validate(). The TS SDK
+    has validateContext(). The Python SDK was missing this — a parity gap that
+    allows oversized or manipulated context fields to reach the server.
+
+    Raises:
+        VellavetoError: If any context field is invalid.
+    """
+    if context is None:
+        return
+
+    # Validate string identity fields.
+    for name, value in [
+        ("session_id", context.session_id),
+        ("agent_id", context.agent_id),
+        ("tenant_id", context.tenant_id),
+    ]:
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            raise VellavetoError(f"context.{name} must be a string")
+        if len(value) > _MAX_CONTEXT_FIELD_LEN:
+            raise VellavetoError(
+                f"context.{name} exceeds max length {_MAX_CONTEXT_FIELD_LEN}"
+            )
+        if _CONTROL_CHAR_RE.search(value):
+            raise VellavetoError(
+                f"context.{name} contains control characters"
+            )
+        if _UNICODE_FORMAT_RE.search(value):
+            raise VellavetoError(
+                f"context.{name} contains Unicode format characters"
+            )
+
+    # Validate call_chain bounds.
+    if hasattr(context, "call_chain") and context.call_chain is not None:
+        if len(context.call_chain) > _MAX_CALL_CHAIN_LEN:
+            raise VellavetoError(
+                f"context.call_chain has {len(context.call_chain)} entries, "
+                f"max {_MAX_CALL_CHAIN_LEN}"
+            )
+        for i, entry in enumerate(context.call_chain):
+            if isinstance(entry, str) and len(entry) > _MAX_CALL_CHAIN_ENTRY_LEN:
+                raise VellavetoError(
+                    f"context.call_chain[{i}] exceeds max length "
+                    f"{_MAX_CALL_CHAIN_ENTRY_LEN}"
+                )
+
+    # Validate metadata key count.
+    if hasattr(context, "metadata") and context.metadata is not None:
+        if len(context.metadata) > _MAX_METADATA_KEYS:
+            raise VellavetoError(
+                f"context.metadata has {len(context.metadata)} keys, "
+                f"max {_MAX_METADATA_KEYS}"
+            )
+
+
 def _validate_base_url(url: str) -> str:
     """Validate and normalize the base URL for the Vellaveto server.
 
@@ -465,6 +541,7 @@ class VellavetoClient:
             VellavetoError: On API errors
         """
         _validate_evaluate_inputs(tool, function, parameters, target_paths, target_domains, resolved_ips)
+        _validate_evaluation_context(context)
 
         effective_params = parameters or {}
         if self.redactor is not None:
@@ -1027,6 +1104,7 @@ class AsyncVellavetoClient:
     ) -> EvaluationResult:
         """Evaluate a tool call against Vellaveto policies (async)."""
         _validate_evaluate_inputs(tool, function, parameters, target_paths, target_domains, resolved_ips)
+        _validate_evaluation_context(context)
 
         effective_params = parameters or {}
         if self.redactor is not None:

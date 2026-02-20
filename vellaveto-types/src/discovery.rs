@@ -40,6 +40,7 @@ pub enum ToolSensitivity {
 /// The `tool_id` is formed as `"server_id:name"` and must be unique within
 /// the index.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ToolMetadata {
     /// Unique identifier: `"server_id:tool_name"`.
     pub tool_id: String,
@@ -159,6 +160,7 @@ impl ToolMetadata {
 
 /// Result of a discovery query — a ranked list of matching tools.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DiscoveryResult {
     /// Ranked list of discovered tools (highest relevance first).
     pub tools: Vec<DiscoveredTool>,
@@ -172,6 +174,7 @@ pub struct DiscoveryResult {
 
 /// A single discovered tool with its relevance score and TTL.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DiscoveredTool {
     /// Full tool metadata.
     pub metadata: ToolMetadata,
