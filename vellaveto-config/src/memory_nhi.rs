@@ -564,6 +564,10 @@ impl NhiConfig {
             }
         }
 
+        // Delegate to sub-config validation
+        self.verification.validate()?;
+        self.dpop.validate()?;
+
         Ok(())
     }
 }
@@ -661,6 +665,92 @@ fn default_attestation_ttl() -> u64 {
     86400 // 24 hours
 }
 
+/// Maximum attestations per identity cap.
+const MAX_ATTESTATIONS_CAP: usize = 10_000;
+/// Maximum attestation TTL cap in seconds (30 days).
+const MAX_ATTESTATION_TTL_CAP: u64 = 30 * 86_400;
+/// Maximum PLC directory URL length.
+const MAX_PLC_URL_LEN: usize = 2048;
+
+/// Valid verification tier values.
+const VALID_VERIFICATION_TIERS: &[&str] = &[
+    "unverified",
+    "email_verified",
+    "phone_verified",
+    "did_verified",
+    "fully_verified",
+];
+
+impl VerificationConfig {
+    /// Validate verification configuration bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        // Tier validation (even when disabled, reject nonsensical defaults)
+        if !VALID_VERIFICATION_TIERS.contains(&self.default_tier.as_str()) {
+            return Err(format!(
+                "nhi.verification.default_tier must be one of {:?}, got '{}'",
+                VALID_VERIFICATION_TIERS, self.default_tier
+            ));
+        }
+        if !VALID_VERIFICATION_TIERS.contains(&self.global_minimum_tier.as_str()) {
+            return Err(format!(
+                "nhi.verification.global_minimum_tier must be one of {:?}, got '{}'",
+                VALID_VERIFICATION_TIERS, self.global_minimum_tier
+            ));
+        }
+        // Attestation bounds
+        if self.max_attestations_per_identity > MAX_ATTESTATIONS_CAP {
+            return Err(format!(
+                "nhi.verification.max_attestations_per_identity must be <= {}, got {}",
+                MAX_ATTESTATIONS_CAP, self.max_attestations_per_identity
+            ));
+        }
+        if self.enabled && self.max_attestations_per_identity == 0 {
+            return Err(
+                "nhi.verification.max_attestations_per_identity must be > 0 when enabled"
+                    .to_string(),
+            );
+        }
+        if self.attestation_ttl_secs > MAX_ATTESTATION_TTL_CAP {
+            return Err(format!(
+                "nhi.verification.attestation_ttl_secs must be <= {}, got {}",
+                MAX_ATTESTATION_TTL_CAP, self.attestation_ttl_secs
+            ));
+        }
+        if self.enabled && self.attestation_ttl_secs == 0 {
+            return Err(
+                "nhi.verification.attestation_ttl_secs must be > 0 when enabled".to_string(),
+            );
+        }
+        // PLC directory URL validation
+        if self.did_plc_enabled {
+            if self.plc_directory_url.is_empty() {
+                return Err(
+                    "nhi.verification.plc_directory_url must not be empty when DID:PLC is enabled"
+                        .to_string(),
+                );
+            }
+            if self.plc_directory_url.len() > MAX_PLC_URL_LEN {
+                return Err(format!(
+                    "nhi.verification.plc_directory_url length {} exceeds maximum {}",
+                    self.plc_directory_url.len(),
+                    MAX_PLC_URL_LEN
+                ));
+            }
+            if !self.plc_directory_url.starts_with("https://") {
+                return Err(
+                    "nhi.verification.plc_directory_url must use https:// scheme".to_string(),
+                );
+            }
+            if self.plc_directory_url.chars().any(|c| c.is_control()) {
+                return Err(
+                    "nhi.verification.plc_directory_url contains control characters".to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Default for VerificationConfig {
     fn default() -> Self {
         Self {
@@ -732,6 +822,81 @@ fn default_dpop_max_nonces() -> usize {
 
 fn default_dpop_proof_lifetime() -> u64 {
     60 // 1 minute
+}
+
+/// Maximum DPoP algorithms allowed.
+const MAX_DPOP_ALGORITHMS: usize = 20;
+/// Maximum DPoP algorithm string length.
+const MAX_DPOP_ALGORITHM_LEN: usize = 32;
+/// Maximum clock skew cap (1 hour).
+const MAX_DPOP_CLOCK_SKEW_CAP: u64 = 3_600;
+/// Maximum nonces cap.
+const MAX_DPOP_NONCES_CAP: usize = 1_000_000;
+/// Maximum proof lifetime cap (10 minutes).
+const MAX_DPOP_PROOF_LIFETIME_CAP: u64 = 600;
+
+impl DpopConfig {
+    /// Validate DPoP configuration bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.max_clock_skew_secs > MAX_DPOP_CLOCK_SKEW_CAP {
+            return Err(format!(
+                "nhi.dpop.max_clock_skew_secs must be <= {}, got {}",
+                MAX_DPOP_CLOCK_SKEW_CAP, self.max_clock_skew_secs
+            ));
+        }
+        if self.nonce_ttl_secs > MAX_DPOP_CLOCK_SKEW_CAP {
+            return Err(format!(
+                "nhi.dpop.nonce_ttl_secs must be <= {}, got {}",
+                MAX_DPOP_CLOCK_SKEW_CAP, self.nonce_ttl_secs
+            ));
+        }
+        if self.max_nonces > MAX_DPOP_NONCES_CAP {
+            return Err(format!(
+                "nhi.dpop.max_nonces must be <= {}, got {}",
+                MAX_DPOP_NONCES_CAP, self.max_nonces
+            ));
+        }
+        if self.max_proof_lifetime_secs > MAX_DPOP_PROOF_LIFETIME_CAP {
+            return Err(format!(
+                "nhi.dpop.max_proof_lifetime_secs must be <= {}, got {}",
+                MAX_DPOP_PROOF_LIFETIME_CAP, self.max_proof_lifetime_secs
+            ));
+        }
+        if self.max_proof_lifetime_secs == 0 {
+            return Err("nhi.dpop.max_proof_lifetime_secs must be > 0".to_string());
+        }
+        // Algorithm list bounds
+        if self.allowed_algorithms.len() > MAX_DPOP_ALGORITHMS {
+            return Err(format!(
+                "nhi.dpop.allowed_algorithms has {} entries, max is {}",
+                self.allowed_algorithms.len(),
+                MAX_DPOP_ALGORITHMS
+            ));
+        }
+        for (i, alg) in self.allowed_algorithms.iter().enumerate() {
+            if alg.is_empty() {
+                return Err(format!(
+                    "nhi.dpop.allowed_algorithms[{}] must not be empty",
+                    i
+                ));
+            }
+            if alg.len() > MAX_DPOP_ALGORITHM_LEN {
+                return Err(format!(
+                    "nhi.dpop.allowed_algorithms[{}] length {} exceeds maximum {}",
+                    i,
+                    alg.len(),
+                    MAX_DPOP_ALGORITHM_LEN
+                ));
+            }
+            if alg.chars().any(|c| c.is_control()) {
+                return Err(format!(
+                    "nhi.dpop.allowed_algorithms[{}] contains control characters",
+                    i
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for DpopConfig {
