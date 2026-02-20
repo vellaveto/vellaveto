@@ -211,13 +211,16 @@ impl ToolSignatureVerifier {
     }
 
     /// Check if the signature has expired.
+    ///
+    /// SECURITY (FIND-R115-001): Delegate to `ToolSignature::is_expired()`
+    /// from vellaveto-types which enforces strict ISO 8601 basic format
+    /// (exactly "YYYY-MM-DDTHH:MM:SSZ") and Z-suffix validation on both
+    /// `now` and `expires_at`. Previously used `Utc::now().to_rfc3339()`
+    /// which produces `+00:00` suffix with fractional seconds, causing
+    /// string comparison `'.' < 'Z'` to treat expired signatures as valid.
     fn is_signature_expired(&self, signature: &ToolSignature) -> bool {
-        let Some(ref expires_at) = signature.expires_at else {
-            return false; // No expiration set
-        };
-
-        let now = Utc::now().to_rfc3339();
-        now >= *expires_at
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        signature.is_expired(&now)
     }
 }
 
