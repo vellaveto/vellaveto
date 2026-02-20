@@ -3281,6 +3281,54 @@ fn test_canonical_tool_response_error() {
     assert!(deserialized.is_error);
 }
 
+// ── FIND-R122-001: Projector type name/description bounds ────────────
+
+#[test]
+fn test_canonical_tool_schema_validate_name_too_long() {
+    let schema = CanonicalToolSchema {
+        name: "x".repeat(MAX_PROJECTOR_NAME_LENGTH + 1),
+        description: "d".to_string(),
+        input_schema: json!({}),
+        output_schema: None,
+    };
+    let err = schema.validate().unwrap_err();
+    assert!(err.contains("name length"), "got: {}", err);
+}
+
+#[test]
+fn test_canonical_tool_schema_validate_description_too_long() {
+    let schema = CanonicalToolSchema {
+        name: "t".to_string(),
+        description: "d".repeat(MAX_PROJECTOR_DESCRIPTION_LENGTH + 1),
+        input_schema: json!({}),
+        output_schema: None,
+    };
+    let err = schema.validate().unwrap_err();
+    assert!(err.contains("description length"), "got: {}", err);
+}
+
+#[test]
+fn test_canonical_tool_schema_validate_ok_at_limits() {
+    let schema = CanonicalToolSchema {
+        name: "x".repeat(MAX_PROJECTOR_NAME_LENGTH),
+        description: "d".repeat(MAX_PROJECTOR_DESCRIPTION_LENGTH),
+        input_schema: json!({}),
+        output_schema: None,
+    };
+    assert!(schema.validate().is_ok());
+}
+
+#[test]
+fn test_canonical_tool_call_validate_name_too_long() {
+    let call = CanonicalToolCall {
+        tool_name: "x".repeat(MAX_PROJECTOR_NAME_LENGTH + 1),
+        arguments: json!({}),
+        call_id: None,
+    };
+    let err = call.validate().unwrap_err();
+    assert!(err.contains("tool_name length"), "got: {}", err);
+}
+
 #[test]
 fn test_model_family_serde_roundtrip_all_variants() {
     let families = vec![

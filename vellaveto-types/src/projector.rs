@@ -14,6 +14,17 @@ use serde_json::Value;
 /// memory exhaustion via crafted payloads.
 pub const MAX_PROJECTOR_VALUE_SIZE: usize = 65536;
 
+/// Maximum length of a tool name in projector types.
+///
+/// SECURITY (FIND-R122-001): Matches MCP spec limit (64 chars) with margin.
+pub const MAX_PROJECTOR_NAME_LENGTH: usize = 256;
+
+/// Maximum length of a tool description in projector types.
+///
+/// SECURITY (FIND-R122-001): Unbounded description could cause memory
+/// exhaustion during schema compression and token estimation.
+pub const MAX_PROJECTOR_DESCRIPTION_LENGTH: usize = 65536;
+
 /// Canonical tool schema (model-agnostic).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CanonicalToolSchema {
@@ -28,7 +39,24 @@ impl CanonicalToolSchema {
     ///
     /// SECURITY (FIND-R51-016): Checks that the serialized size of
     /// `input_schema` and `output_schema` do not exceed `MAX_PROJECTOR_VALUE_SIZE`.
+    /// SECURITY (FIND-R122-001): Also validates `name` and `description` lengths
+    /// to prevent memory exhaustion during compression/projection.
     pub fn validate(&self) -> Result<(), String> {
+        if self.name.len() > MAX_PROJECTOR_NAME_LENGTH {
+            return Err(format!(
+                "CanonicalToolSchema name length {} exceeds max {}",
+                self.name.len(),
+                MAX_PROJECTOR_NAME_LENGTH
+            ));
+        }
+        if self.description.len() > MAX_PROJECTOR_DESCRIPTION_LENGTH {
+            return Err(format!(
+                "CanonicalToolSchema '{}' description length {} exceeds max {}",
+                self.name,
+                self.description.len(),
+                MAX_PROJECTOR_DESCRIPTION_LENGTH
+            ));
+        }
         let input_size = serde_json::to_string(&self.input_schema)
             .map_err(|e| {
                 format!(
@@ -76,7 +104,15 @@ impl CanonicalToolCall {
     ///
     /// SECURITY (FIND-R51-016): Checks that the serialized size of
     /// `arguments` does not exceed `MAX_PROJECTOR_VALUE_SIZE`.
+    /// SECURITY (FIND-R122-001): Also validates `tool_name` length.
     pub fn validate(&self) -> Result<(), String> {
+        if self.tool_name.len() > MAX_PROJECTOR_NAME_LENGTH {
+            return Err(format!(
+                "CanonicalToolCall tool_name length {} exceeds max {}",
+                self.tool_name.len(),
+                MAX_PROJECTOR_NAME_LENGTH
+            ));
+        }
         let args_size = serde_json::to_string(&self.arguments)
             .map_err(|e| {
                 format!(
