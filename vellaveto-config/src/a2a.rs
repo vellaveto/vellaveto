@@ -217,8 +217,7 @@ impl A2aConfig {
             // bidi overrides, BOM) that can bypass visual inspection of auth method names.
             if method.chars().any(a2a_is_unicode_format_char) {
                 return Err(
-                    "a2a.allowed_auth_methods entry contains Unicode format characters"
-                        .to_string(),
+                    "a2a.allowed_auth_methods entry contains Unicode format characters".to_string(),
                 );
             }
             if !VALID_A2A_AUTH_METHODS.contains(&method.as_str()) {

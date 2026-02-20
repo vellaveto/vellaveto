@@ -5886,8 +5886,10 @@ fn test_validate_accepts_valid_cipher_suites() {
 
 #[test]
 fn test_a2a_validate_rejects_empty_auth_method() {
-    let mut config = crate::a2a::A2aConfig::default();
-    config.allowed_auth_methods = vec![String::new()];
+    let config = crate::a2a::A2aConfig {
+        allowed_auth_methods: vec![String::new()],
+        ..Default::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("allowed_auth_methods") && err.contains("empty string"),
@@ -5898,8 +5900,10 @@ fn test_a2a_validate_rejects_empty_auth_method() {
 
 #[test]
 fn test_a2a_validate_rejects_empty_task_operation() {
-    let mut config = crate::a2a::A2aConfig::default();
-    config.allowed_task_operations = vec![String::new()];
+    let config = crate::a2a::A2aConfig {
+        allowed_task_operations: vec![String::new()],
+        ..Default::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("allowed_task_operations") && err.contains("empty string"),
@@ -5924,8 +5928,10 @@ fn test_allowed_auth_methods_rejects_control_chars() {
     // The byte-level a2a_contains_control_chars check fires first (UTF-8 continuation
     // bytes 0x80-0x9F match the C1 range). The Unicode format char check provides
     // defense-in-depth for when the byte-level check is refined.
-    let mut config = crate::a2a::A2aConfig::default();
-    config.allowed_auth_methods = vec![format!("bear\u{200B}er")];
+    let config = crate::a2a::A2aConfig {
+        allowed_auth_methods: vec![format!("bear\u{200B}er")],
+        ..Default::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("control characters") || err.contains("Unicode format characters"),
@@ -5934,8 +5940,10 @@ fn test_allowed_auth_methods_rejects_control_chars() {
     );
 
     // Bidi override (\u{202E}) embedded in an auth method name
-    let mut config2 = crate::a2a::A2aConfig::default();
-    config2.allowed_auth_methods = vec![format!("oauth2\u{202E}")];
+    let config2 = crate::a2a::A2aConfig {
+        allowed_auth_methods: vec![format!("oauth2\u{202E}")],
+        ..Default::default()
+    };
     let err2 = config2.validate().unwrap_err();
     assert!(
         err2.contains("control characters") || err2.contains("Unicode format characters"),
@@ -5944,8 +5952,10 @@ fn test_allowed_auth_methods_rejects_control_chars() {
     );
 
     // BOM (\u{FEFF}) at the start of an auth method name
-    let mut config3 = crate::a2a::A2aConfig::default();
-    config3.allowed_auth_methods = vec![format!("\u{FEFF}bearer")];
+    let config3 = crate::a2a::A2aConfig {
+        allowed_auth_methods: vec![format!("\u{FEFF}bearer")],
+        ..Default::default()
+    };
     let err3 = config3.validate().unwrap_err();
     assert!(
         err3.contains("control characters") || err3.contains("Unicode format characters"),
@@ -5954,8 +5964,10 @@ fn test_allowed_auth_methods_rejects_control_chars() {
     );
 
     // ASCII control character (tab) in an auth method name
-    let mut config4 = crate::a2a::A2aConfig::default();
-    config4.allowed_auth_methods = vec!["bear\ter".to_string()];
+    let config4 = crate::a2a::A2aConfig {
+        allowed_auth_methods: vec!["bear\ter".to_string()],
+        ..Default::default()
+    };
     let err4 = config4.validate().unwrap_err();
     assert!(
         err4.contains("control characters"),
@@ -5982,8 +5994,7 @@ fn test_label_selector_rejects_control_chars() {
 
     // Unicode format character (zero-width space) in label_selector
     let mut config2 = crate::DeploymentConfig::default();
-    config2.service_discovery.label_selector =
-        Some(format!("app=vellaveto\u{200B}"));
+    config2.service_discovery.label_selector = Some("app=vellaveto\u{200B}".to_string());
     let err2 = config2.validate().unwrap_err();
     assert!(
         err2.contains("Unicode format characters"),
@@ -5993,8 +6004,7 @@ fn test_label_selector_rejects_control_chars() {
 
     // Bidi override in label_selector
     let mut config3 = crate::DeploymentConfig::default();
-    config3.service_discovery.label_selector =
-        Some(format!("app=\u{202E}evil"));
+    config3.service_discovery.label_selector = Some("app=\u{202E}evil".to_string());
     let err3 = config3.validate().unwrap_err();
     assert!(
         err3.contains("Unicode format characters"),
