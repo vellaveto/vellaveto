@@ -1302,4 +1302,56 @@ describe("Input validation hardening", () => {
     // Should not throw
     await client.discover("x".repeat(1024));
   });
+
+  // ── FIND-R102-005: EvaluationContext validation (parity with Go SDK) ──
+
+  test("evaluate rejects context.session_id exceeding max length", async () => {
+    await expect(
+      client.evaluate({ tool: "fs" }, { session_id: "x".repeat(257) })
+    ).rejects.toThrow("context.session_id exceeds max length 256");
+  });
+
+  test("evaluate rejects context.agent_id with control characters", async () => {
+    await expect(
+      client.evaluate({ tool: "fs" }, { agent_id: "agent\x00id" })
+    ).rejects.toThrow("context.agent_id contains control characters");
+  });
+
+  test("evaluate rejects context.tenant_id with C1 control characters", async () => {
+    await expect(
+      client.evaluate({ tool: "fs" }, { tenant_id: "tenant\x80id" })
+    ).rejects.toThrow("context.tenant_id contains control characters");
+  });
+
+  test("evaluate rejects context.session_id with Unicode format characters", async () => {
+    await expect(
+      client.evaluate({ tool: "fs" }, { session_id: "sess\u200Bid" })
+    ).rejects.toThrow("context.session_id contains Unicode format characters");
+  });
+
+  test("evaluate rejects context.call_chain exceeding max entries", async () => {
+    await expect(
+      client.evaluate({ tool: "fs" }, { call_chain: Array(101).fill("step") })
+    ).rejects.toThrow("context.call_chain has 101 entries, max 100");
+  });
+
+  test("evaluate rejects context.call_chain entry exceeding max length", async () => {
+    await expect(
+      client.evaluate({ tool: "fs" }, { call_chain: ["x".repeat(257)] })
+    ).rejects.toThrow("context.call_chain[0] exceeds max length 256");
+  });
+
+  test("evaluate rejects context.metadata exceeding max keys", async () => {
+    const metadata: Record<string, unknown> = {};
+    for (let i = 0; i < 101; i++) metadata[`key${i}`] = "v";
+    await expect(
+      client.evaluate({ tool: "fs" }, { metadata })
+    ).rejects.toThrow("context.metadata has 101 keys, max 100");
+  });
+
+  test("simulate rejects context with control characters", async () => {
+    await expect(
+      client.simulate({ tool: "fs" }, { context: { agent_id: "a\x01b" } })
+    ).rejects.toThrow("context.agent_id contains control characters");
+  });
 });

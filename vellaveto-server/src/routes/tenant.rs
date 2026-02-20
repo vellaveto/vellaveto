@@ -129,6 +129,20 @@ pub async fn create_tenant(
         updated_at: Some(now),
     };
 
+    // SECURITY (FIND-R106-001): Validate the full Tenant struct before persisting.
+    // validate_tenant_id() only checks the ID field; Tenant::validate() also checks
+    // name bounds, metadata bounds, and control/format characters. Without this,
+    // any TenantStore implementation that omits internal validate() would accept
+    // unbounded/malicious data.
+    tenant.validate().map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
     store.create_tenant(tenant.clone()).map_err(|e| match e {
         TenantError::InvalidTenantId(msg) => {
             (StatusCode::CONFLICT, Json(ErrorResponse { error: msg }))
@@ -196,6 +210,16 @@ pub async fn update_tenant(
         created_at: existing.created_at,
         updated_at: Some(now),
     };
+
+    // SECURITY (FIND-R106-001): Validate the full Tenant struct before persisting.
+    tenant.validate().map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
 
     store.update_tenant(tenant.clone()).map_err(|e| {
         tracing::warn!(tenant_id = %id, error = %e, "update_tenant failed");

@@ -18,20 +18,8 @@ const MAX_TOTAL_JIT_SESSIONS: usize = 100_000;
 /// Maximum length for individual permission or tool strings.
 const MAX_JIT_STRING_FIELD_LEN: usize = 256;
 
-/// SECURITY: Detect control characters AND Unicode format characters
-/// that can bypass simple `is_control()` checks.
-fn is_unsafe_char_jit(c: char) -> bool {
-    let cp = c as u32;
-    c.is_control()
-        || (0x200B..=0x200F).contains(&cp)
-        || (0x202A..=0x202E).contains(&cp)
-        || (0x2060..=0x2064).contains(&cp)
-        || (0x2066..=0x2069).contains(&cp)
-        || cp == 0xFEFF
-        || (0xFFF9..=0xFFFB).contains(&cp)
-        || (0xE0001..=0xE007F).contains(&cp)
-        || cp == 0x00AD
-}
+// SECURITY (IMP-R106-001): Use canonical is_unsafe_char from routes/mod.rs.
+use crate::routes::is_unsafe_char;
 
 /// Errors that can occur during JIT access operations.
 #[derive(Debug, Error)]
@@ -176,12 +164,12 @@ impl JitAccessManager {
         }
 
         // SECURITY: Reject control/format characters in string fields.
-        if request.principal.chars().any(is_unsafe_char_jit) {
+        if request.principal.chars().any(is_unsafe_char) {
             return Err(JitError::InvalidInput(
                 "principal contains control or format characters".to_string(),
             ));
         }
-        if request.reason.chars().any(is_unsafe_char_jit) {
+        if request.reason.chars().any(is_unsafe_char) {
             return Err(JitError::InvalidInput(
                 "reason contains control or format characters".to_string(),
             ));
@@ -194,7 +182,7 @@ impl JitAccessManager {
                     MAX_JIT_STRING_FIELD_LEN
                 )));
             }
-            if perm.chars().any(is_unsafe_char_jit) {
+            if perm.chars().any(is_unsafe_char) {
                 return Err(JitError::InvalidInput(
                     "permission contains control or format characters".to_string(),
                 ));
@@ -208,7 +196,7 @@ impl JitAccessManager {
                     MAX_JIT_STRING_FIELD_LEN
                 )));
             }
-            if tool.chars().any(is_unsafe_char_jit) {
+            if tool.chars().any(is_unsafe_char) {
                 return Err(JitError::InvalidInput(
                     "tool contains control or format characters".to_string(),
                 ));

@@ -7389,3 +7389,148 @@ fn test_tool_manifest_load_pinned_rejects_too_many_tools() {
         err
     );
 }
+
+// ═══════════════════════════════════════════════════
+// RAG DEFENSE CONFIG INTEGER BOUNDS (IMP-R106-002)
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_rag_defense_config_validate_cache_ttl_too_large() {
+    let mut cfg = crate::rag_defense_config::RagDefenseConfig::default();
+    cfg.cache_ttl_secs = u64::MAX;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("cache_ttl_secs"), "Error should mention field: {}", err);
+    assert!(err.contains("exceeds maximum"), "Error should mention limit: {}", err);
+}
+
+#[test]
+fn test_rag_defense_config_validate_cache_max_size_too_large() {
+    let mut cfg = crate::rag_defense_config::RagDefenseConfig::default();
+    cfg.cache_max_size = usize::MAX;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("cache_max_size"), "Error should mention field: {}", err);
+}
+
+#[test]
+fn test_rag_defense_config_validate_max_retrieval_results_zero() {
+    let mut cfg = crate::rag_defense_config::RagDefenseConfig::default();
+    cfg.retrieval_security.max_retrieval_results = 0;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("max_retrieval_results"), "Error should mention field: {}", err);
+    assert!(err.contains("must be > 0"), "Error should mention > 0: {}", err);
+}
+
+#[test]
+fn test_rag_defense_config_validate_max_tokens_per_retrieval_zero() {
+    let mut cfg = crate::rag_defense_config::RagDefenseConfig::default();
+    cfg.context_budget.max_tokens_per_retrieval = 0;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("max_tokens_per_retrieval"), "Error should mention field: {}", err);
+}
+
+#[test]
+fn test_rag_defense_config_validate_max_claims_zero() {
+    let mut cfg = crate::rag_defense_config::RagDefenseConfig::default();
+    cfg.grounding.max_claims = 0;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("max_claims"), "Error should mention field: {}", err);
+}
+
+#[test]
+fn test_rag_defense_config_validate_max_claims_too_large() {
+    let mut cfg = crate::rag_defense_config::RagDefenseConfig::default();
+    cfg.grounding.max_claims = 100_000;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("max_claims"), "Error should mention field: {}", err);
+    assert!(err.contains("exceeds maximum"), "Error should mention limit: {}", err);
+}
+
+#[test]
+fn test_rag_defense_config_validate_default_passes() {
+    let cfg = crate::rag_defense_config::RagDefenseConfig::default();
+    assert!(cfg.validate().is_ok(), "Default config should validate successfully");
+}
+
+// ═══════════════════════════════════════════════════
+// FIND-R102: Zero cache/credential TTL rejection tests
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_rag_defense_config_validate_cache_ttl_zero() {
+    let mut cfg = crate::rag_defense_config::RagDefenseConfig::default();
+    cfg.cache_ttl_secs = 0;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("cache_ttl_secs"), "Error should mention field: {}", err);
+    assert!(err.contains("must be > 0"), "Error should mention > 0: {}", err);
+}
+
+#[test]
+fn test_nhi_config_credential_ttl_zero() {
+    let mut cfg = crate::memory_nhi::NhiConfig::default();
+    cfg.credential_ttl_secs = 0;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("credential_ttl_secs"), "Error should mention field: {}", err);
+    assert!(err.contains("must be > 0"), "Error should mention > 0: {}", err);
+}
+
+#[test]
+fn test_nhi_config_max_credential_ttl_zero() {
+    let mut cfg = crate::memory_nhi::NhiConfig::default();
+    cfg.max_credential_ttl_secs = 0;
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("max_credential_ttl_secs"), "Error should mention field: {}", err);
+    assert!(err.contains("must be > 0"), "Error should mention > 0: {}", err);
+}
+
+#[test]
+fn test_spiffe_svid_cache_ttl_zero_rejected() {
+    let cfg = crate::PolicyConfig {
+        spiffe: crate::enterprise::SpiffeConfig {
+            enabled: true,
+            trust_domain: Some("example.org".to_string()),
+            svid_cache_ttl_secs: 0,
+            ..Default::default()
+        },
+        ..crate::PolicyConfig::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("svid_cache_ttl_secs"), "Error should mention field: {}", err);
+    assert!(err.contains("must be > 0"), "Error should mention > 0: {}", err);
+}
+
+#[test]
+fn test_threat_intel_cache_ttl_zero_rejected() {
+    let cfg = crate::PolicyConfig {
+        threat_intel: crate::enterprise::ThreatIntelConfig {
+            enabled: true,
+            provider: Some(crate::enterprise::ThreatIntelProvider::Taxii),
+            endpoint: Some("https://feed.example.com".to_string()),
+            on_match: "deny".to_string(),
+            cache_ttl_secs: 0,
+            ..Default::default()
+        },
+        ..crate::PolicyConfig::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("cache_ttl_secs"), "Error should mention field: {}", err);
+    assert!(err.contains("must be > 0"), "Error should mention > 0: {}", err);
+}
+
+#[test]
+fn test_threat_intel_refresh_interval_zero_rejected() {
+    let cfg = crate::PolicyConfig {
+        threat_intel: crate::enterprise::ThreatIntelConfig {
+            enabled: true,
+            provider: Some(crate::enterprise::ThreatIntelProvider::Taxii),
+            endpoint: Some("https://feed.example.com".to_string()),
+            on_match: "deny".to_string(),
+            cache_ttl_secs: 3600,
+            refresh_interval_secs: 0,
+            ..Default::default()
+        },
+        ..crate::PolicyConfig::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("refresh_interval_secs"), "Error should mention field: {}", err);
+    assert!(err.contains("must be > 0"), "Error should mention > 0: {}", err);
+}

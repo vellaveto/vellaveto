@@ -629,6 +629,86 @@ export class VellavetoClient {
     }
   }
 
+  /**
+   * Validate EvaluationContext fields before sending to the server.
+   *
+   * SECURITY (FIND-R102-005): Parity with Go SDK EvaluationContext.Validate().
+   * Prevents unbounded context fields from causing OOM on the server and
+   * rejects invisible-text manipulation characters.
+   */
+  private validateContext(ctx: EvaluationContext): void {
+    const MAX_FIELD_LEN = 256;
+    const MAX_CALL_CHAIN = 100;
+    const MAX_CALL_CHAIN_ENTRY = 256;
+    const MAX_METADATA_KEYS = 100;
+
+    // Validate string identity fields for length and control/format chars.
+    const fields: [string, string | undefined][] = [
+      ["session_id", ctx.session_id],
+      ["agent_id", ctx.agent_id],
+      ["tenant_id", ctx.tenant_id],
+    ];
+    for (const [name, value] of fields) {
+      if (value === undefined || value === null) continue;
+      if (typeof value !== "string") {
+        throw new VellavetoError(`context.${name} must be a string`);
+      }
+      if (value.length > MAX_FIELD_LEN) {
+        throw new VellavetoError(
+          `context.${name} exceeds max length ${MAX_FIELD_LEN}`
+        );
+      }
+      // Control chars: C0 (0x00-0x1F), DEL (0x7F), C1 (0x80-0x9F)
+      if (/[\x00-\x1f\x7f-\x9f]/.test(value)) {
+        throw new VellavetoError(
+          `context.${name} contains control characters`
+        );
+      }
+      // Unicode format chars: zero-width, bidi overrides, BOM
+      if (/[\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2064\uFFF9-\uFFFB]/.test(value)) {
+        throw new VellavetoError(
+          `context.${name} contains Unicode format characters`
+        );
+      }
+    }
+
+    // Validate call_chain bounds.
+    if (ctx.call_chain) {
+      if (!Array.isArray(ctx.call_chain)) {
+        throw new VellavetoError("context.call_chain must be an array");
+      }
+      if (ctx.call_chain.length > MAX_CALL_CHAIN) {
+        throw new VellavetoError(
+          `context.call_chain has ${ctx.call_chain.length} entries, max ${MAX_CALL_CHAIN}`
+        );
+      }
+      for (let i = 0; i < ctx.call_chain.length; i++) {
+        if (typeof ctx.call_chain[i] !== "string") {
+          throw new VellavetoError(
+            `context.call_chain[${i}] must be a string`
+          );
+        }
+        if (ctx.call_chain[i].length > MAX_CALL_CHAIN_ENTRY) {
+          throw new VellavetoError(
+            `context.call_chain[${i}] exceeds max length ${MAX_CALL_CHAIN_ENTRY}`
+          );
+        }
+      }
+    }
+
+    // Validate metadata key count.
+    if (ctx.metadata) {
+      if (typeof ctx.metadata !== "object" || Array.isArray(ctx.metadata)) {
+        throw new VellavetoError("context.metadata must be an object");
+      }
+      if (Object.keys(ctx.metadata).length > MAX_METADATA_KEYS) {
+        throw new VellavetoError(
+          `context.metadata has ${Object.keys(ctx.metadata).length} keys, max ${MAX_METADATA_KEYS}`
+        );
+      }
+    }
+  }
+
   /** Evaluate a single action against loaded policies. */
   async evaluate(
     action: Action,
@@ -637,6 +717,10 @@ export class VellavetoClient {
   ): Promise<EvaluationResult> {
     // SECURITY (FIND-R54-SDK-007): Validate action before sending.
     this.validateAction(action);
+    // SECURITY (FIND-R102-005): Validate context before sending.
+    if (context) {
+      this.validateContext(context);
+    }
     const path = trace ? "/api/evaluate?trace=true" : "/api/evaluate";
     const body: Record<string, unknown> = {
       tool: action.tool,
@@ -752,6 +836,10 @@ export class VellavetoClient {
     options?: SimulateOptions
   ): Promise<SimulateResponse> {
     this.validateAction(action);
+    // SECURITY (FIND-R102-005): Validate context in simulate() too.
+    if (options?.context) {
+      this.validateContext(options.context);
+    }
     return this.request<SimulateResponse>("POST", "/api/simulator/evaluate", {
       action,
       context: options?.context,

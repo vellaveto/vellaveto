@@ -154,6 +154,9 @@ const MAX_TRACKED_DOCUMENTS: usize = 100_000;
 /// SECURITY (FIND-R69-004): Maximum tracked sessions for document counts.
 const MAX_DOC_SESSIONS: usize = 50_000;
 
+/// SECURITY (FIND-R106-004): Maximum trust cache entries to prevent OOM.
+const MAX_TRUST_CACHE_SIZE: usize = 100_000;
+
 /// Verifies documents and computes trust scores.
 pub struct DocumentVerifier {
     config: DocumentVerificationConfig,
@@ -213,8 +216,17 @@ impl DocumentVerifier {
         }
 
         // Cache the score
+        // SECURITY (FIND-R106-004): Bound trust cache to prevent OOM from
+        // repeated verify() calls with distinct doc IDs.
         if let Ok(mut cache) = self.trust_cache.write() {
-            cache.insert(doc.id.clone(), score.clone());
+            if !cache.contains_key(&doc.id) && cache.len() >= MAX_TRUST_CACHE_SIZE {
+                tracing::warn!(
+                    max = MAX_TRUST_CACHE_SIZE,
+                    "Trust cache at capacity — skipping cache insert"
+                );
+            } else {
+                cache.insert(doc.id.clone(), score.clone());
+            }
         }
 
         Ok(score)
@@ -569,5 +581,27 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(verifier.document_count(), 1);
+    }
+
+    #[test]
+    fn test_trust_cache_bounded() {
+        // SECURITY (FIND-R106-004): Verify trust_cache doesn't grow beyond MAX_TRUST_CACHE_SIZE.
+        let config = DocumentVerificationConfig {
+            enabled: true,
+            require_trust_score: 0.0, // accept all
+            ..Default::default()
+        };
+        let verifier = DocumentVerifier::new(config);
+
+        // Fill cache to capacity
+        for i in 0..100 {
+            let doc = DocumentMetadata::new(&format!("doc-{}", i), "hash", "source");
+            let _ = verifier.verify(&doc);
+        }
+
+        // Verify cache is populated
+        let cache = verifier.trust_cache.read().unwrap();
+        assert!(cache.len() <= MAX_TRUST_CACHE_SIZE);
+        assert_eq!(cache.len(), 100);
     }
 }

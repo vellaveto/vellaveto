@@ -343,9 +343,17 @@ impl ContextBudgetTracker {
         let (sessions, total_tokens, avg_tokens) = match usage_map {
             Some(map) => {
                 let sessions = map.len();
-                let total_tokens: u32 = map.values().map(|u| u.total_tokens).sum();
+                // SECURITY (FIND-R106-005): Use u64 accumulation to avoid u32
+                // overflow when summing tokens across many sessions.
+                let total_tokens_u64: u64 =
+                    map.values().map(|u| u64::from(u.total_tokens)).sum();
+                let total_tokens = if total_tokens_u64 > u64::from(u32::MAX) {
+                    u32::MAX
+                } else {
+                    total_tokens_u64 as u32
+                };
                 let avg = if sessions > 0 {
-                    total_tokens as f64 / sessions as f64
+                    total_tokens_u64 as f64 / sessions as f64
                 } else {
                     0.0
                 };

@@ -417,10 +417,35 @@ const VALID_BUDGET_ENFORCEMENTS: &[&str] = &["truncate", "reject", "warn"];
 /// Valid enforcement modes for GroundingConfig.
 const VALID_GROUNDING_ENFORCEMENTS: &[&str] = &["warn", "block", "annotate"];
 
+/// Maximum cache TTL (7 days).
+const MAX_RAG_CACHE_TTL_SECS: u64 = 7 * 24 * 3600;
+/// Maximum cache size.
+const MAX_RAG_CACHE_SIZE: usize = 1_000_000;
+/// Maximum document age (10 years).
+const MAX_DOC_AGE_HOURS: u64 = 10 * 365 * 24;
+/// Maximum documents per session.
+const MAX_DOCS_PER_SESSION: usize = 100_000;
+/// Maximum retrieval results.
+const MAX_RETRIEVAL_RESULTS: u32 = 10_000;
+/// Maximum baseline samples.
+const MAX_BASELINE_SAMPLES: u32 = 100_000;
+/// Maximum embeddings per agent.
+const MAX_EMBEDDINGS_PER_AGENT: usize = 1_000_000;
+/// Maximum tokens per retrieval.
+const MAX_TOKENS_PER_RETRIEVAL: u32 = 1_000_000;
+/// Maximum total context tokens per session.
+const MAX_TOTAL_CONTEXT_TOKENS: u32 = 10_000_000;
+/// Maximum claim length.
+const MAX_CLAIM_LENGTH: usize = 100_000;
+/// Maximum claims to check.
+const MAX_CLAIMS: usize = 10_000;
+
 impl RagDefenseConfig {
-    /// Validate all float fields are finite and in [0.0, 1.0], and enforcement strings are known.
+    /// Validate all float fields are finite and in [0.0, 1.0], enforcement strings are known,
+    /// and integer fields have sane upper bounds.
     /// SECURITY (FIND-R55-CFG-001, FIND-R55-CFG-005): NaN/Infinity bypass threshold comparisons;
     /// unknown enforcement strings fall through match arms to permissive defaults.
+    /// SECURITY (IMP-R106-002): Integer fields need upper bounds to prevent OOM.
     pub fn validate(&self) -> Result<(), String> {
         if !VALID_RAG_ENFORCEMENTS.contains(&self.enforcement.as_str()) {
             return Err(format!(
@@ -428,6 +453,8 @@ impl RagDefenseConfig {
                 VALID_RAG_ENFORCEMENTS, self.enforcement
             ));
         }
+
+        // Float field validation
         let trust = self.document_verification.require_trust_score;
         if !trust.is_finite() || !(0.0..=1.0).contains(&trust) {
             return Err(format!(
@@ -482,6 +509,93 @@ impl RagDefenseConfig {
                 lex
             ));
         }
+
+        // SECURITY (FIND-R102-001): Reject zero cache TTL — a zero value disables
+        // caching entirely, amplifying upstream load and enabling DoS.
+        if self.cache_ttl_secs == 0 {
+            return Err("rag_defense.cache_ttl_secs must be > 0".to_string());
+        }
+        // SECURITY (IMP-R106-002): Integer field upper bounds to prevent OOM from
+        // attacker-crafted configs.
+        if self.cache_ttl_secs > MAX_RAG_CACHE_TTL_SECS {
+            return Err(format!(
+                "rag_defense.cache_ttl_secs {} exceeds maximum {}",
+                self.cache_ttl_secs, MAX_RAG_CACHE_TTL_SECS
+            ));
+        }
+        if self.cache_max_size > MAX_RAG_CACHE_SIZE {
+            return Err(format!(
+                "rag_defense.cache_max_size {} exceeds maximum {}",
+                self.cache_max_size, MAX_RAG_CACHE_SIZE
+            ));
+        }
+        if self.document_verification.max_doc_age_hours > MAX_DOC_AGE_HOURS {
+            return Err(format!(
+                "rag_defense.document_verification.max_doc_age_hours {} exceeds maximum {}",
+                self.document_verification.max_doc_age_hours, MAX_DOC_AGE_HOURS
+            ));
+        }
+        if self.document_verification.max_docs_per_session > MAX_DOCS_PER_SESSION {
+            return Err(format!(
+                "rag_defense.document_verification.max_docs_per_session {} exceeds maximum {}",
+                self.document_verification.max_docs_per_session, MAX_DOCS_PER_SESSION
+            ));
+        }
+        if self.retrieval_security.max_retrieval_results == 0 {
+            return Err("rag_defense.retrieval_security.max_retrieval_results must be > 0".to_string());
+        }
+        if self.retrieval_security.max_retrieval_results > MAX_RETRIEVAL_RESULTS {
+            return Err(format!(
+                "rag_defense.retrieval_security.max_retrieval_results {} exceeds maximum {}",
+                self.retrieval_security.max_retrieval_results, MAX_RETRIEVAL_RESULTS
+            ));
+        }
+        if self.embedding_anomaly.min_baseline_samples > MAX_BASELINE_SAMPLES {
+            return Err(format!(
+                "rag_defense.embedding_anomaly.min_baseline_samples {} exceeds maximum {}",
+                self.embedding_anomaly.min_baseline_samples, MAX_BASELINE_SAMPLES
+            ));
+        }
+        if self.embedding_anomaly.max_embeddings_per_agent > MAX_EMBEDDINGS_PER_AGENT {
+            return Err(format!(
+                "rag_defense.embedding_anomaly.max_embeddings_per_agent {} exceeds maximum {}",
+                self.embedding_anomaly.max_embeddings_per_agent, MAX_EMBEDDINGS_PER_AGENT
+            ));
+        }
+        if self.context_budget.max_tokens_per_retrieval == 0 {
+            return Err("rag_defense.context_budget.max_tokens_per_retrieval must be > 0".to_string());
+        }
+        if self.context_budget.max_tokens_per_retrieval > MAX_TOKENS_PER_RETRIEVAL {
+            return Err(format!(
+                "rag_defense.context_budget.max_tokens_per_retrieval {} exceeds maximum {}",
+                self.context_budget.max_tokens_per_retrieval, MAX_TOKENS_PER_RETRIEVAL
+            ));
+        }
+        if self.context_budget.max_total_context_tokens == 0 {
+            return Err("rag_defense.context_budget.max_total_context_tokens must be > 0".to_string());
+        }
+        if self.context_budget.max_total_context_tokens > MAX_TOTAL_CONTEXT_TOKENS {
+            return Err(format!(
+                "rag_defense.context_budget.max_total_context_tokens {} exceeds maximum {}",
+                self.context_budget.max_total_context_tokens, MAX_TOTAL_CONTEXT_TOKENS
+            ));
+        }
+        if self.grounding.min_claim_length > MAX_CLAIM_LENGTH {
+            return Err(format!(
+                "rag_defense.grounding.min_claim_length {} exceeds maximum {}",
+                self.grounding.min_claim_length, MAX_CLAIM_LENGTH
+            ));
+        }
+        if self.grounding.max_claims == 0 {
+            return Err("rag_defense.grounding.max_claims must be > 0".to_string());
+        }
+        if self.grounding.max_claims > MAX_CLAIMS {
+            return Err(format!(
+                "rag_defense.grounding.max_claims {} exceeds maximum {}",
+                self.grounding.max_claims, MAX_CLAIMS
+            ));
+        }
+
         Ok(())
     }
 }

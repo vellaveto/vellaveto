@@ -985,6 +985,11 @@ impl PolicyConfig {
                 MAX_SPIFFE_ALLOWED_IDS
             ));
         }
+        // SECURITY (FIND-R102-003): Reject zero SVID cache TTL when enabled —
+        // zero disables SVID caching, causing re-verification on every request.
+        if self.spiffe.enabled && self.spiffe.svid_cache_ttl_secs == 0 {
+            return Err("spiffe.svid_cache_ttl_secs must be > 0".to_string());
+        }
 
         // SECURITY (FIND-R71-CFG-012): Validate ETDI version_pinning.enforcement is a
         // recognized value. Unrecognized values could silently fail-open.
@@ -1227,6 +1232,19 @@ impl PolicyConfig {
                     "threat_intel.on_match must be one of {:?}, got '{}'",
                     valid_on_match, self.threat_intel.on_match
                 ));
+            }
+            // SECURITY (FIND-R102-004): Reject zero cache/refresh TTLs.
+            // Zero cache_ttl means IOCs expire immediately, bypassing threat detection.
+            // Zero refresh_interval means infinite-loop polling against feed endpoint.
+            if self.threat_intel.cache_ttl_secs == 0 {
+                return Err(
+                    "threat_intel.cache_ttl_secs must be > 0".to_string(),
+                );
+            }
+            if self.threat_intel.refresh_interval_secs == 0 {
+                return Err(
+                    "threat_intel.refresh_interval_secs must be > 0".to_string(),
+                );
             }
         }
 

@@ -56,20 +56,9 @@ const MAX_TENANT_METADATA_VALUE_LEN: usize = 1024;
 /// Maximum length for tenant name.
 const MAX_TENANT_NAME_LEN: usize = 256;
 
-/// SECURITY: Detect control characters AND Unicode format characters
-/// that can bypass simple `is_control()` checks.
-fn is_unsafe_char_tenant(c: char) -> bool {
-    let cp = c as u32;
-    c.is_control()
-        || (0x200B..=0x200F).contains(&cp)
-        || (0x202A..=0x202E).contains(&cp)
-        || (0x2060..=0x2064).contains(&cp)
-        || (0x2066..=0x2069).contains(&cp)
-        || cp == 0xFEFF
-        || (0xFFF9..=0xFFFB).contains(&cp)
-        || (0xE0001..=0xE007F).contains(&cp)
-        || cp == 0x00AD
-}
+// SECURITY (IMP-R106-001): Use canonical is_unsafe_char from routes/mod.rs
+// instead of maintaining a duplicate copy.
+use crate::routes::is_unsafe_char;
 
 /// Tenant data model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,7 +143,7 @@ impl Tenant {
                 MAX_TENANT_NAME_LEN
             )));
         }
-        if self.name.chars().any(is_unsafe_char_tenant) {
+        if self.name.chars().any(is_unsafe_char) {
             return Err(TenantError::InvalidTenantId(
                 "tenant name contains control or format characters".to_string(),
             ));
@@ -200,12 +189,12 @@ impl Tenant {
                     MAX_TENANT_METADATA_VALUE_LEN
                 )));
             }
-            if key.chars().any(is_unsafe_char_tenant) {
+            if key.chars().any(is_unsafe_char) {
                 return Err(TenantError::InvalidTenantId(
                     "metadata key contains control or format characters".to_string(),
                 ));
             }
-            if value.chars().any(is_unsafe_char_tenant) {
+            if value.chars().any(is_unsafe_char) {
                 return Err(TenantError::InvalidTenantId(
                     "metadata value contains control or format characters".to_string(),
                 ));

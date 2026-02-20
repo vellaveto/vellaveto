@@ -518,6 +518,14 @@ impl NhiConfig {
             ));
         }
 
+        // SECURITY (FIND-R102-002): Reject zero credential TTLs — zero means
+        // credentials expire immediately, effectively disabling NHI authentication.
+        if self.credential_ttl_secs == 0 {
+            return Err("nhi.credential_ttl_secs must be > 0".to_string());
+        }
+        if self.max_credential_ttl_secs == 0 {
+            return Err("nhi.max_credential_ttl_secs must be > 0".to_string());
+        }
         // TTL consistency: credential_ttl must not exceed max_credential_ttl
         if self.credential_ttl_secs > self.max_credential_ttl_secs {
             return Err(format!(

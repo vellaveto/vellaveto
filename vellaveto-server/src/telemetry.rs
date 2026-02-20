@@ -95,19 +95,8 @@ fn is_http_token_char(c: char) -> bool {
         )
 }
 
-/// SECURITY: Detect control characters AND Unicode format characters.
-fn is_unsafe_char_telemetry(c: char) -> bool {
-    let cp = c as u32;
-    c.is_control()
-        || (0x200B..=0x200F).contains(&cp)
-        || (0x202A..=0x202E).contains(&cp)
-        || (0x2060..=0x2064).contains(&cp)
-        || (0x2066..=0x2069).contains(&cp)
-        || cp == 0xFEFF
-        || (0xFFF9..=0xFFFB).contains(&cp)
-        || (0xE0001..=0xE007F).contains(&cp)
-        || cp == 0x00AD
-}
+// SECURITY (IMP-R106-001): Use canonical is_unsafe_char from routes/mod.rs.
+use crate::routes::is_unsafe_char;
 
 /// Telemetry configuration.
 // SECURITY (FIND-R74-008): deny_unknown_fields prevents attacker-injected
@@ -161,7 +150,7 @@ impl TelemetryConfig {
                 "service_name too long".into(),
             ));
         }
-        if self.service_name.chars().any(is_unsafe_char_telemetry) {
+        if self.service_name.chars().any(is_unsafe_char) {
             return Err(TelemetryError::InvalidConfig(
                 "service_name contains control/format characters".into(),
             ));
@@ -172,7 +161,7 @@ impl TelemetryConfig {
                     "service_version too long".into(),
                 ));
             }
-            if v.chars().any(is_unsafe_char_telemetry) {
+            if v.chars().any(is_unsafe_char) {
                 return Err(TelemetryError::InvalidConfig(
                     "service_version contains control/format characters".into(),
                 ));
@@ -184,7 +173,7 @@ impl TelemetryConfig {
                 "otlp.endpoint too long".into(),
             ));
         }
-        if self.otlp.endpoint.chars().any(is_unsafe_char_telemetry) {
+        if self.otlp.endpoint.chars().any(is_unsafe_char) {
             return Err(TelemetryError::InvalidConfig(
                 "otlp.endpoint contains control/format characters".into(),
             ));
@@ -347,7 +336,7 @@ impl TelemetryConfig {
                     "otlp header key or value too long".into(),
                 ));
             }
-            if k.chars().any(is_unsafe_char_telemetry) || v.chars().any(is_unsafe_char_telemetry) {
+            if k.chars().any(is_unsafe_char) || v.chars().any(is_unsafe_char) {
                 return Err(TelemetryError::InvalidConfig(
                     "otlp header contains control/format characters".into(),
                 ));

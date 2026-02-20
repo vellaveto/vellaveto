@@ -46,25 +46,8 @@ const MAX_LIST_ENTRIES: usize = 1000;
 /// SECURITY (FIND-R67-004-009): Maximum delegation chain entries returned.
 const MAX_CHAIN_DISPLAY: usize = 100;
 
-/// SECURITY (FIND-R43-019, FIND-R44-055): Detect control characters AND Unicode format
-/// characters (ZWSP, bidi overrides, invisible operators, TAG characters, soft hyphen)
-/// that can bypass simple `is_control()` checks.
-///
-/// NOTE: This is a local copy mirroring the canonical `is_unsafe_char` in
-/// `routes/mod.rs`. Kept local to avoid changing the validate_field helper
-/// signature chain in this module. Any updates MUST be applied to all copies.
-fn is_unsafe_char(c: char) -> bool {
-    let cp = c as u32;
-    c.is_control()
-        || (0x200B..=0x200F).contains(&cp) // ZWSP, ZWNJ, ZWJ, LRM, RLM
-        || (0x202A..=0x202E).contains(&cp) // Bidi overrides
-        || (0x2060..=0x2064).contains(&cp) // Word joiner, invisible operators
-        || (0x2066..=0x2069).contains(&cp) // Bidi isolates
-        || cp == 0xFEFF                    // BOM
-        || (0xFFF9..=0xFFFB).contains(&cp) // Interlinear annotation
-        || (0xE0001..=0xE007F).contains(&cp) // TAG characters
-        || cp == 0x00AD // Soft hyphen
-}
+// SECURITY (IMP-R106-001): Use canonical is_unsafe_char from routes/mod.rs.
+use super::is_unsafe_char;
 
 /// Validate a string field: reject if too long or contains control/format characters.
 /// SECURITY (FIND-R41-011, FIND-R43-019): Rejects ALL control characters AND
