@@ -34,6 +34,13 @@ const DEFAULT_MAX_PENDING: usize = 10_000;
 /// Default approval TTL in seconds (15 minutes).
 const DEFAULT_TTL_SECS: u64 = 900;
 
+/// Maximum number of entries to process from a single ZRANGEBYSCORE fetch.
+///
+/// Without this bound, an attacker who fills the pending sorted set can cause
+/// OOM when `approval_list_pending()` or `approval_expire_stale()` fetches all
+/// entries into memory. (FIND-R84-002)
+const MAX_APPROVAL_FETCH: usize = 10_000;
+
 impl RedisBackend {
     /// Create a new Redis backend.
     ///
@@ -442,10 +449,20 @@ impl ClusterBackend for RedisBackend {
         let mut conn = self.get_conn().await?;
 
         // Get all members of the pending set
-        let ids: Vec<String> = conn
+        let mut ids: Vec<String> = conn
             .zrangebyscore(self.pending_set_key(), "-inf", "+inf")
             .await
             .map_err(|e| ClusterError::Connection(format!("Redis ZRANGEBYSCORE failed: {}", e)))?;
+
+        // SECURITY (FIND-R84-002): Bound fetched entries to prevent OOM
+        if ids.len() > MAX_APPROVAL_FETCH {
+            tracing::warn!(
+                fetched = ids.len(),
+                max = MAX_APPROVAL_FETCH,
+                "approval_list_pending: truncating results to MAX_APPROVAL_FETCH"
+            );
+            ids.truncate(MAX_APPROVAL_FETCH);
+        }
 
         let mut approvals = Vec::with_capacity(ids.len());
         for id in &ids {
@@ -480,10 +497,20 @@ impl ClusterBackend for RedisBackend {
         let now_ts = now.timestamp() as f64;
 
         // Get expired members (score <= now timestamp)
-        let expired_ids: Vec<String> = conn
+        let mut expired_ids: Vec<String> = conn
             .zrangebyscore(self.pending_set_key(), "-inf", now_ts)
             .await
             .map_err(|e| ClusterError::Connection(format!("Redis ZRANGEBYSCORE failed: {}", e)))?;
+
+        // SECURITY (FIND-R84-002): Bound fetched entries to prevent OOM
+        if expired_ids.len() > MAX_APPROVAL_FETCH {
+            tracing::warn!(
+                fetched = expired_ids.len(),
+                max = MAX_APPROVAL_FETCH,
+                "approval_expire_stale: truncating results to MAX_APPROVAL_FETCH"
+            );
+            expired_ids.truncate(MAX_APPROVAL_FETCH);
+        }
 
         let mut expired_count = 0;
         for id in &expired_ids {

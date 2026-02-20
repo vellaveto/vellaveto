@@ -2050,7 +2050,14 @@ impl ProxyBridge {
         // carry secrets in its parameters, making passthrough a wide-open
         // exfiltration path without scanning.
         let params_to_scan = msg.get("params").cloned().unwrap_or(json!({}));
-        let dlp_findings = scan_parameters_for_secrets(&params_to_scan);
+        let mut dlp_findings = scan_parameters_for_secrets(&params_to_scan);
+        // SECURITY (FIND-R96-001): Also scan `result` field for JSON-RPC responses.
+        // Agent responses to server-initiated requests (sampling/elicitation) carry
+        // data in `result`, not `params`. Without this, secrets in sampling/elicitation
+        // responses bypass DLP scanning entirely.
+        if let Some(result_val) = msg.get("result") {
+            dlp_findings.extend(scan_parameters_for_secrets(result_val));
+        }
         if !dlp_findings.is_empty() {
             let method_name = msg
                 .get("method")
