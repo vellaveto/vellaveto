@@ -1,10 +1,10 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 complete, 110 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 complete, 111 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 6,765 Rust tests + 361 Python SDK tests + 106 Go SDK tests + 111 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 6,812 Rust tests + 361 Python SDK tests + 106 Go SDK tests + 111 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
 > **CI workflows:** 12 (16 jobs)
 > **Domain:** [www.vellaveto.online](https://www.vellaveto.online) (Cloudflare Pages)
@@ -170,7 +170,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 + Phase 41 implemented, tested, and hardened through 108 audit rounds. Details in CHANGELOG.md.
+All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 + Phase 41 implemented, tested, and hardened through 111 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
 - **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention
@@ -195,8 +195,10 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - Round 104 (9 adversarial + 7 improvement findings: simulator compile_from_toml_bounded/validate/diff now call PolicyConfig::validate() preventing unbounded collection OOM and invalid float bypass, setup wizard apply handler validates config semantics before writing to disk, ToolManifest::load_pinned_manifest() enforces 16MB file size + MAX_MANIFEST_TOOLS count bound, ContextBudgetTracker bounded at MAX_BUDGET_SESSIONS=100K + MAX_RETRIEVALS_PER_SESSION=10K + saturating_add on total_tokens, NhiAgentIdentity/NhiDpopProof/ToolManifest custom Debug redacts cryptographic material, ETDI sign_tool() timestamp format fixed to strict ISO 8601, Go SDK redirect scheme validation + parameters size + eval context validation, 8 new tests)
 - Round 106 (5 adversarial + 6 improvement findings: Tenant route handler enforces Tenant::validate() before store write, RagDefenseConfig::validate() adds upper bounds on 11 integer fields, DocumentVerifier trust_cache bounded at MAX_TRUST_CACHE_SIZE=100K, ContextBudgetTracker stats() uses u64 accumulation preventing u32 overflow, is_unsafe_char deduplicated from 6 copies to 1 canonical pub(crate) fn in routes/mod.rs, NHI error messages no longer echo raw user input, zero-TTL rejection for SPIFFE SVID/NHI credentials/threat intel cache/RAG defense cache, TS SDK validateContext() parity with Go SDK, 8 new tests)
 - Round 108 (7 adversarial + 8 improvement findings: #[must_use = "security verdicts must not be discarded"] added to Verdict enum/AbacDecision enum/evaluate_action_traced()/AbacEngine::evaluate()/DeputyGuard::validate_action(), call_counts += 1 replaced with saturating_add across HTTP/WebSocket/gRPC transports preventing u64 overflow resetting call-limit policies)
+- Round 110 (28 P2 findings: enterprise/ETDI validate() wiring, schema depth limits, A2A response bounds, relay input sanitization, route handler Content-Type validation, path parameter bounds across 10 route modules)
+- Round 111 (1 P1 + 26 P2: RequireCapabilityToken holder bypass when agent_id absent — capability token theft vector closed with explicit None→Deny, DLP pattern name leakage to clients in HTTP/gRPC generic messages, audit sequence number reset across rotations via global AtomicU64, audit rotation sub-second filename collision via monotonic counter, AgentIdentity claims per-key/value length bounds, AbacEngine entity validation on construction, policy compile conditions size canonical constant, unbounded required_claims/agents/issuers/subjects/resources bounded, CapabilityRequired CSV MAX_DECLARED_CAPABILITIES=256, DLP OnceLock atomic initialization, SessionGuardConfig zero threshold rejection, capability_token issued_at future-date check, sampling_detector MAX_SCAN_MATCHES=1000, extension_registry TOCTOU write-lock re-check, rug_pull HashSet dedup, Redis approval MAX_REASON_LEN=4096, cluster redis_url empty check, SDK discovery/approval/zk param validation parity)
 - **CI/CD:** 11 workflows, Docker/GHCR, release automation, SBOM, provenance attestation
-- **SDKs:** Python (sync+async, LangChain/LangGraph/Composio, 349 tests), TypeScript (fetch-based, 103 tests), Go (stdlib-only, 106 tests)
+- **SDKs:** Python (sync+async, LangChain/LangGraph/Composio, 361 tests), TypeScript (fetch-based, 111 tests), Go (stdlib-only, 106 tests)
 - **Composio Integration:** `ComposioGuard` with `before_execute`/`after_execute` modifier factories for universal Composio provider support (OpenAI, LangChain, CrewAI, AutoGen, Google ADK), client-side response scanning (DLP + injection with NFKC normalization + invisible char stripping), `CallChainTracker` (thread-safe, bounded FIFO), slug normalization (ASCII-only with homoglyph rejection), target extraction (recursive with depth bound, file:// URI support), standalone `execute()` wrapper with TOCTOU prevention, 84 tests (49 adversarial)
 - **Formal Verification (Phase 33):** TLA+ specs for policy engine (7 safety + 2 liveness, including S7 RequireApproval invariant) and ABAC forbid-overrides (4 safety), Alloy model for capability delegation (6 safety assertions), 20 verified properties with source traceability and VERIFIED markers in engine/mcp source
 - **Codebase Improvement Campaign:** ~165 new unit tests (engine 687, MCP 1,083, audit 441), 14 Criterion benchmarks (ABAC, Merkle, injection/DLP, E2E pipeline), 4 new CI jobs (cargo-vet, semver-checks, MSRV 1.75.0, feature matrix), relay security hardening (VELLAVETO_AGENT_ID env var, channel buffer bounds, oversized message dropping)
@@ -318,7 +320,7 @@ Test naming: `test_<function>_<scenario>_<expected>`
 7. **Silent failures** — every error must be observable
 8. **Premature optimization** — measure first, optimize proven hot spots
 
-### Discovered from 102 audit rounds (top causes of breakage)
+### Discovered from 111 audit rounds (top causes of breakage)
 9. **Changing error messages without grepping tests** — tests assert on exact substrings; grep `tests.rs` for the old string before changing
 10. **Using a name-similar constant** — `MAX_ID_LENGTH` vs `MAX_SERVER_ID_LENGTH` are different; verify the doc comment matches your domain
 11. **Adding unbounded collections** — every `Vec`/`HashMap`/`HashSet` needs a `MAX_*` constant enforced in `validate()`
