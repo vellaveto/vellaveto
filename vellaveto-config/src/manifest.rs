@@ -382,6 +382,7 @@ pub enum ManifestEnforcement {
 /// trusted_keys = ["hex-encoded-ed25519-public-key"]
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ManifestConfig {
     /// Enable tool manifest schema pinning. Default: true.
     #[serde(default = "default_true")]

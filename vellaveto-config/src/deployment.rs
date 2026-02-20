@@ -171,6 +171,25 @@ impl ServiceDiscoveryConfig {
             if name.trim().is_empty() {
                 return Err("deployment.service_discovery.dns_name must not be empty".to_string());
             }
+            // SECURITY (FIND-R100-007): Validate dns_name bounds and character safety.
+            // RFC 1035 limits hostnames to 253 characters.
+            if name.len() > 253 {
+                return Err(format!(
+                    "deployment.service_discovery.dns_name length {} exceeds maximum 253",
+                    name.len()
+                ));
+            }
+            if name.chars().any(|c| c.is_control()) {
+                return Err(
+                    "deployment.service_discovery.dns_name contains control characters".to_string(),
+                );
+            }
+            if name.chars().any(vellaveto_types::is_unicode_format_char) {
+                return Err(
+                    "deployment.service_discovery.dns_name contains Unicode format characters"
+                        .to_string(),
+                );
+            }
             // SECURITY (FIND-P27-005): Reject SSRF-prone DNS names.
             // Extract host part before the port (required by tokio::net::lookup_host).
             // Handle bracketed IPv6 addresses like [::1]:80.

@@ -37,6 +37,7 @@ pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
 /// "/usr/local/bin/my-mcp" = "sha256hex..."
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SupplyChainConfig {
     /// Master toggle. When false (default), binary verification is skipped.
     #[serde(default)]

@@ -5702,6 +5702,430 @@ fn test_semantic_guardrails_nan_jailbreak_threshold() {
 }
 
 // ═══════════════════════════════════════════════════
+// SEMANTIC GUARDRAILS — BACKEND + BOUNDS VALIDATION (FIND-R84-005 / R100)
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_semantic_guardrails_model_control_chars_rejected() {
+    let config = crate::SemanticGuardrailsConfig {
+        model: Some("openai:gpt-4o\x00mini".to_string()),
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("control characters"), "{}", err);
+}
+
+#[test]
+fn test_semantic_guardrails_model_unicode_format_chars_rejected() {
+    let config = crate::SemanticGuardrailsConfig {
+        model: Some("openai:gpt-4o\u{200B}mini".to_string()),
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("Unicode format"), "{}", err);
+}
+
+#[test]
+fn test_semantic_guardrails_cache_ttl_zero_rejected() {
+    let config = crate::SemanticGuardrailsConfig {
+        cache_ttl_secs: 0,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("cache_ttl_secs must be > 0"), "{}", err);
+}
+
+#[test]
+fn test_semantic_guardrails_cache_ttl_exceeds_max() {
+    let config = crate::SemanticGuardrailsConfig {
+        cache_ttl_secs: 86_401,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("exceeds maximum"), "{}", err);
+}
+
+#[test]
+fn test_semantic_guardrails_cache_max_size_zero_rejected() {
+    let config = crate::SemanticGuardrailsConfig {
+        cache_max_size: 0,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("cache_max_size must be > 0"), "{}", err);
+}
+
+#[test]
+fn test_semantic_guardrails_cache_max_size_exceeds_max() {
+    let config = crate::SemanticGuardrailsConfig {
+        cache_max_size: 1_000_001,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("exceeds maximum"), "{}", err);
+}
+
+#[test]
+fn test_semantic_guardrails_max_latency_zero_rejected() {
+    let config = crate::SemanticGuardrailsConfig {
+        max_latency_ms: 0,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("max_latency_ms must be > 0"), "{}", err);
+}
+
+#[test]
+fn test_semantic_guardrails_max_latency_exceeds_max() {
+    let config = crate::SemanticGuardrailsConfig {
+        max_latency_ms: 30_001,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("exceeds maximum"), "{}", err);
+}
+
+#[test]
+fn test_semantic_guardrails_fallback_invalid_value_rejected() {
+    let config = crate::SemanticGuardrailsConfig {
+        fallback_on_timeout: "unknown_value".to_string(),
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("must be one of"), "{}", err);
+}
+
+#[test]
+fn test_semantic_guardrails_fallback_allow_accepted() {
+    let config = crate::SemanticGuardrailsConfig {
+        fallback_on_timeout: "allow".to_string(),
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_semantic_guardrails_fallback_pattern_match_accepted() {
+    let config = crate::SemanticGuardrailsConfig {
+        fallback_on_timeout: "pattern_match".to_string(),
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_semantic_guardrails_fallback_control_chars_rejected() {
+    let config = crate::SemanticGuardrailsConfig {
+        fallback_on_timeout: "deny\x01".to_string(),
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("control characters"), "{}", err);
+}
+
+#[test]
+fn test_openai_backend_default_validates() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig::default();
+    assert!(backend.validate().is_ok());
+}
+
+#[test]
+fn test_anthropic_backend_default_validates() {
+    let backend = crate::semantic_guardrails_config::AnthropicBackendConfig::default();
+    assert!(backend.validate().is_ok());
+}
+
+#[test]
+fn test_openai_backend_empty_model_rejected() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        model: String::new(),
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(err.contains("model must not be empty"), "{}", err);
+}
+
+#[test]
+fn test_openai_backend_model_control_chars_rejected() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        model: "gpt-4o\x00mini".to_string(),
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(err.contains("control characters"), "{}", err);
+}
+
+#[test]
+fn test_openai_backend_model_unicode_format_chars_rejected() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        model: "gpt-4o\u{200B}mini".to_string(),
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(err.contains("Unicode format"), "{}", err);
+}
+
+#[test]
+fn test_openai_backend_empty_api_key_env_rejected() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        api_key_env: String::new(),
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(err.contains("api_key_env must not be empty"), "{}", err);
+}
+
+#[test]
+fn test_openai_backend_timeout_zero_rejected() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        timeout_ms: 0,
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(err.contains("timeout_ms must be > 0"), "{}", err);
+}
+
+#[test]
+fn test_openai_backend_timeout_exceeds_max() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        timeout_ms: 60_001,
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(err.contains("exceeds maximum"), "{}", err);
+}
+
+#[test]
+fn test_openai_backend_max_tokens_zero_rejected() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        max_tokens: 0,
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(err.contains("max_tokens must be > 0"), "{}", err);
+}
+
+#[test]
+fn test_openai_backend_max_tokens_exceeds_max() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        max_tokens: 16_385,
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(err.contains("exceeds maximum"), "{}", err);
+}
+
+#[test]
+fn test_openai_backend_endpoint_ssrf_localhost_rejected() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        endpoint: Some("https://localhost:8080/v1".to_string()),
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(err.contains("loopback"), "{}", err);
+}
+
+#[test]
+fn test_openai_backend_endpoint_ssrf_127_rejected() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        endpoint: Some("https://127.0.0.1:8080/v1".to_string()),
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(err.contains("loopback"), "{}", err);
+}
+
+#[test]
+fn test_openai_backend_endpoint_ssrf_metadata_rejected() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        endpoint: Some("http://169.254.169.254/latest/meta-data/".to_string()),
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(
+        err.contains("loopback") || err.contains("metadata"),
+        "{}",
+        err
+    );
+}
+
+#[test]
+fn test_openai_backend_endpoint_ssrf_internal_rejected() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        endpoint: Some("https://metadata.google.internal/computeMetadata/v1/".to_string()),
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(
+        err.contains("metadata") || err.contains("loopback"),
+        "{}",
+        err
+    );
+}
+
+#[test]
+fn test_openai_backend_endpoint_no_scheme_rejected() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        endpoint: Some("ftp://api.openai.com/v1".to_string()),
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(err.contains("https://"), "{}", err);
+}
+
+#[test]
+fn test_openai_backend_endpoint_userinfo_rejected() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        endpoint: Some("https://user@evil.com:8080/v1".to_string()),
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(err.contains("userinfo"), "{}", err);
+}
+
+#[test]
+fn test_openai_backend_endpoint_valid_accepted() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        endpoint: Some("https://api.openai.com/v1".to_string()),
+        ..Default::default()
+    };
+    assert!(backend.validate().is_ok());
+}
+
+#[test]
+fn test_openai_backend_endpoint_control_chars_rejected() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        endpoint: Some("https://api.openai.com/v1\x00".to_string()),
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(err.contains("control characters"), "{}", err);
+}
+
+#[test]
+fn test_semantic_guardrails_wires_openai_validate() {
+    let config = crate::SemanticGuardrailsConfig {
+        openai: Some(crate::semantic_guardrails_config::OpenAiBackendConfig {
+            endpoint: Some("ftp://evil.com".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("semantic_guardrails.openai"), "{}", err);
+}
+
+#[test]
+fn test_semantic_guardrails_wires_anthropic_validate() {
+    let config = crate::SemanticGuardrailsConfig {
+        anthropic: Some(crate::semantic_guardrails_config::AnthropicBackendConfig {
+            endpoint: Some("ftp://evil.com".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("semantic_guardrails.anthropic"), "{}", err);
+}
+
+#[test]
+fn test_nl_policy_id_unicode_format_chars_rejected() {
+    let policy = crate::semantic_guardrails_config::NlPolicyConfig {
+        id: "policy\u{200B}1".to_string(),
+        name: "test".to_string(),
+        statement: "test statement".to_string(),
+        tool_patterns: vec![],
+        enabled: true,
+        priority: 0,
+    };
+    let err = policy.validate().unwrap_err();
+    assert!(err.contains("Unicode format"), "{}", err);
+}
+
+#[test]
+fn test_nl_policy_name_unicode_format_chars_rejected() {
+    let policy = crate::semantic_guardrails_config::NlPolicyConfig {
+        id: "policy1".to_string(),
+        name: "test\u{FEFF}name".to_string(),
+        statement: "test statement".to_string(),
+        tool_patterns: vec![],
+        enabled: true,
+        priority: 0,
+    };
+    let err = policy.validate().unwrap_err();
+    assert!(err.contains("Unicode format"), "{}", err);
+}
+
+#[test]
+fn test_nl_policy_statement_unicode_format_chars_rejected() {
+    let policy = crate::semantic_guardrails_config::NlPolicyConfig {
+        id: "policy1".to_string(),
+        name: "test".to_string(),
+        statement: "Never allow \u{202E}file deletion".to_string(),
+        tool_patterns: vec![],
+        enabled: true,
+        priority: 0,
+    };
+    let err = policy.validate().unwrap_err();
+    assert!(err.contains("Unicode format"), "{}", err);
+}
+
+#[test]
+fn test_nl_policy_tool_pattern_unicode_format_chars_rejected() {
+    let policy = crate::semantic_guardrails_config::NlPolicyConfig {
+        id: "policy1".to_string(),
+        name: "test".to_string(),
+        statement: "test statement".to_string(),
+        tool_patterns: vec!["filesystem\u{200B}:*".to_string()],
+        enabled: true,
+        priority: 0,
+    };
+    let err = policy.validate().unwrap_err();
+    assert!(err.contains("Unicode format"), "{}", err);
+}
+
+#[test]
+fn test_openai_backend_endpoint_link_local_rejected() {
+    let backend = crate::semantic_guardrails_config::OpenAiBackendConfig {
+        endpoint: Some("http://169.254.1.1:8080/v1".to_string()),
+        ..Default::default()
+    };
+    let err = backend.validate().unwrap_err();
+    assert!(
+        err.contains("loopback") || err.contains("metadata"),
+        "{}",
+        err
+    );
+}
+
+#[test]
+fn test_semantic_guardrails_boundary_cache_ttl_max_accepted() {
+    let config = crate::SemanticGuardrailsConfig {
+        cache_ttl_secs: 86_400,
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_semantic_guardrails_boundary_cache_max_size_max_accepted() {
+    let config = crate::SemanticGuardrailsConfig {
+        cache_max_size: 1_000_000,
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_semantic_guardrails_boundary_max_latency_max_accepted() {
+    let config = crate::SemanticGuardrailsConfig {
+        max_latency_ms: 30_000,
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════
 // MULTIMODAL POLICY VALIDATION TESTS
 // ═══════════════════════════════════════════════════
 
@@ -6038,4 +6462,65 @@ fn test_label_selector_rejects_too_long() {
         config2.validate().is_ok(),
         "label_selector at exactly MAX_LABEL_SELECTOR_LEN should be accepted"
     );
+}
+
+// ═══════════════════════════════════════════════════
+// ROUND 83 AUDIT FIXES
+// ═══════════════════════════════════════════════════
+
+// FIND-R83-004: AuditExportConfig::validate()
+#[test]
+fn test_audit_export_config_validate_zero_batch_size() {
+    let cfg = crate::detection::AuditExportConfig {
+        batch_size: 0,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("batch_size"));
+}
+
+#[test]
+fn test_audit_export_config_validate_excessive_batch_size() {
+    let cfg = crate::detection::AuditExportConfig {
+        batch_size: 100_001,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("batch_size"));
+}
+
+#[test]
+fn test_audit_export_config_validate_invalid_format() {
+    let cfg = crate::detection::AuditExportConfig {
+        format: "xml".to_string(),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("format"));
+}
+
+#[test]
+fn test_audit_export_config_validate_control_char_webhook() {
+    let cfg = crate::detection::AuditExportConfig {
+        webhook_url: Some("https://evil.com/\x00inject".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("control characters"));
+}
+
+#[test]
+fn test_audit_export_config_validate_invalid_scheme_webhook() {
+    let cfg = crate::detection::AuditExportConfig {
+        webhook_url: Some("ftp://evil.com/data".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("scheme"));
+}
+
+#[test]
+fn test_audit_export_config_validate_default_is_valid() {
+    let cfg = crate::detection::AuditExportConfig::default();
+    assert!(cfg.validate().is_ok());
 }

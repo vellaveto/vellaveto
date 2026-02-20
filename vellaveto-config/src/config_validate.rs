@@ -1495,6 +1495,15 @@ impl PolicyConfig {
         // Multimodal policy configuration bounds
         self.multimodal.validate()?;
 
+        // SECURITY (IMP-R100-003): Memory security configuration bounds.
+        self.memory_security.validate()?;
+
+        // SECURITY (IMP-R100-004): Threat detection sub-config bounds.
+        self.behavioral.validate()?;
+        self.semantic_detection.validate()?;
+        self.schema_poisoning.validate()?;
+        self.cross_agent.validate()?;
+
         Ok(())
     }
 

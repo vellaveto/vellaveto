@@ -12,6 +12,7 @@ fn default_priority() -> Option<i32> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PolicyRule {
     pub name: String,
     pub tool_pattern: String,

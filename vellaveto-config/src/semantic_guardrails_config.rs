@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::default_true;
+use vellaveto_types::is_unicode_format_char;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SEMANTIC GUARDRAILS CONFIGURATION (Phase 12)
@@ -51,7 +52,7 @@ use crate::default_true;
 /// statement = "Never allow file deletion outside of /tmp directory"
 /// tool_patterns = ["filesystem:*", "shell:*"]
 /// ```
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SemanticGuardrailsConfig {
     /// Enable semantic guardrails. Default: false.
@@ -109,9 +110,91 @@ const MAX_NL_POLICIES: usize = 100;
 /// Maximum length for fallback_on_timeout string.
 const MAX_FALLBACK_STRING_LEN: usize = 64;
 
+/// Maximum model string length.
+const MAX_MODEL_STRING_LEN: usize = 256;
+
+/// Maximum cache TTL (24 hours).
+const MAX_CACHE_TTL_SECS: u64 = 86_400;
+
+/// Maximum cache size entries.
+const MAX_CACHE_MAX_SIZE: usize = 1_000_000;
+
+/// Maximum latency threshold (30 seconds).
+const MAX_LATENCY_MS: u64 = 30_000;
+
+/// Valid fallback_on_timeout values.
+const VALID_FALLBACK_VALUES: &[&str] = &["deny", "allow", "pattern_match"];
+
+/// Maximum backend model name length.
+const MAX_BACKEND_MODEL_LEN: usize = 256;
+
+/// Maximum backend api_key_env length.
+const MAX_BACKEND_API_KEY_ENV_LEN: usize = 256;
+
+/// Maximum backend endpoint URL length.
+const MAX_BACKEND_ENDPOINT_LEN: usize = 2048;
+
+/// Maximum backend timeout (60 seconds).
+const MAX_BACKEND_TIMEOUT_MS: u64 = 60_000;
+
+/// Maximum backend max_tokens.
+const MAX_BACKEND_MAX_TOKENS: u32 = 16_384;
+
 impl SemanticGuardrailsConfig {
     /// Validate all float fields and collection bounds.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R100-001): Validate model string bounds + control chars.
+        if let Some(ref model) = self.model {
+            if model.len() > MAX_MODEL_STRING_LEN {
+                return Err(format!(
+                    "semantic_guardrails.model length {} exceeds maximum {}",
+                    model.len(),
+                    MAX_MODEL_STRING_LEN
+                ));
+            }
+            if model.chars().any(|c| c.is_control()) {
+                return Err("semantic_guardrails.model contains control characters".to_string());
+            }
+            if model.chars().any(is_unicode_format_char) {
+                return Err(
+                    "semantic_guardrails.model contains Unicode format characters".to_string(),
+                );
+            }
+        }
+
+        // SECURITY (FIND-R100-002): Validate cache_ttl_secs bounds.
+        if self.cache_ttl_secs == 0 {
+            return Err("semantic_guardrails.cache_ttl_secs must be > 0".to_string());
+        }
+        if self.cache_ttl_secs > MAX_CACHE_TTL_SECS {
+            return Err(format!(
+                "semantic_guardrails.cache_ttl_secs {} exceeds maximum {} (24 hours)",
+                self.cache_ttl_secs, MAX_CACHE_TTL_SECS
+            ));
+        }
+
+        // SECURITY (FIND-R100-003): Validate cache_max_size bounds.
+        if self.cache_max_size == 0 {
+            return Err("semantic_guardrails.cache_max_size must be > 0".to_string());
+        }
+        if self.cache_max_size > MAX_CACHE_MAX_SIZE {
+            return Err(format!(
+                "semantic_guardrails.cache_max_size {} exceeds maximum {}",
+                self.cache_max_size, MAX_CACHE_MAX_SIZE
+            ));
+        }
+
+        // SECURITY (FIND-R100-004): Validate max_latency_ms bounds.
+        if self.max_latency_ms == 0 {
+            return Err("semantic_guardrails.max_latency_ms must be > 0".to_string());
+        }
+        if self.max_latency_ms > MAX_LATENCY_MS {
+            return Err(format!(
+                "semantic_guardrails.max_latency_ms {} exceeds maximum {} (30 seconds)",
+                self.max_latency_ms, MAX_LATENCY_MS
+            ));
+        }
+
         // min_confidence: must be finite and in [0.0, 1.0]
         if !self.min_confidence.is_finite()
             || self.min_confidence < 0.0
@@ -142,10 +225,34 @@ impl SemanticGuardrailsConfig {
                 self.jailbreak_detection.confidence_threshold
             ));
         }
-        // fallback_on_timeout: bounded length, known values
+        // SECURITY (FIND-R100-005): Validate fallback_on_timeout against known values.
         if self.fallback_on_timeout.len() > MAX_FALLBACK_STRING_LEN {
             return Err("semantic_guardrails.fallback_on_timeout too long".to_string());
         }
+        if self.fallback_on_timeout.chars().any(|c| c.is_control()) {
+            return Err(
+                "semantic_guardrails.fallback_on_timeout contains control characters".to_string(),
+            );
+        }
+        if !VALID_FALLBACK_VALUES.contains(&self.fallback_on_timeout.as_str()) {
+            return Err(format!(
+                "semantic_guardrails.fallback_on_timeout must be one of {:?}, got '{}'",
+                VALID_FALLBACK_VALUES, self.fallback_on_timeout
+            ));
+        }
+
+        // SECURITY (FIND-R84-005): Validate backend configurations.
+        if let Some(ref openai) = self.openai {
+            openai
+                .validate()
+                .map_err(|e| format!("semantic_guardrails.openai: {}", e))?;
+        }
+        if let Some(ref anthropic) = self.anthropic {
+            anthropic
+                .validate()
+                .map_err(|e| format!("semantic_guardrails.anthropic: {}", e))?;
+        }
+
         // nl_policies: bounded count
         if self.nl_policies.len() > MAX_NL_POLICIES {
             return Err(format!(
@@ -161,6 +268,25 @@ impl SemanticGuardrailsConfig {
                 .map_err(|e| format!("semantic_guardrails.nl_policies[{}]: {}", i, e))?;
         }
         Ok(())
+    }
+}
+
+impl Default for SemanticGuardrailsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            model: None,
+            cache_ttl_secs: default_semantic_cache_ttl(),
+            cache_max_size: default_semantic_cache_size(),
+            max_latency_ms: default_semantic_max_latency(),
+            fallback_on_timeout: default_semantic_fallback(),
+            min_confidence: default_semantic_confidence(),
+            openai: None,
+            anthropic: None,
+            intent_classification: IntentClassificationConfig::default(),
+            jailbreak_detection: JailbreakDetectionConfig::default(),
+            nl_policies: Vec::new(),
+        }
     }
 }
 
@@ -225,6 +351,20 @@ fn default_openai_max_tokens() -> u32 {
     256
 }
 
+impl OpenAiBackendConfig {
+    /// Validate OpenAI backend configuration fields.
+    pub fn validate(&self) -> Result<(), String> {
+        validate_backend_config(
+            "openai",
+            &self.model,
+            &self.api_key_env,
+            self.timeout_ms,
+            self.max_tokens,
+            self.endpoint.as_deref(),
+        )
+    }
+}
+
 impl Default for OpenAiBackendConfig {
     fn default() -> Self {
         Self {
@@ -278,6 +418,20 @@ fn default_anthropic_max_tokens() -> u32 {
     256
 }
 
+impl AnthropicBackendConfig {
+    /// Validate Anthropic backend configuration fields.
+    pub fn validate(&self) -> Result<(), String> {
+        validate_backend_config(
+            "anthropic",
+            &self.model,
+            &self.api_key_env,
+            self.timeout_ms,
+            self.max_tokens,
+            self.endpoint.as_deref(),
+        )
+    }
+}
+
 impl Default for AnthropicBackendConfig {
     fn default() -> Self {
         Self {
@@ -288,6 +442,150 @@ impl Default for AnthropicBackendConfig {
             endpoint: None,
         }
     }
+}
+
+/// SECURITY (FIND-R84-005): Shared validation for LLM backend configurations.
+/// Validates model name, api_key_env, timeout, max_tokens, and endpoint URL.
+fn validate_backend_config(
+    backend_name: &str,
+    model: &str,
+    api_key_env: &str,
+    timeout_ms: u64,
+    max_tokens: u32,
+    endpoint: Option<&str>,
+) -> Result<(), String> {
+    // Model name validation
+    if model.is_empty() {
+        return Err(format!("{}.model must not be empty", backend_name));
+    }
+    if model.len() > MAX_BACKEND_MODEL_LEN {
+        return Err(format!(
+            "{}.model length {} exceeds maximum {}",
+            backend_name,
+            model.len(),
+            MAX_BACKEND_MODEL_LEN
+        ));
+    }
+    if model.chars().any(|c| c.is_control()) {
+        return Err(format!(
+            "{}.model contains control characters",
+            backend_name
+        ));
+    }
+    if model.chars().any(is_unicode_format_char) {
+        return Err(format!(
+            "{}.model contains Unicode format characters",
+            backend_name
+        ));
+    }
+
+    // api_key_env validation
+    if api_key_env.is_empty() {
+        return Err(format!("{}.api_key_env must not be empty", backend_name));
+    }
+    if api_key_env.len() > MAX_BACKEND_API_KEY_ENV_LEN {
+        return Err(format!(
+            "{}.api_key_env length {} exceeds maximum {}",
+            backend_name,
+            api_key_env.len(),
+            MAX_BACKEND_API_KEY_ENV_LEN
+        ));
+    }
+    if api_key_env.chars().any(|c| c.is_control()) {
+        return Err(format!(
+            "{}.api_key_env contains control characters",
+            backend_name
+        ));
+    }
+
+    // Timeout bounds
+    if timeout_ms == 0 {
+        return Err(format!("{}.timeout_ms must be > 0", backend_name));
+    }
+    if timeout_ms > MAX_BACKEND_TIMEOUT_MS {
+        return Err(format!(
+            "{}.timeout_ms {} exceeds maximum {} (60 seconds)",
+            backend_name, timeout_ms, MAX_BACKEND_TIMEOUT_MS
+        ));
+    }
+
+    // Max tokens bounds
+    if max_tokens == 0 {
+        return Err(format!("{}.max_tokens must be > 0", backend_name));
+    }
+    if max_tokens > MAX_BACKEND_MAX_TOKENS {
+        return Err(format!(
+            "{}.max_tokens {} exceeds maximum {}",
+            backend_name, max_tokens, MAX_BACKEND_MAX_TOKENS
+        ));
+    }
+
+    // Endpoint URL validation (SSRF prevention)
+    if let Some(url) = endpoint {
+        if url.len() > MAX_BACKEND_ENDPOINT_LEN {
+            return Err(format!(
+                "{}.endpoint length {} exceeds maximum {}",
+                backend_name,
+                url.len(),
+                MAX_BACKEND_ENDPOINT_LEN
+            ));
+        }
+        if url.chars().any(|c| c.is_control()) {
+            return Err(format!(
+                "{}.endpoint contains control characters",
+                backend_name
+            ));
+        }
+        // SECURITY: Require https:// scheme for LLM backend endpoints.
+        // http:// is allowed for development but warned about.
+        if !url.starts_with("https://") && !url.starts_with("http://") {
+            return Err(format!(
+                "{}.endpoint must start with https:// or http://",
+                backend_name
+            ));
+        }
+        // SECURITY: Reject loopback/metadata endpoints to prevent SSRF.
+        let lower = url.to_lowercase();
+        let host_part = lower
+            .strip_prefix("https://")
+            .or_else(|| lower.strip_prefix("http://"))
+            .unwrap_or("");
+        // Extract host before path/port
+        let host = host_part
+            .split('/')
+            .next()
+            .unwrap_or("")
+            .split(':')
+            .next()
+            .unwrap_or("");
+        // Reject userinfo (@) in URL — SSRF bypass vector
+        if host_part.contains('@') {
+            return Err(format!(
+                "{}.endpoint must not contain userinfo (@)",
+                backend_name
+            ));
+        }
+        let loopbacks = [
+            "localhost",
+            "127.0.0.1",
+            "[::1]",
+            "0.0.0.0",
+            "169.254.169.254",
+            "metadata.google.internal",
+        ];
+        if loopbacks.contains(&host)
+            || host.starts_with("127.")
+            || host.starts_with("169.254.")
+            || host.ends_with(".internal")
+        {
+            return Err(format!(
+                "{}.endpoint must not target loopback or metadata endpoints (got '{}')",
+                backend_name, host
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 /// Intent classification configuration.
@@ -411,6 +709,10 @@ impl NlPolicyConfig {
         if self.id.chars().any(|c| c.is_control()) {
             return Err("nl_policy.id contains control characters".to_string());
         }
+        // SECURITY (FIND-R100-006): Reject Unicode format characters in NL policy fields.
+        if self.id.chars().any(is_unicode_format_char) {
+            return Err("nl_policy.id contains Unicode format characters".to_string());
+        }
         if self.name.len() > MAX_NL_POLICY_ID_LEN {
             return Err(format!(
                 "nl_policy.name length {} exceeds maximum {}",
@@ -420,6 +722,9 @@ impl NlPolicyConfig {
         }
         if self.name.chars().any(|c| c.is_control()) {
             return Err("nl_policy.name contains control characters".to_string());
+        }
+        if self.name.chars().any(is_unicode_format_char) {
+            return Err("nl_policy.name contains Unicode format characters".to_string());
         }
         if self.statement.is_empty() {
             return Err("nl_policy.statement is empty".to_string());
@@ -435,6 +740,9 @@ impl NlPolicyConfig {
         // log injection and prompt injection via invisible characters.
         if self.statement.chars().any(|c| c.is_control()) {
             return Err("nl_policy.statement contains control characters".to_string());
+        }
+        if self.statement.chars().any(is_unicode_format_char) {
+            return Err("nl_policy.statement contains Unicode format characters".to_string());
         }
         if self.tool_patterns.len() > MAX_NL_TOOL_PATTERNS {
             return Err(format!(
@@ -457,6 +765,12 @@ impl NlPolicyConfig {
             if pattern.chars().any(|c| c.is_control()) {
                 return Err(format!(
                     "nl_policy.tool_patterns[{}] contains control characters",
+                    i
+                ));
+            }
+            if pattern.chars().any(is_unicode_format_char) {
+                return Err(format!(
+                    "nl_policy.tool_patterns[{}] contains Unicode format characters",
                     i
                 ));
             }

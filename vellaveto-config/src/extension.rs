@@ -14,6 +14,7 @@ pub const MAX_EXTENSION_PATTERNS: usize = 256;
 
 /// Configuration for the protocol extension framework.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ExtensionConfig {
     /// Whether extensions are enabled. Default: false.
     #[serde(default)]
