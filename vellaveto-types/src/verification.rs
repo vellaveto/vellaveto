@@ -223,40 +223,28 @@ impl AccountabilityAttestation {
             ));
         }
         // SECURITY (FIND-R113-009): Validate control/format chars on non-hex string fields.
-        if self
-            .attestation_id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.attestation_id)
         {
             return Err(
                 "AccountabilityAttestation attestation_id contains control or format characters"
                     .to_string(),
             );
         }
-        if self
-            .agent_id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.agent_id)
         {
             return Err(
                 "AccountabilityAttestation agent_id contains control or format characters"
                     .to_string(),
             );
         }
-        if self
-            .statement
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.statement)
         {
             return Err(
                 "AccountabilityAttestation statement contains control or format characters"
                     .to_string(),
             );
         }
-        if self
-            .algorithm
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.algorithm)
         {
             return Err(
                 "AccountabilityAttestation algorithm contains control or format characters"

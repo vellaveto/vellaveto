@@ -135,10 +135,7 @@ impl McpCapability {
                 Self::MAX_NAME_LEN,
             ));
         }
-        if self
-            .name
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.name)
         {
             return Err("McpCapability name contains control or format characters".to_string());
         }
@@ -445,10 +442,7 @@ impl SchemaRecord {
                 Self::MAX_TOOL_NAME_LEN
             ));
         }
-        if self
-            .tool_name
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.tool_name)
         {
             return Err(
                 "SchemaRecord tool_name contains control or format characters".to_string(),
@@ -462,10 +456,7 @@ impl SchemaRecord {
                 Self::MAX_HASH_LEN
             ));
         }
-        if self
-            .schema_hash
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.schema_hash)
         {
             return Err(
                 "SchemaRecord schema_hash contains control or format characters".to_string(),
@@ -664,10 +655,7 @@ impl PrincipalContext {
                 Self::MAX_PRINCIPAL_LEN,
             ));
         }
-        if self
-            .original_principal
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.original_principal)
         {
             return Err(
                 "PrincipalContext original_principal contains control or format characters"

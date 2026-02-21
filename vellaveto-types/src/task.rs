@@ -111,10 +111,7 @@ impl TrackedTask {
                 Self::MAX_TASK_ID_LEN,
             ));
         }
-        if self
-            .task_id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.task_id)
         {
             return Err("TrackedTask task_id contains control or format characters".to_string());
         }
@@ -128,10 +125,7 @@ impl TrackedTask {
                 Self::MAX_TOOL_LEN,
             ));
         }
-        if self
-            .tool
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.tool)
         {
             return Err("TrackedTask tool contains control or format characters".to_string());
         }
@@ -145,10 +139,7 @@ impl TrackedTask {
                 Self::MAX_FUNCTION_LEN,
             ));
         }
-        if self
-            .function
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.function)
         {
             return Err("TrackedTask function contains control or format characters".to_string());
         }
@@ -268,7 +259,7 @@ impl TaskStateTransition {
                 ));
             }
             // SECURITY (FIND-R112-005): Reject Unicode format characters in addition to control chars.
-            if tb.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+            if crate::core::has_dangerous_chars(tb) {
                 return Err(
                     "TaskStateTransition triggered_by contains control or format characters".to_string(),
                 );
@@ -520,10 +511,7 @@ impl TaskCheckpoint {
                 Self::MAX_CHECKPOINT_ID_LEN,
             ));
         }
-        if self
-            .checkpoint_id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.checkpoint_id)
         {
             return Err(
                 "TaskCheckpoint checkpoint_id contains control or format characters".to_string(),
@@ -539,10 +527,7 @@ impl TaskCheckpoint {
                 Self::MAX_TASK_ID_LEN,
             ));
         }
-        if self
-            .task_id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.task_id)
         {
             return Err("TaskCheckpoint task_id contains control or format characters".to_string());
         }

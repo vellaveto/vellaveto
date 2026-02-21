@@ -101,19 +101,13 @@ impl CapabilityGrant {
 
     pub fn validate(&self) -> Result<(), CapabilityError> {
         // SECURITY (FIND-R113-007): Validate control/format chars on pattern fields.
-        if self
-            .tool_pattern
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.tool_pattern)
         {
             return Err(CapabilityError::ValidationFailed(
                 "CapabilityGrant tool_pattern contains control or format characters".to_string(),
             ));
         }
-        if self
-            .function_pattern
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.function_pattern)
         {
             return Err(CapabilityError::ValidationFailed(
                 "CapabilityGrant function_pattern contains control or format characters"
@@ -144,8 +138,7 @@ impl CapabilityGrant {
                 )));
             }
             // SECURITY (FIND-R113-007): Validate control/format chars on path entries.
-            if p.chars()
-                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            if crate::core::has_dangerous_chars(p)
             {
                 return Err(CapabilityError::ValidationFailed(format!(
                     "allowed_paths[{}] contains control or format characters",
@@ -163,8 +156,7 @@ impl CapabilityGrant {
                 )));
             }
             // SECURITY (FIND-R113-007): Validate control/format chars on domain entries.
-            if d.chars()
-                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            if crate::core::has_dangerous_chars(d)
             {
                 return Err(CapabilityError::ValidationFailed(format!(
                     "allowed_domains[{}] contains control or format characters",
@@ -235,10 +227,7 @@ impl CapabilityToken {
         }
         // SECURITY (FIND-R115-001): Reject control/format chars in identity fields
         // to prevent zero-width space or bidi override bypasses of string equality checks.
-        if self
-            .token_id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.token_id)
         {
             return Err(CapabilityError::ValidationFailed(
                 "token_id contains control or format characters".to_string(),
@@ -249,10 +238,7 @@ impl CapabilityToken {
                 "issuer must not be empty".to_string(),
             ));
         }
-        if self
-            .issuer
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.issuer)
         {
             return Err(CapabilityError::ValidationFailed(
                 "issuer contains control or format characters".to_string(),
@@ -263,10 +249,7 @@ impl CapabilityToken {
                 "holder must not be empty".to_string(),
             ));
         }
-        if self
-            .holder
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.holder)
         {
             return Err(CapabilityError::ValidationFailed(
                 "holder contains control or format characters".to_string(),

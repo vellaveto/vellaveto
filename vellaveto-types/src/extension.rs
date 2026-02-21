@@ -114,10 +114,7 @@ impl ExtensionDescriptor {
                 MAX_EXTENSION_NAME_LEN
             )));
         }
-        if self
-            .name
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.name)
         {
             return Err(ExtensionError::Validation(
                 "extension name contains control or format characters".to_string(),
@@ -136,20 +133,14 @@ impl ExtensionDescriptor {
                 MAX_EXTENSION_VERSION_LEN
             )));
         }
-        if self
-            .version
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.version)
         {
             return Err(ExtensionError::Validation(
                 "extension version contains control or format characters".to_string(),
             ));
         }
         // SECURITY (FIND-R129-002): Validate id for control/format characters.
-        if self
-            .id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.id)
         {
             return Err(ExtensionError::Validation(
                 "extension id contains control or format characters".to_string(),

@@ -67,10 +67,7 @@ impl ServiceEndpoint {
             ));
         }
         // SECURITY (FIND-R113-011): Validate control/format chars on id.
-        if self
-            .id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.id)
         {
             return Err(
                 "ServiceEndpoint id contains control or format characters".to_string(),
@@ -85,10 +82,7 @@ impl ServiceEndpoint {
             ));
         }
         // SECURITY (FIND-R113-011): Validate control/format chars on url.
-        if self
-            .url
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.url)
         {
             return Err(
                 "ServiceEndpoint url contains control or format characters".to_string(),
@@ -219,10 +213,7 @@ impl DeploymentInfo {
             ));
         }
         // SECURITY (FIND-R115-005): Reject control/format chars in mode.
-        if self
-            .mode
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.mode)
         {
             return Err(
                 "DeploymentInfo mode contains control or format characters".to_string(),

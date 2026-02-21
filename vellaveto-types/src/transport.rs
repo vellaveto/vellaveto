@@ -61,10 +61,7 @@ impl TransportEndpoint {
                 Self::MAX_URL_LEN,
             ));
         }
-        if self
-            .url
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.url)
         {
             return Err(
                 "TransportEndpoint url contains control or format characters".to_string(),
@@ -158,10 +155,7 @@ impl TransportAttempt {
                 Self::MAX_URL_LEN,
             ));
         }
-        if self
-            .endpoint_url
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.endpoint_url)
         {
             return Err(
                 "TransportAttempt endpoint_url contains control or format characters".to_string(),

@@ -204,10 +204,7 @@ impl DataGovernanceRecord {
                 Self::MAX_TOOL_LEN,
             ));
         }
-        if self
-            .tool
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.tool)
         {
             return Err(
                 "DataGovernanceRecord tool contains control or format characters".to_string(),
@@ -314,10 +311,7 @@ impl ReviewerAttestation {
                 Self::MAX_NAME_LEN,
             ));
         }
-        if self
-            .reviewer_name
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.reviewer_name)
         {
             return Err(
                 "ReviewerAttestation reviewer_name contains control or format characters"
@@ -334,10 +328,7 @@ impl ReviewerAttestation {
                 Self::MAX_TITLE_LEN,
             ));
         }
-        if self
-            .reviewer_title
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.reviewer_title)
         {
             return Err(
                 "ReviewerAttestation reviewer_title contains control or format characters"
@@ -360,10 +351,7 @@ impl ReviewerAttestation {
                 Self::MAX_NOTES_LEN,
             ));
         }
-        if self
-            .notes
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.notes)
         {
             return Err(
                 "ReviewerAttestation notes contains control or format characters".to_string(),
@@ -430,20 +418,14 @@ impl AccessReviewEntry {
     pub fn validate(&self) -> Result<(), String> {
         // SECURITY (FIND-R115-002): Reject control/format chars in identity fields
         // to prevent zero-width space or bidi override bypasses.
-        if self
-            .agent_id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.agent_id)
         {
             return Err(format!(
                 "AccessReviewEntry agent_id '{}' contains control or format characters",
                 self.agent_id,
             ));
         }
-        if self
-            .agency_recommendation
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.agency_recommendation)
         {
             return Err(format!(
                 "AccessReviewEntry for agent '{}' agency_recommendation contains control or format characters",
@@ -576,10 +558,7 @@ impl AccessReviewReport {
                 Self::MAX_TIMESTAMP_LEN,
             ));
         }
-        if self
-            .generated_at
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.generated_at)
         {
             return Err(
                 "AccessReviewReport generated_at contains control or format characters".to_string(),
@@ -592,10 +571,7 @@ impl AccessReviewReport {
                 Self::MAX_TIMESTAMP_LEN,
             ));
         }
-        if self
-            .period_start
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.period_start)
         {
             return Err(
                 "AccessReviewReport period_start contains control or format characters".to_string(),
@@ -608,10 +584,7 @@ impl AccessReviewReport {
                 Self::MAX_TIMESTAMP_LEN,
             ));
         }
-        if self
-            .period_end
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.period_end)
         {
             return Err(
                 "AccessReviewReport period_end contains control or format characters".to_string(),
@@ -629,10 +602,7 @@ impl AccessReviewReport {
                 Self::MAX_ORG_NAME_LEN,
             ));
         }
-        if self
-            .organization_name
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.organization_name)
         {
             return Err(
                 "AccessReviewReport organization_name contains control or format characters"

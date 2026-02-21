@@ -130,20 +130,14 @@ impl AbacPolicy {
     /// SECURITY (FIND-R115-006): Validate control/format chars on id and description.
     pub fn validate(&self) -> Result<(), String> {
         // SECURITY (FIND-R115-006): Reject control/format chars in identity fields.
-        if self
-            .id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.id)
         {
             return Err(format!(
                 "AbacPolicy '{}' id contains control or format characters",
                 self.id
             ));
         }
-        if self
-            .description
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.description)
         {
             return Err(format!(
                 "AbacPolicy '{}' description contains control or format characters",
@@ -278,20 +272,14 @@ impl AbacEntity {
     /// SECURITY (FIND-R115-006): Validate control/format chars on entity_type and id.
     pub fn validate(&self) -> Result<(), String> {
         // SECURITY (FIND-R115-006): Reject control/format chars in identity fields.
-        if self
-            .entity_type
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.entity_type)
         {
             return Err(format!(
                 "AbacEntity '{}::{}' entity_type contains control or format characters",
                 self.entity_type, self.id
             ));
         }
-        if self
-            .id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.id)
         {
             return Err(format!(
                 "AbacEntity '{}::{}' id contains control or format characters",
@@ -451,10 +439,7 @@ impl FederationTrustAnchor {
         }
         // SECURITY (FIND-R104-003): Also reject Unicode format characters
         // (zero-width, bidi overrides, BOM) which bypass visual inspection.
-        if self
-            .org_id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.org_id)
         {
             return Err(format!(
                 "FederationTrustAnchor '{}' org_id contains control or format characters",
@@ -553,10 +538,7 @@ impl IdentityMapping {
         }
         // SECURITY (FIND-R104-002): Also reject Unicode format characters
         // (zero-width, bidi overrides, BOM) which bypass visual inspection.
-        if self
-            .external_claim
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.external_claim)
         {
             return Err(format!(
                 "external_claim '{}' contains control or format characters",
@@ -571,10 +553,7 @@ impl IdentityMapping {
         }
         // SECURITY (FIND-R104-002): Also reject Unicode format characters
         // (zero-width, bidi overrides, BOM) which bypass visual inspection.
-        if self
-            .id_template
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.id_template)
         {
             return Err(format!(
                 "id_template '{}' contains control or format characters",
@@ -705,20 +684,14 @@ impl LeastAgencyReport {
     /// SECURITY (FIND-R53-005): Unbounded unused_permissions can cause OOM.
     pub fn validate(&self) -> Result<(), String> {
         // SECURITY (FIND-R115-006): Reject control/format chars in identity fields.
-        if self
-            .agent_id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.agent_id)
         {
             return Err(format!(
                 "LeastAgencyReport agent_id '{}' contains control or format characters",
                 self.agent_id
             ));
         }
-        if self
-            .session_id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.session_id)
         {
             return Err(format!(
                 "LeastAgencyReport session_id '{}' contains control or format characters",

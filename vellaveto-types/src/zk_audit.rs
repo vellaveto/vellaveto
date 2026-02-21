@@ -121,10 +121,7 @@ impl ZkBatchProof {
             ));
         }
         // SECURITY (FIND-R115-003): Reject control/format chars in identity fields.
-        if self
-            .batch_id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.batch_id)
         {
             return Err(
                 "ZkBatchProof batch_id contains control or format characters".to_string(),
@@ -159,10 +156,7 @@ impl ZkBatchProof {
             ));
         }
         // SECURITY (FIND-R115-003): Reject control/format chars in timestamp fields.
-        if self
-            .created_at
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.created_at)
         {
             return Err(
                 "ZkBatchProof created_at contains control or format characters".to_string(),

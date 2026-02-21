@@ -190,7 +190,7 @@ impl NhiAgentIdentity {
                 Self::MAX_ID_LEN
             ));
         }
-        if self.id.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+        if crate::core::has_dangerous_chars(&self.id) {
             return Err("NhiAgentIdentity id contains control or format characters".to_string());
         }
 
@@ -203,7 +203,7 @@ impl NhiAgentIdentity {
                 Self::MAX_NAME_LEN
             ));
         }
-        if self.name.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+        if crate::core::has_dangerous_chars(&self.name) {
             return Err(format!(
                 "NhiAgentIdentity '{}' name contains control or format characters",
                 self.id
@@ -228,7 +228,7 @@ impl NhiAgentIdentity {
                     Self::MAX_TAG_LEN
                 ));
             }
-            if tag.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+            if crate::core::has_dangerous_chars(tag) {
                 return Err(format!(
                     "NhiAgentIdentity '{}' tag[{i}] contains control or format characters",
                     self.id
@@ -254,7 +254,7 @@ impl NhiAgentIdentity {
                     Self::MAX_METADATA_KEY_LEN
                 ));
             }
-            if key.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+            if crate::core::has_dangerous_chars(key) {
                 return Err(format!(
                     "NhiAgentIdentity '{}' metadata key contains control or format characters",
                     self.id
@@ -268,7 +268,7 @@ impl NhiAgentIdentity {
                     Self::MAX_METADATA_VALUE_LEN
                 ));
             }
-            if value.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+            if crate::core::has_dangerous_chars(value) {
                 return Err(format!(
                     "NhiAgentIdentity '{}' metadata value contains control or format characters",
                     self.id
@@ -663,20 +663,14 @@ impl NhiDelegationLink {
         // SECURITY (FIND-R114-015): Reject control/format characters in from_agent
         // and to_agent BEFORE self-delegation check, preventing Unicode format char
         // bypass (e.g., "admin" vs "admin\u{200B}").
-        if self
-            .from_agent
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.from_agent)
         {
             return Err(
                 "NhiDelegationLink from_agent contains control or Unicode format characters"
                     .to_string(),
             );
         }
-        if self
-            .to_agent
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.to_agent)
         {
             return Err(
                 "NhiDelegationLink to_agent contains control or Unicode format characters"
@@ -837,10 +831,7 @@ impl NhiDpopProof {
         }
         // SECURITY (FIND-R104-005): Reject Unicode format characters in htm/htu/iat/jti
         // to prevent bidi-override and zero-width character injection.
-        if self
-            .htm
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.htm)
         {
             return Err("NhiDpopProof htm contains control or format characters".to_string());
         }
@@ -851,10 +842,7 @@ impl NhiDpopProof {
                 Self::MAX_FIELD_LEN,
             ));
         }
-        if self
-            .htu
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.htu)
         {
             return Err("NhiDpopProof htu contains control or format characters".to_string());
         }
@@ -867,7 +855,7 @@ impl NhiDpopProof {
                 ));
             }
             // SECURITY (FIND-R112-008): Reject control and format characters in ath.
-            if ath.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+            if crate::core::has_dangerous_chars(ath) {
                 return Err("NhiDpopProof ath contains control or format characters".to_string());
             }
         }
@@ -880,7 +868,7 @@ impl NhiDpopProof {
                 ));
             }
             // SECURITY (FIND-R112-008): Reject control and format characters in nonce.
-            if nonce.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+            if crate::core::has_dangerous_chars(nonce) {
                 return Err("NhiDpopProof nonce contains control or format characters".to_string());
             }
         }
@@ -891,10 +879,7 @@ impl NhiDpopProof {
                 Self::MAX_FIELD_LEN,
             ));
         }
-        if self
-            .iat
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.iat)
         {
             return Err("NhiDpopProof iat contains control or format characters".to_string());
         }
@@ -905,10 +890,7 @@ impl NhiDpopProof {
                 Self::MAX_FIELD_LEN,
             ));
         }
-        if self
-            .jti
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.jti)
         {
             return Err("NhiDpopProof jti contains control or format characters".to_string());
         }
@@ -1075,7 +1057,7 @@ impl NhiCredentialRotation {
                 Self::MAX_AGENT_ID_LEN,
             ));
         }
-        if self.agent_id.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+        if crate::core::has_dangerous_chars(&self.agent_id) {
             return Err("NhiCredentialRotation agent_id contains control or format characters".to_string());
         }
 
@@ -1087,7 +1069,7 @@ impl NhiCredentialRotation {
                     Self::MAX_THUMBPRINT_LEN,
                 ));
             }
-            if pt.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+            if crate::core::has_dangerous_chars(pt) {
                 return Err("NhiCredentialRotation previous_thumbprint contains control or format characters".to_string());
             }
         }
@@ -1099,7 +1081,7 @@ impl NhiCredentialRotation {
                 Self::MAX_THUMBPRINT_LEN,
             ));
         }
-        if self.new_thumbprint.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+        if crate::core::has_dangerous_chars(&self.new_thumbprint) {
             return Err("NhiCredentialRotation new_thumbprint contains control or format characters".to_string());
         }
 
@@ -1110,7 +1092,7 @@ impl NhiCredentialRotation {
                 Self::MAX_TIMESTAMP_LEN,
             ));
         }
-        if self.rotated_at.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+        if crate::core::has_dangerous_chars(&self.rotated_at) {
             return Err("NhiCredentialRotation rotated_at contains control or format characters".to_string());
         }
 
@@ -1121,7 +1103,7 @@ impl NhiCredentialRotation {
                 Self::MAX_TRIGGER_LEN,
             ));
         }
-        if self.trigger.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+        if crate::core::has_dangerous_chars(&self.trigger) {
             return Err("NhiCredentialRotation trigger contains control or format characters".to_string());
         }
 
@@ -1132,7 +1114,7 @@ impl NhiCredentialRotation {
                 Self::MAX_TIMESTAMP_LEN,
             ));
         }
-        if self.new_expires_at.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+        if crate::core::has_dangerous_chars(&self.new_expires_at) {
             return Err("NhiCredentialRotation new_expires_at contains control or format characters".to_string());
         }
 
