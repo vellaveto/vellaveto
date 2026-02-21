@@ -625,11 +625,28 @@ fn matches_resource(resource: &CompiledResource, action: &Action) -> bool {
         }
         let any_path_matches = action.target_paths.iter().any(|path| {
             // SECURITY (FIND-R49-001): Use bounded path normalization.
-            let normalized = crate::path::normalize_path_bounded(
+            // SECURITY (FIND-R149-006): On normalization failure, skip the path
+            // (return false for this path). This is fail-closed because:
+            // - Permit policies won't match → no false Allow
+            // - Forbid policies won't match → but unmatched actions still need a
+            //   Permit to be allowed, so the result is NoMatch → Deny at caller
+            // Previous behavior was `unwrap_or_else(|_| "/".to_string())` which
+            // was unpredictable: "/" could match broad Permit patterns like "/**"
+            // (false Allow) or miss specific Forbid patterns (false pass).
+            let normalized = match crate::path::normalize_path_bounded(
                 path,
                 crate::path::DEFAULT_MAX_PATH_DECODE_ITERATIONS,
-            )
-            .unwrap_or_else(|_| "/".to_string());
+            ) {
+                Ok(n) => n,
+                Err(e) => {
+                    tracing::warn!(
+                        path = %path,
+                        error = %e,
+                        "ABAC resource match: path normalization failed — skipping path (fail-closed)"
+                    );
+                    return false;
+                }
+            };
             resource
                 .path_matchers
                 .iter()

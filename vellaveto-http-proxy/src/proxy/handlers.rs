@@ -393,7 +393,7 @@ pub async fn handle_mcp_post(
                         "id": id,
                         "error": {
                             "code": -32602,
-                            "message": format!("Invalid tool name: {}", e),
+                            "message": "Invalid tool name",
                         }
                     });
                     return attach_session_header(
@@ -634,7 +634,7 @@ pub async fn handle_mcp_post(
                         "id": id,
                         "error": {
                             "code": -32001,
-                            "message": "Service temporarily unavailable — circuit breaker open",
+                            "message": "Service temporarily unavailable",
                         }
                     });
                     return attach_session_header(
@@ -847,7 +847,7 @@ pub async fn handle_mcp_post(
                             "id": id,
                             "error": {
                                 "code": -32001,
-                                "message": "Denied by policy: privilege escalation detected"
+                                "message": "Denied by policy"
                             }
                         });
                         return attach_session_header(
@@ -1698,7 +1698,7 @@ pub async fn handle_mcp_post(
                         "id": id,
                         "error": {
                             "code": -32001,
-                            "message": "Service temporarily unavailable — circuit breaker open",
+                            "message": "Service temporarily unavailable",
                         }
                     });
                     return attach_session_header(
@@ -2092,8 +2092,11 @@ pub async fn handle_mcp_post(
                 }
             }
         }
-        MessageType::PassThrough => {
-            // Forward — includes initialize, tools/list, notifications, etc.
+        MessageType::PassThrough | MessageType::ProgressNotification { .. } => {
+            // Forward — includes initialize, tools/list, notifications, progress, etc.
+            // SECURITY (FIND-R148-002): ProgressNotification merged with PassThrough
+            // for DLP + injection scanning parity with WS (mod.rs:2719) and gRPC
+            // (service.rs:223). Previously ProgressNotification bypassed all scanning.
             // SECURITY: Audit pass-through requests for visibility. These bypass
             // policy evaluation but must have an audit trail.
             let method_name = msg
@@ -2782,30 +2785,6 @@ pub async fn handle_mcp_post(
                 (StatusCode::OK, Json(response)).into_response(),
                 &session_id,
             )
-        }
-        MessageType::ProgressNotification { .. } => {
-            // Progress notifications are upstream→client; if received from client, forward as-is
-            let forward_body = match canonicalize_body(&state, &msg, body) {
-                Some(b) => b,
-                None => {
-                    return make_jsonrpc_error(
-                        msg.get("id"),
-                        -32603,
-                        "Internal error: canonicalization failed",
-                    )
-                }
-            };
-            let (up_tp, up_ts) =
-                trace_propagation::build_upstream_headers(&vellaveto_trace_ctx, "allow");
-            let response = forward_to_upstream(
-                &state,
-                &session_id,
-                forward_body,
-                auth_header_for_upstream.as_deref(),
-                Some((up_tp.as_str(), up_ts.as_deref())),
-            )
-            .await;
-            attach_session_header(response, &session_id)
         }
         MessageType::ExtensionMethod {
             ref id,
