@@ -2218,9 +2218,18 @@ async fn relay_client_to_upstream(
                             }
                         }
 
-                        let action =
+                        let mut action =
                             extractor::extract_extension_action(extension_id, method, &params);
+
+                        // SECURITY (FIND-R118-004): DNS resolution for extension methods.
+                        // Parity with ToolCall (line 710) and ResourceRead (line 1439).
+                        if state.engine.has_ip_rules() {
+                            super::helpers::resolve_domains(&mut action).await;
+                        }
+
                         let ctx = build_ws_evaluation_context(&state, &session_id);
+                        let ext_key = format!("extension:{}:{}", extension_id, method);
+
                         let verdict = match state.engine.evaluate_action_with_context(
                             &action,
                             &state.policies,
@@ -2240,6 +2249,126 @@ async fn relay_client_to_upstream(
 
                         match verdict {
                             Verdict::Allow => {
+                                // SECURITY (FIND-R118-002): ABAC refinement for extension methods.
+                                // Parity with ToolCall (line 1099) and ResourceRead (line 1498).
+                                if let Some(ref abac) = state.abac_engine {
+                                    let principal_id =
+                                        ctx.agent_id.as_deref().unwrap_or("anonymous");
+                                    let principal_type = ctx
+                                        .agent_identity
+                                        .as_ref()
+                                        .and_then(|aid| aid.claims.get("type"))
+                                        .and_then(|v: &serde_json::Value| v.as_str())
+                                        .unwrap_or("Agent");
+                                    let session_risk = state
+                                        .sessions
+                                        .get_mut(&session_id)
+                                        .and_then(|s| s.risk_score.clone());
+                                    let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
+                                        eval_ctx: &ctx,
+                                        principal_type,
+                                        principal_id,
+                                        risk_score: session_risk.as_ref(),
+                                    };
+                                    match abac.evaluate(&action, &abac_ctx) {
+                                        vellaveto_engine::abac::AbacDecision::Deny {
+                                            policy_id,
+                                            reason,
+                                        } => {
+                                            let deny_verdict = Verdict::Deny {
+                                                reason: format!(
+                                                    "ABAC denied by {}: {}",
+                                                    policy_id, reason
+                                                ),
+                                            };
+                                            if let Err(e) = state
+                                                .audit
+                                                .log_entry(
+                                                    &action,
+                                                    &deny_verdict,
+                                                    json!({
+                                                        "source": "ws_proxy",
+                                                        "session": session_id,
+                                                        "transport": "websocket",
+                                                        "extension_id": extension_id,
+                                                        "abac_policy": policy_id,
+                                                    }),
+                                                )
+                                                .await
+                                            {
+                                                tracing::warn!(
+                                                    "Failed to audit WS extension ABAC deny: {}",
+                                                    e
+                                                );
+                                            }
+                                            let error_resp = make_ws_error_response(
+                                                Some(id),
+                                                -32001,
+                                                "Denied by policy",
+                                            );
+                                            let mut sink = client_sink.lock().await;
+                                            let _ =
+                                                sink.send(Message::Text(error_resp.into())).await;
+                                            continue;
+                                        }
+                                        vellaveto_engine::abac::AbacDecision::Allow {
+                                            policy_id,
+                                        } => {
+                                            if let Some(ref la) = state.least_agency {
+                                                la.record_usage(
+                                                    principal_id,
+                                                    &session_id,
+                                                    &policy_id,
+                                                    &ext_key,
+                                                    method,
+                                                );
+                                            }
+                                        }
+                                        vellaveto_engine::abac::AbacDecision::NoMatch => {
+                                            // Fall through — existing Allow stands
+                                        }
+                                        #[allow(unreachable_patterns)]
+                                        // AbacDecision is #[non_exhaustive]
+                                        _ => {
+                                            // SECURITY: Future variants — fail-closed (deny).
+                                            tracing::warn!(
+                                                "Unknown AbacDecision variant — fail-closed"
+                                            );
+                                            let error_resp = make_ws_error_response(
+                                                Some(id),
+                                                -32001,
+                                                "Denied by policy",
+                                            );
+                                            let mut sink = client_sink.lock().await;
+                                            let _ =
+                                                sink.send(Message::Text(error_resp.into())).await;
+                                            continue;
+                                        }
+                                    }
+                                }
+
+                                // SECURITY (FIND-R118-003): Track extension calls in call_counts/action_history.
+                                // Parity with ToolCall (line 1204) and ResourceRead (line 1584).
+                                if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                                    session.touch();
+                                    use crate::proxy::call_chain::{
+                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+                                    };
+                                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                                        || session.call_counts.contains_key(&ext_key)
+                                    {
+                                        let count = session
+                                            .call_counts
+                                            .entry(ext_key.clone())
+                                            .or_insert(0);
+                                        *count = count.saturating_add(1);
+                                    }
+                                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                                        session.action_history.pop_front();
+                                    }
+                                    session.action_history.push_back(ext_key.clone());
+                                }
+
                                 if let Err(e) = state
                                     .audit
                                     .log_entry(

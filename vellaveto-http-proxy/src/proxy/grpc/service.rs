@@ -337,14 +337,98 @@ impl McpGrpcService {
                     }
                 }
 
-                // SECURITY (FIND-R55-GRPC-005): Audit log PassThrough messages.
-                // Parity with HTTP handler (handlers.rs:1731-1757) and WS handler
-                // (websocket/mod.rs:1809-1838). PassThrough bypasses policy evaluation
-                // but must have an audit trail for observability.
                 let method_name = json_req
                     .get("method")
                     .and_then(|m| m.as_str())
                     .unwrap_or("unknown");
+
+                // SECURITY (FIND-R113-001): Injection scanning on PassThrough parameters.
+                // Parity with HTTP handler (handlers.rs:2199-2277, FIND-R112-008) and
+                // WebSocket handler (pre-classify scan on all incoming messages).
+                if !self.state.injection_disabled {
+                    let scannable = extract_passthrough_text_for_injection(&json_req);
+                    if !scannable.is_empty() {
+                        let injection_matches: Vec<String> =
+                            if let Some(ref scanner) = self.state.injection_scanner {
+                                scanner
+                                    .inspect(&scannable)
+                                    .into_iter()
+                                    .map(|s| s.to_string())
+                                    .collect()
+                            } else {
+                                inspect_for_injection(&scannable)
+                                    .into_iter()
+                                    .map(|s| s.to_string())
+                                    .collect()
+                            };
+
+                        if !injection_matches.is_empty() {
+                            tracing::warn!(
+                                "SECURITY: Injection in gRPC passthrough params! \
+                                 Session: {}, Method: {}, Patterns: {:?}",
+                                session_id,
+                                method_name,
+                                injection_matches,
+                            );
+
+                            let verdict = if self.state.injection_blocking {
+                                Verdict::Deny {
+                                    reason: format!(
+                                        "PassThrough injection blocked: {:?}",
+                                        injection_matches
+                                    ),
+                                }
+                            } else {
+                                Verdict::Allow
+                            };
+
+                            let inj_action = Action::new(
+                                "vellaveto",
+                                "passthrough_injection_scan",
+                                json!({
+                                    "matched_patterns": injection_matches,
+                                    "method": method_name,
+                                    "session": session_id,
+                                    "transport": "grpc",
+                                }),
+                            );
+                            if let Err(e) = self
+                                .state
+                                .audit
+                                .log_entry(
+                                    &inj_action,
+                                    &verdict,
+                                    json!({
+                                        "source": "grpc_proxy",
+                                        "event": "passthrough_injection_detected",
+                                        "blocking": self.state.injection_blocking,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    "Failed to audit gRPC passthrough injection: {}",
+                                    e
+                                );
+                            }
+
+                            if self.state.injection_blocking {
+                                // SECURITY (FIND-R113-001): Generic client message;
+                                // detailed reason in audit log.
+                                return make_proto_error_response(
+                                    proto_req,
+                                    -32001,
+                                    "Request blocked: security policy violation",
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // SECURITY (FIND-R55-GRPC-005): Audit log PassThrough messages.
+                // Parity with HTTP handler (handlers.rs:1731-1757) and WS handler
+                // (websocket/mod.rs:1809-1838). PassThrough bypasses policy evaluation
+                // but must have an audit trail for observability.
                 let action = Action::new("passthrough", method_name, json!({}));
                 if let Err(e) = self
                     .state
@@ -1658,8 +1742,16 @@ impl McpGrpcService {
             }
         }
 
-        let action = extractor::extract_extension_action(extension_id, method, &params);
+        let mut action = extractor::extract_extension_action(extension_id, method, &params);
+
+        // SECURITY (FIND-R118-004): DNS resolution for extension methods.
+        // Parity with handle_tool_call (line 637) and handle_resource_read (line 1047).
+        if self.state.engine.has_ip_rules() {
+            super::super::helpers::resolve_domains(&mut action).await;
+        }
+
         let ctx = self.build_evaluation_context(session_id);
+        let ext_key = format!("extension:{}:{}", extension_id, method);
 
         let verdict = match self.state.engine.evaluate_action_with_context(
             &action,
@@ -1677,6 +1769,91 @@ impl McpGrpcService {
 
         match &verdict {
             Verdict::Allow => {
+                // SECURITY (FIND-R118-002): ABAC refinement for extension methods.
+                // Parity with handle_tool_call (line 758) and handle_resource_read (line 1096).
+                if let Some(ref abac) = self.state.abac_engine {
+                    let principal_id = ctx.agent_id.as_deref().unwrap_or("anonymous");
+                    let principal_type = ctx
+                        .agent_identity
+                        .as_ref()
+                        .and_then(|aid| aid.claims.get("type"))
+                        .and_then(|v: &serde_json::Value| v.as_str())
+                        .unwrap_or("Agent");
+                    let session_risk = self
+                        .state
+                        .sessions
+                        .get_mut(session_id)
+                        .and_then(|s| s.risk_score.clone());
+                    let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
+                        eval_ctx: &ctx,
+                        principal_type,
+                        principal_id,
+                        risk_score: session_risk.as_ref(),
+                    };
+                    match abac.evaluate(&action, &abac_ctx) {
+                        vellaveto_engine::abac::AbacDecision::Deny { policy_id, reason } => {
+                            let deny_verdict = Verdict::Deny {
+                                reason: format!("ABAC denied by {}: {}", policy_id, reason),
+                            };
+                            if let Err(e) = self
+                                .state
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &deny_verdict,
+                                    json!({
+                                        "source": "grpc_proxy",
+                                        "session": session_id,
+                                        "transport": "grpc",
+                                        "extension_id": extension_id,
+                                        "abac_policy": policy_id,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!("Failed to audit gRPC extension ABAC deny: {}", e);
+                            }
+                            return make_proto_denial_response(proto_req, "Denied by policy");
+                        }
+                        vellaveto_engine::abac::AbacDecision::Allow { policy_id } => {
+                            if let Some(ref la) = self.state.least_agency {
+                                la.record_usage(
+                                    principal_id,
+                                    session_id,
+                                    &policy_id,
+                                    &ext_key,
+                                    method,
+                                );
+                            }
+                        }
+                        vellaveto_engine::abac::AbacDecision::NoMatch => {
+                            // Fall through — existing Allow stands
+                        }
+                        #[allow(unreachable_patterns)] // AbacDecision is #[non_exhaustive]
+                        _ => {
+                            // SECURITY: Future variants — fail-closed (deny).
+                            tracing::warn!("Unknown AbacDecision variant — fail-closed");
+                            return make_proto_denial_response(proto_req, "Denied by policy");
+                        }
+                    }
+                }
+
+                // SECURITY (FIND-R118-003): Track extension calls in call_counts/action_history.
+                // Parity with handle_tool_call (line 889) and handle_resource_read (line 1148).
+                if let Some(mut session) = self.state.sessions.get_mut(session_id) {
+                    session.touch();
+                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                        || session.call_counts.contains_key(&ext_key)
+                    {
+                        let count = session.call_counts.entry(ext_key.clone()).or_insert(0);
+                        *count = count.saturating_add(1);
+                    }
+                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                        session.action_history.pop_front();
+                    }
+                    session.action_history.push_back(ext_key.clone());
+                }
+
                 if let Err(e) = self
                     .state
                     .audit
@@ -1799,6 +1976,56 @@ fn extract_scannable_text(json_val: &Value) -> String {
     }
 
     text_parts.join("\n")
+}
+
+/// Extract scannable text from a PassThrough JSON-RPC message for injection scanning.
+///
+/// SECURITY (FIND-R113-001): Recursively extracts string values from `params` and
+/// `result` fields. Bounded to prevent memory amplification from deeply nested or
+/// highly branched JSON structures. Parity with HTTP handler's
+/// `extract_passthrough_text_for_injection` (handlers.rs).
+fn extract_passthrough_text_for_injection(msg: &Value) -> String {
+    const MAX_DEPTH: usize = 10;
+    const MAX_PARTS: usize = 1000;
+    let mut parts = Vec::new();
+
+    // Scan params (client→upstream direction)
+    if let Some(params) = msg.get("params") {
+        extract_strings_for_injection(params, &mut parts, 0, MAX_DEPTH, MAX_PARTS);
+    }
+    // Scan result (upstream→client direction, e.g. sampling/elicitation responses)
+    if let Some(result) = msg.get("result") {
+        extract_strings_for_injection(result, &mut parts, 0, MAX_DEPTH, MAX_PARTS);
+    }
+
+    parts.join("\n")
+}
+
+/// Recursively extract string values from a JSON value with depth and count bounds.
+fn extract_strings_for_injection(
+    val: &Value,
+    parts: &mut Vec<String>,
+    depth: usize,
+    max_depth: usize,
+    max_parts: usize,
+) {
+    if depth > max_depth || parts.len() >= max_parts {
+        return;
+    }
+    match val {
+        Value::String(s) => parts.push(s.clone()),
+        Value::Array(arr) => {
+            for item in arr {
+                extract_strings_for_injection(item, parts, depth + 1, max_depth, max_parts);
+            }
+        }
+        Value::Object(map) => {
+            for (_key, v) in map {
+                extract_strings_for_injection(v, parts, depth + 1, max_depth, max_parts);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[tonic::async_trait]

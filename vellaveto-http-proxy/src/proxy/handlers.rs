@@ -2878,8 +2878,17 @@ pub async fn handle_mcp_post(
                 }
             }
 
-            let action = extractor::extract_extension_action(extension_id, method, &params);
+            let mut action = extractor::extract_extension_action(extension_id, method, &params);
+
+            // SECURITY (FIND-R118-004): DNS resolution for extension methods.
+            // Parity with ToolCall (line 721) and ResourceRead (line 1660).
+            if state.engine.has_ip_rules() {
+                resolve_domains(&mut action).await;
+            }
+
             let eval_ctx = build_evaluation_context(&state.sessions, &session_id);
+
+            let ext_key = format!("extension:{}:{}", extension_id, method);
 
             let verdict = match state.engine.evaluate_action_with_context(
                 &action,
@@ -2900,6 +2909,116 @@ pub async fn handle_mcp_post(
 
             match verdict {
                 Verdict::Allow => {
+                    // SECURITY (FIND-R118-002): ABAC refinement for extension methods.
+                    // Parity with ToolCall (line 859) and ResourceRead (line 1778).
+                    if let Some(ref abac) = state.abac_engine {
+                        let abac_eval_ctx = build_evaluation_context(&state.sessions, &session_id)
+                            .unwrap_or_default();
+                        let principal_id = abac_eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
+                        let principal_type = abac_eval_ctx
+                            .agent_identity
+                            .as_ref()
+                            .and_then(|id| id.claims.get("type"))
+                            .and_then(|v: &serde_json::Value| v.as_str())
+                            .unwrap_or("Agent");
+                        let session_risk = state
+                            .sessions
+                            .get_mut(&session_id)
+                            .and_then(|s| s.risk_score.clone());
+                        let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
+                            eval_ctx: &abac_eval_ctx,
+                            principal_type,
+                            principal_id,
+                            risk_score: session_risk.as_ref(),
+                        };
+
+                        match abac.evaluate(&action, &abac_ctx) {
+                            vellaveto_engine::abac::AbacDecision::Deny { policy_id, reason } => {
+                                let verdict = Verdict::Deny {
+                                    reason: reason.clone(),
+                                };
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &verdict,
+                                        build_audit_context(
+                                            &session_id,
+                                            serde_json::json!({
+                                                "extension_id": extension_id,
+                                                "method": method,
+                                                "event": "abac_deny",
+                                                "abac_policy_id": policy_id,
+                                            }),
+                                            &oauth_claims,
+                                        ),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!("Failed to audit extension ABAC deny: {}", e);
+                                }
+                                let response = serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "error": {
+                                        "code": -32001,
+                                        "message": "Denied by policy"
+                                    }
+                                });
+                                return attach_session_header(
+                                    (StatusCode::OK, Json(response)).into_response(),
+                                    &session_id,
+                                );
+                            }
+                            vellaveto_engine::abac::AbacDecision::Allow { policy_id } => {
+                                if let Some(ref la) = state.least_agency {
+                                    la.record_usage(
+                                        principal_id,
+                                        &session_id,
+                                        &policy_id,
+                                        &ext_key,
+                                        method,
+                                    );
+                                }
+                            }
+                            vellaveto_engine::abac::AbacDecision::NoMatch => {
+                                // Fall through — existing Allow verdict stands
+                            }
+                            #[allow(unreachable_patterns)] // AbacDecision is #[non_exhaustive]
+                            _ => {
+                                // SECURITY: Future variants — fail-closed (deny).
+                                tracing::warn!("Unknown AbacDecision variant — fail-closed");
+                                let response = serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "error": {
+                                        "code": -32001,
+                                        "message": "Denied by policy"
+                                    }
+                                });
+                                return attach_session_header(
+                                    (StatusCode::OK, Json(response)).into_response(),
+                                    &session_id,
+                                );
+                            }
+                        }
+                    }
+
+                    // SECURITY (FIND-R118-003): Track extension calls in call_counts/action_history.
+                    // Parity with ToolCall (line 759) and ResourceRead (line 1748).
+                    if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                        if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                            || session.call_counts.contains_key(&ext_key)
+                        {
+                            let count = session.call_counts.entry(ext_key.clone()).or_insert(0);
+                            *count = count.saturating_add(1);
+                        }
+                        if session.action_history.len() >= MAX_ACTION_HISTORY {
+                            session.action_history.pop_front();
+                        }
+                        session.action_history.push_back(ext_key.clone());
+                    }
+
                     if let Err(e) = state
                         .audit
                         .log_entry(
