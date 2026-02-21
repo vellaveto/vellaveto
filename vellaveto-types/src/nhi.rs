@@ -287,18 +287,27 @@ impl NhiAgentIdentity {
 
         // SECURITY (IMP-R122-009): Validate ISO 8601 timestamp fields.
         // Malformed timestamps can bypass is_expired() checks.
-        crate::time_util::parse_iso8601_secs(&self.issued_at).map_err(|e| {
+        let issued_ts = crate::time_util::parse_iso8601_secs(&self.issued_at).map_err(|e| {
             format!(
                 "NhiAgentIdentity '{}' issued_at is not valid ISO 8601: {}",
                 self.id, e
             )
         })?;
-        crate::time_util::parse_iso8601_secs(&self.expires_at).map_err(|e| {
+        let expires_ts = crate::time_util::parse_iso8601_secs(&self.expires_at).map_err(|e| {
             format!(
                 "NhiAgentIdentity '{}' expires_at is not valid ISO 8601: {}",
                 self.id, e
             )
         })?;
+        // SECURITY (FIND-R126-010): Temporal ordering — expires_at must be
+        // strictly after issued_at.  An identity that expires before or at its
+        // issuance time is nonsensical and could be used to confuse is_expired().
+        if expires_ts <= issued_ts {
+            return Err(format!(
+                "NhiAgentIdentity '{}' expires_at ({}) must be after issued_at ({})",
+                self.id, self.expires_at, self.issued_at
+            ));
+        }
         if let Some(ref lr) = self.last_rotation {
             crate::time_util::parse_iso8601_secs(lr).map_err(|e| {
                 format!(
@@ -465,6 +474,14 @@ impl NhiBehavioralBaseline {
                 self.confidence
             ));
         }
+        // SECURITY (FIND-R126-011): Validate ISO 8601 timestamp fields.
+        // Malformed timestamps bypass temporal comparisons.
+        crate::time_util::parse_iso8601_secs(&self.created_at).map_err(|e| {
+            format!("NhiBehavioralBaseline created_at is not valid ISO 8601: {e}")
+        })?;
+        crate::time_util::parse_iso8601_secs(&self.last_updated).map_err(|e| {
+            format!("NhiBehavioralBaseline last_updated is not valid ISO 8601: {e}")
+        })?;
         Ok(())
     }
 
@@ -477,6 +494,10 @@ impl NhiBehavioralBaseline {
 
 impl Default for NhiBehavioralBaseline {
     fn default() -> Self {
+        // SECURITY (FIND-R126-011): Use a valid ISO 8601 epoch timestamp so that
+        // `validate()` does not reject freshly-constructed defaults.  Previous
+        // empty-string defaults would fail the new timestamp validation.
+        let epoch = "1970-01-01T00:00:00Z".to_string();
         Self {
             agent_id: String::new(),
             tool_call_patterns: HashMap::new(),
@@ -484,8 +505,8 @@ impl Default for NhiBehavioralBaseline {
             request_interval_stddev: 0.0,
             typical_session_duration_secs: 0.0,
             observation_count: 0,
-            created_at: String::new(),
-            last_updated: String::new(),
+            created_at: epoch.clone(),
+            last_updated: epoch,
             confidence: 0.0,
             typical_source_ips: Vec::new(),
             active_hours: Vec::new(),

@@ -383,4 +383,23 @@ mod tests {
         assert!(!crate::routes::is_unsafe_char('a'));
         assert!(!crate::routes::is_unsafe_char(' '));
     }
+
+    // IMP-R126-003: Regression test for U+2065 gap that existed when is_unsafe_char
+    // used inline ranges (0x2060..=0x2064) and (0x2066..=0x2069), missing U+2065.
+    #[test]
+    fn test_is_unsafe_char_u2065_no_longer_missing() {
+        assert!(
+            crate::routes::is_unsafe_char('\u{2065}'),
+            "U+2065 must be detected — was previously missed in range gap"
+        );
+        // Verify the full contiguous range 2060-2069
+        for cp in 0x2060u32..=0x2069 {
+            let c = char::from_u32(cp).unwrap();
+            assert!(
+                crate::routes::is_unsafe_char(c),
+                "U+{:04X} must be detected as unsafe",
+                cp
+            );
+        }
+    }
 }

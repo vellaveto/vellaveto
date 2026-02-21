@@ -137,11 +137,10 @@ impl MemoryEntry {
     const MAX_AGENT_ID_LEN: usize = 256;
 
     /// Helper: validate a string field for control/format characters.
+    ///
+    /// SECURITY (IMP-R126-011): Delegates to canonical `has_dangerous_chars()`.
     fn validate_no_control_chars(type_name: &str, field_name: &str, value: &str) -> Result<(), String> {
-        if value
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
-        {
+        if crate::core::has_dangerous_chars(value) {
             return Err(format!(
                 "{} {} contains control or format characters",
                 type_name, field_name

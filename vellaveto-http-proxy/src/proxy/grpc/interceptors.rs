@@ -11,17 +11,13 @@ use tonic::{service::Interceptor, Request, Status};
 
 use super::super::ProxyState;
 
-pub(crate) use vellaveto_types::is_unicode_format_char;
-
 /// Check if a string contains ASCII control characters or Unicode format characters.
 ///
-/// SECURITY (FIND-R73-SRV-004): Rejects ALL ASCII controls (including \n, \r, \t)
-/// and Unicode format chars (zero-width, bidi overrides, BOM). This matches the
-/// HTTP `is_unsafe_char` behavior — gRPC metadata values should not contain any
-/// control characters.
+/// SECURITY (FIND-R73-SRV-004, IMP-R126-002): Delegates to canonical
+/// `has_dangerous_chars()` from vellaveto-types. Rejects ALL ASCII controls
+/// (including \n, \r, \t) and Unicode format chars (zero-width, bidi overrides, BOM).
 pub(crate) fn contains_dangerous_chars(s: &str) -> bool {
-    s.chars()
-        .any(|c| c.is_control() || is_unicode_format_char(c))
+    vellaveto_types::has_dangerous_chars(s)
 }
 
 /// gRPC metadata key names (matching HTTP header semantics).

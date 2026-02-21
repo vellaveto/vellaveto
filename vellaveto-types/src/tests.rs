@@ -7180,3 +7180,67 @@ fn test_nhi_agent_identity_validate_malformed_last_rotation() {
     let err = identity.validate().unwrap_err();
     assert!(err.contains("last_rotation") && err.contains("ISO 8601"), "got: {}", err);
 }
+
+// FIND-R126-010: Temporal ordering — expires_at must be after issued_at.
+#[test]
+fn test_nhi_agent_identity_validate_expires_before_issued() {
+    let identity = NhiAgentIdentity {
+        id: "agent-1".to_string(),
+        name: "Test".to_string(),
+        issued_at: "2027-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-01-01T00:00:00Z".to_string(), // before issued_at
+        ..Default::default()
+    };
+    let err = identity.validate().unwrap_err();
+    assert!(
+        err.contains("expires_at") && err.contains("must be after issued_at"),
+        "got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_nhi_agent_identity_validate_expires_equal_issued() {
+    let identity = NhiAgentIdentity {
+        id: "agent-1".to_string(),
+        name: "Test".to_string(),
+        issued_at: "2027-01-01T00:00:00Z".to_string(),
+        expires_at: "2027-01-01T00:00:00Z".to_string(), // equal to issued_at
+        ..Default::default()
+    };
+    let err = identity.validate().unwrap_err();
+    assert!(
+        err.contains("expires_at") && err.contains("must be after issued_at"),
+        "got: {}",
+        err
+    );
+}
+
+// FIND-R126-011: NhiBehavioralBaseline timestamp validation.
+#[test]
+fn test_nhi_behavioral_baseline_validate_malformed_created_at() {
+    let baseline = NhiBehavioralBaseline {
+        created_at: "not-a-date".to_string(),
+        ..NhiBehavioralBaseline::default()
+    };
+    let err = baseline.validate().unwrap_err();
+    assert!(
+        err.contains("created_at") && err.contains("ISO 8601"),
+        "got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_nhi_behavioral_baseline_validate_malformed_last_updated() {
+    let baseline = NhiBehavioralBaseline {
+        last_updated: "garbage".to_string(),
+        ..NhiBehavioralBaseline::default()
+    };
+    let err = baseline.validate().unwrap_err();
+    assert!(
+        err.contains("last_updated") && err.contains("ISO 8601"),
+        "got: {}",
+        err
+    );
+}

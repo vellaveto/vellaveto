@@ -1866,4 +1866,84 @@ mod tests {
             "Same action with reordered IPs should deduplicate to same approval ID"
         );
     }
+
+    // IMP-R126-008: Verify load_from_file() evicts stale resolved entries
+    // so they don't count toward the capacity limit.
+    #[tokio::test]
+    async fn test_load_from_file_evicts_stale_resolved() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("approvals.jsonl");
+
+        // Create store, add entries, resolve one with an old timestamp
+        let store = ApprovalStore::new(log_path.clone(), std::time::Duration::from_secs(900));
+        let id_pending = store
+            .create(test_action(), "still pending".to_string(), None)
+            .await
+            .unwrap();
+        let id_old_resolved = store
+            .create(
+                Action::new(
+                    "network".to_string(),
+                    "http_request".to_string(),
+                    json!({"url": "https://example.com"}),
+                ),
+                "old resolved".to_string(),
+                None,
+            )
+            .await
+            .unwrap();
+        // Approve the second one (sets resolved_at to now)
+        store.approve(&id_old_resolved, "admin").await.unwrap();
+
+        // Manually rewrite the file so the resolved entry has a very old resolved_at
+        // (3 hours ago, well past the 1h retention cutoff)
+        let content = tokio::fs::read_to_string(&log_path).await.unwrap();
+        let old_ts = (Utc::now() - Duration::hours(3)).to_rfc3339();
+        let mut new_lines = Vec::new();
+        for line in content.lines() {
+            if line.contains(&id_old_resolved) {
+                // Replace the resolved_at timestamp with an old one
+                if let Ok(mut entry) = serde_json::from_str::<PendingApproval>(line) {
+                    if entry.status != ApprovalStatus::Pending {
+                        entry.resolved_at = Some(
+                            chrono::DateTime::parse_from_rfc3339(&old_ts)
+                                .unwrap()
+                                .with_timezone(&Utc),
+                        );
+                        // Also backdate created_at so it's clearly old
+                        entry.created_at =
+                            chrono::DateTime::parse_from_rfc3339(&old_ts)
+                                .unwrap()
+                                .with_timezone(&Utc);
+                        new_lines.push(serde_json::to_string(&entry).unwrap());
+                        continue;
+                    }
+                }
+            }
+            new_lines.push(line.to_string());
+        }
+        tokio::fs::write(&log_path, new_lines.join("\n") + "\n")
+            .await
+            .unwrap();
+
+        // Load into a fresh store — the old resolved entry should be evicted
+        let store2 = ApprovalStore::new(log_path, std::time::Duration::from_secs(900));
+        let loaded = store2.load_from_file().await.unwrap();
+        // Only the pending entry should survive
+        assert!(loaded >= 1, "Should load at least 1 entry, got {}", loaded);
+
+        // Pending entry must still be accessible
+        let pending = store2.get(&id_pending).await;
+        assert!(
+            pending.is_ok(),
+            "Pending entry should survive retention cleanup"
+        );
+
+        // Old resolved entry should have been evicted
+        let old = store2.get(&id_old_resolved).await;
+        assert!(
+            old.is_err(),
+            "Resolved entry with 3h-old resolved_at should be evicted on load"
+        );
+    }
 }

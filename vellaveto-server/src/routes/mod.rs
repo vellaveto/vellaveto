@@ -65,20 +65,12 @@ pub use main::*;
 /// Maximum length for path parameters (IDs, tool names, session IDs).
 const MAX_PATH_PARAM_LEN: usize = 256;
 
-/// SECURITY (FIND-R51-005): Detect control characters AND Unicode format
-/// characters that can bypass simple `is_control()` checks.
-/// Mirrors `is_unsafe_char` from nhi.rs.
+/// SECURITY (FIND-R51-005, IMP-R126-003): Detect control characters AND Unicode
+/// format characters. Delegates to canonical `is_unicode_format_char()` from
+/// vellaveto-types, fixing the U+2065 gap that existed in the previous inline
+/// range implementation.
 pub(crate) fn is_unsafe_char(c: char) -> bool {
-    let cp = c as u32;
-    c.is_control()
-        || (0x200B..=0x200F).contains(&cp)
-        || (0x202A..=0x202E).contains(&cp)
-        || (0x2060..=0x2064).contains(&cp)
-        || (0x2066..=0x2069).contains(&cp)
-        || cp == 0xFEFF
-        || (0xFFF9..=0xFFFB).contains(&cp)
-        || (0xE0001..=0xE007F).contains(&cp)
-        || cp == 0x00AD
+    c.is_control() || vellaveto_types::is_unicode_format_char(c)
 }
 
 /// Core path parameter validation: rejects values that are too long or
