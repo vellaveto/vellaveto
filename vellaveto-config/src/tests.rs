@@ -5942,8 +5942,10 @@ fn test_openai_backend_endpoint_ssrf_metadata_rejected() {
         ..Default::default()
     };
     let err = backend.validate().unwrap_err();
+    // IMP-R126-012: Canonical SSRF validation now rejects 169.254.x.x as
+    // private/internal IP instead of matching against a hard-coded loopback list.
     assert!(
-        err.contains("loopback") || err.contains("metadata"),
+        err.contains("loopback") || err.contains("metadata") || err.contains("private"),
         "{}",
         err
     );
@@ -5970,7 +5972,7 @@ fn test_openai_backend_endpoint_no_scheme_rejected() {
         ..Default::default()
     };
     let err = backend.validate().unwrap_err();
-    assert!(err.contains("https://"), "{}", err);
+    assert!(err.contains("http") && err.contains("scheme"), "{}", err);
 }
 
 #[test]
@@ -6091,8 +6093,9 @@ fn test_openai_backend_endpoint_link_local_rejected() {
         ..Default::default()
     };
     let err = backend.validate().unwrap_err();
+    // IMP-R126-012: Canonical SSRF validation rejects 169.254.x.x as private.
     assert!(
-        err.contains("loopback") || err.contains("metadata"),
+        err.contains("loopback") || err.contains("metadata") || err.contains("private"),
         "{}",
         err
     );

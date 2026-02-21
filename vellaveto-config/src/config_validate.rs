@@ -1272,46 +1272,12 @@ impl PolicyConfig {
                         "jit_access.notification_webhook must use https:// scheme".to_string()
                     );
                 }
-                let parsed = url::Url::parse(trimmed).map_err(|e| {
-                    format!("jit_access.notification_webhook is not a valid URL: {e}")
+                // SECURITY (IMP-R128-001): Delegate to canonical SSRF validation.
+                // Previous inline code was missing IPv4-mapped IPv6 detection
+                // (::ffff:10.x.x.x, ::ffff:169.254.x.x, etc.).
+                vellaveto_types::validate_url_no_ssrf(trimmed).map_err(|e| {
+                    format!("jit_access.notification_webhook {}", e)
                 })?;
-                let host = parsed.host_str().unwrap_or("");
-                let lower_host = host.to_lowercase();
-                if lower_host == "localhost" || lower_host.starts_with("localhost.") {
-                    return Err(
-                        "jit_access.notification_webhook must not target localhost".to_string()
-                    );
-                }
-                if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
-                    let is_private = ip.is_loopback()
-                        || ip.octets()[0] == 10
-                        || (ip.octets()[0] == 172 && (ip.octets()[1] & 0xf0) == 16)
-                        || (ip.octets()[0] == 192 && ip.octets()[1] == 168)
-                        || (ip.octets()[0] == 169 && ip.octets()[1] == 254)
-                        || (ip.octets()[0] == 100 && (ip.octets()[1] & 0xc0) == 64)
-                        || ip.octets()[0] == 0
-                        || ip.is_broadcast();
-                    if is_private {
-                        return Err(format!(
-                            "jit_access.notification_webhook must not target private/internal IP ranges, got '{}'",
-                            host
-                        ));
-                    }
-                }
-                let ipv6_host = host.trim_start_matches('[').trim_end_matches(']');
-                if let Ok(ip6) = ipv6_host.parse::<std::net::Ipv6Addr>() {
-                    let segs = ip6.segments();
-                    let is_private = ip6.is_loopback()
-                        || ip6.is_unspecified()
-                        || (segs[0] & 0xfe00) == 0xfc00  // fc00::/7 (ULA)
-                        || (segs[0] & 0xffc0) == 0xfe80; // fe80::/10 (link-local)
-                    if is_private {
-                        return Err(format!(
-                            "jit_access.notification_webhook must not target private/internal IPv6 ranges, got '{}'",
-                            host
-                        ));
-                    }
-                }
             }
         }
 

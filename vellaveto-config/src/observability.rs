@@ -819,95 +819,12 @@ impl ObservabilityConfig {
     }
 
     /// Validate URL does not point to private/internal addresses.
+    ///
+    /// SECURITY (IMP-R126-012): Delegates to canonical `validate_url_no_ssrf()`
+    /// from vellaveto-types, eliminating ~60 lines of duplicated SSRF logic.
     fn validate_not_private(url: &str, field: &str) -> Result<(), String> {
-        let parsed = match url::Url::parse(url) {
-            Ok(u) => u,
-            Err(_) => return Ok(()), // Already validated in validate_url
-        };
-
-        let host = match parsed.host_str() {
-            Some(h) => h,
-            None => return Err(format!("{} must have a host", field)),
-        };
-
-        // Check for localhost
-        let lower_host = host.to_lowercase();
-        if lower_host == "localhost" || lower_host.starts_with("localhost.") {
-            return Err(format!(
-                "{} must not target localhost, got '{}'",
-                field, host
-            ));
-        }
-
-        // Check for private IP addresses
-        if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
-            let is_private = ip.is_loopback()
-                || ip.octets()[0] == 10
-                || (ip.octets()[0] == 172 && (ip.octets()[1] & 0xf0) == 16)
-                || (ip.octets()[0] == 192 && ip.octets()[1] == 168)
-                || (ip.octets()[0] == 169 && ip.octets()[1] == 254)
-                || (ip.octets()[0] == 100 && (ip.octets()[1] & 0xc0) == 64)
-                || ip.octets()[0] == 0
-                || ip.is_broadcast();
-            if is_private {
-                return Err(format!(
-                    "{} must not target private/internal IP ranges, got '{}'",
-                    field, host
-                ));
-            }
-        }
-
-        // Check IPv6
-        let ipv6_host = host.trim_start_matches('[').trim_end_matches(']');
-        if let Ok(ip6) = ipv6_host.parse::<std::net::Ipv6Addr>() {
-            let segs = ip6.segments();
-
-            // SECURITY (R114-001): Check IPv4-mapped IPv6 addresses (::ffff:x.x.x.x)
-            // Without this, an attacker can use https://[::ffff:127.0.0.1]/webhook
-            // to bypass the IPv4 private address check above.
-            let is_ipv4_mapped = segs[0] == 0
-                && segs[1] == 0
-                && segs[2] == 0
-                && segs[3] == 0
-                && segs[4] == 0
-                && segs[5] == 0xffff;
-            if is_ipv4_mapped {
-                let mapped_ip = std::net::Ipv4Addr::new(
-                    (segs[6] >> 8) as u8,
-                    segs[6] as u8,
-                    (segs[7] >> 8) as u8,
-                    segs[7] as u8,
-                );
-                let is_mapped_private = mapped_ip.is_loopback()
-                    || mapped_ip.is_unspecified()
-                    || mapped_ip.octets()[0] == 10
-                    || (mapped_ip.octets()[0] == 172 && (mapped_ip.octets()[1] & 0xf0) == 16)
-                    || (mapped_ip.octets()[0] == 192 && mapped_ip.octets()[1] == 168)
-                    || (mapped_ip.octets()[0] == 169 && mapped_ip.octets()[1] == 254)
-                    || (mapped_ip.octets()[0] == 100 && (mapped_ip.octets()[1] & 0xc0) == 64)
-                    || mapped_ip.octets()[0] == 0
-                    || mapped_ip.is_broadcast();
-                if is_mapped_private {
-                    return Err(format!(
-                        "{} must not target IPv4-mapped private addresses, got '{}'",
-                        field, host
-                    ));
-                }
-            }
-
-            let is_private = ip6.is_loopback()
-                || ip6.is_unspecified()
-                || (segs[0] & 0xfe00) == 0xfc00  // fc00::/7 (ULA)
-                || (segs[0] & 0xffc0) == 0xfe80; // fe80::/10 (link-local)
-            if is_private {
-                return Err(format!(
-                    "{} must not target private/internal IPv6 ranges, got '{}'",
-                    field, host
-                ));
-            }
-        }
-
-        Ok(())
+        vellaveto_types::validate_url_no_ssrf(url)
+            .map_err(|e| format!("{} {}", field, e))
     }
 }
 

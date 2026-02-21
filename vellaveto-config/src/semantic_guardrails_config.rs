@@ -536,50 +536,34 @@ fn validate_backend_config(
                 backend_name
             ));
         }
-        // SECURITY: Require https:// scheme for LLM backend endpoints.
-        // http:// is allowed for development but warned about.
-        if !url.starts_with("https://") && !url.starts_with("http://") {
-            return Err(format!(
-                "{}.endpoint must start with https:// or http://",
-                backend_name
-            ));
-        }
-        // SECURITY: Reject loopback/metadata endpoints to prevent SSRF.
-        let lower = url.to_lowercase();
-        let host_part = lower
-            .strip_prefix("https://")
-            .or_else(|| lower.strip_prefix("http://"))
+        // SECURITY (IMP-R126-012): Delegate to canonical SSRF validation from
+        // vellaveto-types. The previous inline check was weaker — it missed
+        // RFC 1918 private ranges (10.x, 172.16-31.x, 192.168.x) and CGNAT.
+        vellaveto_types::validate_url_no_ssrf(url).map_err(|e| {
+            format!("{}.endpoint {}", backend_name, e)
+        })?;
+        // Reject userinfo (@) in URL — defense-in-depth for API endpoints.
+        let after_scheme = url.strip_prefix("https://")
+            .or_else(|| url.strip_prefix("http://"))
             .unwrap_or("");
-        // Extract host before path/port
-        let host = host_part
-            .split('/')
-            .next()
-            .unwrap_or("")
-            .split(':')
-            .next()
-            .unwrap_or("");
-        // Reject userinfo (@) in URL — SSRF bypass vector
-        if host_part.contains('@') {
+        let authority = after_scheme.split('/').next().unwrap_or("");
+        if authority.contains('@') {
             return Err(format!(
                 "{}.endpoint must not contain userinfo (@)",
                 backend_name
             ));
         }
-        let loopbacks = [
-            "localhost",
-            "127.0.0.1",
-            "[::1]",
-            "0.0.0.0",
-            "169.254.169.254",
-            "metadata.google.internal",
-        ];
-        if loopbacks.contains(&host)
-            || host.starts_with("127.")
-            || host.starts_with("169.254.")
-            || host.ends_with(".internal")
-        {
+        // Additional check: reject cloud metadata endpoints by hostname suffix.
+        let lower = url.to_lowercase();
+        let host_part = lower
+            .strip_prefix("https://")
+            .or_else(|| lower.strip_prefix("http://"))
+            .unwrap_or("");
+        let host = host_part.split('/').next().unwrap_or("")
+            .split(':').next().unwrap_or("");
+        if host.ends_with(".internal") || host == "169.254.169.254" {
             return Err(format!(
-                "{}.endpoint must not target loopback or metadata endpoints (got '{}')",
+                "{}.endpoint must not target metadata endpoints (got '{}')",
                 backend_name, host
             ));
         }
