@@ -1,0 +1,154 @@
+# Security Audit Log
+
+> **Living document** tracking all adversarial security audit findings and fixes.
+> Updated after each audit round. See also `CHANGELOG.md` for feature changes.
+>
+> **Last updated:** 2026-02-21 (Round 142)
+> **Total audit rounds:** 142
+> **Cumulative findings fixed:** 500+
+
+---
+
+## Round 142 — DLP + Injection Inspection (4 findings fixed)
+
+**Subsystem:** `vellaveto-mcp/src/inspection/`
+**Commit:** `af364a9`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R142-001 | P2 | `injection.rs` | `sanitize_stripped` missing post-NFKC combining mark strip — parity with `sanitize_for_injection_scan` |
+| FIND-R142-009 | P2 | `dlp.rs`, `injection.rs` | Extended Unicode combining mark ranges (U+1AB0-U+1AFF, U+1DC0-U+1DFF, U+20D0-U+20FF, U+FE20-U+FE2F) added to stripping |
+| FIND-R142-011 | P3 | `multimodal.rs` | `mp4_extract_legacy_udta_texts` now handles extended 64-bit box sizes (raw_size == 1) |
+| FIND-R142-013 | P3 | `injection.rs` | `InjectionScanner::scan_response` final truncation to `MAX_SCAN_MATCHES` |
+
+**Tests added:** 1 (extended combining marks DLP test)
+
+---
+
+## Round 139+140 — Behavioral Engine + Audit Logger (6 findings fixed)
+
+**Subsystem:** `vellaveto-engine/`, `vellaveto-audit/`
+**Commit:** `2ba3ebc`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R139-001 | P2 | `behavioral.rs` | `call_counts` map iteration capped at `MAX_CALL_COUNT_ENTRIES=10K` |
+| FIND-R139-002 | P2 | `behavioral.rs` | `agent_id` length (512) + control/format char validation on live path |
+| FIND-R139-003 | P3 | `behavioral.rs` | EMA non-finite clamp — reset to current count if +Infinity |
+| FIND-R139-L1/L2 | P2 | `least_agency.rs` | `record_usage` requires `policy_id` in granted set; prevents unbounded `tracker.used` growth + corrupted Optimal recommendations |
+| FIND-R140-002 | P2 | `logger.rs` | Merkle tree leaf fail-closed on wrong-length hash decode (was silently zero-padded) |
+| FIND-R140-004 | P2 | `rotation.rs` | Manifest line per-line size limit (64 KB) |
+
+**Tests added:** 4 (behavioral validation tests)
+
+---
+
+## Round 137+138 — Config Validation + Server Routes (7 findings fixed)
+
+**Subsystem:** `vellaveto-config/`, `vellaveto-server/`
+**Commit:** `904701e`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R137-002 | P2 | `config_validate.rs` | `custom_pii_patterns[i].name` validated for empty/length/control chars |
+| FIND-R137-003 | P2 | `mcp_protocol.rs` | `resource_indicator.allowed_resources` per-entry validation (empty = match all) |
+| FIND-R137-004 | P2 | `mcp_protocol.rs` | CIMD `required/blocked_capabilities` per-entry validation |
+| FIND-R137-005 | P2 | `mcp_protocol.rs` | `step_up_auth.trigger_tools` per-entry validation |
+| FIND-R137-006 | P2 | `mcp_protocol.rs` | `async_tasks.max_nonces=0` rejected when `replay_protection=true` |
+| FIND-R138-001 | P1 | `compliance.rs` | `format` query param allowlisted before audit log entry — prevents log injection |
+| FIND-R138-002 | P2 | `zk_audit.rs` | ZK proofs offset error no longer discloses exact proof count |
+
+**Tests added:** 8 (config per-entry validation tests)
+
+---
+
+## Round 136 — Proxy Bridge (4 findings fixed)
+
+**Subsystem:** `vellaveto-mcp/src/proxy/bridge/`
+**Commit:** `d16161e`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R136-001 | P2 | `relay.rs` | Passthrough request ID key length guard (`MAX_REQUEST_ID_KEY_LEN=1024`) + method name truncation (256) |
+| FIND-R136-002 | P2 | `relay.rs` | `negotiated_protocol_version` capped at 64 chars + control/format char filtering |
+| FIND-R136-003 | P2 | `relay.rs` | Log injection via `task_method`, `extension_id`, `uri` — sanitized before tracing |
+| FIND-R136-004 | P2 | `helpers.rs` | `extract_agent_id()` capped at 256 chars + control/format char rejection |
+
+**Tests added:** 5 (extract_agent_id validation tests)
+
+---
+
+## Round 133 — Cluster + Server Routes (1 finding fixed)
+
+**Commit:** `9abd741`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R133-001 | P2 | `routes/projector.rs` | `schema.description` control char validation added (was missing vs `schema.name`) |
+
+**Also fixed:** Pre-existing `test_verify_accepts_issued_at_within_skew` failure (re-sign token after modifying `issued_at`).
+
+---
+
+## Round 131 — Projector + Data Flow (1 finding fixed)
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R131-001 | P2 | `projector/*.rs` | `estimate_tokens()` fail-closed: `FAILSAFE_TOKEN_ESTIMATE=100K` on serialization failure (was `unwrap_or_default()` returning 0) |
+
+---
+
+## Round 130 — Semantic Guardrails (2 findings fixed)
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R130-002 | P2 | `semantic_guardrails/mod.rs` | `MAX_SESSION_ID_LEN=256` bounds check before HashMap insertion |
+| FIND-R130-003 | P2 | `semantic_guardrails/nl_policy.rs` | `policy.validate()` called in `add_policy()` before insertion |
+
+---
+
+## Round 129 — Extension Registry (1 finding fixed)
+
+**Commit:** `e982b0b`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R129-002 | P2 | `extension.rs` | Per-method/name/version/id content validation with control char rejection, empty capability rejection |
+
+**Tests added:** 12 (ExtensionDescriptor validation tests)
+
+---
+
+## Round 128 — DLP Inspection (2 findings fixed)
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R128-001 | P2 | `dlp.rs` | NFKC→NFKD for combining mark stripping (NFKC composes marks, making them unstrippable) |
+| FIND-R128-002 | P2 | `dlp.rs` | JSON object key scanning added to `scan_value_for_secrets()` |
+
+---
+
+## Audit Round Summary (Rounds 1–142)
+
+| Category | Cumulative |
+|----------|-----------|
+| Rounds completed | 142 |
+| P0 (Critical) findings fixed | 3 |
+| P1 (High) findings fixed | 30+ |
+| P2 (Medium) findings fixed | 350+ |
+| P3 (Low) findings fixed | 150+ |
+| Tests added from audits | 200+ |
+| CLEAN rounds (no findings) | ~25 |
+| Subsystems audited | All 12 crates + 3 SDKs |
+
+### Key Security Patterns Enforced
+
+- **Fail-closed:** Errors produce `Deny`, not `Allow`; missing values default to restrictive behavior
+- **No unwrap():** Zero `unwrap()`/`expect()` in library code
+- **Input validation:** All external data validated for length, control chars, Unicode format chars
+- **Bounded collections:** All HashMaps/Vecs capped with explicit `MAX_*` constants
+- **Log injection prevention:** All untrusted strings sanitized before `tracing::*` calls
+- **Float safety:** NaN/Infinity checks on all threshold comparisons
+- **Atomic operations:** SeqCst ordering on security-critical counters
+- **deny_unknown_fields:** On all security-relevant request/config structs
+- **Debug redaction:** Sensitive fields (keys, signatures, tokens) redacted in Debug output
