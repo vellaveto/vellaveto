@@ -437,6 +437,10 @@ impl InjectionScanner {
             }
         }
 
+        // SECURITY (FIND-R142-013): Final truncation to ensure cap is respected.
+        // Individual extend() calls can overshoot MAX_SCAN_MATCHES because the
+        // cap is only checked at certain points, not after every extend.
+        all_matches.truncate(MAX_SCAN_MATCHES);
         all_matches
     }
 
@@ -554,9 +558,13 @@ pub fn sanitize_for_injection_scan(text: &str) -> String {
         .chars()
         .filter(|c| {
             let cp = *c as u32;
-            // Strip Combining Diacritical Marks (U+0300-U+036F) and
-            // Combining Grapheme Joiner (U+034F)
-            !((0x0300..=0x036F).contains(&cp) || cp == 0x034F)
+            // SECURITY (FIND-R142-009): Strip all combining character ranges.
+            !((0x0300..=0x036F).contains(&cp)
+                || cp == 0x034F
+                || (0x1AB0..=0x1AFF).contains(&cp)
+                || (0x1DC0..=0x1DFF).contains(&cp)
+                || (0x20D0..=0x20FF).contains(&cp)
+                || (0xFE20..=0xFE2F).contains(&cp))
         })
         .collect();
     // SECURITY (FIND-076): Map Cyrillic/Greek homoglyphs to Latin equivalents.
@@ -614,6 +622,16 @@ fn sanitize_stripped(text: &str) -> String {
         .filter(|c| !is_invisible_char(*c as u32))
         .collect();
     let normalized: String = stripped.nfkc().collect();
+    // SECURITY (FIND-R142-001): Post-NFKC combining mark strip — parity with
+    // sanitize_for_injection_scan. Without this, NFKC-expanded combining marks
+    // survive in the stripped pass, causing Aho-Corasick to miss patterns.
+    let normalized: String = normalized
+        .chars()
+        .filter(|c| {
+            let cp = *c as u32;
+            !((0x0300..=0x036F).contains(&cp) || cp == 0x034F)
+        })
+        .collect();
     normalized
         .chars()
         .map(|c| confusable_to_latin(c).unwrap_or(c))

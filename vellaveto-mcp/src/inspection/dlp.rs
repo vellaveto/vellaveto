@@ -439,13 +439,20 @@ fn scan_decoded_layer<'a>(
     // After NFKD, we strip combining marks so that "AK\u{0301}IA..." → "AKIA..."
     // and the regex can match. This prevents evasion via inserted diacritical marks.
     let nfkd: String = decoded.nfkd().collect();
+    // SECURITY (FIND-R142-009): Strip all Unicode combining character ranges,
+    // including extended/supplemental sets. Previously only U+0300-U+036F and
+    // U+034F were stripped, allowing evasion via U+1AB0-U+1AFF, U+1DC0-U+1DFF,
+    // U+20D0-U+20FF, and U+FE20-U+FE2F combining marks.
     let normalized: String = nfkd
         .chars()
         .filter(|c| {
             let cp = *c as u32;
-            // Strip Combining Diacritical Marks (U+0300-U+036F) and
-            // Combining Grapheme Joiner (U+034F) — same ranges as injection.rs
-            !((0x0300..=0x036F).contains(&cp) || cp == 0x034F)
+            !((0x0300..=0x036F).contains(&cp)
+                || cp == 0x034F
+                || (0x1AB0..=0x1AFF).contains(&cp) // Combining Diacritical Marks Extended
+                || (0x1DC0..=0x1DFF).contains(&cp) // Combining Diacritical Marks Supplement
+                || (0x20D0..=0x20FF).contains(&cp) // Combining Marks for Symbols
+                || (0xFE20..=0xFE2F).contains(&cp)) // Combining Half Marks
         })
         .collect();
 
@@ -2114,6 +2121,24 @@ mod tests {
         assert!(
             findings.iter().any(|f| f.pattern_name == "github_token"),
             "Should detect GitHub token with combining grave accent stripped: {:?}",
+            findings
+        );
+    }
+
+    // ── FIND-R142-009: Extended combining mark ranges ─────────────
+
+    #[test]
+    fn test_dlp_detects_aws_key_through_extended_combining_marks() {
+        // U+1DC0 = COMBINING DOTTED GRAVE ACCENT (Supplement range)
+        // U+20D0 = COMBINING LEFT HARPOON ABOVE (Marks for Symbols range)
+        // U+FE20 = COMBINING LIGATURE LEFT HALF (Half Marks range)
+        let params = json!({
+            "key": "AK\u{1DC0}IA\u{20D0}IOSFODNN7EXAMPLE"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "aws_access_key"),
+            "Should detect AWS key with extended combining marks stripped: {:?}",
             findings
         );
     }

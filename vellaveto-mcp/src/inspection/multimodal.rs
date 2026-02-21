@@ -1777,7 +1777,7 @@ impl MultimodalScanner {
         while offset + 8 <= data.len() && *box_count < max_boxes && *aggregate_len < max_aggregate {
             *box_count += 1;
 
-            let box_size = u32::from_be_bytes([
+            let raw_size = u32::from_be_bytes([
                 data[offset],
                 data[offset + 1],
                 data[offset + 2],
@@ -1785,9 +1785,34 @@ impl MultimodalScanner {
             ]) as usize;
             let bt = &data[offset + 4..offset + 8];
 
-            if box_size < 8 {
+            // SECURITY (FIND-R142-011): Handle extended 64-bit box sizes (raw_size == 1)
+            // matching mp4_find_box parity. Without this, crafted MP4s with
+            // extended-size legacy udta atoms bypass injection scanning.
+            let (box_size, header_len) = if raw_size == 1 {
+                // Extended size: 8 bytes after type field
+                if offset + 16 > data.len() {
+                    break;
+                }
+                let ext = u64::from_be_bytes([
+                    data[offset + 8],
+                    data[offset + 9],
+                    data[offset + 10],
+                    data[offset + 11],
+                    data[offset + 12],
+                    data[offset + 13],
+                    data[offset + 14],
+                    data[offset + 15],
+                ]) as usize;
+                if ext < 16 {
+                    break;
+                }
+                (ext, 16usize)
+            } else if raw_size < 8 {
                 break;
-            }
+            } else {
+                (raw_size, 8usize)
+            };
+
             let box_end = match offset.checked_add(box_size) {
                 Some(end) if end <= data.len() => end,
                 _ => break,
@@ -1796,7 +1821,7 @@ impl MultimodalScanner {
             // Check for known text metadata atoms (©nam, ©ART, ©cmt, ©des)
             // The © character is 0xA9 in MacRoman
             if bt.len() == 4 && bt[0] == 0xA9 {
-                let box_data = &data[offset + 8..box_end];
+                let box_data = &data[offset + header_len..box_end];
                 // Legacy format: 2-byte text length + 2-byte language code + text
                 if box_data.len() >= 4 {
                     let text_len = u16::from_be_bytes([box_data[0], box_data[1]]) as usize;
