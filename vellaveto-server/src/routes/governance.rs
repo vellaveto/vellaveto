@@ -128,13 +128,15 @@ pub async fn least_agency_report(
             )
         })?;
 
-    // Also check for auto-revocation candidates
+    // SECURITY (FIND-R144-005): Do not expose enforcement_mode in the response —
+    // it leaks security posture (Monitor vs Enforce) to API consumers.
+    // SECURITY (FIND-R144-010): Return only the count of auto-revoke candidates,
+    // not their internal policy IDs, to prevent information disclosure.
     let auto_revoke_candidates = tracker.revoke_stale_permissions(&agent_id, &session_id);
 
     Ok(Json(json!({
         "report": report,
-        "enforcement_mode": tracker.enforcement_mode(),
-        "auto_revoke_candidates": auto_revoke_candidates,
+        "auto_revoke_candidate_count": auto_revoke_candidates.len(),
     })))
 }
 

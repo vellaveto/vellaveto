@@ -122,6 +122,36 @@ impl NhiManager {
         // control/format characters to prevent injection and resource exhaustion.
         Self::validate_register_identity_inputs(name, spiffe_id, &tags, &metadata)?;
 
+        // SECURITY (FIND-R145-008): Validate public_key and key_algorithm for length
+        // and dangerous characters. These were previously unvalidated, allowing memory
+        // amplification via oversized keys and log injection via format characters.
+        if let Some(pk) = public_key {
+            if pk.len() > 8192 {
+                return Err(NhiError::InputValidation(format!(
+                    "public_key length {} exceeds maximum 8192",
+                    pk.len()
+                )));
+            }
+            if vellaveto_types::has_dangerous_chars(pk) {
+                return Err(NhiError::InputValidation(
+                    "public_key contains control or Unicode format characters".to_string(),
+                ));
+            }
+        }
+        if let Some(alg) = key_algorithm {
+            if alg.len() > 64 {
+                return Err(NhiError::InputValidation(format!(
+                    "key_algorithm length {} exceeds maximum 64",
+                    alg.len()
+                )));
+            }
+            if vellaveto_types::has_dangerous_chars(alg) {
+                return Err(NhiError::InputValidation(
+                    "key_algorithm contains control or Unicode format characters".to_string(),
+                ));
+            }
+        }
+
         // Validate attestation type is allowed
         let atype_str = attestation_type.to_string();
         if !self
@@ -845,6 +875,12 @@ impl NhiManager {
             reason,
         };
 
+        // SECURITY (FIND-R145-001): Validate the delegation link before inserting.
+        // Without this, unbounded permissions/scope_constraints vectors and strings
+        // with control/format characters bypass MAX_PERMISSIONS/MAX_SCOPE_CONSTRAINTS
+        // limits defined on NhiDelegationLink.
+        link.validate().map_err(NhiError::InputValidation)?;
+
         delegations.insert((from_agent.to_string(), to_agent.to_string()), link.clone());
 
         let mut stats = self.stats.write().await;
@@ -979,13 +1015,55 @@ impl NhiManager {
 
         let new_expires_at = now + chrono::Duration::seconds(ttl as i64);
 
-        identity.public_key = Some(new_public_key.to_string());
-        if let Some(alg) = new_key_algorithm {
-            identity.key_algorithm = Some(alg.to_string());
-        }
-        identity.last_rotation = Some(now.to_rfc3339());
-        identity.expires_at = new_expires_at.to_rfc3339();
+        // SECURITY (FIND-R145-002): Validate inputs BEFORE mutating the identity.
+        // Previously, identity.public_key was overwritten before rotation.validate()
+        // was called, so validation failure left the identity in a corrupted state
+        // with the old key lost. Also validates length and dangerous chars on inputs
+        // that were previously unvalidated (FIND-R145-008).
+        const MAX_PUBLIC_KEY_LEN: usize = 8192;
+        const MAX_KEY_ALGORITHM_LEN: usize = 64;
+        const MAX_TRIGGER_LEN: usize = 256;
 
+        if new_public_key.len() > MAX_PUBLIC_KEY_LEN {
+            return Err(NhiError::InputValidation(format!(
+                "new_public_key length {} exceeds maximum {}",
+                new_public_key.len(),
+                MAX_PUBLIC_KEY_LEN
+            )));
+        }
+        if vellaveto_types::has_dangerous_chars(new_public_key) {
+            return Err(NhiError::InputValidation(
+                "new_public_key contains control or Unicode format characters".to_string(),
+            ));
+        }
+        if let Some(alg) = new_key_algorithm {
+            if alg.len() > MAX_KEY_ALGORITHM_LEN {
+                return Err(NhiError::InputValidation(format!(
+                    "new_key_algorithm length {} exceeds maximum {}",
+                    alg.len(),
+                    MAX_KEY_ALGORITHM_LEN
+                )));
+            }
+            if vellaveto_types::has_dangerous_chars(alg) {
+                return Err(NhiError::InputValidation(
+                    "new_key_algorithm contains control or Unicode format characters".to_string(),
+                ));
+            }
+        }
+        if trigger.len() > MAX_TRIGGER_LEN {
+            return Err(NhiError::InputValidation(format!(
+                "trigger length {} exceeds maximum {}",
+                trigger.len(),
+                MAX_TRIGGER_LEN
+            )));
+        }
+        if vellaveto_types::has_dangerous_chars(trigger) {
+            return Err(NhiError::InputValidation(
+                "trigger contains control or Unicode format characters".to_string(),
+            ));
+        }
+
+        // Build rotation record and validate BEFORE mutating identity
         let rotation = NhiCredentialRotation {
             agent_id: agent_id.to_string(),
             previous_thumbprint,
@@ -999,6 +1077,14 @@ impl NhiManager {
         rotation
             .validate()
             .map_err(NhiError::InputValidation)?;
+
+        // Now safe to mutate the identity
+        identity.public_key = Some(new_public_key.to_string());
+        if let Some(alg) = new_key_algorithm {
+            identity.key_algorithm = Some(alg.to_string());
+        }
+        identity.last_rotation = Some(now.to_rfc3339());
+        identity.expires_at = new_expires_at.to_rfc3339();
 
         // Record rotation
         let mut rotations = self.rotations.write().await;
