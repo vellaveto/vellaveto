@@ -196,6 +196,30 @@ impl LeastAgencyTracker {
             }
         };
         if let Some(tracker) = trackers.get_mut(&key) {
+            // SECURITY (FIND-R139-L1): Only record usage for policy IDs that are
+            // actually granted. Without this guard, tracker.used and
+            // granted_last_used grow unboundedly for arbitrary policy_id values,
+            // and generate_report produces corrupted Optimal recommendations
+            // when used > granted. (FIND-R139-L2)
+            if !tracker.granted.contains(policy_id) {
+                tracing::debug!(
+                    policy_id = %policy_id,
+                    "record_usage: policy_id not in granted set, skipping"
+                );
+                return;
+            }
+
+            // Cap tracker.used at MAX_GRANTS_PER_SESSION to prevent unbounded growth
+            if tracker.used.len() >= MAX_GRANTS_PER_SESSION
+                && !tracker.used.contains_key(policy_id)
+            {
+                tracing::warn!(
+                    max = MAX_GRANTS_PER_SESSION,
+                    "record_usage: tracker.used at capacity"
+                );
+                return;
+            }
+
             let usage = tracker
                 .used
                 .entry(policy_id.to_string())

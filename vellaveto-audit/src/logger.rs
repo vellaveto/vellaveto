@@ -484,10 +484,17 @@ impl AuditLogger {
             let leaf_bytes = hex::decode(&hash).map_err(|e| {
                 AuditError::Validation(format!("Invalid entry hash hex for Merkle tree: {}", e))
             })?;
-            let mut leaf_arr = [0u8; 32];
-            if leaf_bytes.len() == 32 {
-                leaf_arr.copy_from_slice(&leaf_bytes);
+            // SECURITY (FIND-R140-002): Fail-closed on wrong-length hash.
+            // Previously a short decode silently used a zero-padded array,
+            // allowing a tampered hash to produce a false Merkle inclusion proof.
+            if leaf_bytes.len() != 32 {
+                return Err(AuditError::Validation(format!(
+                    "Entry hash has wrong length: {} (expected 32)",
+                    leaf_bytes.len()
+                )));
             }
+            let mut leaf_arr = [0u8; 32];
+            leaf_arr.copy_from_slice(&leaf_bytes);
             let leaf = crate::merkle::hash_leaf(&leaf_arr);
             let mut tree = merkle
                 .lock()

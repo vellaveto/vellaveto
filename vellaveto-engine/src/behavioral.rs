@@ -284,12 +284,43 @@ impl BehavioralTracker {
     /// Returns detected anomalies (may be empty). Does **not** modify state.
     /// Call [`record_session`](Self::record_session) after the session completes
     /// to update baselines.
+    /// SECURITY (FIND-R139-001): Maximum number of entries in a caller-supplied
+    /// call_counts map. Prevents O(n) iteration DoS from pathologically large maps.
+    const MAX_CALL_COUNT_ENTRIES: usize = 10_000;
+
+    /// SECURITY (FIND-R139-002): Maximum length for agent_id on the live path,
+    /// matching the validation applied in `from_snapshot`.
+    const MAX_AGENT_ID_LEN: usize = 512;
+
     pub fn check_session(
         &self,
         agent_id: &str,
         call_counts: &HashMap<String, u64>,
     ) -> Vec<AnomalyAlert> {
         let mut alerts = Vec::new();
+
+        // SECURITY (FIND-R139-002): Validate agent_id on the live path.
+        if agent_id.len() > Self::MAX_AGENT_ID_LEN
+            || agent_id
+                .chars()
+                .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+        {
+            tracing::warn!(
+                len = agent_id.len(),
+                "check_session: rejecting invalid agent_id"
+            );
+            return alerts;
+        }
+
+        // SECURITY (FIND-R139-001): Cap call_counts iteration.
+        if call_counts.len() > Self::MAX_CALL_COUNT_ENTRIES {
+            tracing::warn!(
+                count = call_counts.len(),
+                max = Self::MAX_CALL_COUNT_ENTRIES,
+                "check_session: call_counts exceeds cap, skipping"
+            );
+            return alerts;
+        }
 
         let agent = match self.agents.get(agent_id) {
             Some(a) => a,
@@ -448,6 +479,29 @@ impl BehavioralTracker {
     /// Tools with zero counts are ignored for recording but existing baselines
     /// for tools **not present** in `call_counts` are decayed toward zero.
     pub fn record_session(&mut self, agent_id: &str, call_counts: &HashMap<String, u64>) {
+        // SECURITY (FIND-R139-002): Validate agent_id on the live path.
+        if agent_id.len() > Self::MAX_AGENT_ID_LEN
+            || agent_id
+                .chars()
+                .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+        {
+            tracing::warn!(
+                len = agent_id.len(),
+                "record_session: rejecting invalid agent_id"
+            );
+            return;
+        }
+
+        // SECURITY (FIND-R139-001): Cap call_counts iteration.
+        if call_counts.len() > Self::MAX_CALL_COUNT_ENTRIES {
+            tracing::warn!(
+                count = call_counts.len(),
+                max = Self::MAX_CALL_COUNT_ENTRIES,
+                "record_session: call_counts exceeds cap, skipping"
+            );
+            return;
+        }
+
         self.update_counter = self.update_counter.saturating_add(1);
 
         // Enforce agent limit via eviction before inserting a new agent
@@ -506,6 +560,15 @@ impl BehavioralTracker {
             } else {
                 baseline.ema =
                     self.config.alpha * count as f64 + (1.0 - self.config.alpha) * baseline.ema;
+                // SECURITY (FIND-R139-003): Clamp non-finite EMA to fail-closed.
+                // If EMA becomes +Infinity, all ratios become 0.0, silently
+                // disabling anomaly detection for this tool/agent.
+                if !baseline.ema.is_finite() {
+                    tracing::error!(
+                        "EMA overflow detected — resetting to current count for fail-closed behavior"
+                    );
+                    baseline.ema = count as f64;
+                }
             }
 
             baseline.session_count = baseline.session_count.saturating_add(1);
@@ -1930,5 +1993,66 @@ mod tests {
             update_counter: 0,
         };
         assert!(BehavioralTracker::from_snapshot(config, snapshot).is_ok());
+    }
+
+    // ── FIND-R139: Live-path validation tests ──────────
+
+    #[test]
+    fn test_record_session_rejects_oversized_agent_id() {
+        let mut tracker = BehavioralTracker::new(BehavioralConfig::default()).unwrap();
+        let long_id = "a".repeat(513);
+        let counts: HashMap<String, u64> =
+            [("tool1".to_string(), 5u64)].into_iter().collect();
+        tracker.record_session(&long_id, &counts);
+        assert!(
+            tracker.agents.is_empty(),
+            "oversized agent_id should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_record_session_rejects_control_char_agent_id() {
+        let mut tracker = BehavioralTracker::new(BehavioralConfig::default()).unwrap();
+        let counts: HashMap<String, u64> =
+            [("tool1".to_string(), 5u64)].into_iter().collect();
+        tracker.record_session("agent\x1b[31m", &counts);
+        assert!(
+            tracker.agents.is_empty(),
+            "control-char agent_id should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_check_session_rejects_oversized_call_counts() {
+        let tracker = BehavioralTracker::new(BehavioralConfig::default()).unwrap();
+        let mut counts: HashMap<String, u64> = HashMap::new();
+        for i in 0..10_001 {
+            counts.insert(format!("tool_{}", i), 1);
+        }
+        let alerts = tracker.check_session("agent-1", &counts);
+        assert!(
+            alerts.is_empty(),
+            "oversized call_counts should be rejected with empty alerts"
+        );
+    }
+
+    #[test]
+    fn test_ema_non_finite_clamp() {
+        let mut tracker = BehavioralTracker::new(BehavioralConfig {
+            alpha: 0.5,
+            ..BehavioralConfig::default()
+        })
+        .unwrap();
+        let agent_id = "agent-ema-test";
+        // First session to establish baseline
+        let counts: HashMap<String, u64> =
+            [("tool1".to_string(), u64::MAX)].into_iter().collect();
+        tracker.record_session(agent_id, &counts);
+        let agent = tracker.agents.get(agent_id).unwrap();
+        let ema = agent.tools.get("tool1").unwrap().ema;
+        assert!(
+            ema.is_finite(),
+            "EMA should remain finite even with u64::MAX count"
+        );
     }
 }

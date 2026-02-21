@@ -332,9 +332,25 @@ impl AuditLogger {
         // segment should match the tail_hash of the preceding segment.
         let mut previous_tail_hash: Option<String> = None;
 
+        /// SECURITY (FIND-R140-004): Maximum manifest line size (64 KB).
+        /// Prevents CPU/memory DoS from a single oversized JSON line.
+        const MAX_MANIFEST_LINE_SIZE: usize = 64 * 1024;
+
         for (i, line) in manifest_content.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
+            }
+            if line.len() > MAX_MANIFEST_LINE_SIZE {
+                return Ok(RotationVerification {
+                    valid: false,
+                    files_checked: i,
+                    first_failure: Some(format!(
+                        "Manifest entry {} exceeds max line size ({} > {})",
+                        i,
+                        line.len(),
+                        MAX_MANIFEST_LINE_SIZE
+                    )),
+                });
             }
             let entry: serde_json::Value = serde_json::from_str(line)?;
 
