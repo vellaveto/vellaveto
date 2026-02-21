@@ -258,6 +258,13 @@ impl SemanticGuardrailsService {
             return Ok(LlmEvaluation::allow().with_backend("disabled"));
         }
 
+        // SECURITY (FIND-R146-001): Validate input bounds before processing.
+        // Without this, unbounded tool/function/parameters/nl_policies fields could
+        // cause memory exhaustion in cache key computation, intent chain storage,
+        // and backend prompt generation. The evaluator wrapper has its own validate()
+        // call, but the service bypasses it by calling the backend directly.
+        input.validate()?;
+
         // Check cache first
         let cache_key = self.cache.compute_key(
             &input.tool,

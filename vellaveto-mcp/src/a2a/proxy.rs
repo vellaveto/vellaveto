@@ -429,10 +429,12 @@ fn extract_response_text_content(response: &Value) -> Vec<String> {
         }
 
         // Task result can contain artifacts with text parts.
+        // SECURITY (FIND-R147-014): Bound artifacts and inner parts iteration to
+        // prevent CPU exhaustion from responses with thousands of artifacts/parts.
         if let Some(artifacts) = result.get("artifacts").and_then(|a| a.as_array()) {
-            for artifact in artifacts {
+            for artifact in artifacts.iter().take(MAX_HISTORY_ENTRIES) {
                 if let Some(parts) = artifact.get("parts").and_then(|p| p.as_array()) {
-                    for part in parts {
+                    for part in parts.iter().take(MAX_HISTORY_ENTRIES) {
                         collect_part_text_content(part, &mut texts);
                     }
                 }
@@ -486,8 +488,11 @@ fn extract_response_text_content(response: &Value) -> Vec<String> {
 fn extract_request_text_content(message: &Value) -> Vec<String> {
     let mut texts = Vec::new();
 
+    // SECURITY (FIND-R147-002): Bound the parts iteration to prevent OOM from
+    // requests with thousands of parts. Matches the MAX_HISTORY_ENTRIES bound
+    // used in the response extraction path.
     if let Some(parts) = message.get("parts").and_then(|p| p.as_array()) {
-        for part in parts {
+        for part in parts.iter().take(MAX_HISTORY_ENTRIES) {
             collect_part_text_content(part, &mut texts);
         }
     }

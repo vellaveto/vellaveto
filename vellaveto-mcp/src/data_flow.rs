@@ -308,8 +308,31 @@ impl DataFlowTracker {
         source_tool: &str,
         findings: &[DlpFindingWithFingerprint],
     ) {
+        // SECURITY (FIND-R147-001): Cap max active patterns to prevent OOM
+        // via unbounded HashMap key growth from many unique pattern names.
+        const MAX_ACTIVE_PATTERNS: usize = 10_000;
+        const MAX_PATTERN_NAME_LEN: usize = 256;
+
         for f in findings {
             if f.finding.pattern_name.is_empty() {
+                continue;
+            }
+
+            // SECURITY (FIND-R147-001): Truncate oversized pattern names.
+            let pattern_name = if f.finding.pattern_name.len() > MAX_PATTERN_NAME_LEN {
+                f.finding.pattern_name[..MAX_PATTERN_NAME_LEN].to_string()
+            } else {
+                f.finding.pattern_name.clone()
+            };
+
+            // Skip if we already have too many distinct patterns
+            if self.active_patterns.len() >= MAX_ACTIVE_PATTERNS
+                && !self.active_patterns.contains(&pattern_name)
+            {
+                tracing::warn!(
+                    "DataFlowTracker active_patterns at capacity ({}), skipping new pattern",
+                    MAX_ACTIVE_PATTERNS
+                );
                 continue;
             }
 
@@ -318,13 +341,13 @@ impl DataFlowTracker {
                 self.evict_oldest();
             }
 
-            // Record the finding
-            self.active_patterns.insert(f.finding.pattern_name.clone());
+            // Record the finding (using length-bounded pattern_name)
+            self.active_patterns.insert(pattern_name.clone());
 
             if let Some(fp) = f.fingerprint {
                 let fps = self
                     .fingerprints
-                    .entry(f.finding.pattern_name.clone())
+                    .entry(pattern_name.clone())
                     .or_default();
                 // Enforce per-pattern fingerprint limit
                 if fps.len() >= self.config.max_fingerprints_per_pattern {
@@ -334,7 +357,7 @@ impl DataFlowTracker {
             }
 
             self.records.push(ResponseRecord {
-                pattern_name: f.finding.pattern_name.clone(),
+                pattern_name,
                 source_tool: source_tool.to_string(),
             });
         }
