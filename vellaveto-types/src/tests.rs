@@ -7463,3 +7463,207 @@ fn test_resolved_ips_clean_entries_pass() {
     ];
     assert!(action.validate().is_ok());
 }
+
+// =============================================================================
+// Round 141: AgentIdentity audience/issuer/subject validation
+// =============================================================================
+
+#[test]
+fn test_r141_agent_identity_audience_entry_oversized() {
+    let identity = AgentIdentity {
+        audience: vec!["x".repeat(1025)],
+        ..Default::default()
+    };
+    let result = identity.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("audience[0] length"));
+}
+
+#[test]
+fn test_r141_agent_identity_audience_entry_control_char() {
+    let identity = AgentIdentity {
+        audience: vec!["urn:vellaveto\n:admin".to_string()],
+        ..Default::default()
+    };
+    let result = identity.validate();
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.contains("audience[0]"), "Got: {err}");
+    assert!(err.contains("control or format"), "Got: {err}");
+}
+
+#[test]
+fn test_r141_agent_identity_audience_entry_format_char() {
+    let identity = AgentIdentity {
+        audience: vec![format!("urn:vellaveto\u{200B}:admin")],
+        ..Default::default()
+    };
+    let result = identity.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("audience[0]"));
+}
+
+#[test]
+fn test_r141_agent_identity_issuer_oversized() {
+    let identity = AgentIdentity {
+        issuer: Some("x".repeat(1025)),
+        ..Default::default()
+    };
+    let result = identity.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("issuer length"));
+}
+
+#[test]
+fn test_r141_agent_identity_issuer_control_char() {
+    let identity = AgentIdentity {
+        issuer: Some("issuer\x01corp.com".to_string()),
+        ..Default::default()
+    };
+    let result = identity.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("issuer contains control"));
+}
+
+#[test]
+fn test_r141_agent_identity_subject_oversized() {
+    let identity = AgentIdentity {
+        subject: Some("x".repeat(1025)),
+        ..Default::default()
+    };
+    let result = identity.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("subject length"));
+}
+
+#[test]
+fn test_r141_agent_identity_subject_format_char() {
+    let identity = AgentIdentity {
+        subject: Some(format!("agent\u{200D}user")),
+        ..Default::default()
+    };
+    let result = identity.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("subject contains control"));
+}
+
+#[test]
+fn test_r141_evaluation_context_timestamp_oversized() {
+    let mut ctx = EvaluationContext::builder().build();
+    ctx.timestamp = Some("x".repeat(65));
+    let result = ctx.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("timestamp length"));
+}
+
+#[test]
+fn test_r141_evaluation_context_timestamp_control_char() {
+    let mut ctx = EvaluationContext::builder().build();
+    ctx.timestamp = Some("2026-01-01T00:00:00Z\nINFO: forged".to_string());
+    let result = ctx.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("timestamp contains control"));
+}
+
+#[test]
+fn test_r141_evaluation_context_timestamp_valid() {
+    let mut ctx = EvaluationContext::builder().build();
+    ctx.timestamp = Some("2026-01-01T00:00:00Z".to_string());
+    assert!(ctx.validate().is_ok());
+}
+
+#[test]
+fn test_r141_tool_signature_control_char_in_signature_id() {
+    use crate::etdi::{SignatureAlgorithm, ToolSignature};
+    let sig = ToolSignature {
+        signature_id: "sig\n-inject".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        signature: "abc".to_string(),
+        public_key: "def".to_string(),
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: None,
+        key_fingerprint: None,
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    let result = sig.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("signature_id"));
+}
+
+#[test]
+fn test_r141_tool_signature_format_char_in_spiffe_id() {
+    use crate::etdi::{SignatureAlgorithm, ToolSignature};
+    let sig = ToolSignature {
+        signature_id: "sig-001".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        signature: "abc".to_string(),
+        public_key: "def".to_string(),
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: None,
+        key_fingerprint: None,
+        signer_spiffe_id: Some(format!("spiffe://trust\u{200D}domain/workload")),
+        rekor_entry: None,
+    };
+    let result = sig.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("signer_spiffe_id"));
+}
+
+#[test]
+fn test_r141_tool_attestation_control_char_in_attester() {
+    use crate::etdi::{SignatureAlgorithm, ToolAttestation, ToolSignature};
+    let sig = ToolSignature {
+        signature_id: "sig-001".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        signature: "abc".to_string(),
+        public_key: "def".to_string(),
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: None,
+        key_fingerprint: None,
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    let att = ToolAttestation {
+        attestation_id: "att-001".to_string(),
+        attestation_type: "automated".to_string(),
+        attester: "attester\x01injected".to_string(),
+        timestamp: "2026-01-01T00:00:00Z".to_string(),
+        tool_hash: "abc123".to_string(),
+        previous_attestation: None,
+        transparency_log_entry: None,
+        signature: sig,
+    };
+    let result = att.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("attester"));
+}
+
+#[test]
+fn test_r141_tool_attestation_format_char_in_tool_hash() {
+    use crate::etdi::{SignatureAlgorithm, ToolAttestation, ToolSignature};
+    let sig = ToolSignature {
+        signature_id: "sig-001".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        signature: "abc".to_string(),
+        public_key: "def".to_string(),
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: None,
+        key_fingerprint: None,
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    let att = ToolAttestation {
+        attestation_id: "att-001".to_string(),
+        attestation_type: "automated".to_string(),
+        attester: "attester".to_string(),
+        timestamp: "2026-01-01T00:00:00Z".to_string(),
+        tool_hash: format!("abcdef\u{200B}1234"),
+        previous_attestation: None,
+        transparency_log_entry: None,
+        signature: sig,
+    };
+    let result = att.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("tool_hash"));
+}

@@ -205,6 +205,19 @@ pub fn attenuate_capability_token(
         )));
     }
 
+    // SECURITY (FIND-R143-002): Verify parent token has not expired before
+    // issuing a child token. Without this check, an expired parent can produce
+    // a child that, due to clock skew tolerance in verify_capability_token,
+    // could appear valid within the MAX_ISSUED_AT_SKEW_SECS window.
+    let now = chrono::Utc::now();
+    let parent_expires = chrono::DateTime::parse_from_rfc3339(&parent.expires_at)
+        .map_err(|e| CapabilityError::SigningFailed(format!("invalid parent expires_at: {}", e)))?;
+    if now >= parent_expires {
+        return Err(CapabilityError::AttenuationViolation(
+            "parent token has expired".to_string(),
+        ));
+    }
+
     // Verify grants are a subset of parent's grants
     for new_grant in &new_grants {
         let covered = parent
@@ -223,13 +236,10 @@ pub fn attenuate_capability_token(
     let verifying_key = signing_key.verifying_key();
     let public_key_hex = hex::encode(verifying_key.as_bytes());
 
-    let now = chrono::Utc::now();
     let issued_at = now.to_rfc3339();
     let new_depth = parent.remaining_depth - 1;
 
-    // Clamp expiry to parent's expiry
-    let parent_expires = chrono::DateTime::parse_from_rfc3339(&parent.expires_at)
-        .map_err(|e| CapabilityError::SigningFailed(format!("invalid parent expires_at: {}", e)))?;
+    // Clamp expiry to parent's expiry (parent_expires already parsed above)
     let requested_expires = now + chrono::Duration::seconds(ttl_secs as i64);
     let clamped_expires = if requested_expires > parent_expires {
         parent_expires.with_timezone(&chrono::Utc)

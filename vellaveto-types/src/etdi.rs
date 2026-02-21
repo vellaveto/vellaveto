@@ -230,6 +230,41 @@ impl ToolSignature {
                 ));
             }
         }
+        // SECURITY (FIND-R141-003): Validate control and Unicode format characters
+        // in all string fields. Without this, a signature_id containing newlines could
+        // cause log injection, and a signer_spiffe_id with zero-width chars could bypass
+        // SPIFFE-based identity matching. This matches the pattern in ToolVersionPin::validate().
+        for (name, value) in [
+            ("signature_id", Some(&self.signature_id)),
+            ("signed_at", Some(&self.signed_at)),
+        ] {
+            if let Some(v) = value {
+                if v.chars()
+                    .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+                {
+                    return Err(format!(
+                        "ToolSignature {} contains control or format characters",
+                        name
+                    ));
+                }
+            }
+        }
+        for (name, value) in [
+            ("expires_at", self.expires_at.as_ref()),
+            ("key_fingerprint", self.key_fingerprint.as_ref()),
+            ("signer_spiffe_id", self.signer_spiffe_id.as_ref()),
+        ] {
+            if let Some(v) = value {
+                if v.chars()
+                    .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+                {
+                    return Err(format!(
+                        "ToolSignature {} contains control or format characters",
+                        name
+                    ));
+                }
+            }
+        }
         Ok(())
     }
 
@@ -392,6 +427,45 @@ impl ToolAttestation {
                 ));
             }
         }
+        // SECURITY (FIND-R141-004): Validate control and Unicode format characters
+        // in all string fields. Without this, an attestation_id or attester with
+        // newlines could cause log injection, and a tool_hash with zero-width chars
+        // could cause integrity check inconsistencies. Matches ToolVersionPin::validate() pattern.
+        for (name, value) in [
+            ("attestation_id", &self.attestation_id as &str),
+            ("attestation_type", &self.attestation_type),
+            ("attester", &self.attester),
+            ("timestamp", &self.timestamp),
+            ("tool_hash", &self.tool_hash),
+        ] {
+            if value
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(format!(
+                    "ToolAttestation {} contains control or format characters",
+                    name
+                ));
+            }
+        }
+        for (name, value) in [
+            ("previous_attestation", self.previous_attestation.as_ref()),
+            (
+                "transparency_log_entry",
+                self.transparency_log_entry.as_ref(),
+            ),
+        ] {
+            if let Some(v) = value {
+                if v.chars()
+                    .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+                {
+                    return Err(format!(
+                        "ToolAttestation {} contains control or format characters",
+                        name
+                    ));
+                }
+            }
+        }
         self.signature.validate()?;
         Ok(())
     }
@@ -464,10 +538,7 @@ impl ToolVersionPin {
                 Self::MAX_TOOL_NAME_LEN,
             ));
         }
-        if self
-            .tool_name
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.tool_name)
         {
             return Err(
                 "ToolVersionPin tool_name contains control or format characters".to_string(),
@@ -515,10 +586,7 @@ impl ToolVersionPin {
                 Self::MAX_PINNED_BY_LEN,
             ));
         }
-        if self
-            .pinned_by
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.pinned_by)
         {
             return Err(
                 "ToolVersionPin pinned_by contains control or format characters".to_string(),

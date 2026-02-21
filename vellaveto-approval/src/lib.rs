@@ -382,6 +382,14 @@ impl ApprovalStore {
         // SECURITY (FIND-R112-008): Also reject control chars and Unicode format chars
         // in requested_by to prevent identity spoofing via invisible characters.
         if let Some(ref rb) = requested_by {
+            // SECURITY (FIND-R143-004): Reject empty requested_by. When requested_by
+            // is Some(""), the self-approval check's `!req_final.is_empty()` guard
+            // evaluates to false, skipping the check entirely and allowing self-approval.
+            if rb.is_empty() {
+                return Err(ApprovalError::Validation(
+                    "requested_by must not be empty".to_string(),
+                ));
+            }
             if rb.len() > MAX_IDENTITY_LEN {
                 return Err(ApprovalError::Validation(format!(
                     "requested_by exceeds maximum length of {MAX_IDENTITY_LEN} bytes"
@@ -482,6 +490,15 @@ impl ApprovalStore {
     /// an agent from approving its own tool calls — a separation-of-privilege
     /// requirement for meaningful human-in-the-loop approval flows.
     pub async fn approve(&self, id: &str, by: &str) -> Result<PendingApproval, ApprovalError> {
+        // SECURITY (FIND-R143-005): Reject empty resolver identity. An empty `by`
+        // string would create an approval with `resolved_by: Some("")`, providing
+        // no audit accountability. It also bypasses the self-approval check because
+        // the normalized empty string hits the `!req_final.is_empty()` guard.
+        if by.is_empty() {
+            return Err(ApprovalError::Validation(
+                "resolved_by must not be empty".to_string(),
+            ));
+        }
         // SECURITY (R39-SUP-6): Validate identity length at the store level.
         // The server adds its own check, but direct API consumers must also
         // be protected from arbitrarily long identity strings.
@@ -606,6 +623,12 @@ impl ApprovalStore {
     /// an agent from denying its own tool calls — a separation-of-privilege
     /// requirement for meaningful human-in-the-loop approval flows.
     pub async fn deny(&self, id: &str, by: &str) -> Result<PendingApproval, ApprovalError> {
+        // SECURITY (FIND-R143-005): Reject empty resolver identity (parity with approve()).
+        if by.is_empty() {
+            return Err(ApprovalError::Validation(
+                "resolved_by must not be empty".to_string(),
+            ));
+        }
         // SECURITY (R39-SUP-6): Validate identity length at the store level.
         if by.len() > MAX_IDENTITY_LEN {
             return Err(ApprovalError::Validation(format!(
@@ -2168,5 +2191,60 @@ mod tests {
             "Expected CapacityExceeded(5), got: {:?}",
             result
         );
+    }
+
+    // SECURITY (FIND-R143-004): Empty requested_by must be rejected
+    #[tokio::test]
+    async fn test_r143_create_empty_requested_by_rejected() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+        let action = Action::new("tool".to_string(), "func".to_string(), json!({}));
+        let result = store
+            .create(action, "reason".to_string(), Some(String::new()))
+            .await;
+        assert!(result.is_err());
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(err_msg.contains("must not be empty"), "Got: {err_msg}");
+    }
+
+    // SECURITY (FIND-R143-005): Empty by must be rejected in approve()
+    #[tokio::test]
+    async fn test_r143_approve_empty_by_rejected() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+        let action = Action::new("tool".to_string(), "func".to_string(), json!({}));
+        let id = store
+            .create(action, "reason".to_string(), Some("requester".to_string()))
+            .await
+            .expect("create should succeed");
+        let result = store.approve(&id, "").await;
+        assert!(result.is_err());
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(err_msg.contains("must not be empty"), "Got: {err_msg}");
+    }
+
+    // SECURITY (FIND-R143-005): Empty by must be rejected in deny()
+    #[tokio::test]
+    async fn test_r143_deny_empty_by_rejected() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+        let action = Action::new("tool".to_string(), "func".to_string(), json!({}));
+        let id = store
+            .create(action, "reason".to_string(), Some("requester".to_string()))
+            .await
+            .expect("create should succeed");
+        let result: Result<PendingApproval, ApprovalError> = store.deny(&id, "").await;
+        assert!(result.is_err());
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(err_msg.contains("must not be empty"), "Got: {err_msg}");
     }
 }

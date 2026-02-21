@@ -79,6 +79,16 @@ impl AgentIdentity {
     pub const MAX_CLAIM_VALUE_LEN: usize = 4096;
 
     /// SECURITY (FIND-R49-006, FIND-R111-002): Validate AgentIdentity bounds.
+    /// Maximum byte length per audience entry.
+    /// SECURITY (FIND-R141-002): Prevents memory amplification via oversized audience entries.
+    const MAX_AUDIENCE_ENTRY_LEN: usize = 1024;
+    /// Maximum byte length for issuer field.
+    /// SECURITY (FIND-R141-002): Prevents memory amplification via oversized issuer.
+    const MAX_ISSUER_LEN: usize = 1024;
+    /// Maximum byte length for subject field.
+    /// SECURITY (FIND-R141-002): Prevents memory amplification via oversized subject.
+    const MAX_SUBJECT_LEN: usize = 1024;
+
     pub fn validate(&self) -> Result<(), String> {
         if self.claims.len() > Self::MAX_CLAIMS {
             return Err(format!(
@@ -94,6 +104,65 @@ impl AgentIdentity {
                 Self::MAX_AUDIENCE
             ));
         }
+        // SECURITY (FIND-R141-002): Per-entry length and control/format char validation
+        // for audience entries. Prevents memory amplification and identity bypass via
+        // zero-width characters in audience matching.
+        for (i, aud) in self.audience.iter().enumerate() {
+            if aud.len() > Self::MAX_AUDIENCE_ENTRY_LEN {
+                return Err(format!(
+                    "AgentIdentity audience[{}] length {} exceeds max {}",
+                    i,
+                    aud.len(),
+                    Self::MAX_AUDIENCE_ENTRY_LEN
+                ));
+            }
+            if aud
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(format!(
+                    "AgentIdentity audience[{}] contains control or format characters",
+                    i
+                ));
+            }
+        }
+        // SECURITY (FIND-R141-002): Validate issuer and subject fields for length
+        // and control/format characters. These are used in policy matching and must
+        // not contain invisible characters that could bypass identity comparisons.
+        if let Some(ref iss) = self.issuer {
+            if iss.len() > Self::MAX_ISSUER_LEN {
+                return Err(format!(
+                    "AgentIdentity issuer length {} exceeds max {}",
+                    iss.len(),
+                    Self::MAX_ISSUER_LEN
+                ));
+            }
+            if iss
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(
+                    "AgentIdentity issuer contains control or format characters".to_string(),
+                );
+            }
+        }
+        if let Some(ref sub) = self.subject {
+            if sub.len() > Self::MAX_SUBJECT_LEN {
+                return Err(format!(
+                    "AgentIdentity subject length {} exceeds max {}",
+                    sub.len(),
+                    Self::MAX_SUBJECT_LEN
+                ));
+            }
+            if sub
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(
+                    "AgentIdentity subject contains control or format characters".to_string(),
+                );
+            }
+        }
         // SECURITY (FIND-R111-002): Per-key and per-value length bounds.
         for (key, value) in &self.claims {
             if key.len() > Self::MAX_CLAIM_KEY_LEN {
@@ -105,7 +174,7 @@ impl AgentIdentity {
                 ));
             }
             // Reject control characters and Unicode format characters in claim keys.
-            if key.chars().any(|c| c.is_control() || crate::core::is_unicode_format_char(c)) {
+            if crate::core::has_dangerous_chars(key) {
                 return Err(format!(
                     "AgentIdentity claim key contains control or Unicode format character: '{}'",
                     key.chars().take(32).collect::<String>()
@@ -301,6 +370,28 @@ impl EvaluationContext {
         Self::validate_optional_id_field(&self.tenant_id, "tenant_id")?;
         Self::validate_optional_id_field(&self.session_state, "session_state")?;
 
+        // SECURITY (FIND-R141-001): Validate top-level timestamp for length and
+        // control/format characters. The call_chain timestamps are validated below,
+        // but the top-level evaluation timestamp was missing validation, allowing
+        // log injection via newlines or memory amplification via oversized values.
+        if let Some(ref ts) = self.timestamp {
+            if ts.len() > Self::MAX_TIMESTAMP_LEN {
+                return Err(format!(
+                    "EvaluationContext timestamp length {} exceeds max {}",
+                    ts.len(),
+                    Self::MAX_TIMESTAMP_LEN,
+                ));
+            }
+            if ts
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(
+                    "EvaluationContext timestamp contains control or format characters".to_string(),
+                );
+            }
+        }
+
         // SECURITY (FIND-R49-001): Bound collection sizes to prevent memory exhaustion
         // from oversized deserialized payloads.
         if self.call_counts.len() > Self::MAX_CALL_COUNTS {
@@ -423,6 +514,16 @@ impl EvaluationContext {
             identity
                 .validate()
                 .map_err(|e| format!("EvaluationContext agent_identity: {e}"))?;
+        }
+
+        // SECURITY (FIND-R141-005): Validate nested CapabilityToken structural bounds.
+        // Without this check, a deserialized EvaluationContext with a CapabilityToken
+        // containing thousands of grants or oversized fields would pass validate()
+        // unchecked, causing O(n*m) computation in the capability checking logic.
+        if let Some(ref token) = self.capability_token {
+            token
+                .validate_structure()
+                .map_err(|e| format!("EvaluationContext capability_token: {e}"))?;
         }
 
         Ok(())
@@ -755,10 +856,7 @@ impl StatelessContextBlob {
         }
         // SECURITY (FIND-R112-001): Reject control/format chars in agent_id to
         // prevent log injection and ForbiddenActionSequence bypass.
-        if self
-            .agent_id
-            .chars()
-            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        if crate::core::has_dangerous_chars(&self.agent_id)
         {
             return Err(
                 "StatelessContextBlob agent_id contains control or format characters".to_string(),
