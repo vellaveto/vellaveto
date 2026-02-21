@@ -3,9 +3,29 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-21 (Round 142)
-> **Total audit rounds:** 142
-> **Cumulative findings fixed:** 500+
+> **Last updated:** 2026-02-21 (Round 143)
+> **Total audit rounds:** 143
+> **Cumulative findings fixed:** 510+
+
+---
+
+## Round 141+143 — Types Validation + Approval/Capability Hardening (10 findings fixed)
+
+**Subsystem:** `vellaveto-types/`, `vellaveto-approval/`, `vellaveto-mcp/src/capability_token.rs`
+**Commit:** `c3a5fad`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R141-001 | P2 | `identity.rs` | `EvaluationContext.timestamp` now validated for length (64), control chars, Unicode format chars |
+| FIND-R141-002 | P2 | `identity.rs` | `AgentIdentity.audience` per-entry length (1024) + control/format char validation; `issuer` + `subject` validated |
+| FIND-R141-003 | P2 | `etdi.rs` | `ToolSignature::validate()` control/format char checks on `signature_id`, `signed_at`, `expires_at`, `key_fingerprint`, `signer_spiffe_id` |
+| FIND-R141-004 | P2 | `etdi.rs` | `ToolAttestation::validate()` control/format char checks on all 7 string fields |
+| FIND-R141-005 | P2 | `identity.rs` | `EvaluationContext::validate()` now validates nested `CapabilityToken` via `validate_structure()` |
+| FIND-R143-002 | P1 | `capability_token.rs` | `attenuate_capability_token` verifies parent token not expired before issuing child |
+| FIND-R143-004 | P2 | `lib.rs` (approval) | Empty `requested_by` (`Some("")`) rejected — was bypassing self-approval check |
+| FIND-R143-005 | P2 | `lib.rs` (approval) | Empty `by` string rejected in `approve()` and `deny()` — prevents unaccountable resolutions |
+
+**Tests added:** 17 (14 types validation + 3 approval empty-string tests)
 
 ---
 
@@ -128,16 +148,16 @@
 
 ---
 
-## Audit Round Summary (Rounds 1–142)
+## Audit Round Summary (Rounds 1–143)
 
 | Category | Cumulative |
 |----------|-----------|
-| Rounds completed | 142 |
+| Rounds completed | 143 |
 | P0 (Critical) findings fixed | 3 |
-| P1 (High) findings fixed | 30+ |
-| P2 (Medium) findings fixed | 350+ |
+| P1 (High) findings fixed | 31+ |
+| P2 (Medium) findings fixed | 360+ |
 | P3 (Low) findings fixed | 150+ |
-| Tests added from audits | 200+ |
+| Tests added from audits | 220+ |
 | CLEAN rounds (no findings) | ~25 |
 | Subsystems audited | All 12 crates + 3 SDKs |
 
