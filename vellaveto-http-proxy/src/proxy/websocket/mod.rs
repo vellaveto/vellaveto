@@ -29,7 +29,8 @@ use tokio::sync::Mutex;
 use vellaveto_mcp::extractor::{self, MessageType};
 use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
-    scan_response_for_secrets, scan_text_for_secrets,
+    scan_response_for_secrets, scan_text_for_secrets, scan_tool_descriptions,
+    scan_tool_descriptions_with_scanner,
 };
 use vellaveto_mcp::output_validation::ValidationResult;
 use vellaveto_types::{Action, EvaluationContext, Verdict};
@@ -1560,7 +1561,7 @@ async fn relay_client_to_upstream(
                                 let error = make_ws_error_response(
                                     Some(id),
                                     -32001,
-                                    "Service temporarily unavailable — circuit breaker open",
+                                    "Service temporarily unavailable",
                                 );
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(error.into())).await;
@@ -2786,6 +2787,90 @@ async fn relay_client_to_upstream(
                             }
                         }
 
+                        // SECURITY (FIND-R130-001): Injection scanning on PassThrough parameters.
+                        // Parity with HTTP handler (handlers.rs FIND-R112-008) and gRPC handler
+                        // (service.rs FIND-R113-001). An agent could inject prompt injection
+                        // payloads via any PassThrough method's parameters.
+                        if !state.injection_disabled {
+                            let mut inj_parts = Vec::new();
+                            if let Some(params) = parsed.get("params") {
+                                extract_strings_recursive(params, &mut inj_parts, 0);
+                            }
+                            if let Some(result) = parsed.get("result") {
+                                extract_strings_recursive(result, &mut inj_parts, 0);
+                            }
+                            let scannable = inj_parts.join("\n");
+                            if !scannable.is_empty() {
+                                let injection_matches: Vec<String> =
+                                    if let Some(ref scanner) = state.injection_scanner {
+                                        scanner
+                                            .inspect(&scannable)
+                                            .into_iter()
+                                            .map(|s| s.to_string())
+                                            .collect()
+                                    } else {
+                                        inspect_for_injection(&scannable)
+                                            .into_iter()
+                                            .map(|s| s.to_string())
+                                            .collect()
+                                    };
+
+                                if !injection_matches.is_empty() {
+                                    tracing::warn!(
+                                        "SECURITY: Injection in WS passthrough params! \
+                                         Session: {}, Patterns: {:?}",
+                                        session_id,
+                                        injection_matches,
+                                    );
+
+                                    let verdict = if state.injection_blocking {
+                                        Verdict::Deny {
+                                            reason: format!(
+                                                "WS passthrough injection blocked: {:?}",
+                                                injection_matches
+                                            ),
+                                        }
+                                    } else {
+                                        Verdict::Allow
+                                    };
+
+                                    let inj_action = Action::new(
+                                        "vellaveto",
+                                        "ws_passthrough_injection_scan",
+                                        json!({
+                                            "matched_patterns": injection_matches,
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "direction": "client_to_upstream",
+                                        }),
+                                    );
+                                    if let Err(e) = state
+                                        .audit
+                                        .log_entry(
+                                            &inj_action,
+                                            &verdict,
+                                            json!({
+                                                "source": "ws_proxy",
+                                                "event": "ws_passthrough_injection_detected",
+                                                "blocking": state.injection_blocking,
+                                            }),
+                                        )
+                                        .await
+                                    {
+                                        tracing::warn!(
+                                            "Failed to audit WS passthrough injection: {}",
+                                            e
+                                        );
+                                    }
+
+                                    if state.injection_blocking {
+                                        // Drop the message (passthrough has no id to respond to)
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+
                         // SECURITY (FIND-R46-WS-004): Audit log forwarded passthrough/notification messages
                         let msg_type = match &classified {
                             MessageType::ProgressNotification { .. } => "progress_notification",
@@ -3166,6 +3251,71 @@ async fn relay_upstream_to_client(
                                     &state.audit,
                                 )
                                 .await;
+                            }
+
+                            // SECURITY (FIND-R130-003): Scan tool descriptions for embedded
+                            // injection. Parity with HTTP upstream handler (upstream.rs:648-698).
+                            if !state.injection_disabled {
+                                let desc_findings =
+                                    if let Some(ref scanner) = state.injection_scanner {
+                                        scan_tool_descriptions_with_scanner(&json_val, scanner)
+                                    } else {
+                                        scan_tool_descriptions(&json_val)
+                                    };
+                                for finding in &desc_findings {
+                                    injection_found = true;
+                                    tracing::warn!(
+                                        "SECURITY: Injection in tool '{}' description! \
+                                         Session: {}, Patterns: {:?}",
+                                        finding.tool_name,
+                                        session_id,
+                                        finding.matched_patterns
+                                    );
+                                    let action = Action::new(
+                                        "vellaveto",
+                                        "tool_description_injection",
+                                        json!({
+                                            "tool": finding.tool_name,
+                                            "matched_patterns": finding.matched_patterns,
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "blocking": state.injection_blocking,
+                                        }),
+                                    );
+                                    if let Err(e) = state
+                                        .audit
+                                        .log_entry(
+                                            &action,
+                                            &Verdict::Deny {
+                                                reason: format!(
+                                                    "Tool '{}' description contains injection: {:?}",
+                                                    finding.tool_name, finding.matched_patterns
+                                                ),
+                                            },
+                                            json!({
+                                                "source": "ws_proxy",
+                                                "event": "tool_description_injection",
+                                            }),
+                                        )
+                                        .await
+                                    {
+                                        tracing::warn!(
+                                            "Failed to audit WS tool description injection: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                                if !desc_findings.is_empty() && state.injection_blocking {
+                                    let id = json_val.get("id");
+                                    let error = make_ws_error_response(
+                                        id,
+                                        -32001,
+                                        "Response blocked: suspicious content in tool descriptions",
+                                    );
+                                    let mut sink = client_sink.lock().await;
+                                    let _ = sink.send(Message::Text(error.into())).await;
+                                    continue;
+                                }
                             }
                         }
                     }
@@ -3612,27 +3762,24 @@ fn extract_strings_recursive(val: &Value, parts: &mut Vec<String>, depth: usize)
 }
 
 /// Extract scannable text from a JSON-RPC response for injection scanning.
+/// Extract scannable text from a JSON-RPC response for injection scanning.
+///
+/// SECURITY (FIND-R130-004): Delegates to the shared `extract_text_from_result()`
+/// which covers `resource.text`, `resource.blob` (base64-decoded), `annotations`,
+/// and `_meta` — all missing from the previous WS-only implementation.
 fn extract_scannable_text(json_val: &Value) -> String {
     let mut text_parts = Vec::new();
 
-    // Scan result content
+    // Scan result via shared extraction (covers content[].text, resource.text,
+    // resource.blob, annotations, instructionsForUser, structuredContent, _meta).
     if let Some(result) = json_val.get("result") {
-        if let Some(content) = result.get("content").and_then(|c| c.as_array()) {
-            for item in content {
-                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                    text_parts.push(text.to_string());
-                }
-            }
-        }
-        if let Some(instructions) = result.get("instructionsForUser").and_then(|i| i.as_str()) {
-            text_parts.push(instructions.to_string());
-        }
-        if let Some(structured) = result.get("structuredContent") {
-            text_parts.push(structured.to_string());
+        let result_text = super::inspection::extract_text_from_result(result);
+        if !result_text.is_empty() {
+            text_parts.push(result_text);
         }
     }
 
-    // Scan error messages
+    // Scan error messages (not covered by extract_text_from_result)
     if let Some(error) = json_val.get("error") {
         if let Some(msg) = error.get("message").and_then(|m| m.as_str()) {
             text_parts.push(msg.to_string());

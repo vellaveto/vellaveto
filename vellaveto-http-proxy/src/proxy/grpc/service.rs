@@ -21,7 +21,7 @@ use tonic::{Request, Response, Status, Streaming};
 use vellaveto_mcp::extractor::{self, MessageType};
 use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
-    scan_response_for_secrets,
+    scan_response_for_secrets, scan_tool_descriptions, scan_tool_descriptions_with_scanner,
 };
 use vellaveto_mcp::output_validation::ValidationResult;
 use vellaveto_types::{Action, EvaluationContext, Verdict};
@@ -475,7 +475,7 @@ impl McpGrpcService {
                 return make_proto_error_response(
                     proto_req,
                     -32602,
-                    &format!("Invalid tool name: {}", e),
+                    "Invalid tool name",
                 );
             }
         }
@@ -671,7 +671,7 @@ impl McpGrpcService {
                 }
                 return make_proto_denial_response(
                     proto_req,
-                    "Service temporarily unavailable — circuit breaker open",
+                    "Service temporarily unavailable",
                 );
             }
         }
@@ -881,7 +881,7 @@ impl McpGrpcService {
                         }
                         return make_proto_denial_response(
                             proto_req,
-                            "Denied by policy: privilege escalation detected",
+                            "Denied by policy",
                         );
                     }
                 }
@@ -1153,7 +1153,7 @@ impl McpGrpcService {
                 }
                 return make_proto_denial_response(
                     proto_req,
-                    "Service temporarily unavailable — circuit breaker open",
+                    "Service temporarily unavailable",
                 );
             }
         }
@@ -1478,6 +1478,64 @@ impl McpGrpcService {
                     &self.state.audit,
                 )
                 .await;
+            }
+
+            // SECURITY (FIND-R130-003): Scan tool descriptions for embedded injection.
+            // Parity with HTTP upstream handler (upstream.rs:648-698).
+            if !self.state.injection_disabled {
+                let desc_findings = if let Some(ref scanner) = self.state.injection_scanner {
+                    scan_tool_descriptions_with_scanner(&response_json, scanner)
+                } else {
+                    scan_tool_descriptions(&response_json)
+                };
+                for finding in &desc_findings {
+                    tracing::warn!(
+                        "SECURITY: Injection in tool '{}' description! \
+                         Session: {}, Patterns: {:?}",
+                        finding.tool_name,
+                        session_id,
+                        finding.matched_patterns
+                    );
+                    let action = Action::new(
+                        "vellaveto",
+                        "tool_description_injection",
+                        json!({
+                            "tool": finding.tool_name,
+                            "matched_patterns": finding.matched_patterns,
+                            "session": session_id,
+                            "transport": "grpc",
+                            "blocking": self.state.injection_blocking,
+                        }),
+                    );
+                    if let Err(e) = self
+                        .state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Deny {
+                                reason: format!(
+                                    "Tool '{}' description contains injection: {:?}",
+                                    finding.tool_name, finding.matched_patterns
+                                ),
+                            },
+                            json!({
+                                "source": "grpc_proxy",
+                                "event": "tool_description_injection",
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            "Failed to audit gRPC tool description injection: {}",
+                            e
+                        );
+                    }
+                }
+                if !desc_findings.is_empty() && self.state.injection_blocking {
+                    return Err(tonic::Status::permission_denied(
+                        "Response blocked: suspicious content in tool descriptions",
+                    ));
+                }
             }
         }
 
