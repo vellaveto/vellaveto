@@ -697,6 +697,26 @@ pub async fn soc2_access_review(
         report.total_evaluations = report.entries.iter().map(|e| e.total_evaluations).sum();
     }
 
+    // SECURITY (FIND-R138-001): Validate and allowlist `format` before it is
+    // used in the audit log entry. An unvalidated user-supplied string in the
+    // tamper-evident audit trail is a log injection vector.
+    let format = match params.format.as_deref() {
+        Some("html") => "html",
+        Some("json") | None => "json",
+        Some(other) => {
+            tracing::warn!(
+                format_len = other.len(),
+                "soc2_access_review: invalid format parameter rejected"
+            );
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "format must be 'json' or 'html'".to_string(),
+                }),
+            ));
+        }
+    };
+
     // Log audit event
     let _ = state
         .audit
@@ -706,13 +726,12 @@ pub async fn soc2_access_review(
                 "period_days": period_days,
                 "total_agents": report.total_agents,
                 "total_evaluations": report.total_evaluations,
-                "format": params.format.as_deref().unwrap_or("json"),
+                "format": format,
             }),
         )
         .await;
 
     // Return in requested format
-    let format = params.format.as_deref().unwrap_or("json");
     match format {
         "html" => {
             let html = vellaveto_audit::access_review::render_html(&report);

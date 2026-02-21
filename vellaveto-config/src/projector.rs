@@ -64,9 +64,29 @@ impl Default for ProjectorConfig {
     }
 }
 
+/// Maximum length for the default_model_family string.
+/// SECURITY (FIND-R115-064): Prevents unbounded custom family names in config.
+const MAX_MODEL_FAMILY_LEN: usize = 128;
+
 impl ProjectorConfig {
     /// Validate projector configuration bounds.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R115-064): Validate length bounds on default_model_family.
+        // Without this, "custom:<1MB string>" passes validation, causing memory
+        // issues during schema projection lookups.
+        if self.default_model_family.len() > MAX_MODEL_FAMILY_LEN {
+            return Err(format!(
+                "projector.default_model_family exceeds max length ({} > {})",
+                self.default_model_family.len(),
+                MAX_MODEL_FAMILY_LEN
+            ));
+        }
+        // SECURITY (FIND-R115-064): Reject control characters in model family name.
+        if self.default_model_family.chars().any(char::is_control) {
+            return Err(
+                "projector.default_model_family contains control characters".to_string(),
+            );
+        }
         if !VALID_FAMILIES.contains(&self.default_model_family.as_str())
             && !self.default_model_family.starts_with("custom:")
         {
@@ -74,6 +94,16 @@ impl ProjectorConfig {
                 "projector.default_model_family '{}': must be one of {:?} or 'custom:<name>'",
                 self.default_model_family, VALID_FAMILIES
             ));
+        }
+        // SECURITY (FIND-R115-064): Validate the custom family name after the
+        // "custom:" prefix is non-empty.
+        if self.default_model_family.starts_with("custom:") {
+            let name = &self.default_model_family["custom:".len()..];
+            if name.is_empty() {
+                return Err(
+                    "projector.default_model_family 'custom:' must have a non-empty name after the prefix".to_string(),
+                );
+            }
         }
         if let Some(tokens) = self.max_schema_tokens {
             if tokens == 0 || tokens > MAX_SCHEMA_TOKENS {

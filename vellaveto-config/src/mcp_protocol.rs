@@ -339,6 +339,13 @@ impl AsyncTaskConfig {
                 return Err(format!("async_tasks.allow_cancellation[{}] is empty", i));
             }
         }
+        // SECURITY (FIND-R137-006): Reject max_nonces=0 when replay_protection
+        // is enabled — a zero-capacity nonce FIFO silently disables replay defense.
+        if self.replay_protection && self.max_nonces == 0 {
+            return Err(
+                "async_tasks.max_nonces must be > 0 when replay_protection is enabled".to_string(),
+            );
+        }
         Ok(())
     }
 }
@@ -377,6 +384,9 @@ pub struct ResourceIndicatorConfig {
 /// Maximum number of allowed resource patterns.
 pub const MAX_ALLOWED_RESOURCES: usize = 100;
 
+/// Maximum per-entry length for resource indicator patterns.
+pub const MAX_RESOURCE_ENTRY_LENGTH: usize = 256;
+
 impl ResourceIndicatorConfig {
     /// Validate configuration bounds.
     pub fn validate(&self) -> Result<(), String> {
@@ -385,6 +395,30 @@ impl ResourceIndicatorConfig {
                 "resource_indicator.allowed_resources exceeds {} entries",
                 MAX_ALLOWED_RESOURCES
             ));
+        }
+        // SECURITY (FIND-R137-003): Per-entry validation — empty string matches
+        // everything, effectively disabling resource indicator enforcement.
+        for (i, entry) in self.allowed_resources.iter().enumerate() {
+            if entry.is_empty() {
+                return Err(format!(
+                    "resource_indicator.allowed_resources[{}] is empty",
+                    i
+                ));
+            }
+            if entry.len() > MAX_RESOURCE_ENTRY_LENGTH {
+                return Err(format!(
+                    "resource_indicator.allowed_resources[{}] length {} exceeds max {}",
+                    i,
+                    entry.len(),
+                    MAX_RESOURCE_ENTRY_LENGTH
+                ));
+            }
+            if entry.chars().any(char::is_control) {
+                return Err(format!(
+                    "resource_indicator.allowed_resources[{}] contains control characters",
+                    i
+                ));
+            }
         }
         Ok(())
     }
@@ -421,6 +455,9 @@ pub struct CimdConfig {
 /// Maximum number of capability entries per list.
 pub const MAX_CAPABILITIES: usize = 100;
 
+/// Maximum per-entry length for capability strings.
+pub const MAX_CAPABILITY_ENTRY_LENGTH: usize = 128;
+
 impl CimdConfig {
     /// Validate configuration bounds.
     pub fn validate(&self) -> Result<(), String> {
@@ -435,6 +472,52 @@ impl CimdConfig {
                 "cimd.blocked_capabilities exceeds {} entries",
                 MAX_CAPABILITIES
             ));
+        }
+        // SECURITY (FIND-R137-004): Per-entry validation — empty required
+        // capability always matches; empty blocked capability blocks all.
+        for (i, entry) in self.required_capabilities.iter().enumerate() {
+            if entry.is_empty() {
+                return Err(format!(
+                    "cimd.required_capabilities[{}] is empty",
+                    i
+                ));
+            }
+            if entry.len() > MAX_CAPABILITY_ENTRY_LENGTH {
+                return Err(format!(
+                    "cimd.required_capabilities[{}] length {} exceeds max {}",
+                    i,
+                    entry.len(),
+                    MAX_CAPABILITY_ENTRY_LENGTH
+                ));
+            }
+            if entry.chars().any(char::is_control) {
+                return Err(format!(
+                    "cimd.required_capabilities[{}] contains control characters",
+                    i
+                ));
+            }
+        }
+        for (i, entry) in self.blocked_capabilities.iter().enumerate() {
+            if entry.is_empty() {
+                return Err(format!(
+                    "cimd.blocked_capabilities[{}] is empty",
+                    i
+                ));
+            }
+            if entry.len() > MAX_CAPABILITY_ENTRY_LENGTH {
+                return Err(format!(
+                    "cimd.blocked_capabilities[{}] length {} exceeds max {}",
+                    i,
+                    entry.len(),
+                    MAX_CAPABILITY_ENTRY_LENGTH
+                ));
+            }
+            if entry.chars().any(char::is_control) {
+                return Err(format!(
+                    "cimd.blocked_capabilities[{}] contains control characters",
+                    i
+                ));
+            }
         }
         Ok(())
     }
@@ -580,6 +663,9 @@ impl Default for StepUpAuthConfig {
 /// Maximum number of trigger tools for step-up auth.
 pub const MAX_TRIGGER_TOOLS: usize = 100;
 
+/// Maximum per-entry length for trigger tool patterns.
+pub const MAX_TRIGGER_TOOL_LENGTH: usize = 256;
+
 impl StepUpAuthConfig {
     /// Validate configuration bounds.
     pub fn validate(&self) -> Result<(), String> {
@@ -594,6 +680,29 @@ impl StepUpAuthConfig {
                 "step_up_auth.required_level must be 0-4, got {}",
                 self.required_level
             ));
+        }
+        // SECURITY (FIND-R137-005): Per-entry validation on trigger_tools.
+        for (i, entry) in self.trigger_tools.iter().enumerate() {
+            if entry.is_empty() {
+                return Err(format!(
+                    "step_up_auth.trigger_tools[{}] is empty",
+                    i
+                ));
+            }
+            if entry.len() > MAX_TRIGGER_TOOL_LENGTH {
+                return Err(format!(
+                    "step_up_auth.trigger_tools[{}] length {} exceeds max {}",
+                    i,
+                    entry.len(),
+                    MAX_TRIGGER_TOOL_LENGTH
+                ));
+            }
+            if entry.chars().any(char::is_control) {
+                return Err(format!(
+                    "step_up_auth.trigger_tools[{}] contains control characters",
+                    i
+                ));
+            }
         }
         Ok(())
     }

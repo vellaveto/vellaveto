@@ -139,14 +139,12 @@ pub async fn zk_audit_proofs(
 
     // QUALITY (FIND-GAP-010): Validate offset does not exceed total to prevent
     // confusing empty-but-200 responses for wildly out-of-range offsets.
+    // SECURITY (FIND-R138-002): Do not disclose exact proof count in error message.
     if params.offset > total {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!(
-                    "offset {} exceeds total proof count {}",
-                    params.offset, total
-                ),
+                error: "offset exceeds total proof count".to_string(),
             }),
         ));
     }

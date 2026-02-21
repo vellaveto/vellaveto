@@ -456,9 +456,22 @@ func (c *Client) ReloadPolicies(ctx context.Context) (*ReloadPoliciesResponse, e
 //
 // SECURITY (FIND-R80-002): Validates action fields before sending, matching
 // Evaluate() parity.
+// SECURITY (FIND-R115-060): Validates parameters size and context bounds,
+// matching Evaluate() parity. Without this, oversized payloads or malicious
+// context fields bypass client-side guards via the simulate path.
 func (c *Client) Simulate(ctx context.Context, action Action, evalCtx *EvaluationContext) (*SimulateResponse, error) {
 	if err := action.Validate(); err != nil {
 		return nil, err
+	}
+	// SECURITY (FIND-R115-060): Validate parameters size — parity with Evaluate().
+	if err := validateParameters(action.Parameters); err != nil {
+		return nil, err
+	}
+	// SECURITY (FIND-R115-060): Validate evaluation context — parity with Evaluate().
+	if evalCtx != nil {
+		if err := evalCtx.Validate(); err != nil {
+			return nil, err
+		}
 	}
 	reqBody := SimulateRequest{
 		Action:  action,
@@ -475,9 +488,16 @@ func (c *Client) Simulate(ctx context.Context, action Action, evalCtx *Evaluatio
 //
 // SECURITY (FIND-R80-002): Validates all action fields before sending, matching
 // Evaluate() parity.
+// SECURITY (FIND-R115-061): Validates parameters size per action, matching
+// Evaluate() parity. Without this, N actions each near 512KB bypass the
+// client-side parameters size guard.
 func (c *Client) BatchEvaluate(ctx context.Context, actions []Action, policyConfig map[string]interface{}) (*BatchResponse, error) {
 	for i := range actions {
 		if err := actions[i].Validate(); err != nil {
+			return nil, fmt.Errorf("vellaveto: action[%d]: %w", i, err)
+		}
+		// SECURITY (FIND-R115-061): Validate parameters size — parity with Evaluate().
+		if err := validateParameters(actions[i].Parameters); err != nil {
 			return nil, fmt.Errorf("vellaveto: action[%d]: %w", i, err)
 		}
 	}

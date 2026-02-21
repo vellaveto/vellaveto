@@ -7796,3 +7796,217 @@ fn test_sampling_config_default_has_max_per_session() {
     let cfg = crate::SamplingConfig::default();
     assert_eq!(cfg.max_per_session, 10, "default max_per_session should be 10");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FIND-R115-063: ZK audit key path validation
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_zk_audit_key_path_rejects_control_chars() {
+    let cfg = crate::zk_audit::ZkAuditConfig {
+        enabled: true,
+        proving_key_path: Some("/keys/proving\x00key.bin".to_string()),
+        ..crate::zk_audit::ZkAuditConfig::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("control characters"),
+        "should reject null byte in path, got: {err}"
+    );
+}
+
+#[test]
+fn test_zk_audit_key_path_rejects_oversized() {
+    let long_path = "/".to_string() + &"a".repeat(4100);
+    let cfg = crate::zk_audit::ZkAuditConfig {
+        enabled: true,
+        proving_key_path: Some(long_path),
+        ..crate::zk_audit::ZkAuditConfig::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("exceeds max length"),
+        "should reject oversized path, got: {err}"
+    );
+}
+
+#[test]
+fn test_zk_audit_key_path_rejects_empty() {
+    let cfg = crate::zk_audit::ZkAuditConfig {
+        enabled: true,
+        proving_key_path: Some("".to_string()),
+        ..crate::zk_audit::ZkAuditConfig::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("must not be empty"),
+        "should reject empty path, got: {err}"
+    );
+}
+
+#[test]
+fn test_zk_audit_verifying_key_path_rejects_newline() {
+    let cfg = crate::zk_audit::ZkAuditConfig {
+        enabled: true,
+        verifying_key_path: Some("/keys/verify\nkey.bin".to_string()),
+        ..crate::zk_audit::ZkAuditConfig::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("control characters"),
+        "should reject newline in path, got: {err}"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FIND-R115-064: Projector default_model_family validation
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_projector_rejects_oversized_model_family() {
+    let cfg = crate::projector::ProjectorConfig {
+        default_model_family: "custom:".to_string() + &"x".repeat(200),
+        ..crate::projector::ProjectorConfig::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("exceeds max length"),
+        "should reject oversized model family, got: {err}"
+    );
+}
+
+#[test]
+fn test_projector_rejects_control_chars_in_model_family() {
+    let cfg = crate::projector::ProjectorConfig {
+        default_model_family: "custom:evil\x01model".to_string(),
+        ..crate::projector::ProjectorConfig::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("control characters"),
+        "should reject control chars in model family, got: {err}"
+    );
+}
+
+#[test]
+fn test_projector_rejects_custom_prefix_empty_name() {
+    let cfg = crate::projector::ProjectorConfig {
+        default_model_family: "custom:".to_string(),
+        ..crate::projector::ProjectorConfig::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("non-empty name"),
+        "should reject custom: with empty name, got: {err}"
+    );
+}
+
+#[test]
+fn test_projector_accepts_valid_custom_family() {
+    let cfg = crate::projector::ProjectorConfig {
+        default_model_family: "custom:my-model-v2".to_string(),
+        ..crate::projector::ProjectorConfig::default()
+    };
+    assert!(cfg.validate().is_ok(), "valid custom family should pass");
+}
+
+// ── FIND-R137: Config per-entry validation tests ──────────
+
+#[test]
+fn test_resource_indicator_rejects_empty_entry() {
+    let cfg = crate::mcp_protocol::ResourceIndicatorConfig {
+        enabled: true,
+        allowed_resources: vec!["https://api.example.com".to_string(), "".to_string()],
+        require_resource: false,
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("is empty"), "should reject empty entry: {err}");
+}
+
+#[test]
+fn test_resource_indicator_rejects_control_chars() {
+    let cfg = crate::mcp_protocol::ResourceIndicatorConfig {
+        enabled: true,
+        allowed_resources: vec!["https://api\x00.example.com".to_string()],
+        require_resource: false,
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("control characters"),
+        "should reject control chars: {err}"
+    );
+}
+
+#[test]
+fn test_cimd_rejects_empty_required_capability() {
+    let cfg = crate::mcp_protocol::CimdConfig {
+        enabled: true,
+        required_capabilities: vec!["tools".to_string(), "".to_string()],
+        blocked_capabilities: vec![],
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("is empty"), "should reject empty: {err}");
+}
+
+#[test]
+fn test_cimd_rejects_empty_blocked_capability() {
+    let cfg = crate::mcp_protocol::CimdConfig {
+        enabled: true,
+        required_capabilities: vec![],
+        blocked_capabilities: vec!["".to_string()],
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("is empty"), "should reject empty: {err}");
+}
+
+#[test]
+fn test_step_up_auth_rejects_empty_trigger_tool() {
+    let cfg = crate::mcp_protocol::StepUpAuthConfig {
+        enabled: true,
+        trigger_tools: vec!["db_*".to_string(), "".to_string()],
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("is empty"), "should reject empty: {err}");
+}
+
+#[test]
+fn test_step_up_auth_rejects_control_char_trigger() {
+    let cfg = crate::mcp_protocol::StepUpAuthConfig {
+        enabled: true,
+        trigger_tools: vec!["db_\x1b[31m_evil".to_string()],
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("control characters"),
+        "should reject control chars: {err}"
+    );
+}
+
+#[test]
+fn test_async_tasks_rejects_zero_nonces_with_replay_protection() {
+    let cfg = crate::mcp_protocol::AsyncTaskConfig {
+        replay_protection: true,
+        max_nonces: 0,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("max_nonces must be > 0"),
+        "should reject zero nonces: {err}"
+    );
+}
+
+#[test]
+fn test_async_tasks_allows_zero_nonces_without_replay_protection() {
+    let cfg = crate::mcp_protocol::AsyncTaskConfig {
+        replay_protection: false,
+        max_nonces: 0,
+        ..Default::default()
+    };
+    assert!(
+        cfg.validate().is_ok(),
+        "zero nonces without replay_protection should be ok"
+    );
+}

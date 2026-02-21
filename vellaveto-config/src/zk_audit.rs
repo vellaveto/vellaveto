@@ -118,8 +118,36 @@ impl ZkAuditConfig {
     }
 }
 
-/// Validate a key file path does not contain path traversal.
+/// Maximum length for a key file path.
+/// SECURITY (FIND-R115-063): Prevents unbounded-length path strings in config.
+const MAX_KEY_PATH_LEN: usize = 4096;
+
+/// Validate a key file path does not contain path traversal, control chars,
+/// or exceed length bounds.
+///
+/// SECURITY (FIND-R115-063): Extended to check length bounds, control characters,
+/// and null bytes. Null bytes can cause path truncation on some OS file operations,
+/// and unbounded paths can cause memory issues during config processing.
 fn validate_key_path(field: &str, path: &str) -> Result<(), String> {
+    if path.is_empty() {
+        return Err(format!("{} must not be empty", field));
+    }
+    if path.len() > MAX_KEY_PATH_LEN {
+        return Err(format!(
+            "{} exceeds max length ({} > {})",
+            field,
+            path.len(),
+            MAX_KEY_PATH_LEN
+        ));
+    }
+    // SECURITY (FIND-R115-063): Reject control characters (includes null bytes,
+    // newlines, etc.) which can cause path truncation or log injection.
+    if path.chars().any(char::is_control) {
+        return Err(format!(
+            "{} must not contain control characters",
+            field
+        ));
+    }
     use std::path::{Component, Path};
     let p = Path::new(path);
     if p.components().any(|c| matches!(c, Component::ParentDir)) {

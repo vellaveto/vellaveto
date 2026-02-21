@@ -2398,3 +2398,65 @@ func TestEvaluationContextValidate_CallChainBidiOverride(t *testing.T) {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
+
+// ── FIND-R115-060: Simulate validates parameters size ──────────
+
+func TestSimulate_RejectsOversizedParameters(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	// Build parameters exceeding 512KB
+	bigVal := strings.Repeat("x", 600000)
+	params := map[string]interface{}{"data": bigVal}
+	action := Action{Tool: "test", Parameters: params}
+	_, err := c.Simulate(context.Background(), action, nil)
+	if err == nil {
+		t.Fatal("Simulate() should reject parameters exceeding 512KB")
+	}
+	if !strings.Contains(err.Error(), "exceeds max serialized size") {
+		t.Errorf("error = %q, want contains 'exceeds max serialized size'", err.Error())
+	}
+}
+
+func TestSimulate_RejectsInvalidContext(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	action := Action{Tool: "test"}
+	ctx := &EvaluationContext{SessionID: strings.Repeat("a", 300)}
+	_, err := c.Simulate(context.Background(), action, ctx)
+	if err == nil {
+		t.Fatal("Simulate() should reject context with oversized session_id")
+	}
+	if !strings.Contains(err.Error(), "exceeds max length") {
+		t.Errorf("error = %q, want contains 'exceeds max length'", err.Error())
+	}
+}
+
+func TestSimulate_RejectsContextControlChars(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	action := Action{Tool: "test"}
+	ctx := &EvaluationContext{AgentID: "agent\x01id"}
+	_, err := c.Simulate(context.Background(), action, ctx)
+	if err == nil {
+		t.Fatal("Simulate() should reject context with control characters")
+	}
+	if !strings.Contains(err.Error(), "contains control characters") {
+		t.Errorf("error = %q, want contains 'contains control characters'", err.Error())
+	}
+}
+
+// ── FIND-R115-061: BatchEvaluate validates parameters size ─────
+
+func TestBatchEvaluate_RejectsOversizedParameters(t *testing.T) {
+	c := mustNewClient(t, "http://localhost:1")
+	bigVal := strings.Repeat("x", 600000)
+	params := map[string]interface{}{"data": bigVal}
+	actions := []Action{{Tool: "test", Parameters: params}}
+	_, err := c.BatchEvaluate(context.Background(), actions, nil)
+	if err == nil {
+		t.Fatal("BatchEvaluate() should reject action with parameters exceeding 512KB")
+	}
+	if !strings.Contains(err.Error(), "action[0]") {
+		t.Errorf("error = %q, want contains 'action[0]'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "exceeds max serialized size") {
+		t.Errorf("error = %q, want contains 'exceeds max serialized size'", err.Error())
+	}
+}

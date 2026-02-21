@@ -199,6 +199,27 @@ impl PolicyConfig {
             ));
         }
         for (i, pattern) in self.audit.custom_pii_patterns.iter().enumerate() {
+            // SECURITY (FIND-R137-002): Validate pattern.name for empty, length,
+            // and control characters. The name appears in error messages and logs.
+            if pattern.name.is_empty() {
+                return Err(format!(
+                    "audit.custom_pii_patterns[{}].name is empty",
+                    i
+                ));
+            }
+            if pattern.name.len() > 256 {
+                return Err(format!(
+                    "audit.custom_pii_patterns[{}].name length {} exceeds max 256",
+                    i,
+                    pattern.name.len()
+                ));
+            }
+            if pattern.name.chars().any(char::is_control) {
+                return Err(format!(
+                    "audit.custom_pii_patterns[{}].name contains control characters",
+                    i
+                ));
+            }
             if pattern.pattern.len() > MAX_PATTERN_LEN {
                 return Err(format!(
                     "audit.custom_pii_patterns[{}] '{}' exceeds max pattern length ({} > {})",

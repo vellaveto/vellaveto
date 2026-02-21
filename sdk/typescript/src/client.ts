@@ -393,6 +393,15 @@ export class VellavetoClient {
           "Content-Type header cannot be overridden via extraHeaders"
         );
       }
+      // SECURITY (FIND-R115-062): Block Authorization override via extraHeaders.
+      // Parity with Go SDK WithHeaders() which rejects both content-type and
+      // authorization. Without this, when apiKey is unset, extraHeaders can
+      // inject an arbitrary Authorization header enabling token spoofing.
+      if (key.toLowerCase() === "authorization") {
+        throw new VellavetoError(
+          "Authorization header cannot be overridden via extraHeaders; use the apiKey option instead"
+        );
+      }
     }
     this.extraHeaders = rawHeaders;
   }

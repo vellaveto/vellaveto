@@ -419,6 +419,25 @@ describe("VellavetoClient", () => {
     ).not.toThrow();
   });
 
+  // SECURITY (FIND-R115-062): Block Authorization override via extraHeaders
+  test("extraHeaders with Authorization throws VellavetoError", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", headers: { "Authorization": "Bearer injected" } })
+    ).toThrow("Authorization header cannot be overridden via extraHeaders");
+  });
+
+  test("extraHeaders with authorization (lowercase) throws VellavetoError", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", headers: { "authorization": "Bearer injected" } })
+    ).toThrow("Authorization header cannot be overridden via extraHeaders");
+  });
+
+  test("extraHeaders with AUTHORIZATION (uppercase) throws VellavetoError", () => {
+    expect(
+      () => new VellavetoClient({ baseUrl: "http://localhost:3000", headers: { "AUTHORIZATION": "Bearer injected" } })
+    ).toThrow("Authorization header cannot be overridden via extraHeaders");
+  });
+
   // ── P1-10: evaluate extracts reason, policy_id, policy_name ──
 
   test("evaluate extracts reason from top-level field", async () => {
