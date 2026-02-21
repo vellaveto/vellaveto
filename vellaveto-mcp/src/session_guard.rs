@@ -1436,4 +1436,71 @@ mod tests {
         assert_eq!(deserialized.state, SessionState::Active);
         assert_eq!(deserialized.anomaly_count, 2);
     }
+
+    /// IMP-R122-005: Transitions beyond MAX_TRANSITION_HISTORY are silently
+    /// dropped. This test verifies the bound is enforced and the state machine
+    /// still works correctly even when the history is full.
+    ///
+    /// Only actual state changes are recorded in the transition history.
+    /// We use SessionContext::record_transition directly to fill the history
+    /// quickly, then verify that additional transitions are silently dropped.
+    #[test]
+    fn test_transition_history_bounded_at_max() {
+        let guard = default_guard();
+        let sid = "bounded-test";
+        let base_ts = 1700000000u64;
+
+        // First action transitions Init → Active (1 transition)
+        guard
+            .process_event_at(sid, SessionEvent::FirstAction, base_ts)
+            .unwrap();
+
+        let summary = guard.session_summary(sid).unwrap();
+        assert_eq!(summary.transitions.len(), 1);
+
+        // Manually fill the transition history via the guard's lock.
+        // This is a unit test for the bounding behavior, not integration testing.
+        {
+            let mut sessions = guard.sessions.write().unwrap();
+            let ctx = sessions.get_mut(sid).unwrap();
+            // Fill from current len (1) up to MAX_TRANSITION_HISTORY
+            for i in ctx.transition_history.len()..MAX_TRANSITION_HISTORY {
+                ctx.transition_history.push((
+                    SessionState::Active,
+                    SessionState::Suspicious,
+                    base_ts + i as u64,
+                ));
+            }
+            assert_eq!(ctx.transition_history.len(), MAX_TRANSITION_HISTORY);
+        }
+
+        let summary = guard.session_summary(sid).unwrap();
+        assert_eq!(summary.transitions.len(), MAX_TRANSITION_HISTORY);
+
+        // Now trigger a real state change: anomaly should try to record
+        // a transition but the history is full — it should be silently dropped.
+        let result = guard
+            .process_event_at(
+                sid,
+                SessionEvent::AnomalyDetected {
+                    severity: AnomalySeverity::Critical,
+                    description: "test".to_string(),
+                },
+                base_ts + MAX_TRANSITION_HISTORY as u64 + 1,
+            )
+            .unwrap();
+
+        // The state change DID happen
+        assert_eq!(result.current, SessionState::Suspicious);
+
+        let summary2 = guard.session_summary(sid).unwrap();
+        // But the transition history was NOT extended
+        assert_eq!(
+            summary2.transitions.len(),
+            MAX_TRANSITION_HISTORY,
+            "History must not grow beyond MAX_TRANSITION_HISTORY"
+        );
+        // State machine still works
+        assert_eq!(summary2.state, SessionState::Suspicious);
+    }
 }

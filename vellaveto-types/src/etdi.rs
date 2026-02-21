@@ -93,6 +93,7 @@ fn is_valid_iso8601_basic(s: &str) -> bool {
 /// Tool providers sign their tool definitions, and Vellaveto verifies
 /// these signatures before allowing tool registration.
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ToolSignature {
     /// Unique identifier for this signature.
     pub signature_id: String,
@@ -291,6 +292,7 @@ impl SignatureVerification {
 /// allowing verification that a tool has not been modified
 /// since it was first registered.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ToolAttestation {
     /// Unique identifier for this attestation.
     pub attestation_id: String,
@@ -405,6 +407,7 @@ impl ToolAttestation {
 /// Pins allow administrators to lock tools to specific versions
 /// or version constraints, preventing unauthorized updates.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ToolVersionPin {
     /// Name of the tool being pinned.
     pub tool_name: String,
@@ -530,6 +533,7 @@ impl ToolVersionPin {
 /// Generated when a tool's version or definition changes
 /// from the pinned state.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct VersionDriftAlert {
     /// Name of the tool with drift.
     pub tool: String,

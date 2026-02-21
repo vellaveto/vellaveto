@@ -319,6 +319,22 @@ impl WorkflowTracker {
             }
         };
 
+        // SECURITY (FIND-R115-023): Check max_sessions before auto-creating a new session.
+        // Without this check, an attacker can create unlimited sessions by providing
+        // unique session IDs, bypassing the configured max_sessions limit.
+        if !sessions.contains_key(session_id) && sessions.len() >= self.config.max_sessions {
+            tracing::warn!(
+                target: "vellaveto::security",
+                max_sessions = self.config.max_sessions,
+                current = sessions.len(),
+                "WorkflowTracker max_sessions reached in record_step, rejecting new session"
+            );
+            return StepResult::BudgetExceeded {
+                step_count: 0,
+                budget: 0,
+            };
+        }
+
         // SECURITY (FIND-027): Use entry API to avoid unwrap() after insert.
         let session = sessions.entry(session_id.to_string()).or_insert_with(|| {
             // Auto-create session with initial workflow
@@ -343,6 +359,25 @@ impl WorkflowTracker {
         });
 
         session.last_activity = Instant::now();
+
+        // SECURITY (FIND-R115-023): Check max_workflows_per_session before auto-creating
+        // a new workflow. Without this check, an attacker can create unlimited workflows
+        // by providing unique workflow IDs, bypassing the configured limit.
+        if !session.workflows.contains_key(workflow_id)
+            && session.workflows.len() >= self.config.max_workflows_per_session
+        {
+            tracing::warn!(
+                target: "vellaveto::security",
+                max_workflows = self.config.max_workflows_per_session,
+                current = session.workflows.len(),
+                session_id = session_id,
+                "WorkflowTracker max_workflows_per_session reached in record_step, rejecting new workflow"
+            );
+            return StepResult::BudgetExceeded {
+                step_count: 0,
+                budget: 0,
+            };
+        }
 
         // Get or create workflow
         let workflow = session
@@ -993,6 +1028,119 @@ mod tests {
         assert_eq!(
             MAX_WORKFLOW_ACTIONS, 10_000,
             "MAX_WORKFLOW_ACTIONS should be 10,000"
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R115-023: record_step must enforce max_sessions and max_workflows_per_session
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R115-023: record_step must reject new sessions when max_sessions is reached.
+    #[test]
+    fn test_record_step_rejects_new_session_at_max_sessions() {
+        let tracker = WorkflowTracker::with_config(WorkflowTrackerConfig {
+            max_sessions: 2,
+            ..Default::default()
+        });
+
+        let action = create_action("file", "read");
+
+        // Create two sessions via record_step (auto-create)
+        let result1 = tracker.record_step("session1", "workflow1", &action);
+        assert!(matches!(result1, StepResult::Recorded { .. }));
+
+        let result2 = tracker.record_step("session2", "workflow1", &action);
+        assert!(matches!(result2, StepResult::Recorded { .. }));
+
+        assert_eq!(tracker.session_count(), 2);
+
+        // Third session should be rejected (max_sessions = 2)
+        let result3 = tracker.record_step("session3", "workflow1", &action);
+        assert!(
+            matches!(result3, StepResult::BudgetExceeded { .. }),
+            "FIND-R115-023: New session beyond max_sessions must be rejected in record_step, got: {:?}",
+            result3
+        );
+
+        // Session count should still be 2
+        assert_eq!(tracker.session_count(), 2);
+    }
+
+    /// FIND-R115-023: record_step must reject new workflows when max_workflows_per_session is reached.
+    #[test]
+    fn test_record_step_rejects_new_workflow_at_max_workflows() {
+        let tracker = WorkflowTracker::with_config(WorkflowTrackerConfig {
+            max_workflows_per_session: 2,
+            ..Default::default()
+        });
+
+        let action = create_action("file", "read");
+
+        // Create session with first workflow via record_step (auto-create)
+        tracker.record_step("session1", "workflow1", &action);
+
+        // Add a second workflow via record_step (auto-create within existing session)
+        tracker.record_step("session1", "workflow2", &action);
+
+        // Verify we have 2 workflows
+        let stats = tracker.get_stats("session1").unwrap();
+        assert_eq!(stats.workflow_count, 2);
+
+        // Third workflow should be rejected (max_workflows_per_session = 2)
+        let result = tracker.record_step("session1", "workflow3", &action);
+        assert!(
+            matches!(result, StepResult::BudgetExceeded { .. }),
+            "FIND-R115-023: New workflow beyond max_workflows_per_session must be rejected in record_step, got: {:?}",
+            result
+        );
+
+        // Workflow count should still be 2
+        let stats = tracker.get_stats("session1").unwrap();
+        assert_eq!(stats.workflow_count, 2);
+    }
+
+    /// FIND-R115-023: Existing sessions can still record steps even when max_sessions is reached.
+    #[test]
+    fn test_record_step_allows_existing_session_at_max_sessions() {
+        let tracker = WorkflowTracker::with_config(WorkflowTrackerConfig {
+            max_sessions: 1,
+            ..Default::default()
+        });
+
+        let action = create_action("file", "read");
+
+        // Create one session
+        let result = tracker.record_step("session1", "workflow1", &action);
+        assert!(matches!(result, StepResult::Recorded { .. }));
+
+        // Recording another step in the same session should succeed
+        let result = tracker.record_step("session1", "workflow1", &action);
+        assert!(
+            matches!(result, StepResult::Recorded { step_count: 2, .. }),
+            "Existing session must still accept steps, got: {:?}",
+            result
+        );
+    }
+
+    /// FIND-R115-023: Existing workflows can still record steps even when max_workflows is reached.
+    #[test]
+    fn test_record_step_allows_existing_workflow_at_max_workflows() {
+        let tracker = WorkflowTracker::with_config(WorkflowTrackerConfig {
+            max_workflows_per_session: 1,
+            ..Default::default()
+        });
+
+        let action = create_action("file", "read");
+
+        // Create session with one workflow
+        tracker.record_step("session1", "workflow1", &action);
+
+        // Recording in the same workflow should succeed
+        let result = tracker.record_step("session1", "workflow1", &action);
+        assert!(
+            matches!(result, StepResult::Recorded { step_count: 2, .. }),
+            "Existing workflow must still accept steps, got: {:?}",
+            result
         );
     }
 }

@@ -50,6 +50,16 @@ impl CanonicalToolSchema {
                 MAX_PROJECTOR_NAME_LENGTH
             ));
         }
+        // SECURITY (FIND-R115-004): Reject control/format chars in name field.
+        if self
+            .name
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "CanonicalToolSchema name contains control or format characters".to_string(),
+            );
+        }
         if self.description.len() > MAX_PROJECTOR_DESCRIPTION_LENGTH {
             return Err(format!(
                 "CanonicalToolSchema '{}' description length {} exceeds max {}",
@@ -114,6 +124,16 @@ impl CanonicalToolCall {
                 self.tool_name.len(),
                 MAX_PROJECTOR_NAME_LENGTH
             ));
+        }
+        // SECURITY (FIND-R115-004): Reject control/format chars in tool_name field.
+        if self
+            .tool_name
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "CanonicalToolCall tool_name contains control or format characters".to_string(),
+            );
         }
         let args_size = serde_json::to_string(&self.arguments)
             .map_err(|e| {

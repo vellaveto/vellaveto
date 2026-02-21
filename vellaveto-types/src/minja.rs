@@ -767,6 +767,7 @@ impl QuarantineEntry {
 /// Access control policies determine which agents can read/write to
 /// which namespaces.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct MemoryNamespace {
     /// Unique namespace identifier.
     pub id: String,

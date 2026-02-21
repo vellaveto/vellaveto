@@ -233,14 +233,43 @@ impl CapabilityToken {
                 "token_id must not be empty".to_string(),
             ));
         }
+        // SECURITY (FIND-R115-001): Reject control/format chars in identity fields
+        // to prevent zero-width space or bidi override bypasses of string equality checks.
+        if self
+            .token_id
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(CapabilityError::ValidationFailed(
+                "token_id contains control or format characters".to_string(),
+            ));
+        }
         if self.issuer.is_empty() {
             return Err(CapabilityError::ValidationFailed(
                 "issuer must not be empty".to_string(),
             ));
         }
+        if self
+            .issuer
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(CapabilityError::ValidationFailed(
+                "issuer contains control or format characters".to_string(),
+            ));
+        }
         if self.holder.is_empty() {
             return Err(CapabilityError::ValidationFailed(
                 "holder must not be empty".to_string(),
+            ));
+        }
+        if self
+            .holder
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(CapabilityError::ValidationFailed(
+                "holder contains control or format characters".to_string(),
             ));
         }
         if self.grants.is_empty() {

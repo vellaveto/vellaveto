@@ -115,6 +115,76 @@ fn test_build_effective_request_uri_trusts_forwarded_headers_when_trusted() {
     assert_eq!(effective, "https://public.example/mcp?trace=true");
 }
 
+/// IMP-R122-004: Edge case — no headers at all falls back to bind_addr.
+#[test]
+fn test_build_effective_request_uri_no_headers_falls_back_to_bind_addr() {
+    let headers = HeaderMap::new();
+    let bind_addr: SocketAddr = "0.0.0.0:8080".parse().unwrap();
+    let uri: axum::http::Uri = "/api/v1".parse().unwrap();
+    let effective = build_effective_request_uri(&headers, bind_addr, &uri, false);
+    assert_eq!(effective, "http://0.0.0.0:8080/api/v1");
+}
+
+/// IMP-R122-004: Edge case — port 443 defaults to https proto.
+#[test]
+fn test_build_effective_request_uri_port_443_defaults_to_https() {
+    let headers = HeaderMap::new();
+    let bind_addr: SocketAddr = "0.0.0.0:443".parse().unwrap();
+    let uri: axum::http::Uri = "/mcp".parse().unwrap();
+    let effective = build_effective_request_uri(&headers, bind_addr, &uri, false);
+    assert_eq!(effective, "https://0.0.0.0:443/mcp");
+}
+
+/// IMP-R122-004: Edge case — forwarded-host with slash is rejected.
+#[test]
+fn test_build_effective_request_uri_forwarded_host_with_slash_rejected() {
+    let mut headers = HeaderMap::new();
+    headers.insert("x-forwarded-host", "evil.com/path".parse().unwrap());
+    let bind_addr: SocketAddr = "127.0.0.1:3000".parse().unwrap();
+    let uri: axum::http::Uri = "/mcp".parse().unwrap();
+    // Even when trusted, host with slash is filtered out
+    let effective = build_effective_request_uri(&headers, bind_addr, &uri, true);
+    assert_eq!(effective, "http://127.0.0.1:3000/mcp");
+}
+
+/// IMP-R122-004: Edge case — comma-separated forwarded values use first only.
+#[test]
+fn test_build_effective_request_uri_comma_separated_forwarded_uses_first() {
+    let mut headers = HeaderMap::new();
+    headers.insert("x-forwarded-proto", "https, http".parse().unwrap());
+    headers.insert("x-forwarded-host", "first.com, second.com".parse().unwrap());
+    let bind_addr: SocketAddr = "127.0.0.1:3000".parse().unwrap();
+    let uri: axum::http::Uri = "/api".parse().unwrap();
+    let effective = build_effective_request_uri(&headers, bind_addr, &uri, true);
+    assert_eq!(effective, "https://first.com/api");
+}
+
+/// IMP-R122-004: Edge case — empty forwarded values are filtered out.
+#[test]
+fn test_build_effective_request_uri_empty_forwarded_values_filtered() {
+    let mut headers = HeaderMap::new();
+    headers.insert("x-forwarded-proto", "".parse().unwrap());
+    headers.insert("x-forwarded-host", "".parse().unwrap());
+    let bind_addr: SocketAddr = "10.0.0.1:8080".parse().unwrap();
+    let uri: axum::http::Uri = "/mcp".parse().unwrap();
+    let effective = build_effective_request_uri(&headers, bind_addr, &uri, true);
+    // Falls back to bind_addr since forwarded values are empty
+    assert_eq!(effective, "http://10.0.0.1:8080/mcp");
+}
+
+/// IMP-R122-004: Edge case — URI "*" produces path_and_query "*", which gets
+/// passed through. This documents the behavior rather than asserting a specific
+/// expected value — the important thing is it doesn't panic.
+#[test]
+fn test_build_effective_request_uri_star_uri_does_not_panic() {
+    let headers = HeaderMap::new();
+    let bind_addr: SocketAddr = "127.0.0.1:3000".parse().unwrap();
+    let uri = axum::http::Uri::from_static("*");
+    let effective = build_effective_request_uri(&headers, bind_addr, &uri, false);
+    // The "*" URI has path_and_query = Some("*"), so result contains it
+    assert!(effective.starts_with("http://127.0.0.1:3000"));
+}
+
 #[test]
 fn test_jsonrpc_id_key_supported_and_rejected_shapes() {
     assert_eq!(jsonrpc_id_key(&json!("abc")), Some("s:abc".to_string()));

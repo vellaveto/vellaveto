@@ -39,6 +39,18 @@ pub fn is_unicode_format_char(c: char) -> bool {
     )
 }
 
+/// Check whether a string contains control characters or Unicode format characters.
+///
+/// Returns `true` if the string contains any character that is control (`is_control()`)
+/// or a Unicode format character (`is_unicode_format_char()`).
+///
+/// SECURITY (IMP-R120-008): Canonical predicate extracted from duplicate
+/// `validate_no_dangerous_chars()` implementations in `accountability.rs`
+/// and `capability_token.rs`.
+pub fn has_dangerous_chars(s: &str) -> bool {
+    s.chars().any(|c| c.is_control() || is_unicode_format_char(c))
+}
+
 /// Validate a URL against SSRF vectors.
 ///
 /// Rejects localhost, loopback, link-local, and private IP ranges in the
@@ -127,6 +139,39 @@ pub fn validate_url_no_ssrf(url: &str) -> Result<(), String> {
                 "must not target private/internal IPv6 ranges, got '{}'",
                 host
             ));
+        }
+
+        // SECURITY (IMP-R126-004): Reject IPv4-mapped IPv6 addresses
+        // (::ffff:x.x.x.x) that wrap private IPv4 ranges to bypass the
+        // IPv4 checks above.
+        let is_ipv4_mapped = segs[0] == 0
+            && segs[1] == 0
+            && segs[2] == 0
+            && segs[3] == 0
+            && segs[4] == 0
+            && segs[5] == 0xffff;
+        if is_ipv4_mapped {
+            let mapped = std::net::Ipv4Addr::new(
+                (segs[6] >> 8) as u8,
+                segs[6] as u8,
+                (segs[7] >> 8) as u8,
+                segs[7] as u8,
+            );
+            let o = mapped.octets();
+            let is_mapped_private = mapped.is_loopback()
+                || o[0] == 10
+                || (o[0] == 172 && (o[1] & 0xf0) == 16)
+                || (o[0] == 192 && o[1] == 168)
+                || (o[0] == 169 && o[1] == 254)
+                || o[0] == 0
+                || (o[0] == 100 && (o[1] & 0xC0) == 64)
+                || mapped.is_broadcast();
+            if is_mapped_private {
+                return Err(format!(
+                    "must not target IPv4-mapped private addresses, got '{}'",
+                    host
+                ));
+            }
         }
     }
 

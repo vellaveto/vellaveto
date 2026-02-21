@@ -118,6 +118,10 @@ impl NhiManager {
             return Err(NhiError::Disabled);
         }
 
+        // SECURITY (FIND-R115-025): Validate input fields for length bounds and
+        // control/format characters to prevent injection and resource exhaustion.
+        Self::validate_register_identity_inputs(name, spiffe_id, &tags, &metadata)?;
+
         // Validate attestation type is allowed
         let atype_str = attestation_type.to_string();
         if !self
@@ -161,6 +165,13 @@ impl NhiManager {
             did_plc: None,
             attestations: Vec::new(),
         };
+
+        // SECURITY (FIND-R126-005): Validate the constructed identity before
+        // inserting. Defense-in-depth: enforces bounds/format on caller-supplied
+        // name, tags, metadata even if the server route validation is bypassed.
+        identity
+            .validate()
+            .map_err(NhiError::InputValidation)?;
 
         // Acquire write lock for atomic capacity check + insert
         let mut identities = self.identities.write().await;
@@ -537,7 +548,16 @@ impl NhiManager {
             if baseline.avg_request_interval_secs > 0.0 {
                 let z_score = (interval - baseline.avg_request_interval_secs).abs()
                     / baseline.request_interval_stddev.max(0.1);
-                if z_score > 3.0 {
+                // SECURITY (FIND-R115-024): NaN z_score (e.g., from 0.0/0.0 or
+                // non-finite interval) must be treated as an anomaly (fail-closed).
+                // NaN comparisons always return false, so `NaN > 3.0` would skip
+                // the anomaly flag, allowing an attacker to bypass detection.
+                if !z_score.is_finite() || z_score > 3.0 {
+                    let severity = if z_score.is_finite() {
+                        (z_score / 10.0).min(0.5)
+                    } else {
+                        0.5 // Max severity for non-finite z_score (fail-closed)
+                    };
                     deviations.push(NhiBehavioralDeviation {
                         deviation_type: "request_interval".to_string(),
                         observed: format!("{:.2}s", interval),
@@ -545,9 +565,9 @@ impl NhiManager {
                             "{:.2}s ± {:.2}s",
                             baseline.avg_request_interval_secs, baseline.request_interval_stddev
                         ),
-                        severity: (z_score / 10.0).min(0.5),
+                        severity,
                     });
-                    total_severity += (z_score / 10.0).min(0.5);
+                    total_severity += severity;
                 }
             }
         }
@@ -745,13 +765,44 @@ impl NhiManager {
             return Err(NhiError::Disabled);
         }
 
-        // Check both agents exist (read lock on identities only).
+        // SECURITY (FIND-R115-021): Reject self-delegation (case-insensitive).
+        // Self-delegation is nonsensical and could create circular chains.
+        if from_agent.eq_ignore_ascii_case(to_agent) {
+            return Err(NhiError::SelfDelegation);
+        }
+
+        // Check both agents exist and are not in terminal state (read lock on identities only).
         let identities = self.identities.read().await;
         if !identities.contains_key(from_agent) {
             return Err(NhiError::IdentityNotFound(from_agent.to_string()));
         }
         if !identities.contains_key(to_agent) {
             return Err(NhiError::IdentityNotFound(to_agent.to_string()));
+        }
+
+        // SECURITY (FIND-R115-022): Reject delegation from/to terminal-state agents.
+        // Revoked or Expired agents must not be able to delegate or receive delegations.
+        if let Some(from_identity) = identities.get(from_agent) {
+            if matches!(
+                from_identity.status,
+                NhiIdentityStatus::Revoked | NhiIdentityStatus::Expired
+            ) {
+                return Err(NhiError::TerminalStateAgent {
+                    agent_id: from_agent.to_string(),
+                    status: from_identity.status,
+                });
+            }
+        }
+        if let Some(to_identity) = identities.get(to_agent) {
+            if matches!(
+                to_identity.status,
+                NhiIdentityStatus::Revoked | NhiIdentityStatus::Expired
+            ) {
+                return Err(NhiError::TerminalStateAgent {
+                    agent_id: to_agent.to_string(),
+                    status: to_identity.status,
+                });
+            }
         }
         drop(identities);
 
@@ -926,6 +977,11 @@ impl NhiManager {
             trigger: trigger.to_string(),
             new_expires_at: new_expires_at.to_rfc3339(),
         };
+
+        // SECURITY (FIND-R126-006): Validate rotation before recording.
+        rotation
+            .validate()
+            .map_err(NhiError::InputValidation)?;
 
         // Record rotation
         let mut rotations = self.rotations.write().await;
@@ -1128,6 +1184,123 @@ impl NhiManager {
     // UTILITY FUNCTIONS
     // ═══════════════════════════════════════════════════
 
+    /// Maximum length for agent name.
+    const MAX_NAME_LEN: usize = 256;
+    /// Maximum number of tags per identity.
+    const MAX_TAGS: usize = 50;
+    /// Maximum length for a single tag.
+    const MAX_TAG_LEN: usize = 128;
+    /// Maximum number of metadata entries.
+    const MAX_METADATA_ENTRIES: usize = 50;
+    /// Maximum length for a metadata key.
+    const MAX_METADATA_KEY_LEN: usize = 128;
+    /// Maximum length for a metadata value.
+    const MAX_METADATA_VALUE_LEN: usize = 1024;
+    /// Maximum length for SPIFFE ID.
+    const MAX_SPIFFE_ID_LEN: usize = 512;
+
+    /// SECURITY (FIND-R115-025): Validate register_identity inputs for length bounds
+    /// and control/format characters.
+    fn validate_register_identity_inputs(
+        name: &str,
+        spiffe_id: Option<&str>,
+        tags: &[String],
+        metadata: &HashMap<String, String>,
+    ) -> Result<(), NhiError> {
+        // Validate name
+        if name.is_empty() {
+            return Err(NhiError::InputValidation("name must not be empty".to_string()));
+        }
+        if name.len() > Self::MAX_NAME_LEN {
+            return Err(NhiError::InputValidation(format!(
+                "name length {} exceeds maximum {}",
+                name.len(),
+                Self::MAX_NAME_LEN
+            )));
+        }
+        if vellaveto_types::has_dangerous_chars(name) {
+            return Err(NhiError::InputValidation(
+                "name contains control or Unicode format characters".to_string(),
+            ));
+        }
+
+        // Validate SPIFFE ID
+        if let Some(sid) = spiffe_id {
+            if sid.len() > Self::MAX_SPIFFE_ID_LEN {
+                return Err(NhiError::InputValidation(format!(
+                    "spiffe_id length {} exceeds maximum {}",
+                    sid.len(),
+                    Self::MAX_SPIFFE_ID_LEN
+                )));
+            }
+            if vellaveto_types::has_dangerous_chars(sid) {
+                return Err(NhiError::InputValidation(
+                    "spiffe_id contains control or Unicode format characters".to_string(),
+                ));
+            }
+        }
+
+        // Validate tags
+        if tags.len() > Self::MAX_TAGS {
+            return Err(NhiError::InputValidation(format!(
+                "tags count {} exceeds maximum {}",
+                tags.len(),
+                Self::MAX_TAGS
+            )));
+        }
+        for tag in tags {
+            if tag.len() > Self::MAX_TAG_LEN {
+                return Err(NhiError::InputValidation(format!(
+                    "tag length {} exceeds maximum {}",
+                    tag.len(),
+                    Self::MAX_TAG_LEN
+                )));
+            }
+            if vellaveto_types::has_dangerous_chars(tag) {
+                return Err(NhiError::InputValidation(
+                    "tag contains control or Unicode format characters".to_string(),
+                ));
+            }
+        }
+
+        // Validate metadata
+        if metadata.len() > Self::MAX_METADATA_ENTRIES {
+            return Err(NhiError::InputValidation(format!(
+                "metadata count {} exceeds maximum {}",
+                metadata.len(),
+                Self::MAX_METADATA_ENTRIES
+            )));
+        }
+        for (key, value) in metadata {
+            if key.len() > Self::MAX_METADATA_KEY_LEN {
+                return Err(NhiError::InputValidation(format!(
+                    "metadata key length {} exceeds maximum {}",
+                    key.len(),
+                    Self::MAX_METADATA_KEY_LEN
+                )));
+            }
+            if vellaveto_types::has_dangerous_chars(key) {
+                return Err(NhiError::InputValidation(
+                    "metadata key contains control or Unicode format characters".to_string(),
+                ));
+            }
+            if value.len() > Self::MAX_METADATA_VALUE_LEN {
+                return Err(NhiError::InputValidation(format!(
+                    "metadata value length {} exceeds maximum {}",
+                    value.len(),
+                    Self::MAX_METADATA_VALUE_LEN
+                )));
+            }
+            if vellaveto_types::has_dangerous_chars(value) {
+                return Err(NhiError::InputValidation(
+                    "metadata value contains control or Unicode format characters".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Compute a JWK thumbprint for a key.
     fn compute_thumbprint(key: &str) -> String {
         let mut hasher = Sha256::new();
@@ -1278,6 +1451,17 @@ pub enum NhiError {
         current: VerificationTier,
         requested: VerificationTier,
     },
+    /// SECURITY (FIND-R115-021): Self-delegation is not permitted.
+    SelfDelegation,
+    /// SECURITY (FIND-R115-022): Agent is in a terminal state (Revoked/Expired).
+    TerminalStateAgent {
+        agent_id: String,
+        status: NhiIdentityStatus,
+    },
+    /// SECURITY (FIND-R115-025): Input validation failure.
+    InputValidation(String),
+    /// SECURITY (FIND-R126-005): Structural validation failure from NhiAgentIdentity::validate().
+    ValidationFailed(String),
 }
 
 impl std::fmt::Display for NhiError {
@@ -1327,6 +1511,22 @@ impl std::fmt::Display for NhiError {
                     "Cannot downgrade verification tier from {} to {}",
                     current, requested
                 )
+            }
+            NhiError::SelfDelegation => {
+                write!(f, "Self-delegation is not permitted")
+            }
+            NhiError::TerminalStateAgent { agent_id, status } => {
+                write!(
+                    f,
+                    "Agent '{}' is in terminal state '{}' and cannot participate in delegation",
+                    agent_id, status
+                )
+            }
+            NhiError::InputValidation(msg) => {
+                write!(f, "Input validation failed: {}", msg)
+            }
+            NhiError::ValidationFailed(msg) => {
+                write!(f, "Validation failed: {}", msg)
             }
         }
     }
@@ -2252,6 +2452,714 @@ mod tests {
         assert!(
             result.is_ok(),
             "rotate_credentials with TTL == max should succeed, got: {:?}",
+            result
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R115-021: Self-delegation rejection in create_delegation
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R115-021: Self-delegation must be rejected (exact case).
+    #[tokio::test]
+    async fn test_create_delegation_rejects_self_delegation() {
+        let manager = NhiManager::new(enabled_config());
+
+        let id = manager
+            .register_identity(
+                "Self-Deleg Agent",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let result = manager
+            .create_delegation(&id, &id, vec!["read".to_string()], vec![], 3600, None)
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::SelfDelegation)),
+            "FIND-R115-021: Self-delegation must be rejected, got: {:?}",
+            result
+        );
+    }
+
+    /// FIND-R115-021: Self-delegation must be rejected (case-insensitive).
+    #[tokio::test]
+    async fn test_create_delegation_rejects_self_delegation_case_insensitive() {
+        let manager = NhiManager::new(enabled_config());
+
+        let id = manager
+            .register_identity(
+                "CaseTest",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // UUID IDs are lowercase, so an uppercase version tests the case path
+        let upper_id = id.to_uppercase();
+        let result = manager
+            .create_delegation(&id, &upper_id, vec!["read".to_string()], vec![], 3600, None)
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::SelfDelegation)),
+            "FIND-R115-021: Self-delegation (case-insensitive) must be rejected, got: {:?}",
+            result
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R115-022: Delegation from/to terminal-state agents
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R115-022: Delegation from a revoked agent must be rejected.
+    #[tokio::test]
+    async fn test_create_delegation_rejects_from_revoked_agent() {
+        let manager = NhiManager::new(enabled_config());
+
+        let from_id = manager
+            .register_identity(
+                "Revoked Delegator",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let to_id = manager
+            .register_identity(
+                "Active Delegatee",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Revoke the delegator
+        manager
+            .update_status(&from_id, NhiIdentityStatus::Revoked)
+            .await
+            .unwrap();
+
+        let result = manager
+            .create_delegation(
+                &from_id,
+                &to_id,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::TerminalStateAgent { .. })),
+            "FIND-R115-022: Delegation from revoked agent must be rejected, got: {:?}",
+            result
+        );
+    }
+
+    /// FIND-R115-022: Delegation to an expired agent must be rejected.
+    #[tokio::test]
+    async fn test_create_delegation_rejects_to_expired_agent() {
+        let manager = NhiManager::new(enabled_config());
+
+        let from_id = manager
+            .register_identity(
+                "Active Delegator",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let to_id = manager
+            .register_identity(
+                "Expired Delegatee",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Expire the delegatee
+        manager
+            .update_status(&to_id, NhiIdentityStatus::Expired)
+            .await
+            .unwrap();
+
+        let result = manager
+            .create_delegation(
+                &from_id,
+                &to_id,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::TerminalStateAgent { .. })),
+            "FIND-R115-022: Delegation to expired agent must be rejected, got: {:?}",
+            result
+        );
+    }
+
+    /// FIND-R115-022: Delegation between two active agents should succeed.
+    #[tokio::test]
+    async fn test_create_delegation_allows_active_agents() {
+        let manager = NhiManager::new(enabled_config());
+
+        let from_id = manager
+            .register_identity(
+                "Active A",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let to_id = manager
+            .register_identity(
+                "Active B",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let result = manager
+            .create_delegation(
+                &from_id,
+                &to_id,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "Delegation between two active agents should succeed: {:?}",
+            result
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R115-024: NaN bypass in check_behavior request interval
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R115-024: NaN z_score must be treated as an anomaly (fail-closed).
+    #[tokio::test]
+    async fn test_check_behavior_nan_zscore_flagged_as_anomaly() {
+        let mut config = enabled_config();
+        config.min_baseline_observations = 5;
+        let manager = NhiManager::new(config);
+
+        let id = manager
+            .register_identity(
+                "NaN Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Build baseline with identical intervals to get stddev near 0.
+        for _ in 0..10 {
+            manager
+                .update_baseline(&id, "file:read", Some(1.0), Some("10.0.0.1"))
+                .await
+                .unwrap();
+        }
+
+        // Verify baseline is mature (confidence = 1.0)
+        let baseline = manager.get_baseline(&id).await.unwrap();
+        assert!(
+            baseline.confidence >= 1.0,
+            "Baseline should be mature"
+        );
+
+        // Check with NaN interval which produces NaN z_score.
+        // This must be flagged as anomaly (fail-closed).
+        let result = manager
+            .check_behavior(&id, "file:read", Some(f64::NAN), Some("10.0.0.1"))
+            .await;
+
+        assert!(
+            result.deviations.iter().any(|d| d.deviation_type == "request_interval"),
+            "FIND-R115-024: NaN z_score must produce a request_interval deviation, got: {:?}",
+            result.deviations
+        );
+    }
+
+    /// FIND-R115-024: Infinity interval must be treated as an anomaly (fail-closed).
+    #[tokio::test]
+    async fn test_check_behavior_infinity_interval_flagged_as_anomaly() {
+        let mut config = enabled_config();
+        config.min_baseline_observations = 5;
+        let manager = NhiManager::new(config);
+
+        let id = manager
+            .register_identity(
+                "Inf Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Build baseline
+        for _ in 0..10 {
+            manager
+                .update_baseline(&id, "file:read", Some(1.0), Some("10.0.0.1"))
+                .await
+                .unwrap();
+        }
+
+        // Check with Infinity interval
+        let result = manager
+            .check_behavior(&id, "file:read", Some(f64::INFINITY), Some("10.0.0.1"))
+            .await;
+
+        assert!(
+            result.deviations.iter().any(|d| d.deviation_type == "request_interval"),
+            "FIND-R115-024: Infinity interval must produce a request_interval deviation, got: {:?}",
+            result.deviations
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R115-025: register_identity input validation
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R115-025: Empty name must be rejected.
+    #[tokio::test]
+    async fn test_register_identity_rejects_empty_name() {
+        let manager = NhiManager::new(enabled_config());
+
+        let result = manager
+            .register_identity(
+                "",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::InputValidation(_))),
+            "Empty name must be rejected, got: {:?}",
+            result
+        );
+    }
+
+    /// FIND-R115-025: Name exceeding max length must be rejected.
+    #[tokio::test]
+    async fn test_register_identity_rejects_long_name() {
+        let manager = NhiManager::new(enabled_config());
+        let long_name = "a".repeat(NhiManager::MAX_NAME_LEN + 1);
+
+        let result = manager
+            .register_identity(
+                &long_name,
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::InputValidation(_))),
+            "Long name must be rejected, got: {:?}",
+            result
+        );
+        assert!(result.unwrap_err().to_string().contains("name length"));
+    }
+
+    /// FIND-R115-025: Name with control characters must be rejected.
+    #[tokio::test]
+    async fn test_register_identity_rejects_name_control_chars() {
+        let manager = NhiManager::new(enabled_config());
+
+        let result = manager
+            .register_identity(
+                "agent\x00evil",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::InputValidation(_))),
+            "Name with control chars must be rejected, got: {:?}",
+            result
+        );
+        assert!(result.unwrap_err().to_string().contains("control"));
+    }
+
+    /// FIND-R115-025: Name with Unicode format characters must be rejected.
+    #[tokio::test]
+    async fn test_register_identity_rejects_name_unicode_format_chars() {
+        let manager = NhiManager::new(enabled_config());
+
+        let result = manager
+            .register_identity(
+                "agent\u{200B}hidden", // zero-width space
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::InputValidation(_))),
+            "Name with Unicode format chars must be rejected, got: {:?}",
+            result
+        );
+    }
+
+    /// FIND-R115-025: Too many tags must be rejected.
+    #[tokio::test]
+    async fn test_register_identity_rejects_too_many_tags() {
+        let manager = NhiManager::new(enabled_config());
+        let tags: Vec<String> = (0..NhiManager::MAX_TAGS + 1)
+            .map(|i| format!("tag-{}", i))
+            .collect();
+
+        let result = manager
+            .register_identity(
+                "Tag Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                tags,
+                HashMap::new(),
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::InputValidation(_))),
+            "Too many tags must be rejected, got: {:?}",
+            result
+        );
+        assert!(result.unwrap_err().to_string().contains("tags count"));
+    }
+
+    /// FIND-R115-025: Long tag must be rejected.
+    #[tokio::test]
+    async fn test_register_identity_rejects_long_tag() {
+        let manager = NhiManager::new(enabled_config());
+        let long_tag = "t".repeat(NhiManager::MAX_TAG_LEN + 1);
+
+        let result = manager
+            .register_identity(
+                "Tag Len Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![long_tag],
+                HashMap::new(),
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::InputValidation(_))),
+            "Long tag must be rejected, got: {:?}",
+            result
+        );
+        assert!(result.unwrap_err().to_string().contains("tag length"));
+    }
+
+    /// FIND-R115-025: Tag with control characters must be rejected.
+    #[tokio::test]
+    async fn test_register_identity_rejects_tag_control_chars() {
+        let manager = NhiManager::new(enabled_config());
+
+        let result = manager
+            .register_identity(
+                "Tag Ctrl Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec!["valid-tag".to_string(), "evil\ntag".to_string()],
+                HashMap::new(),
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::InputValidation(_))),
+            "Tag with control chars must be rejected, got: {:?}",
+            result
+        );
+    }
+
+    /// FIND-R115-025: Too many metadata entries must be rejected.
+    #[tokio::test]
+    async fn test_register_identity_rejects_too_many_metadata() {
+        let manager = NhiManager::new(enabled_config());
+        let mut metadata = HashMap::new();
+        for i in 0..NhiManager::MAX_METADATA_ENTRIES + 1 {
+            metadata.insert(format!("key-{}", i), "value".to_string());
+        }
+
+        let result = manager
+            .register_identity(
+                "Meta Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                metadata,
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::InputValidation(_))),
+            "Too many metadata entries must be rejected, got: {:?}",
+            result
+        );
+        assert!(result.unwrap_err().to_string().contains("metadata count"));
+    }
+
+    /// FIND-R115-025: Long metadata key must be rejected.
+    #[tokio::test]
+    async fn test_register_identity_rejects_long_metadata_key() {
+        let manager = NhiManager::new(enabled_config());
+        let long_key = "k".repeat(NhiManager::MAX_METADATA_KEY_LEN + 1);
+        let mut metadata = HashMap::new();
+        metadata.insert(long_key, "value".to_string());
+
+        let result = manager
+            .register_identity(
+                "Meta Key Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                metadata,
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::InputValidation(_))),
+            "Long metadata key must be rejected, got: {:?}",
+            result
+        );
+        assert!(result.unwrap_err().to_string().contains("metadata key length"));
+    }
+
+    /// FIND-R115-025: Long metadata value must be rejected.
+    #[tokio::test]
+    async fn test_register_identity_rejects_long_metadata_value() {
+        let manager = NhiManager::new(enabled_config());
+        let long_value = "v".repeat(NhiManager::MAX_METADATA_VALUE_LEN + 1);
+        let mut metadata = HashMap::new();
+        metadata.insert("key".to_string(), long_value);
+
+        let result = manager
+            .register_identity(
+                "Meta Val Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                metadata,
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::InputValidation(_))),
+            "Long metadata value must be rejected, got: {:?}",
+            result
+        );
+        assert!(result.unwrap_err().to_string().contains("metadata value length"));
+    }
+
+    /// FIND-R115-025: Metadata key with control characters must be rejected.
+    #[tokio::test]
+    async fn test_register_identity_rejects_metadata_key_control_chars() {
+        let manager = NhiManager::new(enabled_config());
+        let mut metadata = HashMap::new();
+        metadata.insert("evil\x01key".to_string(), "value".to_string());
+
+        let result = manager
+            .register_identity(
+                "Meta Key Ctrl",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                metadata,
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::InputValidation(_))),
+            "Metadata key with control chars must be rejected, got: {:?}",
+            result
+        );
+    }
+
+    /// FIND-R115-025: SPIFFE ID exceeding max length must be rejected.
+    #[tokio::test]
+    async fn test_register_identity_rejects_long_spiffe_id() {
+        let manager = NhiManager::new(enabled_config());
+        let long_spiffe = "s".repeat(NhiManager::MAX_SPIFFE_ID_LEN + 1);
+
+        let result = manager
+            .register_identity(
+                "SPIFFE Test",
+                NhiAttestationType::Spiffe,
+                Some(&long_spiffe),
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::InputValidation(_))),
+            "Long SPIFFE ID must be rejected, got: {:?}",
+            result
+        );
+        assert!(result.unwrap_err().to_string().contains("spiffe_id length"));
+    }
+
+    /// FIND-R115-025: SPIFFE ID with control characters must be rejected.
+    #[tokio::test]
+    async fn test_register_identity_rejects_spiffe_id_control_chars() {
+        let manager = NhiManager::new(enabled_config());
+
+        let result = manager
+            .register_identity(
+                "SPIFFE Ctrl",
+                NhiAttestationType::Spiffe,
+                Some("spiffe://example.org/\x00agent"),
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::InputValidation(_))),
+            "SPIFFE ID with control chars must be rejected, got: {:?}",
+            result
+        );
+    }
+
+    /// FIND-R115-025: Valid inputs must still succeed.
+    #[tokio::test]
+    async fn test_register_identity_valid_inputs_succeed() {
+        let manager = NhiManager::new(enabled_config());
+        let mut metadata = HashMap::new();
+        metadata.insert("env".to_string(), "production".to_string());
+
+        let result = manager
+            .register_identity(
+                "Valid Agent",
+                NhiAttestationType::Jwt,
+                Some("spiffe://example.org/agent"),
+                Some("public-key"),
+                Some("Ed25519"),
+                None,
+                vec!["production".to_string(), "us-east-1".to_string()],
+                metadata,
+            )
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "Valid inputs should succeed: {:?}",
             result
         );
     }

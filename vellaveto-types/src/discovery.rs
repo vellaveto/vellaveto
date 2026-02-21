@@ -99,7 +99,32 @@ impl ToolMetadata {
     /// `input_schema` does not exceed `MAX_INPUT_SCHEMA_SIZE`.
     /// SECURITY (FIND-R121-001): Also validates name, description,
     /// and domain_tags bounds to prevent memory exhaustion.
+    /// Maximum length for `tool_id` field.
+    pub const MAX_TOOL_ID_LENGTH: usize = 512;
+    /// Maximum length for `server_id` field.
+    pub const MAX_SERVER_ID_LENGTH: usize = 256;
+    /// Maximum length for `schema_hash` field.
+    pub const MAX_SCHEMA_HASH_LENGTH: usize = 128;
+
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (IMP-R122-008): Control/format char checks on all string fields.
+        if self.tool_id.is_empty() {
+            return Err("ToolMetadata tool_id must not be empty".to_string());
+        }
+        if self.tool_id.len() > Self::MAX_TOOL_ID_LENGTH {
+            return Err(format!(
+                "ToolMetadata tool_id length {} exceeds max {}",
+                self.tool_id.len(),
+                Self::MAX_TOOL_ID_LENGTH
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.tool_id) {
+            return Err(format!(
+                "ToolMetadata '{}' tool_id contains control or format characters",
+                self.tool_id
+            ));
+        }
+
         if self.name.len() > Self::MAX_NAME_LENGTH {
             return Err(format!(
                 "ToolMetadata '{}' name length {} exceeds max {}",
@@ -108,6 +133,13 @@ impl ToolMetadata {
                 Self::MAX_NAME_LENGTH
             ));
         }
+        if crate::core::has_dangerous_chars(&self.name) {
+            return Err(format!(
+                "ToolMetadata '{}' name contains control or format characters",
+                self.tool_id
+            ));
+        }
+
         if self.description.len() > Self::MAX_DESCRIPTION_LENGTH {
             return Err(format!(
                 "ToolMetadata '{}' description length {} exceeds max {}",
@@ -116,6 +148,43 @@ impl ToolMetadata {
                 Self::MAX_DESCRIPTION_LENGTH
             ));
         }
+        if crate::core::has_dangerous_chars(&self.description) {
+            return Err(format!(
+                "ToolMetadata '{}' description contains control or format characters",
+                self.tool_id
+            ));
+        }
+
+        if self.server_id.len() > Self::MAX_SERVER_ID_LENGTH {
+            return Err(format!(
+                "ToolMetadata '{}' server_id length {} exceeds max {}",
+                self.tool_id,
+                self.server_id.len(),
+                Self::MAX_SERVER_ID_LENGTH
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.server_id) {
+            return Err(format!(
+                "ToolMetadata '{}' server_id contains control or format characters",
+                self.tool_id
+            ));
+        }
+
+        if self.schema_hash.len() > Self::MAX_SCHEMA_HASH_LENGTH {
+            return Err(format!(
+                "ToolMetadata '{}' schema_hash length {} exceeds max {}",
+                self.tool_id,
+                self.schema_hash.len(),
+                Self::MAX_SCHEMA_HASH_LENGTH
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.schema_hash) {
+            return Err(format!(
+                "ToolMetadata '{}' schema_hash contains control or format characters",
+                self.tool_id
+            ));
+        }
+
         if self.domain_tags.len() > Self::MAX_DOMAIN_TAGS {
             return Err(format!(
                 "ToolMetadata '{}' domain_tags count {} exceeds max {}",
@@ -131,6 +200,12 @@ impl ToolMetadata {
                     self.tool_id,
                     tag.len(),
                     Self::MAX_DOMAIN_TAG_LENGTH
+                ));
+            }
+            if crate::core::has_dangerous_chars(tag) {
+                return Err(format!(
+                    "ToolMetadata '{}' domain_tag contains control or format characters",
+                    self.tool_id
                 ));
             }
         }

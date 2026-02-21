@@ -201,6 +201,15 @@ impl DeploymentInfo {
                     Self::MAX_INSTANCE_ID_LEN,
                 ));
             }
+            // SECURITY (FIND-R115-005): Reject control/format chars in instance_id.
+            if id
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(
+                    "DeploymentInfo instance_id contains control or format characters".to_string(),
+                );
+            }
         }
         if self.mode.len() > Self::MAX_MODE_LEN {
             return Err(format!(
@@ -208,6 +217,16 @@ impl DeploymentInfo {
                 self.mode.len(),
                 Self::MAX_MODE_LEN,
             ));
+        }
+        // SECURITY (FIND-R115-005): Reject control/format chars in mode.
+        if self
+            .mode
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "DeploymentInfo mode contains control or format characters".to_string(),
+            );
         }
         Ok(())
     }

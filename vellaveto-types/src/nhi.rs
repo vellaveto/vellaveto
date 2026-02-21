@@ -284,6 +284,38 @@ impl NhiAgentIdentity {
                 Self::MAX_ATTESTATIONS
             ));
         }
+
+        // SECURITY (IMP-R122-009): Validate ISO 8601 timestamp fields.
+        // Malformed timestamps can bypass is_expired() checks.
+        crate::time_util::parse_iso8601_secs(&self.issued_at).map_err(|e| {
+            format!(
+                "NhiAgentIdentity '{}' issued_at is not valid ISO 8601: {}",
+                self.id, e
+            )
+        })?;
+        crate::time_util::parse_iso8601_secs(&self.expires_at).map_err(|e| {
+            format!(
+                "NhiAgentIdentity '{}' expires_at is not valid ISO 8601: {}",
+                self.id, e
+            )
+        })?;
+        if let Some(ref lr) = self.last_rotation {
+            crate::time_util::parse_iso8601_secs(lr).map_err(|e| {
+                format!(
+                    "NhiAgentIdentity '{}' last_rotation is not valid ISO 8601: {}",
+                    self.id, e
+                )
+            })?;
+        }
+        if let Some(ref la) = self.last_auth {
+            crate::time_util::parse_iso8601_secs(la).map_err(|e| {
+                format!(
+                    "NhiAgentIdentity '{}' last_auth is not valid ISO 8601: {}",
+                    self.id, e
+                )
+            })?;
+        }
+
         Ok(())
     }
 }
@@ -878,6 +910,68 @@ pub struct NhiDpopVerificationResult {
     /// Nonce to return for retry (if applicable).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new_nonce: Option<String>,
+}
+
+impl NhiDpopVerificationResult {
+    /// Maximum length for thumbprint strings.
+    const MAX_THUMBPRINT_LEN: usize = 512;
+    /// Maximum length for error messages.
+    const MAX_ERROR_LEN: usize = 1024;
+    /// Maximum length for nonce strings.
+    const MAX_NONCE_LEN: usize = 256;
+
+    /// Validate structural bounds on string fields.
+    ///
+    /// SECURITY (IMP-R122-011): Unbounded thumbprint/error/nonce fields from
+    /// external input could cause memory exhaustion or log injection.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(ref t) = self.thumbprint {
+            if t.len() > Self::MAX_THUMBPRINT_LEN {
+                return Err(format!(
+                    "NhiDpopVerificationResult thumbprint length {} exceeds max {}",
+                    t.len(),
+                    Self::MAX_THUMBPRINT_LEN
+                ));
+            }
+            if crate::core::has_dangerous_chars(t) {
+                return Err(
+                    "NhiDpopVerificationResult thumbprint contains control or format characters"
+                        .to_string(),
+                );
+            }
+        }
+        if let Some(ref e) = self.error {
+            if e.len() > Self::MAX_ERROR_LEN {
+                return Err(format!(
+                    "NhiDpopVerificationResult error length {} exceeds max {}",
+                    e.len(),
+                    Self::MAX_ERROR_LEN
+                ));
+            }
+            if crate::core::has_dangerous_chars(e) {
+                return Err(
+                    "NhiDpopVerificationResult error contains control or format characters"
+                        .to_string(),
+                );
+            }
+        }
+        if let Some(ref n) = self.new_nonce {
+            if n.len() > Self::MAX_NONCE_LEN {
+                return Err(format!(
+                    "NhiDpopVerificationResult new_nonce length {} exceeds max {}",
+                    n.len(),
+                    Self::MAX_NONCE_LEN
+                ));
+            }
+            if crate::core::has_dangerous_chars(n) {
+                return Err(
+                    "NhiDpopVerificationResult new_nonce contains control or format characters"
+                        .to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Statistics for NHI lifecycle management.

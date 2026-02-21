@@ -29,12 +29,9 @@ const MAX_STATEMENT_LEN: usize = 4096;
 const MAX_POLICY_HASH_LEN: usize = 256;
 
 /// SECURITY (IMP-R118-004): Validate string has no control or Unicode format characters.
-/// Returns `Err` with a descriptive message on failure.
+/// SECURITY (IMP-R120-008): Delegates to shared `has_dangerous_chars()` predicate.
 fn validate_no_dangerous_chars(value: &str, field_name: &str) -> Result<(), AttestationError> {
-    if value
-        .chars()
-        .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
-    {
+    if vellaveto_types::has_dangerous_chars(value) {
         return Err(AttestationError::SigningFailed(format!(
             "{} contains control or Unicode format characters",
             field_name

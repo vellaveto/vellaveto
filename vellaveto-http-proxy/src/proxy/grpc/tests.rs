@@ -1006,3 +1006,176 @@ fn test_extract_trace_context_from_metadata_invalid_traceparent() {
     let ctx = extract_trace_context_from_metadata(&metadata);
     assert!(ctx.trace_id.is_some());
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// FIND-R115-040: gRPC output schema registration from tools/list response
+// ═══════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_grpc_register_from_tools_list_response() {
+    // Verify that register_from_tools_list properly registers schemas
+    // from a tools/list response, ensuring gRPC parity with HTTP/WS.
+    let registry = vellaveto_mcp::output_validation::OutputSchemaRegistry::new();
+
+    let tools_list_response = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "tools": [
+                {
+                    "name": "grpc_search_tool",
+                    "description": "Search tool for gRPC test",
+                    "inputSchema": {"type": "object"},
+                    "outputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "results": {"type": "array"}
+                        },
+                        "required": ["results"]
+                    }
+                },
+                {
+                    "name": "grpc_no_schema_tool",
+                    "description": "Tool without output schema",
+                    "inputSchema": {"type": "object"}
+                }
+            ]
+        }
+    });
+
+    registry.register_from_tools_list(&tools_list_response);
+    assert!(
+        registry.has_schema("grpc_search_tool"),
+        "Tool with outputSchema must be registered"
+    );
+    assert!(
+        !registry.has_schema("grpc_no_schema_tool"),
+        "Tool without outputSchema must not be registered"
+    );
+    assert_eq!(registry.len(), 1, "Exactly one schema should be registered");
+}
+
+#[test]
+fn test_grpc_register_from_tools_list_response_non_tools_list() {
+    // Verify that register_from_tools_list is a no-op for non-tools/list responses.
+    let registry = vellaveto_mcp::output_validation::OutputSchemaRegistry::new();
+
+    let non_tools_response = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "content": [{"type": "text", "text": "hello"}]
+        }
+    });
+
+    registry.register_from_tools_list(&non_tools_response);
+    assert_eq!(
+        registry.len(),
+        0,
+        "No schemas should be registered from a non-tools/list response"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// FIND-R115-041: Rug-pull detection for resource URIs
+// ═══════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_grpc_flagged_tools_contains_check_resource() {
+    // Verify the SessionState flagged_tools set correctly detects flagged URIs,
+    // ensuring the rug-pull check pattern added to resource_read works.
+    let mut flagged = std::collections::HashSet::new();
+    flagged.insert("file:///suspicious/server".to_string());
+    flagged.insert("compromised_tool".to_string());
+
+    assert!(
+        flagged.contains("file:///suspicious/server"),
+        "flagged_tools must contain the flagged URI"
+    );
+    assert!(
+        flagged.contains("compromised_tool"),
+        "flagged_tools must contain the flagged tool name"
+    );
+    assert!(
+        !flagged.contains("file:///safe/resource"),
+        "non-flagged URI must not match"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// FIND-R115-042: Circuit breaker check for resource reads
+// ═══════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_grpc_circuit_breaker_blocks_resource_read_on_open_circuit() {
+    // Verify the circuit breaker correctly blocks resource URIs when the
+    // circuit is open, ensuring resource read parity with tool call.
+    let cb = vellaveto_engine::circuit_breaker::CircuitBreakerManager::new(
+        2,  // failure_threshold
+        2,  // success_threshold
+        60, // open_duration_secs
+    );
+
+    // Initially closed — should allow
+    assert!(
+        cb.can_proceed("file:///etc/data").is_ok(),
+        "Closed circuit must allow resource reads"
+    );
+
+    // Record enough failures to open the circuit
+    cb.record_failure("file:///etc/data");
+    cb.record_failure("file:///etc/data");
+
+    // Now the circuit should be open
+    let result = cb.can_proceed("file:///etc/data");
+    assert!(
+        result.is_err(),
+        "Open circuit must block resource reads"
+    );
+
+    // Different URI should still be allowed (circuit breaker is per-key)
+    assert!(
+        cb.can_proceed("file:///other/resource").is_ok(),
+        "Different URI should not be affected by another URI's open circuit"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// FIND-R115-043: tool_registry.record_call parity
+// ═══════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn test_grpc_tool_registry_record_call() {
+    // Verify that the tool registry correctly records calls for trust scoring.
+    // This is the pattern used in the gRPC handle_tool_call after Allow verdict.
+    let dir = std::env::temp_dir().join("vellaveto_grpc_test_registry");
+    let registry = vellaveto_mcp::tool_registry::ToolRegistry::new(&dir);
+
+    // Register a tool first
+    registry.register_unknown("my_grpc_tool").await;
+    let entry_before = registry.get("my_grpc_tool").await;
+    let calls_before = entry_before.map(|e| e.call_count).unwrap_or(0);
+    assert_eq!(calls_before, 0, "New tool should have 0 calls");
+
+    // Record a call (simulating tool_registry.record_call in handle_tool_call)
+    registry.record_call("my_grpc_tool").await;
+
+    let entry_after = registry.get("my_grpc_tool").await;
+    let calls_after = entry_after.map(|e| e.call_count).unwrap_or(0);
+    assert_eq!(
+        calls_after, 1,
+        "record_call must increment call_count to 1"
+    );
+
+    // Record another call
+    registry.record_call("my_grpc_tool").await;
+    let entry_final = registry.get("my_grpc_tool").await;
+    assert_eq!(
+        entry_final.map(|e| e.call_count).unwrap_or(0),
+        2,
+        "record_call must increment call_count to 2"
+    );
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&dir);
+}

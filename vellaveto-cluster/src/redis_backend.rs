@@ -76,6 +76,13 @@ fn validate_approval_id_for_redis(id: &str) -> Result<(), ClusterError> {
                 "approval ID contains control characters".to_string(),
             ));
         }
+        // SECURITY (FIND-R126-003): Reject Unicode format characters to prevent
+        // invisible-character-based ID confusion and dedup bypass.
+        if vellaveto_types::is_unicode_format_char(c) {
+            return Err(ClusterError::Validation(
+                "approval ID contains Unicode format characters".to_string(),
+            ));
+        }
         // SECURITY: Reject Redis hash tag characters to prevent cluster slot manipulation.
         // An attacker could craft an ID like "{slot1}attack" to force all related keys
         // onto the same Redis shard, bypassing intended data distribution.
@@ -112,6 +119,12 @@ fn validate_rate_limit_param(name: &str, value: &str) -> Result<(), ClusterError
         if c.is_control() {
             return Err(ClusterError::Validation(format!(
                 "rate limit {name} contains control characters"
+            )));
+        }
+        // SECURITY (FIND-R126-003): Reject Unicode format characters.
+        if vellaveto_types::is_unicode_format_char(c) {
+            return Err(ClusterError::Validation(format!(
+                "rate limit {name} contains Unicode format characters"
             )));
         }
         // SECURITY: Reject Redis hash tag characters to prevent cluster slot manipulation.
@@ -296,10 +309,18 @@ impl ClusterBackend for RedisBackend {
                 ));
             }
         }
-        // SECURITY (FIND-R122-006): Reject control/format chars in reason field.
+        // SECURITY (FIND-R122-006, FIND-R126-002): Reject control/format chars in reason field.
         if reason.chars().any(|c| c.is_control()) {
             return Err(ClusterError::Validation(
                 "reason contains control characters".to_string(),
+            ));
+        }
+        if reason
+            .chars()
+            .any(vellaveto_types::is_unicode_format_char)
+        {
+            return Err(ClusterError::Validation(
+                "reason contains Unicode format characters".to_string(),
             ));
         }
 

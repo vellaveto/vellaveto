@@ -302,6 +302,26 @@ impl ApprovalStore {
             );
         }
 
+        // SECURITY (FIND-R122-004): Evict stale resolved entries on load to
+        // prevent false CapacityExceeded errors on restart.  This mirrors the
+        // same retention logic in expire_stale() (line 753).
+        let retention_cutoff = Utc::now() - Duration::hours(1);
+        let before = pending.len();
+        // SECURITY (FIND-R126-001): Use resolved_at (if available) for retention
+        // comparison, not created_at.  An approval created 2h ago but resolved
+        // 30min ago should still be retained, while one resolved 2h ago should not.
+        pending.retain(|_, a| {
+            a.status == ApprovalStatus::Pending
+                || a.resolved_at.unwrap_or(a.created_at) > retention_cutoff
+        });
+        let evicted = before.saturating_sub(pending.len());
+        if evicted > 0 {
+            tracing::info!(
+                "Evicted {} stale resolved entries on load (retention cutoff: 1h)",
+                evicted
+            );
+        }
+
         // Rebuild the dedup index for entries that are still pending
         let mut dedup = self.dedup_index.write().await;
         dedup.clear();
@@ -752,8 +772,11 @@ impl ApprovalStore {
 
         // Remove resolved entries older than 1 hour to prevent memory leaks
         let retention_cutoff = now - Duration::hours(1);
-        pending
-            .retain(|_, a| a.status == ApprovalStatus::Pending || a.created_at > retention_cutoff);
+        // SECURITY (FIND-R126-001): Use resolved_at for retention comparison.
+        pending.retain(|_, a| {
+            a.status == ApprovalStatus::Pending
+                || a.resolved_at.unwrap_or(a.created_at) > retention_cutoff
+        });
 
         // Drop both locks before I/O operations
         drop(dedup);

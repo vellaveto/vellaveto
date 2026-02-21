@@ -6349,3 +6349,834 @@ fn test_nhi_dpop_proof_debug_redacts_proof_and_ath() {
         "Debug should still show nonce"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R115-001: CapabilityToken.validate_structure() control/format char validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r115_001_capability_token_rejects_control_char_in_token_id() {
+    let token = CapabilityToken {
+        token_id: "tok\x00-1".to_string(),
+        parent_token_id: None,
+        issuer: "issuer-1".to_string(),
+        holder: "holder-1".to_string(),
+        grants: vec![CapabilityGrant {
+            tool_pattern: "test".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-12-31T23:59:59Z".to_string(),
+        signature: "sig".to_string(),
+        issuer_public_key: "key".to_string(),
+    };
+    let err = token.validate_structure().unwrap_err();
+    assert!(
+        matches!(err, CapabilityError::ValidationFailed(ref msg) if msg.contains("token_id") && msg.contains("control or format")),
+        "expected control char rejection in token_id, got: {:?}",
+        err
+    );
+}
+
+#[test]
+fn test_r115_001_capability_token_rejects_zwsp_in_issuer() {
+    let token = CapabilityToken {
+        token_id: "tok-1".to_string(),
+        parent_token_id: None,
+        issuer: "issuer\u{200B}-1".to_string(), // zero-width space
+        holder: "holder-1".to_string(),
+        grants: vec![CapabilityGrant {
+            tool_pattern: "test".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-12-31T23:59:59Z".to_string(),
+        signature: "sig".to_string(),
+        issuer_public_key: "key".to_string(),
+    };
+    let err = token.validate_structure().unwrap_err();
+    assert!(
+        matches!(err, CapabilityError::ValidationFailed(ref msg) if msg.contains("issuer") && msg.contains("control or format")),
+        "expected format char rejection in issuer, got: {:?}",
+        err
+    );
+}
+
+#[test]
+fn test_r115_001_capability_token_rejects_bidi_override_in_holder() {
+    let token = CapabilityToken {
+        token_id: "tok-1".to_string(),
+        parent_token_id: None,
+        issuer: "issuer-1".to_string(),
+        holder: "holder\u{202E}-1".to_string(), // right-to-left override
+        grants: vec![CapabilityGrant {
+            tool_pattern: "test".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-12-31T23:59:59Z".to_string(),
+        signature: "sig".to_string(),
+        issuer_public_key: "key".to_string(),
+    };
+    let err = token.validate_structure().unwrap_err();
+    assert!(
+        matches!(err, CapabilityError::ValidationFailed(ref msg) if msg.contains("holder") && msg.contains("control or format")),
+        "expected format char rejection in holder, got: {:?}",
+        err
+    );
+}
+
+#[test]
+fn test_r115_001_capability_token_valid_passes() {
+    let token = CapabilityToken {
+        token_id: "tok-1".to_string(),
+        parent_token_id: None,
+        issuer: "issuer-1".to_string(),
+        holder: "holder-1".to_string(),
+        grants: vec![CapabilityGrant {
+            tool_pattern: "test".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-12-31T23:59:59Z".to_string(),
+        signature: "sig".to_string(),
+        issuer_public_key: "key".to_string(),
+    };
+    assert!(token.validate_structure().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R115-002: AccessReviewEntry.validate() control/format char validation
+// ═══════════════════════════════════════════════════════════════════
+
+fn make_valid_access_review_entry() -> AccessReviewEntry {
+    AccessReviewEntry {
+        agent_id: "agent-1".to_string(),
+        session_ids: vec!["s1".to_string()],
+        first_access: "2026-01-01T00:00:00Z".to_string(),
+        last_access: "2026-01-02T00:00:00Z".to_string(),
+        total_evaluations: 10,
+        allow_count: 8,
+        deny_count: 1,
+        require_approval_count: 1,
+        tools_accessed: vec!["read_file".to_string()],
+        functions_called: vec!["execute".to_string()],
+        permissions_granted: 5,
+        permissions_used: 4,
+        usage_ratio: 0.8,
+        unused_permissions: vec!["p1".to_string()],
+        agency_recommendation: "optimal".to_string(),
+    }
+}
+
+#[test]
+fn test_r115_002_access_review_entry_rejects_control_char_in_agent_id() {
+    let mut entry = make_valid_access_review_entry();
+    entry.agent_id = "agent\n-1".to_string();
+    let err = entry.validate().unwrap_err();
+    assert!(err.contains("agent_id") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_002_access_review_entry_rejects_zwsp_in_agent_id() {
+    let mut entry = make_valid_access_review_entry();
+    entry.agent_id = "agent\u{200B}-1".to_string();
+    let err = entry.validate().unwrap_err();
+    assert!(err.contains("agent_id") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_002_access_review_entry_rejects_control_char_in_recommendation() {
+    let mut entry = make_valid_access_review_entry();
+    entry.agency_recommendation = "optimal\t".to_string();
+    let err = entry.validate().unwrap_err();
+    assert!(err.contains("agency_recommendation") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_002_access_review_entry_valid_passes() {
+    let entry = make_valid_access_review_entry();
+    assert!(entry.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R115-003: ZkBatchProof.validate() control/format char validation
+// ═══════════════════════════════════════════════════════════════════
+
+fn make_valid_zk_batch_proof() -> crate::zk_audit::ZkBatchProof {
+    crate::zk_audit::ZkBatchProof {
+        proof: "aabbccdd".to_string(),
+        batch_id: "batch-1".to_string(),
+        entry_range: (0, 10),
+        merkle_root: "abcdef".to_string(),
+        first_prev_hash: "112233".to_string(),
+        final_entry_hash: "445566".to_string(),
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        entry_count: 10,
+    }
+}
+
+#[test]
+fn test_r115_003_zk_batch_proof_rejects_control_char_in_batch_id() {
+    let mut proof = make_valid_zk_batch_proof();
+    proof.batch_id = "batch\x01-1".to_string();
+    let err = proof.validate().unwrap_err();
+    assert!(err.contains("batch_id") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_003_zk_batch_proof_rejects_bom_in_batch_id() {
+    let mut proof = make_valid_zk_batch_proof();
+    proof.batch_id = "\u{FEFF}batch-1".to_string();
+    let err = proof.validate().unwrap_err();
+    assert!(err.contains("batch_id") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_003_zk_batch_proof_rejects_control_char_in_created_at() {
+    let mut proof = make_valid_zk_batch_proof();
+    proof.created_at = "2026-01-01\rT00:00:00Z".to_string();
+    let err = proof.validate().unwrap_err();
+    assert!(err.contains("created_at") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_003_zk_batch_proof_valid_passes() {
+    let proof = make_valid_zk_batch_proof();
+    assert!(proof.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R115-004: CanonicalToolSchema/CanonicalToolCall control/format char validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r115_004_canonical_tool_schema_rejects_control_char_in_name() {
+    let schema = crate::projector::CanonicalToolSchema {
+        name: "tool\x07name".to_string(),
+        description: "A test tool".to_string(),
+        input_schema: json!({}),
+        output_schema: None,
+    };
+    let err = schema.validate().unwrap_err();
+    assert!(err.contains("name") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_004_canonical_tool_schema_rejects_zwsp_in_name() {
+    let schema = crate::projector::CanonicalToolSchema {
+        name: "tool\u{200B}name".to_string(),
+        description: "A test tool".to_string(),
+        input_schema: json!({}),
+        output_schema: None,
+    };
+    let err = schema.validate().unwrap_err();
+    assert!(err.contains("name") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_004_canonical_tool_call_rejects_control_char_in_tool_name() {
+    let call = crate::projector::CanonicalToolCall {
+        tool_name: "tool\nnewline".to_string(),
+        arguments: json!({}),
+        call_id: None,
+    };
+    let err = call.validate().unwrap_err();
+    assert!(err.contains("tool_name") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_004_canonical_tool_call_rejects_bidi_in_tool_name() {
+    let call = crate::projector::CanonicalToolCall {
+        tool_name: "tool\u{202A}name".to_string(),
+        arguments: json!({}),
+        call_id: None,
+    };
+    let err = call.validate().unwrap_err();
+    assert!(err.contains("tool_name") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_004_canonical_tool_schema_valid_passes() {
+    let schema = crate::projector::CanonicalToolSchema {
+        name: "tool_name".to_string(),
+        description: "A valid tool".to_string(),
+        input_schema: json!({}),
+        output_schema: None,
+    };
+    assert!(schema.validate().is_ok());
+}
+
+#[test]
+fn test_r115_004_canonical_tool_call_valid_passes() {
+    let call = crate::projector::CanonicalToolCall {
+        tool_name: "tool_name".to_string(),
+        arguments: json!({}),
+        call_id: Some("call-1".to_string()),
+    };
+    assert!(call.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R115-005: DeploymentInfo.validate() control/format char validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r115_005_deployment_info_rejects_control_char_in_instance_id() {
+    let info = crate::deployment::DeploymentInfo {
+        instance_id: Some("pod\x00-1".to_string()),
+        leader_status: None,
+        discovered_endpoints: None,
+        uptime_secs: 100,
+        mode: "standalone".to_string(),
+    };
+    let err = info.validate().unwrap_err();
+    assert!(err.contains("instance_id") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_005_deployment_info_rejects_zwsp_in_instance_id() {
+    let info = crate::deployment::DeploymentInfo {
+        instance_id: Some("pod\u{200B}-1".to_string()),
+        leader_status: None,
+        discovered_endpoints: None,
+        uptime_secs: 100,
+        mode: "standalone".to_string(),
+    };
+    let err = info.validate().unwrap_err();
+    assert!(err.contains("instance_id") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_005_deployment_info_rejects_control_char_in_mode() {
+    let info = crate::deployment::DeploymentInfo {
+        instance_id: None,
+        leader_status: None,
+        discovered_endpoints: None,
+        uptime_secs: 100,
+        mode: "stand\talone".to_string(),
+    };
+    let err = info.validate().unwrap_err();
+    assert!(err.contains("mode") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_005_deployment_info_rejects_bidi_in_mode() {
+    let info = crate::deployment::DeploymentInfo {
+        instance_id: None,
+        leader_status: None,
+        discovered_endpoints: None,
+        uptime_secs: 100,
+        mode: "standalone\u{202E}".to_string(),
+    };
+    let err = info.validate().unwrap_err();
+    assert!(err.contains("mode") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_005_deployment_info_valid_passes() {
+    let info = crate::deployment::DeploymentInfo {
+        instance_id: Some("pod-1".to_string()),
+        leader_status: None,
+        discovered_endpoints: None,
+        uptime_secs: 100,
+        mode: "standalone".to_string(),
+    };
+    assert!(info.validate().is_ok());
+}
+
+#[test]
+fn test_r115_005_deployment_info_none_instance_id_passes() {
+    let info = crate::deployment::DeploymentInfo {
+        instance_id: None,
+        leader_status: None,
+        discovered_endpoints: None,
+        uptime_secs: 100,
+        mode: "standalone".to_string(),
+    };
+    assert!(info.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R115-006: AbacPolicy/AbacEntity/LeastAgencyReport control/format char validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r115_006_abac_policy_rejects_control_char_in_id() {
+    let policy = AbacPolicy {
+        id: "policy\x01-1".to_string(),
+        description: "A test policy".to_string(),
+        effect: AbacEffect::Permit,
+        priority: 0,
+        principal: PrincipalConstraint::default(),
+        action: ActionConstraint::default(),
+        resource: ResourceConstraint::default(),
+        conditions: vec![],
+    };
+    let err = policy.validate().unwrap_err();
+    assert!(err.contains("id") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_006_abac_policy_rejects_bidi_in_description() {
+    let policy = AbacPolicy {
+        id: "policy-1".to_string(),
+        description: "Allow\u{202A} access".to_string(),
+        effect: AbacEffect::Permit,
+        priority: 0,
+        principal: PrincipalConstraint::default(),
+        action: ActionConstraint::default(),
+        resource: ResourceConstraint::default(),
+        conditions: vec![],
+    };
+    let err = policy.validate().unwrap_err();
+    assert!(err.contains("description") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_006_abac_policy_valid_passes() {
+    let policy = AbacPolicy {
+        id: "policy-1".to_string(),
+        description: "A test policy".to_string(),
+        effect: AbacEffect::Permit,
+        priority: 0,
+        principal: PrincipalConstraint::default(),
+        action: ActionConstraint::default(),
+        resource: ResourceConstraint::default(),
+        conditions: vec![],
+    };
+    assert!(policy.validate().is_ok());
+}
+
+#[test]
+fn test_r115_006_abac_entity_rejects_control_char_in_entity_type() {
+    let entity = AbacEntity {
+        entity_type: "Agent\n".to_string(),
+        id: "agent-1".to_string(),
+        attributes: HashMap::new(),
+        parents: vec![],
+    };
+    let err = entity.validate().unwrap_err();
+    assert!(err.contains("entity_type") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_006_abac_entity_rejects_zwsp_in_id() {
+    let entity = AbacEntity {
+        entity_type: "Agent".to_string(),
+        id: "agent\u{200B}-1".to_string(),
+        attributes: HashMap::new(),
+        parents: vec![],
+    };
+    let err = entity.validate().unwrap_err();
+    assert!(err.contains("id") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_006_abac_entity_valid_passes() {
+    let entity = AbacEntity {
+        entity_type: "Agent".to_string(),
+        id: "agent-1".to_string(),
+        attributes: HashMap::new(),
+        parents: vec!["group-1".to_string()],
+    };
+    assert!(entity.validate().is_ok());
+}
+
+#[test]
+fn test_r115_006_least_agency_report_rejects_control_char_in_agent_id() {
+    let report = LeastAgencyReport {
+        agent_id: "agent\x01-1".to_string(),
+        session_id: "sess-1".to_string(),
+        granted_permissions: 5,
+        used_permissions: 4,
+        unused_permissions: vec![],
+        usage_ratio: 0.8,
+        recommendation: AgencyRecommendation::Optimal,
+    };
+    let err = report.validate().unwrap_err();
+    assert!(err.contains("agent_id") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_006_least_agency_report_rejects_bom_in_session_id() {
+    let report = LeastAgencyReport {
+        agent_id: "agent-1".to_string(),
+        session_id: "\u{FEFF}sess-1".to_string(),
+        granted_permissions: 5,
+        used_permissions: 4,
+        unused_permissions: vec![],
+        usage_ratio: 0.8,
+        recommendation: AgencyRecommendation::Optimal,
+    };
+    let err = report.validate().unwrap_err();
+    assert!(err.contains("session_id") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r115_006_least_agency_report_valid_passes() {
+    let report = LeastAgencyReport {
+        agent_id: "agent-1".to_string(),
+        session_id: "sess-1".to_string(),
+        granted_permissions: 5,
+        used_permissions: 4,
+        unused_permissions: vec![],
+        usage_ratio: 0.8,
+        recommendation: AgencyRecommendation::Optimal,
+    };
+    assert!(report.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R115-007: deny_unknown_fields on 9 types
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r115_007_tool_signature_rejects_unknown_fields() {
+    let json = r#"{
+        "signature_id":"sig-1","signature":"abc","algorithm":"ed25519",
+        "public_key":"def","signed_at":"2026-01-01T00:00:00Z",
+        "extra_field":"attack"
+    }"#;
+    let result = serde_json::from_str::<crate::etdi::ToolSignature>(json);
+    assert!(result.is_err(), "ToolSignature must reject unknown fields");
+}
+
+#[test]
+fn test_r115_007_tool_attestation_rejects_unknown_fields() {
+    let json = r#"{
+        "attestation_id":"att-1","attestation_type":"initial","attester":"me",
+        "timestamp":"2026-01-01T00:00:00Z","tool_hash":"abc",
+        "signature":{"signature_id":"s1","signature":"a","algorithm":"ed25519","public_key":"b","signed_at":"2026-01-01T00:00:00Z"},
+        "extra_field":"attack"
+    }"#;
+    let result = serde_json::from_str::<crate::etdi::ToolAttestation>(json);
+    assert!(result.is_err(), "ToolAttestation must reject unknown fields");
+}
+
+#[test]
+fn test_r115_007_tool_version_pin_rejects_unknown_fields() {
+    let json = r#"{
+        "tool_name":"t","definition_hash":"abc","pinned_at":"2026-01-01T00:00:00Z",
+        "pinned_by":"admin","extra_field":"attack"
+    }"#;
+    let result = serde_json::from_str::<crate::etdi::ToolVersionPin>(json);
+    assert!(result.is_err(), "ToolVersionPin must reject unknown fields");
+}
+
+#[test]
+fn test_r115_007_version_drift_alert_rejects_unknown_fields() {
+    let json = r#"{
+        "tool":"t","expected_version":"1.0","actual_version":"2.0",
+        "drift_type":"version_mismatch","blocking":true,
+        "detected_at":"2026-01-01T00:00:00Z","extra_field":"attack"
+    }"#;
+    let result = serde_json::from_str::<crate::etdi::VersionDriftAlert>(json);
+    assert!(result.is_err(), "VersionDriftAlert must reject unknown fields");
+}
+
+#[test]
+fn test_r115_007_abac_entity_rejects_unknown_fields() {
+    let json = r#"{
+        "entity_type":"Agent","id":"agent-1","extra_field":"attack"
+    }"#;
+    let result = serde_json::from_str::<crate::abac::AbacEntity>(json);
+    assert!(result.is_err(), "AbacEntity must reject unknown fields");
+}
+
+#[test]
+fn test_r115_007_permission_usage_rejects_unknown_fields() {
+    let json = r#"{
+        "tool_pattern":"*","function_pattern":"*","used_count":0,"extra_field":"attack"
+    }"#;
+    let result = serde_json::from_str::<crate::abac::PermissionUsage>(json);
+    assert!(result.is_err(), "PermissionUsage must reject unknown fields");
+}
+
+#[test]
+fn test_r115_007_least_agency_report_rejects_unknown_fields() {
+    let json = r#"{
+        "agent_id":"a","session_id":"s","granted_permissions":0,"used_permissions":0,
+        "unused_permissions":[],"usage_ratio":1.0,"recommendation":"optimal",
+        "extra_field":"attack"
+    }"#;
+    let result = serde_json::from_str::<crate::abac::LeastAgencyReport>(json);
+    assert!(result.is_err(), "LeastAgencyReport must reject unknown fields");
+}
+
+#[test]
+fn test_r115_007_memory_namespace_rejects_unknown_fields() {
+    let json = r#"{
+        "id":"ns-1","owner_agent":"agent-1","created_at":"2026-01-01T00:00:00Z",
+        "extra_field":"attack"
+    }"#;
+    let result = serde_json::from_str::<crate::minja::MemoryNamespace>(json);
+    assert!(result.is_err(), "MemoryNamespace must reject unknown fields");
+}
+
+#[test]
+fn test_r115_007_extension_descriptor_rejects_unknown_fields() {
+    let json = r#"{
+        "id":"ext-1","name":"Ext","version":"1.0","extra_field":"attack"
+    }"#;
+    let result = serde_json::from_str::<crate::extension::ExtensionDescriptor>(json);
+    assert!(result.is_err(), "ExtensionDescriptor must reject unknown fields");
+}
+
+// Verify existing roundtrip serde tests still pass with deny_unknown_fields
+#[test]
+fn test_r115_007_tool_signature_roundtrip_with_deny_unknown_fields() {
+    let sig = crate::etdi::ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "abc".to_string(),
+        algorithm: crate::etdi::SignatureAlgorithm::Ed25519,
+        public_key: "def".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: None,
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    let json_str = serde_json::to_string(&sig).unwrap();
+    let deserialized: crate::etdi::ToolSignature = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(sig, deserialized);
+}
+
+#[test]
+fn test_r115_007_abac_entity_roundtrip_with_deny_unknown_fields() {
+    let entity = crate::abac::AbacEntity {
+        entity_type: "Agent".to_string(),
+        id: "agent-1".to_string(),
+        attributes: HashMap::new(),
+        parents: vec!["group-1".to_string()],
+    };
+    let json_str = serde_json::to_string(&entity).unwrap();
+    let deserialized: crate::abac::AbacEntity = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(entity, deserialized);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IMP-R126-009: has_dangerous_chars() canonical predicate tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_has_dangerous_chars_clean_strings() {
+    assert!(!crate::core::has_dangerous_chars("normal text"));
+    assert!(!crate::core::has_dangerous_chars("with.punctuation-and_underscores"));
+    assert!(!crate::core::has_dangerous_chars(""));
+    assert!(!crate::core::has_dangerous_chars("unicode: café résumé naïve"));
+}
+
+#[test]
+fn test_has_dangerous_chars_control_chars() {
+    assert!(crate::core::has_dangerous_chars("has\x00null"));
+    assert!(crate::core::has_dangerous_chars("has\nnewline"));
+    assert!(crate::core::has_dangerous_chars("has\ttab"));
+    assert!(crate::core::has_dangerous_chars("has\x7fDEL"));
+}
+
+#[test]
+fn test_has_dangerous_chars_unicode_format_chars() {
+    assert!(crate::core::has_dangerous_chars("has\u{200B}zwsp"));
+    assert!(crate::core::has_dangerous_chars("has\u{202E}bidi"));
+    assert!(crate::core::has_dangerous_chars("has\u{FEFF}bom"));
+    assert!(crate::core::has_dangerous_chars("has\u{00AD}shyphen"));
+    assert!(crate::core::has_dangerous_chars("has\u{2060}wj"));
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IMP-R126-005: ToolMetadata::validate() control/format char tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_tool_metadata_validate_empty_tool_id() {
+    let meta = ToolMetadata {
+        tool_id: "".to_string(),
+        name: "test".to_string(),
+        description: "test".to_string(),
+        server_id: "srv".to_string(),
+        input_schema: serde_json::json!({}),
+        schema_hash: "abc".to_string(),
+        sensitivity: ToolSensitivity::Low,
+        domain_tags: vec![],
+        token_cost: 10,
+    };
+    let err = meta.validate().unwrap_err();
+    assert!(err.contains("must not be empty"), "got: {}", err);
+}
+
+#[test]
+fn test_tool_metadata_validate_control_char_in_name() {
+    let meta = ToolMetadata {
+        tool_id: "srv:tool".to_string(),
+        name: "tool\x01name".to_string(),
+        description: "test".to_string(),
+        server_id: "srv".to_string(),
+        input_schema: serde_json::json!({}),
+        schema_hash: "abc".to_string(),
+        sensitivity: ToolSensitivity::Low,
+        domain_tags: vec![],
+        token_cost: 10,
+    };
+    let err = meta.validate().unwrap_err();
+    assert!(err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_tool_metadata_validate_format_char_in_description() {
+    let meta = ToolMetadata {
+        tool_id: "srv:tool".to_string(),
+        name: "tool".to_string(),
+        description: "desc\u{200B}ription".to_string(),
+        server_id: "srv".to_string(),
+        input_schema: serde_json::json!({}),
+        schema_hash: "abc".to_string(),
+        sensitivity: ToolSensitivity::Low,
+        domain_tags: vec![],
+        token_cost: 10,
+    };
+    let err = meta.validate().unwrap_err();
+    assert!(err.contains("description contains control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_tool_metadata_validate_control_char_in_domain_tag() {
+    let meta = ToolMetadata {
+        tool_id: "srv:tool".to_string(),
+        name: "tool".to_string(),
+        description: "test".to_string(),
+        server_id: "srv".to_string(),
+        input_schema: serde_json::json!({}),
+        schema_hash: "abc".to_string(),
+        sensitivity: ToolSensitivity::Low,
+        domain_tags: vec!["clean".to_string(), "bad\x07tag".to_string()],
+        token_cost: 10,
+    };
+    let err = meta.validate().unwrap_err();
+    assert!(err.contains("domain_tag contains control or format"), "got: {}", err);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IMP-R126-006: NhiDpopVerificationResult::validate() tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_nhi_dpop_verification_result_validate_all_none() {
+    let r = NhiDpopVerificationResult {
+        valid: true,
+        thumbprint: None,
+        error: None,
+        new_nonce: None,
+    };
+    assert!(r.validate().is_ok());
+}
+
+#[test]
+fn test_nhi_dpop_verification_result_validate_thumbprint_too_long() {
+    let r = NhiDpopVerificationResult {
+        valid: true,
+        thumbprint: Some("x".repeat(513)),
+        error: None,
+        new_nonce: None,
+    };
+    let err = r.validate().unwrap_err();
+    assert!(err.contains("thumbprint length"), "got: {}", err);
+}
+
+#[test]
+fn test_nhi_dpop_verification_result_validate_error_format_chars() {
+    let r = NhiDpopVerificationResult {
+        valid: false,
+        thumbprint: None,
+        error: Some("error\u{200B}msg".to_string()),
+        new_nonce: None,
+    };
+    let err = r.validate().unwrap_err();
+    assert!(err.contains("error contains control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_nhi_dpop_verification_result_validate_nonce_too_long() {
+    let r = NhiDpopVerificationResult {
+        valid: false,
+        thumbprint: None,
+        error: None,
+        new_nonce: Some("n".repeat(257)),
+    };
+    let err = r.validate().unwrap_err();
+    assert!(err.contains("new_nonce length"), "got: {}", err);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IMP-R126-007: NhiAgentIdentity::validate() timestamp tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_nhi_agent_identity_validate_malformed_issued_at() {
+    let identity = NhiAgentIdentity {
+        id: "agent-1".to_string(),
+        name: "Test".to_string(),
+        issued_at: "not-a-date".to_string(),
+        expires_at: "2027-01-01T00:00:00Z".to_string(),
+        ..Default::default()
+    };
+    let err = identity.validate().unwrap_err();
+    assert!(err.contains("issued_at") && err.contains("ISO 8601"), "got: {}", err);
+}
+
+#[test]
+fn test_nhi_agent_identity_validate_malformed_expires_at() {
+    let identity = NhiAgentIdentity {
+        id: "agent-1".to_string(),
+        name: "Test".to_string(),
+        issued_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "bad".to_string(),
+        ..Default::default()
+    };
+    let err = identity.validate().unwrap_err();
+    assert!(err.contains("expires_at") && err.contains("ISO 8601"), "got: {}", err);
+}
+
+#[test]
+fn test_nhi_agent_identity_validate_valid_timestamps() {
+    let identity = NhiAgentIdentity {
+        id: "agent-1".to_string(),
+        name: "Test".to_string(),
+        issued_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2027-01-01T00:00:00Z".to_string(),
+        last_rotation: Some("2026-06-01T12:00:00Z".to_string()),
+        last_auth: Some("2026-06-15T08:30:00Z".to_string()),
+        ..Default::default()
+    };
+    assert!(identity.validate().is_ok());
+}
+
+#[test]
+fn test_nhi_agent_identity_validate_malformed_last_rotation() {
+    let identity = NhiAgentIdentity {
+        id: "agent-1".to_string(),
+        name: "Test".to_string(),
+        issued_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2027-01-01T00:00:00Z".to_string(),
+        last_rotation: Some("garbage".to_string()),
+        ..Default::default()
+    };
+    let err = identity.validate().unwrap_err();
+    assert!(err.contains("last_rotation") && err.contains("ISO 8601"), "got: {}", err);
+}

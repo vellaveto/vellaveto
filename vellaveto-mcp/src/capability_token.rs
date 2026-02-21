@@ -29,6 +29,7 @@ const MAX_CAPABILITY_TTL_SECS: u64 = 365 * 24 * 3600;
 const MAX_IDENTITY_LEN: usize = 256;
 
 /// SECURITY (IMP-R118-004): Validate string has no control or Unicode format characters.
+/// SECURITY (IMP-R120-008): Delegates to shared `has_dangerous_chars()` predicate.
 fn validate_no_dangerous_chars(value: &str, field_name: &str) -> Result<(), CapabilityError> {
     if value.len() > MAX_IDENTITY_LEN {
         return Err(CapabilityError::SigningFailed(format!(
@@ -38,10 +39,7 @@ fn validate_no_dangerous_chars(value: &str, field_name: &str) -> Result<(), Capa
             MAX_IDENTITY_LEN
         )));
     }
-    if value
-        .chars()
-        .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
-    {
+    if vellaveto_types::has_dangerous_chars(value) {
         return Err(CapabilityError::SigningFailed(format!(
             "{} contains control or Unicode format characters",
             field_name
@@ -675,6 +673,10 @@ fn build_canonical_content(
         CapabilityError::SigningFailed(format!("grants serialization failed: {}", e))
     })?;
     let parent_str = parent_token_id.unwrap_or("");
+    // SECURITY (FIND-R115-020): Use actual byte length of the remaining_depth string
+    // representation, not a hardcoded `1`. For depth values >= 10 (two digits), the
+    // hardcoded prefix caused canonical content collisions.
+    let depth_str = remaining_depth.to_string();
     Ok(format!(
         "{}:{}{}:{}{}:{}{}:{}{}:{}{}:{}{}:{}",
         token_id.len(),
@@ -687,8 +689,8 @@ fn build_canonical_content(
         holder,
         grants_json.len(),
         grants_json,
-        1,
-        remaining_depth,
+        depth_str.len(),
+        depth_str,
         issued_at.len(),
         issued_at,
     ))
@@ -1587,6 +1589,108 @@ mod tests {
             result.is_ok(),
             "Child with fewer invocations than parent should succeed: {:?}",
             result.err()
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R115-020: Canonical content depth collision fix
+    // ════════════════════════════════════════════════════════
+
+    /// FIND-R115-020: Tokens with different remaining_depth values must produce
+    /// different canonical content. Previously, a hardcoded length prefix of `1`
+    /// caused collisions for depth values >= 10 (two digits).
+    #[test]
+    fn test_canonical_content_no_collision_different_depths() {
+        let grants = test_grants();
+        let token_id = "test-token-id";
+        let issuer = "issuer-1";
+        let holder = "holder-1";
+        let issued_at = "2026-01-01T00:00:00Z";
+
+        // Depth 5 (single digit)
+        let canonical_5 = build_canonical_content(
+            token_id,
+            None,
+            issuer,
+            holder,
+            &grants,
+            5,
+            issued_at,
+        )
+        .unwrap();
+
+        // Depth 15 (two digits)
+        let canonical_15 = build_canonical_content(
+            token_id,
+            None,
+            issuer,
+            holder,
+            &grants,
+            15,
+            issued_at,
+        )
+        .unwrap();
+
+        assert_ne!(
+            canonical_5, canonical_15,
+            "FIND-R115-020: Depth 5 and 15 must produce different canonical content"
+        );
+    }
+
+    /// FIND-R115-020: Verify the length prefix for remaining_depth correctly
+    /// reflects the string representation length.
+    #[test]
+    fn test_canonical_content_depth_length_prefix_correct() {
+        let grants = test_grants();
+
+        // Single-digit depth: length prefix should be "1"
+        let canonical = build_canonical_content(
+            "tok", None, "iss", "hold", &grants, 5, "2026-01-01T00:00:00Z",
+        )
+        .unwrap();
+        // The depth field should appear as "1:5" (length=1, value=5)
+        assert!(
+            canonical.contains("1:5"),
+            "Single-digit depth should have length prefix 1"
+        );
+
+        // Two-digit depth: length prefix should be "2"
+        let canonical = build_canonical_content(
+            "tok", None, "iss", "hold", &grants, 12, "2026-01-01T00:00:00Z",
+        )
+        .unwrap();
+        // The depth field should appear as "2:12" (length=2, value=12)
+        assert!(
+            canonical.contains("2:12"),
+            "Two-digit depth should have length prefix 2"
+        );
+    }
+
+    /// FIND-R115-020: Issue and verify roundtrip works with two-digit depth values.
+    #[test]
+    fn test_issue_and_verify_two_digit_depth() {
+        let key_hex = test_key_hex();
+        let token = issue_capability_token(
+            "issuer-1",
+            "holder-1",
+            test_grants(),
+            12, // Two-digit depth
+            &key_hex,
+            3600,
+        )
+        .unwrap();
+
+        assert_eq!(token.remaining_depth, 12);
+
+        let key = parse_signing_key(&key_hex).unwrap();
+        let pub_key_hex = hex::encode(key.verifying_key().as_bytes());
+        let now = chrono::Utc::now();
+        let result =
+            verify_capability_token(&token, Some("holder-1"), Some(&pub_key_hex), &now).unwrap();
+        assert!(
+            result.valid,
+            "FIND-R115-020: Token with two-digit depth should verify: {:?}",
+            result.failure_reason
         );
     }
 }

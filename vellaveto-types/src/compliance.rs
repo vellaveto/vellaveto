@@ -428,6 +428,28 @@ impl AccessReviewEntry {
     /// SECURITY (FIND-R53-006): Unbounded Vec fields can cause OOM from
     /// attacker-controlled deserialized input.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R115-002): Reject control/format chars in identity fields
+        // to prevent zero-width space or bidi override bypasses.
+        if self
+            .agent_id
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(format!(
+                "AccessReviewEntry agent_id '{}' contains control or format characters",
+                self.agent_id,
+            ));
+        }
+        if self
+            .agency_recommendation
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(format!(
+                "AccessReviewEntry for agent '{}' agency_recommendation contains control or format characters",
+                self.agent_id,
+            ));
+        }
         if !self.usage_ratio.is_finite() {
             return Err(format!(
                 "AccessReviewEntry for agent '{}' has non-finite usage_ratio: {}",

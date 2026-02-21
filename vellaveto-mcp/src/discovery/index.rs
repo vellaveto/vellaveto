@@ -67,7 +67,14 @@ impl ToolIndex {
     /// If the tool_id already exists, it is updated in place.
     /// If the index is at capacity and this is a new tool, returns `IndexFull`.
     pub fn ingest(&self, metadata: &ToolMetadata) -> Result<(), DiscoveryError> {
-        // Validate metadata
+        // SECURITY (FIND-R126-004): Validate metadata bounds before indexing.
+        // Defense-in-depth: enforces limits even when called directly instead
+        // of via DiscoveryEngine::ingest_tools_list().
+        metadata
+            .validate()
+            .map_err(DiscoveryError::InvalidMetadata)?;
+
+        // Legacy checks kept for clarity (now redundant with validate())
         if metadata.tool_id.is_empty() {
             return Err(DiscoveryError::InvalidMetadata(
                 "tool_id must not be empty".to_string(),

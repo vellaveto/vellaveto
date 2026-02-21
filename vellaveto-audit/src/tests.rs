@@ -4260,6 +4260,44 @@ async fn test_gap_t06_etdi_audit_helpers() {
     );
 }
 
+/// IMP-R122-010: Oversized checkpoint line is silently skipped, not rejected.
+/// Ensures load_checkpoints gracefully handles checkpoint files containing
+/// lines that exceed MAX_CHECKPOINT_LINE_SIZE (64 KB).
+#[tokio::test]
+async fn test_checkpoint_oversized_line_skipped() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let key = AuditLogger::generate_signing_key();
+    let logger = AuditLogger::new(log_path).with_signing_key(key);
+
+    // Create a valid checkpoint first
+    logger
+        .log_entry(&test_action(), &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
+    logger.create_checkpoint().await.unwrap();
+
+    // Now inject an oversized line into the checkpoint file
+    let cp_path = dir.path().join("audit.checkpoints.jsonl");
+    let oversized_line = "x".repeat(65 * 1024); // > 64 KB
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(&cp_path)
+        .await
+        .unwrap();
+    file.write_all(oversized_line.as_bytes()).await.unwrap();
+    file.write_all(b"\n").await.unwrap();
+    file.flush().await.unwrap();
+
+    // load_checkpoints should succeed, skipping the oversized line
+    let checkpoints = logger.load_checkpoints().await.unwrap();
+    assert_eq!(
+        checkpoints.len(),
+        1,
+        "Should load the valid checkpoint and skip the oversized line"
+    );
+}
+
 /// GAP-T07: Test compress_rotated_file with missing file.
 #[cfg(feature = "archive")]
 #[tokio::test]

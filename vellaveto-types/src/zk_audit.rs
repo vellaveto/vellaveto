@@ -120,6 +120,16 @@ impl ZkBatchProof {
                 Self::MAX_BATCH_ID_LEN,
             ));
         }
+        // SECURITY (FIND-R115-003): Reject control/format chars in identity fields.
+        if self
+            .batch_id
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "ZkBatchProof batch_id contains control or format characters".to_string(),
+            );
+        }
         if self.merkle_root.len() > Self::MAX_HASH_LEN {
             return Err(format!(
                 "ZkBatchProof merkle_root length {} exceeds max {}",
@@ -147,6 +157,16 @@ impl ZkBatchProof {
                 self.created_at.len(),
                 Self::MAX_TIMESTAMP_LEN,
             ));
+        }
+        // SECURITY (FIND-R115-003): Reject control/format chars in timestamp fields.
+        if self
+            .created_at
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "ZkBatchProof created_at contains control or format characters".to_string(),
+            );
         }
         Ok(())
     }

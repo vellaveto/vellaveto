@@ -1431,6 +1431,55 @@ async fn relay_client_to_upstream(
                             }
                         }
 
+                        // SECURITY (FIND-R115-041): Rug-pull detection for resource URIs.
+                        // If the upstream server was flagged (annotations changed since initial
+                        // tools/list), block resource reads from that server.
+                        // Parity with HTTP handler (handlers.rs:1555).
+                        {
+                            let is_flagged = state
+                                .sessions
+                                .get_mut(&session_id)
+                                .map(|s| s.flagged_tools.contains(uri.as_str()))
+                                .unwrap_or(false);
+                            if is_flagged {
+                                let action = extractor::extract_resource_action(uri);
+                                let verdict = Verdict::Deny {
+                                    reason: format!(
+                                        "Resource '{}' blocked: server flagged by rug-pull detection",
+                                        uri
+                                    ),
+                                };
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &verdict,
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "event": "rug_pull_resource_blocked",
+                                            "uri": uri,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to audit WS resource rug-pull block: {}",
+                                        e
+                                    );
+                                }
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "Denied by policy",
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                                continue;
+                            }
+                        }
+
                         // Build action for resource read
                         let mut action = extractor::extract_resource_action(uri);
 
@@ -1467,6 +1516,51 @@ async fn relay_client_to_upstream(
                                 }
                                 let error = make_ws_error_response(
                                     Some(id), -32001, "Request blocked: security policy violation",
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                                continue;
+                            }
+                        }
+
+                        // SECURITY (FIND-R115-042): Circuit breaker check for resource reads.
+                        // Parity with HTTP handler (handlers.rs:1668) — prevent resource reads
+                        // from hammering a failing upstream server.
+                        if let Some(ref circuit_breaker) = state.circuit_breaker {
+                            if let Err(reason) = circuit_breaker.can_proceed(uri) {
+                                tracing::warn!(
+                                    "SECURITY: WS circuit breaker open for resource '{}' in session {}: {}",
+                                    uri,
+                                    session_id,
+                                    reason
+                                );
+                                let verdict = Verdict::Deny {
+                                    reason: format!("Circuit breaker open: {}", reason),
+                                };
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &verdict,
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "event": "circuit_breaker_rejected",
+                                            "uri": uri,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to audit WS resource circuit breaker rejection: {}",
+                                        e
+                                    );
+                                }
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "Service temporarily unavailable — circuit breaker open",
                                 );
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(error.into())).await;

@@ -45,6 +45,7 @@ pub const MAX_EXTENSION_ID_LEN: usize = 256;
 /// Uses a custom `Debug` implementation that redacts `signature` and `public_key`
 /// to prevent secret leakage in logs/debug output (FIND-R53-P3-004).
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ExtensionDescriptor {
     /// Unique extension identifier (e.g., "vellaveto-audit").
     /// Used as the `x-<id>/` prefix for method routing.

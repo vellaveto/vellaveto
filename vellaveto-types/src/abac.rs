@@ -127,7 +127,29 @@ impl AbacPolicy {
     pub const MAX_CONDITIONS: usize = 256;
 
     /// SECURITY (FIND-R49-005): Validate AbacPolicy bounds.
+    /// SECURITY (FIND-R115-006): Validate control/format chars on id and description.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R115-006): Reject control/format chars in identity fields.
+        if self
+            .id
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(format!(
+                "AbacPolicy '{}' id contains control or format characters",
+                self.id
+            ));
+        }
+        if self
+            .description
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(format!(
+                "AbacPolicy '{}' description contains control or format characters",
+                self.id
+            ));
+        }
         if self.conditions.len() > Self::MAX_CONDITIONS {
             return Err(format!(
                 "AbacPolicy conditions count {} exceeds max {}",
@@ -230,6 +252,7 @@ impl ResourceConstraint {
 
 /// Entity in the ABAC entity store.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AbacEntity {
     /// Entity type (e.g., "Agent", "Service", "Resource", "Group").
     pub entity_type: String,
@@ -252,7 +275,29 @@ impl AbacEntity {
     /// Validate bounds on deserialized data.
     ///
     /// SECURITY (FIND-R48-004): Unbounded parents and attributes from deserialization.
+    /// SECURITY (FIND-R115-006): Validate control/format chars on entity_type and id.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R115-006): Reject control/format chars in identity fields.
+        if self
+            .entity_type
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(format!(
+                "AbacEntity '{}::{}' entity_type contains control or format characters",
+                self.entity_type, self.id
+            ));
+        }
+        if self
+            .id
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(format!(
+                "AbacEntity '{}::{}' id contains control or format characters",
+                self.entity_type, self.id
+            ));
+        }
         if self.parents.len() > Self::MAX_PARENTS {
             return Err(format!(
                 "AbacEntity '{}::{}' has {} parents (max {})",
@@ -608,6 +653,7 @@ pub struct FederationAnchorInfo {
 
 /// Permission usage record for least-agency tracking.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct PermissionUsage {
     /// Tool pattern from the granting policy.
     pub tool_pattern: String,
@@ -622,6 +668,7 @@ pub struct PermissionUsage {
 
 /// Least-agency compliance report.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LeastAgencyReport {
     /// Agent identifier.
     pub agent_id: String,
@@ -657,6 +704,27 @@ impl LeastAgencyReport {
     /// negative or >1.0 values from bypassing threshold checks.
     /// SECURITY (FIND-R53-005): Unbounded unused_permissions can cause OOM.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R115-006): Reject control/format chars in identity fields.
+        if self
+            .agent_id
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(format!(
+                "LeastAgencyReport agent_id '{}' contains control or format characters",
+                self.agent_id
+            ));
+        }
+        if self
+            .session_id
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(format!(
+                "LeastAgencyReport session_id '{}' contains control or format characters",
+                self.session_id
+            ));
+        }
         if !self.usage_ratio.is_finite() {
             return Err(format!(
                 "LeastAgencyReport for agent '{}' session '{}' has non-finite usage_ratio: {}",

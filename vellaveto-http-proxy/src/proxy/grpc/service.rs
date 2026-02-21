@@ -886,6 +886,12 @@ impl McpGrpcService {
                     }
                 }
 
+                // SECURITY (FIND-R115-043): Record tool call in registry for trust scoring.
+                // Parity with HTTP handler (handlers.rs:959) and WS (websocket/mod.rs:1201).
+                if let Some(ref registry) = self.state.tool_registry {
+                    registry.record_call(tool_name).await;
+                }
+
                 // Touch session and update call_counts/action_history
                 if let Some(mut session) = self.state.sessions.get_mut(session_id) {
                     session.touch();
@@ -1040,6 +1046,44 @@ impl McpGrpcService {
             }
         }
 
+        // SECURITY (FIND-R115-041): Rug-pull detection for resource URIs.
+        // If the upstream server was flagged (annotations changed since initial tools/list),
+        // block resource reads from that server. Parity with HTTP handler (handlers.rs:1555).
+        let is_flagged = self
+            .state
+            .sessions
+            .get_mut(session_id)
+            .map(|s| s.flagged_tools.contains(uri))
+            .unwrap_or(false);
+        if is_flagged {
+            let action = extractor::extract_resource_action(uri);
+            let verdict = Verdict::Deny {
+                reason: format!(
+                    "Resource '{}' blocked: server flagged by rug-pull detection",
+                    uri
+                ),
+            };
+            if let Err(e) = self
+                .state
+                .audit
+                .log_entry(
+                    &action,
+                    &verdict,
+                    json!({
+                        "source": "grpc_proxy",
+                        "session": session_id,
+                        "transport": "grpc",
+                        "event": "rug_pull_resource_blocked",
+                        "uri": uri,
+                    }),
+                )
+                .await
+            {
+                tracing::warn!("Failed to audit gRPC resource rug-pull block: {}", e);
+            }
+            return make_proto_denial_response(proto_req, "Denied by policy");
+        }
+
         let mut action = extractor::extract_resource_action(uri);
 
         // SECURITY (FIND-R116-007): DNS resolution for resource reads.
@@ -1061,7 +1105,7 @@ impl McpGrpcService {
                 session_id,
             );
             let audit_verdict = Verdict::Deny {
-                reason: format!("DLP blocked: secret detected in resource URI"),
+                reason: "DLP blocked: secret detected in resource URI".to_string(),
             };
             if let Err(e) = self.state.audit.log_entry(
                 &action, &audit_verdict,
@@ -1073,6 +1117,45 @@ impl McpGrpcService {
                 tracing::warn!("Failed to audit gRPC resource URI DLP: {}", e);
             }
             return make_proto_denial_response(proto_req, "Response blocked: sensitive content detected");
+        }
+
+        // SECURITY (FIND-R115-042): Circuit breaker check for resource reads.
+        // Parity with HTTP handler (handlers.rs:1668) — prevent resource reads from
+        // hammering a failing upstream server.
+        if let Some(ref circuit_breaker) = self.state.circuit_breaker {
+            if let Err(reason) = circuit_breaker.can_proceed(uri) {
+                tracing::warn!(
+                    "SECURITY: gRPC circuit breaker open for resource '{}' in session {}: {}",
+                    uri,
+                    session_id,
+                    reason
+                );
+                let verdict = Verdict::Deny {
+                    reason: format!("Circuit breaker open: {}", reason),
+                };
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "grpc_proxy",
+                            "session": session_id,
+                            "transport": "grpc",
+                            "event": "circuit_breaker_rejected",
+                            "uri": uri,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit gRPC resource circuit breaker rejection: {}", e);
+                }
+                return make_proto_denial_response(
+                    proto_req,
+                    "Service temporarily unavailable — circuit breaker open",
+                );
+            }
         }
 
         let ctx = self.build_evaluation_context(session_id);
@@ -1365,6 +1448,45 @@ impl McpGrpcService {
                 }
             }
         }
+
+        // SECURITY (FIND-R115-040): Rug-pull detection on tools/list responses.
+        // Extract annotations and flag tools with changed annotations. Also register
+        // output schemas from tool definitions. Parity with WS handler
+        // (websocket/mod.rs:3045-3076, 3326-3338) and HTTP handler (inspection.rs).
+        if response_json
+            .get("result")
+            .and_then(|r| r.get("tools"))
+            .and_then(|t| t.as_array())
+            .is_some()
+        {
+            super::super::helpers::extract_annotations_from_response(
+                &response_json,
+                session_id,
+                &self.state.sessions,
+                &self.state.audit,
+                &self.state.known_tools,
+            )
+            .await;
+
+            // Verify manifest if configured
+            if let Some(ref manifest_config) = self.state.manifest_config {
+                super::super::helpers::verify_manifest_from_response(
+                    &response_json,
+                    session_id,
+                    &self.state.sessions,
+                    manifest_config,
+                    &self.state.audit,
+                )
+                .await;
+            }
+        }
+
+        // SECURITY (FIND-R115-040): Register output schemas from tools/list responses.
+        // Parity with WS handler (websocket/mod.rs:3338) and HTTP handler (inspection.rs:693).
+        // register_from_tools_list checks for result.tools internally.
+        self.state
+            .output_schema_registry
+            .register_from_tools_list(&response_json);
 
         // SECURITY (FIND-R53-GRPC-004): Output schema validation.
         // Parity with WS handler (websocket/mod.rs:2327-2370).
