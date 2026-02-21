@@ -5,8 +5,8 @@
 >
 > **Last updated:** 2026-02-21 (Round 116)
 > **Total audit rounds:** 116+
-> **Total security fix commits:** 153+
-> **Total findings resolved:** 1,400+
+> **Total security fix commits:** 154+
+> **Total findings resolved:** 1,411+
 
 ---
 
@@ -23,31 +23,32 @@ Finding IDs follow the pattern `FIND-R{round}-{number}` (e.g., `FIND-R116-001`).
 
 ---
 
-## Round 116 (2026-02-21) — In Progress
+## Round 116 (2026-02-21)
 
-**Commit:** pending
+**Commit:** `df5a96e`
+**Findings:** 2 P1 + 9 P2 + 20 P3 = 31 total (P1+P2 fixed, P3 noted)
 **Auditors:** 4 parallel agents (types+engine, MCP+audit, server+proxy, config+SDKs)
 
-### P1 Findings (Critical)
+### P1 Findings (Fixed)
 
-| ID | Crate | Description | Status |
-|----|-------|-------------|--------|
-| FIND-R116-MCP-001 | vellaveto-mcp | Capability token `expires_at` NOT included in Ed25519 signature — attacker can extend token lifetime indefinitely | Fixing |
-| FIND-R116-MCP-002 | vellaveto-mcp | DPoP verification deadlocks on nonce validation failure (read lock held while acquiring write lock) | Fixing |
+| ID | Crate | Description |
+|----|-------|-------------|
+| FIND-R116-MCP-001 | vellaveto-mcp | Capability token `expires_at` NOT included in Ed25519 signature — attacker can extend token lifetime indefinitely |
+| FIND-R116-MCP-002 | vellaveto-mcp | DPoP verification deadlocks on nonce validation failure (read lock held while acquiring write lock) |
 
-### P2 Findings (Security Gap)
+### P2 Findings (Fixed)
 
-| ID | Crate | Description | Status |
-|----|-------|-------------|--------|
-| FIND-R116-TE-001 | vellaveto-types | `validate_url_no_ssrf()` missing IPv6 transition mechanism checks (6to4, Teredo, NAT64) | Fixing |
-| FIND-R116-TE-002 | vellaveto-types | `Action::validate()` missing control char validation on `resolved_ips` | Fixing |
-| FIND-R116-TE-003 | vellaveto-engine | `BehavioralTracker::record_session()` missing tool key validation (asymmetry with `from_snapshot()`) | Fixing |
-| FIND-R116-MCP-003 | vellaveto-mcp | Delegation chain includes expired-but-uncleaned links (TOCTOU) | Fixing |
-| FIND-R116-MCP-004 | vellaveto-mcp | A2A response scanning misses `status.message` and `history` fields | Fixing |
-| FIND-R116-MCP-005 | vellaveto-mcp | Self-delegation check bypassed via Unicode confusables (Cyrillic lookalikes) | Fixing |
-| FIND-R116-CA-001 | vellaveto-approval | Local ApprovalStore::create() missing reason control/format char validation (parity gap vs Redis) | Fixing |
-| FIND-R116-CA-002 | vellaveto-approval | `with_max_pending()` uses `assert!` (panic in library code) | Fixing |
-| FIND-R116-CA-003 | sdk/python | Missing timeout range validation (parity gap vs Go/TS) | Fixing |
+| ID | Crate | Description |
+|----|-------|-------------|
+| FIND-R116-TE-001 | vellaveto-types | `validate_url_no_ssrf()` missing IPv6 transition mechanism checks (6to4, Teredo, NAT64) |
+| FIND-R116-TE-002 | vellaveto-types | `Action::validate()` missing control char validation on `resolved_ips` |
+| FIND-R116-TE-003 | vellaveto-engine | `BehavioralTracker::record_session()` missing tool key validation (asymmetry with `from_snapshot()`) |
+| FIND-R116-MCP-003 | vellaveto-mcp | Delegation chain includes expired-but-uncleaned links (TOCTOU) |
+| FIND-R116-MCP-004 | vellaveto-mcp | A2A response scanning misses `status.message` and `history` fields |
+| FIND-R116-MCP-005 | vellaveto-mcp | Self-delegation check bypassed via Unicode confusables (Cyrillic lookalikes) |
+| FIND-R116-CA-001 | vellaveto-approval | Local ApprovalStore::create() missing reason control/format char validation (parity gap vs Redis) |
+| FIND-R116-CA-002 | vellaveto-approval | `with_max_pending()` uses `assert!` (panic in library code) |
+| FIND-R116-CA-003 | sdk/python | Missing timeout range validation (parity gap vs Go/TS) |
 
 ### P3 Findings (Defense-in-Depth)
 
@@ -276,8 +277,8 @@ Finding IDs follow the pattern `FIND-R{round}-{number}` (e.g., `FIND-R116-001`).
 | Total audit rounds | 116+ |
 | Total findings found | ~1,400+ |
 | P0 findings (all-time) | 5 |
-| P1 findings (all-time) | ~80 |
-| P2 findings (all-time) | ~500 |
+| P1 findings (all-time) | ~82 |
+| P2 findings (all-time) | ~509 |
 | P3 findings (all-time) | ~500 |
 | P4 findings (all-time) | ~300 |
 | Rust tests | 6,593+ |
