@@ -7244,3 +7244,222 @@ fn test_nhi_behavioral_baseline_validate_malformed_last_updated() {
         err
     );
 }
+
+// ═══════════════════════════════════════════════════
+// FIND-R116-TE-001: validate_url_no_ssrf IPv6 transition mechanism checks
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_ssrf_ipv4_compatible_private() {
+    // ::10.0.0.1 = IPv4-compatible with embedded private IPv4
+    let result = validate_url_no_ssrf("http://[::10.0.0.1]/path");
+    assert!(result.is_err(), "IPv4-compatible ::10.0.0.1 should be rejected");
+    assert!(
+        result.unwrap_err().contains("IPv4-compatible"),
+        "error should mention IPv4-compatible"
+    );
+}
+
+#[test]
+fn test_ssrf_ipv4_compatible_loopback() {
+    // ::127.0.0.1 = IPv4-compatible with embedded loopback
+    let result = validate_url_no_ssrf("http://[::127.0.0.1]/path");
+    assert!(result.is_err(), "IPv4-compatible ::127.0.0.1 should be rejected");
+}
+
+#[test]
+fn test_ssrf_ipv4_compatible_public_allowed() {
+    // ::8.8.8.8 = IPv4-compatible with embedded public IP — should be allowed
+    let result = validate_url_no_ssrf("http://[::8.8.8.8]/path");
+    assert!(result.is_ok(), "IPv4-compatible with public IP should be allowed");
+}
+
+#[test]
+fn test_ssrf_6to4_private() {
+    // 2002:c0a8:0101:: = 6to4 with embedded 192.168.1.1
+    let result = validate_url_no_ssrf("http://[2002:c0a8:0101::1]/path");
+    assert!(result.is_err(), "6to4 with embedded 192.168.1.1 should be rejected");
+    assert!(
+        result.unwrap_err().contains("6to4"),
+        "error should mention 6to4"
+    );
+}
+
+#[test]
+fn test_ssrf_6to4_loopback() {
+    // 2002:7f00:0001:: = 6to4 with embedded 127.0.0.1
+    let result = validate_url_no_ssrf("http://[2002:7f00:0001::1]/path");
+    assert!(result.is_err(), "6to4 with embedded 127.0.0.1 should be rejected");
+}
+
+#[test]
+fn test_ssrf_6to4_public_allowed() {
+    // 2002:0808:0808:: = 6to4 with embedded 8.8.8.8 — should be allowed
+    let result = validate_url_no_ssrf("http://[2002:0808:0808::1]/path");
+    assert!(result.is_ok(), "6to4 with public IP should be allowed");
+}
+
+#[test]
+fn test_ssrf_teredo_private() {
+    // Teredo with embedded 192.168.1.1: XOR with 0xFFFF
+    // 192.168.1.1 = c0.a8.01.01 -> XOR: 3f.57.fe.fe
+    let result = validate_url_no_ssrf("http://[2001:0000:4136:e378:8000:63bf:3f57:fefe]/path");
+    assert!(result.is_err(), "Teredo with embedded 192.168.1.1 should be rejected");
+    assert!(
+        result.unwrap_err().contains("Teredo"),
+        "error should mention Teredo"
+    );
+}
+
+#[test]
+fn test_ssrf_teredo_loopback() {
+    // Teredo with embedded 127.0.0.1: XOR with 0xFFFF
+    // 127.0.0.1 = 7f.00.00.01 -> XOR: 80.ff.ff.fe
+    let result = validate_url_no_ssrf("http://[2001:0000:4136:e378:8000:63bf:80ff:fffe]/path");
+    assert!(result.is_err(), "Teredo with embedded 127.0.0.1 should be rejected");
+}
+
+#[test]
+fn test_ssrf_teredo_public_allowed() {
+    // Teredo with embedded 8.8.8.8: XOR with 0xFFFF
+    // 8.8.8.8 = 08.08.08.08 -> XOR: f7.f7.f7.f7
+    let result = validate_url_no_ssrf("http://[2001:0000:4136:e378:8000:63bf:f7f7:f7f7]/path");
+    assert!(result.is_ok(), "Teredo with public IP should be allowed");
+}
+
+#[test]
+fn test_ssrf_nat64_private() {
+    // 64:ff9b::192.168.1.1 = NAT64 with embedded private
+    let result = validate_url_no_ssrf("http://[64:ff9b::c0a8:0101]/path");
+    assert!(result.is_err(), "NAT64 with embedded 192.168.1.1 should be rejected");
+    assert!(
+        result.unwrap_err().contains("NAT64"),
+        "error should mention NAT64"
+    );
+}
+
+#[test]
+fn test_ssrf_nat64_loopback() {
+    // 64:ff9b::127.0.0.1 = NAT64 with embedded loopback
+    let result = validate_url_no_ssrf("http://[64:ff9b::7f00:0001]/path");
+    assert!(result.is_err(), "NAT64 with embedded 127.0.0.1 should be rejected");
+}
+
+#[test]
+fn test_ssrf_nat64_public_allowed() {
+    // 64:ff9b::8.8.8.8 = NAT64 with embedded public IP — should be allowed
+    let result = validate_url_no_ssrf("http://[64:ff9b::0808:0808]/path");
+    assert!(result.is_ok(), "NAT64 with public IP should be allowed");
+}
+
+#[test]
+fn test_ssrf_nat64_local_use_private() {
+    // 64:ff9b:1::c0a8:0101 = NAT64 local-use with embedded 192.168.1.1
+    let result = validate_url_no_ssrf("http://[64:ff9b:1::c0a8:0101]/path");
+    assert!(result.is_err(), "NAT64 local-use with embedded 192.168.1.1 should be rejected");
+    assert!(
+        result.unwrap_err().contains("NAT64 local-use"),
+        "error should mention NAT64 local-use"
+    );
+}
+
+#[test]
+fn test_ssrf_nat64_local_use_public_allowed() {
+    // 64:ff9b:1::0808:0808 = NAT64 local-use with embedded 8.8.8.8 — should be allowed
+    let result = validate_url_no_ssrf("http://[64:ff9b:1::0808:0808]/path");
+    assert!(result.is_ok(), "NAT64 local-use with public IP should be allowed");
+}
+
+#[test]
+fn test_ssrf_ipv4_mapped_still_works() {
+    // Ensure existing IPv4-mapped check still works after refactoring
+    let result = validate_url_no_ssrf("http://[::ffff:192.168.1.1]/path");
+    assert!(result.is_err(), "IPv4-mapped with private IP should still be rejected");
+    assert!(
+        result.unwrap_err().contains("IPv4-mapped"),
+        "error should mention IPv4-mapped"
+    );
+}
+
+#[test]
+fn test_ssrf_6to4_cgnat() {
+    // 6to4 with embedded CGNAT address (100.64.0.1)
+    // 100.64.0.1 = 0x64400001 -> segs 1=0x6440, 2=0x0001
+    let result = validate_url_no_ssrf("http://[2002:6440:0001::1]/path");
+    assert!(result.is_err(), "6to4 with embedded CGNAT should be rejected");
+}
+
+#[test]
+fn test_ssrf_nat64_cgnat() {
+    // NAT64 with embedded CGNAT address (100.64.0.1)
+    let result = validate_url_no_ssrf("http://[64:ff9b::6440:0001]/path");
+    assert!(result.is_err(), "NAT64 with embedded CGNAT should be rejected");
+}
+
+// ═══════════════════════════════════════════════════
+// FIND-R116-TE-002: resolved_ips control/format character validation
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_resolved_ips_control_char_rejected() {
+    // FIND-R116-TE-002: resolved_ips with control character (newline) must be rejected
+    let mut action = Action::new("tool", "func", json!({}));
+    action.resolved_ips = vec!["10.0.0\n.1".to_string()];
+    assert!(matches!(
+        action.validate(),
+        Err(ValidationError::ControlCharacter {
+            field: "resolved_ips"
+        })
+    ));
+}
+
+#[test]
+fn test_resolved_ips_tab_char_rejected() {
+    // FIND-R116-TE-002: resolved_ips with tab character must be rejected
+    let mut action = Action::new("tool", "func", json!({}));
+    action.resolved_ips = vec!["10.0.0\t.1".to_string()];
+    assert!(matches!(
+        action.validate(),
+        Err(ValidationError::ControlCharacter {
+            field: "resolved_ips"
+        })
+    ));
+}
+
+#[test]
+fn test_resolved_ips_unicode_format_char_rejected() {
+    // FIND-R116-TE-002: resolved_ips with zero-width space must be rejected
+    let mut action = Action::new("tool", "func", json!({}));
+    action.resolved_ips = vec!["10.0.0\u{200B}.1".to_string()];
+    assert!(matches!(
+        action.validate(),
+        Err(ValidationError::ControlCharacter {
+            field: "resolved_ips"
+        })
+    ));
+}
+
+#[test]
+fn test_resolved_ips_bidi_override_rejected() {
+    // FIND-R116-TE-002: resolved_ips with bidi override must be rejected
+    let mut action = Action::new("tool", "func", json!({}));
+    action.resolved_ips = vec!["10.0.0\u{202E}.1".to_string()];
+    assert!(matches!(
+        action.validate(),
+        Err(ValidationError::ControlCharacter {
+            field: "resolved_ips"
+        })
+    ));
+}
+
+#[test]
+fn test_resolved_ips_clean_entries_pass() {
+    // FIND-R116-TE-002: Clean IP strings should pass validation
+    let mut action = Action::new("tool", "func", json!({}));
+    action.resolved_ips = vec![
+        "10.0.0.1".to_string(),
+        "2001:db8::1".to_string(),
+        "::ffff:192.168.1.1".to_string(),
+    ];
+    assert!(action.validate().is_ok());
+}

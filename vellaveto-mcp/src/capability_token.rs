@@ -120,6 +120,7 @@ pub fn issue_capability_token(
         &grants,
         remaining_depth,
         &issued_at,
+        &expires_at,
     )?;
     let signature_hex = sign_content(&signing_key, &canonical)?;
 
@@ -178,10 +179,14 @@ pub fn attenuate_capability_token(
     // SECURITY (IMP-R118-004): Validate no control or Unicode format characters.
     validate_no_dangerous_chars(new_holder, "new_holder")?;
 
-    // SECURITY (IMP-R118-010): Reject self-delegation — an agent cannot delegate
-    // a token to itself, which would create a fresh token with a new issued_at
-    // effectively bypassing temporal constraints.
-    if new_holder.eq_ignore_ascii_case(&parent.holder) {
+    // SECURITY (IMP-R118-010, FIND-R116-MCP-005): Reject self-delegation — an agent
+    // cannot delegate a token to itself, which would create a fresh token with a new
+    // issued_at effectively bypassing temporal constraints.
+    // SECURITY (FIND-R116-MCP-005): Normalize Unicode confusables (homoglyphs) before
+    // comparing to prevent bypass via Cyrillic/Greek/fullwidth lookalikes.
+    let normalized_new = vellaveto_types::unicode::normalize_homoglyphs(new_holder);
+    let normalized_parent = vellaveto_types::unicode::normalize_homoglyphs(&parent.holder);
+    if normalized_new.eq_ignore_ascii_case(&normalized_parent) {
         return Err(CapabilityError::AttenuationViolation(
             "self-delegation is not permitted".to_string(),
         ));
@@ -243,6 +248,7 @@ pub fn attenuate_capability_token(
         &new_grants,
         new_depth,
         &issued_at,
+        &expires_at,
     )?;
     let signature_hex = sign_content(&signing_key, &canonical)?;
 
@@ -393,6 +399,7 @@ pub fn verify_capability_token(
         &token.grants,
         token.remaining_depth,
         &token.issued_at,
+        &token.expires_at,
     )?;
 
     let mut hasher = Sha256::new();
@@ -660,6 +667,13 @@ fn parse_signing_key(hex_key: &str) -> Result<SigningKey, CapabilityError> {
 /// Build length-prefixed canonical content for signing.
 ///
 /// Format: `<field_len>:<field>` for each field, preventing boundary collision.
+///
+/// # Security (FIND-R116-MCP-001)
+///
+/// The `expires_at` field MUST be included in the signed canonical content.
+/// Without it, an attacker possessing a valid token can modify `expires_at`
+/// to extend the token's lifetime indefinitely without invalidating the signature.
+#[allow(clippy::too_many_arguments)] // FIND-R116-MCP-001: expires_at is a security-required parameter
 fn build_canonical_content(
     token_id: &str,
     parent_token_id: Option<&str>,
@@ -668,6 +682,7 @@ fn build_canonical_content(
     grants: &[CapabilityGrant],
     remaining_depth: u8,
     issued_at: &str,
+    expires_at: &str,
 ) -> Result<String, CapabilityError> {
     let grants_json = serde_json::to_string(grants).map_err(|e| {
         CapabilityError::SigningFailed(format!("grants serialization failed: {}", e))
@@ -678,7 +693,7 @@ fn build_canonical_content(
     // hardcoded prefix caused canonical content collisions.
     let depth_str = remaining_depth.to_string();
     Ok(format!(
-        "{}:{}{}:{}{}:{}{}:{}{}:{}{}:{}{}:{}",
+        "{}:{}{}:{}{}:{}{}:{}{}:{}{}:{}{}:{}{}:{}",
         token_id.len(),
         token_id,
         parent_str.len(),
@@ -693,6 +708,8 @@ fn build_canonical_content(
         depth_str,
         issued_at.len(),
         issued_at,
+        expires_at.len(),
+        expires_at,
     ))
 }
 
@@ -1545,6 +1562,7 @@ mod tests {
             &token.grants,
             token.remaining_depth,
             &token.issued_at,
+            &token.expires_at,
         )
         .unwrap();
         token.signature = sign_content(&signing_key, &canonical).unwrap();
@@ -1606,6 +1624,7 @@ mod tests {
         let issuer = "issuer-1";
         let holder = "holder-1";
         let issued_at = "2026-01-01T00:00:00Z";
+        let expires_at = "2027-01-01T00:00:00Z";
 
         // Depth 5 (single digit)
         let canonical_5 = build_canonical_content(
@@ -1616,6 +1635,7 @@ mod tests {
             &grants,
             5,
             issued_at,
+            expires_at,
         )
         .unwrap();
 
@@ -1628,6 +1648,7 @@ mod tests {
             &grants,
             15,
             issued_at,
+            expires_at,
         )
         .unwrap();
 
@@ -1645,7 +1666,7 @@ mod tests {
 
         // Single-digit depth: length prefix should be "1"
         let canonical = build_canonical_content(
-            "tok", None, "iss", "hold", &grants, 5, "2026-01-01T00:00:00Z",
+            "tok", None, "iss", "hold", &grants, 5, "2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z",
         )
         .unwrap();
         // The depth field should appear as "1:5" (length=1, value=5)
@@ -1656,7 +1677,7 @@ mod tests {
 
         // Two-digit depth: length prefix should be "2"
         let canonical = build_canonical_content(
-            "tok", None, "iss", "hold", &grants, 12, "2026-01-01T00:00:00Z",
+            "tok", None, "iss", "hold", &grants, 12, "2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z",
         )
         .unwrap();
         // The depth field should appear as "2:12" (length=2, value=12)
@@ -1691,6 +1712,99 @@ mod tests {
             result.valid,
             "FIND-R115-020: Token with two-digit depth should verify: {:?}",
             result.failure_reason
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R116-MCP-001: expires_at included in Ed25519 signature
+    // ════════════════════════════════════════════════════════
+
+    /// FIND-R116-MCP-001: Modifying `expires_at` on a signed token must cause
+    /// verification failure. Without `expires_at` in the canonical content, an
+    /// attacker could extend a token's lifetime without invalidating the signature.
+    #[test]
+    fn test_tampered_expires_at_rejected() {
+        let key_hex = test_key_hex();
+        let token =
+            issue_capability_token("issuer-1", "holder-1", test_grants(), 5, &key_hex, 3600)
+                .unwrap();
+
+        // Tamper with expires_at to extend the token's lifetime by 10 years
+        let mut tampered = token.clone();
+        let far_future = chrono::Utc::now() + chrono::Duration::days(3650);
+        tampered.expires_at = far_future.to_rfc3339();
+
+        let now = chrono::Utc::now();
+        let result = verify_capability_token(&tampered, None, None, &now).unwrap();
+        assert!(
+            !result.valid,
+            "FIND-R116-MCP-001: Token with tampered expires_at must fail verification"
+        );
+        assert!(
+            result.failure_reason.as_ref().unwrap().contains("signature"),
+            "FIND-R116-MCP-001: Failure should be signature-related, got: {:?}",
+            result.failure_reason
+        );
+    }
+
+    /// FIND-R116-MCP-001: Canonical content includes expires_at with correct
+    /// length prefix.
+    #[test]
+    fn test_canonical_content_includes_expires_at() {
+        let grants = test_grants();
+        let expires_at = "2027-06-15T12:00:00Z";
+        let canonical = build_canonical_content(
+            "tok", None, "iss", "hold", &grants, 5, "2026-01-01T00:00:00Z", expires_at,
+        )
+        .unwrap();
+        // expires_at is 20 chars, so the canonical should contain "20:2027-06-15T12:00:00Z"
+        assert!(
+            canonical.contains(&format!("{}:{}", expires_at.len(), expires_at)),
+            "FIND-R116-MCP-001: Canonical content must include length-prefixed expires_at"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R116-MCP-005: Self-delegation via Unicode confusables
+    // ════════════════════════════════════════════════════════
+
+    /// FIND-R116-MCP-005: Self-delegation via Cyrillic confusable must be rejected.
+    #[test]
+    fn test_attenuate_rejects_self_delegation_homoglyph() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        // Parent holder uses Latin "agent-a"
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "*".into(),
+                function_pattern: "*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 0,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        // Attacker tries to self-delegate using Cyrillic 'а' (U+0430) instead of Latin 'a'
+        let result = attenuate_capability_token(
+            &parent,
+            "\u{0430}gent-\u{0430}", // Cyrillic 'а' confusable
+            test_grants(),
+            &child_key_hex,
+            1800,
+        );
+        assert!(
+            result.is_err(),
+            "FIND-R116-MCP-005: Self-delegation via homoglyphs must be rejected"
+        );
+        assert!(
+            result.unwrap_err().to_string().contains("self-delegation"),
+            "FIND-R116-MCP-005: Error should mention self-delegation"
         );
     }
 }

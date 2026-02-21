@@ -372,6 +372,15 @@ class VellavetoClient:
         # SECURITY (FIND-R73-SDK-002): Validate base URL — parity with Go/TS SDKs.
         self.url = _validate_base_url(url)
         self.api_key = api_key
+        # SECURITY (FIND-R116-CA-003): Validate timeout range — parity with TS SDK
+        # ([100ms, 300s]) and Go SDK ([100ms, 300s] with clamping). Python uses
+        # seconds, so valid range is [0.1, 300.0].
+        if timeout is not None:
+            if not isinstance(timeout, (int, float)) or timeout != timeout:
+                # timeout != timeout catches NaN
+                raise VellavetoError("timeout must be a finite number between 0.1 and 300.0 seconds")
+            if timeout < 0.1 or timeout > 300.0:
+                raise VellavetoError("timeout must be between 0.1 and 300.0 seconds")
         self.timeout = timeout
         self.verify_ssl = verify_ssl
         self.redactor = redactor
@@ -1085,6 +1094,15 @@ class AsyncVellavetoClient:
         # SECURITY (FIND-R73-SDK-002): Validate base URL — parity with Go/TS SDKs.
         self.url = _validate_base_url(url)
         self.api_key = api_key
+        # SECURITY (FIND-R116-CA-003): Validate timeout range — parity with TS SDK
+        # ([100ms, 300s]) and Go SDK ([100ms, 300s] with clamping). Python uses
+        # seconds, so valid range is [0.1, 300.0].
+        if timeout is not None:
+            if not isinstance(timeout, (int, float)) or timeout != timeout:
+                # timeout != timeout catches NaN
+                raise VellavetoError("timeout must be a finite number between 0.1 and 300.0 seconds")
+            if timeout < 0.1 or timeout > 300.0:
+                raise VellavetoError("timeout must be between 0.1 and 300.0 seconds")
         self.timeout = timeout
         self.verify_ssl = verify_ssl
         self.redactor = redactor

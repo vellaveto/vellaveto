@@ -690,22 +690,28 @@ impl NhiManager {
         }
 
         // Check nonce if required
+        // SECURITY (FIND-R116-MCP-002): Drop the read guard before calling
+        // generate_dpop_nonce() which acquires a write lock on the same RwLock.
+        // Previously the read guard was held across the error path, causing deadlock.
         if self.config.dpop.require_nonce {
-            let nonces = self.dpop_nonces.read().await;
-            if let Some(ref nonce) = proof.nonce {
-                if !nonces.is_valid(nonce) {
-                    return NhiDpopVerificationResult {
-                        valid: false,
-                        thumbprint: None,
-                        error: Some("Invalid or expired nonce".to_string()),
-                        new_nonce: Some(self.generate_dpop_nonce().await),
-                    };
+            let nonce_valid = {
+                let nonces = self.dpop_nonces.read().await;
+                match &proof.nonce {
+                    Some(nonce) => nonces.is_valid(nonce),
+                    None => false,
                 }
-            } else {
+            }; // nonces read guard dropped here
+
+            if !nonce_valid {
+                let reason = if proof.nonce.is_some() {
+                    "Invalid or expired nonce"
+                } else {
+                    "Nonce required but not provided"
+                };
                 return NhiDpopVerificationResult {
                     valid: false,
                     thumbprint: None,
-                    error: Some("Nonce required but not provided".to_string()),
+                    error: Some(reason.to_string()),
                     new_nonce: Some(self.generate_dpop_nonce().await),
                 };
             }
@@ -765,9 +771,13 @@ impl NhiManager {
             return Err(NhiError::Disabled);
         }
 
-        // SECURITY (FIND-R115-021): Reject self-delegation (case-insensitive).
+        // SECURITY (FIND-R115-021, FIND-R116-MCP-005): Reject self-delegation (case-insensitive).
         // Self-delegation is nonsensical and could create circular chains.
-        if from_agent.eq_ignore_ascii_case(to_agent) {
+        // SECURITY (FIND-R116-MCP-005): Normalize Unicode confusables (homoglyphs) before
+        // comparing to prevent bypass via Cyrillic/Greek/fullwidth lookalikes.
+        let normalized_from = vellaveto_types::unicode::normalize_homoglyphs(from_agent);
+        let normalized_to = vellaveto_types::unicode::normalize_homoglyphs(to_agent);
+        if normalized_from.eq_ignore_ascii_case(&normalized_to) {
             return Err(NhiError::SelfDelegation);
         }
 
@@ -897,10 +907,17 @@ impl NhiManager {
         let mut current = agent_id.to_string();
 
         // Walk backwards through delegation chain
-        while let Some(link) = delegations
-            .values()
-            .find(|d| d.to_agent == current && d.active)
-        {
+        // SECURITY (FIND-R116-MCP-003): Also check `expires_at` to reject expired-but-uncleaned
+        // delegations. Between expiry and cleanup, expired delegations were still honored.
+        // Fail-closed: unparseable expires_at is treated as expired.
+        let now = chrono::Utc::now();
+        while let Some(link) = delegations.values().find(|d| {
+            d.to_agent == current
+                && d.active
+                && chrono::DateTime::parse_from_rfc3339(&d.expires_at)
+                    .map(|exp| now < exp)
+                    .unwrap_or(false) // fail-closed: unparseable expiry = expired
+        }) {
             if visited.contains(&link.from_agent) {
                 break; // Prevent cycles
             }
@@ -3161,6 +3178,113 @@ mod tests {
             result.is_ok(),
             "Valid inputs should succeed: {:?}",
             result
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R116-MCP-003: Expired delegation chain resolution
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R116-MCP-003: Delegation chain resolution must exclude expired-but-active links.
+    #[tokio::test]
+    async fn test_resolve_delegation_chain_excludes_expired_links() {
+        let manager = NhiManager::new(enabled_config());
+
+        let agent_a = manager
+            .register_identity(
+                "Chain-A",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_b = manager
+            .register_identity(
+                "Chain-B",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Create a delegation with 1-second TTL
+        manager
+            .create_delegation(
+                &agent_a,
+                &agent_b,
+                vec!["read".to_string()],
+                vec![],
+                1, // 1 second TTL
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Wait for delegation to expire
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // Resolve chain — should be empty since the delegation is expired
+        let chain = manager.resolve_delegation_chain(&agent_b).await;
+        assert_eq!(
+            chain.depth(),
+            0,
+            "FIND-R116-MCP-003: Expired delegation links must be excluded from chain resolution"
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R116-MCP-005: Self-delegation via Unicode confusables
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R116-MCP-005: Self-delegation via Cyrillic homoglyphs must be rejected.
+    #[tokio::test]
+    async fn test_create_delegation_rejects_self_delegation_homoglyph() {
+        let manager = NhiManager::new(enabled_config());
+
+        let id = manager
+            .register_identity(
+                "Homoglyph-Agent",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Create a second agent whose ID is the Cyrillic-homoglyph version of the first
+        // Since register_identity generates UUIDs, we cannot directly test with confusable IDs.
+        // Instead, we test the normalization logic in the comparison by directly checking
+        // that our normalize+compare works on known confusable strings.
+        let latin = "agent-abc";
+        let cyrillic = "\u{0430}gent-\u{0430}\u{0432}\u{0441}"; // Cyrillic а, в, с
+        let normalized_latin = vellaveto_types::unicode::normalize_homoglyphs(latin);
+        let normalized_cyrillic = vellaveto_types::unicode::normalize_homoglyphs(cyrillic);
+        assert_eq!(
+            normalized_latin, normalized_cyrillic,
+            "FIND-R116-MCP-005: Homoglyph normalization should make confusables equal"
+        );
+
+        // Verify the actual create_delegation path still rejects exact self-delegation
+        let result = manager
+            .create_delegation(&id, &id, vec!["read".to_string()], vec![], 3600, None)
+            .await;
+        assert!(
+            matches!(result, Err(NhiError::SelfDelegation)),
+            "FIND-R116-MCP-005: Self-delegation must still be rejected"
         );
     }
 }

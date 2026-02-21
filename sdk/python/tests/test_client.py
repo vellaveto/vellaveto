@@ -39,6 +39,47 @@ class TestVellavetoClientInit:
         assert client.timeout == 5.0
         client.close()
 
+    # --- FIND-R116-CA-003: Timeout range validation ---
+
+    def test_timeout_below_minimum_raises(self):
+        with pytest.raises(VellavetoError, match="timeout must be between 0.1 and 300.0"):
+            VellavetoClient(timeout=0.05)
+
+    def test_timeout_above_maximum_raises(self):
+        with pytest.raises(VellavetoError, match="timeout must be between 0.1 and 300.0"):
+            VellavetoClient(timeout=301.0)
+
+    def test_timeout_zero_raises(self):
+        with pytest.raises(VellavetoError, match="timeout must be between 0.1 and 300.0"):
+            VellavetoClient(timeout=0.0)
+
+    def test_timeout_negative_raises(self):
+        with pytest.raises(VellavetoError, match="timeout must be between 0.1 and 300.0"):
+            VellavetoClient(timeout=-1.0)
+
+    def test_timeout_nan_raises(self):
+        with pytest.raises(VellavetoError, match="timeout must be a finite number"):
+            VellavetoClient(timeout=float("nan"))
+
+    def test_timeout_infinity_raises(self):
+        with pytest.raises(VellavetoError, match="timeout must be between 0.1 and 300.0"):
+            VellavetoClient(timeout=float("inf"))
+
+    def test_timeout_exactly_minimum_accepted(self):
+        client = VellavetoClient(timeout=0.1)
+        assert client.timeout == 0.1
+        client.close()
+
+    def test_timeout_exactly_maximum_accepted(self):
+        client = VellavetoClient(timeout=300.0)
+        assert client.timeout == 300.0
+        client.close()
+
+    def test_timeout_integer_accepted(self):
+        client = VellavetoClient(timeout=10)
+        assert client.timeout == 10
+        client.close()
+
     def test_headers_without_api_key(self):
         client = VellavetoClient()
         headers = client._headers()
@@ -1319,3 +1360,39 @@ class TestAsyncBaseUrlValidation:
     def test_async_trailing_slashes_stripped(self):
         client = AsyncVellavetoClient(url="https://api.vellaveto.io/")
         assert client.url == "https://api.vellaveto.io"
+
+
+class TestAsyncTimeoutValidation:
+    """Tests for FIND-R116-CA-003: timeout range validation in async constructor."""
+
+    def test_async_timeout_below_minimum_raises(self):
+        with pytest.raises(VellavetoError, match="timeout must be between 0.1 and 300.0"):
+            AsyncVellavetoClient(url="http://localhost:3000", timeout=0.05)
+
+    def test_async_timeout_above_maximum_raises(self):
+        with pytest.raises(VellavetoError, match="timeout must be between 0.1 and 300.0"):
+            AsyncVellavetoClient(url="http://localhost:3000", timeout=301.0)
+
+    def test_async_timeout_zero_raises(self):
+        with pytest.raises(VellavetoError, match="timeout must be between 0.1 and 300.0"):
+            AsyncVellavetoClient(url="http://localhost:3000", timeout=0.0)
+
+    def test_async_timeout_negative_raises(self):
+        with pytest.raises(VellavetoError, match="timeout must be between 0.1 and 300.0"):
+            AsyncVellavetoClient(url="http://localhost:3000", timeout=-1.0)
+
+    def test_async_timeout_nan_raises(self):
+        with pytest.raises(VellavetoError, match="timeout must be a finite number"):
+            AsyncVellavetoClient(url="http://localhost:3000", timeout=float("nan"))
+
+    def test_async_timeout_infinity_raises(self):
+        with pytest.raises(VellavetoError, match="timeout must be between 0.1 and 300.0"):
+            AsyncVellavetoClient(url="http://localhost:3000", timeout=float("inf"))
+
+    def test_async_timeout_exactly_minimum_accepted(self):
+        client = AsyncVellavetoClient(url="http://localhost:3000", timeout=0.1)
+        assert client.timeout == 0.1
+
+    def test_async_timeout_exactly_maximum_accepted(self):
+        client = AsyncVellavetoClient(url="http://localhost:3000", timeout=300.0)
+        assert client.timeout == 300.0

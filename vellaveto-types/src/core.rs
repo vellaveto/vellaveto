@@ -51,6 +51,24 @@ pub fn has_dangerous_chars(s: &str) -> bool {
     s.chars().any(|c| c.is_control() || is_unicode_format_char(c))
 }
 
+/// Check whether an IPv4 address is private/reserved for SSRF prevention.
+///
+/// SECURITY (FIND-R116-TE-001): Shared helper used by `validate_url_no_ssrf` for
+/// both direct IPv4 checks and embedded IPv4 extraction from IPv6 transition
+/// mechanisms (mapped, compatible, 6to4, Teredo, NAT64).
+fn is_ssrf_private_ipv4(ip: &std::net::Ipv4Addr) -> bool {
+    let o = ip.octets();
+    ip.is_loopback()
+        || o[0] == 10
+        || (o[0] == 172 && (o[1] & 0xf0) == 16)
+        || (o[0] == 192 && o[1] == 168)
+        || (o[0] == 169 && o[1] == 254)
+        || o[0] == 0
+        // IMP-R122-006: CGNAT range (100.64.0.0/10, RFC 6598)
+        || (o[0] == 100 && (o[1] & 0xC0) == 64)
+        || ip.is_broadcast()
+}
+
 /// Validate a URL against SSRF vectors.
 ///
 /// Rejects localhost, loopback, link-local, and private IP ranges in the
@@ -109,17 +127,7 @@ pub fn validate_url_no_ssrf(url: &str) -> Result<(), String> {
 
     // Reject private IPv4 ranges
     if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
-        let o = ip.octets();
-        let is_private = ip.is_loopback()
-            || o[0] == 10
-            || (o[0] == 172 && (o[1] & 0xf0) == 16)
-            || (o[0] == 192 && o[1] == 168)
-            || (o[0] == 169 && o[1] == 254)
-            || o[0] == 0
-            // IMP-R122-006: CGNAT range (100.64.0.0/10, RFC 6598)
-            || (o[0] == 100 && (o[1] & 0xC0) == 64)
-            || ip.is_broadcast();
-        if is_private {
+        if is_ssrf_private_ipv4(&ip) {
             return Err(format!(
                 "must not target private/internal IPs, got '{}'",
                 host
@@ -157,18 +165,108 @@ pub fn validate_url_no_ssrf(url: &str) -> Result<(), String> {
                 (segs[7] >> 8) as u8,
                 segs[7] as u8,
             );
-            let o = mapped.octets();
-            let is_mapped_private = mapped.is_loopback()
-                || o[0] == 10
-                || (o[0] == 172 && (o[1] & 0xf0) == 16)
-                || (o[0] == 192 && o[1] == 168)
-                || (o[0] == 169 && o[1] == 254)
-                || o[0] == 0
-                || (o[0] == 100 && (o[1] & 0xC0) == 64)
-                || mapped.is_broadcast();
-            if is_mapped_private {
+            if is_ssrf_private_ipv4(&mapped) {
                 return Err(format!(
                     "must not target IPv4-mapped private addresses, got '{}'",
+                    host
+                ));
+            }
+        }
+
+        // SECURITY (FIND-R116-TE-001): IPv4-compatible IPv6 (::x.x.x.x)
+        // Deprecated (RFC 4291 §2.5.5.1) but still routable on some systems.
+        // First 96 bits zero, last 32 bits are IPv4.
+        let is_ipv4_compatible = segs[0] == 0
+            && segs[1] == 0
+            && segs[2] == 0
+            && segs[3] == 0
+            && segs[4] == 0
+            && segs[5] == 0
+            && !(segs[6] == 0 && segs[7] <= 1); // Skip ::0 and ::1
+        if is_ipv4_compatible {
+            let embedded = std::net::Ipv4Addr::new(
+                (segs[6] >> 8) as u8,
+                (segs[6] & 0xff) as u8,
+                (segs[7] >> 8) as u8,
+                (segs[7] & 0xff) as u8,
+            );
+            if is_ssrf_private_ipv4(&embedded) {
+                return Err(format!(
+                    "must not target IPv4-compatible private addresses, got '{}'",
+                    host
+                ));
+            }
+        }
+
+        // SECURITY (FIND-R116-TE-001): 6to4 addresses (2002::/16, RFC 3056)
+        // Embedded IPv4 is in segments 1-2 (bits 16-47).
+        if segs[0] == 0x2002 {
+            let embedded = std::net::Ipv4Addr::new(
+                (segs[1] >> 8) as u8,
+                (segs[1] & 0xff) as u8,
+                (segs[2] >> 8) as u8,
+                (segs[2] & 0xff) as u8,
+            );
+            if is_ssrf_private_ipv4(&embedded) {
+                return Err(format!(
+                    "must not target 6to4 addresses with embedded private IPv4, got '{}'",
+                    host
+                ));
+            }
+        }
+
+        // SECURITY (FIND-R116-TE-001): Teredo addresses (2001:0000::/32, RFC 4380)
+        // Embedded client IPv4 is in segments 6-7, XORed with 0xFFFF per RFC 4380.
+        if segs[0] == 0x2001 && segs[1] == 0 {
+            let embedded = std::net::Ipv4Addr::new(
+                ((segs[6] >> 8) ^ 0xff) as u8,
+                ((segs[6] & 0xff) ^ 0xff) as u8,
+                ((segs[7] >> 8) ^ 0xff) as u8,
+                ((segs[7] & 0xff) ^ 0xff) as u8,
+            );
+            if is_ssrf_private_ipv4(&embedded) {
+                return Err(format!(
+                    "must not target Teredo addresses with embedded private IPv4, got '{}'",
+                    host
+                ));
+            }
+        }
+
+        // SECURITY (FIND-R116-TE-001): NAT64 well-known prefix (64:ff9b::/96, RFC 6052)
+        // Embedded IPv4 is in segments 6-7.
+        if segs[0] == 0x0064
+            && segs[1] == 0xff9b
+            && segs[2] == 0
+            && segs[3] == 0
+            && segs[4] == 0
+            && segs[5] == 0
+        {
+            let embedded = std::net::Ipv4Addr::new(
+                (segs[6] >> 8) as u8,
+                (segs[6] & 0xff) as u8,
+                (segs[7] >> 8) as u8,
+                (segs[7] & 0xff) as u8,
+            );
+            if is_ssrf_private_ipv4(&embedded) {
+                return Err(format!(
+                    "must not target NAT64 addresses with embedded private IPv4, got '{}'",
+                    host
+                ));
+            }
+        }
+
+        // SECURITY (FIND-R116-TE-001): NAT64 local-use prefix (64:ff9b:1::/48, RFC 8215)
+        // Embedded IPv4 is in segments 6-7.
+        if segs[0] == 0x0064 && segs[1] == 0xff9b && segs[2] == 0x0001 {
+            let embedded = std::net::Ipv4Addr::new(
+                (segs[6] >> 8) as u8,
+                (segs[6] & 0xff) as u8,
+                (segs[7] >> 8) as u8,
+                (segs[7] & 0xff) as u8,
+            );
+            if is_ssrf_private_ipv4(&embedded) {
+                return Err(format!(
+                    "must not target NAT64 local-use addresses with embedded private IPv4, got '{}'",
                     host
                 ));
             }
@@ -417,6 +515,18 @@ impl Action {
                     index: i,
                     len: ip.len(),
                     max: MAX_TARGET_LEN,
+                });
+            }
+            // SECURITY (FIND-R116-TE-002): Reject control characters and Unicode format
+            // characters in resolved_ips, matching the validation applied to target_paths
+            // and target_domains. An IP like "10.0.0\x0a.1" could bypass IP-matching
+            // policies or cause log injection.
+            if ip
+                .chars()
+                .any(|c| (c.is_control() && c != '\0') || is_unicode_format_char(c))
+            {
+                return Err(ValidationError::ControlCharacter {
+                    field: "resolved_ips",
                 });
             }
         }

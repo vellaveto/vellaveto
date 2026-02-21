@@ -203,31 +203,36 @@ impl ApprovalStore {
 
     /// Create a new approval store with a custom maximum capacity.
     ///
-    /// # Panics
-    ///
-    /// Panics if `max_pending` is 0. A zero-capacity store can never accept
-    /// any pending approvals (every `create()` call would immediately return
-    /// `CapacityExceeded`), which is almost certainly a misconfiguration.
+    /// If `max_pending` is 0, it is clamped to 1 with an error-level log
+    /// message. A zero-capacity store can never accept any pending approvals,
+    /// which is almost certainly a misconfiguration.
     ///
     /// SECURITY (FIND-R111-003): Rejecting 0 at construction time surfaces the
     /// bug immediately rather than silently producing an unusable store that
     /// denies every approval request.
+    ///
+    /// SECURITY (FIND-R116-CA-002): Replaced `assert!` with clamping to avoid
+    /// panicking in library code (violates "no panics in library code" rule).
     pub fn with_max_pending(
         log_path: PathBuf,
         default_ttl: std::time::Duration,
         max_pending: usize,
     ) -> Self {
-        assert!(
-            max_pending > 0,
-            "ApprovalStore::with_max_pending: max_pending must be >= 1 (got 0); \
-             a zero-capacity store can never accept pending approvals"
-        );
+        let effective_max = if max_pending == 0 {
+            tracing::error!(
+                "ApprovalStore::with_max_pending called with 0; clamping to 1. \
+                 A zero-capacity store can never accept pending approvals."
+            );
+            1
+        } else {
+            max_pending
+        };
         Self {
             pending: RwLock::new(HashMap::new()),
             dedup_index: RwLock::new(HashMap::new()),
             log_path,
             default_ttl,
-            max_pending,
+            max_pending: effective_max,
         }
     }
 
@@ -359,6 +364,19 @@ impl ApprovalStore {
                 "reason exceeds maximum length of {MAX_REASON_LEN} bytes ({} bytes)",
                 reason.len()
             )));
+        }
+        // SECURITY (FIND-R116-CA-001): Validate reason content for control characters
+        // and Unicode format characters. Parity with Redis backend (redis_backend.rs
+        // lines 313-325) which already validates both.
+        if reason.chars().any(|c| c.is_control()) {
+            return Err(ApprovalError::Validation(
+                "reason contains control characters".to_string(),
+            ));
+        }
+        if reason.chars().any(vellaveto_types::is_unicode_format_char) {
+            return Err(ApprovalError::Validation(
+                "reason contains Unicode format characters".to_string(),
+            ));
         }
         // SECURITY (R39-SUP-6): Validate requested_by identity length at the store level.
         // SECURITY (FIND-R112-008): Also reject control chars and Unicode format chars
@@ -1944,6 +1962,211 @@ mod tests {
         assert!(
             old.is_err(),
             "Resolved entry with 3h-old resolved_at should be evicted on load"
+        );
+    }
+
+    // --- FIND-R116-CA-001: Reason control/format char validation in create() ---
+
+    #[tokio::test]
+    async fn test_r116_ca_001_create_rejects_reason_with_control_chars() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let result = store
+            .create(
+                test_action(),
+                "reason with \x01 control char".to_string(),
+                None,
+            )
+            .await;
+        assert!(result.is_err(), "Reason with control chars should be rejected");
+        match result.unwrap_err() {
+            ApprovalError::Validation(msg) => {
+                assert!(
+                    msg.contains("reason contains control characters"),
+                    "Expected control char rejection, got: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Validation error, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_r116_ca_001_create_rejects_reason_with_null_byte() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let result = store
+            .create(
+                test_action(),
+                "reason with \0 null byte".to_string(),
+                None,
+            )
+            .await;
+        assert!(result.is_err(), "Reason with null byte should be rejected");
+        match result.unwrap_err() {
+            ApprovalError::Validation(msg) => {
+                assert!(msg.contains("reason contains control characters"), "got: {}", msg);
+            }
+            other => panic!("Expected Validation error, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_r116_ca_001_create_rejects_reason_with_unicode_format_chars() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        // Zero-width space U+200B
+        let result = store
+            .create(
+                test_action(),
+                "reason with \u{200B} zero-width space".to_string(),
+                None,
+            )
+            .await;
+        assert!(
+            result.is_err(),
+            "Reason with Unicode format chars should be rejected"
+        );
+        match result.unwrap_err() {
+            ApprovalError::Validation(msg) => {
+                assert!(
+                    msg.contains("reason contains Unicode format characters"),
+                    "Expected Unicode format char rejection, got: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Validation error, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_r116_ca_001_create_rejects_reason_with_bidi_override() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        // Right-to-left override U+202E
+        let result = store
+            .create(
+                test_action(),
+                "reason with \u{202E} bidi override".to_string(),
+                None,
+            )
+            .await;
+        assert!(
+            result.is_err(),
+            "Reason with bidi override should be rejected"
+        );
+        match result.unwrap_err() {
+            ApprovalError::Validation(msg) => {
+                assert!(
+                    msg.contains("reason contains Unicode format characters"),
+                    "got: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Validation error, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_r116_ca_001_create_accepts_clean_reason() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let result = store
+            .create(
+                test_action(),
+                "Clean reason with normal text and numbers 123".to_string(),
+                None,
+            )
+            .await;
+        assert!(
+            result.is_ok(),
+            "Clean reason should be accepted: {:?}",
+            result.err()
+        );
+    }
+
+    // --- FIND-R116-CA-002: with_max_pending(0) clamps instead of panicking ---
+
+    #[tokio::test]
+    async fn test_r116_ca_002_with_max_pending_zero_clamps_to_one() {
+        // Previously this would panic with assert!. Now it should clamp to 1.
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::with_max_pending(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+            0,
+        );
+
+        // The store should work — it should accept exactly 1 pending approval
+        let id = store
+            .create(test_action(), "should work".to_string(), None)
+            .await
+            .unwrap();
+        assert!(!id.is_empty());
+
+        // Second create with different action should hit capacity (max_pending = 1)
+        let action2 = Action::new(
+            "network".to_string(),
+            "http_request".to_string(),
+            json!({"url": "https://example.com"}),
+        );
+        let result = store
+            .create(action2, "should fail capacity".to_string(), None)
+            .await;
+        assert!(
+            matches!(result, Err(ApprovalError::CapacityExceeded(1))),
+            "Expected CapacityExceeded(1) after clamping from 0, got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r116_ca_002_with_max_pending_normal_value_unchanged() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::with_max_pending(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+            5,
+        );
+
+        // Should accept 5 distinct approvals
+        for i in 0..5 {
+            let action = Action::new(format!("tool_{i}"), "exec".to_string(), json!({}));
+            let result = store
+                .create(action, format!("reason_{i}"), None)
+                .await;
+            assert!(result.is_ok(), "Should accept approval {i}: {:?}", result.err());
+        }
+
+        // 6th should fail
+        let action6 = Action::new("tool_overflow".to_string(), "exec".to_string(), json!({}));
+        let result = store
+            .create(action6, "overflow".to_string(), None)
+            .await;
+        assert!(
+            matches!(result, Err(ApprovalError::CapacityExceeded(5))),
+            "Expected CapacityExceeded(5), got: {:?}",
+            result
         );
     }
 }

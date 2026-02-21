@@ -292,6 +292,10 @@ impl BehavioralTracker {
     /// matching the validation applied in `from_snapshot`.
     const MAX_AGENT_ID_LEN: usize = 512;
 
+    /// SECURITY (FIND-R116-TE-003): Maximum length for tool keys in call_counts,
+    /// matching the canonical MAX_NAME_LEN (256) used for tool names in vellaveto-types.
+    const MAX_TOOL_KEY_LEN: usize = 256;
+
     pub fn check_session(
         &self,
         agent_id: &str,
@@ -340,6 +344,20 @@ impl BehavioralTracker {
 
         for (tool, &count) in call_counts {
             if count == 0 {
+                continue;
+            }
+
+            // SECURITY (FIND-R116-TE-003): Validate tool keys for length and
+            // control/format characters, matching the validation in from_snapshot().
+            if tool.len() > Self::MAX_TOOL_KEY_LEN {
+                tracing::warn!("check_session: skipping oversized tool key");
+                continue;
+            }
+            if tool
+                .chars()
+                .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+            {
+                tracing::warn!("check_session: skipping tool key with control/format chars");
                 continue;
             }
 
@@ -529,6 +547,21 @@ impl BehavioralTracker {
         // Update baselines for actively called tools
         for (tool, &count) in call_counts {
             if count == 0 {
+                continue;
+            }
+
+            // SECURITY (FIND-R116-TE-003): Validate tool keys for length and
+            // control/format characters, matching the validation in from_snapshot()
+            // and check_session(). Skip entries with invalid tool keys.
+            if tool.len() > Self::MAX_TOOL_KEY_LEN {
+                tracing::warn!("record_session: skipping oversized tool key");
+                continue;
+            }
+            if tool
+                .chars()
+                .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+            {
+                tracing::warn!("record_session: skipping tool key with control/format chars");
                 continue;
             }
 
@@ -2053,6 +2086,155 @@ mod tests {
         assert!(
             ema.is_finite(),
             "EMA should remain finite even with u64::MAX count"
+        );
+    }
+
+    // ═══════════════════════════════════════════════════
+    // FIND-R116-TE-003: Tool key validation in record_session / check_session
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_record_session_skips_oversized_tool_key() {
+        let mut tracker = BehavioralTracker::new(BehavioralConfig::default()).unwrap();
+        let long_tool = "a".repeat(257); // exceeds MAX_TOOL_KEY_LEN = 256
+        let c: HashMap<String, u64> = [(long_tool.clone(), 5u64)].into_iter().collect();
+        tracker.record_session("agent-1", &c);
+        // The oversized tool key should have been skipped
+        assert!(
+            tracker.get_baseline("agent-1", &long_tool).is_none(),
+            "oversized tool key should not be recorded"
+        );
+    }
+
+    #[test]
+    fn test_record_session_skips_control_char_tool_key() {
+        let mut tracker = BehavioralTracker::new(BehavioralConfig::default()).unwrap();
+        let bad_tool = "tool\nnewline".to_string();
+        let c: HashMap<String, u64> = [(bad_tool.clone(), 5u64)].into_iter().collect();
+        tracker.record_session("agent-1", &c);
+        assert!(
+            tracker.get_baseline("agent-1", &bad_tool).is_none(),
+            "control char tool key should not be recorded"
+        );
+    }
+
+    #[test]
+    fn test_record_session_skips_unicode_format_char_tool_key() {
+        let mut tracker = BehavioralTracker::new(BehavioralConfig::default()).unwrap();
+        // Zero-width space in tool name
+        let bad_tool = "tool\u{200B}name".to_string();
+        let c: HashMap<String, u64> = [(bad_tool.clone(), 5u64)].into_iter().collect();
+        tracker.record_session("agent-1", &c);
+        assert!(
+            tracker.get_baseline("agent-1", &bad_tool).is_none(),
+            "Unicode format char tool key should not be recorded"
+        );
+    }
+
+    #[test]
+    fn test_record_session_accepts_valid_tool_key_alongside_invalid() {
+        let mut tracker = BehavioralTracker::new(BehavioralConfig::default()).unwrap();
+        let mut c = HashMap::new();
+        c.insert("valid_tool".to_string(), 5u64);
+        c.insert("bad\x01tool".to_string(), 10u64);
+        tracker.record_session("agent-1", &c);
+        // Valid tool should be recorded, invalid should be skipped
+        assert!(
+            tracker.get_baseline("agent-1", "valid_tool").is_some(),
+            "valid tool key should be recorded"
+        );
+        assert!(
+            tracker.get_baseline("agent-1", "bad\x01tool").is_none(),
+            "invalid tool key should not be recorded"
+        );
+    }
+
+    #[test]
+    fn test_record_session_tool_key_at_max_len_accepted() {
+        let mut tracker = BehavioralTracker::new(BehavioralConfig::default()).unwrap();
+        let tool_at_limit = "a".repeat(256); // exactly at MAX_TOOL_KEY_LEN
+        let c: HashMap<String, u64> = [(tool_at_limit.clone(), 5u64)].into_iter().collect();
+        tracker.record_session("agent-1", &c);
+        assert!(
+            tracker.get_baseline("agent-1", &tool_at_limit).is_some(),
+            "tool key at exactly MAX_TOOL_KEY_LEN should be accepted"
+        );
+    }
+
+    #[test]
+    fn test_check_session_skips_oversized_tool_key() {
+        let config = BehavioralConfig {
+            min_sessions: 1,
+            threshold: 2.0,
+            ..Default::default()
+        };
+        let mut tracker = BehavioralTracker::new(config).unwrap();
+
+        // Build baseline with a valid tool
+        let normal = counts(&[("valid_tool", 5)]);
+        for _ in 0..3 {
+            tracker.record_session("agent-1", &normal);
+        }
+
+        // Check session with oversized tool key — should be silently skipped
+        let long_tool = "a".repeat(257);
+        let mut check: HashMap<String, u64> = HashMap::new();
+        check.insert(long_tool, 1000);
+        let alerts = tracker.check_session("agent-1", &check);
+        assert!(
+            alerts.is_empty(),
+            "oversized tool key should be skipped in check_session"
+        );
+    }
+
+    #[test]
+    fn test_check_session_skips_control_char_tool_key() {
+        let config = BehavioralConfig {
+            min_sessions: 1,
+            threshold: 2.0,
+            absolute_ceiling: Some(10),
+            ..Default::default()
+        };
+        let mut tracker = BehavioralTracker::new(config).unwrap();
+
+        let normal = counts(&[("valid_tool", 5)]);
+        for _ in 0..3 {
+            tracker.record_session("agent-1", &normal);
+        }
+
+        // Check session with control char in tool key — should be silently skipped
+        // even with absolute_ceiling which would normally trigger Critical
+        let mut check: HashMap<String, u64> = HashMap::new();
+        check.insert("tool\x1bnewline".to_string(), 1000);
+        let alerts = tracker.check_session("agent-1", &check);
+        assert!(
+            alerts.is_empty(),
+            "control char tool key should be skipped in check_session"
+        );
+    }
+
+    #[test]
+    fn test_check_session_skips_bidi_override_tool_key() {
+        let config = BehavioralConfig {
+            min_sessions: 1,
+            threshold: 2.0,
+            absolute_ceiling: Some(10),
+            ..Default::default()
+        };
+        let mut tracker = BehavioralTracker::new(config).unwrap();
+
+        let normal = counts(&[("valid_tool", 5)]);
+        for _ in 0..3 {
+            tracker.record_session("agent-1", &normal);
+        }
+
+        // Bidi override in tool key — should be silently skipped
+        let mut check: HashMap<String, u64> = HashMap::new();
+        check.insert("tool\u{202E}evil".to_string(), 1000);
+        let alerts = tracker.check_session("agent-1", &check);
+        assert!(
+            alerts.is_empty(),
+            "bidi override tool key should be skipped in check_session"
         );
     }
 }
