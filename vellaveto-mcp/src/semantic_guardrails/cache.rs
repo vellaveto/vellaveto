@@ -438,7 +438,7 @@ impl EvaluationCache {
     pub fn stats(&self) -> CacheStats {
         let hits = self.hits.load(Ordering::Relaxed);
         let misses = self.misses.load(Ordering::Relaxed);
-        let total = hits + misses;
+        let total = hits.saturating_add(misses);
         let hit_rate = if total > 0 {
             hits as f64 / total as f64
         } else {
@@ -459,7 +459,7 @@ impl EvaluationCache {
     pub async fn stats_async(&self) -> CacheStats {
         let hits = self.hits.load(Ordering::Relaxed);
         let misses = self.misses.load(Ordering::Relaxed);
-        let total = hits + misses;
+        let total = hits.saturating_add(misses);
         let hit_rate = if total > 0 {
             hits as f64 / total as f64
         } else {

@@ -13,6 +13,10 @@ use std::sync::Mutex;
 use super::ZkError;
 
 /// A single audit entry witness for batch proving.
+///
+/// SECURITY (IMP-R118-006): Custom Debug impl redacts the `blinding` scalar,
+/// which is the secret blinding factor for Pedersen commitments. If Debug
+/// were derived, the blinding factor bytes would leak to logs/error messages.
 #[derive(Clone)]
 pub struct EntryWitness {
     /// Monotonic sequence number of the entry.
@@ -25,6 +29,18 @@ pub struct EntryWitness {
     pub blinding: Scalar,
     /// Compressed Ristretto point of the Pedersen commitment.
     pub commitment: CompressedRistretto,
+}
+
+impl std::fmt::Debug for EntryWitness {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EntryWitness")
+            .field("sequence", &self.sequence)
+            .field("entry_hash", &hex::encode(self.entry_hash))
+            .field("prev_hash", &hex::encode(self.prev_hash))
+            .field("blinding", &"[REDACTED]")
+            .field("commitment", &self.commitment)
+            .finish()
+    }
 }
 
 /// Thread-safe witness accumulator with bounded capacity.

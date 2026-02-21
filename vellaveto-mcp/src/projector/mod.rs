@@ -11,10 +11,110 @@ pub use compress::SchemaCompressor;
 pub use error::ProjectorError;
 pub use repair::CallRepairer;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use vellaveto_types::{CanonicalToolCall, CanonicalToolResponse, CanonicalToolSchema, ModelFamily};
+
+// ────────────────────────────────────────────────────────────────────
+// Shared helpers — used by OpenAI, DeepSeek, and Qwen projections
+// (IMP-R116-001 through IMP-R116-004: deduplicated from 3 copies)
+// ────────────────────────────────────────────────────────────────────
+
+/// Format a tool response in OpenAI-style: `{"role": "tool", "content": ..., "tool_call_id": ...}`.
+///
+/// Used by OpenAI, DeepSeek, and Qwen projections (identical format).
+/// Claude uses a different format (`tool_result` with content array).
+/// Generic uses direct `serde_json::to_value`.
+pub(crate) fn format_openai_style_response(
+    canonical: &CanonicalToolResponse,
+) -> Result<Value, ProjectorError> {
+    let content_str = match &canonical.content {
+        Value::String(s) => s.clone(),
+        other => serde_json::to_string(other)
+            .map_err(|e| ProjectorError::Serialization(e.to_string()))?,
+    };
+
+    let mut result = json!({
+        "role": "tool",
+        "content": content_str,
+    });
+
+    if let Some(ref id) = canonical.call_id {
+        result
+            .as_object_mut()
+            .ok_or_else(|| ProjectorError::Serialization("failed to build result".to_string()))?
+            .insert("tool_call_id".to_string(), Value::String(id.clone()));
+    }
+
+    Ok(result)
+}
+
+/// Parse an OpenAI-style function call: `{"function": {"name": ..., "arguments": ...}, "id": ...}`.
+///
+/// Used by OpenAI and Qwen projections (identical format).
+/// DeepSeek extends this with `<think>` block stripping and direct-format fallback.
+pub(crate) fn parse_openai_style_call(raw: &Value) -> Result<CanonicalToolCall, ProjectorError> {
+    let obj = raw
+        .as_object()
+        .ok_or_else(|| ProjectorError::ParseError("expected JSON object".to_string()))?;
+
+    let function = obj
+        .get("function")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| ProjectorError::ParseError("missing 'function' object".to_string()))?;
+
+    let name = function
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ProjectorError::ParseError("missing 'function.name'".to_string()))?;
+
+    let arguments = match function.get("arguments") {
+        Some(Value::String(s)) => serde_json::from_str(s).map_err(|e| {
+            ProjectorError::ParseError(format!(
+                "failed to parse 'function.arguments' as JSON: {}",
+                e
+            ))
+        })?,
+        Some(v) => v.clone(),
+        None => Value::Object(serde_json::Map::new()),
+    };
+
+    let call_id = obj.get("id").and_then(|v| v.as_str()).map(String::from);
+
+    Ok(CanonicalToolCall {
+        tool_name: name.to_string(),
+        arguments,
+        call_id,
+    })
+}
+
+/// Extract the first sentence from a description string.
+///
+/// Returns the text up to and including the first sentence-ending punctuation
+/// (`.`, `!`, `?`) followed by whitespace or end-of-string. If no sentence
+/// boundary is found, returns the entire (trimmed) input.
+///
+/// Used by DeepSeek (for R1's smaller context) and SchemaCompressor.
+pub(crate) fn first_sentence(desc: &str) -> &str {
+    let trimmed = desc.trim();
+    if trimmed.is_empty() {
+        return trimmed;
+    }
+    for (i, ch) in trimmed.char_indices() {
+        if ch == '.' || ch == '!' || ch == '?' {
+            let next_idx = i + ch.len_utf8();
+            if next_idx >= trimmed.len() {
+                return trimmed;
+            }
+            let next_ch = trimmed[next_idx..].chars().next();
+            if next_ch == Some(' ') || next_ch == Some('\n') || next_ch == Some('\r') {
+                return &trimmed[..next_idx];
+            }
+        }
+    }
+    trimmed
+}
 
 /// Trait for model-specific schema projection.
 pub trait ModelProjection: Send + Sync {

@@ -47,6 +47,12 @@ const MAX_APPROVAL_FETCH: usize = 10_000;
 /// blocks Redis cluster slot manipulation via hash tag characters.
 const MAX_APPROVAL_ID_LEN: usize = 512;
 
+/// Maximum length of a rate limit key parameter (category or key).
+///
+/// SECURITY (FIND-R113-003): Prevents oversized parameters from inflating
+/// Redis key size and blocks cluster slot manipulation via hash tags.
+const MAX_RATE_LIMIT_PARAM_LEN: usize = 512;
+
 /// Validate an approval ID before using it to construct Redis keys.
 ///
 /// SECURITY (FIND-R112-009): Rejects:
@@ -77,6 +83,42 @@ fn validate_approval_id_for_redis(id: &str) -> Result<(), ClusterError> {
             return Err(ClusterError::Validation(
                 "approval ID contains invalid characters ('{' or '}')".to_string(),
             ));
+        }
+    }
+    Ok(())
+}
+
+/// Validate a rate limit key parameter (category or key) before using it
+/// to construct Redis keys.
+///
+/// SECURITY (FIND-R113-003): Rejects:
+/// - Empty parameters
+/// - Parameters exceeding MAX_RATE_LIMIT_PARAM_LEN (512 bytes)
+/// - Control characters (0x00-0x1F, 0x7F, 0x80-0x9F) that can cause log injection
+/// - Redis hash tag characters `{` and `}` that can manipulate cluster slot routing
+fn validate_rate_limit_param(name: &str, value: &str) -> Result<(), ClusterError> {
+    if value.is_empty() {
+        return Err(ClusterError::Validation(format!(
+            "rate limit {name} must not be empty"
+        )));
+    }
+    if value.len() > MAX_RATE_LIMIT_PARAM_LEN {
+        return Err(ClusterError::Validation(format!(
+            "rate limit {name} exceeds maximum length of {MAX_RATE_LIMIT_PARAM_LEN} bytes"
+        )));
+    }
+    for c in value.chars() {
+        // Reject C0 control chars, DEL, and C1 control chars
+        if c.is_control() {
+            return Err(ClusterError::Validation(format!(
+                "rate limit {name} contains control characters"
+            )));
+        }
+        // SECURITY: Reject Redis hash tag characters to prevent cluster slot manipulation.
+        if c == '{' || c == '}' {
+            return Err(ClusterError::Validation(format!(
+                "rate limit {name} contains invalid characters ('{{' or '}}')"
+            )));
         }
     }
     Ok(())
@@ -619,6 +661,11 @@ impl ClusterBackend for RedisBackend {
         rps: u32,
         burst: u32,
     ) -> Result<bool, ClusterError> {
+        // SECURITY (FIND-R113-003): Validate rate limit parameters before
+        // constructing Redis keys. Prevents empty/oversized/control-char/hash-tag abuse.
+        validate_rate_limit_param("category", category)?;
+        validate_rate_limit_param("key", key)?;
+
         let mut conn = self.get_conn().await?;
         let redis_key = self.rate_limit_key(category, key);
 

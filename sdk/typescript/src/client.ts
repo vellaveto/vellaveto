@@ -1188,6 +1188,11 @@ export class VellavetoClient {
       if (/[\x00-\x1f\x7f-\x9f]/.test(orgId)) {
         throw new VellavetoError("org_id contains control characters");
       }
+      // SECURITY (FIND-R113-001): Reject Unicode format characters (zero-width,
+      // bidi overrides, BOM, etc.). Parity with soc2AccessReview agentId check.
+      if (/[\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB]/.test(orgId)) {
+        throw new VellavetoError("org_id contains Unicode format characters");
+      }
     }
     const params = new URLSearchParams();
     if (orgId) params.set("org_id", orgId);

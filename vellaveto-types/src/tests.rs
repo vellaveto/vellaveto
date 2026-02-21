@@ -3636,6 +3636,46 @@ fn test_pedersen_commitment_deserialize_with_blinding_hint() {
     assert_eq!(pc.blinding_hint, "secret");
 }
 
+// IMP-R118-001: PedersenCommitment validate() and deny_unknown_fields
+#[test]
+fn test_pedersen_commitment_validate_ok() {
+    let pc = PedersenCommitment {
+        commitment: "a".repeat(64),
+        blinding_hint: "b".repeat(64),
+    };
+    assert!(pc.validate().is_ok());
+}
+
+#[test]
+fn test_pedersen_commitment_validate_commitment_too_long() {
+    let pc = PedersenCommitment {
+        commitment: "a".repeat(129),
+        blinding_hint: String::new(),
+    };
+    assert!(pc.validate().is_err());
+    assert!(pc.validate().unwrap_err().contains("commitment length"));
+}
+
+#[test]
+fn test_pedersen_commitment_validate_blinding_hint_too_long() {
+    let pc = PedersenCommitment {
+        commitment: "abc".to_string(),
+        blinding_hint: "b".repeat(129),
+    };
+    assert!(pc.validate().is_err());
+    assert!(pc
+        .validate()
+        .unwrap_err()
+        .contains("blinding_hint length"));
+}
+
+#[test]
+fn test_pedersen_commitment_deny_unknown_fields() {
+    let json = r#"{"commitment":"abc","extra_field":"evil"}"#;
+    let result = serde_json::from_str::<PedersenCommitment>(json);
+    assert!(result.is_err(), "deny_unknown_fields should reject extra fields");
+}
+
 // FIND-R46-005: CapabilityToken Debug redacts signature
 #[test]
 fn test_capability_token_debug_redacts_signature() {

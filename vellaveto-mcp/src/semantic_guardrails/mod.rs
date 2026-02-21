@@ -315,6 +315,25 @@ impl SemanticGuardrailsService {
             .map(|m| m.policy_id.clone())
             .collect();
 
+        // SECURITY (FIND-R113-011): Enforce min_confidence threshold.
+        // Previously this config field was dead code — never checked during
+        // evaluation, allowing low-confidence Allow verdicts to pass through.
+        if evaluation.allow
+            && (!evaluation.confidence.is_finite()
+                || evaluation.confidence < self.config.min_confidence)
+        {
+            tracing::warn!(
+                confidence = evaluation.confidence,
+                threshold = self.config.min_confidence,
+                "Evaluation below minimum confidence; denying"
+            );
+            evaluation.allow = false;
+            evaluation.explanation = Some(format!(
+                "Confidence {} below minimum threshold {}",
+                evaluation.confidence, self.config.min_confidence
+            ));
+        }
+
         // Update intent chain if tracking enabled
         if self.config.track_intent_chains {
             if let Some(ref session_id) = input.session_id {

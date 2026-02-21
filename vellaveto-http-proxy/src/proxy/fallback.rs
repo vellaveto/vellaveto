@@ -71,9 +71,13 @@ pub async fn forward_with_fallback(
         return Err(FallbackError::NoFallback);
     }
 
+    // SECURITY (IMP-R118-009): Cap retries to prevent resource exhaustion.
+    const MAX_FALLBACK_RETRIES: u32 = 10;
+    let effective_retries = max_retries.min(MAX_FALLBACK_RETRIES);
+
     let mut last_error = String::new();
 
-    for attempt in 0..=max_retries {
+    for attempt in 0..=effective_retries {
         let mut request = client.post(upstream_url).timeout(timeout);
 
         // SECURITY (FIND-041-008): Only forward allowlisted headers to
@@ -158,7 +162,8 @@ pub async fn forward_with_fallback(
     }
 
     Err(FallbackError::AllFailed {
-        attempts: max_retries + 1,
+        // SECURITY (IMP-R118-015): Use saturating_add to prevent overflow.
+        attempts: effective_retries.saturating_add(1),
         last_error,
     })
 }

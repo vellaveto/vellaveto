@@ -22,12 +22,26 @@ const MAX_STORED_PROOFS: usize = 10_000;
 ///
 /// Periodically drains the witness store and generates Groth16 batch proofs
 /// via the configured `ZkBatchProver`. Proofs are stored in-memory.
+///
+/// SECURITY (IMP-R118-016): Custom Debug redacts prover internals (proving key = toxic waste).
 pub struct ZkBatchScheduler {
     prover: Arc<ZkBatchProver>,
     witness_store: Arc<WitnessStore>,
     batch_size: usize,
     batch_interval_secs: u64,
     proof_store: Mutex<Vec<ZkBatchProof>>,
+}
+
+impl std::fmt::Debug for ZkBatchScheduler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let proof_count = self.proof_store.lock().map(|p| p.len()).unwrap_or(0);
+        f.debug_struct("ZkBatchScheduler")
+            .field("prover", &"[REDACTED]")
+            .field("batch_size", &self.batch_size)
+            .field("batch_interval_secs", &self.batch_interval_secs)
+            .field("proof_count", &proof_count)
+            .finish()
+    }
 }
 
 impl ZkBatchScheduler {

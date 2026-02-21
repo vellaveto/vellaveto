@@ -40,57 +40,11 @@ impl ModelProjection for QwenProjection {
     }
 
     fn parse_call(&self, raw: &Value) -> Result<CanonicalToolCall, ProjectorError> {
-        let obj = raw
-            .as_object()
-            .ok_or_else(|| ProjectorError::ParseError("expected JSON object".to_string()))?;
-
-        let function = obj
-            .get("function")
-            .and_then(|v| v.as_object())
-            .ok_or_else(|| ProjectorError::ParseError("missing 'function' object".to_string()))?;
-
-        let name = function
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ProjectorError::ParseError("missing 'function.name'".to_string()))?;
-
-        let arguments = match function.get("arguments") {
-            Some(Value::String(s)) => serde_json::from_str(s).map_err(|e| {
-                ProjectorError::ParseError(format!("failed to parse 'function.arguments': {}", e))
-            })?,
-            Some(v) => v.clone(),
-            None => Value::Object(serde_json::Map::new()),
-        };
-
-        let call_id = obj.get("id").and_then(|v| v.as_str()).map(String::from);
-
-        Ok(CanonicalToolCall {
-            tool_name: name.to_string(),
-            arguments,
-            call_id,
-        })
+        super::parse_openai_style_call(raw)
     }
 
     fn format_response(&self, canonical: &CanonicalToolResponse) -> Result<Value, ProjectorError> {
-        let content_str = match &canonical.content {
-            Value::String(s) => s.clone(),
-            other => serde_json::to_string(other)
-                .map_err(|e| ProjectorError::Serialization(e.to_string()))?,
-        };
-
-        let mut result = json!({
-            "role": "tool",
-            "content": content_str,
-        });
-
-        if let Some(ref id) = canonical.call_id {
-            result
-                .as_object_mut()
-                .ok_or_else(|| ProjectorError::Serialization("failed to build result".to_string()))?
-                .insert("tool_call_id".to_string(), Value::String(id.clone()));
-        }
-
-        Ok(result)
+        super::format_openai_style_response(canonical)
     }
 
     fn estimate_tokens(&self, schema: &CanonicalToolSchema) -> usize {

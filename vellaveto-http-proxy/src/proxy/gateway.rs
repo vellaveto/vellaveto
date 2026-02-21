@@ -232,11 +232,10 @@ impl GatewayRouter {
         };
         if let Some(state) = states.get_mut(backend_id) {
             state.consecutive_failures = 0;
-            // SECURITY (FIND-R43-009): Use saturating_add to prevent integer overflow.
-            state.consecutive_successes = state.consecutive_successes.saturating_add(1);
 
             match state.health {
                 BackendHealth::Unhealthy => {
+                    // IMP-R118-011: Reset to 1 directly (Unhealthy resets counter).
                     state.health = BackendHealth::Degraded;
                     state.consecutive_successes = 1;
                     tracing::info!(
@@ -245,6 +244,8 @@ impl GatewayRouter {
                     );
                 }
                 BackendHealth::Degraded => {
+                    // SECURITY (FIND-R43-009): Use saturating_add to prevent integer overflow.
+                    state.consecutive_successes = state.consecutive_successes.saturating_add(1);
                     if state.consecutive_successes >= self.healthy_threshold {
                         state.health = BackendHealth::Healthy;
                         state.consecutive_successes = 0;
@@ -254,7 +255,9 @@ impl GatewayRouter {
                         );
                     }
                 }
-                BackendHealth::Healthy => {}
+                BackendHealth::Healthy => {
+                    state.consecutive_successes = state.consecutive_successes.saturating_add(1);
+                }
             }
         }
     }
@@ -331,10 +334,36 @@ impl GatewayRouter {
     }
 }
 
+/// Maximum number of tool names per backend to prevent OOM from malicious backends.
+const MAX_TOOL_NAMES_PER_BACKEND: usize = 10_000;
+
 /// Data about tools discovered from a single backend.
 pub struct DiscoveredTools {
     pub backend_id: String,
     pub tool_names: Vec<String>,
+}
+
+impl DiscoveredTools {
+    /// SECURITY (IMP-R118-005): Validate bounds on tool_names.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.tool_names.len() > MAX_TOOL_NAMES_PER_BACKEND {
+            return Err(format!(
+                "DiscoveredTools.tool_names count {} exceeds max {}",
+                self.tool_names.len(),
+                MAX_TOOL_NAMES_PER_BACKEND,
+            ));
+        }
+        for name in &self.tool_names {
+            if name.len() > MAX_TOOL_NAME_LEN {
+                return Err(format!(
+                    "tool name length {} exceeds max {}",
+                    name.len(),
+                    MAX_TOOL_NAME_LEN,
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Detect tool name conflicts across multiple backends.

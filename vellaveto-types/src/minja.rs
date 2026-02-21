@@ -54,6 +54,7 @@ pub const MAX_TAINT_LABELS: usize = 16;
 /// notifications, or other sources. Tracks access patterns, trust scores,
 /// and provenance for detecting memory injection attacks.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct MemoryEntry {
     /// Unique identifier for this entry (UUID v4).
     pub id: String,
@@ -102,16 +103,179 @@ fn default_trust_score() -> f64 {
 impl MemoryEntry {
     /// Maximum preview length in characters.
     pub const MAX_PREVIEW_LENGTH: usize = 100;
+    /// Maximum length for `id` field.
+    ///
+    /// SECURITY (FIND-R113-018): Bound string fields to prevent memory exhaustion.
+    const MAX_ID_LEN: usize = 256;
+    /// Maximum length for `fingerprint` field (SHA-256 hex).
+    ///
+    /// SECURITY (FIND-R113-018): Bound string fields.
+    const MAX_FINGERPRINT_LEN: usize = 128;
+    /// Maximum length for `content_hash` field (SHA-256 hex).
+    ///
+    /// SECURITY (FIND-R113-018): Bound string fields.
+    const MAX_CONTENT_HASH_LEN: usize = 128;
+    /// Maximum length for timestamp fields (`recorded_at`, `last_accessed`).
+    ///
+    /// SECURITY (FIND-R113-018): Bound string fields.
+    const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for `provenance_id` field.
+    ///
+    /// SECURITY (FIND-R113-018): Bound string fields.
+    const MAX_PROVENANCE_ID_LEN: usize = 256;
+    /// Maximum length for `namespace` field.
+    ///
+    /// SECURITY (FIND-R113-018): Bound string fields.
+    const MAX_NAMESPACE_LEN: usize = 256;
+    /// Maximum length for `session_id` field.
+    ///
+    /// SECURITY (FIND-R113-018): Bound string fields.
+    const MAX_SESSION_ID_LEN: usize = 256;
+    /// Maximum length for `agent_id` field.
+    ///
+    /// SECURITY (FIND-R113-018): Bound string fields.
+    const MAX_AGENT_ID_LEN: usize = 256;
 
-    /// Validate that all f64 fields are finite (not NaN or Infinity)
-    /// and that trust_score is consistent with taint_labels.
+    /// Helper: validate a string field for control/format characters.
+    fn validate_no_control_chars(type_name: &str, field_name: &str, value: &str) -> Result<(), String> {
+        if value
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(format!(
+                "{} {} contains control or format characters",
+                type_name, field_name
+            ));
+        }
+        Ok(())
+    }
+
+    /// Validate that all f64 fields are finite (not NaN or Infinity),
+    /// that trust_score is consistent with taint_labels, and that
+    /// string fields are within bounds and free of control/format characters.
     ///
     /// SECURITY (FIND-R46-018): Tainted memory entries (those with non-empty
     /// taint_labels containing security-relevant labels like Untrusted,
     /// Quarantined, IntegrityFailed, or MixedProvenance) must not have a
     /// perfect trust score of 1.0. A trust_score of 1.0 on tainted data
     /// could cause downstream consumers to skip security checks.
+    /// SECURITY (FIND-R113-018): Length bounds and control/format char validation.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R113-018): String field length bounds.
+        if self.id.len() > Self::MAX_ID_LEN {
+            return Err(format!(
+                "MemoryEntry id length {} exceeds max {}",
+                self.id.len(),
+                Self::MAX_ID_LEN
+            ));
+        }
+        if self.fingerprint.len() > Self::MAX_FINGERPRINT_LEN {
+            return Err(format!(
+                "MemoryEntry '{}' fingerprint length {} exceeds max {}",
+                self.id,
+                self.fingerprint.len(),
+                Self::MAX_FINGERPRINT_LEN
+            ));
+        }
+        if self.preview.len() > Self::MAX_PREVIEW_LENGTH + 3 {
+            // +3 for "..." suffix
+            return Err(format!(
+                "MemoryEntry '{}' preview length {} exceeds max {}",
+                self.id,
+                self.preview.len(),
+                Self::MAX_PREVIEW_LENGTH + 3
+            ));
+        }
+        if self.recorded_at.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "MemoryEntry '{}' recorded_at length {} exceeds max {}",
+                self.id,
+                self.recorded_at.len(),
+                Self::MAX_TIMESTAMP_LEN
+            ));
+        }
+        if let Some(ref la) = self.last_accessed {
+            if la.len() > Self::MAX_TIMESTAMP_LEN {
+                return Err(format!(
+                    "MemoryEntry '{}' last_accessed length {} exceeds max {}",
+                    self.id,
+                    la.len(),
+                    Self::MAX_TIMESTAMP_LEN
+                ));
+            }
+        }
+        if self.content_hash.len() > Self::MAX_CONTENT_HASH_LEN {
+            return Err(format!(
+                "MemoryEntry '{}' content_hash length {} exceeds max {}",
+                self.id,
+                self.content_hash.len(),
+                Self::MAX_CONTENT_HASH_LEN
+            ));
+        }
+        if let Some(ref pid) = self.provenance_id {
+            if pid.len() > Self::MAX_PROVENANCE_ID_LEN {
+                return Err(format!(
+                    "MemoryEntry '{}' provenance_id length {} exceeds max {}",
+                    self.id,
+                    pid.len(),
+                    Self::MAX_PROVENANCE_ID_LEN
+                ));
+            }
+        }
+        if let Some(ref ns) = self.namespace {
+            if ns.len() > Self::MAX_NAMESPACE_LEN {
+                return Err(format!(
+                    "MemoryEntry '{}' namespace length {} exceeds max {}",
+                    self.id,
+                    ns.len(),
+                    Self::MAX_NAMESPACE_LEN
+                ));
+            }
+        }
+        if let Some(ref sid) = self.session_id {
+            if sid.len() > Self::MAX_SESSION_ID_LEN {
+                return Err(format!(
+                    "MemoryEntry '{}' session_id length {} exceeds max {}",
+                    self.id,
+                    sid.len(),
+                    Self::MAX_SESSION_ID_LEN
+                ));
+            }
+        }
+        if let Some(ref aid) = self.agent_id {
+            if aid.len() > Self::MAX_AGENT_ID_LEN {
+                return Err(format!(
+                    "MemoryEntry '{}' agent_id length {} exceeds max {}",
+                    self.id,
+                    aid.len(),
+                    Self::MAX_AGENT_ID_LEN
+                ));
+            }
+        }
+
+        // SECURITY (FIND-R113-018): Control/format character validation on key string fields.
+        Self::validate_no_control_chars("MemoryEntry", "id", &self.id)?;
+        Self::validate_no_control_chars("MemoryEntry", "fingerprint", &self.fingerprint)?;
+        Self::validate_no_control_chars("MemoryEntry", "recorded_at", &self.recorded_at)?;
+        Self::validate_no_control_chars("MemoryEntry", "content_hash", &self.content_hash)?;
+        if let Some(ref la) = self.last_accessed {
+            Self::validate_no_control_chars("MemoryEntry", "last_accessed", la)?;
+        }
+        if let Some(ref pid) = self.provenance_id {
+            Self::validate_no_control_chars("MemoryEntry", "provenance_id", pid)?;
+        }
+        if let Some(ref ns) = self.namespace {
+            Self::validate_no_control_chars("MemoryEntry", "namespace", ns)?;
+        }
+        if let Some(ref sid) = self.session_id {
+            Self::validate_no_control_chars("MemoryEntry", "session_id", sid)?;
+        }
+        if let Some(ref aid) = self.agent_id {
+            Self::validate_no_control_chars("MemoryEntry", "agent_id", aid)?;
+        }
+        // Note: preview is user content (truncated tool response) — control chars
+        // may legitimately appear in tool output, so we do not validate it.
+
         // SECURITY (FIND-R112-006): Enforce MAX_TAINT_LABELS on deserialized data.
         if self.taint_labels.len() > MAX_TAINT_LABELS {
             return Err(format!(

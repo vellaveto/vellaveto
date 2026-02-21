@@ -19,6 +19,30 @@ use vellaveto_types::{AccountabilityAttestation, AttestationVerificationResult};
 /// Prevents `ttl_secs as i64` overflow on u64 values > i64::MAX.
 const MAX_ATTESTATION_TTL_SECS: u64 = 365 * 24 * 3600;
 
+/// SECURITY (IMP-R118-004/013): Maximum length for agent_id strings.
+const MAX_AGENT_ID_LEN: usize = 256;
+
+/// SECURITY (IMP-R118-013): Maximum length for statement strings.
+const MAX_STATEMENT_LEN: usize = 4096;
+
+/// SECURITY (IMP-R118-013): Maximum length for policy_hash strings.
+const MAX_POLICY_HASH_LEN: usize = 256;
+
+/// SECURITY (IMP-R118-004): Validate string has no control or Unicode format characters.
+/// Returns `Err` with a descriptive message on failure.
+fn validate_no_dangerous_chars(value: &str, field_name: &str) -> Result<(), AttestationError> {
+    if value
+        .chars()
+        .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+    {
+        return Err(AttestationError::SigningFailed(format!(
+            "{} contains control or Unicode format characters",
+            field_name
+        )));
+    }
+    Ok(())
+}
+
 /// Errors from attestation operations.
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum AttestationError {
@@ -84,6 +108,37 @@ pub fn sign_attestation(
         return Err(AttestationError::SigningFailed(
             "policy_hash must not be empty".to_string(),
         ));
+    }
+
+    // SECURITY (IMP-R118-013): Validate max lengths.
+    if agent_id.len() > MAX_AGENT_ID_LEN {
+        return Err(AttestationError::SigningFailed(format!(
+            "agent_id length {} exceeds maximum {}",
+            agent_id.len(),
+            MAX_AGENT_ID_LEN
+        )));
+    }
+    if statement.len() > MAX_STATEMENT_LEN {
+        return Err(AttestationError::SigningFailed(format!(
+            "statement length {} exceeds maximum {}",
+            statement.len(),
+            MAX_STATEMENT_LEN
+        )));
+    }
+    if policy_hash.len() > MAX_POLICY_HASH_LEN {
+        return Err(AttestationError::SigningFailed(format!(
+            "policy_hash length {} exceeds maximum {}",
+            policy_hash.len(),
+            MAX_POLICY_HASH_LEN
+        )));
+    }
+
+    // SECURITY (IMP-R118-004): Validate no control or Unicode format characters.
+    validate_no_dangerous_chars(agent_id, "agent_id")?;
+    validate_no_dangerous_chars(statement, "statement")?;
+    validate_no_dangerous_chars(policy_hash, "policy_hash")?;
+    if let Some(d) = did {
+        validate_no_dangerous_chars(d, "did")?;
     }
 
     // Parse signing key
@@ -449,5 +504,108 @@ mod tests {
             sign_attestation("agent", None, "stmt", "hash", &signing_key_hex, 86400).expect("2");
 
         assert_ne!(att1.attestation_id, att2.attestation_id);
+    }
+
+    // ════════════════════════════════════════════════════════
+    // IMP-R118-004: Control character validation
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_sign_rejects_agent_id_control_chars() {
+        let (signing_key_hex, _) = generate_test_keypair();
+        let result =
+            sign_attestation("agent\x00evil", None, "stmt", "hash", &signing_key_hex, 86400);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("control"), "error: {}", msg);
+    }
+
+    #[test]
+    fn test_sign_rejects_agent_id_bidi_override() {
+        let (signing_key_hex, _) = generate_test_keypair();
+        let result = sign_attestation(
+            "agent\u{202E}live",
+            None,
+            "stmt",
+            "hash",
+            &signing_key_hex,
+            86400,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sign_rejects_statement_zero_width() {
+        let (signing_key_hex, _) = generate_test_keypair();
+        let result = sign_attestation(
+            "agent",
+            None,
+            "stmt\u{200B}ment",
+            "hash",
+            &signing_key_hex,
+            86400,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sign_rejects_policy_hash_control_chars() {
+        let (signing_key_hex, _) = generate_test_keypair();
+        let result =
+            sign_attestation("agent", None, "stmt", "hash\x1B[0m", &signing_key_hex, 86400);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sign_rejects_did_control_chars() {
+        let (signing_key_hex, _) = generate_test_keypair();
+        let result = sign_attestation(
+            "agent",
+            Some("did:plc:\x00evil"),
+            "stmt",
+            "hash",
+            &signing_key_hex,
+            86400,
+        );
+        assert!(result.is_err());
+    }
+
+    // ════════════════════════════════════════════════════════
+    // IMP-R118-013: Max length validation
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_sign_rejects_agent_id_too_long() {
+        let (signing_key_hex, _) = generate_test_keypair();
+        let long_id = "a".repeat(MAX_AGENT_ID_LEN + 1);
+        let result = sign_attestation(&long_id, None, "stmt", "hash", &signing_key_hex, 86400);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("length"));
+    }
+
+    #[test]
+    fn test_sign_rejects_statement_too_long() {
+        let (signing_key_hex, _) = generate_test_keypair();
+        let long_stmt = "s".repeat(MAX_STATEMENT_LEN + 1);
+        let result = sign_attestation("agent", None, &long_stmt, "hash", &signing_key_hex, 86400);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("length"));
+    }
+
+    #[test]
+    fn test_sign_rejects_policy_hash_too_long() {
+        let (signing_key_hex, _) = generate_test_keypair();
+        let long_hash = "h".repeat(MAX_POLICY_HASH_LEN + 1);
+        let result = sign_attestation("agent", None, "stmt", &long_hash, &signing_key_hex, 86400);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("length"));
+    }
+
+    #[test]
+    fn test_sign_accepts_max_length_agent_id() {
+        let (signing_key_hex, _) = generate_test_keypair();
+        let max_id = "a".repeat(MAX_AGENT_ID_LEN);
+        let result = sign_attestation(&max_id, None, "stmt", "hash", &signing_key_hex, 86400);
+        assert!(result.is_ok());
     }
 }

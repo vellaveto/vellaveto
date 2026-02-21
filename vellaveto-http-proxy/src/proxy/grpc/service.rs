@@ -539,7 +539,9 @@ impl McpGrpcService {
                 // Drop session borrow before returning
                 drop(session);
 
-                return make_proto_denial_response(proto_req, &deny_reason);
+                // SECURITY (FIND-R118-001): Generic client message — detailed deny_reason
+                // is in the audit log only, not exposed to client.
+                return make_proto_denial_response(proto_req, "Denied by policy");
             }
         }
 
@@ -860,7 +862,9 @@ impl McpGrpcService {
                 {
                     tracing::warn!("Failed to audit gRPC deny: {}", e);
                 }
-                make_proto_denial_response(proto_req, reason)
+                // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
+                let _ = reason;
+                make_proto_denial_response(proto_req, "Denied by policy")
             }
             Verdict::RequireApproval { reason, .. } => {
                 let deny_reason = format!("Requires approval: {}", reason);
@@ -882,10 +886,11 @@ impl McpGrpcService {
                 {
                     tracing::warn!("Failed to audit gRPC approval request: {}", e);
                 }
-                make_proto_denial_response(proto_req, &deny_reason)
+                // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
+                make_proto_denial_response(proto_req, "Denied by policy")
             }
             // Fail-closed: unknown Verdict variants produce Deny
-            _ => make_proto_denial_response(proto_req, "Unknown verdict — fail-closed"),
+            _ => make_proto_denial_response(proto_req, "Denied by policy"),
         }
     }
 
@@ -946,7 +951,8 @@ impl McpGrpcService {
                 // Drop session borrow before returning
                 drop(session);
 
-                return make_proto_denial_response(proto_req, &deny_reason);
+                // SECURITY (FIND-R118-001): Generic client message.
+                return make_proto_denial_response(proto_req, "Denied by policy");
             }
         }
 
@@ -1095,7 +1101,9 @@ impl McpGrpcService {
                 ).await {
                     tracing::warn!("Failed to audit gRPC resource deny: {}", e);
                 }
-                make_proto_denial_response(proto_req, reason)
+                // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
+                let _ = reason;
+                make_proto_denial_response(proto_req, "Denied by policy")
             }
             Verdict::RequireApproval { reason, .. } => {
                 if let Err(e) = self.state.audit.log_entry(
@@ -1107,9 +1115,12 @@ impl McpGrpcService {
                 ).await {
                     tracing::warn!("Failed to audit gRPC resource approval request: {}", e);
                 }
-                make_proto_denial_response(proto_req, &format!("Requires approval: {}", reason))
+                // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
+                let _ = reason;
+                make_proto_denial_response(proto_req, "Denied by policy")
             }
-            _ => make_proto_denial_response(proto_req, "Resource access denied — fail-closed"),
+            // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
+            _ => make_proto_denial_response(proto_req, "Denied by policy"),
         }
     }
 
@@ -1475,7 +1486,8 @@ impl McpGrpcService {
                 // Drop session borrow before returning
                 drop(session);
 
-                return make_proto_denial_response(proto_req, &deny_reason);
+                // SECURITY (FIND-R118-001): Generic client message.
+                return make_proto_denial_response(proto_req, "Denied by policy");
             }
         }
 
@@ -1535,7 +1547,9 @@ impl McpGrpcService {
                 {
                     tracing::warn!("Failed to audit gRPC task deny: {}", e);
                 }
-                make_proto_denial_response(proto_req, reason)
+                // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
+                let _ = reason;
+                make_proto_denial_response(proto_req, "Denied by policy")
             }
             Verdict::RequireApproval { reason, .. } => {
                 let deny_reason = format!("Requires approval: {}", reason);
@@ -1558,9 +1572,11 @@ impl McpGrpcService {
                 {
                     tracing::warn!("Failed to audit gRPC task approval request: {}", e);
                 }
-                make_proto_denial_response(proto_req, &deny_reason)
+                // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
+                make_proto_denial_response(proto_req, "Denied by policy")
             }
-            _ => make_proto_denial_response(proto_req, "Unknown verdict — fail-closed"),
+            // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
+            _ => make_proto_denial_response(proto_req, "Denied by policy"),
         }
     }
 
@@ -1637,7 +1653,8 @@ impl McpGrpcService {
                 ).await {
                     tracing::warn!("Failed to audit gRPC extension memory poisoning: {}", e);
                 }
-                return make_proto_denial_response(proto_req, &deny_reason);
+                // SECURITY (FIND-R118-001): Generic client message.
+                return make_proto_denial_response(proto_req, "Denied by policy");
             }
         }
 
@@ -1697,17 +1714,12 @@ impl McpGrpcService {
                 {
                     tracing::warn!("Failed to audit gRPC extension deny: {}", e);
                 }
-                make_proto_denial_response(proto_req, reason)
+                // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
+                let _ = reason;
+                make_proto_denial_response(proto_req, "Denied by policy")
             }
-            _ => {
-                let reason = match &verdict {
-                    Verdict::RequireApproval { reason, .. } => {
-                        format!("Requires approval: {}", reason)
-                    }
-                    _ => "Extension call denied — fail-closed".to_string(),
-                };
-                make_proto_denial_response(proto_req, &reason)
-            }
+            // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
+            _ => make_proto_denial_response(proto_req, "Denied by policy"),
         }
     }
 

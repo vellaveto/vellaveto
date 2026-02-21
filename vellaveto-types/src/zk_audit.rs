@@ -16,6 +16,7 @@ use std::fmt;
 /// It is redacted from Debug output and excluded from serialization
 /// to prevent accidental exposure.
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct PedersenCommitment {
     /// Hex-encoded compressed Ristretto point (64 hex chars = 32 bytes).
     pub commitment: String,
@@ -24,6 +25,35 @@ pub struct PedersenCommitment {
     /// SECURITY: Excluded from serialization and redacted in Debug.
     #[serde(default, skip_serializing)]
     pub blinding_hint: String,
+}
+
+impl PedersenCommitment {
+    /// Maximum length for hex-encoded commitment (64 hex chars for 32-byte Ristretto point, with margin).
+    const MAX_COMMITMENT_LEN: usize = 128;
+    /// Maximum length for hex-encoded blinding hint.
+    const MAX_BLINDING_HINT_LEN: usize = 128;
+
+    /// Validate structural bounds on string fields.
+    ///
+    /// SECURITY (IMP-R118-001): Prevents memory exhaustion from oversized
+    /// commitment strings deserialized from untrusted input.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.commitment.len() > Self::MAX_COMMITMENT_LEN {
+            return Err(format!(
+                "PedersenCommitment commitment length {} exceeds max {}",
+                self.commitment.len(),
+                Self::MAX_COMMITMENT_LEN,
+            ));
+        }
+        if self.blinding_hint.len() > Self::MAX_BLINDING_HINT_LEN {
+            return Err(format!(
+                "PedersenCommitment blinding_hint length {} exceeds max {}",
+                self.blinding_hint.len(),
+                Self::MAX_BLINDING_HINT_LEN,
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl fmt::Debug for PedersenCommitment {

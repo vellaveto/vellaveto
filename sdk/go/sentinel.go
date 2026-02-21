@@ -611,14 +611,15 @@ func (c *Client) DenyApproval(ctx context.Context, id string) error {
 const maxDiscoverResults = 20
 
 // maxDiscoverQueryLen is the maximum allowed length for a discovery query string.
-// SECURITY (FIND-R112-003): Prevents oversized query strings from causing OOM
-// or excessive processing on the server.
-const maxDiscoverQueryLen = 4096
+// SECURITY (FIND-R113-002): Aligned with Python/TS SDKs at 1024 (was 4096).
+// Prevents oversized query strings from causing OOM or excessive processing on
+// the server.
+const maxDiscoverQueryLen = 1024
 
 // Discover searches the tool discovery index for tools matching a query.
 // SECURITY (FIND-R54-SDK-017): Validates query is non-empty before sending.
 // SECURITY (FIND-R110-SDK-002): Validates maxResults in [1, 20] and tokenBudget >= 0.
-// SECURITY (FIND-R112-003): Validates query length <= 4096 characters.
+// SECURITY (FIND-R113-002): Validates query length <= 1024 characters.
 func (c *Client) Discover(ctx context.Context, query string, maxResults int, tokenBudget *int) (*DiscoveryResult, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("vellaveto: discovery query must not be empty")

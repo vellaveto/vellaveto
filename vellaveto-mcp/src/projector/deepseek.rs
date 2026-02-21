@@ -6,28 +6,10 @@ use super::ModelProjection;
 
 pub struct DeepSeekProjection;
 
-/// Extract the first sentence from a description for R1's smaller context.
-///
-/// SECURITY (FIND-R114-001/IMP): Added `\r` check for parity with compress.rs version.
+/// Delegate to the shared `first_sentence` implementation in mod.rs.
+/// (IMP-R116-002: deduplicated from deepseek.rs and compress.rs copies)
 fn first_sentence(desc: &str) -> &str {
-    let trimmed = desc.trim();
-    if trimmed.is_empty() {
-        return trimmed;
-    }
-    // Find first sentence-ending punctuation followed by whitespace or end
-    for (i, ch) in trimmed.char_indices() {
-        if ch == '.' || ch == '!' || ch == '?' {
-            let next_idx = i + ch.len_utf8();
-            if next_idx >= trimmed.len() {
-                return trimmed;
-            }
-            let next_ch = trimmed[next_idx..].chars().next();
-            if next_ch == Some(' ') || next_ch == Some('\n') || next_ch == Some('\r') {
-                return &trimmed[..next_idx];
-            }
-        }
-    }
-    trimmed
+    super::first_sentence(desc)
 }
 
 /// Strip `<think>...</think>` blocks and extract JSON from raw text.
@@ -166,25 +148,7 @@ impl ModelProjection for DeepSeekProjection {
     }
 
     fn format_response(&self, canonical: &CanonicalToolResponse) -> Result<Value, ProjectorError> {
-        let content_str = match &canonical.content {
-            Value::String(s) => s.clone(),
-            other => serde_json::to_string(other)
-                .map_err(|e| ProjectorError::Serialization(e.to_string()))?,
-        };
-
-        let mut result = json!({
-            "role": "tool",
-            "content": content_str,
-        });
-
-        if let Some(ref id) = canonical.call_id {
-            result
-                .as_object_mut()
-                .ok_or_else(|| ProjectorError::Serialization("failed to build result".to_string()))?
-                .insert("tool_call_id".to_string(), Value::String(id.clone()));
-        }
-
-        Ok(result)
+        super::format_openai_style_response(canonical)
     }
 
     fn estimate_tokens(&self, schema: &CanonicalToolSchema) -> usize {

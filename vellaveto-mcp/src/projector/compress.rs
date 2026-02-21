@@ -154,28 +154,10 @@ fn truncate_descriptions(schema: &mut Value, depth: usize) {
     }
 }
 
-/// Extract the first sentence from a string.
-/// Looks for `.`, `!`, or `?` followed by whitespace or end-of-string.
+/// Delegate to the shared `first_sentence` implementation in mod.rs.
+/// (IMP-R116-002: deduplicated from compress.rs and deepseek.rs copies)
 fn first_sentence(text: &str) -> &str {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return trimmed;
-    }
-    for (i, ch) in trimmed.char_indices() {
-        if ch == '.' || ch == '!' || ch == '?' {
-            let next_idx = i + ch.len_utf8();
-            if next_idx >= trimmed.len() {
-                // Punctuation at end of string — whole string is first sentence
-                return trimmed;
-            }
-            let next_ch = trimmed[next_idx..].chars().next();
-            if next_ch == Some(' ') || next_ch == Some('\n') || next_ch == Some('\r') {
-                return &trimmed[..next_idx];
-            }
-        }
-    }
-    // No sentence-ending punctuation found — return the whole thing
-    trimmed
+    super::first_sentence(text)
 }
 
 /// Collapse single-property nested objects.

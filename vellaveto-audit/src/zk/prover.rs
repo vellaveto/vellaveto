@@ -20,6 +20,11 @@ use super::circuit::{hash_to_field, AuditChainCircuit};
 use super::witness::EntryWitness;
 use super::ZkError;
 
+/// Maximum allowed size for proving/verifying key files (64 MB).
+///
+/// Prevents OOM when loading untrusted key files from disk.
+const MAX_KEY_FILE_SIZE: u64 = 64 * 1024 * 1024;
+
 /// Groth16 batch prover for audit chain integrity proofs.
 ///
 /// Generates and verifies zero-knowledge proofs that a batch of audit
@@ -27,10 +32,23 @@ use super::ZkError;
 ///
 /// The prover is initialized via `setup()` (one-time trusted setup) or
 /// `from_files()` (load pre-computed keys). Keys can be saved with `save_keys()`.
+///
+/// SECURITY (IMP-R118-016): Custom Debug impl redacts `proving_key` (trusted
+/// setup toxic waste). If Debug were derived, the proving key bytes would leak.
 pub struct ZkBatchProver {
     proving_key: ProvingKey<Bn254>,
     verifying_key: VerifyingKey<Bn254>,
     max_batch_size: usize,
+}
+
+impl std::fmt::Debug for ZkBatchProver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ZkBatchProver")
+            .field("proving_key", &"[REDACTED]")
+            .field("verifying_key", &"[REDACTED]")
+            .field("max_batch_size", &self.max_batch_size)
+            .finish()
+    }
 }
 
 impl ZkBatchProver {
@@ -62,6 +80,27 @@ impl ZkBatchProver {
         vk_path: &Path,
         max_batch_size: usize,
     ) -> Result<Self, ZkError> {
+        // SECURITY (FIND-R113-002): Check file sizes before reading to prevent OOM
+        // on attacker-controlled key files.
+        let pk_meta = fs::metadata(pk_path)
+            .map_err(|e| ZkError::Key(format!("Failed to stat proving key: {}", e)))?;
+        if pk_meta.len() > MAX_KEY_FILE_SIZE {
+            return Err(ZkError::Key(format!(
+                "Proving key file too large: {} bytes (max {})",
+                pk_meta.len(),
+                MAX_KEY_FILE_SIZE
+            )));
+        }
+        let vk_meta = fs::metadata(vk_path)
+            .map_err(|e| ZkError::Key(format!("Failed to stat verifying key: {}", e)))?;
+        if vk_meta.len() > MAX_KEY_FILE_SIZE {
+            return Err(ZkError::Key(format!(
+                "Verifying key file too large: {} bytes (max {})",
+                vk_meta.len(),
+                MAX_KEY_FILE_SIZE
+            )));
+        }
+
         let pk_bytes = fs::read(pk_path)
             .map_err(|e| ZkError::Key(format!("Failed to read proving key: {}", e)))?;
         let vk_bytes = fs::read(vk_path)

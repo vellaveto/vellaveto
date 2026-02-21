@@ -100,6 +100,26 @@ impl CapabilityGrant {
     pub const MAX_ENTRY_LEN: usize = 2048;
 
     pub fn validate(&self) -> Result<(), CapabilityError> {
+        // SECURITY (FIND-R113-007): Validate control/format chars on pattern fields.
+        if self
+            .tool_pattern
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(CapabilityError::ValidationFailed(
+                "CapabilityGrant tool_pattern contains control or format characters".to_string(),
+            ));
+        }
+        if self
+            .function_pattern
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(CapabilityError::ValidationFailed(
+                "CapabilityGrant function_pattern contains control or format characters"
+                    .to_string(),
+            ));
+        }
         if self.allowed_paths.len() > Self::MAX_ENTRIES {
             return Err(CapabilityError::ValidationFailed(format!(
                 "allowed_paths count {} exceeds max {}",
@@ -123,6 +143,15 @@ impl CapabilityGrant {
                     Self::MAX_ENTRY_LEN
                 )));
             }
+            // SECURITY (FIND-R113-007): Validate control/format chars on path entries.
+            if p.chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(CapabilityError::ValidationFailed(format!(
+                    "allowed_paths[{}] contains control or format characters",
+                    i
+                )));
+            }
         }
         for (i, d) in self.allowed_domains.iter().enumerate() {
             if d.len() > Self::MAX_ENTRY_LEN {
@@ -131,6 +160,15 @@ impl CapabilityGrant {
                     i,
                     d.len(),
                     Self::MAX_ENTRY_LEN
+                )));
+            }
+            // SECURITY (FIND-R113-007): Validate control/format chars on domain entries.
+            if d.chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(CapabilityError::ValidationFailed(format!(
+                    "allowed_domains[{}] contains control or format characters",
+                    i
                 )));
             }
         }

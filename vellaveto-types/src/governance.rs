@@ -39,6 +39,7 @@ pub enum EnforcementMode {
 
 /// An agent observed in traffic that is not in the registered agent list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UnregisteredAgent {
     pub agent_id: String,
     pub first_seen: String,
@@ -51,13 +52,77 @@ pub struct UnregisteredAgent {
 impl UnregisteredAgent {
     /// Maximum number of tools tracked per unregistered agent.
     const MAX_TOOLS_USED: usize = 1000;
+    /// Maximum length for `agent_id` field.
+    ///
+    /// SECURITY (FIND-R113-014): Bound string fields.
+    const MAX_AGENT_ID_LEN: usize = 256;
+    /// Maximum length for timestamp fields (`first_seen`, `last_seen`).
+    ///
+    /// SECURITY (FIND-R113-014): Bound string fields.
+    const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for individual tool name entries in `tools_used`.
+    ///
+    /// SECURITY (FIND-R113-014): Bound per-entry lengths.
+    const MAX_TOOL_NAME_LEN: usize = 256;
 
     /// Validate structural invariants: finite scores, range checks, collection bounds.
     ///
     /// SECURITY (FIND-P2-007): Non-finite risk_score could bypass threshold
     /// comparisons (NaN comparisons always return false).
     /// SECURITY (FIND-R49-008): Bound inner HashSet to prevent memory abuse.
+    /// SECURITY (FIND-R113-014): Control/format char validation on string fields.
     pub fn validate(&self) -> Result<(), String> {
+        if self.agent_id.len() > Self::MAX_AGENT_ID_LEN {
+            return Err(format!(
+                "UnregisteredAgent agent_id length {} exceeds max {}",
+                self.agent_id.len(),
+                Self::MAX_AGENT_ID_LEN
+            ));
+        }
+        if self.first_seen.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "UnregisteredAgent '{}' first_seen length {} exceeds max {}",
+                self.agent_id,
+                self.first_seen.len(),
+                Self::MAX_TIMESTAMP_LEN
+            ));
+        }
+        if self.last_seen.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "UnregisteredAgent '{}' last_seen length {} exceeds max {}",
+                self.agent_id,
+                self.last_seen.len(),
+                Self::MAX_TIMESTAMP_LEN
+            ));
+        }
+        // SECURITY (FIND-R113-014): Control/format char validation.
+        if self
+            .agent_id
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "UnregisteredAgent agent_id contains control or format characters".to_string(),
+            );
+        }
+        if self
+            .first_seen
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "UnregisteredAgent first_seen contains control or format characters".to_string(),
+            );
+        }
+        if self
+            .last_seen
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "UnregisteredAgent last_seen contains control or format characters".to_string(),
+            );
+        }
         if !self.risk_score.is_finite() {
             return Err(format!(
                 "UnregisteredAgent '{}' has non-finite risk_score: {}",
@@ -79,6 +144,17 @@ impl UnregisteredAgent {
                 Self::MAX_TOOLS_USED
             ));
         }
+        // SECURITY (FIND-R113-014): Per-entry length bounds on tools_used.
+        for tool in &self.tools_used {
+            if tool.len() > Self::MAX_TOOL_NAME_LEN {
+                return Err(format!(
+                    "UnregisteredAgent '{}' tools_used entry length {} exceeds max {}",
+                    self.agent_id,
+                    tool.len(),
+                    Self::MAX_TOOL_NAME_LEN
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -91,6 +167,7 @@ impl UnregisteredAgent {
 
 /// A tool observed in traffic that is not in the approved tools list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UnapprovedTool {
     pub tool_name: String,
     pub first_seen: String,
@@ -101,9 +178,58 @@ pub struct UnapprovedTool {
 impl UnapprovedTool {
     /// Maximum number of requesting agents tracked per unapproved tool.
     const MAX_REQUESTING_AGENTS: usize = 1000;
+    /// Maximum length for `tool_name` field.
+    ///
+    /// SECURITY (FIND-R113-014): Bound string fields.
+    const MAX_TOOL_NAME_LEN: usize = 256;
+    /// Maximum length for `first_seen` timestamp field.
+    ///
+    /// SECURITY (FIND-R113-014): Bound string fields.
+    const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for individual agent name entries in `requesting_agents`.
+    ///
+    /// SECURITY (FIND-R113-014): Bound per-entry lengths.
+    const MAX_AGENT_NAME_LEN: usize = 256;
 
+    /// Validate structural bounds, control/format character safety, and per-entry lengths.
+    ///
     /// SECURITY (FIND-R49-008): Validate inner HashSet bounds.
+    /// SECURITY (FIND-R113-014): Control/format char validation on string fields.
     pub fn validate(&self) -> Result<(), String> {
+        if self.tool_name.len() > Self::MAX_TOOL_NAME_LEN {
+            return Err(format!(
+                "UnapprovedTool tool_name length {} exceeds max {}",
+                self.tool_name.len(),
+                Self::MAX_TOOL_NAME_LEN
+            ));
+        }
+        if self.first_seen.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "UnapprovedTool '{}' first_seen length {} exceeds max {}",
+                self.tool_name,
+                self.first_seen.len(),
+                Self::MAX_TIMESTAMP_LEN
+            ));
+        }
+        // SECURITY (FIND-R113-014): Control/format char validation.
+        if self
+            .tool_name
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "UnapprovedTool tool_name contains control or format characters".to_string(),
+            );
+        }
+        if self
+            .first_seen
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "UnapprovedTool first_seen contains control or format characters".to_string(),
+            );
+        }
         if self.requesting_agents.len() > Self::MAX_REQUESTING_AGENTS {
             return Err(format!(
                 "UnapprovedTool '{}' requesting_agents count {} exceeds max {}",
@@ -112,12 +238,24 @@ impl UnapprovedTool {
                 Self::MAX_REQUESTING_AGENTS
             ));
         }
+        // SECURITY (FIND-R113-014): Per-entry length bounds on requesting_agents.
+        for agent in &self.requesting_agents {
+            if agent.len() > Self::MAX_AGENT_NAME_LEN {
+                return Err(format!(
+                    "UnapprovedTool '{}' requesting_agents entry length {} exceeds max {}",
+                    self.tool_name,
+                    agent.len(),
+                    Self::MAX_AGENT_NAME_LEN
+                ));
+            }
+        }
         Ok(())
     }
 }
 
 /// An MCP server observed in traffic that is not in the known servers list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UnknownMcpServer {
     pub server_id: String,
     pub first_seen: String,
@@ -128,9 +266,58 @@ pub struct UnknownMcpServer {
 impl UnknownMcpServer {
     /// Maximum number of advertised tools tracked per unknown server.
     const MAX_ADVERTISED_TOOLS: usize = 1000;
+    /// Maximum length for `server_id` field.
+    ///
+    /// SECURITY (FIND-R113-014): Bound string fields.
+    const MAX_SERVER_ID_LEN: usize = 256;
+    /// Maximum length for `first_seen` timestamp field.
+    ///
+    /// SECURITY (FIND-R113-014): Bound string fields.
+    const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for individual tool name entries in `advertised_tools`.
+    ///
+    /// SECURITY (FIND-R113-014): Bound per-entry lengths.
+    const MAX_TOOL_NAME_LEN: usize = 256;
 
+    /// Validate structural bounds, control/format character safety, and per-entry lengths.
+    ///
     /// SECURITY (FIND-R49-008): Validate inner HashSet bounds.
+    /// SECURITY (FIND-R113-014): Control/format char validation on string fields.
     pub fn validate(&self) -> Result<(), String> {
+        if self.server_id.len() > Self::MAX_SERVER_ID_LEN {
+            return Err(format!(
+                "UnknownMcpServer server_id length {} exceeds max {}",
+                self.server_id.len(),
+                Self::MAX_SERVER_ID_LEN
+            ));
+        }
+        if self.first_seen.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "UnknownMcpServer '{}' first_seen length {} exceeds max {}",
+                self.server_id,
+                self.first_seen.len(),
+                Self::MAX_TIMESTAMP_LEN
+            ));
+        }
+        // SECURITY (FIND-R113-014): Control/format char validation.
+        if self
+            .server_id
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "UnknownMcpServer server_id contains control or format characters".to_string(),
+            );
+        }
+        if self
+            .first_seen
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "UnknownMcpServer first_seen contains control or format characters".to_string(),
+            );
+        }
         if self.advertised_tools.len() > Self::MAX_ADVERTISED_TOOLS {
             return Err(format!(
                 "UnknownMcpServer '{}' advertised_tools count {} exceeds max {}",
@@ -139,12 +326,24 @@ impl UnknownMcpServer {
                 Self::MAX_ADVERTISED_TOOLS
             ));
         }
+        // SECURITY (FIND-R113-014): Per-entry length bounds on advertised_tools.
+        for tool in &self.advertised_tools {
+            if tool.len() > Self::MAX_TOOL_NAME_LEN {
+                return Err(format!(
+                    "UnknownMcpServer '{}' advertised_tools entry length {} exceeds max {}",
+                    self.server_id,
+                    tool.len(),
+                    Self::MAX_TOOL_NAME_LEN
+                ));
+            }
+        }
         Ok(())
     }
 }
 
 /// Full shadow AI discovery report — inventory of all unregistered entities.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ShadowAiReport {
     pub unregistered_agents: Vec<UnregisteredAgent>,
     pub unapproved_tools: Vec<UnapprovedTool>,

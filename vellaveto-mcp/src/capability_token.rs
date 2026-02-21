@@ -25,6 +25,31 @@ use vellaveto_types::{
 /// Prevents `ttl_secs as i64` overflow on u64 values > i64::MAX.
 const MAX_CAPABILITY_TTL_SECS: u64 = 365 * 24 * 3600;
 
+/// SECURITY (IMP-R118-004): Maximum length for issuer/holder identity strings.
+const MAX_IDENTITY_LEN: usize = 256;
+
+/// SECURITY (IMP-R118-004): Validate string has no control or Unicode format characters.
+fn validate_no_dangerous_chars(value: &str, field_name: &str) -> Result<(), CapabilityError> {
+    if value.len() > MAX_IDENTITY_LEN {
+        return Err(CapabilityError::SigningFailed(format!(
+            "{} length {} exceeds maximum {}",
+            field_name,
+            value.len(),
+            MAX_IDENTITY_LEN
+        )));
+    }
+    if value
+        .chars()
+        .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+    {
+        return Err(CapabilityError::SigningFailed(format!(
+            "{} contains control or Unicode format characters",
+            field_name
+        )));
+    }
+    Ok(())
+}
+
 /// Issue a new root capability token.
 ///
 /// Creates a fresh token with the specified grants, signed by the issuer's
@@ -48,6 +73,9 @@ pub fn issue_capability_token(
             "holder must not be empty".to_string(),
         ));
     }
+    // SECURITY (IMP-R118-004): Validate no control or Unicode format characters.
+    validate_no_dangerous_chars(issuer, "issuer")?;
+    validate_no_dangerous_chars(holder, "holder")?;
     if grants.is_empty() {
         return Err(CapabilityError::SigningFailed(
             "grants must not be empty".to_string(),
@@ -147,6 +175,17 @@ pub fn attenuate_capability_token(
     if new_holder.is_empty() {
         return Err(CapabilityError::SigningFailed(
             "new_holder must not be empty".to_string(),
+        ));
+    }
+    // SECURITY (IMP-R118-004): Validate no control or Unicode format characters.
+    validate_no_dangerous_chars(new_holder, "new_holder")?;
+
+    // SECURITY (IMP-R118-010): Reject self-delegation — an agent cannot delegate
+    // a token to itself, which would create a fresh token with a new issued_at
+    // effectively bypassing temporal constraints.
+    if new_holder.eq_ignore_ascii_case(&parent.holder) {
+        return Err(CapabilityError::AttenuationViolation(
+            "self-delegation is not permitted".to_string(),
         ));
     }
 
@@ -1281,6 +1320,169 @@ mod tests {
             result.is_err(),
             "FIND-FV46-002: Child with more invocations than parent must be rejected"
         );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // IMP-R118-004: Control character validation
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_issue_rejects_issuer_control_chars() {
+        let key_hex = test_key_hex();
+        let result =
+            issue_capability_token("issuer\x00", "holder", test_grants(), 5, &key_hex, 3600);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("control"));
+    }
+
+    #[test]
+    fn test_issue_rejects_holder_bidi_override() {
+        let key_hex = test_key_hex();
+        let result = issue_capability_token(
+            "issuer",
+            "holder\u{202E}evil",
+            test_grants(),
+            5,
+            &key_hex,
+            3600,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("control"));
+    }
+
+    #[test]
+    fn test_issue_rejects_issuer_zero_width() {
+        let key_hex = test_key_hex();
+        let result = issue_capability_token(
+            "issuer\u{200B}",
+            "holder",
+            test_grants(),
+            5,
+            &key_hex,
+            3600,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_issue_rejects_issuer_too_long() {
+        let key_hex = test_key_hex();
+        let long_issuer = "i".repeat(MAX_IDENTITY_LEN + 1);
+        let result =
+            issue_capability_token(&long_issuer, "holder", test_grants(), 5, &key_hex, 3600);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("length"));
+    }
+
+    #[test]
+    fn test_issue_accepts_max_length_issuer() {
+        let key_hex = test_key_hex();
+        let max_issuer = "i".repeat(MAX_IDENTITY_LEN);
+        let result =
+            issue_capability_token(&max_issuer, "holder", test_grants(), 5, &key_hex, 3600);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_attenuate_rejects_new_holder_control_chars() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "*".into(),
+                function_pattern: "*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 0,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+        let result = attenuate_capability_token(
+            &parent,
+            "agent-b\x1B[0m",
+            test_grants(),
+            &child_key_hex,
+            1800,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("control"));
+    }
+
+    // ════════════════════════════════════════════════════════
+    // IMP-R118-010: Self-delegation rejection
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_attenuate_rejects_self_delegation() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "*".into(),
+                function_pattern: "*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 0,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        let result = attenuate_capability_token(
+            &parent,
+            "agent-a", // same as parent.holder
+            test_grants(),
+            &child_key_hex,
+            1800,
+        );
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("self-delegation"));
+    }
+
+    #[test]
+    fn test_attenuate_rejects_self_delegation_case_insensitive() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "Agent-A",
+            vec![CapabilityGrant {
+                tool_pattern: "*".into(),
+                function_pattern: "*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 0,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        let result = attenuate_capability_token(
+            &parent,
+            "AGENT-A", // case-different but same identity
+            test_grants(),
+            &child_key_hex,
+            1800,
+        );
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("self-delegation"));
     }
 
     #[test]
