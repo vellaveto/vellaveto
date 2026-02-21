@@ -3861,6 +3861,7 @@ fn test_memory_entry_validate_finite_accepts_normal() {
 #[allow(deprecated)]
 fn test_nhi_behavioral_baseline_validate_finite_rejects_nan() {
     let baseline = NhiBehavioralBaseline {
+        agent_id: "test-agent".to_string(),
         avg_request_interval_secs: f64::NAN,
         ..NhiBehavioralBaseline::default()
     };
@@ -3871,6 +3872,7 @@ fn test_nhi_behavioral_baseline_validate_finite_rejects_nan() {
 #[allow(deprecated)]
 fn test_nhi_behavioral_baseline_validate_finite_rejects_infinity_in_map() {
     let mut baseline = NhiBehavioralBaseline::default();
+    baseline.agent_id = "test-agent".to_string();
     baseline
         .tool_call_patterns
         .insert("tool".to_string(), f64::INFINITY);
@@ -3881,6 +3883,7 @@ fn test_nhi_behavioral_baseline_validate_finite_rejects_infinity_in_map() {
 #[allow(deprecated)]
 fn test_nhi_behavioral_baseline_validate_finite_accepts_normal() {
     let baseline = NhiBehavioralBaseline {
+        agent_id: "test-agent".to_string(),
         avg_request_interval_secs: 5.0,
         confidence: 0.9,
         ..NhiBehavioralBaseline::default()
@@ -5384,6 +5387,7 @@ fn test_nhi_behavioral_check_anomaly_score_range_accepts_valid() {
 #[test]
 fn test_nhi_behavioral_baseline_confidence_range_rejects_negative() {
     let baseline = NhiBehavioralBaseline {
+        agent_id: "test-agent".to_string(),
         confidence: -0.01,
         ..Default::default()
     };
@@ -5395,6 +5399,7 @@ fn test_nhi_behavioral_baseline_confidence_range_rejects_negative() {
 #[test]
 fn test_nhi_behavioral_baseline_confidence_range_rejects_above_one() {
     let baseline = NhiBehavioralBaseline {
+        agent_id: "test-agent".to_string(),
         confidence: 1.001,
         ..Default::default()
     };
@@ -5406,6 +5411,7 @@ fn test_nhi_behavioral_baseline_confidence_range_rejects_above_one() {
 #[test]
 fn test_nhi_behavioral_baseline_confidence_range_accepts_valid() {
     let baseline = NhiBehavioralBaseline {
+        agent_id: "test-agent".to_string(),
         confidence: 0.95,
         ..Default::default()
     };
@@ -7220,6 +7226,7 @@ fn test_nhi_agent_identity_validate_expires_equal_issued() {
 #[test]
 fn test_nhi_behavioral_baseline_validate_malformed_created_at() {
     let baseline = NhiBehavioralBaseline {
+        agent_id: "test-agent".to_string(),
         created_at: "not-a-date".to_string(),
         ..NhiBehavioralBaseline::default()
     };
@@ -7234,6 +7241,7 @@ fn test_nhi_behavioral_baseline_validate_malformed_created_at() {
 #[test]
 fn test_nhi_behavioral_baseline_validate_malformed_last_updated() {
     let baseline = NhiBehavioralBaseline {
+        agent_id: "test-agent".to_string(),
         last_updated: "garbage".to_string(),
         ..NhiBehavioralBaseline::default()
     };
@@ -7666,4 +7674,232 @@ fn test_r141_tool_attestation_format_char_in_tool_hash() {
     let result = att.validate();
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("tool_hash"));
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R146-TE-001: VersionDriftAlert validate()
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r146_version_drift_alert_validate_valid() {
+    let alert = crate::etdi::VersionDriftAlert::version_mismatch(
+        "my_tool",
+        "1.0.0",
+        "1.1.0",
+        true,
+        "2026-01-01T00:00:00Z",
+    );
+    assert!(alert.validate().is_ok());
+}
+
+#[test]
+fn test_r146_version_drift_alert_validate_empty_tool() {
+    let alert = crate::etdi::VersionDriftAlert {
+        tool: String::new(),
+        expected_version: "1.0".to_string(),
+        actual_version: "2.0".to_string(),
+        drift_type: "version_mismatch".to_string(),
+        blocking: false,
+        detected_at: "2026-01-01T00:00:00Z".to_string(),
+    };
+    let err = alert.validate().unwrap_err();
+    assert!(
+        err.contains("tool") && err.contains("must not be empty"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn test_r146_version_drift_alert_validate_tool_too_long() {
+    let alert = crate::etdi::VersionDriftAlert {
+        tool: "x".repeat(513),
+        expected_version: "1.0".to_string(),
+        actual_version: "2.0".to_string(),
+        drift_type: "version_mismatch".to_string(),
+        blocking: false,
+        detected_at: "2026-01-01T00:00:00Z".to_string(),
+    };
+    let err = alert.validate().unwrap_err();
+    assert!(
+        err.contains("tool") && err.contains("exceeds max"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn test_r146_version_drift_alert_validate_format_chars() {
+    let alert = crate::etdi::VersionDriftAlert {
+        tool: "my_tool".to_string(),
+        expected_version: format!("1.0\u{200B}"),
+        actual_version: "2.0".to_string(),
+        drift_type: "version_mismatch".to_string(),
+        blocking: false,
+        detected_at: "2026-01-01T00:00:00Z".to_string(),
+    };
+    let err = alert.validate().unwrap_err();
+    assert!(
+        err.contains("expected_version") && err.contains("control or format"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn test_r146_version_drift_alert_validate_control_chars_in_detected_at() {
+    let alert = crate::etdi::VersionDriftAlert {
+        tool: "my_tool".to_string(),
+        expected_version: "1.0".to_string(),
+        actual_version: "2.0".to_string(),
+        drift_type: "version_mismatch".to_string(),
+        blocking: false,
+        detected_at: "2026-01-01\n00:00:00Z".to_string(),
+    };
+    let err = alert.validate().unwrap_err();
+    assert!(
+        err.contains("detected_at") && err.contains("control or format"),
+        "got: {err}"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R146-TE-002: SignatureVerification deny_unknown_fields + validate()
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r146_signature_verification_deny_unknown_fields() {
+    let json = r#"{
+        "valid": true,
+        "signer_trusted": true,
+        "expired": false,
+        "message": "ok",
+        "extra_field": "attack"
+    }"#;
+    let result = serde_json::from_str::<crate::etdi::SignatureVerification>(json);
+    assert!(
+        result.is_err(),
+        "SignatureVerification must reject unknown fields"
+    );
+}
+
+#[test]
+fn test_r146_signature_verification_validate_valid() {
+    let sv = crate::etdi::SignatureVerification {
+        valid: true,
+        signer_trusted: true,
+        expired: false,
+        message: "Verified successfully".to_string(),
+    };
+    assert!(sv.validate().is_ok());
+}
+
+#[test]
+fn test_r146_signature_verification_validate_message_too_long() {
+    let sv = crate::etdi::SignatureVerification {
+        valid: true,
+        signer_trusted: true,
+        expired: false,
+        message: "x".repeat(4097),
+    };
+    let err = sv.validate().unwrap_err();
+    assert!(
+        err.contains("message") && err.contains("exceeds max"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn test_r146_signature_verification_validate_message_format_chars() {
+    let sv = crate::etdi::SignatureVerification {
+        valid: true,
+        signer_trusted: true,
+        expired: false,
+        message: format!("ok\u{200B}"),
+    };
+    let err = sv.validate().unwrap_err();
+    assert!(
+        err.contains("message") && err.contains("control or format"),
+        "got: {err}"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R146-TE-003: PrincipalContext allowed_tools has_dangerous_chars
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r146_principal_context_allowed_tools_format_chars() {
+    let ctx = PrincipalContext {
+        original_principal: "admin".to_string(),
+        delegated_to: None,
+        delegation_depth: 0,
+        allowed_tools: vec![format!("read_file\u{200B}")],
+        delegation_expires: None,
+    };
+    let err = ctx.validate().unwrap_err();
+    assert!(
+        err.contains("allowed_tools[0]") && err.contains("control or format"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn test_r146_principal_context_allowed_tools_control_chars() {
+    let ctx = PrincipalContext {
+        original_principal: "admin".to_string(),
+        delegated_to: None,
+        delegation_depth: 0,
+        allowed_tools: vec!["good_tool".to_string(), "bad\ntool".to_string()],
+        delegation_expires: None,
+    };
+    let err = ctx.validate().unwrap_err();
+    assert!(
+        err.contains("allowed_tools[1]") && err.contains("control or format"),
+        "got: {err}"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R146-TE-004: NhiBehavioralBaseline agent_id validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r146_nhi_behavioral_baseline_validate_empty_agent_id() {
+    let baseline = NhiBehavioralBaseline::default();
+    let err = baseline.validate().unwrap_err();
+    assert!(
+        err.contains("agent_id") && err.contains("must not be empty"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn test_r146_nhi_behavioral_baseline_validate_agent_id_too_long() {
+    let mut baseline = NhiBehavioralBaseline::default();
+    baseline.agent_id = "x".repeat(257);
+    let err = baseline.validate().unwrap_err();
+    assert!(
+        err.contains("agent_id") && err.contains("exceeds maximum"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn test_r146_nhi_behavioral_baseline_validate_agent_id_dangerous_chars() {
+    let mut baseline = NhiBehavioralBaseline::default();
+    baseline.agent_id = format!("agent\u{200B}");
+    let err = baseline.validate().unwrap_err();
+    assert!(
+        err.contains("agent_id") && err.contains("dangerous characters"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn test_r146_nhi_behavioral_baseline_validate_agent_id_control_chars() {
+    let mut baseline = NhiBehavioralBaseline::default();
+    baseline.agent_id = "agent\n123".to_string();
+    let err = baseline.validate().unwrap_err();
+    assert!(
+        err.contains("agent_id") && err.contains("dangerous characters"),
+        "got: {err}"
+    );
 }

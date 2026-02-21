@@ -703,6 +703,14 @@ impl PrincipalContext {
                     Self::MAX_PRINCIPAL_LEN,
                 ));
             }
+            // SECURITY (FIND-R146-TE-003): Reject control and Unicode format characters
+            // in allowed_tools entries, matching original_principal and delegated_to validation.
+            if crate::core::has_dangerous_chars(tool) {
+                return Err(format!(
+                    "PrincipalContext allowed_tools[{}] contains control or format characters",
+                    i,
+                ));
+            }
         }
 
         // Validate delegation_expires if present (non-zero guard)

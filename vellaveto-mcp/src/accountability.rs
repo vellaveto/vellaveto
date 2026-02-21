@@ -67,11 +67,11 @@ pub enum AttestationError {
 ///
 /// # Content Format
 ///
-/// The signed content is a length-prefixed concatenation to prevent
-/// boundary collision attacks:
+/// The signed content is a length-prefixed concatenation of ALL semantically
+/// significant fields to prevent boundary collision and field tampering attacks:
 ///
 /// ```text
-/// <agent_id_len>:<agent_id><statement_len>:<statement><policy_hash_len>:<policy_hash><created_at>
+/// <attestation_id_len>:<attestation_id><agent_id_len>:<agent_id><did_len>:<did><statement_len>:<statement><policy_hash_len>:<policy_hash><created_at_len>:<created_at><expires_at_len>:<expires_at>
 /// ```
 pub fn sign_attestation(
     agent_id: &str,
@@ -160,8 +160,22 @@ pub fn sign_attestation(
     let created_at = now.to_rfc3339();
     let expires_at = (now + chrono::Duration::seconds(ttl_secs as i64)).to_rfc3339();
 
-    // Build length-prefixed canonical content
-    let canonical = build_canonical_content(agent_id, statement, policy_hash, &created_at);
+    // SECURITY (FIND-R146-MA-004): Generate attestation_id before signing so it
+    // is included in the canonical content. This prevents signature reuse across
+    // attestations with different IDs.
+    let attestation_id = Uuid::new_v4().to_string();
+
+    // SECURITY (FIND-R146-MA-001/002/003/004): Build length-prefixed canonical
+    // content including ALL semantically significant fields.
+    let canonical = build_canonical_content(
+        &attestation_id,
+        agent_id,
+        did,
+        statement,
+        policy_hash,
+        &created_at,
+        &expires_at,
+    );
 
     // SHA-256 hash the canonical content
     let mut hasher = Sha256::new();
@@ -173,7 +187,7 @@ pub fn sign_attestation(
     let signature_hex = hex::encode(signature.to_bytes());
 
     Ok(AccountabilityAttestation {
-        attestation_id: Uuid::new_v4().to_string(),
+        attestation_id,
         agent_id: agent_id.to_string(),
         did: did.map(|s| s.to_string()),
         statement: statement.to_string(),
@@ -222,12 +236,16 @@ pub fn verify_attestation(
         ))
     })?);
 
-    // Rebuild canonical content and hash
+    // SECURITY (FIND-R146-MA-001/002/003/004): Rebuild canonical content including
+    // ALL signed fields (attestation_id, did, expires_at, created_at with length prefix).
     let canonical = build_canonical_content(
+        &attestation.attestation_id,
         &attestation.agent_id,
+        attestation.did.as_deref(),
         &attestation.statement,
         &attestation.policy_hash,
         &attestation.created_at,
+        &attestation.expires_at,
     );
     let mut hasher = Sha256::new();
     hasher.update(canonical.as_bytes());
@@ -271,25 +289,51 @@ pub fn verify_attestation(
 
 /// Build length-prefixed canonical content for signing/verification.
 ///
-/// Format: `<agent_id_len>:<agent_id><statement_len>:<statement><hash_len>:<policy_hash><created_at>`
+/// Format:
+/// ```text
+/// <attestation_id_len>:<attestation_id>
+/// <agent_id_len>:<agent_id>
+/// <did_len>:<did>
+/// <statement_len>:<statement>
+/// <policy_hash_len>:<policy_hash>
+/// <created_at_len>:<created_at>
+/// <expires_at_len>:<expires_at>
+/// ```
+///
+/// SECURITY (FIND-R146-MA-001/002/003/004): All fields that affect attestation
+/// semantics are included in the signed canonical content with length prefixes.
+/// Missing fields would allow attackers to modify `expires_at` (extend lifetime),
+/// `did` (rebind identity), or `attestation_id` (replay with different ID)
+/// without invalidating the Ed25519 signature.
 ///
 /// Length prefixing prevents boundary collision: without it, `agent_id="ab" + statement="cd"`
 /// would hash identically to `agent_id="abc" + statement="d"`.
 fn build_canonical_content(
+    attestation_id: &str,
     agent_id: &str,
+    did: Option<&str>,
     statement: &str,
     policy_hash: &str,
     created_at: &str,
+    expires_at: &str,
 ) -> String {
+    let did_value = did.unwrap_or("");
     format!(
-        "{}:{}{}:{}{}:{}{}",
+        "{}:{}{}:{}{}:{}{}:{}{}:{}{}:{}{}:{}",
+        attestation_id.len(),
+        attestation_id,
         agent_id.len(),
         agent_id,
+        did_value.len(),
+        did_value,
         statement.len(),
         statement,
         policy_hash.len(),
         policy_hash,
-        created_at
+        created_at.len(),
+        created_at,
+        expires_at.len(),
+        expires_at,
     )
 }
 
@@ -632,6 +676,9 @@ mod tests {
             verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
         // Fail-closed: unparseable expiry should be treated as expired
         assert!(result.expired, "malformed expires_at must be treated as expired");
+        // SECURITY (FIND-R146-MA-001): expires_at is now in signed canonical content,
+        // so tampering also invalidates the signature (double fail-closed).
+        assert!(!result.signature_valid, "tampered expires_at must invalidate signature");
         assert!(!result.is_valid());
     }
 
@@ -667,5 +714,190 @@ mod tests {
             MAX_ATTESTATION_TTL_SECS,
         );
         assert!(result.is_ok());
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R146-MA-001: expires_at in signed canonical content
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_verify_detects_tampered_expires_at() {
+        let (signing_key_hex, public_key_hex) = generate_test_keypair();
+
+        let mut attestation = sign_attestation(
+            "agent-1",
+            None,
+            "Statement",
+            "hash",
+            &signing_key_hex,
+            86400,
+        )
+        .expect("sign");
+
+        // Tamper with expires_at to extend lifetime — must invalidate signature
+        let far_future =
+            (chrono::Utc::now() + chrono::Duration::days(365)).to_rfc3339();
+        attestation.expires_at = far_future;
+
+        let now = chrono::Utc::now();
+        let result =
+            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        assert!(
+            !result.signature_valid,
+            "tampered expires_at must invalidate signature"
+        );
+        assert!(!result.is_valid());
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R146-MA-002: did field in signed canonical content
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_verify_detects_tampered_did() {
+        let (signing_key_hex, public_key_hex) = generate_test_keypair();
+
+        let mut attestation = sign_attestation(
+            "agent-1",
+            Some("did:plc:original"),
+            "Statement",
+            "hash",
+            &signing_key_hex,
+            86400,
+        )
+        .expect("sign");
+
+        // Tamper with DID to rebind to different identity — must invalidate signature
+        attestation.did = Some("did:plc:attacker".to_string());
+
+        let now = chrono::Utc::now();
+        let result =
+            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        assert!(
+            !result.signature_valid,
+            "tampered did must invalidate signature"
+        );
+        assert!(!result.is_valid());
+    }
+
+    #[test]
+    fn test_verify_detects_did_added_after_signing_without_did() {
+        let (signing_key_hex, public_key_hex) = generate_test_keypair();
+
+        // Sign without DID
+        let mut attestation = sign_attestation(
+            "agent-1",
+            None,
+            "Statement",
+            "hash",
+            &signing_key_hex,
+            86400,
+        )
+        .expect("sign");
+
+        // Tamper: add a DID that was not present at signing time
+        attestation.did = Some("did:plc:injected".to_string());
+
+        let now = chrono::Utc::now();
+        let result =
+            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        assert!(
+            !result.signature_valid,
+            "injected did must invalidate signature"
+        );
+        assert!(!result.is_valid());
+    }
+
+    #[test]
+    fn test_verify_detects_did_removed_after_signing_with_did() {
+        let (signing_key_hex, public_key_hex) = generate_test_keypair();
+
+        // Sign with DID
+        let mut attestation = sign_attestation(
+            "agent-1",
+            Some("did:plc:original"),
+            "Statement",
+            "hash",
+            &signing_key_hex,
+            86400,
+        )
+        .expect("sign");
+
+        // Tamper: remove the DID that was present at signing time
+        attestation.did = None;
+
+        let now = chrono::Utc::now();
+        let result =
+            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        assert!(
+            !result.signature_valid,
+            "removed did must invalidate signature"
+        );
+        assert!(!result.is_valid());
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R146-MA-003: created_at length prefix
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_canonical_content_all_fields_length_prefixed() {
+        // Verify that changing any field's value produces different canonical content,
+        // even when concatenated strings would otherwise collide.
+        let c1 = build_canonical_content(
+            "id1", "agent", None, "stmt", "hash", "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z",
+        );
+        let c2 = build_canonical_content(
+            "id1", "agent", None, "stmt", "hash", "2026-01-01T00:00:00", "Z2026-01-02T00:00:00Z",
+        );
+        // With length prefixes, these must differ even though concatenation is similar
+        assert_ne!(c1, c2, "length prefixes must prevent created_at/expires_at boundary collision");
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R146-MA-004: attestation_id in signed canonical content
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_verify_detects_tampered_attestation_id() {
+        let (signing_key_hex, public_key_hex) = generate_test_keypair();
+
+        let mut attestation = sign_attestation(
+            "agent-1",
+            None,
+            "Statement",
+            "hash",
+            &signing_key_hex,
+            86400,
+        )
+        .expect("sign");
+
+        // Tamper with attestation_id — must invalidate signature
+        attestation.attestation_id = Uuid::new_v4().to_string();
+
+        let now = chrono::Utc::now();
+        let result =
+            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        assert!(
+            !result.signature_valid,
+            "tampered attestation_id must invalidate signature"
+        );
+        assert!(!result.is_valid());
+    }
+
+    #[test]
+    fn test_two_attestations_same_content_different_signatures() {
+        let (signing_key_hex, _) = generate_test_keypair();
+
+        // Two attestations with identical content must have different signatures
+        // because attestation_id (UUID) is included in canonical content.
+        let att1 =
+            sign_attestation("agent", None, "stmt", "hash", &signing_key_hex, 86400).expect("1");
+        let att2 =
+            sign_attestation("agent", None, "stmt", "hash", &signing_key_hex, 86400).expect("2");
+
+        assert_ne!(att1.attestation_id, att2.attestation_id);
+        // Signatures must differ because attestation_id and timestamps differ
+        assert_ne!(att1.signature, att2.signature);
     }
 }

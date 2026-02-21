@@ -375,12 +375,33 @@ impl NhiBehavioralBaseline {
     pub const MAX_SOURCE_IPS: usize = 1000;
     /// Maximum entries in `active_hours`.
     pub const MAX_ACTIVE_HOURS: usize = 24;
+    /// Maximum length for `agent_id` field (bytes).
+    const MAX_AGENT_ID_LEN: usize = 256;
 
     /// Validate structural invariants: finite scores, range checks, collection bounds,
     /// and active hour validity.
     ///
     /// SECURITY (FIND-R48-009): Also check collection size bounds.
+    /// SECURITY (FIND-R146-TE-004): Also validate agent_id bounds and dangerous characters.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R146-TE-004): Validate agent_id field.
+        if self.agent_id.is_empty() {
+            return Err(
+                "NhiBehavioralBaseline agent_id must not be empty".to_string(),
+            );
+        }
+        if self.agent_id.len() > Self::MAX_AGENT_ID_LEN {
+            return Err(format!(
+                "NhiBehavioralBaseline agent_id length {} exceeds maximum {}",
+                self.agent_id.len(),
+                Self::MAX_AGENT_ID_LEN
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.agent_id) {
+            return Err(
+                "NhiBehavioralBaseline agent_id contains dangerous characters".to_string(),
+            );
+        }
         if self.tool_call_patterns.len() > Self::MAX_TOOL_CALL_PATTERNS {
             return Err(format!(
                 "NhiBehavioralBaseline has {} tool_call_patterns (max {})",

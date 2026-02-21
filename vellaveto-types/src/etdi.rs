@@ -303,6 +303,7 @@ impl ToolSignature {
 
 /// Verification result for a tool signature.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SignatureVerification {
     /// Whether the cryptographic signature is valid.
     pub valid: bool,
@@ -315,9 +316,32 @@ pub struct SignatureVerification {
 }
 
 impl SignatureVerification {
+    /// Maximum length for `message` field (bytes).
+    const MAX_MESSAGE_LEN: usize = 4096;
+
     /// Returns true if the signature passes all checks.
     pub fn is_fully_verified(&self) -> bool {
         self.valid && self.signer_trusted && !self.expired
+    }
+
+    /// Validate structural bounds on string fields.
+    ///
+    /// SECURITY (FIND-R146-TE-002): Prevents memory exhaustion from oversized
+    /// message fields and control/format character injection from untrusted payloads.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.message.len() > Self::MAX_MESSAGE_LEN {
+            return Err(format!(
+                "SignatureVerification message length {} exceeds max {}",
+                self.message.len(),
+                Self::MAX_MESSAGE_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.message) {
+            return Err(
+                "SignatureVerification message contains control or format characters".to_string(),
+            );
+        }
+        Ok(())
     }
 }
 
@@ -625,6 +649,43 @@ pub struct VersionDriftAlert {
 }
 
 impl VersionDriftAlert {
+    /// Maximum length for string fields (`tool`, `expected_version`,
+    /// `actual_version`, `drift_type`, `detected_at`).
+    const MAX_FIELD_LEN: usize = 512;
+
+    /// Validate structural bounds on all string fields.
+    ///
+    /// SECURITY (FIND-R146-TE-001): Prevents memory exhaustion from oversized
+    /// fields and control/format character injection from untrusted payloads.
+    pub fn validate(&self) -> Result<(), String> {
+        for (name, value) in [
+            ("tool", &self.tool),
+            ("expected_version", &self.expected_version),
+            ("actual_version", &self.actual_version),
+            ("drift_type", &self.drift_type),
+            ("detected_at", &self.detected_at),
+        ] {
+            if value.is_empty() {
+                return Err(format!("VersionDriftAlert {} must not be empty", name));
+            }
+            if value.len() > Self::MAX_FIELD_LEN {
+                return Err(format!(
+                    "VersionDriftAlert {} length {} exceeds max {}",
+                    name,
+                    value.len(),
+                    Self::MAX_FIELD_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(value) {
+                return Err(format!(
+                    "VersionDriftAlert {} contains control or format characters",
+                    name
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Create a version mismatch alert.
     pub fn version_mismatch(
         tool: impl Into<String>,
