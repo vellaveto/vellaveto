@@ -3,9 +3,23 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-21 (Round 147)
-> **Total audit rounds:** 147
-> **Cumulative findings fixed:** 521+
+> **Last updated:** 2026-02-21 (Round 149)
+> **Total audit rounds:** 149
+> **Cumulative findings fixed:** 523+
+
+---
+
+## Round 148+149 — ABAC Path Normalization + HTTP ProgressNotification Parity (2 findings fixed)
+
+**Subsystem:** `vellaveto-engine/src/abac.rs`, `vellaveto-http-proxy/src/proxy/handlers.rs`
+**Commit:** `3c262eb`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R149-006 | P2 | `abac.rs` | `matches_resource` path normalization error now skips path (fail-closed) instead of falling back to `"/"` which could match broad Permit patterns |
+| FIND-R148-002 | P2 | `handlers.rs` | HTTP `ProgressNotification` merged into `PassThrough` arm — DLP + injection scanning parity with WS and gRPC handlers |
+
+**Tests added:** 0 (95 HTTP proxy + 687 engine tests continue to pass)
 
 ---
 
@@ -182,14 +196,14 @@
 
 ---
 
-## Audit Round Summary (Rounds 1–147)
+## Audit Round Summary (Rounds 1–149)
 
 | Category | Cumulative |
 |----------|-----------|
-| Rounds completed | 147 |
+| Rounds completed | 149 |
 | P0 (Critical) findings fixed | 3 |
 | P1 (High) findings fixed | 36+ |
-| P2 (Medium) findings fixed | 363+ |
+| P2 (Medium) findings fixed | 365+ |
 | P3 (Low) findings fixed | 151+ |
 | Tests added from audits | 220+ |
 | CLEAN rounds (no findings) | ~25 |
