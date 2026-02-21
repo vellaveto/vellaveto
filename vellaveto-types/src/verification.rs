@@ -269,6 +269,7 @@ impl AccountabilityAttestation {
 
 /// Result of verifying an accountability attestation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AttestationVerificationResult {
     /// Whether the cryptographic signature is valid.
     pub signature_valid: bool,

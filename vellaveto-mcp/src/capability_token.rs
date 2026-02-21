@@ -1485,6 +1485,74 @@ mod tests {
             .contains("self-delegation"));
     }
 
+    // ════════════════════════════════════════════════════════
+    // IMP-R120-004: Future issued_at rejection
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_verify_rejects_future_issued_at_beyond_skew() {
+        let key_hex = test_key_hex();
+        let mut token = issue_capability_token(
+            "root",
+            "agent-a",
+            test_grants(),
+            5,
+            &key_hex,
+            3600,
+        )
+        .unwrap();
+
+        // Set issued_at to 120 seconds in the future (beyond 60s skew tolerance)
+        let future_time = chrono::Utc::now() + chrono::Duration::seconds(120);
+        token.issued_at = future_time.to_rfc3339();
+
+        let now = chrono::Utc::now();
+        let result = verify_capability_token(&token, Some("agent-a"), None, &now).unwrap();
+        assert!(!result.valid, "future-dated token should be rejected");
+        assert!(
+            result.failure_reason.as_ref().unwrap().contains("future"),
+            "error should mention 'future', got: {:?}",
+            result.failure_reason
+        );
+    }
+
+    #[test]
+    fn test_verify_accepts_issued_at_within_skew() {
+        let key_hex = test_key_hex();
+        let mut token = issue_capability_token(
+            "root",
+            "agent-a",
+            test_grants(),
+            5,
+            &key_hex,
+            3600,
+        )
+        .unwrap();
+
+        // Set issued_at to 30 seconds in the future (within 60s skew tolerance)
+        let near_future = chrono::Utc::now() + chrono::Duration::seconds(30);
+        token.issued_at = near_future.to_rfc3339();
+
+        // Re-sign the token after modifying issued_at so the signature matches
+        let signing_key = parse_signing_key(&key_hex).unwrap();
+        let canonical = build_canonical_content(
+            &token.token_id,
+            token.parent_token_id.as_deref(),
+            &token.issuer,
+            &token.holder,
+            &token.grants,
+            token.remaining_depth,
+            &token.issued_at,
+        )
+        .unwrap();
+        token.signature = sign_content(&signing_key, &canonical).unwrap();
+
+        let now = chrono::Utc::now();
+        let result = verify_capability_token(&token, Some("agent-a"), None, &now).unwrap();
+        // Should be valid (within skew tolerance)
+        assert!(result.valid, "token within skew should be accepted: {:?}", result.failure_reason);
+    }
+
     #[test]
     fn test_attenuation_max_invocations_valid_subset() {
         let parent_key_hex = test_key_hex();

@@ -165,6 +165,7 @@ pub enum DiscoveryEvent {
 /// set to `None` and omitted from the JSON response. Only `mode` and `uptime_secs`
 /// are included.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DeploymentInfo {
     /// Instance ID of this Vellaveto node (e.g., pod name).
     /// None when redacted in anonymous mode.

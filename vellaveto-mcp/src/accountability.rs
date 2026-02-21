@@ -608,4 +608,67 @@ mod tests {
         let result = sign_attestation(&max_id, None, "stmt", "hash", &signing_key_hex, 86400);
         assert!(result.is_ok());
     }
+
+    // ════════════════════════════════════════════════════════
+    // IMP-R120-002: Malformed expires_at fail-closed
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_verify_malformed_expires_at_treated_as_expired() {
+        let (signing_key_hex, public_key_hex) = generate_test_keypair();
+
+        let mut attestation = sign_attestation(
+            "agent-1",
+            None,
+            "Statement",
+            "hash",
+            &signing_key_hex,
+            86400,
+        )
+        .expect("sign");
+
+        // Corrupt the expires_at field — unparseable date
+        attestation.expires_at = "not-a-valid-date".to_string();
+
+        let now = chrono::Utc::now();
+        let result =
+            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        // Fail-closed: unparseable expiry should be treated as expired
+        assert!(result.expired, "malformed expires_at must be treated as expired");
+        assert!(!result.is_valid());
+    }
+
+    // ════════════════════════════════════════════════════════
+    // IMP-R120-003: MAX_ATTESTATION_TTL_SECS rejection
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_sign_rejects_ttl_exceeding_max() {
+        let (signing_key_hex, _) = generate_test_keypair();
+        let result = sign_attestation(
+            "agent",
+            None,
+            "stmt",
+            "hash",
+            &signing_key_hex,
+            MAX_ATTESTATION_TTL_SECS + 1,
+        );
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("exceeds maximum"), "error: {}", msg);
+    }
+
+    #[test]
+    fn test_sign_accepts_max_ttl() {
+        let (signing_key_hex, _) = generate_test_keypair();
+        let result = sign_attestation(
+            "agent",
+            None,
+            "stmt",
+            "hash",
+            &signing_key_hex,
+            MAX_ATTESTATION_TTL_SECS,
+        );
+        assert!(result.is_ok());
+    }
 }

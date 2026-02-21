@@ -228,6 +228,7 @@ impl ExtensionDescriptor {
 
 /// Resource limits for extension isolation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ExtensionResourceLimits {
     /// Maximum concurrent in-flight requests to this extension.
     #[serde(default = "default_max_concurrent")]
@@ -254,13 +255,77 @@ impl Default for ExtensionResourceLimits {
     }
 }
 
+impl ExtensionResourceLimits {
+    /// Maximum allowed concurrent requests.
+    const MAX_CONCURRENT: usize = 10_000;
+    /// Maximum allowed requests per second.
+    const MAX_RPS: u32 = 100_000;
+
+    /// Validate resource limits are within reasonable bounds.
+    ///
+    /// SECURITY (IMP-R120-014): Prevents attacker-controlled extension configs
+    /// from setting extreme values that cause resource exhaustion or
+    /// division-by-zero (if max_requests_per_sec is used as a denominator).
+    pub fn validate(&self) -> Result<(), String> {
+        if self.max_concurrent_requests == 0 {
+            return Err("max_concurrent_requests must be > 0".to_string());
+        }
+        if self.max_concurrent_requests > Self::MAX_CONCURRENT {
+            return Err(format!(
+                "max_concurrent_requests {} exceeds max {}",
+                self.max_concurrent_requests, Self::MAX_CONCURRENT
+            ));
+        }
+        if self.max_requests_per_sec == 0 {
+            return Err("max_requests_per_sec must be > 0".to_string());
+        }
+        if self.max_requests_per_sec > Self::MAX_RPS {
+            return Err(format!(
+                "max_requests_per_sec {} exceeds max {}",
+                self.max_requests_per_sec, Self::MAX_RPS
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Result of extension capability negotiation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExtensionNegotiationResult {
     /// Extension IDs that were accepted.
     pub accepted: Vec<String>,
     /// Extension IDs that were rejected, with reasons.
     pub rejected: Vec<(String, String)>,
+}
+
+impl ExtensionNegotiationResult {
+    /// Maximum number of accepted extensions per negotiation.
+    const MAX_ACCEPTED: usize = 256;
+    /// Maximum number of rejected extensions per negotiation.
+    const MAX_REJECTED: usize = 256;
+
+    /// Validate structural bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R113-P3): Prevents memory exhaustion via unbounded
+    /// accepted/rejected vectors in negotiation results.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.accepted.len() > Self::MAX_ACCEPTED {
+            return Err(format!(
+                "ExtensionNegotiationResult accepted count {} exceeds max {}",
+                self.accepted.len(),
+                Self::MAX_ACCEPTED,
+            ));
+        }
+        if self.rejected.len() > Self::MAX_REJECTED {
+            return Err(format!(
+                "ExtensionNegotiationResult rejected count {} exceeds max {}",
+                self.rejected.len(),
+                Self::MAX_REJECTED,
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Errors from extension operations.

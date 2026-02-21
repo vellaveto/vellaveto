@@ -290,6 +290,100 @@ fn test_witness_store_drain_preserves_remaining_order() {
 }
 
 // ═══════════════════════════════════════════════════
+// WITNESS STORE RESTORE TESTS (IMP-R120-001)
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_witness_store_restore_prepends_before_existing() {
+    let store = WitnessStore::with_capacity(100);
+
+    // Append witnesses 0..5
+    for i in 0..5 {
+        store.append(make_test_witness(i)).unwrap();
+    }
+
+    // Drain first 3 (sequences 0, 1, 2)
+    let drained = store.drain(3).unwrap();
+    assert_eq!(drained.len(), 3);
+    assert_eq!(drained[0].sequence, 0);
+    assert_eq!(drained[2].sequence, 2);
+
+    // Store now has [3, 4]. Restore [0, 1, 2] to front.
+    store.restore(drained).unwrap();
+
+    // Drain all — should be [0, 1, 2, 3, 4]
+    let all = store.drain(100).unwrap();
+    assert_eq!(all.len(), 5);
+    for i in 0..5 {
+        assert_eq!(all[i].sequence, i as u64, "wrong sequence at index {}", i);
+    }
+}
+
+#[test]
+fn test_witness_store_restore_empty_is_noop() {
+    let store = WitnessStore::with_capacity(100);
+    store.append(make_test_witness(42)).unwrap();
+
+    store.restore(vec![]).unwrap();
+
+    assert_eq!(store.len().unwrap(), 1);
+    let all = store.drain(10).unwrap();
+    assert_eq!(all[0].sequence, 42);
+}
+
+#[test]
+fn test_witness_store_restore_preserves_order() {
+    let store = WitnessStore::with_capacity(100);
+
+    // Append [10, 11, 12]
+    for i in 10..13 {
+        store.append(make_test_witness(i)).unwrap();
+    }
+
+    // Drain all
+    let drained = store.drain(100).unwrap();
+    assert_eq!(drained.len(), 3);
+
+    // Restore — order must be preserved
+    store.restore(drained).unwrap();
+    let result = store.drain(100).unwrap();
+    assert_eq!(result[0].sequence, 10);
+    assert_eq!(result[1].sequence, 11);
+    assert_eq!(result[2].sequence, 12);
+}
+
+#[test]
+fn test_witness_store_restore_allows_over_capacity() {
+    // Capacity is intentionally not enforced by restore()
+    let store = WitnessStore::with_capacity(5);
+
+    // Fill to capacity
+    for i in 0..5 {
+        store.append(make_test_witness(i)).unwrap();
+    }
+
+    // Drain 3
+    let drained = store.drain(3).unwrap();
+
+    // Append 3 more — now at capacity again [3, 4, 5, 6, 7]
+    for i in 5..8 {
+        store.append(make_test_witness(i)).unwrap();
+    }
+    assert_eq!(store.len().unwrap(), 5);
+
+    // Restore the 3 drained witnesses — pushes over capacity to 8
+    store.restore(drained).unwrap();
+    assert_eq!(store.len().unwrap(), 8); // Intentionally over capacity
+
+    // Verify restored are first
+    let all = store.drain(100).unwrap();
+    assert_eq!(all[0].sequence, 0);
+    assert_eq!(all[1].sequence, 1);
+    assert_eq!(all[2].sequence, 2);
+    assert_eq!(all[3].sequence, 3);
+}
+
+// ═══════════════════════════════════════════════════
 // ZK TYPES SERDE TESTS
 // ═══════════════════════════════════════════════════
 

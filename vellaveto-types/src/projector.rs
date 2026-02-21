@@ -27,6 +27,7 @@ pub const MAX_PROJECTOR_DESCRIPTION_LENGTH: usize = 65536;
 
 /// Canonical tool schema (model-agnostic).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct CanonicalToolSchema {
     pub name: String,
     pub description: String,
@@ -93,6 +94,7 @@ impl CanonicalToolSchema {
 
 /// Canonical tool call (model-agnostic).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct CanonicalToolCall {
     pub tool_name: String,
     pub arguments: Value,
@@ -133,6 +135,7 @@ impl CanonicalToolCall {
 
 /// Canonical tool response (model-agnostic).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct CanonicalToolResponse {
     pub call_id: Option<String>,
     pub content: Value,

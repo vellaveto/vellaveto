@@ -497,6 +497,7 @@ impl fmt::Display for ProvenanceEventType {
 /// entries to derived entries. Used to detect suspicious patterns like
 /// notification→replay chains or cross-session data flows.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ProvenanceNode {
     /// Unique identifier for this node (UUID v4).
     pub id: String,

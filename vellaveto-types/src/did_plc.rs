@@ -116,6 +116,7 @@ impl fmt::Display for DidPlc {
 
 /// A service endpoint in a DID:PLC document.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct DidPlcService {
     /// Service identifier (e.g., `"atproto_pds"`).
     pub id: String,
@@ -130,6 +131,7 @@ pub struct DidPlcService {
 /// The DID is derived from the SHA-256 hash of the canonicalized JSON
 /// representation of this operation (with `sig` set to `null`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct DidPlcGenesisOperation {
     /// Operation type — always `"plc_operation"` for genesis.
     #[serde(rename = "type")]

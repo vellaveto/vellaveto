@@ -606,6 +606,7 @@ impl fmt::Debug for TaskResumeRequest {
 
 /// Result of a task resume attempt.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TaskResumeResult {
     /// Whether the resume was authorized.
     pub authorized: bool,
@@ -622,6 +623,7 @@ pub struct TaskResumeResult {
 
 /// Result of validating a task's state chain integrity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TaskIntegrityResult {
     /// Whether the state chain is valid.
     pub valid: bool,
@@ -637,6 +639,7 @@ pub struct TaskIntegrityResult {
 
 /// Statistics about secure task management.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SecureTaskStats {
     /// Total secure tasks tracked.
     pub total_tasks: usize,

@@ -25,6 +25,7 @@ pub enum TransportProtocol {
 
 /// A single transport endpoint advertisement for discovery responses.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TransportEndpoint {
     /// The transport protocol type.
     pub protocol: TransportProtocol,
@@ -34,6 +35,69 @@ pub struct TransportEndpoint {
     pub available: bool,
     /// MCP protocol versions supported on this transport.
     pub protocol_versions: Vec<String>,
+}
+
+impl TransportEndpoint {
+    /// Maximum number of protocol versions per endpoint.
+    ///
+    /// SECURITY (FIND-R113-001): Bound protocol_versions to prevent memory exhaustion.
+    pub const MAX_PROTOCOL_VERSIONS: usize = 20;
+    /// Maximum length for the endpoint URL.
+    ///
+    /// SECURITY (FIND-R113-001): Bound URL to prevent memory exhaustion.
+    pub const MAX_URL_LEN: usize = 2048;
+    /// Maximum length of a single protocol version string.
+    const MAX_VERSION_LEN: usize = 64;
+
+    /// Validate structural bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R113-001): Prevents memory exhaustion via oversized
+    /// TransportEndpoint payloads and rejects control/format characters.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.url.len() > Self::MAX_URL_LEN {
+            return Err(format!(
+                "TransportEndpoint url length {} exceeds max {}",
+                self.url.len(),
+                Self::MAX_URL_LEN,
+            ));
+        }
+        if self
+            .url
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "TransportEndpoint url contains control or format characters".to_string(),
+            );
+        }
+        if self.protocol_versions.len() > Self::MAX_PROTOCOL_VERSIONS {
+            return Err(format!(
+                "TransportEndpoint protocol_versions count {} exceeds max {}",
+                self.protocol_versions.len(),
+                Self::MAX_PROTOCOL_VERSIONS,
+            ));
+        }
+        for (i, ver) in self.protocol_versions.iter().enumerate() {
+            if ver.len() > Self::MAX_VERSION_LEN {
+                return Err(format!(
+                    "TransportEndpoint protocol_versions[{}] length {} exceeds max {}",
+                    i,
+                    ver.len(),
+                    Self::MAX_VERSION_LEN,
+                ));
+            }
+            if ver
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(format!(
+                    "TransportEndpoint protocol_versions[{}] contains control or format characters",
+                    i,
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// SDK maturity tier levels per MCP June 2026 draft.
@@ -57,6 +121,7 @@ pub enum SdkTier {
 /// Captures the outcome (success/failure), duration, and optional error
 /// for one leg of a cross-transport fallback sequence.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TransportAttempt {
     /// The transport protocol that was tried.
     pub protocol: TransportProtocol,
@@ -75,11 +140,52 @@ pub struct TransportAttempt {
     pub error: Option<String>,
 }
 
+impl TransportAttempt {
+    /// Maximum length for endpoint URL.
+    const MAX_URL_LEN: usize = 2048;
+    /// Maximum length for error message.
+    const MAX_ERROR_LEN: usize = 4096;
+
+    /// Validate structural bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R113-P3): Prevents memory exhaustion and control char
+    /// injection via oversized TransportAttempt payloads.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.endpoint_url.len() > Self::MAX_URL_LEN {
+            return Err(format!(
+                "TransportAttempt endpoint_url length {} exceeds max {}",
+                self.endpoint_url.len(),
+                Self::MAX_URL_LEN,
+            ));
+        }
+        if self
+            .endpoint_url
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "TransportAttempt endpoint_url contains control or format characters".to_string(),
+            );
+        }
+        if let Some(ref err) = self.error {
+            if err.len() > Self::MAX_ERROR_LEN {
+                return Err(format!(
+                    "TransportAttempt error length {} exceeds max {}",
+                    err.len(),
+                    Self::MAX_ERROR_LEN,
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Full audit trail for a cross-transport fallback negotiation (Phase 29).
 ///
 /// Captures every attempt made during a fallback sequence and which
 /// transport (if any) ultimately handled the request.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct FallbackNegotiationHistory {
     /// Ordered list of transport attempts (first = highest priority).
     pub attempts: Vec<TransportAttempt>,
@@ -89,10 +195,33 @@ pub struct FallbackNegotiationHistory {
     pub total_duration_ms: u64,
 }
 
+impl FallbackNegotiationHistory {
+    /// Maximum number of attempts in a single fallback sequence.
+    ///
+    /// SECURITY (FIND-R113-P3): Bound attempts vector to prevent memory exhaustion.
+    pub const MAX_ATTEMPTS: usize = 100;
+
+    /// Validate structural bounds on deserialized data.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.attempts.len() > Self::MAX_ATTEMPTS {
+            return Err(format!(
+                "FallbackNegotiationHistory attempts count {} exceeds max {}",
+                self.attempts.len(),
+                Self::MAX_ATTEMPTS,
+            ));
+        }
+        for (i, attempt) in self.attempts.iter().enumerate() {
+            attempt.validate().map_err(|e| format!("attempts[{}]: {}", i, e))?;
+        }
+        Ok(())
+    }
+}
+
 /// Declared SDK capabilities for a Vellaveto instance.
 ///
 /// Advertised via the `/.well-known/mcp-transport` discovery endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SdkCapabilities {
     /// The declared SDK tier level.
     pub tier: SdkTier,
@@ -108,10 +237,16 @@ impl SdkCapabilities {
     /// Maximum number of supported protocol versions.
     pub const MAX_VERSIONS: usize = 20;
 
+    /// Maximum length of a single capability string.
+    const MAX_CAPABILITY_LEN: usize = 256;
+    /// Maximum length of a single version string.
+    const MAX_VERSION_LEN: usize = 64;
+
     /// Validate structural bounds on `SdkCapabilities`.
     ///
     /// SECURITY (FIND-R49-002): Unbounded capability/version vectors could be
     /// used for memory exhaustion via oversized discovery responses.
+    /// SECURITY (FIND-R113-P3): Control/format char validation on string entries.
     pub fn validate(&self) -> Result<(), String> {
         if self.capabilities.len() > Self::MAX_CAPABILITIES {
             return Err(format!(
@@ -120,12 +255,50 @@ impl SdkCapabilities {
                 Self::MAX_CAPABILITIES,
             ));
         }
+        for (i, cap) in self.capabilities.iter().enumerate() {
+            if cap.len() > Self::MAX_CAPABILITY_LEN {
+                return Err(format!(
+                    "capabilities[{}] length {} exceeds max {}",
+                    i,
+                    cap.len(),
+                    Self::MAX_CAPABILITY_LEN,
+                ));
+            }
+            if cap
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(format!(
+                    "capabilities[{}] contains control or format characters",
+                    i,
+                ));
+            }
+        }
         if self.supported_versions.len() > Self::MAX_VERSIONS {
             return Err(format!(
                 "supported_versions count {} exceeds maximum {}",
                 self.supported_versions.len(),
                 Self::MAX_VERSIONS,
             ));
+        }
+        for (i, ver) in self.supported_versions.iter().enumerate() {
+            if ver.len() > Self::MAX_VERSION_LEN {
+                return Err(format!(
+                    "supported_versions[{}] length {} exceeds max {}",
+                    i,
+                    ver.len(),
+                    Self::MAX_VERSION_LEN,
+                ));
+            }
+            if ver
+                .chars()
+                .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+            {
+                return Err(format!(
+                    "supported_versions[{}] contains control or format characters",
+                    i,
+                ));
+            }
         }
         Ok(())
     }

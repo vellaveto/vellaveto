@@ -25,6 +25,7 @@ fn default_weight() -> u8 {
 
 /// An upstream MCP server backend.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct UpstreamBackend {
     /// Unique identifier for this backend.
     pub id: String,

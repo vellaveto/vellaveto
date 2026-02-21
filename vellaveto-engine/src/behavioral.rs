@@ -21,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 
 /// Configuration for behavioral anomaly detection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BehavioralConfig {
     /// EMA smoothing factor in (0.0, 1.0]. Higher values weight recent data more.
     /// Default: 0.2
@@ -149,6 +150,12 @@ impl BehavioralConfig {
         if self.max_agents == 0 {
             return Err(BehavioralError::InvalidMaxAgents);
         }
+        // SECURITY (FIND-R113-P3): Validate max_initial_ema is positive and finite.
+        if let Some(max_ema) = self.max_initial_ema {
+            if max_ema <= 0.0 || max_ema.is_nan() || max_ema.is_infinite() {
+                return Err(BehavioralError::InvalidThreshold(max_ema));
+            }
+        }
         Ok(())
     }
 }
@@ -159,6 +166,7 @@ impl BehavioralConfig {
 
 /// Per-tool statistics tracked across sessions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ToolBaseline {
     /// Exponential moving average of call count.
     pub ema: f64,
@@ -180,6 +188,7 @@ pub enum AnomalySeverity {
 
 /// An anomaly detected in tool call behavior.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AnomalyAlert {
     /// Agent that triggered the anomaly.
     pub agent_id: String,
@@ -216,6 +225,7 @@ impl std::fmt::Display for AnomalyAlert {
 
 /// Serializable snapshot of all behavioral tracking state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BehavioralSnapshot {
     /// Per-agent state.
     pub agents: HashMap<String, AgentSnapshotEntry>,
@@ -225,6 +235,7 @@ pub struct BehavioralSnapshot {
 
 /// Snapshot entry for a single agent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AgentSnapshotEntry {
     pub tools: HashMap<String, ToolBaseline>,
     pub total_sessions: u32,

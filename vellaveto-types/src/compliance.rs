@@ -484,6 +484,7 @@ impl AccessReviewEntry {
 
 /// CC6 (Logical and Physical Access Controls) evidence summary.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct Cc6Evidence {
     /// CC6.1: Logical access security over protected assets.
     pub cc6_1_evidence: String,
