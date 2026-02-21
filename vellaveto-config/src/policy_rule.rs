@@ -1,7 +1,7 @@
 //! Policy rule types — PolicyRule struct and default_priority helper.
 
 use serde::{Deserialize, Serialize};
-use vellaveto_types::{is_unicode_format_char, NetworkRules, PathRules, PolicyType};
+use vellaveto_types::{NetworkRules, PathRules, PolicyType};
 
 /// Default priority for policies when not explicitly specified.
 /// SECURITY (R19-CFG-1): Default to 0 (lowest priority) so that policies
@@ -67,10 +67,7 @@ impl PolicyRule {
                 MAX_POLICY_RULE_NAME_LEN
             ));
         }
-        if self
-            .name
-            .chars()
-            .any(|c| c.is_control() || is_unicode_format_char(c))
+        if vellaveto_types::has_dangerous_chars(&self.name)
         {
             return Err("policy_rule.name contains control or format characters".to_string());
         }
@@ -84,10 +81,7 @@ impl PolicyRule {
                 MAX_POLICY_RULE_FIELD_LEN
             ));
         }
-        if self
-            .tool_pattern
-            .chars()
-            .any(|c| c.is_control() || is_unicode_format_char(c))
+        if vellaveto_types::has_dangerous_chars(&self.tool_pattern)
         {
             return Err(
                 "policy_rule.tool_pattern contains control or format characters".to_string(),
@@ -103,10 +97,7 @@ impl PolicyRule {
                 MAX_POLICY_RULE_FIELD_LEN
             ));
         }
-        if self
-            .function_pattern
-            .chars()
-            .any(|c| c.is_control() || is_unicode_format_char(c))
+        if vellaveto_types::has_dangerous_chars(&self.function_pattern)
         {
             return Err(
                 "policy_rule.function_pattern contains control or format characters".to_string(),
@@ -123,9 +114,7 @@ impl PolicyRule {
                     MAX_POLICY_RULE_FIELD_LEN
                 ));
             }
-            if id
-                .chars()
-                .any(|c| c.is_control() || is_unicode_format_char(c))
+            if vellaveto_types::has_dangerous_chars(id)
             {
                 return Err("policy_rule.id contains control or format characters".to_string());
             }

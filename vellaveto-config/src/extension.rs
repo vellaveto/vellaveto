@@ -4,7 +4,7 @@
 //! resource limits for extension isolation.
 
 use serde::{Deserialize, Serialize};
-use vellaveto_types::{is_unicode_format_char, ExtensionResourceLimits};
+use vellaveto_types::ExtensionResourceLimits;
 
 /// Maximum number of trusted public keys.
 pub const MAX_TRUSTED_EXTENSION_KEYS: usize = 64;
@@ -89,9 +89,7 @@ impl ExtensionConfig {
                     MAX_EXTENSION_PATTERN_LEN
                 ));
             }
-            if pat
-                .chars()
-                .any(|c| c.is_control() || is_unicode_format_char(c))
+            if vellaveto_types::has_dangerous_chars(pat)
             {
                 return Err(format!(
                     "extension.allowed_extensions[{}] contains control or format characters",
@@ -114,9 +112,7 @@ impl ExtensionConfig {
                     MAX_EXTENSION_PATTERN_LEN
                 ));
             }
-            if pat
-                .chars()
-                .any(|c| c.is_control() || is_unicode_format_char(c))
+            if vellaveto_types::has_dangerous_chars(pat)
             {
                 return Err(format!(
                     "extension.blocked_extensions[{}] contains control or format characters",

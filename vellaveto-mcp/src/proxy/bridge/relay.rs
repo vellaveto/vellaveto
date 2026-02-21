@@ -115,8 +115,6 @@ const MAX_CALL_COUNTS: usize = 10_000;
 /// Matches vellaveto-config/src/governance.rs::MAX_AGENT_ID_LENGTH.
 const MAX_ENV_AGENT_ID_LENGTH: usize = 256;
 
-use vellaveto_types::is_unicode_format_char;
-
 /// SECURITY (FIND-R46-011): Maximum channel buffer for child→agent relay.
 /// Each buffered message can be up to ~1MB; keeping the buffer small
 /// bounds worst-case memory to ~4MB instead of ~256MB.
@@ -202,9 +200,7 @@ impl RelayState {
                 );
                 return None;
             }
-            if trimmed
-                .chars()
-                .any(|c| c.is_control() || is_unicode_format_char(c))
+            if vellaveto_types::has_dangerous_chars(&trimmed)
             {
                 tracing::warn!(
                     "VELLAVETO_AGENT_ID contains control or Unicode format characters — ignoring"

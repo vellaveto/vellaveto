@@ -1,6 +1,4 @@
 use serde::{Deserialize, Serialize};
-use vellaveto_types::is_unicode_format_char;
-
 use crate::default_true;
 
 // ═══════════════════════════════════════════════════
@@ -285,10 +283,7 @@ impl NamespaceConfig {
                 MAX_NAMESPACE_ISOLATION_LEN
             ));
         }
-        if self
-            .default_isolation
-            .chars()
-            .any(|c| c.is_control() || is_unicode_format_char(c))
+        if vellaveto_types::has_dangerous_chars(&self.default_isolation)
         {
             return Err(
                 "namespaces.default_isolation contains control or format characters".to_string(),
@@ -599,9 +594,7 @@ impl NhiConfig {
                     MAX_NHI_STRING_FIELD_LEN
                 ));
             }
-            if at
-                .chars()
-                .any(|c| c.is_control() || is_unicode_format_char(c))
+            if vellaveto_types::has_dangerous_chars(at)
             {
                 return Err(format!(
                     "nhi.attestation_types[{}] contains control or format characters",
@@ -624,9 +617,7 @@ impl NhiConfig {
                     MAX_NHI_STRING_FIELD_LEN
                 ));
             }
-            if td
-                .chars()
-                .any(|c| c.is_control() || is_unicode_format_char(c))
+            if vellaveto_types::has_dangerous_chars(td)
             {
                 return Err(format!(
                     "nhi.additional_trust_domains[{}] contains control or format characters",
@@ -646,9 +637,7 @@ impl NhiConfig {
                     MAX_NHI_STRING_FIELD_LEN
                 ));
             }
-            if tag
-                .chars()
-                .any(|c| c.is_control() || is_unicode_format_char(c))
+            if vellaveto_types::has_dangerous_chars(tag)
             {
                 return Err(format!(
                     "nhi.privileged_tags[{}] contains control or format characters",
@@ -834,10 +823,7 @@ impl VerificationConfig {
                     "nhi.verification.plc_directory_url must use https:// scheme".to_string(),
                 );
             }
-            if self
-                .plc_directory_url
-                .chars()
-                .any(|c| c.is_control() || is_unicode_format_char(c))
+            if vellaveto_types::has_dangerous_chars(&self.plc_directory_url)
             {
                 return Err(
                     "nhi.verification.plc_directory_url contains control or format characters"
@@ -986,9 +972,7 @@ impl DpopConfig {
                     MAX_DPOP_ALGORITHM_LEN
                 ));
             }
-            if alg
-                .chars()
-                .any(|c| c.is_control() || is_unicode_format_char(c))
+            if vellaveto_types::has_dangerous_chars(alg)
             {
                 return Err(format!(
                     "nhi.dpop.allowed_algorithms[{}] contains control or format characters",

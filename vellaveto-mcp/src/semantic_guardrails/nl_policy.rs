@@ -136,10 +136,7 @@ impl NlPolicy {
         }
         // SECURITY (FIND-R116-008): Control char validation — statement is interpolated into LLM
         // prompts, so invisible characters could alter prompt interpretation.
-        if self
-            .id
-            .chars()
-            .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+        if vellaveto_types::has_dangerous_chars(&self.id)
         {
             return Err("NlPolicy.id contains control or Unicode format characters".to_string());
         }
@@ -150,10 +147,7 @@ impl NlPolicy {
                 MAX_NL_POLICY_NAME_LEN
             ));
         }
-        if self
-            .name
-            .chars()
-            .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+        if vellaveto_types::has_dangerous_chars(&self.name)
         {
             return Err("NlPolicy.name contains control or Unicode format characters".to_string());
         }
@@ -199,8 +193,7 @@ impl NlPolicy {
                     MAX_NL_POLICY_PATTERN_LEN
                 ));
             }
-            if p.chars()
-                .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+            if vellaveto_types::has_dangerous_chars(p)
             {
                 return Err(format!(
                     "NlPolicy.tool_patterns[{}] contains control or Unicode format characters",
