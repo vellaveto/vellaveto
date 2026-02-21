@@ -3,9 +3,25 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-21 (Round 145)
-> **Total audit rounds:** 145
-> **Cumulative findings fixed:** 516+
+> **Last updated:** 2026-02-21 (Round 147)
+> **Total audit rounds:** 147
+> **Cumulative findings fixed:** 521+
+
+---
+
+## Round 146+147 — Semantic Guardrails + Data Flow + A2A (5 findings fixed)
+
+**Subsystem:** `vellaveto-mcp/src/semantic_guardrails/`, `vellaveto-mcp/src/data_flow.rs`, `vellaveto-mcp/src/a2a/proxy.rs`
+**Commit:** `5cb350f`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R146-001 | P1 | `mod.rs` (semantic) | `SemanticGuardrailsService::evaluate()` now calls `input.validate()` — prevents unbounded memory in cache/intent chains |
+| FIND-R147-001 | P1 | `data_flow.rs` | Pattern name length capped at 256 bytes; `MAX_ACTIVE_PATTERNS=10K` prevents unbounded HashMap key growth |
+| FIND-R147-002 | P1 | `proxy.rs` (A2A) | `extract_request_text_content` parts iteration bounded with `.take(MAX_HISTORY_ENTRIES)` |
+| FIND-R147-014 | P3 | `proxy.rs` (A2A) | Response `artifacts` and inner `parts` iterations bounded with `.take()` |
+
+**Tests added:** 0 (27 data flow + semantic guardrails tests continue to pass)
 
 ---
 
@@ -166,15 +182,15 @@
 
 ---
 
-## Audit Round Summary (Rounds 1–145)
+## Audit Round Summary (Rounds 1–147)
 
 | Category | Cumulative |
 |----------|-----------|
-| Rounds completed | 145 |
+| Rounds completed | 147 |
 | P0 (Critical) findings fixed | 3 |
-| P1 (High) findings fixed | 33+ |
+| P1 (High) findings fixed | 36+ |
 | P2 (Medium) findings fixed | 363+ |
-| P3 (Low) findings fixed | 150+ |
+| P3 (Low) findings fixed | 151+ |
 | Tests added from audits | 220+ |
 | CLEAN rounds (no findings) | ~25 |
 | Subsystems audited | All 12 crates + 3 SDKs |
