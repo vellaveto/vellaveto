@@ -6125,9 +6125,11 @@ async fn privilege_escalation_detected_and_blocked() {
         .unwrap_or("");
     // R39-PROXY-1: Client-facing error is generic — privilege escalation details
     // are in the audit log only, not leaked to the client.
+    // SECURITY (FIND-R146-SP-004): Normalized to just "Denied by policy" — no
+    // privilege escalation details in client-facing message.
     assert!(
-        message.contains("privilege escalation detected") || message == "Denied by policy",
-        "Error should be generic deny or privilege escalation message: {}",
+        message == "Denied by policy",
+        "Error should be generic deny message: {}",
         message
     );
 }

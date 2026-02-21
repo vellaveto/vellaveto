@@ -549,7 +549,7 @@ impl ProxyBridge {
                     e
                 );
                 let action = extract_action(&tool_name, &arguments);
-                let reason = format!("Invalid tool name: {}", e);
+                let reason = "Invalid tool name".to_string();
                 let verdict = Verdict::Deny {
                     reason: reason.clone(),
                 };
