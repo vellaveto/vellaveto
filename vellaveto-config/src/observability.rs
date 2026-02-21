@@ -861,6 +861,40 @@ impl ObservabilityConfig {
         let ipv6_host = host.trim_start_matches('[').trim_end_matches(']');
         if let Ok(ip6) = ipv6_host.parse::<std::net::Ipv6Addr>() {
             let segs = ip6.segments();
+
+            // SECURITY (R114-001): Check IPv4-mapped IPv6 addresses (::ffff:x.x.x.x)
+            // Without this, an attacker can use https://[::ffff:127.0.0.1]/webhook
+            // to bypass the IPv4 private address check above.
+            let is_ipv4_mapped = segs[0] == 0
+                && segs[1] == 0
+                && segs[2] == 0
+                && segs[3] == 0
+                && segs[4] == 0
+                && segs[5] == 0xffff;
+            if is_ipv4_mapped {
+                let mapped_ip = std::net::Ipv4Addr::new(
+                    (segs[6] >> 8) as u8,
+                    segs[6] as u8,
+                    (segs[7] >> 8) as u8,
+                    segs[7] as u8,
+                );
+                let is_mapped_private = mapped_ip.is_loopback()
+                    || mapped_ip.is_unspecified()
+                    || mapped_ip.octets()[0] == 10
+                    || (mapped_ip.octets()[0] == 172 && (mapped_ip.octets()[1] & 0xf0) == 16)
+                    || (mapped_ip.octets()[0] == 192 && mapped_ip.octets()[1] == 168)
+                    || (mapped_ip.octets()[0] == 169 && mapped_ip.octets()[1] == 254)
+                    || (mapped_ip.octets()[0] == 100 && (mapped_ip.octets()[1] & 0xc0) == 64)
+                    || mapped_ip.octets()[0] == 0
+                    || mapped_ip.is_broadcast();
+                if is_mapped_private {
+                    return Err(format!(
+                        "{} must not target IPv4-mapped private addresses, got '{}'",
+                        field, host
+                    ));
+                }
+            }
+
             let is_private = ip6.is_loopback()
                 || ip6.is_unspecified()
                 || (segs[0] & 0xfe00) == 0xfc00  // fc00::/7 (ULA)
@@ -1165,6 +1199,86 @@ mod tests {
         // Public IPv6 should be allowed
         config.webhook.endpoint = "https://[2001:db8::1]/webhook".to_string();
         assert!(config.validate().is_ok(), "2001:db8::1 should be allowed");
+    }
+
+    // R114-001: IPv4-mapped IPv6 SSRF bypass prevention
+    #[test]
+    fn test_validate_ipv4_mapped_ipv6_loopback() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // ::ffff:127.0.0.1 is loopback via IPv4-mapped IPv6
+        config.webhook.endpoint = "https://[::ffff:127.0.0.1]/webhook".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("IPv4-mapped private"),
+            "::ffff:127.0.0.1 should be rejected as IPv4-mapped private, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_ipv4_mapped_ipv6_rfc1918_10() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // ::ffff:10.0.0.1 is RFC 1918 private via IPv4-mapped IPv6
+        config.webhook.endpoint = "https://[::ffff:10.0.0.1]:8080/webhook".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("IPv4-mapped private"),
+            "::ffff:10.0.0.1 should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_ipv4_mapped_ipv6_rfc1918_192() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // ::ffff:192.168.1.1 is RFC 1918 private via IPv4-mapped IPv6
+        config.webhook.endpoint = "https://[::ffff:192.168.1.1]/webhook".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("IPv4-mapped private"),
+            "::ffff:192.168.1.1 should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_ipv4_mapped_ipv6_link_local_169() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // ::ffff:169.254.169.254 is cloud metadata endpoint via IPv4-mapped IPv6
+        config.webhook.endpoint =
+            "https://[::ffff:169.254.169.254]/latest/meta-data".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("IPv4-mapped private"),
+            "::ffff:169.254.169.254 should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_ipv4_mapped_ipv6_public_allowed() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // ::ffff:8.8.8.8 is a public address via IPv4-mapped IPv6 — should be allowed
+        config.webhook.endpoint = "https://[::ffff:8.8.8.8]/webhook".to_string();
+        assert!(
+            config.validate().is_ok(),
+            "::ffff:8.8.8.8 (public) should be allowed"
+        );
     }
 
     // ========================================

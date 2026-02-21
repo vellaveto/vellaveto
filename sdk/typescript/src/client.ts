@@ -610,6 +610,18 @@ export class VellavetoClient {
     ) {
       throw new VellavetoError("action.parameters must be an object if provided");
     }
+    // SECURITY (FIND-R114-002): Validate parameters serialized size (512KB).
+    // Parity with Go SDK validateParameters(). Prevents oversized payloads
+    // approaching the server's 1MB body limit.
+    const MAX_PARAMETERS_JSON_SIZE = 524288; // 512KB
+    if (action.parameters && Object.keys(action.parameters).length > 0) {
+      const paramStr = JSON.stringify(action.parameters);
+      if (new TextEncoder().encode(paramStr).length > MAX_PARAMETERS_JSON_SIZE) {
+        throw new VellavetoError(
+          `action.parameters exceeds max serialized size (${MAX_PARAMETERS_JSON_SIZE} bytes)`
+        );
+      }
+    }
     // SECURITY (FIND-R55-SDK-006): Bound target_paths/target_domains count. Parity with Go SDK (100).
     if (action.target_paths && action.target_paths.length > 100) {
       throw new VellavetoError(
@@ -691,6 +703,19 @@ export class VellavetoClient {
         if (ctx.call_chain[i].length > MAX_CALL_CHAIN_ENTRY) {
           throw new VellavetoError(
             `context.call_chain[${i}] exceeds max length ${MAX_CALL_CHAIN_ENTRY}`
+          );
+        }
+        // SECURITY (FIND-R114-003): Validate call_chain entries for control
+        // and Unicode format characters. Parity with identity field validation
+        // (session_id, agent_id, tenant_id) which already checks these.
+        if (/[\x00-\x1f\x7f-\x9f]/.test(ctx.call_chain[i])) {
+          throw new VellavetoError(
+            `context.call_chain[${i}] contains control characters`
+          );
+        }
+        if (/[\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB]/.test(ctx.call_chain[i])) {
+          throw new VellavetoError(
+            `context.call_chain[${i}] contains Unicode format characters`
           );
         }
       }

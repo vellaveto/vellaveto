@@ -426,8 +426,65 @@ impl SchemaRecord {
     /// supplied by attacker-controlled payloads.
     pub const MAX_HASH_LEN: usize = 128;
 
+    /// Maximum length for `tool_name`.
+    const MAX_TOOL_NAME_LEN: usize = 256;
+
+    /// Unified validation for `SchemaRecord` (IMP-R122-002).
+    ///
+    /// Validates trust_score range, version_history bounds, and string field
+    /// length/content constraints.
+    pub fn validate(&self) -> Result<(), String> {
+        // Validate tool_name
+        if self.tool_name.is_empty() {
+            return Err("SchemaRecord tool_name must not be empty".to_string());
+        }
+        if self.tool_name.len() > Self::MAX_TOOL_NAME_LEN {
+            return Err(format!(
+                "SchemaRecord tool_name length {} exceeds max {}",
+                self.tool_name.len(),
+                Self::MAX_TOOL_NAME_LEN
+            ));
+        }
+        if self
+            .tool_name
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "SchemaRecord tool_name contains control or format characters".to_string(),
+            );
+        }
+        // Validate schema_hash
+        if self.schema_hash.len() > Self::MAX_HASH_LEN {
+            return Err(format!(
+                "SchemaRecord schema_hash length {} exceeds max {}",
+                self.schema_hash.len(),
+                Self::MAX_HASH_LEN
+            ));
+        }
+        if self
+            .schema_hash
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "SchemaRecord schema_hash contains control or format characters".to_string(),
+            );
+        }
+        // Delegate to existing sub-validators
+        self.validate_finite_inner()?;
+        self.validate_version_history()?;
+        Ok(())
+    }
+
     /// Validate that all float fields are finite (not NaN or Infinity).
+    #[deprecated(since = "4.0.1", note = "use validate() instead")]
     pub fn validate_finite(&self) -> Result<(), String> {
+        self.validate_finite_inner()
+    }
+
+    /// Inner float validation (called by both `validate()` and deprecated `validate_finite()`).
+    fn validate_finite_inner(&self) -> Result<(), String> {
         if !self.trust_score.is_finite() {
             return Err(format!(
                 "SchemaRecord '{}' trust_score is not finite: {}",

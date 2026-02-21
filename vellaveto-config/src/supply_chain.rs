@@ -163,6 +163,16 @@ impl SupplyChainConfig {
                     &path[..path.len().min(64)]
                 ));
             }
+            // SECURITY (R114-004): Reject uppercase hex characters. compute_hash()
+            // returns lowercase hex, and constant_time_eq() compares byte-literal.
+            // Uppercase hashes will always fail verification at runtime with a
+            // confusing "Hash mismatch" error. Reject early with a clear message.
+            if hash.chars().any(|c| c.is_ascii_uppercase()) {
+                return Err(format!(
+                    "supply_chain.allowed_servers hash for '{}' must be lowercase hex",
+                    &path[..path.len().min(64)]
+                ));
+            }
         }
 
         if self.validate_paths_on_load {
@@ -397,6 +407,62 @@ mod tests {
             validate_paths_on_load: false,
         };
         assert!(config.validate().unwrap_err().contains("non-hex"));
+    }
+
+    // R114-004: Uppercase hex must be rejected to prevent silent runtime mismatch
+    #[test]
+    fn test_supply_chain_validate_uppercase_hex_rejected() {
+        let mut allowed = std::collections::HashMap::new();
+        allowed.insert(
+            "/bin/server".to_string(),
+            "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855".to_string(),
+        );
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: allowed,
+            validate_paths_on_load: false,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("must be lowercase hex"),
+            "Uppercase hex should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_supply_chain_validate_mixed_case_hex_rejected() {
+        let mut allowed = std::collections::HashMap::new();
+        allowed.insert(
+            "/bin/server".to_string(),
+            "e3b0c44298fc1c149afbf4c8996fb924A7ae41e4649b934ca495991b7852b855".to_string(),
+        );
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: allowed,
+            validate_paths_on_load: false,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("must be lowercase hex"),
+            "Mixed-case hex should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_supply_chain_validate_lowercase_hex_accepted() {
+        let mut allowed = std::collections::HashMap::new();
+        allowed.insert(
+            "/bin/server".to_string(),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
+        );
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: allowed,
+            validate_paths_on_load: false,
+        };
+        assert!(config.validate().is_ok(), "Lowercase hex should be accepted");
     }
 
     #[test]

@@ -306,79 +306,14 @@ pub fn validate_agent_card_base_url(base_url: &str) -> Result<(), A2aError> {
         )));
     }
 
-    // Extract host portion
-    let after_scheme = &trimmed["https://".len()..];
-    let authority = after_scheme
-        .find('/')
-        .map_or(after_scheme, |i| &after_scheme[..i]);
-    // Strip userinfo before @
-    let host_portion = match authority.rfind('@') {
-        Some(at) => &authority[at + 1..],
-        None => authority,
-    };
-    let host = if host_portion.starts_with('[') {
-        // IPv6 bracket extraction
-        if let Some(bracket_end) = host_portion.find(']') {
-            host_portion[1..bracket_end].to_lowercase()
-        } else {
-            return Err(A2aError::AgentCardInvalid(
-                "malformed IPv6 address (missing ']')".to_string(),
-            ));
-        }
-    } else {
-        let host_end = host_portion
-            .find([':', '/', '?', '#'])
-            .unwrap_or(host_portion.len());
-        host_portion[..host_end].to_lowercase()
-    };
-
-    if host.is_empty() {
-        return Err(A2aError::AgentCardInvalid(
-            "agent card URL has no host".to_string(),
-        ));
-    }
-
-    // Reject localhost/loopback
-    let loopbacks = ["localhost", "127.0.0.1", "::1", "0.0.0.0"];
-    if loopbacks.iter().any(|lb| host == *lb) {
-        return Err(A2aError::AgentCardInvalid(format!(
-            "agent card URL must not target localhost/loopback, got '{}'",
-            host
-        )));
-    }
-
-    // Reject private IPv4 ranges
-    if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
-        let is_private = ip.is_loopback()
-            || ip.octets()[0] == 10
-            || (ip.octets()[0] == 172 && (ip.octets()[1] & 0xf0) == 16)
-            || (ip.octets()[0] == 192 && ip.octets()[1] == 168)
-            || (ip.octets()[0] == 169 && ip.octets()[1] == 254)
-            || ip.octets()[0] == 0;
-        if is_private {
-            return Err(A2aError::AgentCardInvalid(format!(
-                "agent card URL must not target private/internal IPs, got '{}'",
-                host
-            )));
-        }
-    }
-
-    // Reject private IPv6 ranges
-    if let Ok(ip6) = host.parse::<std::net::Ipv6Addr>() {
-        let segs = ip6.segments();
-        let is_private = ip6.is_loopback()
-            || ip6.is_unspecified()
-            || (segs[0] & 0xfe00) == 0xfc00
-            || (segs[0] & 0xffc0) == 0xfe80;
-        if is_private {
-            return Err(A2aError::AgentCardInvalid(format!(
-                "agent card URL must not target private/internal IPv6 ranges, got '{}'",
-                host
-            )));
-        }
-    }
+    // Delegate core SSRF validation to the shared canonical implementation
+    // (IMP-R120-009). Maps generic SSRF error strings to A2aError.
+    vellaveto_types::validate_url_no_ssrf(trimmed).map_err(|e| {
+        A2aError::AgentCardInvalid(format!("agent card URL {}", e))
+    })?;
 
     // Reject path traversal in the URL
+    let after_scheme = &trimmed["https://".len()..];
     if after_scheme.contains("/../") || after_scheme.contains("/..") {
         return Err(A2aError::AgentCardInvalid(
             "agent card URL must not contain path traversal".to_string(),

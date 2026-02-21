@@ -1341,6 +1341,39 @@ describe("Input validation hardening", () => {
     ).rejects.toThrow("context.call_chain[0] exceeds max length 256");
   });
 
+  // FIND-R114-003: call_chain entry control/format character validation
+  test("evaluate rejects context.call_chain entry with control characters", async () => {
+    await expect(
+      client.evaluate({ tool: "fs" }, { call_chain: ["tool\x00evil"] })
+    ).rejects.toThrow("context.call_chain[0] contains control characters");
+  });
+
+  test("evaluate rejects context.call_chain entry with C1 control characters", async () => {
+    await expect(
+      client.evaluate({ tool: "fs" }, { call_chain: ["ok", "tool\x80bad"] })
+    ).rejects.toThrow("context.call_chain[1] contains control characters");
+  });
+
+  test("evaluate rejects context.call_chain entry with Unicode format characters", async () => {
+    await expect(
+      client.evaluate({ tool: "fs" }, { call_chain: ["tool\u200bhidden"] })
+    ).rejects.toThrow("context.call_chain[0] contains Unicode format characters");
+  });
+
+  test("evaluate rejects context.call_chain entry with bidi override", async () => {
+    await expect(
+      client.evaluate({ tool: "fs" }, { call_chain: ["safe", "tool\u202Aoverride"] })
+    ).rejects.toThrow("context.call_chain[1] contains Unicode format characters");
+  });
+
+  // FIND-R114-002: parameters size validation
+  test("evaluate rejects action.parameters exceeding 512KB", async () => {
+    const bigParams: Record<string, unknown> = { data: "x".repeat(600000) };
+    await expect(
+      client.evaluate({ tool: "fs", parameters: bigParams })
+    ).rejects.toThrow("action.parameters exceeds max serialized size");
+  });
+
   test("evaluate rejects context.metadata exceeding max keys", async () => {
     const metadata: Record<string, unknown> = {};
     for (let i = 0; i < 101; i++) metadata[`key${i}`] = "v";

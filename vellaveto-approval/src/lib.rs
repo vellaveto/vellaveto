@@ -70,7 +70,9 @@ pub enum ApprovalStatus {
     Expired,
 }
 
+// SECURITY (FIND-R122-002): deny_unknown_fields prevents field injection via JSONL persistence.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PendingApproval {
     pub id: String,
     pub action: Action,
@@ -152,12 +154,11 @@ fn compute_dedup_key(
     // that fail serialization would hash to the same dedup key, causing
     // unrelated approval requests to collide.
     let canonical_str = serde_json::to_string(&canonical)?;
-    let input = format!(
-        "{}||{}||{}",
-        canonical_str,
-        reason,
-        requested_by.unwrap_or(""),
-    );
+    // SECURITY (FIND-R122-003): Use a distinct sentinel for None to avoid
+    // collision with Some(""). The NUL byte cannot appear in valid identities
+    // (control chars are rejected), guaranteeing no false collisions.
+    let rb_component = requested_by.unwrap_or("\x00NONE\x00");
+    let input = format!("{}||{}||{}", canonical_str, reason, rb_component);
     let hash = Sha256::digest(input.as_bytes());
     Ok(format!("{hash:x}"))
 }

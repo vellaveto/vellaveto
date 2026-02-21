@@ -5109,6 +5109,91 @@ fn test_nhi_delegation_link_self_delegation_case_insensitive() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// FIND-R114-015: NhiDelegationLink Unicode format char validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_nhi_delegation_link_rejects_zero_width_space_in_to_agent() {
+    // Attacker sets to_agent = "admin\u{200B}" to bypass self-delegation check
+    let link = NhiDelegationLink {
+        from_agent: "admin".to_string(),
+        to_agent: "admin\u{200B}".to_string(),
+        permissions: vec!["read".to_string()],
+        scope_constraints: vec![],
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-02-01T00:00:00Z".to_string(),
+        active: true,
+        reason: None,
+    };
+    let err = link.validate().unwrap_err();
+    assert!(
+        err.contains("to_agent contains control or Unicode format characters"),
+        "Expected format char rejection, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_nhi_delegation_link_rejects_bidi_override_in_from_agent() {
+    let link = NhiDelegationLink {
+        from_agent: "admin\u{202E}".to_string(),
+        to_agent: "agent-b".to_string(),
+        permissions: vec!["read".to_string()],
+        scope_constraints: vec![],
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-02-01T00:00:00Z".to_string(),
+        active: true,
+        reason: None,
+    };
+    let err = link.validate().unwrap_err();
+    assert!(
+        err.contains("from_agent contains control or Unicode format characters"),
+        "Expected format char rejection, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_nhi_delegation_link_rejects_control_char_in_from_agent() {
+    let link = NhiDelegationLink {
+        from_agent: "admin\x01".to_string(),
+        to_agent: "agent-b".to_string(),
+        permissions: vec!["read".to_string()],
+        scope_constraints: vec![],
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-02-01T00:00:00Z".to_string(),
+        active: true,
+        reason: None,
+    };
+    let err = link.validate().unwrap_err();
+    assert!(
+        err.contains("from_agent contains control or Unicode format characters"),
+        "Expected control char rejection, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_nhi_delegation_link_rejects_control_char_in_to_agent() {
+    let link = NhiDelegationLink {
+        from_agent: "agent-a".to_string(),
+        to_agent: "agent-b\n".to_string(),
+        permissions: vec!["read".to_string()],
+        scope_constraints: vec![],
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-02-01T00:00:00Z".to_string(),
+        active: true,
+        reason: None,
+    };
+    let err = link.validate().unwrap_err();
+    assert!(
+        err.contains("to_agent contains control or Unicode format characters"),
+        "Expected control char rejection, got: {}",
+        err
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // FIND-R51-012: NhiDelegationLink temporal ordering
 // ═══════════════════════════════════════════════════════════════════
 

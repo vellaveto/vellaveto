@@ -897,6 +897,18 @@ impl NhiManager {
 
         let now = chrono::Utc::now();
         let ttl = new_ttl_secs.unwrap_or(self.config.credential_ttl_secs);
+
+        // SECURITY (FIND-R114-017): Validate that the rotation TTL does not exceed
+        // max_credential_ttl_secs, matching the validation in register_identity().
+        // Without this check, a rotation policy could create credentials that live
+        // longer than the configured maximum.
+        if ttl > self.config.max_credential_ttl_secs {
+            return Err(NhiError::TtlExceedsMax {
+                requested: ttl,
+                max: self.config.max_credential_ttl_secs,
+            });
+        }
+
         let new_expires_at = now + chrono::Duration::seconds(ttl as i64);
 
         identity.public_key = Some(new_public_key.to_string());
@@ -2123,6 +2135,124 @@ mod tests {
         assert!(
             !manager.is_terminal("nonexistent-id").await,
             "Non-existent identity must not be terminal"
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R114-017: rotate_credentials must validate TTL against max_credential_ttl_secs
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R114-017: rotate_credentials with explicit TTL exceeding max is rejected.
+    #[tokio::test]
+    async fn test_rotate_credentials_rejects_ttl_exceeding_max() {
+        let mut config = enabled_config();
+        config.max_credential_ttl_secs = 3600; // 1 hour max
+        let manager = NhiManager::new(config);
+
+        let id = manager
+            .register_identity(
+                "Rotation TTL Test",
+                NhiAttestationType::Jwt,
+                None,
+                Some("old-key"),
+                Some("Ed25519"),
+                Some(1800), // 30 min, within max
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Attempt rotation with TTL exceeding max
+        let result = manager
+            .rotate_credentials(&id, "new-key", Some("Ed25519"), "scheduled", Some(7200))
+            .await;
+
+        assert!(
+            matches!(
+                result,
+                Err(NhiError::TtlExceedsMax {
+                    requested: 7200,
+                    max: 3600
+                })
+            ),
+            "rotate_credentials must reject TTL exceeding max_credential_ttl_secs, got: {:?}",
+            result
+        );
+
+        // Verify old key is unchanged (rotation was rejected)
+        let identity = manager.get_identity(&id).await.unwrap();
+        assert_eq!(
+            identity.public_key,
+            Some("old-key".to_string()),
+            "Rejected rotation must not modify the identity"
+        );
+    }
+
+    /// FIND-R114-017: rotate_credentials with default TTL within max succeeds.
+    #[tokio::test]
+    async fn test_rotate_credentials_default_ttl_within_max_succeeds() {
+        let mut config = enabled_config();
+        config.credential_ttl_secs = 1800; // default 30 min
+        config.max_credential_ttl_secs = 3600; // max 1 hour
+        let manager = NhiManager::new(config);
+
+        let id = manager
+            .register_identity(
+                "Default TTL Test",
+                NhiAttestationType::Jwt,
+                None,
+                Some("old-key"),
+                Some("Ed25519"),
+                Some(1800),
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Rotation with None TTL should use credential_ttl_secs (1800), which is <= max (3600)
+        let result = manager
+            .rotate_credentials(&id, "new-key", Some("Ed25519"), "scheduled", None)
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "rotate_credentials with default TTL within max should succeed, got: {:?}",
+            result
+        );
+    }
+
+    /// FIND-R114-017: rotate_credentials with explicit TTL at exactly max succeeds.
+    #[tokio::test]
+    async fn test_rotate_credentials_ttl_at_max_succeeds() {
+        let mut config = enabled_config();
+        config.max_credential_ttl_secs = 3600;
+        let manager = NhiManager::new(config);
+
+        let id = manager
+            .register_identity(
+                "Exact Max TTL",
+                NhiAttestationType::Jwt,
+                None,
+                Some("old-key"),
+                Some("Ed25519"),
+                Some(3600),
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // TTL exactly at max should succeed
+        let result = manager
+            .rotate_credentials(&id, "new-key", Some("Ed25519"), "scheduled", Some(3600))
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "rotate_credentials with TTL == max should succeed, got: {:?}",
+            result
         );
     }
 }

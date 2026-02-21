@@ -75,6 +75,11 @@ _TRANSIENT_STATUS_CODES = frozenset({429, 502, 503, 504})
 # Maximum length for tool name, function name, and similar string inputs
 _MAX_INPUT_STRING_LEN = 1024
 
+# SECURITY (FIND-R114-002): Maximum serialized size of parameters (512KB).
+# Parity with Go SDK maxParametersJSONSize. Prevents sending oversized payloads
+# that approach the server's MAX_REQUEST_BODY_SIZE (1MB).
+_MAX_PARAMETERS_JSON_SIZE = 524288
+
 
 def _validate_approval_id(approval_id: str) -> None:
     """Validate approval_id format — shared by sync and async clients.
@@ -127,6 +132,18 @@ def _validate_evaluate_inputs(
             )
     if parameters is not None and not isinstance(parameters, dict):
         raise VellavetoError("parameters must be a dict or None")
+    # SECURITY (FIND-R114-002): Validate parameters serialized size (512KB).
+    # Parity with Go SDK validateParameters(). Prevents oversized payloads
+    # approaching the server's 1MB body limit.
+    if parameters is not None and len(parameters) > 0:
+        try:
+            param_json = json.dumps(parameters, separators=(",", ":"))
+            if len(param_json.encode("utf-8")) > _MAX_PARAMETERS_JSON_SIZE:
+                raise VellavetoError(
+                    f"parameters exceeds max serialized size ({_MAX_PARAMETERS_JSON_SIZE} bytes)"
+                )
+        except (TypeError, ValueError) as e:
+            raise VellavetoError(f"parameters serialization failed: {e}")
     if target_paths is not None and not isinstance(target_paths, list):
         raise VellavetoError("target_paths must be a list or None")
     # SECURITY (FIND-R55-SDK-006): Bound target_paths count. Parity with Go SDK (100).
@@ -218,6 +235,18 @@ def _validate_evaluation_context(context: Optional["EvaluationContext"]) -> None
                     f"context.call_chain[{i}] exceeds max length "
                     f"{_MAX_CALL_CHAIN_ENTRY_LEN}"
                 )
+            # SECURITY (FIND-R114-003): Validate call_chain entries for control
+            # and Unicode format characters. Parity with identity field validation
+            # (session_id, agent_id, tenant_id) which already checks these.
+            if isinstance(entry, str):
+                if _CONTROL_CHAR_RE.search(entry):
+                    raise VellavetoError(
+                        f"context.call_chain[{i}] contains control characters"
+                    )
+                if _UNICODE_FORMAT_RE.search(entry):
+                    raise VellavetoError(
+                        f"context.call_chain[{i}] contains Unicode format characters"
+                    )
 
     # Validate metadata key count.
     if hasattr(context, "metadata") and context.metadata is not None:

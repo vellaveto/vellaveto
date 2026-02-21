@@ -607,6 +607,29 @@ impl NhiDelegationLink {
     ///
     /// SECURITY (FIND-R48-006): Unbounded permissions and scope_constraints.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R114-015): Reject control/format characters in from_agent
+        // and to_agent BEFORE self-delegation check, preventing Unicode format char
+        // bypass (e.g., "admin" vs "admin\u{200B}").
+        if self
+            .from_agent
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "NhiDelegationLink from_agent contains control or Unicode format characters"
+                    .to_string(),
+            );
+        }
+        if self
+            .to_agent
+            .chars()
+            .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
+        {
+            return Err(
+                "NhiDelegationLink to_agent contains control or Unicode format characters"
+                    .to_string(),
+            );
+        }
         // SECURITY (FIND-R51-009): Reject self-delegation to prevent
         // privilege escalation loops. Case-insensitive comparison.
         if self.from_agent.eq_ignore_ascii_case(&self.to_agent) {

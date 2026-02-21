@@ -2350,3 +2350,51 @@ func TestEvaluationContextValidate_LongFieldLength(t *testing.T) {
 		t.Fatal("Validate() should reject oversized tenant_id")
 	}
 }
+
+// ── FIND-R114-003: CallChain entry control/format character validation ──
+
+func TestEvaluationContextValidate_CallChainControlChars(t *testing.T) {
+	ctx := &EvaluationContext{CallChain: []string{"tool\x00evil"}}
+	err := ctx.Validate()
+	if err == nil {
+		t.Fatal("Validate() should reject CallChain entry with control characters")
+	}
+	if !strings.Contains(err.Error(), "CallChain[0] contains control characters") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestEvaluationContextValidate_CallChainC1ControlChars(t *testing.T) {
+	// Use \u0080 (valid UTF-8 C1 control char) — \x80 is an invalid UTF-8 byte
+	// that Go's range produces as U+FFFD (replacement character), not 0x80.
+	ctx := &EvaluationContext{CallChain: []string{"ok", "tool\u0080bad"}}
+	err := ctx.Validate()
+	if err == nil {
+		t.Fatal("Validate() should reject CallChain entry with C1 control characters")
+	}
+	if !strings.Contains(err.Error(), "CallChain[1] contains control characters") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestEvaluationContextValidate_CallChainUnicodeFormatChars(t *testing.T) {
+	ctx := &EvaluationContext{CallChain: []string{"tool\u200bhidden"}}
+	err := ctx.Validate()
+	if err == nil {
+		t.Fatal("Validate() should reject CallChain entry with Unicode format characters")
+	}
+	if !strings.Contains(err.Error(), "CallChain[0] contains Unicode format characters") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestEvaluationContextValidate_CallChainBidiOverride(t *testing.T) {
+	ctx := &EvaluationContext{CallChain: []string{"safe", "tool\u202Aoverride"}}
+	err := ctx.Validate()
+	if err == nil {
+		t.Fatal("Validate() should reject CallChain entry with bidi override")
+	}
+	if !strings.Contains(err.Error(), "CallChain[1] contains Unicode format characters") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}

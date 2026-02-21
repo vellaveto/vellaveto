@@ -991,6 +991,35 @@ class TestEvaluateInputValidation:
             client.evaluate(tool="valid", parameters="not-a-dict")  # type: ignore
         client.close()
 
+    def test_parameters_exceeds_max_serialized_size(self):
+        """FIND-R114-002: Parameters exceeding 512KB serialized size should be rejected."""
+        # Build a dict that serializes to > 512KB
+        big_params = {"data": "x" * 600000}
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError, match="parameters exceeds max serialized size"):
+            client.evaluate(tool="valid", parameters=big_params)
+        client.close()
+
+    def test_parameters_at_limit_accepted(self, httpx_mock):
+        """FIND-R114-002: Parameters at exactly the limit should be accepted."""
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/evaluate",
+            json={"verdict": "allow"},
+        )
+        # Build a dict that serializes to just under 512KB
+        small_params = {"d": "x" * 1000}
+        client = VellavetoClient()
+        result = client.evaluate(tool="valid", parameters=small_params)
+        assert result.verdict == Verdict.ALLOW
+        client.close()
+
+    def test_parameters_unserializable_raises(self):
+        """FIND-R114-002: Unserializable parameters should be rejected."""
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError, match="parameters serialization failed"):
+            client.evaluate(tool="valid", parameters={"bad": {1, 2, 3}})  # sets are not JSON-serializable
+        client.close()
+
     def test_non_list_target_paths_raises(self):
         client = VellavetoClient()
         with pytest.raises(VellavetoError, match="target_paths must be a list"):
@@ -1188,6 +1217,34 @@ class TestEvaluationContextValidation:
     def test_context_call_chain_entry_too_long(self):
         ctx = EvaluationContext(call_chain=["x" * 257])
         with pytest.raises(VellavetoError, match=r"call_chain\[0\] exceeds max length"):
+            client = VellavetoClient(url="http://localhost:1")
+            client.evaluate(tool="test", context=ctx)
+
+    def test_context_call_chain_entry_control_chars(self):
+        """FIND-R114-003: call_chain entries with control chars should be rejected."""
+        ctx = EvaluationContext(call_chain=["tool_a\x00evil"])
+        with pytest.raises(VellavetoError, match=r"call_chain\[0\] contains control characters"):
+            client = VellavetoClient(url="http://localhost:1")
+            client.evaluate(tool="test", context=ctx)
+
+    def test_context_call_chain_entry_c1_control_chars(self):
+        """FIND-R114-003: call_chain entries with C1 control chars should be rejected."""
+        ctx = EvaluationContext(call_chain=["ok", "tool\x80bad"])
+        with pytest.raises(VellavetoError, match=r"call_chain\[1\] contains control characters"):
+            client = VellavetoClient(url="http://localhost:1")
+            client.evaluate(tool="test", context=ctx)
+
+    def test_context_call_chain_entry_unicode_format_chars(self):
+        """FIND-R114-003: call_chain entries with Unicode format chars should be rejected."""
+        ctx = EvaluationContext(call_chain=["tool\u200b_hidden"])
+        with pytest.raises(VellavetoError, match=r"call_chain\[0\] contains Unicode format"):
+            client = VellavetoClient(url="http://localhost:1")
+            client.evaluate(tool="test", context=ctx)
+
+    def test_context_call_chain_entry_bidi_override(self):
+        """FIND-R114-003: call_chain entries with bidi overrides should be rejected."""
+        ctx = EvaluationContext(call_chain=["safe", "tool\u202aoverride"])
+        with pytest.raises(VellavetoError, match=r"call_chain\[1\] contains Unicode format"):
             client = VellavetoClient(url="http://localhost:1")
             client.evaluate(tool="test", context=ctx)
 

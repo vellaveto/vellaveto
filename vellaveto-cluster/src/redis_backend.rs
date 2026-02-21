@@ -214,12 +214,10 @@ impl RedisBackend {
 
         let canonical_str = serde_json::to_string(&canonical)
             .map_err(|e| ClusterError::Serialization(e.to_string()))?;
-        let input = format!(
-            "{}||{}||{}",
-            canonical_str,
-            reason,
-            requested_by.unwrap_or(""),
-        );
+        // SECURITY (FIND-R122-003): Use a distinct sentinel for None to avoid
+        // collision with Some(""). Mirrors vellaveto-approval parity.
+        let rb_component = requested_by.unwrap_or("\x00NONE\x00");
+        let input = format!("{}||{}||{}", canonical_str, reason, rb_component);
         let hash = Sha256::digest(input.as_bytes());
         Ok(format!("{:x}", hash))
     }
@@ -285,6 +283,24 @@ impl ClusterBackend for RedisBackend {
                     vellaveto_approval::MAX_IDENTITY_LEN
                 )));
             }
+            // SECURITY (FIND-R122-001): Reject control/format chars in identity
+            // fields — parity with local ApprovalStore.
+            if rb.chars().any(|c| c.is_control()) {
+                return Err(ClusterError::Validation(
+                    "requested_by contains control characters".to_string(),
+                ));
+            }
+            if rb.chars().any(vellaveto_types::is_unicode_format_char) {
+                return Err(ClusterError::Validation(
+                    "requested_by contains Unicode format characters".to_string(),
+                ));
+            }
+        }
+        // SECURITY (FIND-R122-006): Reject control/format chars in reason field.
+        if reason.chars().any(|c| c.is_control()) {
+            return Err(ClusterError::Validation(
+                "reason contains control characters".to_string(),
+            ));
         }
 
         let dedup_hash = Self::compute_dedup_hash(&action, &reason, requested_by.as_deref())?;
@@ -407,6 +423,18 @@ impl ClusterBackend for RedisBackend {
                 vellaveto_approval::MAX_IDENTITY_LEN
             )));
         }
+        // SECURITY (FIND-R122-001): Reject control/format chars — parity with
+        // local ApprovalStore.
+        if by.chars().any(|c| c.is_control()) {
+            return Err(ClusterError::Validation(
+                "resolved_by contains control characters".to_string(),
+            ));
+        }
+        if by.chars().any(vellaveto_types::is_unicode_format_char) {
+            return Err(ClusterError::Validation(
+                "resolved_by contains Unicode format characters".to_string(),
+            ));
+        }
 
         let mut conn = self.get_conn().await?;
         let json: Option<String> = conn
@@ -486,6 +514,18 @@ impl ClusterBackend for RedisBackend {
                 "resolved_by exceeds maximum length of {} bytes",
                 vellaveto_approval::MAX_IDENTITY_LEN
             )));
+        }
+        // SECURITY (FIND-R122-001): Reject control/format chars — parity with
+        // local ApprovalStore.
+        if by.chars().any(|c| c.is_control()) {
+            return Err(ClusterError::Validation(
+                "resolved_by contains control characters".to_string(),
+            ));
+        }
+        if by.chars().any(vellaveto_types::is_unicode_format_char) {
+            return Err(ClusterError::Validation(
+                "resolved_by contains Unicode format characters".to_string(),
+            ));
         }
 
         let mut conn = self.get_conn().await?;

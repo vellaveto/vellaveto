@@ -17,6 +17,13 @@ use std::sync::RwLock;
 use std::time::{Duration, Instant};
 use vellaveto_types::Action;
 
+/// SECURITY (FIND-R114-018): Maximum actions stored per workflow.
+///
+/// Without this cap, a long-running workflow could accumulate unlimited
+/// actions in its VecDeque, causing OOM. When the limit is reached, the
+/// oldest actions are evicted (FIFO) with a warning log.
+const MAX_WORKFLOW_ACTIONS: usize = 10_000;
+
 /// Result of recording a workflow step.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StepResult {
@@ -371,6 +378,20 @@ impl WorkflowTracker {
             resources,
         };
 
+        // SECURITY (FIND-R114-018): Enforce bounded actions per workflow.
+        // Evict oldest actions (FIFO) when the limit is reached rather than
+        // rejecting new actions, so budget tracking remains accurate while
+        // preventing unbounded memory growth.
+        if workflow.actions.len() >= MAX_WORKFLOW_ACTIONS {
+            tracing::warn!(
+                target: "vellaveto::security",
+                max = MAX_WORKFLOW_ACTIONS,
+                session_id = session_id,
+                workflow_id = workflow_id,
+                "Workflow actions at capacity, evicting oldest action (FIFO)"
+            );
+            workflow.actions.pop_front();
+        }
         workflow.actions.push_back(workflow_action);
         workflow.last_activity = Instant::now();
 
@@ -896,5 +917,82 @@ mod tests {
         let prediction = tracker.predict_outcome("nonexistent");
         assert_eq!(prediction.category, OutcomeCategory::Benign);
         assert!(prediction.reasoning.contains("No workflow data"));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R114-018: Workflow actions VecDeque must be bounded
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R114-018: Workflow actions are bounded at MAX_WORKFLOW_ACTIONS with FIFO eviction.
+    #[test]
+    fn test_workflow_actions_bounded_with_fifo_eviction() {
+        // Use a large step budget so we don't hit BudgetExceeded
+        let tracker = WorkflowTracker::with_config(WorkflowTrackerConfig {
+            step_budget: MAX_WORKFLOW_ACTIONS + 100,
+            ..Default::default()
+        });
+
+        tracker.start_workflow("session1", "workflow1");
+
+        // Fill the workflow to exactly MAX_WORKFLOW_ACTIONS
+        for i in 0..MAX_WORKFLOW_ACTIONS {
+            let action = create_action("tool", &format!("action_{}", i));
+            let result = tracker.record_step("session1", "workflow1", &action);
+            assert!(
+                matches!(result, StepResult::Recorded { .. }),
+                "Step {} should be recorded",
+                i
+            );
+        }
+
+        // Verify we have exactly MAX_WORKFLOW_ACTIONS actions
+        {
+            let sessions = tracker.sessions.read().unwrap();
+            let session = sessions.get("session1").unwrap();
+            let workflow = session.workflows.get("workflow1").unwrap();
+            assert_eq!(
+                workflow.actions.len(),
+                MAX_WORKFLOW_ACTIONS,
+                "Actions should be at MAX_WORKFLOW_ACTIONS"
+            );
+        }
+
+        // Add one more — should evict oldest (FIFO)
+        let overflow_action = create_action("tool", "overflow_action");
+        let result = tracker.record_step("session1", "workflow1", &overflow_action);
+        assert!(matches!(result, StepResult::Recorded { .. }));
+
+        // Verify still at MAX_WORKFLOW_ACTIONS (not MAX + 1)
+        {
+            let sessions = tracker.sessions.read().unwrap();
+            let session = sessions.get("session1").unwrap();
+            let workflow = session.workflows.get("workflow1").unwrap();
+            assert_eq!(
+                workflow.actions.len(),
+                MAX_WORKFLOW_ACTIONS,
+                "Actions must not exceed MAX_WORKFLOW_ACTIONS after eviction"
+            );
+            // The oldest action ("action_0") should have been evicted;
+            // the newest ("overflow_action") should be at the back
+            let newest = workflow.actions.back().unwrap();
+            assert_eq!(
+                newest.function, "overflow_action",
+                "Newest action should be at the back after FIFO eviction"
+            );
+            let oldest = workflow.actions.front().unwrap();
+            assert_eq!(
+                oldest.function, "action_1",
+                "After evicting action_0, action_1 should be the oldest"
+            );
+        }
+    }
+
+    /// FIND-R114-018: Verify MAX_WORKFLOW_ACTIONS constant is reasonable.
+    #[test]
+    fn test_max_workflow_actions_constant() {
+        assert_eq!(
+            MAX_WORKFLOW_ACTIONS, 10_000,
+            "MAX_WORKFLOW_ACTIONS should be 10,000"
+        );
     }
 }

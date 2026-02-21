@@ -73,6 +73,17 @@ func (ec *EvaluationContext) Validate() error {
 		if len(entry) > maxCallChainEntryLength {
 			return fmt.Errorf("vellaveto: context.CallChain[%d] exceeds max length %d", i, maxCallChainEntryLength)
 		}
+		// SECURITY (FIND-R114-003): Validate call_chain entries for control
+		// and Unicode format characters. Parity with identity field validation
+		// (session_id, agent_id, tenant_id) which already checks these.
+		for _, c := range entry {
+			if c < ' ' || (c >= 0x7F && c <= 0x9F) {
+				return fmt.Errorf("vellaveto: context.CallChain[%d] contains control characters", i)
+			}
+			if isUnicodeFormatChar(c) {
+				return fmt.Errorf("vellaveto: context.CallChain[%d] contains Unicode format characters", i)
+			}
+		}
 	}
 	// Validate Metadata key count.
 	if len(ec.Metadata) > maxMetadataKeys {

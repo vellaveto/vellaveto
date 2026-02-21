@@ -45,7 +45,9 @@ pub struct SessionState {
     pub pinned_manifest: Option<ToolManifest>,
     /// Per-tool call counts for context-aware policy evaluation.
     /// Maps tool name → number of times called in this session.
-    pub call_counts: HashMap<String, u64>,
+    /// SECURITY (FIND-R122-005): `pub(crate)` prevents bypassing bounded
+    /// insertion enforced by MAX_CALL_COUNT_TOOLS.
+    pub(crate) call_counts: HashMap<String, u64>,
     /// History of tool names called in this session (most recent last).
     /// Capped at 100 entries to bound memory usage. Uses VecDeque for O(1)
     /// pop_front instead of O(n) Vec::remove(0) (FIND-046).

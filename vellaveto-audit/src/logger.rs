@@ -515,15 +515,24 @@ impl AuditLogger {
     /// control characters (U+0000–U+001F, U+007F, U+0080–U+009F). This
     /// prevents log injection via tabs, backspaces, escape sequences, etc.
     fn validate_action(&self, action: &Action) -> Result<(), AuditError> {
-        // Check for control characters in tool/function names
-        if action.tool.chars().any(|c| c.is_control()) {
+        // SECURITY (FIND-R122-007): Check for both control characters and Unicode
+        // format characters (zero-width, bidi overrides) in tool/function names.
+        if action
+            .tool
+            .chars()
+            .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+        {
             return Err(AuditError::Validation(
-                "Tool name contains control characters".to_string(),
+                "Tool name contains control or format characters".to_string(),
             ));
         }
-        if action.function.chars().any(|c| c.is_control()) {
+        if action
+            .function
+            .chars()
+            .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+        {
             return Err(AuditError::Validation(
-                "Function name contains control characters".to_string(),
+                "Function name contains control or format characters".to_string(),
             ));
         }
 

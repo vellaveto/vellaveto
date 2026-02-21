@@ -316,6 +316,14 @@ impl BehavioralTracker {
             // This catches gradual ramp attacks where EMA adapts to slow increases.
             if let Some(ceiling) = self.config.absolute_ceiling {
                 if count > ceiling {
+                    // SECURITY (FIND-R114-001): Guard against ceiling=0 producing
+                    // Infinity in deviation_ratio, which bypasses threshold comparisons.
+                    // When ceiling is 0, any non-zero count is maximally anomalous.
+                    let deviation_ratio = if ceiling == 0 {
+                        f64::MAX
+                    } else {
+                        count as f64 / ceiling as f64
+                    };
                     let alert = AnomalyAlert {
                         severity: AnomalySeverity::Critical,
                         tool: tool.clone(),
@@ -325,7 +333,7 @@ impl BehavioralTracker {
                             .get(agent_id)
                             .and_then(|a| a.tools.get(tool))
                             .map_or(0.0, |b| b.ema),
-                        deviation_ratio: count as f64 / ceiling as f64,
+                        deviation_ratio,
                         agent_id: agent_id.to_string(),
                     };
 
@@ -601,6 +609,17 @@ impl BehavioralTracker {
             )));
         }
         for (agent_id, entry) in &snapshot.agents {
+            // SECURITY (FIND-R114-002): Reject agent_id keys with control or
+            // Unicode format characters to prevent bidi override injection in
+            // pattern matching and log confusion.
+            if agent_id
+                .chars()
+                .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+            {
+                return Err(BehavioralError::InvalidSnapshot(
+                    "agent_id contains control or Unicode format characters".to_string(),
+                ));
+            }
             if entry.tools.len() > config.max_tools_per_agent {
                 return Err(BehavioralError::InvalidSnapshot(format!(
                     "agent '{}' has {} tools, exceeds max_tools_per_agent {}",
@@ -610,6 +629,16 @@ impl BehavioralTracker {
                 )));
             }
             for (tool, baseline) in &entry.tools {
+                // SECURITY (FIND-R114-002): Reject tool keys with control or
+                // Unicode format characters.
+                if tool
+                    .chars()
+                    .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+                {
+                    return Err(BehavioralError::InvalidSnapshot(
+                        "tool key contains control or Unicode format characters".to_string(),
+                    ));
+                }
                 if baseline.ema.is_nan() || baseline.ema.is_infinite() {
                     return Err(BehavioralError::InvalidSnapshot(format!(
                         "agent '{}' tool '{}' has invalid EMA: {}",
@@ -1726,5 +1755,180 @@ mod tests {
             snapshot.update_counter, 100,
             "Update counter should track session count"
         );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R114-001: absolute_ceiling=0 must not produce Infinity
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_absolute_ceiling_zero_does_not_produce_infinity() {
+        let config = BehavioralConfig {
+            min_sessions: 1,
+            absolute_ceiling: Some(0),
+            ..Default::default()
+        };
+        let mut tracker = BehavioralTracker::new(config).expect("valid config");
+
+        // Establish some baseline
+        let normal = counts(&[("tool", 5)]);
+        for _ in 0..3 {
+            tracker.record_session("agent-1", &normal);
+        }
+
+        // Any non-zero count exceeds ceiling=0
+        let check = counts(&[("tool", 1)]);
+        let alerts = tracker.check_session("agent-1", &check);
+        assert!(!alerts.is_empty(), "count > 0 should exceed ceiling of 0");
+        assert_eq!(alerts[0].severity, AnomalySeverity::Critical);
+        // The critical check: deviation_ratio must be finite (not Infinity)
+        assert!(
+            alerts[0].deviation_ratio.is_finite(),
+            "deviation_ratio must be finite when ceiling=0, got: {}",
+            alerts[0].deviation_ratio
+        );
+        assert!(
+            alerts[0].deviation_ratio > 0.0,
+            "deviation_ratio should be positive"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R114-002: from_snapshot rejects control/format chars in keys
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_from_snapshot_rejects_control_char_agent_id() {
+        let config = BehavioralConfig::default();
+        let mut agents = HashMap::new();
+        agents.insert(
+            "agent\x01bad".to_string(),
+            AgentSnapshotEntry {
+                tools: HashMap::new(),
+                total_sessions: 1,
+            },
+        );
+        let snapshot = BehavioralSnapshot {
+            agents,
+            update_counter: 0,
+        };
+        let result = BehavioralTracker::from_snapshot(config, snapshot);
+        assert!(
+            matches!(result, Err(BehavioralError::InvalidSnapshot(_))),
+            "expected InvalidSnapshot for control char agent_id"
+        );
+    }
+
+    #[test]
+    fn test_from_snapshot_rejects_unicode_format_char_agent_id() {
+        let config = BehavioralConfig::default();
+        let mut agents = HashMap::new();
+        // Zero-width space in agent ID
+        agents.insert(
+            "agent\u{200B}id".to_string(),
+            AgentSnapshotEntry {
+                tools: HashMap::new(),
+                total_sessions: 1,
+            },
+        );
+        let snapshot = BehavioralSnapshot {
+            agents,
+            update_counter: 0,
+        };
+        let result = BehavioralTracker::from_snapshot(config, snapshot);
+        assert!(
+            matches!(result, Err(BehavioralError::InvalidSnapshot(_))),
+            "expected InvalidSnapshot for Unicode format char agent_id"
+        );
+    }
+
+    #[test]
+    fn test_from_snapshot_rejects_control_char_tool_key() {
+        let config = BehavioralConfig::default();
+        let mut tools = HashMap::new();
+        tools.insert(
+            "tool\nnewline".to_string(),
+            ToolBaseline {
+                ema: 5.0,
+                session_count: 1,
+                last_active: 0,
+            },
+        );
+        let mut agents = HashMap::new();
+        agents.insert(
+            "agent-1".to_string(),
+            AgentSnapshotEntry {
+                tools,
+                total_sessions: 1,
+            },
+        );
+        let snapshot = BehavioralSnapshot {
+            agents,
+            update_counter: 0,
+        };
+        let result = BehavioralTracker::from_snapshot(config, snapshot);
+        assert!(
+            matches!(result, Err(BehavioralError::InvalidSnapshot(_))),
+            "expected InvalidSnapshot for control char tool key"
+        );
+    }
+
+    #[test]
+    fn test_from_snapshot_rejects_bidi_override_tool_key() {
+        let config = BehavioralConfig::default();
+        let mut tools = HashMap::new();
+        // Right-to-left override in tool name
+        tools.insert(
+            "tool\u{202E}malicious".to_string(),
+            ToolBaseline {
+                ema: 5.0,
+                session_count: 1,
+                last_active: 0,
+            },
+        );
+        let mut agents = HashMap::new();
+        agents.insert(
+            "agent-1".to_string(),
+            AgentSnapshotEntry {
+                tools,
+                total_sessions: 1,
+            },
+        );
+        let snapshot = BehavioralSnapshot {
+            agents,
+            update_counter: 0,
+        };
+        let result = BehavioralTracker::from_snapshot(config, snapshot);
+        assert!(
+            matches!(result, Err(BehavioralError::InvalidSnapshot(_))),
+            "expected InvalidSnapshot for bidi override tool key"
+        );
+    }
+
+    #[test]
+    fn test_from_snapshot_accepts_clean_keys() {
+        let config = BehavioralConfig::default();
+        let mut tools = HashMap::new();
+        tools.insert(
+            "read_file".to_string(),
+            ToolBaseline {
+                ema: 5.0,
+                session_count: 1,
+                last_active: 0,
+            },
+        );
+        let mut agents = HashMap::new();
+        agents.insert(
+            "agent-1".to_string(),
+            AgentSnapshotEntry {
+                tools,
+                total_sessions: 1,
+            },
+        );
+        let snapshot = BehavioralSnapshot {
+            agents,
+            update_counter: 0,
+        };
+        assert!(BehavioralTracker::from_snapshot(config, snapshot).is_ok());
     }
 }
