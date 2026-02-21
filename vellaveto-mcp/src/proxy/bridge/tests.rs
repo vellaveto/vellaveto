@@ -1676,3 +1676,61 @@ fn test_evaluate_deny_overrides_allow_same_priority() {
         "Deny should override Allow at the same priority level"
     );
 }
+
+// ── FIND-R136-004: extract_agent_id validation ──────────
+
+#[test]
+fn test_extract_agent_id_rejects_oversized_id() {
+    let long_id = "a".repeat(257);
+    let msg = json!({
+        "_meta": { "agent_id": long_id }
+    });
+    let result = ProxyBridge::extract_agent_id(&msg);
+    assert!(
+        result.is_none(),
+        "agent_id exceeding 256 chars should be rejected"
+    );
+}
+
+#[test]
+fn test_extract_agent_id_rejects_control_chars() {
+    let msg = json!({
+        "_meta": { "agent_id": "legit\x1b[31mevil\x1b[0m" }
+    });
+    let result = ProxyBridge::extract_agent_id(&msg);
+    assert!(
+        result.is_none(),
+        "agent_id with control characters should be rejected"
+    );
+}
+
+#[test]
+fn test_extract_agent_id_rejects_unicode_format_chars() {
+    let msg = json!({
+        "_meta": { "agent_id": "legit\u{200B}evil" }
+    });
+    let result = ProxyBridge::extract_agent_id(&msg);
+    assert!(
+        result.is_none(),
+        "agent_id with zero-width space should be rejected"
+    );
+}
+
+#[test]
+fn test_extract_agent_id_accepts_valid_id() {
+    let msg = json!({
+        "_meta": { "agent_id": "agent-foo-123" }
+    });
+    let result = ProxyBridge::extract_agent_id(&msg);
+    assert_eq!(result, Some("agent-foo-123".to_string()));
+}
+
+#[test]
+fn test_extract_agent_id_max_length_accepted() {
+    let id = "x".repeat(256);
+    let msg = json!({
+        "_meta": { "agent_id": id }
+    });
+    let result = ProxyBridge::extract_agent_id(&msg);
+    assert_eq!(result, Some(id));
+}

@@ -41,14 +41,40 @@ impl ProxyBridge {
     }
 
     /// Extract claimed agent ID from MCP message.
+    ///
+    /// SECURITY (FIND-R136-004): Length-capped and control-char-filtered to
+    /// prevent log injection and unbounded memory from malicious `_meta.agent_id`.
     pub(super) fn extract_agent_id(msg: &Value) -> Option<String> {
+        /// Maximum length for a claimed agent ID from `_meta`.
+        /// Matches `MAX_ENV_AGENT_ID_LENGTH` in relay.rs.
+        const MAX_CLAIMED_AGENT_ID_LEN: usize = 256;
+
         let meta = msg
             .get("_meta")
             .or_else(|| msg.get("params").and_then(|p| p.get("_meta")))?;
-        meta.get("agent_id")
+        let raw = meta
+            .get("agent_id")
             .or_else(|| meta.get("agentId"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
+            .and_then(|v| v.as_str())?;
+
+        if raw.len() > MAX_CLAIMED_AGENT_ID_LEN {
+            tracing::warn!(
+                len = raw.len(),
+                max = MAX_CLAIMED_AGENT_ID_LEN,
+                "claimed agent_id in _meta exceeds maximum length — ignoring"
+            );
+            return None;
+        }
+        if raw
+            .chars()
+            .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+        {
+            tracing::warn!(
+                "claimed agent_id in _meta contains control or Unicode format characters — ignoring"
+            );
+            return None;
+        }
+        Some(raw.to_string())
     }
 
     /// Persist a flagged tool to the JSONL file.

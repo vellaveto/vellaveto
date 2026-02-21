@@ -1084,9 +1084,15 @@ impl ProxyBridge {
         let uri_as_json = json!({"uri": uri});
         let dlp_findings = scan_parameters_for_secrets(&uri_as_json);
         if !dlp_findings.is_empty() {
+            // SECURITY (FIND-R136-003): Sanitize URI before logging.
+            let safe_uri: String = uri
+                .chars()
+                .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
+                .take(512)
+                .collect();
             tracing::warn!(
                 "SECURITY: DLP alert in resource URI '{}': {:?}",
-                uri,
+                safe_uri,
                 dlp_findings
                     .iter()
                     .map(|f| &f.pattern_name)
@@ -1407,7 +1413,20 @@ impl ProxyBridge {
             agent: agent_writer,
             child: child_stdin,
         } = io;
-        tracing::debug!("Task request: {} (task_id: {:?})", task_method, task_id);
+        // SECURITY (FIND-R136-003): Sanitize agent-sourced task_method/task_id
+        // before logging to prevent log injection via control/format characters.
+        let safe_task_method: String = task_method
+            .chars()
+            .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
+            .take(256)
+            .collect();
+        let safe_task_id: Option<String> = task_id.as_ref().map(|id| {
+            id.chars()
+                .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
+                .take(256)
+                .collect()
+        });
+        tracing::debug!("Task request: {} (task_id: {:?})", safe_task_method, safe_task_id);
 
         // R4-1: DLP scan task request parameters for secret exfiltration.
         let task_params = msg.get("params").cloned().unwrap_or(json!({}));
@@ -1415,7 +1434,7 @@ impl ProxyBridge {
         if !dlp_findings.is_empty() {
             tracing::warn!(
                 "SECURITY: DLP alert for task '{}': {:?}",
-                task_method,
+                safe_task_method,
                 dlp_findings
                     .iter()
                     .map(|f| &f.pattern_name)
@@ -1726,7 +1745,19 @@ impl ProxyBridge {
             agent: agent_writer,
             child: child_stdin,
         } = io;
-        tracing::debug!("Extension method: {} (extension: {})", method, extension_id);
+        // SECURITY (FIND-R136-003): Sanitize agent-sourced extension_id and method
+        // before logging to prevent log injection via control/format characters.
+        let safe_extension_id: String = extension_id
+            .chars()
+            .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
+            .take(256)
+            .collect();
+        let safe_ext_method: String = method
+            .chars()
+            .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
+            .take(256)
+            .collect();
+        tracing::debug!("Extension method: {} (extension: {})", safe_ext_method, safe_extension_id);
 
         let params = msg.get("params").cloned().unwrap_or(json!({}));
         let action = extract_extension_action(&extension_id, &method, &params);
@@ -2010,16 +2041,33 @@ impl ProxyBridge {
                     return Ok(());
                 }
                 let id_key = id.to_string();
+                // SECURITY (FIND-R136-001): Apply same key-length guard as
+                // track_pending_request() (FIND-R112-003). Without this, a
+                // pathologically large JSON-RPC `id` bypasses the size check.
                 let method = msg.get("method").and_then(|m| m.as_str());
-                let method_name = method.unwrap_or("unknown").to_string();
-                state.pending_requests.insert(
-                    id_key.clone(),
-                    PendingRequest {
-                        sent_at: Instant::now(),
-                        tool_name: method_name,
-                        trace: None,
-                    },
-                );
+                if id_key.len() > 1024 {
+                    tracing::warn!(
+                        "dropping oversized passthrough request id key ({} bytes)",
+                        id_key.len()
+                    );
+                    // Still forward the message but don't track it
+                } else {
+                    // SECURITY (FIND-R136-001): Truncate method name to prevent
+                    // unbounded strings stored in PendingRequest.
+                    let method_name: String = method
+                        .unwrap_or("unknown")
+                        .chars()
+                        .take(256)
+                        .collect();
+                    state.pending_requests.insert(
+                        id_key.clone(),
+                        PendingRequest {
+                            sent_at: Instant::now(),
+                            tool_name: method_name,
+                            trace: None,
+                        },
+                    );
+                }
                 // SECURITY (R29-MCP-1): Normalize method before tracking.
                 let normalized_method = method.map(crate::extractor::normalize_method);
 
@@ -2495,16 +2543,27 @@ impl ProxyBridge {
                         .and_then(|r| r.get("protocolVersion"))
                         .and_then(|v| v.as_str())
                     {
+                        // SECURITY (FIND-R136-002): Cap + sanitize protocol version
+                        // from child server to prevent unbounded storage and log injection.
+                        const MAX_PROTOCOL_VERSION_LEN: usize = 64;
+                        let safe_ver: String = ver
+                            .chars()
+                            .filter(|c| {
+                                !c.is_control()
+                                    && !vellaveto_types::is_unicode_format_char(*c)
+                            })
+                            .take(MAX_PROTOCOL_VERSION_LEN)
+                            .collect();
                         tracing::info!(
                             "MCP initialize: server negotiated protocol version {}",
-                            ver
+                            safe_ver
                         );
-                        state.negotiated_protocol_version = Some(ver.to_string());
+                        state.negotiated_protocol_version = Some(safe_ver.clone());
                         let action = vellaveto_types::Action::new(
                             "vellaveto",
                             "protocol_version",
                             json!({
-                                "server_protocol_version": ver,
+                                "server_protocol_version": safe_ver,
                                 "server_name": msg.get("result")
                                     .and_then(|r| r.get("serverInfo"))
                                     .and_then(|s| s.get("name"))
