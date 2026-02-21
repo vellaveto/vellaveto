@@ -183,8 +183,8 @@ impl EtdiConfig {
         self.attestation.validate()?;
         self.version_pinning.validate()?;
         if let Some(ref path) = self.data_path {
-            if path.chars().any(|c| c.is_control()) {
-                return Err("etdi.data_path contains control characters".to_string());
+            if vellaveto_types::has_dangerous_chars(path) {
+                return Err("etdi.data_path contains control or format characters".to_string());
             }
         }
         Ok(())
@@ -216,8 +216,8 @@ impl AllowedSignersConfig {
                     MAX_FINGERPRINT_LEN
                 ));
             }
-            if fp.chars().any(|c| c.is_control()) {
-                return Err("fingerprint contains control characters".to_string());
+            if vellaveto_types::has_dangerous_chars(fp) {
+                return Err("fingerprint contains control or format characters".to_string());
             }
         }
         for sid in &self.spiffe_ids {
@@ -228,8 +228,8 @@ impl AllowedSignersConfig {
                     MAX_SPIFFE_ID_LEN
                 ));
             }
-            if sid.chars().any(|c| c.is_control()) {
-                return Err("SPIFFE ID contains control characters".to_string());
+            if vellaveto_types::has_dangerous_chars(sid) {
+                return Err("SPIFFE ID contains control or format characters".to_string());
             }
         }
         Ok(())
@@ -248,8 +248,8 @@ impl AttestationConfig {
                     url.chars().take(64).collect::<String>()
                 ));
             }
-            if url.chars().any(|c| c.is_control()) {
-                return Err("attestation.rekor_url contains control characters".to_string());
+            if vellaveto_types::has_dangerous_chars(url) {
+                return Err("attestation.rekor_url contains control or format characters".to_string());
             }
         }
         if self.transparency_log && self.rekor_url.is_none() {
@@ -278,8 +278,8 @@ impl VersionPinningConfig {
             ));
         }
         if let Some(ref path) = self.pins_path {
-            if path.chars().any(|c| c.is_control()) {
-                return Err("version_pinning.pins_path contains control characters".to_string());
+            if vellaveto_types::has_dangerous_chars(path) {
+                return Err("version_pinning.pins_path contains control or format characters".to_string());
             }
         }
         Ok(())
@@ -413,7 +413,7 @@ mod tests {
             spiffe_ids: vec![],
         };
         let err = config.validate().unwrap_err();
-        assert!(err.contains("control characters"));
+        assert!(err.contains("control"));
     }
 
     #[test]

@@ -356,8 +356,8 @@ impl AuditExportConfig {
             ));
         }
         if let Some(ref url) = self.webhook_url {
-            if url.chars().any(|c| c.is_control()) {
-                return Err("audit_export.webhook_url contains control characters".to_string());
+            if vellaveto_types::has_dangerous_chars(url) {
+                return Err("audit_export.webhook_url contains control or format characters".to_string());
             }
             // SECURITY (FIND-R110-CFG-001): Only HTTPS is accepted for webhook URLs.
             // HTTP transmits audit events in cleartext, leaking sensitive policy decisions.

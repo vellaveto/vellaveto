@@ -1,6 +1,4 @@
 use serde::{Deserialize, Serialize};
-use vellaveto_types::is_unicode_format_char;
-
 use crate::default_true;
 
 // =============================================================================
@@ -142,8 +140,8 @@ impl TlsConfig {
             return Err("tls.key_path required when TLS is enabled".to_string());
         }
         for suite in &self.cipher_suites {
-            if suite.chars().any(|c| c.is_control()) {
-                return Err("tls.cipher_suites contains control characters".to_string());
+            if vellaveto_types::has_dangerous_chars(suite) {
+                return Err("tls.cipher_suites contains control or format characters".to_string());
             }
         }
         Ok(())
@@ -238,37 +236,20 @@ impl SpiffeConfig {
             ));
         }
         for sid in &self.allowed_spiffe_ids {
-            if sid.chars().any(|c| c.is_control()) {
-                return Err("spiffe.allowed_spiffe_ids contains control characters".to_string());
+            if vellaveto_types::has_dangerous_chars(sid) {
+                return Err("spiffe.allowed_spiffe_ids contains control or format characters".to_string());
             }
             // SECURITY (FIND-R112-020): Reject Unicode format characters (zero-width,
-            // bidi overrides, BOM) in SPIFFE IDs to prevent identity confusion.
-            if sid.chars().any(is_unicode_format_char) {
-                return Err(
-                    "spiffe.allowed_spiffe_ids contains Unicode format characters".to_string(),
-                );
-            }
         }
         // SECURITY (FIND-R112-020): Also validate id_to_role keys for Unicode format chars.
         for key in self.id_to_role.keys() {
-            if key.chars().any(|c| c.is_control()) {
-                return Err("spiffe.id_to_role key contains control characters".to_string());
-            }
-            if key.chars().any(is_unicode_format_char) {
-                return Err(
-                    "spiffe.id_to_role key contains Unicode format characters".to_string(),
-                );
+            if vellaveto_types::has_dangerous_chars(key) {
+                return Err("spiffe.id_to_role key contains control or format characters".to_string());
             }
         }
         if let Some(ref domain) = self.trust_domain {
-            if domain.chars().any(|c| c.is_control()) {
-                return Err("spiffe.trust_domain contains control characters".to_string());
-            }
-            // SECURITY (FIND-R112-020): Trust domain also checked for format chars.
-            if domain.chars().any(is_unicode_format_char) {
-                return Err(
-                    "spiffe.trust_domain contains Unicode format characters".to_string(),
-                );
+            if vellaveto_types::has_dangerous_chars(domain) {
+                return Err("spiffe.trust_domain contains control or format characters".to_string());
             }
         }
         // SECURITY (BUG-R110-003): Fail-closed when enabled without trust_domain
@@ -396,8 +377,8 @@ impl OpaConfig {
             ));
         }
         if let Some(ref endpoint) = self.endpoint {
-            if endpoint.chars().any(|c| c.is_control()) {
-                return Err("opa.endpoint contains control characters".to_string());
+            if vellaveto_types::has_dangerous_chars(endpoint) {
+                return Err("opa.endpoint contains control or format characters".to_string());
             }
             // SECURITY (BUG-R110-004, FIND-R114-005): Use proper URL parsing for localhost check.
             // starts_with("http://localhost") would match http://localhost.evil.com.
@@ -412,8 +393,8 @@ impl OpaConfig {
                 ));
             }
         }
-        if self.decision_path.chars().any(|c| c.is_control()) {
-            return Err("opa.decision_path contains control characters".to_string());
+        if vellaveto_types::has_dangerous_chars(&self.decision_path) {
+            return Err("opa.decision_path contains control or format characters".to_string());
         }
         if self.fail_open && !self.fail_open_acknowledged {
             tracing::warn!("SECURITY: opa.fail_open=true without fail_open_acknowledged — fail_open will be ignored");
@@ -588,9 +569,9 @@ impl ThreatIntelConfig {
             ));
         }
         if let Some(ref endpoint) = self.endpoint {
-            if endpoint.chars().any(|c| c.is_control()) {
+            if vellaveto_types::has_dangerous_chars(endpoint) {
                 return Err(
-                    "threat_intel.endpoint contains control characters".to_string(),
+                    "threat_intel.endpoint contains control or format characters".to_string(),
                 );
             }
             // SECURITY (FIND-R112-016): Validate URL scheme for threat intel endpoint.
@@ -606,9 +587,9 @@ impl ThreatIntelConfig {
             }
         }
         for ioc in &self.ioc_types {
-            if ioc.chars().any(|c| c.is_control()) {
+            if vellaveto_types::has_dangerous_chars(ioc) {
                 return Err(
-                    "threat_intel.ioc_types contains control characters".to_string(),
+                    "threat_intel.ioc_types contains control or format characters".to_string(),
                 );
             }
         }
@@ -726,9 +707,9 @@ impl JitAccessConfig {
                     webhook.chars().take(64).collect::<String>()
                 ));
             }
-            if webhook.chars().any(|c| c.is_control()) {
+            if vellaveto_types::has_dangerous_chars(webhook) {
                 return Err(
-                    "jit_access.notification_webhook contains control characters".to_string(),
+                    "jit_access.notification_webhook contains control or format characters".to_string(),
                 );
             }
         }
@@ -750,9 +731,9 @@ impl JitAccessConfig {
                     MAX_ELEVATION_STRING_LEN
                 ));
             }
-            if elev.chars().any(|c| c.is_control()) {
+            if vellaveto_types::has_dangerous_chars(elev) {
                 return Err(format!(
-                    "jit_access.allowed_elevations[{}] contains control characters",
+                    "jit_access.allowed_elevations[{}] contains control or format characters",
                     i
                 ));
             }

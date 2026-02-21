@@ -357,10 +357,10 @@ impl AbacConfig {
                     aud.len()
                 ));
             }
-            // SECURITY (FIND-R52-008): Include C1 controls (0x80-0x9F) matching SDK validation.
-            if aud.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+            // SECURITY (FIND-R52-008): Reject control and format characters.
+            if vellaveto_types::has_dangerous_chars(aud) {
                 return Err(
-                    "abac.federation.expected_audience contains control characters".to_string(),
+                    "abac.federation.expected_audience contains control or format characters".to_string(),
                 );
             }
         }

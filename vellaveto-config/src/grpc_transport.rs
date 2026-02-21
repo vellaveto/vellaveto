@@ -77,9 +77,9 @@ impl GrpcTransportConfig {
         if addr.is_empty() {
             return Err("grpc.listen_address must not be empty".to_string());
         }
-        // SECURITY: Reject control characters in listen_address (including C1 range 0x80-0x9F).
-        if addr.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
-            return Err("grpc.listen_address contains control characters".to_string());
+        // SECURITY: Reject control and format characters in listen_address.
+        if vellaveto_types::has_dangerous_chars(addr) {
+            return Err("grpc.listen_address contains control or format characters".to_string());
         }
         Ok(())
     }

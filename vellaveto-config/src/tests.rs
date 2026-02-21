@@ -2892,7 +2892,7 @@ fn test_transport_config_overrides_null_byte_rejected() {
     };
     let err = config.validate().unwrap_err();
     // FIND-R44-007: Now caught by broader ASCII control character check.
-    assert!(err.contains("control characters"), "got: {}", err);
+    assert!(err.contains("control"), "got: {}", err);
 }
 
 #[test]
@@ -4672,7 +4672,7 @@ fn test_transport_overrides_control_chars_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("control characters"), "got: {}", err);
+    assert!(err.contains("control"), "got: {}", err);
 }
 
 /// FIND-R44-007: Glob key with DEL (0x7F) rejected.
@@ -4688,7 +4688,7 @@ fn test_transport_overrides_del_char_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("control characters"), "got: {}", err);
+    assert!(err.contains("control"), "got: {}", err);
 }
 
 // ═══════════════════════════════════════════════════
@@ -5310,7 +5310,7 @@ fn test_validate_rejects_cross_agent_trusted_agent_control_chars() {
     config.cross_agent.trusted_agents = vec!["agent\x00id".to_string()];
     let err = config.validate().unwrap_err();
     assert!(
-        err.contains("trusted_agents") && err.contains("control characters"),
+        err.contains("trusted_agents") && err.contains("control"),
         "expected control char error, got: {}",
         err
     );
@@ -5442,7 +5442,7 @@ fn test_validate_rejects_semantic_template_control_chars() {
     config.semantic_detection.extra_templates = vec!["template\x07with bell".to_string()];
     let err = config.validate().unwrap_err();
     assert!(
-        err.contains("extra_templates") && err.contains("control characters"),
+        err.contains("extra_templates") && err.contains("control"),
         "expected control char error, got: {}",
         err
     );
@@ -5712,7 +5712,7 @@ fn test_semantic_guardrails_model_control_chars_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("control characters"), "{}", err);
+    assert!(err.contains("control"), "{}", err);
 }
 
 #[test]
@@ -5722,7 +5722,7 @@ fn test_semantic_guardrails_model_unicode_format_chars_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("Unicode format"), "{}", err);
+    assert!(err.contains("format"), "{}", err);
 }
 
 #[test]
@@ -5820,7 +5820,7 @@ fn test_semantic_guardrails_fallback_control_chars_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("control characters"), "{}", err);
+    assert!(err.contains("control"), "{}", err);
 }
 
 #[test]
@@ -5852,7 +5852,7 @@ fn test_openai_backend_model_control_chars_rejected() {
         ..Default::default()
     };
     let err = backend.validate().unwrap_err();
-    assert!(err.contains("control characters"), "{}", err);
+    assert!(err.contains("control"), "{}", err);
 }
 
 #[test]
@@ -5862,7 +5862,7 @@ fn test_openai_backend_model_unicode_format_chars_rejected() {
         ..Default::default()
     };
     let err = backend.validate().unwrap_err();
-    assert!(err.contains("Unicode format"), "{}", err);
+    assert!(err.contains("format"), "{}", err);
 }
 
 #[test]
@@ -6001,7 +6001,7 @@ fn test_openai_backend_endpoint_control_chars_rejected() {
         ..Default::default()
     };
     let err = backend.validate().unwrap_err();
-    assert!(err.contains("control characters"), "{}", err);
+    assert!(err.contains("control"), "{}", err);
 }
 
 #[test]
@@ -6041,7 +6041,7 @@ fn test_nl_policy_id_unicode_format_chars_rejected() {
         priority: 0,
     };
     let err = policy.validate().unwrap_err();
-    assert!(err.contains("Unicode format"), "{}", err);
+    assert!(err.contains("format"), "{}", err);
 }
 
 #[test]
@@ -6055,7 +6055,7 @@ fn test_nl_policy_name_unicode_format_chars_rejected() {
         priority: 0,
     };
     let err = policy.validate().unwrap_err();
-    assert!(err.contains("Unicode format"), "{}", err);
+    assert!(err.contains("format"), "{}", err);
 }
 
 #[test]
@@ -6069,7 +6069,7 @@ fn test_nl_policy_statement_unicode_format_chars_rejected() {
         priority: 0,
     };
     let err = policy.validate().unwrap_err();
-    assert!(err.contains("Unicode format"), "{}", err);
+    assert!(err.contains("format"), "{}", err);
 }
 
 #[test]
@@ -6083,7 +6083,7 @@ fn test_nl_policy_tool_pattern_unicode_format_chars_rejected() {
         priority: 0,
     };
     let err = policy.validate().unwrap_err();
-    assert!(err.contains("Unicode format"), "{}", err);
+    assert!(err.contains("format"), "{}", err);
 }
 
 #[test]
@@ -6203,7 +6203,7 @@ fn test_known_tool_names_control_char_rejected() {
     config.known_tool_names = vec!["tool\x00name".to_string()];
     let err = config.validate().unwrap_err();
     assert!(err.contains("known_tool_names[0]"), "err: {}", err);
-    assert!(err.contains("control characters"), "err: {}", err);
+    assert!(err.contains("control"), "err: {}", err);
 }
 
 #[test]
@@ -6221,7 +6221,7 @@ fn test_persistence_path_null_byte_rejected() {
     config.tool_registry.persistence_path = "data/reg\x00istry.jsonl".to_string();
     let err = config.validate().unwrap_err();
     assert!(
-        err.contains("control characters") || err.contains("null bytes"),
+        err.contains("control") || err.contains("null bytes"),
         "err: {}",
         err
     );
@@ -6233,7 +6233,7 @@ fn test_persistence_path_control_char_rejected() {
     config.tool_registry.persistence_path = "data/\x01registry.jsonl".to_string();
     let err = config.validate().unwrap_err();
     assert!(
-        err.contains("control characters") || err.contains("null bytes"),
+        err.contains("control") || err.contains("null bytes"),
         "err: {}",
         err
     );
@@ -6293,7 +6293,7 @@ fn test_validate_rejects_cipher_suite_with_control_chars() {
     config.tls.cipher_suites = vec!["TLS_AES_128\x00_GCM".to_string()];
     let err = config.validate().unwrap_err();
     assert!(
-        err.contains("tls.cipher_suites[0]") && err.contains("control characters"),
+        err.contains("tls.cipher_suites[0]") && err.contains("control"),
         "expected cipher suite control char error, got: {}",
         err
     );
@@ -6361,7 +6361,7 @@ fn test_allowed_auth_methods_rejects_control_chars() {
     };
     let err = config.validate().unwrap_err();
     assert!(
-        err.contains("control characters") || err.contains("Unicode format characters"),
+        err.contains("control") || err.contains("format characters"),
         "expected control/format char rejection, got: {}",
         err
     );
@@ -6373,7 +6373,7 @@ fn test_allowed_auth_methods_rejects_control_chars() {
     };
     let err2 = config2.validate().unwrap_err();
     assert!(
-        err2.contains("control characters") || err2.contains("Unicode format characters"),
+        err2.contains("control") || err2.contains("format characters"),
         "expected control/format char rejection, got: {}",
         err2
     );
@@ -6385,7 +6385,7 @@ fn test_allowed_auth_methods_rejects_control_chars() {
     };
     let err3 = config3.validate().unwrap_err();
     assert!(
-        err3.contains("control characters") || err3.contains("Unicode format characters"),
+        err3.contains("control") || err3.contains("format characters"),
         "expected control/format char rejection, got: {}",
         err3
     );
@@ -6397,7 +6397,7 @@ fn test_allowed_auth_methods_rejects_control_chars() {
     };
     let err4 = config4.validate().unwrap_err();
     assert!(
-        err4.contains("control characters"),
+        err4.contains("control"),
         "expected control char rejection for tab, got: {}",
         err4
     );
@@ -6414,7 +6414,7 @@ fn test_label_selector_rejects_control_chars() {
     config.service_discovery.label_selector = Some("app=foo\tbar".to_string());
     let err = config.validate().unwrap_err();
     assert!(
-        err.contains("ASCII control characters"),
+        err.contains("control"),
         "expected ASCII control char rejection, got: {}",
         err
     );
@@ -6424,7 +6424,7 @@ fn test_label_selector_rejects_control_chars() {
     config2.service_discovery.label_selector = Some("app=vellaveto\u{200B}".to_string());
     let err2 = config2.validate().unwrap_err();
     assert!(
-        err2.contains("Unicode format characters"),
+        err2.contains("format"),
         "expected Unicode format char rejection, got: {}",
         err2
     );
@@ -6434,7 +6434,7 @@ fn test_label_selector_rejects_control_chars() {
     config3.service_discovery.label_selector = Some("app=\u{202E}evil".to_string());
     let err3 = config3.validate().unwrap_err();
     assert!(
-        err3.contains("Unicode format characters"),
+        err3.contains("format"),
         "expected Unicode format char rejection, got: {}",
         err3
     );
@@ -6509,7 +6509,7 @@ fn test_audit_export_config_validate_control_char_webhook() {
         ..Default::default()
     };
     let err = cfg.validate().unwrap_err();
-    assert!(err.contains("control characters"));
+    assert!(err.contains("control"));
 }
 
 #[test]
@@ -6709,7 +6709,7 @@ fn test_manifest_config_validate_path_control_chars() {
     let mut cfg = crate::manifest::ManifestConfig::default();
     cfg.manifest_path = Some("/etc/\x00evil".to_string());
     let err = cfg.validate().unwrap_err();
-    assert!(err.contains("control characters"));
+    assert!(err.contains("control"));
 }
 
 #[test]
@@ -7692,7 +7692,7 @@ fn test_elicitation_config_validate_control_chars_in_blocked_field_type() {
         "should reject control characters in blocked_field_types"
     );
     assert!(
-        result.unwrap_err().contains("control characters"),
+        result.unwrap_err().contains("control"),
         "error should mention control characters"
     );
 }
@@ -7759,7 +7759,7 @@ fn test_sampling_config_validate_control_chars_in_allowed_model() {
         "should reject control characters in allowed_models"
     );
     assert!(
-        result.unwrap_err().contains("control characters"),
+        result.unwrap_err().contains("control"),
         "error should mention control characters"
     );
 }
@@ -7813,7 +7813,7 @@ fn test_zk_audit_key_path_rejects_control_chars() {
     };
     let err = cfg.validate().unwrap_err();
     assert!(
-        err.contains("control characters"),
+        err.contains("control"),
         "should reject null byte in path, got: {err}"
     );
 }
@@ -7856,7 +7856,7 @@ fn test_zk_audit_verifying_key_path_rejects_newline() {
     };
     let err = cfg.validate().unwrap_err();
     assert!(
-        err.contains("control characters"),
+        err.contains("control"),
         "should reject newline in path, got: {err}"
     );
 }
@@ -7886,7 +7886,7 @@ fn test_projector_rejects_control_chars_in_model_family() {
     };
     let err = cfg.validate().unwrap_err();
     assert!(
-        err.contains("control characters"),
+        err.contains("control"),
         "should reject control chars in model family, got: {err}"
     );
 }
@@ -7935,7 +7935,7 @@ fn test_resource_indicator_rejects_control_chars() {
     };
     let err = cfg.validate().unwrap_err();
     assert!(
-        err.contains("control characters"),
+        err.contains("control"),
         "should reject control chars: {err}"
     );
 }
@@ -7982,7 +7982,7 @@ fn test_step_up_auth_rejects_control_char_trigger() {
     };
     let err = cfg.validate().unwrap_err();
     assert!(
-        err.contains("control characters"),
+        err.contains("control"),
         "should reject control chars: {err}"
     );
 }

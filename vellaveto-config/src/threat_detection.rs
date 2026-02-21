@@ -435,9 +435,9 @@ impl DeputyConfig {
                     MAX_NON_DELEGATABLE_TOOL_LEN
                 ));
             }
-            if tool.chars().any(|c| c.is_control()) {
+            if vellaveto_types::has_dangerous_chars(tool) {
                 return Err(format!(
-                    "deputy.non_delegatable_tools[{}] contains control characters",
+                    "deputy.non_delegatable_tools[{}] contains control or format characters",
                     i
                 ));
             }

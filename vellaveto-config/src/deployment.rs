@@ -179,15 +179,9 @@ impl ServiceDiscoveryConfig {
                     name.len()
                 ));
             }
-            if name.chars().any(|c| c.is_control()) {
+            if vellaveto_types::has_dangerous_chars(name) {
                 return Err(
-                    "deployment.service_discovery.dns_name contains control characters".to_string(),
-                );
-            }
-            if name.chars().any(vellaveto_types::is_unicode_format_char) {
-                return Err(
-                    "deployment.service_discovery.dns_name contains Unicode format characters"
-                        .to_string(),
+                    "deployment.service_discovery.dns_name contains control or format characters".to_string(),
                 );
             }
             // SECURITY (FIND-P27-005): Reject SSRF-prone DNS names.
@@ -256,18 +250,9 @@ impl ServiceDiscoveryConfig {
                     MAX_LABEL_SELECTOR_LEN
                 ));
             }
-            if selector.chars().any(|c| c.is_control()) {
+            if vellaveto_types::has_dangerous_chars(selector) {
                 return Err(
-                    "deployment.service_discovery.label_selector contains ASCII control characters"
-                        .to_string(),
-                );
-            }
-            if selector
-                .chars()
-                .any(vellaveto_types::is_unicode_format_char)
-            {
-                return Err(
-                    "deployment.service_discovery.label_selector contains Unicode format characters"
+                    "deployment.service_discovery.label_selector contains control or format characters"
                         .to_string(),
                 );
             }

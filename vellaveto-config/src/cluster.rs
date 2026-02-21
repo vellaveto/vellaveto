@@ -74,11 +74,6 @@ fn default_cluster_key_prefix() -> String {
     "vellaveto:".to_string()
 }
 
-/// Check if a string contains ASCII or C1 control characters.
-fn cluster_contains_control_chars(s: &str) -> bool {
-    s.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b))
-}
-
 /// Maximum URL length for Redis connection string.
 const MAX_CLUSTER_URL_LENGTH: usize = 2048;
 
@@ -105,8 +100,8 @@ impl ClusterConfig {
                 VALID_CLUSTER_BACKENDS, self.backend
             ));
         }
-        if cluster_contains_control_chars(&self.backend) {
-            return Err("cluster.backend contains control characters".to_string());
+        if vellaveto_types::has_dangerous_chars(&self.backend) {
+            return Err("cluster.backend contains control or format characters".to_string());
         }
 
         // Validate redis_url
@@ -117,8 +112,8 @@ impl ClusterConfig {
                 MAX_CLUSTER_URL_LENGTH
             ));
         }
-        if cluster_contains_control_chars(&self.redis_url) {
-            return Err("cluster.redis_url contains control characters".to_string());
+        if vellaveto_types::has_dangerous_chars(&self.redis_url) {
+            return Err("cluster.redis_url contains control or format characters".to_string());
         }
         // SECURITY (FIND-R111-005): When backend="redis", redis_url must be provided.
         // An empty redis_url with a redis backend would silently use no connection,
@@ -158,8 +153,8 @@ impl ClusterConfig {
                 MAX_CLUSTER_PREFIX_LENGTH
             ));
         }
-        if cluster_contains_control_chars(&self.key_prefix) {
-            return Err("cluster.key_prefix contains control characters".to_string());
+        if vellaveto_types::has_dangerous_chars(&self.key_prefix) {
+            return Err("cluster.key_prefix contains control or format characters".to_string());
         }
 
         Ok(())

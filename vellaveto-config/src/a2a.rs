@@ -127,11 +127,6 @@ const VALID_A2A_AUTH_METHODS: &[&str] = &["apikey", "bearer", "oauth2", "mtls"];
 /// Valid A2A task operations.
 const VALID_A2A_TASK_OPERATIONS: &[&str] = &["get", "cancel", "resubscribe"];
 
-/// Check if a string contains ASCII or C1 control characters.
-fn a2a_contains_control_chars(s: &str) -> bool {
-    s.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b))
-}
-
 impl A2aConfig {
     /// Validate A2A configuration fields.
     pub fn validate(&self) -> Result<(), String> {
@@ -144,8 +139,8 @@ impl A2aConfig {
                     MAX_A2A_URL_LENGTH
                 ));
             }
-            if a2a_contains_control_chars(url) {
-                return Err("a2a.upstream_url contains control characters".to_string());
+            if vellaveto_types::has_dangerous_chars(url) {
+                return Err("a2a.upstream_url contains control or format characters".to_string());
             }
             if !url.starts_with("http://") && !url.starts_with("https://") {
                 return Err("a2a.upstream_url must start with http:// or https://".to_string());
@@ -161,8 +156,8 @@ impl A2aConfig {
                     MAX_A2A_LISTEN_ADDR_LENGTH
                 ));
             }
-            if a2a_contains_control_chars(addr) {
-                return Err("a2a.listen_addr contains control characters".to_string());
+            if vellaveto_types::has_dangerous_chars(addr) {
+                return Err("a2a.listen_addr contains control or format characters".to_string());
             }
         }
 
@@ -198,18 +193,11 @@ impl A2aConfig {
                     MAX_A2A_ENTRY_LENGTH
                 ));
             }
-            if a2a_contains_control_chars(method) {
+            if vellaveto_types::has_dangerous_chars(method) {
                 return Err(format!(
-                    "a2a.allowed_auth_methods entry '{}' contains control characters",
+                    "a2a.allowed_auth_methods entry '{}' contains control or format characters",
                     method
                 ));
-            }
-            // SECURITY (FIND-R83-004): Reject Unicode format characters (zero-width,
-            // bidi overrides, BOM) that can bypass visual inspection of auth method names.
-            if method.chars().any(vellaveto_types::is_unicode_format_char) {
-                return Err(
-                    "a2a.allowed_auth_methods entry contains Unicode format characters".to_string(),
-                );
             }
             if !VALID_A2A_AUTH_METHODS.contains(&method.as_str()) {
                 return Err(format!(
@@ -261,18 +249,11 @@ impl A2aConfig {
                     MAX_A2A_ENTRY_LENGTH
                 ));
             }
-            if a2a_contains_control_chars(op) {
+            if vellaveto_types::has_dangerous_chars(op) {
                 return Err(format!(
-                    "a2a.allowed_task_operations entry '{}' contains control characters",
+                    "a2a.allowed_task_operations entry '{}' contains control or format characters",
                     op
                 ));
-            }
-            // SECURITY (IMP-R84-003): Parity with allowed_auth_methods Unicode format char check.
-            if op.chars().any(vellaveto_types::is_unicode_format_char) {
-                return Err(
-                    "a2a.allowed_task_operations entry contains Unicode format characters"
-                        .to_string(),
-                );
             }
             if !VALID_A2A_TASK_OPERATIONS.contains(&op.as_str()) {
                 return Err(format!(

@@ -50,8 +50,12 @@ const MAX_MEMORY_AGE_HOURS: u64 = 8_760;
 /// Maximum namespace count for memory isolation.
 const MAX_MEMORY_NAMESPACES: usize = 100_000;
 
+/// SECURITY (IMP-R130-001): Delegate to canonical `has_dangerous_chars()` which
+/// checks both control characters AND Unicode format characters (zero-width,
+/// bidi overrides, BOM, etc.). The previous `char::is_control` check missed
+/// format chars that could bypass security checks.
 fn contains_control_chars(s: &str) -> bool {
-    s.chars().any(char::is_control)
+    vellaveto_types::has_dangerous_chars(s)
 }
 
 impl PolicyConfig {
@@ -169,9 +173,9 @@ impl PolicyConfig {
                     MAX_DLP_PATTERN_NAME_LEN
                 ));
             }
-            if name.chars().any(char::is_control) {
+            if contains_control_chars(name) {
                 return Err(format!(
-                    "dlp.extra_patterns[{}] name contains control characters",
+                    "dlp.extra_patterns[{}] name contains control or format characters",
                     i
                 ));
             }
@@ -214,9 +218,9 @@ impl PolicyConfig {
                     pattern.name.len()
                 ));
             }
-            if pattern.name.chars().any(char::is_control) {
+            if contains_control_chars(&pattern.name) {
                 return Err(format!(
-                    "audit.custom_pii_patterns[{}].name contains control characters",
+                    "audit.custom_pii_patterns[{}].name contains control or format characters",
                     i
                 ));
             }
@@ -285,7 +289,7 @@ impl PolicyConfig {
             }
             if contains_control_chars(name) {
                 return Err(format!(
-                    "known_tool_names[{}] contains control characters",
+                    "known_tool_names[{}] contains control or format characters",
                     i,
                 ));
             }
@@ -339,7 +343,7 @@ impl PolicyConfig {
             }
             if contains_control_chars(origin) {
                 return Err(format!(
-                    "allowed_origins[{}] contains control characters",
+                    "allowed_origins[{}] contains control or format characters",
                     i
                 ));
             }
@@ -688,7 +692,7 @@ impl PolicyConfig {
             }
             if contains_control_chars(template) {
                 return Err(format!(
-                    "semantic_detection.extra_templates[{}] contains control characters",
+                    "semantic_detection.extra_templates[{}] contains control or format characters",
                     i
                 ));
             }
@@ -760,6 +764,23 @@ impl PolicyConfig {
                 );
             }
         }
+        // SECURITY (FIND-R146-CS-002): Validate min_trust_level range (documented as 0-4)
+        // and trust_decay_hours bounds to prevent unchecked values.
+        if self.shadow_agent.min_trust_level > 4 {
+            return Err(format!(
+                "shadow_agent.min_trust_level must be in [0, 4], got {}",
+                self.shadow_agent.min_trust_level
+            ));
+        }
+        if self.shadow_agent.trust_decay_hours == 0 {
+            return Err("shadow_agent.trust_decay_hours must be > 0".to_string());
+        }
+        if self.shadow_agent.trust_decay_hours > 8760 {
+            return Err(format!(
+                "shadow_agent.trust_decay_hours must be <= 8760, got {}",
+                self.shadow_agent.trust_decay_hours
+            ));
+        }
 
         // Validate schema poisoning config
         if self.schema_poisoning.enabled
@@ -796,6 +817,30 @@ impl PolicyConfig {
         if self.sampling_detection.enabled && self.sampling_detection.window_secs == 0 {
             return Err("sampling_detection.window_secs must be > 0 when enabled".to_string());
         }
+        // SECURITY (FIND-R146-CS-003): Validate max_prompt_length upper bound and
+        // per-string validation on allowed_models entries.
+        const MAX_SAMPLING_PROMPT_LENGTH: usize = 1_000_000;
+        if self.sampling_detection.max_prompt_length > MAX_SAMPLING_PROMPT_LENGTH {
+            return Err(format!(
+                "sampling_detection.max_prompt_length {} exceeds maximum {}",
+                self.sampling_detection.max_prompt_length, MAX_SAMPLING_PROMPT_LENGTH
+            ));
+        }
+        for (i, model) in self.sampling_detection.allowed_models.iter().enumerate() {
+            if model.len() > 256 {
+                return Err(format!(
+                    "sampling_detection.allowed_models[{}] length {} exceeds maximum 256",
+                    i,
+                    model.len()
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(model) {
+                return Err(format!(
+                    "sampling_detection.allowed_models[{}] contains control or format characters",
+                    i
+                ));
+            }
+        }
 
         // Validate cross-agent security config
         if self.cross_agent.trusted_agents.len() > MAX_CROSS_AGENT_TRUSTED_AGENTS {
@@ -822,7 +867,7 @@ impl PolicyConfig {
             }
             if contains_control_chars(agent) {
                 return Err(format!(
-                    "cross_agent.trusted_agents[{}] contains control characters",
+                    "cross_agent.trusted_agents[{}] contains control or format characters",
                     i
                 ));
             }
@@ -873,6 +918,23 @@ impl PolicyConfig {
                 self.advanced_threat.protected_tool_patterns.len(),
                 MAX_PROTECTED_TOOL_PATTERNS
             ));
+        }
+        // SECURITY (FIND-R146-CS-004): Per-string validation of protected_tool_patterns --
+        // reject oversized entries and entries containing control/format characters.
+        for (i, pat) in self.advanced_threat.protected_tool_patterns.iter().enumerate() {
+            if pat.len() > 256 {
+                return Err(format!(
+                    "advanced_threat.protected_tool_patterns[{}] length {} exceeds maximum 256",
+                    i,
+                    pat.len()
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(pat) {
+                return Err(format!(
+                    "advanced_threat.protected_tool_patterns[{}] contains control or format characters",
+                    i
+                ));
+            }
         }
         if !self.advanced_threat.goal_drift_threshold.is_finite()
             || self.advanced_threat.goal_drift_threshold < 0.0
@@ -947,7 +1009,7 @@ impl PolicyConfig {
             }
             if contains_control_chars(suite) {
                 return Err(format!(
-                    "tls.cipher_suites[{}] contains control characters",
+                    "tls.cipher_suites[{}] contains control or format characters",
                     i
                 ));
             }
@@ -1180,7 +1242,7 @@ impl PolicyConfig {
             }
             if key.bytes().any(|b| b < 0x20 || b == 0x7F) {
                 return Err(
-                    "opa.headers key contains control characters (including CR/LF)".to_string(),
+                    "opa.headers key contains control or format characters (including CR/LF)".to_string(),
                 );
             }
             if value.len() > MAX_OPA_HEADER_VALUE_LEN {
@@ -1193,7 +1255,7 @@ impl PolicyConfig {
             }
             if value.bytes().any(|b| b < 0x20 || b == 0x7F) {
                 return Err(format!(
-                    "opa.headers value for key '{}' contains control characters (including CR/LF)",
+                    "opa.headers value for key '{}' contains control or format characters (including CR/LF)",
                     &key[..key.len().min(32)],
                 ));
             }

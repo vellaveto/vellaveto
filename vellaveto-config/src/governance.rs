@@ -1,7 +1,7 @@
 //! Governance configuration for Shadow AI Discovery and Least Agency Enforcement (Phase 26).
 
 use serde::{Deserialize, Serialize};
-use vellaveto_types::{is_unicode_format_char, EnforcementMode};
+use vellaveto_types::EnforcementMode;
 
 /// Maximum number of approved tools in governance config.
 pub const MAX_GOVERNANCE_APPROVED_TOOLS: usize = 1_000;
@@ -123,18 +123,11 @@ impl GovernanceConfig {
                     MAX_TOOL_NAME_LENGTH
                 ));
             }
-            // SECURITY (FIND-R51-015): Reject control characters in governance strings.
-            if tool.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+            // SECURITY (FIND-R51-015, FIND-R63-CFG-005): Reject control and Unicode
+            // format characters (zero-width, bidi overrides, BOM) in governance strings.
+            if vellaveto_types::has_dangerous_chars(tool) {
                 return Err(format!(
-                    "governance.approved_tools[{}] contains control characters",
-                    i
-                ));
-            }
-            // SECURITY (FIND-R63-CFG-005): Reject Unicode format characters
-            // (zero-width, bidi overrides, BOM) that can bypass security checks.
-            if tool.chars().any(is_unicode_format_char) {
-                return Err(format!(
-                    "governance.approved_tools[{}] contains Unicode format characters",
+                    "governance.approved_tools[{}] contains control or format characters",
                     i
                 ));
             }
@@ -156,20 +149,10 @@ impl GovernanceConfig {
                     MAX_SERVER_ID_LENGTH
                 ));
             }
-            // SECURITY (FIND-R51-015): Reject control characters in governance strings.
-            if server
-                .bytes()
-                .any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b))
-            {
+            // SECURITY (FIND-R51-015, FIND-R63-CFG-005): Reject control and format characters.
+            if vellaveto_types::has_dangerous_chars(server) {
                 return Err(format!(
-                    "governance.known_servers[{}] contains control characters",
-                    i
-                ));
-            }
-            // SECURITY (FIND-R63-CFG-005): Reject Unicode format characters.
-            if server.chars().any(is_unicode_format_char) {
-                return Err(format!(
-                    "governance.known_servers[{}] contains Unicode format characters",
+                    "governance.known_servers[{}] contains control or format characters",
                     i
                 ));
             }
@@ -191,20 +174,10 @@ impl GovernanceConfig {
                     MAX_AGENT_ID_LENGTH
                 ));
             }
-            // SECURITY (FIND-R51-015): Reject control characters in governance strings.
-            if agent
-                .bytes()
-                .any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b))
-            {
+            // SECURITY (FIND-R51-015, FIND-R63-CFG-005): Reject control and format characters.
+            if vellaveto_types::has_dangerous_chars(agent) {
                 return Err(format!(
-                    "governance.registered_agents[{}] contains control characters",
-                    i
-                ));
-            }
-            // SECURITY (FIND-R63-CFG-005): Reject Unicode format characters.
-            if agent.chars().any(is_unicode_format_char) {
-                return Err(format!(
-                    "governance.registered_agents[{}] contains Unicode format characters",
+                    "governance.registered_agents[{}] contains control or format characters",
                     i
                 ));
             }

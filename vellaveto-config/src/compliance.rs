@@ -329,13 +329,9 @@ impl ComplianceConfig {
                     MAX_TOOL_MAPPING_STRING_LEN,
                 ));
             }
-            if mapping
-                .tool_pattern
-                .bytes()
-                .any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b))
-            {
+            if vellaveto_types::has_dangerous_chars(&mapping.tool_pattern) {
                 return Err(format!(
-                    "data_governance.tool_mappings[{}].tool_pattern contains control characters",
+                    "data_governance.tool_mappings[{}].tool_pattern contains control or format characters",
                     i,
                 ));
             }
@@ -348,9 +344,9 @@ impl ComplianceConfig {
                         MAX_TOOL_MAPPING_STRING_LEN,
                     ));
                 }
-                if prov.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+                if vellaveto_types::has_dangerous_chars(prov) {
                     return Err(format!(
-                        "data_governance.tool_mappings[{}].provenance contains control characters",
+                        "data_governance.tool_mappings[{}].provenance contains control or format characters",
                         i,
                     ));
                 }
@@ -389,11 +385,10 @@ impl ComplianceConfig {
                     MAX_COMPLIANCE_STRING_LEN,
                 ));
             }
-            // SECURITY: Byte-level control char check matching governance.rs pattern —
-            // includes C1 controls (0x80-0x9F).
-            if tool.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+            // SECURITY: Reject control and format characters.
+            if vellaveto_types::has_dangerous_chars(tool) {
                 return Err(format!(
-                    "eu_ai_act.human_oversight_tools[{}] contains control characters",
+                    "eu_ai_act.human_oversight_tools[{}] contains control or format characters",
                     i,
                 ));
             }
@@ -408,11 +403,10 @@ impl ComplianceConfig {
                     MAX_REVIEWER_NAME_LEN,
                 ));
             }
-            // SECURITY (FIND-R56-CFG-011): Byte-level control char check matching
-            // governance.rs pattern — includes C1 controls (0x80-0x9F).
-            if name.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+            // SECURITY (FIND-R56-CFG-011): Reject control and format characters.
+            if vellaveto_types::has_dangerous_chars(name) {
                 return Err(format!(
-                    "soc2.access_review.reviewers[{}] contains control characters",
+                    "soc2.access_review.reviewers[{}] contains control or format characters",
                     i,
                 ));
             }
@@ -422,7 +416,7 @@ impl ComplianceConfig {
         Ok(())
     }
 
-    /// Validate a compliance string field for control characters and length.
+    /// Validate a compliance string field for control/format characters and length.
     fn validate_compliance_string(field_name: &str, value: &str) -> Result<(), String> {
         if value.len() > MAX_COMPLIANCE_STRING_LEN {
             return Err(format!(
@@ -432,13 +426,9 @@ impl ComplianceConfig {
                 MAX_COMPLIANCE_STRING_LEN,
             ));
         }
-        // SECURITY: Byte-level control char check matching governance.rs pattern —
-        // includes C1 controls (0x80-0x9F).
-        if value
-            .bytes()
-            .any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b))
-        {
-            return Err(format!("{} contains control characters", field_name));
+        // SECURITY: Reject control and Unicode format characters.
+        if vellaveto_types::has_dangerous_chars(value) {
+            return Err(format!("{} contains control or format characters", field_name));
         }
         Ok(())
     }
@@ -705,7 +695,7 @@ reviewers = ["Alice"]
         let mut config = ComplianceConfig::default();
         config.soc2.access_review.reviewers = vec!["Alice\x00Bob".to_string()];
         let err = config.validate().unwrap_err();
-        assert!(err.contains("control characters"));
+        assert!(err.contains("control"));
     }
 
     #[test]
@@ -725,7 +715,7 @@ reviewers = ["Alice"]
         config.eu_ai_act.deployer_name = "Acme\x00Corp".to_string();
         let err = config.validate().unwrap_err();
         assert!(err.contains("eu_ai_act.deployer_name"));
-        assert!(err.contains("control characters"));
+        assert!(err.contains("control"));
     }
 
     #[test]
@@ -743,7 +733,7 @@ reviewers = ["Alice"]
         config.eu_ai_act.system_id = "sys\x1Fid".to_string();
         let err = config.validate().unwrap_err();
         assert!(err.contains("eu_ai_act.system_id"));
-        assert!(err.contains("control characters"));
+        assert!(err.contains("control"));
     }
 
     #[test]
@@ -761,7 +751,7 @@ reviewers = ["Alice"]
         config.soc2.organization_name = "Org\x7FName".to_string();
         let err = config.validate().unwrap_err();
         assert!(err.contains("soc2.organization_name"));
-        assert!(err.contains("control characters"));
+        assert!(err.contains("control"));
     }
 
     #[test]
@@ -770,7 +760,7 @@ reviewers = ["Alice"]
         config.soc2.period_start = "2026\x00-01-01".to_string();
         let err = config.validate().unwrap_err();
         assert!(err.contains("soc2.period_start"));
-        assert!(err.contains("control characters"));
+        assert!(err.contains("control"));
     }
 
     #[test]
@@ -780,7 +770,7 @@ reviewers = ["Alice"]
         config.soc2.period_end = "2026\u{0085}12-31".to_string();
         let err = config.validate().unwrap_err();
         assert!(err.contains("soc2.period_end"));
-        assert!(err.contains("control characters"));
+        assert!(err.contains("control"));
     }
 
     #[test]
@@ -823,7 +813,7 @@ reviewers = ["Alice"]
         }];
         let err = config.validate().unwrap_err();
         assert!(err.contains("tool_pattern"), "err: {}", err);
-        assert!(err.contains("control characters"), "err: {}", err);
+        assert!(err.contains("control"), "err: {}", err);
     }
 
     #[test]
@@ -853,7 +843,7 @@ reviewers = ["Alice"]
         }];
         let err = config.validate().unwrap_err();
         assert!(err.contains("provenance"), "err: {}", err);
-        assert!(err.contains("control characters"), "err: {}", err);
+        assert!(err.contains("control"), "err: {}", err);
     }
 
     #[test]

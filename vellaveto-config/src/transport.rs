@@ -264,13 +264,11 @@ impl TransportConfig {
             if glob.is_empty() {
                 return Err("transport.transport_overrides contains empty key".to_string());
             }
-            // SECURITY (FIND-R44-007): Reject all ASCII control characters
-            // (including null bytes). Control chars in glob keys can cause log
-            // injection (ANSI escape codes) and are never valid in tool names.
-            // SECURITY (FIND-R52-008): Include C1 controls (0x80-0x9F).
-            if glob.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+            // SECURITY (FIND-R44-007, FIND-R52-008): Reject control and format characters
+            // in glob keys to prevent log injection and invisible character bypass.
+            if vellaveto_types::has_dangerous_chars(glob) {
                 return Err(format!(
-                    "transport.transport_overrides key contains control characters (key: {:?})",
+                    "transport.transport_overrides key contains control or format characters (key: {:?})",
                     &glob[..glob.len().min(32)]
                 ));
             }

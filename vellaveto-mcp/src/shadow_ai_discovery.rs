@@ -44,32 +44,14 @@ const MAX_ID_LENGTH: usize = 256;
 /// Matches vellaveto-config/src/governance.rs::MAX_SERVER_ID_LENGTH.
 const MAX_SERVER_ID_LENGTH: usize = 512;
 
-/// Returns false if the string contains control characters, Unicode bidi overrides
-/// (U+202A-U+202E, U+2066-U+2069), zero-width space (U+200B), BOM (U+FEFF), or null bytes.
+/// Returns false if the string contains control characters or Unicode format
+/// characters (zero-width, bidi overrides, BOM, soft hyphen, TAG chars, etc.).
+///
+/// SECURITY (IMP-R130-004): Delegates to canonical `has_dangerous_chars()` which
+/// also covers soft hyphen, ZWNJ, ZWJ, word joiner, interlinear annotations,
+/// and TAG characters — all missing from the previous inline implementation.
 fn is_valid_id(s: &str) -> bool {
-    for c in s.chars() {
-        // Control characters (includes null bytes)
-        if c.is_control() {
-            return false;
-        }
-        // Unicode bidi overrides
-        if ('\u{202A}'..='\u{202E}').contains(&c) {
-            return false;
-        }
-        // Unicode bidi isolates
-        if ('\u{2066}'..='\u{2069}').contains(&c) {
-            return false;
-        }
-        // Zero-width space
-        if c == '\u{200B}' {
-            return false;
-        }
-        // Byte order mark
-        if c == '\u{FEFF}' {
-            return false;
-        }
-    }
-    true
+    !vellaveto_types::has_dangerous_chars(s)
 }
 
 /// Passive discovery engine for unregistered agents, unapproved tools, and unknown MCP servers.

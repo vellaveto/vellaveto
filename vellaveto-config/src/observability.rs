@@ -590,9 +590,9 @@ impl ObservabilityConfig {
                     MAX_METADATA_KEY_LEN
                 ));
             }
-            if key.chars().any(|c| c.is_control()) {
+            if vellaveto_types::has_dangerous_chars(key) {
                 return Err(
-                    "observability.langfuse.metadata key contains control characters".to_string(),
+                    "observability.langfuse.metadata key contains control or format characters".to_string(),
                 );
             }
         }
@@ -613,9 +613,9 @@ impl ObservabilityConfig {
                     MAX_METADATA_KEY_LEN
                 ));
             }
-            if key.chars().any(|c| c.is_control()) {
+            if vellaveto_types::has_dangerous_chars(key) {
                 return Err(
-                    "observability.helicone.custom_properties key contains control characters"
+                    "observability.helicone.custom_properties key contains control or format characters"
                         .to_string(),
                 );
             }

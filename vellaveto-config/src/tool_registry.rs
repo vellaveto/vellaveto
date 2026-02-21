@@ -56,9 +56,9 @@ impl ToolRegistryConfig {
         }
         // SECURITY (FIND-R112-017): Reject control characters in persistence_path
         // to prevent filesystem confusion and log injection.
-        if self.persistence_path.chars().any(|c| c.is_control()) {
+        if vellaveto_types::has_dangerous_chars(&self.persistence_path) {
             return Err(
-                "tool_registry.persistence_path contains control characters".to_string(),
+                "tool_registry.persistence_path contains control or format characters".to_string(),
             );
         }
         // SECURITY (FIND-R112-017): Cap path length to prevent OS-level path

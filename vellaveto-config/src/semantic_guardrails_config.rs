@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::default_true;
-use vellaveto_types::is_unicode_format_char;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SEMANTIC GUARDRAILS CONFIGURATION (Phase 12)
@@ -152,13 +151,8 @@ impl SemanticGuardrailsConfig {
                     MAX_MODEL_STRING_LEN
                 ));
             }
-            if model.chars().any(|c| c.is_control()) {
-                return Err("semantic_guardrails.model contains control characters".to_string());
-            }
-            if model.chars().any(is_unicode_format_char) {
-                return Err(
-                    "semantic_guardrails.model contains Unicode format characters".to_string(),
-                );
+            if vellaveto_types::has_dangerous_chars(model) {
+                return Err("semantic_guardrails.model contains control or format characters".to_string());
             }
         }
 
@@ -229,9 +223,9 @@ impl SemanticGuardrailsConfig {
         if self.fallback_on_timeout.len() > MAX_FALLBACK_STRING_LEN {
             return Err("semantic_guardrails.fallback_on_timeout too long".to_string());
         }
-        if self.fallback_on_timeout.chars().any(|c| c.is_control()) {
+        if vellaveto_types::has_dangerous_chars(&self.fallback_on_timeout) {
             return Err(
-                "semantic_guardrails.fallback_on_timeout contains control characters".to_string(),
+                "semantic_guardrails.fallback_on_timeout contains control or format characters".to_string(),
             );
         }
         if !VALID_FALLBACK_VALUES.contains(&self.fallback_on_timeout.as_str()) {
@@ -466,15 +460,9 @@ fn validate_backend_config(
             MAX_BACKEND_MODEL_LEN
         ));
     }
-    if model.chars().any(|c| c.is_control()) {
+    if vellaveto_types::has_dangerous_chars(model) {
         return Err(format!(
-            "{}.model contains control characters",
-            backend_name
-        ));
-    }
-    if model.chars().any(is_unicode_format_char) {
-        return Err(format!(
-            "{}.model contains Unicode format characters",
+            "{}.model contains control or format characters",
             backend_name
         ));
     }
@@ -491,9 +479,9 @@ fn validate_backend_config(
             MAX_BACKEND_API_KEY_ENV_LEN
         ));
     }
-    if api_key_env.chars().any(|c| c.is_control()) {
+    if vellaveto_types::has_dangerous_chars(api_key_env) {
         return Err(format!(
-            "{}.api_key_env contains control characters",
+            "{}.api_key_env contains control or format characters",
             backend_name
         ));
     }
@@ -530,9 +518,9 @@ fn validate_backend_config(
                 MAX_BACKEND_ENDPOINT_LEN
             ));
         }
-        if url.chars().any(|c| c.is_control()) {
+        if vellaveto_types::has_dangerous_chars(url) {
             return Err(format!(
-                "{}.endpoint contains control characters",
+                "{}.endpoint contains control or format characters",
                 backend_name
             ));
         }
@@ -690,12 +678,8 @@ impl NlPolicyConfig {
                 MAX_NL_POLICY_ID_LEN
             ));
         }
-        if self.id.chars().any(|c| c.is_control()) {
-            return Err("nl_policy.id contains control characters".to_string());
-        }
-        // SECURITY (FIND-R100-006): Reject Unicode format characters in NL policy fields.
-        if self.id.chars().any(is_unicode_format_char) {
-            return Err("nl_policy.id contains Unicode format characters".to_string());
+        if vellaveto_types::has_dangerous_chars(&self.id) {
+            return Err("nl_policy.id contains control or format characters".to_string());
         }
         if self.name.len() > MAX_NL_POLICY_ID_LEN {
             return Err(format!(
@@ -704,11 +688,8 @@ impl NlPolicyConfig {
                 MAX_NL_POLICY_ID_LEN
             ));
         }
-        if self.name.chars().any(|c| c.is_control()) {
-            return Err("nl_policy.name contains control characters".to_string());
-        }
-        if self.name.chars().any(is_unicode_format_char) {
-            return Err("nl_policy.name contains Unicode format characters".to_string());
+        if vellaveto_types::has_dangerous_chars(&self.name) {
+            return Err("nl_policy.name contains control or format characters".to_string());
         }
         if self.statement.is_empty() {
             return Err("nl_policy.statement is empty".to_string());
@@ -720,13 +701,10 @@ impl NlPolicyConfig {
                 MAX_NL_POLICY_STATEMENT_LEN
             ));
         }
-        // SECURITY (FIND-R86-002): Reject control characters in statement to prevent
+        // SECURITY (FIND-R86-002): Reject control/format characters in statement to prevent
         // log injection and prompt injection via invisible characters.
-        if self.statement.chars().any(|c| c.is_control()) {
-            return Err("nl_policy.statement contains control characters".to_string());
-        }
-        if self.statement.chars().any(is_unicode_format_char) {
-            return Err("nl_policy.statement contains Unicode format characters".to_string());
+        if vellaveto_types::has_dangerous_chars(&self.statement) {
+            return Err("nl_policy.statement contains control or format characters".to_string());
         }
         if self.tool_patterns.len() > MAX_NL_TOOL_PATTERNS {
             return Err(format!(
@@ -746,15 +724,9 @@ impl NlPolicyConfig {
                     MAX_NL_POLICY_ID_LEN
                 ));
             }
-            if pattern.chars().any(|c| c.is_control()) {
+            if vellaveto_types::has_dangerous_chars(pattern) {
                 return Err(format!(
-                    "nl_policy.tool_patterns[{}] contains control characters",
-                    i
-                ));
-            }
-            if pattern.chars().any(is_unicode_format_char) {
-                return Err(format!(
-                    "nl_policy.tool_patterns[{}] contains Unicode format characters",
+                    "nl_policy.tool_patterns[{}] contains control or format characters",
                     i
                 ));
             }

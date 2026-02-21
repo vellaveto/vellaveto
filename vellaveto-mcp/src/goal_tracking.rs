@@ -191,11 +191,11 @@ impl GoalTrackerConfig {
                     MAX_MANIPULATION_KEYWORD_LEN,
                 ));
             }
-            // SECURITY: Reject control characters (C0 and C1 ranges) in keywords
+            // SECURITY (IMP-R130-003): Reject control and format characters in keywords
             // to prevent log injection and display manipulation.
-            if kw.bytes().any(|b| b < 0x20 || (0x7F..=0x9F).contains(&b)) {
+            if vellaveto_types::has_dangerous_chars(kw) {
                 return Err(format!(
-                    "manipulation_keywords[{}] contains control characters",
+                    "manipulation_keywords[{}] contains control or format characters",
                     i,
                 ));
             }

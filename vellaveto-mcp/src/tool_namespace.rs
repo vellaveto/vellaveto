@@ -162,8 +162,10 @@ impl ToolNamespaceRegistry {
             return Err(NamespaceError::InvalidName(tool_name.to_string()));
         }
 
-        // Check for invalid characters
-        if tool_name.chars().any(|c| c.is_control() || c == '\0') {
+        // SECURITY (IMP-R130-007): Check for control and format characters.
+        // Previous check was redundant (null is control) and missed Unicode
+        // format chars. Delegate to canonical predicate.
+        if vellaveto_types::has_dangerous_chars(tool_name) {
             return Err(NamespaceError::InvalidName(tool_name.to_string()));
         }
 
