@@ -3,9 +3,27 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-21 (Round 143)
-> **Total audit rounds:** 143
-> **Cumulative findings fixed:** 510+
+> **Last updated:** 2026-02-21 (Round 145)
+> **Total audit rounds:** 145
+> **Cumulative findings fixed:** 516+
+
+---
+
+## Round 144+145 — NHI Validation + Governance Info Disclosure (6 findings fixed)
+
+**Subsystem:** `vellaveto-mcp/src/nhi.rs`, `vellaveto-server/src/routes/governance.rs`
+**Commit:** `805201b`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R145-001 | P1 | `nhi.rs` | `create_delegation` now calls `link.validate()` before insert — unbounded permissions/scope_constraints bypass closed |
+| FIND-R145-002 | P1 | `nhi.rs` | `rotate_credentials` validates inputs BEFORE mutating identity — prevents corrupted state on validation failure |
+| FIND-R145-008 | P2 | `nhi.rs` | `register_identity` validates `public_key` (8192 max) and `key_algorithm` (64 max) for length + control/format chars |
+| FIND-R144-005 | P2 | `governance.rs` | Removed `enforcement_mode` from least-agency API response — was leaking security posture |
+| FIND-R144-010 | P2 | `governance.rs` | Replaced `auto_revoke_candidates` policy ID list with count-only field |
+| FIND-R145-002 | P2 | `nhi.rs` | `rotate_credentials` validates `trigger` (256 max) and `new_key_algorithm` (64 max) for dangerous chars |
+
+**Tests added:** 0 (existing 49 NHI tests continue to pass)
 
 ---
 
@@ -148,14 +166,14 @@
 
 ---
 
-## Audit Round Summary (Rounds 1–143)
+## Audit Round Summary (Rounds 1–145)
 
 | Category | Cumulative |
 |----------|-----------|
-| Rounds completed | 143 |
+| Rounds completed | 145 |
 | P0 (Critical) findings fixed | 3 |
-| P1 (High) findings fixed | 31+ |
-| P2 (Medium) findings fixed | 360+ |
+| P1 (High) findings fixed | 33+ |
+| P2 (Medium) findings fixed | 363+ |
 | P3 (Low) findings fixed | 150+ |
 | Tests added from audits | 220+ |
 | CLEAN rounds (no findings) | ~25 |
