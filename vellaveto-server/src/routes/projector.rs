@@ -214,6 +214,22 @@ pub async fn projector_transform(
             }),
         ));
     }
+    // SECURITY (FIND-R133-001): Validate description for control characters.
+    // Previously only schema.name was validated, creating an asymmetry that
+    // allowed control char injection via the description field.
+    if body
+        .schema
+        .description
+        .chars()
+        .any(crate::routes::is_unsafe_char)
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "schema.description contains control characters".to_string(),
+            }),
+        ));
+    }
 
     // SECURITY (FIND-R46-005): Validate JSON nesting depth of input_schema and output_schema
     // to prevent stack overflow or excessive processing from deeply nested payloads.
@@ -355,5 +371,16 @@ mod tests {
         assert_eq!(req.schema.name, "tool_a");
         assert_eq!(req.model_family, "openai");
         assert!(req.schema.output_schema.is_some());
+    }
+
+    // ── FIND-R133-001: is_unsafe_char validation coverage ──────────
+
+    #[test]
+    fn test_is_unsafe_char_detects_control_chars() {
+        assert!(crate::routes::is_unsafe_char('\x00'));
+        assert!(crate::routes::is_unsafe_char('\x1b'));
+        assert!(crate::routes::is_unsafe_char('\u{200B}')); // zero-width space
+        assert!(!crate::routes::is_unsafe_char('a'));
+        assert!(!crate::routes::is_unsafe_char(' '));
     }
 }
