@@ -95,6 +95,35 @@ fn validate_approval_id_for_redis(id: &str) -> Result<(), ClusterError> {
     Ok(())
 }
 
+/// Validate a resolver identity (`by` parameter) for approval approve/deny.
+///
+/// SECURITY (IMP-R170-007): Extracted from duplicated blocks in approval_approve
+/// and approval_deny. Rejects empty, overlong, control char, and format char values.
+fn validate_resolver_identity(by: &str) -> Result<(), ClusterError> {
+    if by.is_empty() {
+        return Err(ClusterError::Validation(
+            "resolved_by must not be empty".to_string(),
+        ));
+    }
+    if by.len() > vellaveto_approval::MAX_IDENTITY_LEN {
+        return Err(ClusterError::Validation(format!(
+            "resolved_by exceeds maximum length of {} bytes",
+            vellaveto_approval::MAX_IDENTITY_LEN
+        )));
+    }
+    if by.chars().any(|c| c.is_control()) {
+        return Err(ClusterError::Validation(
+            "resolved_by contains control characters".to_string(),
+        ));
+    }
+    if by.chars().any(vellaveto_types::is_unicode_format_char) {
+        return Err(ClusterError::Validation(
+            "resolved_by contains Unicode format characters".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Validate a rate limit key parameter (category or key) before using it
 /// to construct Redis keys.
 ///
@@ -446,31 +475,8 @@ impl ClusterBackend for RedisBackend {
     async fn approval_approve(&self, id: &str, by: &str) -> Result<PendingApproval, ClusterError> {
         // SECURITY (FIND-R112-009): Validate ID before constructing Redis key.
         validate_approval_id_for_redis(id)?;
-        // SECURITY (FIND-R170-002): Reject empty resolver identity — parity with
-        // local ApprovalStore (FIND-R143-005).
-        if by.is_empty() {
-            return Err(ClusterError::Validation(
-                "resolved_by must not be empty".to_string(),
-            ));
-        }
-        if by.len() > vellaveto_approval::MAX_IDENTITY_LEN {
-            return Err(ClusterError::Validation(format!(
-                "resolved_by exceeds maximum length of {} bytes",
-                vellaveto_approval::MAX_IDENTITY_LEN
-            )));
-        }
-        // SECURITY (FIND-R122-001): Reject control/format chars — parity with
-        // local ApprovalStore.
-        if by.chars().any(|c| c.is_control()) {
-            return Err(ClusterError::Validation(
-                "resolved_by contains control characters".to_string(),
-            ));
-        }
-        if by.chars().any(vellaveto_types::is_unicode_format_char) {
-            return Err(ClusterError::Validation(
-                "resolved_by contains Unicode format characters".to_string(),
-            ));
-        }
+        // SECURITY (FIND-R170-002, FIND-R122-001, IMP-R170-007): Validate resolver identity.
+        validate_resolver_identity(by)?;
 
         let mut conn = self.get_conn().await?;
         let json: Option<String> = conn
@@ -545,31 +551,8 @@ impl ClusterBackend for RedisBackend {
     async fn approval_deny(&self, id: &str, by: &str) -> Result<PendingApproval, ClusterError> {
         // SECURITY (FIND-R112-009): Validate ID before constructing Redis key.
         validate_approval_id_for_redis(id)?;
-        // SECURITY (FIND-R170-002): Reject empty resolver identity — parity with
-        // local ApprovalStore (FIND-R143-005).
-        if by.is_empty() {
-            return Err(ClusterError::Validation(
-                "resolved_by must not be empty".to_string(),
-            ));
-        }
-        if by.len() > vellaveto_approval::MAX_IDENTITY_LEN {
-            return Err(ClusterError::Validation(format!(
-                "resolved_by exceeds maximum length of {} bytes",
-                vellaveto_approval::MAX_IDENTITY_LEN
-            )));
-        }
-        // SECURITY (FIND-R122-001): Reject control/format chars — parity with
-        // local ApprovalStore.
-        if by.chars().any(|c| c.is_control()) {
-            return Err(ClusterError::Validation(
-                "resolved_by contains control characters".to_string(),
-            ));
-        }
-        if by.chars().any(vellaveto_types::is_unicode_format_char) {
-            return Err(ClusterError::Validation(
-                "resolved_by contains Unicode format characters".to_string(),
-            ));
-        }
+        // SECURITY (FIND-R170-002, FIND-R122-001, IMP-R170-007): Validate resolver identity.
+        validate_resolver_identity(by)?;
 
         let mut conn = self.get_conn().await?;
         let json: Option<String> = conn

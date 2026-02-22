@@ -452,6 +452,30 @@ mod tests {
         assert_eq!(count, 0);
     }
 
+    /// SECURITY (IMP-R170-005): Verify MAX_TRAVERSE_ELEMENTS bounds total callbacks.
+    #[test]
+    fn test_traverse_json_strings_element_count_limit() {
+        // Create a flat object with 15K keys (exceeds MAX_TRAVERSE_ELEMENTS=10K)
+        let mut map = serde_json::Map::new();
+        for i in 0..15_000 {
+            map.insert(format!("k{i}"), serde_json::Value::String(format!("v{i}")));
+        }
+        let value = serde_json::Value::Object(map);
+        let mut count = 0usize;
+        traverse_json_strings(&value, "$", &mut |_, _| {
+            count += 1;
+        });
+        // Should be capped at MAX_TRAVERSE_ELEMENTS (10,000), not 15,000
+        assert!(
+            count <= super::MAX_TRAVERSE_ELEMENTS,
+            "Expected at most {} callbacks, got {}",
+            super::MAX_TRAVERSE_ELEMENTS,
+            count
+        );
+        // Should have hit the limit (at least 9K processed)
+        assert!(count >= 9_000, "Expected at least 9000 callbacks, got {count}");
+    }
+
     #[test]
     fn test_extract_response_text_content() {
         let response = json!({
