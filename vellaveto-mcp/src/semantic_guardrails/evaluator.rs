@@ -883,4 +883,82 @@ mod tests {
         let jb = JailbreakDetection::detected("injection", -0.5);
         assert_eq!(jb.confidence, 0.0);
     }
+
+    // ── R180 validation tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_validate_session_id_too_long() {
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            session_id: Some("x".repeat(257)),
+            ..Default::default()
+        };
+        let err = input.validate().unwrap_err();
+        assert!(format!("{:?}", err).contains("session_id too long"));
+    }
+
+    #[test]
+    fn test_validate_session_id_control_chars() {
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            session_id: Some("session\x00id".to_string()),
+            ..Default::default()
+        };
+        let err = input.validate().unwrap_err();
+        assert!(format!("{:?}", err).contains("control or format"));
+    }
+
+    #[test]
+    fn test_validate_principal_too_long() {
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            principal: Some("p".repeat(257)),
+            ..Default::default()
+        };
+        let err = input.validate().unwrap_err();
+        assert!(format!("{:?}", err).contains("principal too long"));
+    }
+
+    #[test]
+    fn test_validate_principal_control_chars() {
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            principal: Some("user\x07name".to_string()),
+            ..Default::default()
+        };
+        let err = input.validate().unwrap_err();
+        assert!(format!("{:?}", err).contains("control or format"));
+    }
+
+    #[test]
+    fn test_validate_metadata_too_large() {
+        let big_val = "x".repeat(70_000);
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            metadata: serde_json::json!({ "data": big_val }),
+            ..Default::default()
+        };
+        let err = input.validate().unwrap_err();
+        assert!(format!("{:?}", err).contains("metadata size"));
+    }
+
+    #[test]
+    fn test_validate_session_id_at_max_ok() {
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            session_id: Some("x".repeat(256)),
+            ..Default::default()
+        };
+        assert!(input.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_principal_at_max_ok() {
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            principal: Some("p".repeat(256)),
+            ..Default::default()
+        };
+        assert!(input.validate().is_ok());
+    }
 }
