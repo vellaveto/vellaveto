@@ -109,9 +109,11 @@ pub fn generate_did_plc_from_key(
 /// Validate a DID:PLC string for correct format.
 pub fn validate_did_plc(did: &str) -> Result<(), DidPlcError> {
     DidPlc::from_str_validated(did).map(|_| ()).ok_or_else(|| {
+        // SECURITY (FIND-R178-005): Truncate to prevent oversized error messages.
+        let display = if did.len() > 60 { &did[..60] } else { did };
         DidPlcError::InvalidFormat(format!(
             "expected 'did:plc:<24-char-base32-suffix>', got '{}'",
-            did
+            display
         ))
     })
 }

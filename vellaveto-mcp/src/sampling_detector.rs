@@ -413,8 +413,29 @@ impl SamplingDetector {
         stats.len()
     }
 
+    /// Maximum number of sensitive patterns.
+    /// SECURITY (FIND-R178-003): Prevents unbounded pattern accumulation.
+    const MAX_SENSITIVE_PATTERNS: usize = 1000;
+    /// Maximum length per sensitive pattern.
+    const MAX_PATTERN_LEN: usize = 256;
+
     /// Add a sensitive pattern to scan for.
     pub fn add_sensitive_pattern(&mut self, pattern: String) {
+        if self.sensitive_patterns.len() >= Self::MAX_SENSITIVE_PATTERNS {
+            tracing::warn!(
+                "SamplingDetector: sensitive patterns at capacity ({}), ignoring new pattern",
+                Self::MAX_SENSITIVE_PATTERNS
+            );
+            return;
+        }
+        if pattern.len() > Self::MAX_PATTERN_LEN {
+            tracing::warn!(
+                pattern_len = pattern.len(),
+                max = Self::MAX_PATTERN_LEN,
+                "SamplingDetector: sensitive pattern exceeds maximum length, ignoring"
+            );
+            return;
+        }
         self.sensitive_patterns.push(pattern);
     }
 
