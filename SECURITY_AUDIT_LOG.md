@@ -3,9 +3,27 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 176)
-> **Total audit rounds:** 176
-> **Cumulative findings fixed:** 615+
+> **Last updated:** 2026-02-22 (Round 192)
+> **Total audit rounds:** 192
+> **Cumulative findings fixed:** 625+
+
+---
+
+## Round 190 — ABAC TaskRequest Parity + Domain Validation + Archive Bounds (8 findings fixed)
+
+**Subsystem:** `vellaveto-http-proxy/src/proxy/handlers.rs`, `vellaveto-http-proxy/src/proxy/websocket/mod.rs`, `vellaveto-http-proxy/src/proxy/grpc/service.rs`, `vellaveto-engine/src/policy_compile.rs`, `vellaveto-audit/src/archive.rs`
+**Commits:** `d079250`, `847af07`, `f3fbe8e`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R190-001 | P1 | `handlers.rs`, `websocket/mod.rs`, `grpc/service.rs` | ABAC refinement added to TaskRequest handlers across all 3 transports (HTTP/WS/gRPC) — matching ToolCall/ResourceRead parity with evaluate + least_agency + fail-closed unknown variants |
+| FIND-R190-002 | P2 | `websocket/mod.rs` | WS idle timeout: `saturating_sub` prevents u64 underflow when `last_ms > elapsed` |
+| FIND-R190-003 | P2 | `policy_compile.rs` | Constraint arrays bounded at `MAX_CONSTRAINT_ELEMENTS=1000` for not_glob, domain_not_in, one_of, none_of |
+| FIND-R190-005 | P2 | `websocket/mod.rs` | WS PassThrough memory poisoning already implemented (IMP-R182-009) — verified present |
+| FIND-R190-006 | P2 | `websocket/mod.rs` | WS TaskRequest session touch + call_counts + action_history update on Allow, atomically inside DashMap shard lock |
+| FIND-R190-007 | P2 | `handlers.rs`, `websocket/mod.rs` | HTTP+WS TaskRequest restructured for TOCTOU-safe evaluation (context built inside DashMap lock) |
+| FIND-R190-004 | P3 | `archive.rs` | ArchiveReport.compressed/deleted capped at `MAX_ARCHIVE_REPORT_ENTRIES=100K` |
+| FIND-R190-008 | P3 | `policy_compile.rs` | RFC 1035 `validate_domain_pattern()` on domain_match and domain_not_in constraint compilation |
 
 ---
 
