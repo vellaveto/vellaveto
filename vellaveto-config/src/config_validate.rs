@@ -1344,11 +1344,15 @@ impl PolicyConfig {
         }
 
         // Memory security validation
+        // SECURITY (FIND-R174-002): Aligned with MemorySecurityConfig::validate()
+        // in memory_nhi.rs which requires (0.0, 10.0]. The prior check allowed
+        // zero and had no upper bound, creating a divergent validation path.
         if !self.memory_security.trust_decay_rate.is_finite()
-            || self.memory_security.trust_decay_rate < 0.0
+            || self.memory_security.trust_decay_rate <= 0.0
+            || self.memory_security.trust_decay_rate > 10.0
         {
             return Err(format!(
-                "memory_security.trust_decay_rate must be finite and >= 0.0, got {}",
+                "memory_security.trust_decay_rate must be in (0.0, 10.0], got {}",
                 self.memory_security.trust_decay_rate
             ));
         }

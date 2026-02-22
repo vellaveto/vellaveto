@@ -293,7 +293,10 @@ impl ExtensionRegistry {
         let mut accepted = Vec::new();
         let mut rejected = Vec::new();
 
-        for id in requested {
+        // SECURITY (FIND-R173-001): Cap iteration to prevent OOM from
+        // attacker-supplied extension lists with millions of entries.
+        const MAX_EXTENSION_REQUESTS: usize = 1000;
+        for id in requested.iter().take(MAX_EXTENSION_REQUESTS) {
             if self.is_blocked(id) {
                 rejected.push((id.clone(), "Blocked by configuration".to_string()));
             } else if !self.is_allowed(id) {
