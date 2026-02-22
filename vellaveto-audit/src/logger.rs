@@ -505,10 +505,18 @@ impl AuditLogger {
         // Increment in-memory entry count for rotation metadata (tracks entries in current file).
         // SECURITY (FIND-R52-AUDIT-002): Use SeqCst for sequence counter to ensure
         // the increment is globally visible and prevents reordering.
-        self.entry_count.fetch_add(1, Ordering::SeqCst);
+        // SECURITY (FIND-R186-005): Use fetch_update with saturating_add instead of
+        // fetch_add to comply with project coding standard (Trap 9). While u64 overflow
+        // is physically impossible at realistic logging rates, saturating arithmetic
+        // is the project-wide convention for all counters.
+        let _ = self.entry_count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+            Some(v.saturating_add(1))
+        });
         // SECURITY (FIND-R111-007): Also increment the global sequence counter that
         // is never reset on rotation, ensuring cross-rotation sequence uniqueness.
-        self.global_sequence.fetch_add(1, Ordering::SeqCst);
+        let _ = self.global_sequence.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+            Some(v.saturating_add(1))
+        });
 
         Ok(())
     }

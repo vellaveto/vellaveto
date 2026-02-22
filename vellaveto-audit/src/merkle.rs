@@ -201,7 +201,8 @@ impl MerkleTree {
             }
         }
 
-        self.leaf_count += 1;
+        // SECURITY (FIND-R186-006): saturating_add for coding standard compliance.
+        self.leaf_count = self.leaf_count.saturating_add(1);
         Ok(())
     }
 
@@ -330,7 +331,8 @@ impl MerkleTree {
                 }
             }
         }
-        self.leaf_count += 1;
+        // SECURITY (FIND-R186-006): saturating_add for coding standard compliance.
+        self.leaf_count = self.leaf_count.saturating_add(1);
     }
 
     /// Generate an inclusion proof for the leaf at `index`.
