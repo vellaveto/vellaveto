@@ -1,10 +1,10 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 complete, 178 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 complete, 190 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 7,098 Rust tests + 361 Python SDK tests + 106 Go SDK tests + 111 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 7,158 Rust tests + 361 Python SDK tests + 106 Go SDK tests + 111 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
 > **CI workflows:** 12 (16 jobs)
 > **Domain:** [www.vellaveto.online](https://www.vellaveto.online) (Cloudflare Pages)
