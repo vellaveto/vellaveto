@@ -472,6 +472,16 @@ impl InjectionScanner {
             self.scan_json_value(params, &mut all_matches, 0);
         }
 
+        // SECURITY (FIND-R186-001): Final truncation to ensure cap is respected,
+        // matching scan_response (line 443) and scan_notification_for_injection (line 1039).
+        if all_matches.len() >= MAX_SCAN_MATCHES {
+            tracing::warn!(
+                "Injection scan_notification matches capped at {}",
+                MAX_SCAN_MATCHES
+            );
+            all_matches.truncate(MAX_SCAN_MATCHES);
+        }
+
         all_matches
     }
 
@@ -483,7 +493,9 @@ impl InjectionScanner {
         depth: usize,
     ) {
         // IMP-002: Use shared MAX_SCAN_DEPTH from scanner_base module.
-        if depth > MAX_SCAN_DEPTH {
+        // SECURITY (FIND-R186-003): Also check MAX_SCAN_MATCHES internally to prevent
+        // unbounded Vec growth. This is defense-in-depth — callers should also truncate.
+        if depth > MAX_SCAN_DEPTH || matches.len() >= MAX_SCAN_MATCHES {
             return;
         }
         match value {

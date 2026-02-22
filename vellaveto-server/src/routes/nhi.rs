@@ -574,12 +574,8 @@ pub async fn create_nhi_delegation(
     // SECURITY (FIND-R43-033, FIND-R44-037, FIND-R184-001): Reject self-delegation.
     // Use homoglyph-aware comparison — eq_ignore_ascii_case misses Cyrillic confusables.
     // Parity with vellaveto-approval self-approval check (FIND-R58-CFG-001).
-    let from_norm = vellaveto_types::unicode::normalize_homoglyphs(
-        &body.from_agent.to_lowercase(),
-    );
-    let to_norm = vellaveto_types::unicode::normalize_homoglyphs(
-        &body.to_agent.to_lowercase(),
-    );
+    let from_norm = vellaveto_types::unicode::normalize_identity(&body.from_agent);
+    let to_norm = vellaveto_types::unicode::normalize_identity(&body.to_agent);
     if from_norm == to_norm {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -840,29 +836,36 @@ mod tests {
         );
     }
 
-    /// FIND-R44-037: Self-delegation must be case-insensitive.
+    /// FIND-R44-037, IMP-R184-001: Self-delegation must be homoglyph-aware.
     #[test]
-    fn test_self_delegation_case_insensitive() {
-        // Simulating the check that would happen in the route handler
-        let from = "AgentAlpha";
-        let to = "agentalpha";
-        assert!(
-            from.eq_ignore_ascii_case(to),
+    fn test_self_delegation_homoglyph_aware() {
+        use vellaveto_types::unicode::normalize_identity;
+
+        // Case-insensitive via normalize_identity
+        assert_eq!(
+            normalize_identity("AgentAlpha"),
+            normalize_identity("agentalpha"),
             "Case-insensitive comparison must detect self-delegation"
         );
 
-        let from2 = "AGENT";
-        let to2 = "agent";
-        assert!(
-            from2.eq_ignore_ascii_case(to2),
+        assert_eq!(
+            normalize_identity("AGENT"),
+            normalize_identity("agent"),
             "All-caps vs lowercase must match"
         );
 
-        let from3 = "agentA";
-        let to3 = "agentB";
-        assert!(
-            !from3.eq_ignore_ascii_case(to3),
+        assert_ne!(
+            normalize_identity("agentA"),
+            normalize_identity("agentB"),
             "Different agents must not match"
+        );
+
+        // FIND-R184-001: Cyrillic homoglyph bypass
+        // Cyrillic 'а' (U+0430) must be detected as identical to Latin 'a'
+        assert_eq!(
+            normalize_identity("\u{0430}gent"),
+            normalize_identity("agent"),
+            "Cyrillic homoglyph must be detected as self-delegation"
         );
     }
 

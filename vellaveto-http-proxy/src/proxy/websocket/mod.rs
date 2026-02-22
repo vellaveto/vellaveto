@@ -3115,8 +3115,15 @@ async fn relay_client_to_upstream(
                                 .get("params")
                                 .cloned()
                                 .unwrap_or(json!({}));
-                            let poisoning_matches =
+                            // SECURITY (IMP-R184-010): Also scan `result` field — parity
+                            // with DLP scan which scans both params and result.
+                            let mut poisoning_matches =
                                 session.memory_tracker.check_parameters(&params_to_scan);
+                            if let Some(result_val) = parsed.get("result") {
+                                poisoning_matches.extend(
+                                    session.memory_tracker.check_parameters(result_val),
+                                );
+                            }
                             if !poisoning_matches.is_empty() {
                                 let method_name = parsed
                                     .get("method")
@@ -3170,6 +3177,11 @@ async fn relay_client_to_upstream(
                             session
                                 .memory_tracker
                                 .extract_from_value(&params_to_scan);
+                            if let Some(result_val) = parsed.get("result") {
+                                session
+                                    .memory_tracker
+                                    .extract_from_value(result_val);
+                            }
                         }
 
                         // SECURITY (FIND-R46-WS-004): Audit log forwarded passthrough/notification messages

@@ -54,6 +54,9 @@ impl Default for ArchiveConfig {
     }
 }
 
+/// SECURITY (FIND-R186-004): Maximum number of errors tracked in ArchiveReport.
+const MAX_ARCHIVE_ERRORS: usize = 100;
+
 /// Report of archive maintenance operations.
 #[derive(Debug, Default)]
 pub struct ArchiveReport {
@@ -61,7 +64,7 @@ pub struct ArchiveReport {
     pub compressed: Vec<PathBuf>,
     /// Files that were deleted due to retention policy.
     pub deleted: Vec<PathBuf>,
-    /// Non-fatal errors encountered during maintenance.
+    /// Non-fatal errors encountered during maintenance (capped at MAX_ARCHIVE_ERRORS).
     pub errors: Vec<String>,
 }
 
@@ -204,9 +207,11 @@ pub async fn run_archive_maintenance(
             match compress_rotated_file(&path).await {
                 Ok(gz_path) => report.compressed.push(gz_path),
                 Err(e) => {
-                    report
-                        .errors
-                        .push(format!("Failed to compress {}: {}", path.display(), e))
+                    if report.errors.len() < MAX_ARCHIVE_ERRORS {
+                        report
+                            .errors
+                            .push(format!("Failed to compress {}: {}", path.display(), e));
+                    }
                 }
             }
         }
@@ -215,9 +220,13 @@ pub async fn run_archive_maintenance(
     // Phase 2: Enforce retention
     match enforce_retention(logger, config.retention_days).await {
         Ok(deleted) => report.deleted = deleted,
-        Err(e) => report
-            .errors
-            .push(format!("Retention enforcement failed: {}", e)),
+        Err(e) => {
+            if report.errors.len() < MAX_ARCHIVE_ERRORS {
+                report
+                    .errors
+                    .push(format!("Retention enforcement failed: {}", e));
+            }
+        }
     }
 
     Ok(report)

@@ -28,6 +28,10 @@ const MAX_STATEMENT_LEN: usize = 4096;
 /// SECURITY (IMP-R118-013): Maximum length for policy_hash strings.
 const MAX_POLICY_HASH_LEN: usize = 256;
 
+/// SECURITY (FIND-R186-002): Maximum clock skew (seconds) for created_at validation.
+/// Parity with capability_token.rs MAX_ISSUED_AT_SKEW_SECS.
+const MAX_CREATED_AT_SKEW_SECS: i64 = 60;
+
 /// SECURITY (FIND-R174-007): Maximum length for DID strings.
 const MAX_DID_LEN: usize = 512;
 
@@ -280,8 +284,30 @@ pub fn verify_attestation(
         None => true, // No expected key to compare against
     };
 
+    // SECURITY (FIND-R186-002): Reject attestations with created_at unreasonably far
+    // in the future. Parity with verify_capability_token MAX_ISSUED_AT_SKEW_SECS check.
+    // Prevents pre-minting attack: compromised key stockpiles future-dated attestations.
+    let created_at_future_skew = chrono::DateTime::parse_from_rfc3339(&attestation.created_at)
+        .map(|created| {
+            let skew = created
+                .with_timezone(&chrono::Utc)
+                .signed_duration_since(*now)
+                .num_seconds();
+            if skew > MAX_CREATED_AT_SKEW_SECS {
+                Some(skew)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(Some(0)); // Fail-closed: unparseable created_at = rejected
+
     let message = if !signature_valid {
         "Invalid signature".to_string()
+    } else if let Some(skew) = created_at_future_skew {
+        format!(
+            "created_at is {} seconds in the future (max allowed skew: {} seconds)",
+            skew, MAX_CREATED_AT_SKEW_SECS
+        )
     } else if expired {
         "Attestation has expired".to_string()
     } else if !key_matches_agent {

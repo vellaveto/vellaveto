@@ -141,6 +141,40 @@ pub fn normalize_homoglyphs(s: &str) -> String {
         .collect()
 }
 
+/// Normalize an identity string for security comparison.
+///
+/// Applies `to_lowercase()` followed by `normalize_homoglyphs()` to produce
+/// a canonical form for identity comparison. This catches:
+/// - ASCII case variations ("AgentAlpha" vs "agentalpha")
+/// - Cyrillic/Greek/fullwidth homoglyph spoofing ("аgent" vs "agent")
+///
+/// Used by self-delegation and self-approval checks to prevent bypass via
+/// confusable characters.
+///
+/// # Note
+///
+/// The `vellaveto-approval` crate additionally applies NFKC normalization
+/// (via `unicode-normalization` crate) before this pipeline. NFKC catches
+/// rare compatibility forms (e.g., circled letters U+24B6). This function
+/// does NOT include NFKC to avoid adding `unicode-normalization` as a
+/// dependency of the `vellaveto-types` leaf crate. The `normalize_homoglyphs`
+/// function already covers fullwidth Latin as defense-in-depth.
+///
+/// # Example
+///
+/// ```
+/// use vellaveto_types::unicode::normalize_identity;
+///
+/// // Case-insensitive
+/// assert_eq!(normalize_identity("AgentAlpha"), normalize_identity("agentalpha"));
+///
+/// // Cyrillic homoglyph detected
+/// assert_eq!(normalize_identity("\u{0430}gent"), normalize_identity("agent"));
+/// ```
+pub fn normalize_identity(s: &str) -> String {
+    normalize_homoglyphs(&s.to_lowercase())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

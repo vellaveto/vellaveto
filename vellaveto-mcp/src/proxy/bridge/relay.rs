@@ -2322,7 +2322,12 @@ impl ProxyBridge {
 
         // SECURITY (IMP-R182-008): Memory poisoning check — parity with tool calls,
         // resource reads, tasks, and extension methods.
-        let poisoning_matches = state.memory_tracker.check_parameters(&params_to_scan);
+        // SECURITY (IMP-R184-010): Also scan `result` field — parity with DLP scan
+        // which scans both params and result (FIND-R96-001).
+        let mut poisoning_matches = state.memory_tracker.check_parameters(&params_to_scan);
+        if let Some(result_val) = msg.get("result") {
+            poisoning_matches.extend(state.memory_tracker.check_parameters(result_val));
+        }
         if !poisoning_matches.is_empty() {
             let method_name = msg
                 .get("method")
@@ -2386,8 +2391,11 @@ impl ProxyBridge {
             }
             return Ok(());
         }
-        // Fingerprint passthrough params for future poisoning detection.
+        // Fingerprint passthrough params+result for future poisoning detection.
         state.memory_tracker.extract_from_value(&params_to_scan);
+        if let Some(result_val) = msg.get("result") {
+            state.memory_tracker.extract_from_value(result_val);
+        }
 
         // Forward the message after security scanning passes
         write_message(child_stdin, msg)
