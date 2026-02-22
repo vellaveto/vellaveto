@@ -3,16 +3,36 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 180)
-> **Total audit rounds:** 180
-> **Cumulative findings fixed:** 614+
+> **Last updated:** 2026-02-22 (Round 182)
+> **Total audit rounds:** 182
+> **Cumulative findings fixed:** 620+
+
+---
+
+## Round 180 — Extension Poisoning Parity, Guardrails Validation, Action Name Bounds (4 findings fixed + 12 tests + IMP-R178-008 panic fix)
+
+**Subsystem:** `vellaveto-mcp/src/proxy/bridge/relay.rs`, `vellaveto-mcp/src/semantic_guardrails/evaluator.rs`, `vellaveto-mcp/src/did_plc.rs`, `vellaveto-audit/src/observability/otlp.rs`, `vellaveto-audit/src/data_governance.rs`
+**Commits:** `3f55cd7`, `b7050dd`, `3a39c70`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R180-001 | P2 | `relay.rs` | Extension method handler now calls `check_parameters()` before `extract_from_value()` — transport parity with tool calls/resource reads/tasks for memory poisoning detection |
+| FIND-R180-002 | P3 | `evaluator.rs` | `session_id`/`principal` validated for length (256) and `has_dangerous_chars()` in `LlmEvalInput::validate()` |
+| FIND-R180-003 | P3 | `evaluator.rs` | `metadata` bounded at `MAX_METADATA_SIZE=64KB` preventing OOM via oversized JSON |
+| FIND-R180-004 | P3 | `relay.rs` | `record_forwarded_action()` truncates action names to 256 chars before `call_counts`/`action_history` storage |
+| IMP-R178-008 | P2 | `did_plc.rs` | `validate_did_plc()` `&did[..60]` replaced with `is_char_boundary()` loop to prevent panic on multi-byte UTF-8 |
+| IMP-R178-007 | P4 | `observability/` | Deduplicated `MAX_SPAN_ATTRIBUTES=128` into shared constant |
+
+12 new tests: 7 DID:PLC (oversized key/algorithm/genesis, at-max bounds, multibyte UTF-8), 3 data governance (tool name at/over MAX_TOOL_NAME_LEN), 2 OTLP (attribute cap on builder and span_to_otel).
+
+R178 verification: All 5 R178 fixes confirmed VERIFIED.
 
 ---
 
 ## Round 178 — DID Genesis Validate, Data Governance Tool Name Bound, Sampling Patterns, OTLP Attributes (6 findings fixed)
 
 **Subsystem:** `vellaveto-mcp/src/did_plc.rs`, `vellaveto-audit/src/data_governance.rs`, `vellaveto-mcp/src/sampling_detector.rs`, `vellaveto-audit/src/observability/otlp.rs`
-**Commits:** `75974eb`, `b2b5a75`, (pending)
+**Commits:** `75974eb`, `b2b5a75`, `3a39c70`
 
 | ID | Sev | File | Fix |
 |----|-----|------|-----|
