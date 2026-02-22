@@ -1021,7 +1021,10 @@ impl ProxyBridge {
                     registry.record_call(&tool_name).await;
                 }
                 state.record_forwarded_action(&tool_name);
-                state.track_pending_request(&id, tool_name, eval_trace);
+                // SECURITY (FIND-R150-003): Truncate tool_name before storing in
+                // PendingRequest — parity with passthrough handler (line ~2057).
+                let truncated_tool: String = tool_name.chars().take(256).collect();
+                state.track_pending_request(&id, truncated_tool, eval_trace);
                 write_message(child_stdin, &msg)
                     .await
                     .map_err(ProxyError::Framing)?;
@@ -1452,7 +1455,7 @@ impl ProxyBridge {
                     json!({
                         "source": "proxy",
                         "event": "dlp_secret_blocked_task",
-                        "task_method": task_method,
+                        "task_method": safe_task_method,
                         "findings": patterns,
                     }),
                 )
@@ -1481,7 +1484,7 @@ impl ProxyBridge {
                 tracing::warn!(
                     "SECURITY: Memory poisoning detected in task request '{}': \
                      param '{}' contains replayed data (fingerprint: {})",
-                    task_method,
+                    safe_task_method,
                     m.param_location,
                     m.fingerprint
                 );
@@ -1503,7 +1506,7 @@ impl ProxyBridge {
                         "source": "proxy",
                         "event": "memory_poisoning_detected",
                         "matches": poisoning_matches.len(),
-                        "task_method": task_method,
+                        "task_method": safe_task_method,
                     }),
                 )
                 .await
@@ -1565,8 +1568,8 @@ impl ProxyBridge {
                                         "source": "proxy",
                                         "event": "abac_deny_task",
                                         "abac_policy_id": policy_id,
-                                        "task_method": task_method,
-                                        "task_id": task_id,
+                                        "task_method": safe_task_method,
+                                        "task_id": safe_task_id,
                                     }),
                                 )
                                 .await
@@ -1604,7 +1607,7 @@ impl ProxyBridge {
                                     json!({
                                         "source": "proxy",
                                         "event": "abac_unknown_variant_deny_task",
-                                        "task_method": task_method,
+                                        "task_method": safe_task_method,
                                     }),
                                 )
                                 .await
@@ -1628,8 +1631,8 @@ impl ProxyBridge {
                         json!({
                             "source": "proxy",
                             "event": "task_request_forwarded",
-                            "task_method": task_method,
-                            "task_id": task_id,
+                            "task_method": safe_task_method,
+                            "task_id": safe_task_id,
                         }),
                     )
                     .await
@@ -1638,7 +1641,9 @@ impl ProxyBridge {
                 }
                 // SECURITY (R38-MCP-2): Update call_counts and action_history.
                 state.record_forwarded_action(&task_method);
-                state.track_pending_request(&id, task_method, None);
+                // SECURITY (FIND-R150-002): Truncate before PendingRequest storage.
+                let truncated_task: String = task_method.chars().take(256).collect();
+                state.track_pending_request(&id, truncated_task, None);
                 write_message(child_stdin, &msg)
                     .await
                     .map_err(ProxyError::Framing)?;
@@ -1659,8 +1664,8 @@ impl ProxyBridge {
                         json!({
                             "source": "proxy",
                             "event": "task_request_denied",
-                            "task_method": task_method,
-                            "task_id": task_id,
+                            "task_method": safe_task_method,
+                            "task_id": safe_task_id,
                         }),
                     )
                     .await
@@ -1685,7 +1690,7 @@ impl ProxyBridge {
                         json!({
                             "source": "proxy",
                             "event": "task_request_unknown_verdict",
-                            "task_method": task_method,
+                            "task_method": safe_task_method,
                         }),
                     )
                     .await
@@ -1711,7 +1716,7 @@ impl ProxyBridge {
                         json!({
                             "source": "proxy",
                             "event": "task_request_eval_error",
-                            "task_method": task_method,
+                            "task_method": safe_task_method,
                         }),
                     )
                     .await
@@ -1794,8 +1799,8 @@ impl ProxyBridge {
                                         "source": "proxy",
                                         "event": "abac_deny_extension",
                                         "abac_policy_id": policy_id,
-                                        "extension_id": extension_id,
-                                        "method": method,
+                                        "extension_id": safe_extension_id,
+                                        "method": safe_ext_method,
                                     }),
                                 )
                                 .await
@@ -1833,7 +1838,7 @@ impl ProxyBridge {
                                     json!({
                                         "source": "proxy",
                                         "event": "abac_unknown_variant_deny_extension",
-                                        "extension_id": extension_id,
+                                        "extension_id": safe_extension_id,
                                     }),
                                 )
                                 .await
@@ -1859,15 +1864,15 @@ impl ProxyBridge {
                         .collect();
                     tracing::warn!(
                         "SECURITY: DLP alert in extension method '{}': {:?}",
-                        method,
+                        safe_ext_method,
                         patterns
                     );
                     let dlp_action = vellaveto_types::Action::new(
                         "vellaveto",
                         "extension_dlp_blocked",
                         json!({
-                            "extension_id": extension_id,
-                            "method": method,
+                            "extension_id": safe_extension_id,
+                            "method": safe_ext_method,
                             "findings": patterns,
                         }),
                     );
@@ -1884,8 +1889,8 @@ impl ProxyBridge {
                             json!({
                                 "source": "proxy",
                                 "event": "extension_dlp_blocked",
-                                "extension_id": extension_id,
-                                "method": method,
+                                "extension_id": safe_extension_id,
+                                "method": safe_ext_method,
                             }),
                         )
                         .await
@@ -1912,8 +1917,8 @@ impl ProxyBridge {
                         json!({
                             "source": "proxy",
                             "event": "extension_method_forwarded",
-                            "extension_id": extension_id,
-                            "method": method,
+                            "extension_id": safe_extension_id,
+                            "method": safe_ext_method,
                         }),
                     )
                     .await
@@ -1921,7 +1926,9 @@ impl ProxyBridge {
                     tracing::warn!("Audit log failed: {}", e);
                 }
                 state.record_forwarded_action(&method);
-                state.track_pending_request(&id, method, None);
+                // SECURITY (FIND-R150-002): Truncate before PendingRequest storage.
+                let truncated_ext: String = method.chars().take(256).collect();
+                state.track_pending_request(&id, truncated_ext, None);
                 write_message(child_stdin, &msg)
                     .await
                     .map_err(ProxyError::Framing)?;
@@ -1942,8 +1949,8 @@ impl ProxyBridge {
                         json!({
                             "source": "proxy",
                             "event": "extension_method_denied",
-                            "extension_id": extension_id,
-                            "method": method,
+                            "extension_id": safe_extension_id,
+                            "method": safe_ext_method,
                         }),
                     )
                     .await
@@ -1967,7 +1974,7 @@ impl ProxyBridge {
                         json!({
                             "source": "proxy",
                             "event": "extension_method_unknown_verdict",
-                            "extension_id": extension_id,
+                            "extension_id": safe_extension_id,
                         }),
                     )
                     .await
@@ -1982,7 +1989,7 @@ impl ProxyBridge {
             Err(e) => {
                 tracing::error!(
                     "Policy evaluation error for extension '{}': {}",
-                    extension_id,
+                    safe_extension_id,
                     e
                 );
                 let reason = "Policy evaluation failed".to_string();
@@ -1997,7 +2004,7 @@ impl ProxyBridge {
                         json!({
                             "source": "proxy",
                             "event": "extension_method_eval_error",
-                            "extension_id": extension_id,
+                            "extension_id": safe_extension_id,
                         }),
                     )
                     .await
@@ -2990,16 +2997,24 @@ impl ProxyBridge {
                 scan_tool_descriptions(msg)
             };
             for finding in &desc_findings {
+                // SECURITY (FIND-R150-001): Sanitize child-provided tool_name before
+                // logging to prevent log injection via control/format characters.
+                let safe_desc_tool: String = finding
+                    .tool_name
+                    .chars()
+                    .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
+                    .take(256)
+                    .collect();
                 tracing::warn!(
                     "SECURITY: Injection detected in tool '{}' description! Patterns: {:?}",
-                    finding.tool_name,
+                    safe_desc_tool,
                     finding.matched_patterns
                 );
                 let action = vellaveto_types::Action::new(
                     "vellaveto",
                     "tool_description_injection",
                     json!({
-                        "tool": finding.tool_name,
+                        "tool": safe_desc_tool,
                         "matched_patterns": finding.matched_patterns,
                     }),
                 );
@@ -3010,7 +3025,7 @@ impl ProxyBridge {
                         &Verdict::Deny {
                             reason: format!(
                                 "Tool '{}' description contains injection patterns: {:?}",
-                                finding.tool_name, finding.matched_patterns
+                                safe_desc_tool, finding.matched_patterns
                             ),
                         },
                         json!({"source": "proxy", "event": "tool_description_injection"}),
