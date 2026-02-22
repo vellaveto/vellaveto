@@ -81,10 +81,10 @@ impl ProjectorConfig {
                 MAX_MODEL_FAMILY_LEN
             ));
         }
-        // SECURITY (FIND-R115-064): Reject control characters in model family name.
-        if self.default_model_family.chars().any(char::is_control) {
+        // SECURITY (FIND-R115-064, FIND-R158-001): Reject control + format chars.
+        if vellaveto_types::has_dangerous_chars(&self.default_model_family) {
             return Err(
-                "projector.default_model_family contains control characters".to_string(),
+                "projector.default_model_family contains control or format characters".to_string(),
             );
         }
         if !VALID_FAMILIES.contains(&self.default_model_family.as_str())

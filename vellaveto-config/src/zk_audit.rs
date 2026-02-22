@@ -140,11 +140,11 @@ fn validate_key_path(field: &str, path: &str) -> Result<(), String> {
             MAX_KEY_PATH_LEN
         ));
     }
-    // SECURITY (FIND-R115-063): Reject control characters (includes null bytes,
-    // newlines, etc.) which can cause path truncation or log injection.
-    if path.chars().any(char::is_control) {
+    // SECURITY (FIND-R115-063, FIND-R158-001): Reject control chars AND Unicode
+    // format chars (zero-width, bidi overrides, BOM) for parity with canonical check.
+    if vellaveto_types::has_dangerous_chars(path) {
         return Err(format!(
-            "{} must not contain control characters",
+            "{} must not contain control or format characters",
             field
         ));
     }

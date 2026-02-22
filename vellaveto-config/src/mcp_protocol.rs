@@ -81,9 +81,11 @@ impl ElicitationConfig {
                     MAX_BLOCKED_FIELD_TYPE_LENGTH
                 ));
             }
-            if entry.chars().any(char::is_control) {
+            // SECURITY (FIND-R158-001): Use canonical has_dangerous_chars() to reject
+            // both control chars AND Unicode format chars (zero-width, bidi, BOM).
+            if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(format!(
-                    "elicitation.blocked_field_types[{}] contains control characters",
+                    "elicitation.blocked_field_types[{}] contains control or format characters",
                     i
                 ));
             }
@@ -179,9 +181,10 @@ impl SamplingConfig {
                     MAX_ALLOWED_MODEL_LENGTH
                 ));
             }
-            if entry.chars().any(char::is_control) {
+            // SECURITY (FIND-R158-001): Canonical check for control + format chars.
+            if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(format!(
-                    "sampling.allowed_models[{}] contains control characters",
+                    "sampling.allowed_models[{}] contains control or format characters",
                     i
                 ));
             }
@@ -326,12 +329,13 @@ impl AsyncTaskConfig {
                 MAX_ALLOW_CANCELLATION
             ));
         }
-        // SECURITY (FIND-R60-006): Reject control characters in allow_cancellation
-        // entries to prevent log injection and policy bypass via invisible chars.
+        // SECURITY (FIND-R60-006, FIND-R158-001): Reject control + Unicode format
+        // characters in allow_cancellation entries to prevent log injection and
+        // policy bypass via invisible chars.
         for (i, entry) in self.allow_cancellation.iter().enumerate() {
-            if entry.chars().any(char::is_control) {
+            if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(format!(
-                    "async_tasks.allow_cancellation[{}] contains control characters",
+                    "async_tasks.allow_cancellation[{}] contains control or format characters",
                     i
                 ));
             }
@@ -413,9 +417,10 @@ impl ResourceIndicatorConfig {
                     MAX_RESOURCE_ENTRY_LENGTH
                 ));
             }
-            if entry.chars().any(char::is_control) {
+            // SECURITY (FIND-R158-001): Canonical check for control + format chars.
+            if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(format!(
-                    "resource_indicator.allowed_resources[{}] contains control characters",
+                    "resource_indicator.allowed_resources[{}] contains control or format characters",
                     i
                 ));
             }
@@ -490,9 +495,10 @@ impl CimdConfig {
                     MAX_CAPABILITY_ENTRY_LENGTH
                 ));
             }
-            if entry.chars().any(char::is_control) {
+            // SECURITY (FIND-R158-001): Canonical check for control + format chars.
+            if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(format!(
-                    "cimd.required_capabilities[{}] contains control characters",
+                    "cimd.required_capabilities[{}] contains control or format characters",
                     i
                 ));
             }
@@ -512,9 +518,10 @@ impl CimdConfig {
                     MAX_CAPABILITY_ENTRY_LENGTH
                 ));
             }
-            if entry.chars().any(char::is_control) {
+            // SECURITY (FIND-R158-001): Canonical check for control + format chars.
+            if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(format!(
-                    "cimd.blocked_capabilities[{}] contains control characters",
+                    "cimd.blocked_capabilities[{}] contains control or format characters",
                     i
                 ));
             }
@@ -697,9 +704,10 @@ impl StepUpAuthConfig {
                     MAX_TRIGGER_TOOL_LENGTH
                 ));
             }
-            if entry.chars().any(char::is_control) {
+            // SECURITY (FIND-R158-001): Canonical check for control + format chars.
+            if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(format!(
-                    "step_up_auth.trigger_tools[{}] contains control characters",
+                    "step_up_auth.trigger_tools[{}] contains control or format characters",
                     i
                 ));
             }
