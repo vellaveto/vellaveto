@@ -961,4 +961,35 @@ mod tests {
         };
         assert!(input.validate().is_ok());
     }
+
+    #[test]
+    fn test_validate_session_id_bidi_override_rejected() {
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            session_id: Some("session\u{202E}id".to_string()),
+            ..Default::default()
+        };
+        assert!(input.validate().is_err(), "Bidi override must be rejected");
+    }
+
+    #[test]
+    fn test_validate_principal_zero_width_rejected() {
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            principal: Some("user\u{200B}name".to_string()),
+            ..Default::default()
+        };
+        assert!(input.validate().is_err(), "Zero-width space must be rejected");
+    }
+
+    #[test]
+    fn test_validate_metadata_within_limit_ok() {
+        let val = "x".repeat(60_000);
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            metadata: serde_json::json!({ "k": val }),
+            ..Default::default()
+        };
+        assert!(input.validate().is_ok(), "Metadata within 64KB should be accepted");
+    }
 }
