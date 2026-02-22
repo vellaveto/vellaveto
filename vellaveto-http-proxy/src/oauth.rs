@@ -209,6 +209,7 @@ pub struct OAuthConfirmationClaim {
 
 /// Claims expected in a DPoP proof JWT (RFC 9449).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DpopClaims {
     #[serde(default)]
     htm: String,
@@ -481,13 +482,19 @@ impl OAuthValidator {
         let token_data: TokenData<OAuthClaims> = decode(token, &decoding_key, &validation)?;
         let claims = token_data.claims;
 
-        // SECURITY (FIND-R73-001): Reject JWT claims containing control characters
-        // or Unicode format characters. Prevents log injection via malicious OAuth
-        // providers embedding newlines/escape codes in sub/iss/scope/aud fields.
+        // SECURITY (FIND-R73-001, FIND-R164-001/002): Reject JWT claims containing
+        // control characters or Unicode format characters. Prevents log injection via
+        // malicious OAuth providers embedding newlines/escape codes in claim fields.
         if contains_control_chars(&claims.sub)
             || contains_control_chars(&claims.iss)
             || contains_control_chars(&claims.scope)
             || claims.aud.iter().any(|a| contains_control_chars(a))
+            || claims.resource.as_deref().is_some_and(contains_control_chars)
+            || claims
+                .cnf
+                .as_ref()
+                .and_then(|cnf| cnf.jkt.as_deref())
+                .is_some_and(contains_control_chars)
         {
             tracing::warn!("SECURITY: Rejecting JWT with control characters in claims");
             return Err(OAuthError::ClaimControlCharacters);
@@ -611,6 +618,18 @@ impl OAuthValidator {
         let token_data: TokenData<DpopClaims> = decode(proof_jwt, &decoding_key, &validation)?;
         let claims = token_data.claims;
 
+        // SECURITY (FIND-R164-003): Reject DPoP claims containing control/format
+        // characters. Prevents log injection via crafted DPoP proofs — htm, htu,
+        // and jti values appear in error messages and audit logs.
+        if contains_control_chars(&claims.htm)
+            || contains_control_chars(&claims.htu)
+            || contains_control_chars(&claims.jti)
+        {
+            return Err(OAuthError::InvalidDpopProof(
+                "DPoP claims contain control or format characters".to_string(),
+            ));
+        }
+
         if claims.htm.is_empty() || !claims.htm.eq_ignore_ascii_case(expected_method) {
             return Err(OAuthError::InvalidDpopProof(format!(
                 "htm mismatch: expected '{}', got '{}'",
@@ -618,7 +637,25 @@ impl OAuthValidator {
             )));
         }
 
-        if claims.htu.trim_end_matches('/') != expected_uri.trim_end_matches('/') {
+        // SECURITY (FIND-R164-006): Normalize htu comparison — lowercase scheme+host
+        // prevents case-based bypass (e.g. HTTP://... vs http://...).
+        let normalize_htu = |u: &str| -> String {
+            let trimmed = u.trim_end_matches('/');
+            // Lowercase scheme + authority, preserve path case per RFC 3986 §6.2.2.1
+            if let Some(idx) = trimmed.find("://") {
+                if let Some(path_start) = trimmed[idx + 3..].find('/') {
+                    let authority_end = idx + 3 + path_start;
+                    let mut normalized = trimmed[..authority_end].to_ascii_lowercase();
+                    normalized.push_str(&trimmed[authority_end..]);
+                    normalized
+                } else {
+                    trimmed.to_ascii_lowercase()
+                }
+            } else {
+                trimmed.to_string()
+            }
+        };
+        if normalize_htu(&claims.htu) != normalize_htu(expected_uri) {
             return Err(OAuthError::InvalidDpopProof(format!(
                 "htu mismatch: expected '{}', got '{}'",
                 expected_uri, claims.htu

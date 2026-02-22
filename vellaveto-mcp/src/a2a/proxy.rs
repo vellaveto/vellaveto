@@ -391,7 +391,14 @@ impl A2aProxyService {
                     }
                     param_texts
                 }
-                _ => Vec::new(),
+                // SECURITY (FIND-R164-005): For PassThrough and any other message
+                // types not matched above, extract all string leaves from the entire
+                // message to ensure DLP/injection scanning is not a no-op.
+                _ => {
+                    let mut leaf_texts = Vec::new();
+                    collect_string_leaves(msg, &mut leaf_texts);
+                    leaf_texts
+                }
             }
         };
 
