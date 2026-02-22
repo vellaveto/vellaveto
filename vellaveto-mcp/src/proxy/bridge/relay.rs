@@ -270,23 +270,28 @@ impl RelayState {
 
     /// Record a successful forward for context tracking.
     fn record_forwarded_action(&mut self, action_name: &str) {
+        // SECURITY (FIND-R180-004): Truncate per-key to prevent unbounded string
+        // memory in call_counts HashMap keys and action_history entries.
+        const MAX_ACTION_NAME_LEN: usize = 256;
+        let bounded_name: String = action_name.chars().take(MAX_ACTION_NAME_LEN).collect();
+
         // SECURITY (FIND-R46-010): Cap call_counts to prevent OOM from
         // unbounded unique tool/method names.
-        if let Some(count) = self.call_counts.get_mut(action_name) {
+        if let Some(count) = self.call_counts.get_mut(bounded_name.as_str()) {
             *count = count.saturating_add(1);
         } else if self.call_counts.len() < MAX_CALL_COUNTS {
-            self.call_counts.insert(action_name.to_string(), 1);
+            self.call_counts.insert(bounded_name.clone(), 1);
         } else {
             tracing::warn!(
                 "call_counts at capacity ({}); not tracking '{}'",
                 MAX_CALL_COUNTS,
-                action_name
+                vellaveto_types::sanitize_for_log(action_name, 64),
             );
         }
         if self.action_history.len() >= MAX_ACTION_HISTORY {
             self.action_history.pop_front();
         }
-        self.action_history.push_back(action_name.to_string());
+        self.action_history.push_back(bounded_name);
     }
 
     /// Track a pending request for timeout detection.
@@ -1888,8 +1893,59 @@ impl ProxyBridge {
                     return Ok(());
                 }
 
-                // SECURITY (FIND-R46-004): Memory poisoning scan for extension
-                // method parameters. Extension methods must not bypass poisoning checks.
+                // SECURITY (FIND-R180-001): Memory poisoning CHECK for extension
+                // method parameters — parity with tool calls, resource reads, and tasks.
+                let poisoning_matches = state.memory_tracker.check_parameters(&params);
+                if !poisoning_matches.is_empty() {
+                    for m in &poisoning_matches {
+                        tracing::warn!(
+                            "SECURITY: Memory poisoning detected in extension method '{}': \
+                             param '{}' contains replayed data (fingerprint: {})",
+                            safe_ext_method,
+                            m.param_location,
+                            m.fingerprint
+                        );
+                    }
+                    let deny_reason = format!(
+                        "Memory poisoning detected: {} replayed data fragment(s) in extension '{}'",
+                        poisoning_matches.len(),
+                        safe_ext_method
+                    );
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Deny {
+                                reason: deny_reason.clone(),
+                            },
+                            json!({
+                                "source": "proxy",
+                                "event": "memory_poisoning_detected",
+                                "matches": poisoning_matches.len(),
+                                "extension_id": safe_extension_id,
+                                "method": safe_ext_method,
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::error!(
+                            error = %e,
+                            method = %safe_ext_method,
+                            "Failed to log audit entry for extension memory poisoning detection"
+                        );
+                    }
+                    let response = make_denial_response(
+                        &id,
+                        "Request blocked: security policy violation",
+                    );
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+
+                // SECURITY (FIND-R46-004): Fingerprint extension method parameters
+                // for future memory poisoning detection in downstream calls.
                 state.memory_tracker.extract_from_value(&params);
 
                 if let Err(e) = self

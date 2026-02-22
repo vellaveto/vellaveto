@@ -192,6 +192,10 @@ impl LlmEvalInput {
     const MAX_CONTEXT_ROLE_LEN: usize = 32;
     /// Maximum serialized size of parameters JSON (1MB).
     const MAX_PARAMETERS_SIZE: usize = 1_048_576;
+    /// Maximum serialized size of metadata JSON (64KB).
+    const MAX_METADATA_SIZE: usize = 65_536;
+    /// Maximum length of session_id / principal strings.
+    const MAX_SESSION_PRINCIPAL_LEN: usize = 256;
 
     /// Validates the input, returning an error if invalid.
     pub fn validate(&self) -> Result<(), LlmEvalError> {
@@ -261,6 +265,43 @@ impl LlmEvalInput {
                 "parameters size {} exceeds max {}",
                 params_size,
                 Self::MAX_PARAMETERS_SIZE
+            )));
+        }
+        // SECURITY (FIND-R180-002): Validate session_id and principal for
+        // length bounds and control/format characters.
+        if let Some(ref sid) = self.session_id {
+            if sid.len() > Self::MAX_SESSION_PRINCIPAL_LEN {
+                return Err(LlmEvalError::InvalidInput(
+                    "session_id too long".to_string(),
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(sid) {
+                return Err(LlmEvalError::InvalidInput(
+                    "session_id contains control or format characters".to_string(),
+                ));
+            }
+        }
+        if let Some(ref p) = self.principal {
+            if p.len() > Self::MAX_SESSION_PRINCIPAL_LEN {
+                return Err(LlmEvalError::InvalidInput(
+                    "principal too long".to_string(),
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(p) {
+                return Err(LlmEvalError::InvalidInput(
+                    "principal contains control or format characters".to_string(),
+                ));
+            }
+        }
+        // SECURITY (FIND-R180-003): Bound metadata JSON size.
+        let metadata_size = serde_json::to_string(&self.metadata)
+            .map(|s| s.len())
+            .unwrap_or(0);
+        if metadata_size > Self::MAX_METADATA_SIZE {
+            return Err(LlmEvalError::InvalidInput(format!(
+                "metadata size {} exceeds max {}",
+                metadata_size,
+                Self::MAX_METADATA_SIZE
             )));
         }
         Ok(())
