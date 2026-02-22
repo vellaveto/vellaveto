@@ -111,6 +111,21 @@ impl CacheConfig {
         if self.max_size > 1_000_000 {
             return Err("max_size cannot exceed 1,000,000".to_string());
         }
+        // SECURITY (FIND-R168-001): Reject TTL values exceeding MAX_TTL_SECS at
+        // validation time rather than relying on runtime clamping. Fail-closed
+        // principle: invalid config should be rejected, not silently adjusted.
+        if self.ttl_secs > MAX_TTL_SECS {
+            return Err(format!(
+                "ttl_secs {} exceeds maximum of {} (7 days)",
+                self.ttl_secs, MAX_TTL_SECS
+            ));
+        }
+        // SECURITY (FIND-R168-002): ttl_secs=0 with enabled=true creates a
+        // silent no-op cache where all put operations are skipped. Reject this
+        // at validation time rather than logging a runtime warning.
+        if self.ttl_secs == 0 && self.enabled {
+            return Err("ttl_secs must be > 0 when cache is enabled".to_string());
+        }
         Ok(())
     }
 }
@@ -567,6 +582,39 @@ mod tests {
         assert!(config.validate().is_err());
 
         let config = CacheConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    /// SECURITY (FIND-R168-001): TTL exceeding MAX_TTL_SECS is rejected.
+    #[test]
+    fn test_cache_config_validate_ttl_exceeds_max() {
+        let config = CacheConfig {
+            ttl_secs: 604_801, // 7 days + 1 second
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("ttl_secs"));
+    }
+
+    /// SECURITY (FIND-R168-002): ttl_secs=0 with enabled=true is rejected.
+    #[test]
+    fn test_cache_config_validate_zero_ttl_enabled() {
+        let config = CacheConfig {
+            ttl_secs: 0,
+            enabled: true,
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    /// ttl_secs=0 with enabled=false is valid (disabled cache).
+    #[test]
+    fn test_cache_config_validate_zero_ttl_disabled_ok() {
+        let config = CacheConfig {
+            ttl_secs: 0,
+            enabled: false,
+            max_size: 0,
+        };
         assert!(config.validate().is_ok());
     }
 

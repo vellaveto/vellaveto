@@ -183,6 +183,15 @@ impl ServiceConfig {
         if self.max_latency_ms == 0 {
             return Err("max_latency_ms must be greater than zero".to_string());
         }
+        // SECURITY (FIND-R168-003): Cap max_latency_ms to prevent extreme
+        // timeout values. 5 minutes is generous for any guardrail service.
+        const MAX_LATENCY_MS: u64 = 300_000;
+        if self.max_latency_ms > MAX_LATENCY_MS {
+            return Err(format!(
+                "max_latency_ms {} exceeds maximum of {}",
+                self.max_latency_ms, MAX_LATENCY_MS
+            ));
+        }
         // SECURITY (FIND-R114-008/IMP): Bound max_chain_size to match IntentChain hard cap.
         if self.max_chain_size == 0 || self.max_chain_size > 100 {
             return Err(format!(
@@ -611,5 +620,21 @@ mod tests {
             chain.is_some(),
             "Max-length session_id should create intent chain"
         );
+    }
+
+    /// SECURITY (FIND-R168-003): max_latency_ms exceeding upper bound is rejected.
+    #[test]
+    fn test_service_config_validate_max_latency_exceeds_bound() {
+        let config = ServiceConfig {
+            max_latency_ms: 300_001,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_latency_ms"));
+    }
+
+    #[test]
+    fn test_service_config_validate_default_ok() {
+        assert!(ServiceConfig::default().validate().is_ok());
     }
 }
