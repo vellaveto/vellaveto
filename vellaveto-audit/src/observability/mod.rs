@@ -458,8 +458,14 @@ impl SecuritySpanBuilder {
     }
 
     /// Add an attribute.
+    ///
+    /// SECURITY (FIND-R178-004): Silently drops attributes beyond `MAX_SPAN_ATTRIBUTES`
+    /// to prevent unbounded memory growth from attacker-controlled span metadata.
     pub fn attribute(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
-        self.attributes.insert(key.into(), value);
+        const MAX_SPAN_ATTRIBUTES: usize = 128;
+        if self.attributes.len() < MAX_SPAN_ATTRIBUTES {
+            self.attributes.insert(key.into(), value);
+        }
         self
     }
 

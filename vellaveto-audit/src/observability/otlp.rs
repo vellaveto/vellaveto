@@ -203,7 +203,9 @@ pub fn span_to_otel_attributes(span: &SecuritySpan) -> Vec<KeyValue> {
     ));
 
     // Custom attributes from the span
-    for (key, value) in &span.attributes {
+    // SECURITY (FIND-R178-004): Cap iteration to prevent unbounded OTel attribute explosion.
+    const MAX_CUSTOM_ATTRIBUTES: usize = 128;
+    for (key, value) in span.attributes.iter().take(MAX_CUSTOM_ATTRIBUTES) {
         let otel_key = format!("vellaveto.custom.{}", key);
         if let Some(s) = value.as_str() {
             attrs.push(KeyValue::new(otel_key, s.to_string()));

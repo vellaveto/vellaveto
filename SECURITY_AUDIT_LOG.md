@@ -3,9 +3,26 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 178)
-> **Total audit rounds:** 178
-> **Cumulative findings fixed:** 603+
+> **Last updated:** 2026-02-22 (Round 180)
+> **Total audit rounds:** 180
+> **Cumulative findings fixed:** 614+
+
+---
+
+## Round 178 — DID Genesis Validate, Data Governance Tool Name Bound, Sampling Patterns, OTLP Attributes (6 findings fixed)
+
+**Subsystem:** `vellaveto-mcp/src/did_plc.rs`, `vellaveto-audit/src/data_governance.rs`, `vellaveto-mcp/src/sampling_detector.rs`, `vellaveto-audit/src/observability/otlp.rs`
+**Commits:** `75974eb`, `b2b5a75`, (pending)
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R178-001 | P2 | `did_plc.rs` | `genesis.validate()` called before clone+serialize; `generate_did_plc_from_key` bounded key/algorithm lengths (1024/64) |
+| FIND-R178-002 | P2 | `data_governance.rs` | `MAX_TOOL_NAME_LEN=256` guard in `get_record()` before O(p*t) DP glob matching |
+| FIND-R178-003 | P3 | `sampling_detector.rs` | `add_sensitive_pattern()` bounded at `MAX_SENSITIVE_PATTERNS=1000`, pattern length at 256 |
+| FIND-R178-004 | P3 | `otlp.rs` | `span_to_otel_attributes()` caps custom attribute iteration at 128; builder `attribute()` drops beyond 128 |
+| FIND-R178-005 | P3 | `did_plc.rs` | `validate_did_plc()` truncates DID to 60 chars in error message preventing oversized errors |
+
+R176 verification: All 6 R176 fixes confirmed VERIFIED.
 
 ---
 
