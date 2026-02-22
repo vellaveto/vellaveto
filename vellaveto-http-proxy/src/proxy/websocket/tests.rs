@@ -439,13 +439,37 @@ fn test_ws_messages_counter_increments() {
 }
 
 // ==========================================================================
-// build_ws_evaluation_context tests
+// TOCTOU-safe evaluation context tests
 // ==========================================================================
+
+/// Test-only helper: Build EvaluationContext from session state.
+/// Production code builds this inline inside DashMap shard lock (FIND-R130-002).
+fn build_test_evaluation_context(
+    state: &ProxyState,
+    session_id: &str,
+) -> EvaluationContext {
+    if let Some(session) = state.sessions.get_mut(session_id) {
+        EvaluationContext {
+            timestamp: None,
+            agent_id: session.oauth_subject.clone(),
+            agent_identity: session.agent_identity.clone(),
+            call_counts: session.call_counts.clone(),
+            previous_actions: session.action_history.iter().cloned().collect(),
+            call_chain: session.current_call_chain.clone(),
+            tenant_id: None,
+            verification_tier: None,
+            capability_token: None,
+            session_state: None,
+        }
+    } else {
+        EvaluationContext::default()
+    }
+}
 
 #[test]
 fn test_ws_evaluation_context_default_without_session() {
     let state = make_test_state();
-    let ctx = build_ws_evaluation_context(&state, "nonexistent-session");
+    let ctx = build_test_evaluation_context(&state, "nonexistent-session");
     assert!(ctx.agent_id.is_none());
     assert!(ctx.call_counts.is_empty());
     assert!(ctx.previous_actions.is_empty());
@@ -467,7 +491,7 @@ fn test_ws_evaluation_context_with_session() {
         session.action_history.push_back("write_file".to_string());
     }
 
-    let ctx = build_ws_evaluation_context(&state, &session_id);
+    let ctx = build_test_evaluation_context(&state, &session_id);
     assert_eq!(ctx.agent_id.as_deref(), Some("agent-42"));
     assert_eq!(ctx.call_counts.get("read_file"), Some(&3));
     assert_eq!(ctx.previous_actions.len(), 2);
@@ -500,7 +524,7 @@ fn test_task_request_policy_deny_ws() {
     let session_id = state.sessions.get_or_create(None);
 
     let action = extractor::extract_task_action("tasks/get", Some("task-123"));
-    let ctx = build_ws_evaluation_context(&state, &session_id);
+    let ctx = build_test_evaluation_context(&state, &session_id);
 
     let verdict = state
         .engine
@@ -520,7 +544,7 @@ fn test_task_request_policy_allow_ws() {
     let session_id = state.sessions.get_or_create(None);
 
     let action = extractor::extract_task_action("tasks/get", Some("task-123"));
-    let ctx = build_ws_evaluation_context(&state, &session_id);
+    let ctx = build_test_evaluation_context(&state, &session_id);
 
     let verdict = state
         .engine
@@ -544,7 +568,7 @@ fn test_extension_method_policy_deny_ws() {
         "x-vellaveto-audit/stats",
         &json!({}),
     );
-    let ctx = build_ws_evaluation_context(&state, &session_id);
+    let ctx = build_test_evaluation_context(&state, &session_id);
 
     let verdict = state
         .engine

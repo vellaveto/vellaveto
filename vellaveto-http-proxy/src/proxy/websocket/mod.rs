@@ -1075,25 +1075,94 @@ async fn relay_client_to_upstream(
                             }
                         }
 
-                        let ctx = build_ws_evaluation_context(&state, &session_id);
-                        let verdict = match state.engine.evaluate_action_with_context(
-                            &action,
-                            &state.policies,
-                            Some(&ctx),
-                        ) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                // Fail-closed: engine errors produce Deny
-                                tracing::error!(
-                                    session_id = %session_id,
-                                    "Policy evaluation error: {}",
-                                    e
-                                );
-                                Verdict::Deny {
-                                    reason: format!("Policy evaluation failed: {}", e),
+                        // SECURITY (FIND-R130-002): Combine context read, evaluation,
+                        // and session update into a single block holding the DashMap
+                        // shard lock. Without this, concurrent WS connections sharing
+                        // a session can bypass max_calls_in_window by racing: both
+                        // clone the same stale call_counts, both pass evaluation, both
+                        // increment. Matches HTTP handler R19-TOCTOU pattern
+                        // (handlers.rs:725-789).
+                        let (verdict, ctx) =
+                            if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                                let ctx = EvaluationContext {
+                                    timestamp: None,
+                                    agent_id: session.oauth_subject.clone(),
+                                    agent_identity: session.agent_identity.clone(),
+                                    call_counts: session.call_counts.clone(),
+                                    previous_actions: session
+                                        .action_history
+                                        .iter()
+                                        .cloned()
+                                        .collect(),
+                                    call_chain: session.current_call_chain.clone(),
+                                    tenant_id: None,
+                                    verification_tier: None,
+                                    capability_token: None,
+                                    session_state: None,
+                                };
+
+                                let verdict = match state.engine.evaluate_action_with_context(
+                                    &action,
+                                    &state.policies,
+                                    Some(&ctx),
+                                ) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        tracing::error!(
+                                            session_id = %session_id,
+                                            "Policy evaluation error: {}",
+                                            e
+                                        );
+                                        Verdict::Deny {
+                                            reason: format!("Policy evaluation failed: {}", e),
+                                        }
+                                    }
+                                };
+
+                                // Atomically update session on Allow while still holding
+                                // the shard lock — prevents TOCTOU bypass of call limits.
+                                if matches!(verdict, Verdict::Allow) {
+                                    session.touch();
+                                    use crate::proxy::call_chain::{
+                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+                                    };
+                                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                                        || session.call_counts.contains_key(tool_name)
+                                    {
+                                        let count = session
+                                            .call_counts
+                                            .entry(tool_name.to_string())
+                                            .or_insert(0);
+                                        *count = count.saturating_add(1);
+                                    }
+                                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                                        session.action_history.pop_front();
+                                    }
+                                    session.action_history.push_back(tool_name.to_string());
                                 }
-                            }
-                        };
+
+                                (verdict, ctx)
+                            } else {
+                                // No session — evaluate without context (fail-closed)
+                                let verdict = match state.engine.evaluate_action_with_context(
+                                    &action,
+                                    &state.policies,
+                                    None,
+                                ) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        tracing::error!(
+                                            session_id = %session_id,
+                                            "Policy evaluation error: {}",
+                                            e
+                                        );
+                                        Verdict::Deny {
+                                            reason: format!("Policy evaluation failed: {}", e),
+                                        }
+                                    }
+                                };
+                                (verdict, EvaluationContext::default())
+                            };
 
                         match verdict {
                             Verdict::Allow => {
@@ -1202,31 +1271,9 @@ async fn relay_client_to_upstream(
                                     registry.record_call(tool_name).await;
                                 }
 
-                                // Touch session and update call_counts/action_history
-                                if let Some(mut session) = state.sessions.get_mut(&session_id) {
-                                    session.touch();
-                                    // SECURITY (FIND-R54-003): Update call_counts and action_history
-                                    // on Allow. Without this, context-aware policies
-                                    // (max_calls_in_window, ForbiddenActionSequence) are
-                                    // ineffective on the WebSocket transport.
-                                    use crate::proxy::call_chain::{
-                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
-                                    };
-                                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                                        || session.call_counts.contains_key(tool_name)
-                                    {
-                                        // SECURITY (FIND-R108-003): saturating_add.
-                                        let count = session
-                                            .call_counts
-                                            .entry(tool_name.to_string())
-                                            .or_insert(0);
-                                        *count = count.saturating_add(1);
-                                    }
-                                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                                        session.action_history.pop_front();
-                                    }
-                                    session.action_history.push_back(tool_name.to_string());
-                                }
+                                // NOTE: Session touch + call_counts/action_history
+                                // update already performed inside the TOCTOU-safe
+                                // block above (FIND-R130-002). No separate update here.
 
                                 // Audit the allow
                                 if let Err(e) = state
@@ -1569,24 +1616,94 @@ async fn relay_client_to_upstream(
                             }
                         }
 
-                        let ctx = build_ws_evaluation_context(&state, &session_id);
-                        let verdict = match state.engine.evaluate_action_with_context(
-                            &action,
-                            &state.policies,
-                            Some(&ctx),
-                        ) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                tracing::error!(
-                                    session_id = %session_id,
-                                    "Resource policy evaluation error: {}",
-                                    e
-                                );
-                                Verdict::Deny {
-                                    reason: format!("Policy evaluation failed: {}", e),
+                        // SECURITY (FIND-R130-002): TOCTOU-safe context+eval+update
+                        // for resource reads. Matches ToolCall fix above and HTTP
+                        // handler FIND-R112-002 pattern (handlers.rs:1711-1774).
+                        let (verdict, ctx) =
+                            if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                                let ctx = EvaluationContext {
+                                    timestamp: None,
+                                    agent_id: session.oauth_subject.clone(),
+                                    agent_identity: session.agent_identity.clone(),
+                                    call_counts: session.call_counts.clone(),
+                                    previous_actions: session
+                                        .action_history
+                                        .iter()
+                                        .cloned()
+                                        .collect(),
+                                    call_chain: session.current_call_chain.clone(),
+                                    tenant_id: None,
+                                    verification_tier: None,
+                                    capability_token: None,
+                                    session_state: None,
+                                };
+
+                                let verdict = match state.engine.evaluate_action_with_context(
+                                    &action,
+                                    &state.policies,
+                                    Some(&ctx),
+                                ) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        tracing::error!(
+                                            session_id = %session_id,
+                                            "Resource policy evaluation error: {}",
+                                            e
+                                        );
+                                        Verdict::Deny {
+                                            reason: format!("Policy evaluation failed: {}", e),
+                                        }
+                                    }
+                                };
+
+                                // Atomically update session on Allow
+                                if matches!(verdict, Verdict::Allow) {
+                                    session.touch();
+                                    use crate::proxy::call_chain::{
+                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+                                    };
+                                    let resource_key = format!(
+                                        "resources/read:{}",
+                                        uri.chars().take(128).collect::<String>()
+                                    );
+                                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                                        || session.call_counts.contains_key(&resource_key)
+                                    {
+                                        let count = session
+                                            .call_counts
+                                            .entry(resource_key)
+                                            .or_insert(0);
+                                        *count = count.saturating_add(1);
+                                    }
+                                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                                        session.action_history.pop_front();
+                                    }
+                                    session
+                                        .action_history
+                                        .push_back("resources/read".to_string());
                                 }
-                            }
-                        };
+
+                                (verdict, ctx)
+                            } else {
+                                let verdict = match state.engine.evaluate_action_with_context(
+                                    &action,
+                                    &state.policies,
+                                    None,
+                                ) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        tracing::error!(
+                                            session_id = %session_id,
+                                            "Resource policy evaluation error: {}",
+                                            e
+                                        );
+                                        Verdict::Deny {
+                                            reason: format!("Policy evaluation failed: {}", e),
+                                        }
+                                    }
+                                };
+                                (verdict, EvaluationContext::default())
+                            };
 
                         match verdict {
                             Verdict::Allow => {
@@ -1676,33 +1793,9 @@ async fn relay_client_to_upstream(
                                     }
                                 }
 
-                                // SECURITY (FIND-R116-006): Track resource reads in call_counts/action_history.
-                                // Parity with HTTP handler (handlers.rs:1744) and gRPC (service.rs:1021).
-                                {
-                                    use crate::proxy::call_chain::{
-                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
-                                    };
-                                    if let Some(mut session) = state.sessions.get_mut(&session_id) {
-                                        session.touch();
-                                        let resource_key = format!(
-                                            "resources/read:{}",
-                                            uri.chars().take(128).collect::<String>()
-                                        );
-                                        if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                                            || session.call_counts.contains_key(&resource_key)
-                                        {
-                                            let count =
-                                                session.call_counts.entry(resource_key).or_insert(0);
-                                            *count = count.saturating_add(1);
-                                        }
-                                        if session.action_history.len() >= MAX_ACTION_HISTORY {
-                                            session.action_history.pop_front();
-                                        }
-                                        session
-                                            .action_history
-                                            .push_back("resources/read".to_string());
-                                    }
-                                }
+                                // NOTE: Session touch + call_counts/action_history
+                                // update already performed inside the TOCTOU-safe
+                                // block above (FIND-R130-002). No separate update here.
 
                                 // SECURITY (FIND-R46-WS-004): Audit log allowed resource reads
                                 if let Err(e) = state
@@ -2091,23 +2184,61 @@ async fn relay_client_to_upstream(
                         // Policy-evaluate task requests (async operations)
                         let action =
                             extractor::extract_task_action(task_method, task_id.as_deref());
-                        let ctx = build_ws_evaluation_context(&state, &session_id);
-                        let verdict = match state.engine.evaluate_action_with_context(
-                            &action,
-                            &state.policies,
-                            Some(&ctx),
-                        ) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                tracing::error!(
-                                    session_id = %session_id,
-                                    "Task policy evaluation error: {}", e
-                                );
-                                Verdict::Deny {
-                                    reason: format!("Policy evaluation failed: {}", e),
+                        // SECURITY (FIND-R130-002): TOCTOU-safe context+eval for task
+                        // requests. Context is built inside the DashMap shard lock to
+                        // prevent stale snapshot evaluation races.
+                        let verdict =
+                            if let Some(session) = state.sessions.get_mut(&session_id) {
+                                let ctx = EvaluationContext {
+                                    timestamp: None,
+                                    agent_id: session.oauth_subject.clone(),
+                                    agent_identity: session.agent_identity.clone(),
+                                    call_counts: session.call_counts.clone(),
+                                    previous_actions: session
+                                        .action_history
+                                        .iter()
+                                        .cloned()
+                                        .collect(),
+                                    call_chain: session.current_call_chain.clone(),
+                                    tenant_id: None,
+                                    verification_tier: None,
+                                    capability_token: None,
+                                    session_state: None,
+                                };
+                                match state.engine.evaluate_action_with_context(
+                                    &action,
+                                    &state.policies,
+                                    Some(&ctx),
+                                ) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        tracing::error!(
+                                            session_id = %session_id,
+                                            "Task policy evaluation error: {}", e
+                                        );
+                                        Verdict::Deny {
+                                            reason: format!("Policy evaluation failed: {}", e),
+                                        }
+                                    }
                                 }
-                            }
-                        };
+                            } else {
+                                match state.engine.evaluate_action_with_context(
+                                    &action,
+                                    &state.policies,
+                                    None,
+                                ) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        tracing::error!(
+                                            session_id = %session_id,
+                                            "Task policy evaluation error: {}", e
+                                        );
+                                        Verdict::Deny {
+                                            reason: format!("Policy evaluation failed: {}", e),
+                                        }
+                                    }
+                                }
+                            };
 
                         match verdict {
                             Verdict::Allow => {
@@ -2322,25 +2453,87 @@ async fn relay_client_to_upstream(
                             super::helpers::resolve_domains(&mut action).await;
                         }
 
-                        let ctx = build_ws_evaluation_context(&state, &session_id);
                         let ext_key = format!("extension:{}:{}", extension_id, method);
 
-                        let verdict = match state.engine.evaluate_action_with_context(
-                            &action,
-                            &state.policies,
-                            Some(&ctx),
-                        ) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                tracing::error!(
-                                    session_id = %session_id,
-                                    "Extension policy evaluation error: {}", e
-                                );
-                                Verdict::Deny {
-                                    reason: format!("Policy evaluation failed: {}", e),
+                        // SECURITY (FIND-R130-002): TOCTOU-safe context+eval+update
+                        // for extension methods. Matches ToolCall/ResourceRead fixes.
+                        let (verdict, ctx) =
+                            if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                                let ctx = EvaluationContext {
+                                    timestamp: None,
+                                    agent_id: session.oauth_subject.clone(),
+                                    agent_identity: session.agent_identity.clone(),
+                                    call_counts: session.call_counts.clone(),
+                                    previous_actions: session
+                                        .action_history
+                                        .iter()
+                                        .cloned()
+                                        .collect(),
+                                    call_chain: session.current_call_chain.clone(),
+                                    tenant_id: None,
+                                    verification_tier: None,
+                                    capability_token: None,
+                                    session_state: None,
+                                };
+
+                                let verdict = match state.engine.evaluate_action_with_context(
+                                    &action,
+                                    &state.policies,
+                                    Some(&ctx),
+                                ) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        tracing::error!(
+                                            session_id = %session_id,
+                                            "Extension policy evaluation error: {}", e
+                                        );
+                                        Verdict::Deny {
+                                            reason: format!("Policy evaluation failed: {}", e),
+                                        }
+                                    }
+                                };
+
+                                // Atomically update session on Allow
+                                if matches!(verdict, Verdict::Allow) {
+                                    session.touch();
+                                    use crate::proxy::call_chain::{
+                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+                                    };
+                                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                                        || session.call_counts.contains_key(&ext_key)
+                                    {
+                                        let count = session
+                                            .call_counts
+                                            .entry(ext_key.clone())
+                                            .or_insert(0);
+                                        *count = count.saturating_add(1);
+                                    }
+                                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                                        session.action_history.pop_front();
+                                    }
+                                    session.action_history.push_back(ext_key.clone());
                                 }
-                            }
-                        };
+
+                                (verdict, ctx)
+                            } else {
+                                let verdict = match state.engine.evaluate_action_with_context(
+                                    &action,
+                                    &state.policies,
+                                    None,
+                                ) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        tracing::error!(
+                                            session_id = %session_id,
+                                            "Extension policy evaluation error: {}", e
+                                        );
+                                        Verdict::Deny {
+                                            reason: format!("Policy evaluation failed: {}", e),
+                                        }
+                                    }
+                                };
+                                (verdict, EvaluationContext::default())
+                            };
 
                         match verdict {
                             Verdict::Allow => {
@@ -2442,27 +2635,9 @@ async fn relay_client_to_upstream(
                                     }
                                 }
 
-                                // SECURITY (FIND-R118-003): Track extension calls in call_counts/action_history.
-                                // Parity with ToolCall (line 1204) and ResourceRead (line 1584).
-                                if let Some(mut session) = state.sessions.get_mut(&session_id) {
-                                    session.touch();
-                                    use crate::proxy::call_chain::{
-                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
-                                    };
-                                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                                        || session.call_counts.contains_key(&ext_key)
-                                    {
-                                        let count = session
-                                            .call_counts
-                                            .entry(ext_key.clone())
-                                            .or_insert(0);
-                                        *count = count.saturating_add(1);
-                                    }
-                                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                                        session.action_history.pop_front();
-                                    }
-                                    session.action_history.push_back(ext_key.clone());
-                                }
+                                // NOTE: Session touch + call_counts/action_history
+                                // update already performed inside the TOCTOU-safe
+                                // block above (FIND-R130-002). No separate update here.
 
                                 if let Err(e) = state
                                     .audit
@@ -3652,26 +3827,9 @@ async fn validate_ws_structured_content_response(
     }
 }
 
-/// Build an EvaluationContext for WebSocket policy evaluation.
-fn build_ws_evaluation_context(state: &ProxyState, session_id: &str) -> EvaluationContext {
-    let mut ctx = EvaluationContext::default();
-
-    if let Some(session) = state.sessions.get_mut(session_id) {
-        ctx.call_counts = session.call_counts.clone();
-        ctx.previous_actions = session.action_history.iter().cloned().collect();
-        if let Some(ref agent_id) = session.oauth_subject {
-            ctx.agent_id = Some(agent_id.clone());
-        }
-        // SECURITY (FIND-R74-003): Include agent_identity and call_chain for parity
-        // with HTTP handler (handlers.rs:731-734) and gRPC handler (service.rs:1241-1242).
-        // Without these, WS policy evaluation cannot enforce identity-based or
-        // call-chain-based context conditions.
-        ctx.agent_identity = session.agent_identity.clone();
-        ctx.call_chain = session.current_call_chain.clone();
-    }
-
-    ctx
-}
+// NOTE: build_ws_evaluation_context() was removed in FIND-R130-002 fix.
+// All callers now build EvaluationContext inline inside the DashMap shard
+// lock to prevent TOCTOU races on call_counts/action_history.
 
 /// Check per-connection rate limit. Returns true if within limit.
 fn check_rate_limit(

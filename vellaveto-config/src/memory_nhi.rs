@@ -818,7 +818,12 @@ impl VerificationConfig {
                     MAX_PLC_URL_LEN
                 ));
             }
-            if !self.plc_directory_url.starts_with("https://") {
+            // SECURITY (IMP-R130-011): Use proper URL parser for SSRF-safe
+            // scheme validation. Plain starts_with("https://") is vulnerable
+            // to subdomain bypass (e.g. https://localhost.evil.com).
+            if !self.plc_directory_url.starts_with("https://")
+                && !crate::validation::is_http_localhost_url(&self.plc_directory_url)
+            {
                 return Err(
                     "nhi.verification.plc_directory_url must use https:// scheme".to_string(),
                 );

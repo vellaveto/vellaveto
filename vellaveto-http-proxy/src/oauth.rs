@@ -28,18 +28,13 @@ use tokio::sync::RwLock;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use sha2::{Digest, Sha256};
 
-/// SECURITY (FIND-R73-001): Check if a string contains control characters
-/// or Unicode format characters that could enable log injection.
+/// SECURITY (FIND-R73-001, IMP-R130-008): Check if a string contains control
+/// characters or Unicode format characters that could enable log injection.
+/// Delegates to canonical `has_dangerous_chars()` — no whitespace exemptions
+/// since JWT claims (sub, iss, scope, aud) are identifiers that must not
+/// contain newlines, tabs, or carriage returns.
 fn contains_control_chars(s: &str) -> bool {
-    s.chars().any(|c| {
-        (c.is_control() && c != '\n' && c != '\r' && c != '\t')
-            || matches!(c,
-                '\u{200B}'..='\u{200F}' | // zero-width, LRM, RLM
-                '\u{202A}'..='\u{202E}' | // bidi overrides
-                '\u{2060}'..='\u{2069}' | // invisible separators, bidi isolates
-                '\u{FEFF}'               // BOM
-            )
-    })
+    vellaveto_types::has_dangerous_chars(s)
 }
 
 /// DPoP enforcement mode for OAuth requests.
@@ -1951,8 +1946,14 @@ TfzccotDw2uXy3Xbwy/kdpfK
         assert!(contains_control_chars("user\u{202E}name")); // bidi RLO
         assert!(contains_control_chars("user\u{FEFF}name")); // BOM
 
-        // Newline/CR/tab are allowed (JWT standard fields may contain them)
-        assert!(!contains_control_chars("line1\nline2")); // newline allowed
-        assert!(!contains_control_chars("col1\tcol2")); // tab allowed
+        // SECURITY (IMP-R130-008): Newline/CR/tab are now rejected — JWT
+        // claims (sub, iss, scope, aud) are identifiers that must not contain
+        // whitespace control characters. Allows log injection prevention.
+        assert!(contains_control_chars("line1\nline2")); // newline rejected
+        assert!(contains_control_chars("col1\tcol2")); // tab rejected
+
+        // Additional format char ranges now covered via has_dangerous_chars():
+        assert!(contains_control_chars("x\u{00AD}y")); // soft hyphen
+        assert!(contains_control_chars("x\u{FFF9}y")); // interlinear annotation
     }
 }
