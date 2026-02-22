@@ -1779,4 +1779,113 @@ mod tests {
         // Should end on a char boundary (even number of bytes for ñ)
         assert!(result.is_char_boundary(result.len()));
     }
+
+    // SECURITY (FIND-R188-001): max_session_duration_secs enforcement
+    #[test]
+    fn test_session_duration_exceeded_ends_session() {
+        let guard = SessionGuard::new(SessionGuardConfig {
+            max_session_duration_secs: 60,
+            ..Default::default()
+        });
+        guard.process_event_at("s1", SessionEvent::FirstAction, 1000).unwrap();
+        assert_eq!(guard.get_state("s1"), SessionState::Active);
+
+        // Action at 1061 (>60s) should end the session
+        let result = guard
+            .process_event_at("s1", SessionEvent::NormalAction, 1061)
+            .unwrap();
+        assert_eq!(result.current, SessionState::Ended);
+        match result.action {
+            TransitionAction::DenyAll { reason } => {
+                assert!(reason.contains("duration exceeded"), "reason: {reason}");
+            }
+            _ => panic!("expected DenyAll"),
+        }
+    }
+
+    #[test]
+    fn test_session_duration_within_limit_ok() {
+        let guard = SessionGuard::new(SessionGuardConfig {
+            max_session_duration_secs: 60,
+            ..Default::default()
+        });
+        guard.process_event_at("s1", SessionEvent::FirstAction, 1000).unwrap();
+        // Action at 1059 (<60s) is fine
+        let result = guard
+            .process_event_at("s1", SessionEvent::NormalAction, 1059)
+            .unwrap();
+        assert_eq!(result.current, SessionState::Active);
+    }
+
+    // SECURITY (FIND-R188-005): AdminUnlock brute-force rate limiting
+    #[test]
+    fn test_admin_unlock_brute_force_ends_session() {
+        let guard = SessionGuard::new(SessionGuardConfig {
+            suspicious_threshold: 1,
+            lock_threshold: 1,
+            admin_unlock_token: Some("correct-token".to_string()),
+            ..Default::default()
+        });
+
+        guard.process_event("s1", SessionEvent::FirstAction).unwrap();
+        guard.process_event("s1", SessionEvent::RepeatedViolation { count: 2 }).unwrap();
+        guard.process_event("s1", SessionEvent::RepeatedViolation { count: 1 }).unwrap();
+        assert_eq!(guard.get_state("s1"), SessionState::Locked);
+
+        // Send MAX_FAILED_UNLOCK_ATTEMPTS wrong tokens
+        for i in 0..MAX_FAILED_UNLOCK_ATTEMPTS {
+            let result = guard
+                .process_event(
+                    "s1",
+                    SessionEvent::AdminUnlock {
+                        admin_token: format!("wrong-{}", i),
+                    },
+                )
+                .unwrap();
+            if i < MAX_FAILED_UNLOCK_ATTEMPTS - 1 {
+                assert_eq!(result.current, SessionState::Locked, "attempt {i}");
+            } else {
+                // Last failed attempt ends the session
+                assert_eq!(result.current, SessionState::Ended, "attempt {i}");
+                match result.action {
+                    TransitionAction::DenyAll { reason } => {
+                        assert!(reason.contains("failed attempts"), "reason: {reason}");
+                    }
+                    _ => panic!("expected DenyAll on final failed attempt"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_admin_unlock_success_resets_attempts() {
+        let guard = SessionGuard::new(SessionGuardConfig {
+            suspicious_threshold: 1,
+            lock_threshold: 1,
+            admin_unlock_token: Some("correct-token".to_string()),
+            ..Default::default()
+        });
+
+        guard.process_event("s1", SessionEvent::FirstAction).unwrap();
+        guard.process_event("s1", SessionEvent::RepeatedViolation { count: 2 }).unwrap();
+        guard.process_event("s1", SessionEvent::RepeatedViolation { count: 1 }).unwrap();
+        assert_eq!(guard.get_state("s1"), SessionState::Locked);
+
+        // 3 wrong attempts (under limit)
+        for _ in 0..3 {
+            guard
+                .process_event("s1", SessionEvent::AdminUnlock {
+                    admin_token: "wrong".to_string(),
+                })
+                .unwrap();
+        }
+
+        // Correct token succeeds
+        let result = guard
+            .process_event("s1", SessionEvent::AdminUnlock {
+                admin_token: "correct-token".to_string(),
+            })
+            .unwrap();
+        assert_eq!(result.current, SessionState::Active);
+    }
 }

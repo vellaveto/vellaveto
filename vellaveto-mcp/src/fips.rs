@@ -329,4 +329,26 @@ mod tests {
         assert_eq!(FipsAlgorithm::Aes256Gcm.name(), "aes-256-gcm");
         assert_eq!(FipsAlgorithm::HmacSha256.name(), "hmac-sha256");
     }
+
+    // SECURITY (FIND-R188-003): Reject oversized and control-char algorithm names
+    #[test]
+    fn test_fips_rejects_oversized_algorithm_name() {
+        let fips = FipsMode::new(true);
+        let long_name = "a".repeat(100);
+        let err = fips.validate_algorithm(&long_name).unwrap_err();
+        assert!(
+            err.to_string().contains("too long"),
+            "error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_fips_rejects_control_chars_in_algorithm_name() {
+        let fips = FipsMode::new(true);
+        let err = fips.validate_algorithm("sha256\x00injected").unwrap_err();
+        assert!(
+            err.to_string().contains("control characters"),
+            "error: {err}"
+        );
+    }
 }
