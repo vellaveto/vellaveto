@@ -3,9 +3,26 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 170)
-> **Total audit rounds:** 170
-> **Cumulative findings fixed:** 574+
+> **Last updated:** 2026-02-22 (Round 172)
+> **Total audit rounds:** 172
+> **Cumulative findings fixed:** 579+
+
+---
+
+## Round 170 — Redis Approval Parity + Deny Validation + UTF-8 Truncation + Traverse Bounds (5 findings fixed)
+
+**Subsystem:** `vellaveto-cluster/src/redis_backend.rs`, `vellaveto-server/src/routes/approval.rs`, `vellaveto-server/src/routes/simulator.rs`, `vellaveto-mcp/src/inspection/scanner_base.rs`
+**Commit:** `2967e61`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R170-002 | P1 | `redis_backend.rs` | Redis `approval_approve`/`approval_deny` now reject empty `by` string — parity with local ApprovalStore (FIND-R143-005) |
+| FIND-R170-003 | P2 | `redis_backend.rs` | Redis `approval_create` rejects empty `requested_by` — prevents self-approval check bypass via empty requester identity |
+| FIND-R170-001 | P2 | `approval.rs` | `deny_approval` route handler maps `Validation` errors to `403 Forbidden`, mirroring `approve_approval` handler |
+| FIND-R170-004 | P2 | `simulator.rs` | Batch error truncation uses char-boundary-aware slicing to prevent UTF-8 panic on multi-byte strings |
+| FIND-R170-005 | P3 | `scanner_base.rs` | `traverse_json_strings_impl` bounded by `MAX_TRAVERSE_ELEMENTS=10,000` total callback invocations |
+
+R168 verification: All 3 R168 fixes (FIND-R168-001/002/003) confirmed FIXED. IMP-R166-001 dedup confirmed FIXED.
 
 ---
 

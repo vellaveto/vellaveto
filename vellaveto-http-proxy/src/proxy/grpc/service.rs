@@ -2252,8 +2252,14 @@ fn extract_scannable_text(json_val: &Value) -> String {
         if let Some(msg) = error.get("message").and_then(|m| m.as_str()) {
             text_parts.push(msg.to_string());
         }
+        // SECURITY (FIND-R168-005): Use as_str() first to avoid wrapping
+        // string values in JSON quotes. Parity with scanner_base.rs line 330.
         if let Some(data) = error.get("data") {
-            text_parts.push(data.to_string());
+            if let Some(s) = data.as_str() {
+                text_parts.push(s.to_string());
+            } else {
+                text_parts.push(data.to_string());
+            }
         }
     }
 
