@@ -427,6 +427,31 @@ pub fn validate_agent_card(card: &AgentCard) -> Result<(), A2aError> {
         }
     }
 
+    // SECURITY (FIND-R176-002): Validate control/format characters on identity fields.
+    // Agent cards are fetched from external URLs — zero-width/bidi chars enable spoofing.
+    if vellaveto_types::has_dangerous_chars(&card.name) {
+        return Err(A2aError::AgentCardInvalid(
+            "name contains control or Unicode format characters".to_string(),
+        ));
+    }
+    if vellaveto_types::has_dangerous_chars(&card.url) {
+        return Err(A2aError::AgentCardInvalid(
+            "url contains control or Unicode format characters".to_string(),
+        ));
+    }
+    if vellaveto_types::has_dangerous_chars(&card.version) {
+        return Err(A2aError::AgentCardInvalid(
+            "version contains control or Unicode format characters".to_string(),
+        ));
+    }
+    if let Some(ref desc) = card.description {
+        if vellaveto_types::has_dangerous_chars(desc) {
+            return Err(A2aError::AgentCardInvalid(
+                "description contains control or Unicode format characters".to_string(),
+            ));
+        }
+    }
+
     // SECURITY (IMP-R116-006): Validate provider sub-fields.
     if let Some(ref provider) = card.provider {
         if provider.organization.len() > MAX_PROVIDER_ORG_LENGTH {
@@ -436,6 +461,12 @@ pub fn validate_agent_card(card: &AgentCard) -> Result<(), A2aError> {
                 MAX_PROVIDER_ORG_LENGTH
             )));
         }
+        // SECURITY (FIND-R176-002): Validate provider string fields.
+        if vellaveto_types::has_dangerous_chars(&provider.organization) {
+            return Err(A2aError::AgentCardInvalid(
+                "provider.organization contains control or Unicode format characters".to_string(),
+            ));
+        }
         if let Some(ref url) = provider.url {
             if url.len() > MAX_PROVIDER_URL_LENGTH {
                 return Err(A2aError::AgentCardInvalid(format!(
@@ -443,6 +474,11 @@ pub fn validate_agent_card(card: &AgentCard) -> Result<(), A2aError> {
                     url.len(),
                     MAX_PROVIDER_URL_LENGTH
                 )));
+            }
+            if vellaveto_types::has_dangerous_chars(url) {
+                return Err(A2aError::AgentCardInvalid(
+                    "provider.url contains control or Unicode format characters".to_string(),
+                ));
             }
         }
     }

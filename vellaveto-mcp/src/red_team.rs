@@ -296,7 +296,9 @@ pub struct RedTeamRunner {
 }
 
 /// Report from a red team run.
+// SECURITY (FIND-R176-008): deny_unknown_fields prevents tampered stored reports.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RedTeamReport {
     /// Total payloads evaluated.
     pub total_payloads: usize,
@@ -316,6 +318,7 @@ pub struct RedTeamReport {
 
 /// A finding where an attack payload bypassed policies.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BypassFinding {
     /// Original scenario ID.
     pub original_scenario_id: String,
@@ -327,8 +330,13 @@ pub struct BypassFinding {
     pub verdict: String,
 }
 
+/// Maximum number of distinct categories/mutations tracked in coverage reports.
+/// SECURITY (FIND-R176-004): Prevents OOM from externally-supplied scenarios.
+const MAX_COVERAGE_ENTRIES: usize = 1000;
+
 /// Coverage statistics by category and mutation type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CoverageReport {
     /// Coverage by attack category.
     pub by_category: HashMap<String, CategoryCoverage>,
@@ -342,6 +350,7 @@ pub struct CoverageReport {
 
 /// Coverage for a specific attack category.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CategoryCoverage {
     pub total: usize,
     pub blocked: usize,
@@ -350,10 +359,61 @@ pub struct CategoryCoverage {
 
 /// Coverage for a specific mutation type.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MutationCoverage {
     pub total: usize,
     pub blocked: usize,
     pub block_rate: f64,
+}
+
+impl CoverageReport {
+    /// Validate a deserialized coverage report.
+    /// SECURITY (FIND-R176-004/005): Bounds on map sizes and float ranges.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.by_category.len() > MAX_COVERAGE_ENTRIES {
+            return Err(format!(
+                "by_category count {} exceeds maximum {}",
+                self.by_category.len(),
+                MAX_COVERAGE_ENTRIES
+            ));
+        }
+        if self.by_mutation.len() > MAX_COVERAGE_ENTRIES {
+            return Err(format!(
+                "by_mutation count {} exceeds maximum {}",
+                self.by_mutation.len(),
+                MAX_COVERAGE_ENTRIES
+            ));
+        }
+        if !self.overall_block_rate.is_finite()
+            || self.overall_block_rate < 0.0
+            || self.overall_block_rate > 1.0
+        {
+            return Err(format!(
+                "overall_block_rate {} is not in [0.0, 1.0]",
+                self.overall_block_rate
+            ));
+        }
+        for (key, cat) in &self.by_category {
+            if !cat.block_rate.is_finite() || cat.block_rate < 0.0 || cat.block_rate > 1.0 {
+                return Err(format!(
+                    "by_category['{}'].block_rate {} is not in [0.0, 1.0]",
+                    key, cat.block_rate
+                ));
+            }
+        }
+        for (key, mut_cov) in &self.by_mutation {
+            if !mut_cov.block_rate.is_finite()
+                || mut_cov.block_rate < 0.0
+                || mut_cov.block_rate > 1.0
+            {
+                return Err(format!(
+                    "by_mutation['{}'].block_rate {} is not in [0.0, 1.0]",
+                    key, mut_cov.block_rate
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl RedTeamRunner {

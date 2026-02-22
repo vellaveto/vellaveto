@@ -31,19 +31,28 @@ pub struct FipsConfig {
     pub signature_algorithm: String,
 }
 
-/// Allowed signature algorithms in FIPS mode.
-const ALLOWED_FIPS_ALGORITHMS: &[&str] = &["ed25519", "ecdsa-p256"];
+/// SECURITY (FIND-R176-003): FIPS-approved signature algorithms only.
+/// Ed25519 is NOT FIPS-approved — the runtime FIPS controller rejects it.
+const ALLOWED_FIPS_SIGNATURE_ALGORITHMS: &[&str] = &["ecdsa-p256"];
+
+/// All recognized signature algorithms (FIPS mode disabled).
+const ALL_SIGNATURE_ALGORITHMS: &[&str] = &["ed25519", "ecdsa-p256"];
 
 impl FipsConfig {
     /// Validate FIPS configuration.
     ///
-    /// When enabled, checks that `signature_algorithm` is one of the
-    /// recognized values (`"ed25519"` or `"ecdsa-p256"`).
+    /// When enabled, checks that `signature_algorithm` is FIPS-approved
+    /// (`"ecdsa-p256"` only). When disabled, accepts any recognized algorithm.
     pub fn validate(&self) -> Result<(), String> {
-        if self.enabled && !ALLOWED_FIPS_ALGORITHMS.contains(&self.signature_algorithm.as_str()) {
+        let allowed = if self.enabled {
+            ALLOWED_FIPS_SIGNATURE_ALGORITHMS
+        } else {
+            ALL_SIGNATURE_ALGORITHMS
+        };
+        if !allowed.contains(&self.signature_algorithm.as_str()) {
             return Err(format!(
-                "fips.signature_algorithm must be one of {:?} when enabled, got '{}'",
-                ALLOWED_FIPS_ALGORITHMS, self.signature_algorithm
+                "fips.signature_algorithm must be one of {:?} when enabled={}, got '{}'",
+                allowed, self.enabled, self.signature_algorithm
             ));
         }
         Ok(())

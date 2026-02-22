@@ -1568,4 +1568,164 @@ mod tests {
         // State machine still works
         assert_eq!(summary2.state, SessionState::Suspicious);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Round 174 validation tests (IMP-R174-001 through IMP-R174-004)
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_process_event_rejects_empty_session_id() {
+        let guard = default_guard();
+        let result = guard.process_event("", SessionEvent::FirstAction);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("empty"),
+            "Should mention empty"
+        );
+    }
+
+    #[test]
+    fn test_process_event_rejects_overlong_session_id() {
+        let guard = default_guard();
+        let long_id = "x".repeat(MAX_SESSION_ID_LEN + 1);
+        let result = guard.process_event(&long_id, SessionEvent::FirstAction);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("exceeds maximum"),
+            "Should mention exceeds maximum"
+        );
+    }
+
+    #[test]
+    fn test_process_event_rejects_control_char_session_id() {
+        let guard = default_guard();
+        let result = guard.process_event("session\x00id", SessionEvent::FirstAction);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("control characters"),
+            "Should mention control characters"
+        );
+    }
+
+    #[test]
+    fn test_process_event_rejects_unicode_format_session_id() {
+        let guard = default_guard();
+        // Zero-width space U+200B
+        let result = guard.process_event("session\u{200B}id", SessionEvent::FirstAction);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Unicode format characters"),
+            "Should mention Unicode format characters"
+        );
+    }
+
+    #[test]
+    fn test_active_repeated_violation_count_zero_is_noop() {
+        let guard = default_guard();
+        let sid = "zero-count";
+        guard
+            .process_event(sid, SessionEvent::FirstAction)
+            .unwrap();
+        let result = guard
+            .process_event(sid, SessionEvent::RepeatedViolation { count: 0 })
+            .unwrap();
+        assert_eq!(result.current, SessionState::Active);
+        assert!(matches!(result.action, TransitionAction::None));
+    }
+
+    #[test]
+    fn test_suspicious_repeated_violation_count_zero_is_noop() {
+        let guard = SessionGuard::new(SessionGuardConfig {
+            suspicious_threshold: 1,
+            ..Default::default()
+        });
+        let sid = "zero-count-sus";
+        guard
+            .process_event(sid, SessionEvent::FirstAction)
+            .unwrap();
+        // Push to Suspicious via anomaly
+        guard
+            .process_event(
+                sid,
+                SessionEvent::AnomalyDetected {
+                    severity: AnomalySeverity::Critical,
+                    description: "test".to_string(),
+                },
+            )
+            .unwrap();
+        assert_eq!(guard.get_state(sid), SessionState::Suspicious);
+        // RepeatedViolation{count:0} should be noop
+        let result = guard
+            .process_event(sid, SessionEvent::RepeatedViolation { count: 0 })
+            .unwrap();
+        assert_eq!(result.current, SessionState::Suspicious);
+        assert!(matches!(result.action, TransitionAction::None));
+    }
+
+    #[test]
+    fn test_goal_drift_nan_similarity_maps_to_critical() {
+        let guard = default_guard();
+        let sid = "nan-drift";
+        guard
+            .process_event(sid, SessionEvent::FirstAction)
+            .unwrap();
+        let drift = crate::goal_tracking::GoalDriftAlert {
+            session_id: sid.to_string(),
+            similarity: f32::NAN,
+            description: "NaN test".to_string(),
+            original_goal: "goal".to_string(),
+            current_goal: "other".to_string(),
+        };
+        let result = guard.integrate_goal_drift(sid, &drift).unwrap();
+        // NaN should map to Critical → Active → Suspicious immediately
+        assert_eq!(result.current, SessionState::Suspicious);
+    }
+
+    #[test]
+    fn test_goal_drift_negative_similarity_maps_to_critical() {
+        let guard = default_guard();
+        let sid = "neg-drift";
+        guard
+            .process_event(sid, SessionEvent::FirstAction)
+            .unwrap();
+        let drift = crate::goal_tracking::GoalDriftAlert {
+            session_id: sid.to_string(),
+            similarity: -1.0,
+            description: "negative test".to_string(),
+            original_goal: "goal".to_string(),
+            current_goal: "other".to_string(),
+        };
+        let result = guard.integrate_goal_drift(sid, &drift).unwrap();
+        assert_eq!(result.current, SessionState::Suspicious);
+    }
+
+    #[test]
+    fn test_truncate_event_field_under_limit() {
+        let short = "hello world";
+        assert_eq!(truncate_event_field(short), short);
+    }
+
+    #[test]
+    fn test_truncate_event_field_over_limit() {
+        let long = "x".repeat(MAX_EVENT_FIELD_LEN + 100);
+        let result = truncate_event_field(&long);
+        assert!(result.len() <= MAX_EVENT_FIELD_LEN);
+        assert!(result.len() >= MAX_EVENT_FIELD_LEN - 4); // allow char boundary adjustment
+    }
+
+    #[test]
+    fn test_truncate_event_field_multibyte_boundary() {
+        // Create a string of 2-byte chars (e.g., ñ = 0xC3 0xB1)
+        let multibyte = "ñ".repeat(MAX_EVENT_FIELD_LEN);
+        let result = truncate_event_field(&multibyte);
+        assert!(result.len() <= MAX_EVENT_FIELD_LEN);
+        // Should end on a char boundary (even number of bytes for ñ)
+        assert!(result.is_char_boundary(result.len()));
+    }
 }

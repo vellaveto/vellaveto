@@ -215,12 +215,25 @@ impl ExtensionRegistry {
             // acquiring write lock to close TOCTOU race between the earlier read-lock
             // check and this write-lock insertion.
             if extensions.len() >= MAX_EXTENSIONS {
+                // SECURITY (FIND-R176-001): Roll back method routes inserted above
+                // to prevent orphaned entries blocking future registrations.
+                if let Ok(mut routes) = self.method_routes.write() {
+                    for method in &descriptor.methods {
+                        routes.remove(method);
+                    }
+                }
                 return Err(ExtensionError::Validation(format!(
                     "Too many extensions: max {}",
                     MAX_EXTENSIONS
                 )));
             }
             if extensions.contains_key(&descriptor.id) {
+                // SECURITY (FIND-R176-001): Roll back method routes inserted above.
+                if let Ok(mut routes) = self.method_routes.write() {
+                    for method in &descriptor.methods {
+                        routes.remove(method);
+                    }
+                }
                 return Err(ExtensionError::AlreadyRegistered(descriptor.id.clone()));
             }
 
