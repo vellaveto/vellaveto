@@ -3,9 +3,30 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 176)
-> **Total audit rounds:** 176
-> **Cumulative findings fixed:** 592+
+> **Last updated:** 2026-02-22 (Round 178)
+> **Total audit rounds:** 178
+> **Cumulative findings fixed:** 600+
+
+---
+
+## Round 176 — Extension Rollback, Agent Card Chars, FIPS Config, Red Team Validation (6 findings fixed + 11 tests)
+
+**Subsystem:** `vellaveto-mcp/src/extension_registry.rs`, `vellaveto-mcp/src/a2a/agent_card.rs`, `vellaveto-config/src/fips.rs`, `vellaveto-mcp/src/red_team.rs`, `vellaveto-mcp/src/session_guard.rs`
+**Commits:** `1c81e37`, `824c25a`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R176-001 | P2 | `extension_registry.rs` | Method routes rolled back on failed extension insert (capacity/duplicate) to prevent orphaned route entries |
+| FIND-R176-002 | P2 | `a2a/agent_card.rs` | `validate_agent_card()` checks `has_dangerous_chars()` on name/url/version/description/provider fields |
+| FIND-R176-003 | P2 | `fips.rs` (config) | FIPS validation rejects `ed25519` when `enabled=true` — only `ecdsa-p256` allowed, matching runtime controller |
+| FIND-R176-004 | P2 | `red_team.rs` | `CoverageReport::validate()` with `MAX_COVERAGE_ENTRIES=1000` for by_category/by_mutation maps |
+| FIND-R176-005 | P2 | `red_team.rs` | `block_rate` fields validated `[0.0, 1.0]` + `is_finite()` in CoverageReport/CategoryCoverage/MutationCoverage |
+| FIND-R176-008 | P3 | `red_team.rs` | `deny_unknown_fields` on 5 red team structs (RedTeamReport, BypassFinding, CoverageReport, CategoryCoverage, MutationCoverage) |
+| FIND-R172-005 | P3 | `dlp.rs` | `scan_text_for_secrets` per-call findings cap via `truncate(MAX_DLP_FINDINGS)` |
+
+11 new tests added for R174 validations: session_id empty/overlong/control/format, RepeatedViolation count=0 in Active/Suspicious, NaN/negative goal drift, truncate_event_field under/over/multibyte.
+
+R174 verification: All 7 R174 fixes (FIND-R174-001 through R174-007) confirmed VERIFIED.
 
 ---
 
