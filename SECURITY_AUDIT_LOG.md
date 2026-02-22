@@ -3,9 +3,42 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-21 (Round 149)
-> **Total audit rounds:** 149
-> **Cumulative findings fixed:** 523+
+> **Last updated:** 2026-02-22 (Round 152)
+> **Total audit rounds:** 152
+> **Cumulative findings fixed:** 532+
+
+---
+
+## Round 151+152 — Access Review Sanitization + Gateway Config Bounds (4 findings fixed)
+
+**Subsystem:** `vellaveto-audit/src/access_review.rs`, `vellaveto-config/src/gateway.rs`
+**Commit:** `d86d0af`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R151-001 | P2 | `access_review.rs` | `period_start`/`period_end` sanitized before `tracing::error!` — prevents log injection from API callers |
+| FIND-R151-002 | P2 | `access_review.rs` | `agent_id`/`session_id` strings bounded at 1024 chars during extraction — prevents OOM from adversarial entries |
+| FIND-R152-001 | P2 | `gateway.rs` | `transport_urls` bounded at 10 per backend — prevents unbounded HashMap growth |
+| FIND-R152-002 | P2 | `gateway.rs` | `tool_prefixes` bounded at 1000 per backend — prevents memory exhaustion |
+
+**Tests added:** 0 (14 gateway + access review tests continue to pass)
+
+---
+
+## Round 150 — Relay Audit Metadata Sanitization + PendingRequest Truncation (5 findings fixed)
+
+**Subsystem:** `vellaveto-mcp/src/proxy/bridge/relay.rs`
+**Commit:** `64a74df`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R150-001 | P2 | `relay.rs` | Tool description injection detection now sanitizes child-provided `tool_name` before logging |
+| FIND-R150-002 | P2 | `relay.rs` | `task_method`/`extension_method` consistently truncated to 256 chars before PendingRequest storage |
+| FIND-R150-003 | P2 | `relay.rs` | `tool_name` in handle_tool_call truncated before PendingRequest tracking |
+| FIND-R150-004 | P2 | `relay.rs` | Task request handler uses sanitized `safe_task_method`/`safe_task_id` in all audit metadata JSON |
+| FIND-R150-005 | P2 | `relay.rs` | Extension method handler uses sanitized `safe_extension_id`/`safe_ext_method` in all audit metadata JSON |
+
+**Tests added:** 0 (11 relay tests continue to pass)
 
 ---
 
@@ -196,14 +229,14 @@
 
 ---
 
-## Audit Round Summary (Rounds 1–149)
+## Audit Round Summary (Rounds 1–152)
 
 | Category | Cumulative |
 |----------|-----------|
-| Rounds completed | 149 |
+| Rounds completed | 152 |
 | P0 (Critical) findings fixed | 3 |
 | P1 (High) findings fixed | 36+ |
-| P2 (Medium) findings fixed | 365+ |
+| P2 (Medium) findings fixed | 374+ |
 | P3 (Low) findings fixed | 151+ |
 | Tests added from audits | 220+ |
 | CLEAN rounds (no findings) | ~25 |
