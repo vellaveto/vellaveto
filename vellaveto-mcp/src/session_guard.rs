@@ -294,7 +294,7 @@ impl SessionGuardConfig {
                 "max_sessions must be at least 1 (zero prevents all session creation)".to_string(),
             );
         }
-        // Validate admin_unlock_token length if present
+        // Validate admin_unlock_token length and characters if present
         if let Some(ref token) = self.admin_unlock_token {
             if token.is_empty() {
                 return Err("admin_unlock_token must not be empty when set".to_string());
@@ -306,6 +306,13 @@ impl SessionGuardConfig {
                     token.len(),
                     MAX_ADMIN_TOKEN_LEN
                 ));
+            }
+            // SECURITY (IMP-R188-006): Reject control/format chars in admin token
+            // to prevent comparison issues with invisible characters.
+            if vellaveto_types::has_dangerous_chars(token) {
+                return Err(
+                    "admin_unlock_token contains control or format characters".to_string(),
+                );
             }
         }
         Ok(())

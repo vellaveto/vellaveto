@@ -35,6 +35,9 @@ const MAX_A2A_TASK_ID_LEN: usize = 256;
 /// Returns `None` for valid task IDs, `Some(reason)` for invalid ones.
 /// Prevents log injection, oversized allocation, and control character attacks.
 fn validate_a2a_task_id(tid: &str) -> Option<String> {
+    if tid.is_empty() {
+        return Some("task_id must not be empty".to_string());
+    }
     if tid.len() > MAX_A2A_TASK_ID_LEN {
         return Some(format!(
             "task_id length {} exceeds maximum {}",

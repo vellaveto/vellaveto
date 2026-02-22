@@ -395,10 +395,15 @@ impl PolicyEngine {
     }
 
     /// Compile a single constraint JSON object into a `CompiledConstraint`.
+    ///
+    /// SECURITY (FIND-R190-003): Arrays within constraints (patterns, values) are bounded
+    /// at `MAX_CONSTRAINT_ELEMENTS` to prevent OOM from oversized single constraints.
     fn compile_constraint(
         policy: &Policy,
         constraint: &serde_json::Value,
     ) -> Result<CompiledConstraint, PolicyValidationError> {
+        /// Maximum elements within a single constraint's patterns/values array.
+        const MAX_CONSTRAINT_ELEMENTS: usize = 1000;
         let obj = constraint
             .as_object()
             .ok_or_else(|| PolicyValidationError {
@@ -503,6 +508,19 @@ impl PolicyEngine {
                         reason: "not_glob constraint missing 'patterns' array".to_string(),
                     })?;
 
+                // SECURITY (FIND-R190-003): Bound patterns array to prevent OOM.
+                if patterns.len() > MAX_CONSTRAINT_ELEMENTS {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "not_glob patterns count {} exceeds maximum {}",
+                            patterns.len(),
+                            MAX_CONSTRAINT_ELEMENTS
+                        ),
+                    });
+                }
+
                 let mut matchers = Vec::new();
                 for pat_val in patterns {
                     let pat_str = pat_val.as_str().ok_or_else(|| PolicyValidationError {
@@ -595,6 +613,19 @@ impl PolicyEngine {
                             reason: "domain_not_in constraint missing 'patterns' array".to_string(),
                         })?;
 
+                // SECURITY (FIND-R190-003): Bound patterns array to prevent OOM.
+                if patterns_arr.len() > MAX_CONSTRAINT_ELEMENTS {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "domain_not_in patterns count {} exceeds maximum {}",
+                            patterns_arr.len(),
+                            MAX_CONSTRAINT_ELEMENTS
+                        ),
+                    });
+                }
+
                 let mut patterns = Vec::new();
                 for pat_val in patterns_arr {
                     let pat_str = pat_val.as_str().ok_or_else(|| PolicyValidationError {
@@ -654,8 +685,21 @@ impl PolicyEngine {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
                         reason: "one_of constraint missing 'values' array".to_string(),
-                    })?
-                    .clone();
+                    })?;
+
+                // SECURITY (FIND-R190-003): Bound values array to prevent OOM.
+                if values.len() > MAX_CONSTRAINT_ELEMENTS {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "one_of values count {} exceeds maximum {}",
+                            values.len(),
+                            MAX_CONSTRAINT_ELEMENTS
+                        ),
+                    });
+                }
+                let values = values.clone();
 
                 Ok(CompiledConstraint::OneOf {
                     param,
@@ -672,8 +716,21 @@ impl PolicyEngine {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
                         reason: "none_of constraint missing 'values' array".to_string(),
-                    })?
-                    .clone();
+                    })?;
+
+                // SECURITY (FIND-R190-003): Bound values array to prevent OOM.
+                if values.len() > MAX_CONSTRAINT_ELEMENTS {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "none_of values count {} exceeds maximum {}",
+                            values.len(),
+                            MAX_CONSTRAINT_ELEMENTS
+                        ),
+                    });
+                }
+                let values = values.clone();
 
                 Ok(CompiledConstraint::NoneOf {
                     param,

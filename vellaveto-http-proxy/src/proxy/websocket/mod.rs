@@ -441,9 +441,11 @@ async fn handle_ws_connection(
             loop {
                 interval.tick().await;
                 let last_ms = last_activity.load(Ordering::Relaxed);
-                let elapsed_since_activity = connection_epoch.elapsed()
-                    .as_millis() as u64
-                    - last_ms;
+                // SECURITY (FIND-R190-002): Use saturating_sub to prevent underflow
+                // if Relaxed ordering causes a stale last_ms value.
+                let elapsed_since_activity = (connection_epoch.elapsed()
+                    .as_millis() as u64)
+                    .saturating_sub(last_ms);
                 if elapsed_since_activity >= idle_timeout.as_millis() as u64 {
                     tracing::info!(
                         session_id = %session_id,
