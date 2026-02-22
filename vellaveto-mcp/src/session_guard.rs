@@ -437,17 +437,10 @@ impl SessionGuard {
                 MAX_SESSION_ID_LEN
             )));
         }
-        if session_id.chars().any(|c| c.is_control()) {
+        // IMP-R174-015: Use shared has_dangerous_chars() predicate for consistency.
+        if vellaveto_types::has_dangerous_chars(session_id) {
             return Err(SessionGuardError::SessionNotFound(
-                "session_id contains control characters".to_string(),
-            ));
-        }
-        if session_id
-            .chars()
-            .any(vellaveto_types::is_unicode_format_char)
-        {
-            return Err(SessionGuardError::SessionNotFound(
-                "session_id contains Unicode format characters".to_string(),
+                "session_id contains control or Unicode format characters".to_string(),
             ));
         }
 
@@ -1605,8 +1598,8 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("control characters"),
-            "Should mention control characters"
+                .contains("control or Unicode format"),
+            "Should mention dangerous characters"
         );
     }
 
@@ -1620,8 +1613,8 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("Unicode format characters"),
-            "Should mention Unicode format characters"
+                .contains("control or Unicode format"),
+            "Should mention dangerous characters"
         );
     }
 
