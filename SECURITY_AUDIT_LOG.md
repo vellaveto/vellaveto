@@ -3,9 +3,9 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 182)
-> **Total audit rounds:** 182
-> **Cumulative findings fixed:** 618+
+> **Last updated:** 2026-02-22 (Round 184)
+> **Total audit rounds:** 184
+> **Cumulative findings fixed:** 626+
 
 ---
 
@@ -38,6 +38,28 @@ R169 (http-proxy+server): PASSED — no genuine findings.
 R167 (engine+types): PASSED — no genuine findings. Codebase thoroughly hardened from prior 166 rounds.
 
 5 new tests: 3 cache config validation (TTL exceeds max, zero TTL enabled, zero TTL disabled ok), 2 service config (max latency exceeds bound, default passes).
+
+---
+
+## Round 184 — Homoglyph Self-Delegation Bypass, Static Endpoint Bound, Redis Key Prefix, Builder Validation (8 findings fixed)
+
+**Subsystem:** `vellaveto-server/src/routes/{nhi,deputy}.rs`, `vellaveto-types/src/nhi.rs`, `vellaveto-cluster/src/{discovery_static,redis_backend}.rs`, `vellaveto-config/src/cluster.rs`
+**Commits:** `6cfd3d0`, `546cc6d`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R184-001 | P2 | `routes/nhi.rs:576` | NHI self-delegation check switched from `eq_ignore_ascii_case` to `lowercase+normalize_homoglyphs` preventing Cyrillic confusable bypass |
+| FIND-R184-002 | P2 | `routes/deputy.rs:117` | Deputy self-delegation check same fix applied |
+| FIND-R184-003 | P2 | `types/nhi.rs:703` | `NhiDelegationLink::validate()` same homoglyph-aware comparison at types layer |
+| FIND-R184-004 | P3 | `discovery_static.rs:19` | `StaticServiceDiscovery::new()` bounded at `MAX_STATIC_ENDPOINTS=256` — parity with DNS `MAX_DNS_RESULTS` |
+| FIND-R184-005 | P3 | `config/cluster.rs:158` | `ClusterConfig::validate()` rejects `{` and `}` in key_prefix preventing Redis Cluster hash tag hot-key DoS |
+| FIND-R184-006 | P3 | `redis_backend.rs:194` | `with_ttl_secs()` rejects 0 (immediate expiry) and >30 days (i64 overflow). `with_max_pending()` rejects 0. Both return `Result` |
+
+IMP-R182 fixes also included: IMP-R182-002 (DeepSeek size guard), IMP-R182-006/007 (explanation fail-closed + summary bound), IMP-R182-008/009 (passthrough memory poisoning in stdio + WS).
+
+4 new tests: Cyrillic homoglyph self-delegation, static endpoint exceeds/at-max bounds, existing test suite verified.
+
+Deferred: FIND-R184-007 (P4, policy ID echo), FIND-R184-008 (P4, registry tool name echo).
 
 ---
 
