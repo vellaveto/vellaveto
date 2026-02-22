@@ -161,17 +161,23 @@ impl AuditLogger {
         // Rename the Merkle leaf file alongside the rotated log, then reset the tree
         if let Some(ref merkle) = self.merkle_tree {
             let leaf_path = self.merkle_leaf_path();
-            if leaf_path.exists() {
-                let rotated_leaf_path = {
-                    let rotated_stem = rotated_path
-                        .file_stem()
-                        .unwrap_or_default()
-                        .to_string_lossy();
-                    let rotated_parent = rotated_path.parent().unwrap_or(std::path::Path::new("."));
-                    rotated_parent.join(format!("{rotated_stem}.merkle-leaves"))
-                };
-                if let Err(e) = tokio::fs::rename(&leaf_path, &rotated_leaf_path).await {
-                    tracing::warn!(
+            // SECURITY (FIND-R170-003): Always attempt rename without prior exists()
+            // check to eliminate TOCTOU gap. Handle NotFound as expected (no leaf file).
+            let rotated_leaf_path = {
+                let rotated_stem = rotated_path
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy();
+                let rotated_parent = rotated_path.parent().unwrap_or(std::path::Path::new("."));
+                rotated_parent.join(format!("{rotated_stem}.merkle-leaves"))
+            };
+            match tokio::fs::rename(&leaf_path, &rotated_leaf_path).await {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    // No leaf file to rename — expected if Merkle was not used
+                }
+                Err(e) => {
+                    tracing::error!(
                         error = %e,
                         "Failed to rename Merkle leaf file during rotation"
                     );
@@ -258,6 +264,25 @@ impl AuditLogger {
             .await?;
         manifest_file.write_all(manifest_line.as_bytes()).await?;
         manifest_file.sync_data().await?;
+
+        // SECURITY (FIND-R170-002): Restrict rotation manifest file permissions
+        // to owner-only (0o600), matching audit log (logger.rs:460) and checkpoint
+        // (checkpoints.rs:103) permission policies.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Err(e) = tokio::fs::set_permissions(
+                &manifest_path,
+                std::fs::Permissions::from_mode(0o600),
+            )
+            .await
+            {
+                tracing::warn!(
+                    error = %e,
+                    "Failed to set rotation manifest file permissions to 0o600"
+                );
+            }
+        }
 
         tracing::info!(
             "Rotated audit log {} -> {} ({} bytes, {} entries, tail_hash={})",

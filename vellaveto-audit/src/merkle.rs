@@ -164,6 +164,22 @@ impl MerkleTree {
         // SECURITY (FIND-R46-010): fsync leaf file to ensure crash durability.
         file.sync_data()?;
 
+        // SECURITY (FIND-R170-001): Restrict Merkle leaf file permissions to
+        // owner-only (0o600), matching audit log (logger.rs:460) and checkpoint
+        // (checkpoints.rs:103) permission policies.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Err(e) =
+                std::fs::set_permissions(&self.leaf_file_path, std::fs::Permissions::from_mode(0o600))
+            {
+                tracing::warn!(
+                    error = %e,
+                    "Failed to set Merkle leaf file permissions to 0o600"
+                );
+            }
+        }
+
         // Update peaks: carry-merge like binary addition
         let mut carry = leaf_hash;
         let mut level = 0usize;
