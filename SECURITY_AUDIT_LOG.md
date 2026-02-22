@@ -3,9 +3,24 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 168)
-> **Total audit rounds:** 168
-> **Cumulative findings fixed:** 606+
+> **Last updated:** 2026-02-22 (Round 170)
+> **Total audit rounds:** 170
+> **Cumulative findings fixed:** 609+
+
+---
+
+## Round 169+170 — Audit File Permissions + Merkle Leaf TOCTOU (3 findings fixed)
+
+**Subsystem:** `vellaveto-audit/src/merkle.rs`, `vellaveto-audit/src/rotation.rs`
+**Commit:** `522cb5f`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R170-001 | P1 | `merkle.rs:144` | Merkle leaf file now gets `0o600` permissions after creation — parity with audit log and checkpoint files |
+| FIND-R170-002 | P1 | `rotation.rs:254` | Rotation manifest file now gets `0o600` permissions after creation — parity with audit log and checkpoint files |
+| FIND-R170-003 | P2 | `rotation.rs:164` | Removed `exists()` check before Merkle leaf rename, eliminating TOCTOU gap; `NotFound` handled explicitly; error level upgraded from `warn!` to `error!` |
+
+R169 (http-proxy+server): PASSED — no genuine findings.
 
 ---
 
