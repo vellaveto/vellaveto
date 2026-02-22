@@ -3,9 +3,26 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 182)
-> **Total audit rounds:** 182
-> **Cumulative findings fixed:** 620+
+> **Last updated:** 2026-02-22 (Round 168)
+> **Total audit rounds:** 168
+> **Cumulative findings fixed:** 606+
+
+---
+
+## Round 167+168 — Semantic Guardrails Config Validation Gaps (3 findings fixed + 5 tests)
+
+**Subsystem:** `vellaveto-mcp/src/semantic_guardrails/cache.rs`, `vellaveto-mcp/src/semantic_guardrails/mod.rs`
+**Commit:** `6ef92cc`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R168-001 | P2 | `cache.rs:106` | `CacheConfig::validate()` now rejects `ttl_secs` exceeding `MAX_TTL_SECS` (7 days) at config load time — fail-closed instead of runtime clamping |
+| FIND-R168-002 | P2 | `cache.rs:106` | `CacheConfig::validate()` rejects `ttl_secs=0` with `enabled=true` — prevents silent no-op cache |
+| FIND-R168-003 | P3 | `mod.rs:183` | `ServiceConfig::validate()` caps `max_latency_ms` at 300,000ms (5 min) |
+
+R167 (engine+types): PASSED — no genuine findings. Codebase thoroughly hardened from prior 166 rounds.
+
+5 new tests: 3 cache config validation (TTL exceeds max, zero TTL enabled, zero TTL disabled ok), 2 service config (max latency exceeds bound, default passes).
 
 ---
 
