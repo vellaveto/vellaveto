@@ -264,6 +264,8 @@ impl RekorVerifier {
     /// Uses canonical JSON (RFC 8785) for the leaf hash to ensure deterministic
     /// hashing regardless of serialization key order (FIND-P23-K02).
     pub fn verify_inclusion_proof(&self, entry: &RekorEntry) -> Result<bool, RekorError> {
+        // SECURITY (FIND-R180-005): Validate entry bounds before processing.
+        entry.validate()?;
         let proof = entry
             .inclusion_proof
             .as_ref()
@@ -350,6 +352,8 @@ impl RekorVerifier {
         tool_hash: &str,
         entry: &RekorEntry,
     ) -> Result<bool, RekorError> {
+        // SECURITY (FIND-R180-005): Validate entry bounds before processing.
+        entry.validate()?;
         if entry.body.spec.data.hash.algorithm != "sha256" {
             return Err(RekorError::UnsupportedAlgorithm(
                 entry.body.spec.data.hash.algorithm.clone(),

@@ -262,26 +262,33 @@ impl ContextBudgetTracker {
             return;
         }
 
-        if let Ok(mut usage_map) = self.usage.write() {
-            // SECURITY (FIND-R104-006): Reject new sessions if at capacity.
-            if !usage_map.contains_key(session_id) && usage_map.len() >= MAX_BUDGET_SESSIONS {
-                tracing::warn!(
-                    max = MAX_BUDGET_SESSIONS,
-                    "Context budget tracker at session capacity — dropping new session"
-                );
+        // SECURITY (FIND-R180-007): Fail-closed on poisoned lock — log error
+        // instead of silently dropping budget tracking.
+        let mut usage_map = match self.usage.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "vellaveto::security", "RwLock poisoned in ContextBudgetTracker::record_usage — usage dropped");
                 return;
             }
-
-            let usage = usage_map.entry(session_id.to_string()).or_default();
-
-            // SECURITY (FIND-R104-009): Use saturating_add to prevent wrapping to zero.
-            usage.total_tokens = usage.total_tokens.saturating_add(tokens);
-            // SECURITY (FIND-R104-006): Cap retrievals Vec to prevent unbounded growth.
-            if usage.retrievals.len() < MAX_RETRIEVALS_PER_SESSION {
-                usage.retrievals.push(RetrievalUsage::new(doc_id, tokens));
-            }
-            usage.last_updated = Utc::now();
+        };
+        // SECURITY (FIND-R104-006): Reject new sessions if at capacity.
+        if !usage_map.contains_key(session_id) && usage_map.len() >= MAX_BUDGET_SESSIONS {
+            tracing::warn!(
+                max = MAX_BUDGET_SESSIONS,
+                "Context budget tracker at session capacity — dropping new session"
+            );
+            return;
         }
+
+        let usage = usage_map.entry(session_id.to_string()).or_default();
+
+        // SECURITY (FIND-R104-009): Use saturating_add to prevent wrapping to zero.
+        usage.total_tokens = usage.total_tokens.saturating_add(tokens);
+        // SECURITY (FIND-R104-006): Cap retrievals Vec to prevent unbounded growth.
+        if usage.retrievals.len() < MAX_RETRIEVALS_PER_SESSION {
+            usage.retrievals.push(RetrievalUsage::new(doc_id, tokens));
+        }
+        usage.last_updated = Utc::now();
     }
 
     /// Returns the remaining budget for a session.

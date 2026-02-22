@@ -488,6 +488,29 @@ impl SessionGuard {
             .get_mut(session_id)
             .ok_or_else(|| SessionGuardError::SessionNotFound(session_id.to_string()))?;
 
+        // SECURITY (FIND-R188-001): Enforce max_session_duration_secs.
+        // Previously this config was parsed and stored but never checked, allowing
+        // sessions to run indefinitely regardless of the configured time-box.
+        if self.config.max_session_duration_secs > 0
+            && ctx.state != SessionState::Ended
+            && now.saturating_sub(ctx.started_at) >= self.config.max_session_duration_secs
+        {
+            let previous = ctx.state;
+            ctx.state = SessionState::Ended;
+            ctx.record_transition(previous, SessionState::Ended, now);
+            return Ok(TransitionResult {
+                previous,
+                current: SessionState::Ended,
+                action: TransitionAction::DenyAll {
+                    reason: format!(
+                        "Session duration exceeded ({} >= {} seconds)",
+                        now.saturating_sub(ctx.started_at),
+                        self.config.max_session_duration_secs
+                    ),
+                },
+            });
+        }
+
         let previous = ctx.state;
         let (new_state, action) = self.compute_transition(ctx, &event, now, 0);
 

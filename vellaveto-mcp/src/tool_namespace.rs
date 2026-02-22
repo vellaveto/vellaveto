@@ -303,8 +303,16 @@ impl ToolNamespaceRegistry {
         let tools = match self.tools.read() {
             Ok(g) => g,
             Err(_) => {
-                tracing::error!(target: "vellaveto::security", "RwLock poisoned in ToolNamespaceRegistry::check_collision");
-                return None;
+                // SECURITY (FIND-R180-008): Fail-closed on poisoned lock — report
+                // a collision rather than silently allowing potentially conflicting tools.
+                tracing::error!(target: "vellaveto::security", "RwLock poisoned in ToolNamespaceRegistry::check_collision — fail-closed");
+                return Some(CollisionAlert {
+                    tool_name: tool_name.to_string(),
+                    existing_source: source.clone(),
+                    conflicting_source: source.clone(),
+                    collision_type: CollisionType::ExactMatch,
+                    description: "Tool namespace registry lock poisoned — fail-closed collision".to_string(),
+                });
             }
         };
 

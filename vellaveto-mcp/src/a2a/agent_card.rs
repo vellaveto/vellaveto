@@ -176,10 +176,15 @@ impl AgentCardCache {
     /// SECURITY (FIND-R112-008): Recovers from RwLock poisoning instead of
     /// silently returning None, which would hide cache corruption.
     pub fn get_cached(&self, base_url: &str) -> Option<AgentCard> {
-        let cache = self.cache.read().unwrap_or_else(|e| {
-            tracing::error!("AgentCardCache read lock poisoned");
-            e.into_inner()
-        });
+        // SECURITY (FIND-R180-009): Fail-closed on poisoned lock — return None
+        // (cache miss) instead of using potentially corrupted data via into_inner().
+        let cache = match self.cache.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "vellaveto::security", "AgentCardCache read lock poisoned — returning cache miss");
+                return None;
+            }
+        };
         let entry = cache.get(base_url)?;
 
         if entry.fetched_at.elapsed() < self.ttl {
@@ -200,10 +205,15 @@ impl AgentCardCache {
     /// and insert without evicting, causing unbounded growth.
     pub fn store(&self, base_url: &str, card: AgentCard) {
         {
-            let mut cache = self.cache.write().unwrap_or_else(|e| {
-                tracing::error!("AgentCardCache write lock poisoned");
-                e.into_inner()
-            });
+            // SECURITY (FIND-R180-009): Fail-closed on poisoned lock — skip store
+            // instead of using potentially corrupted data via into_inner().
+            let mut cache = match self.cache.write() {
+                Ok(g) => g,
+                Err(_) => {
+                    tracing::error!(target: "vellaveto::security", "AgentCardCache write lock poisoned — store skipped");
+                    return;
+                }
+            };
             // QUALITY (FIND-GAP-009): Evict expired entries first to prevent
             // unbounded growth from stale cards accumulating over time.
             let ttl = self.ttl;
@@ -240,31 +250,41 @@ impl AgentCardCache {
 
     /// Remove an agent card from the cache.
     pub fn invalidate(&self, base_url: &str) {
-        let mut cache = self.cache.write().unwrap_or_else(|e| {
-            tracing::error!("AgentCardCache write lock poisoned");
-            e.into_inner()
-        });
+        // SECURITY (FIND-R180-009): Fail-closed on poisoned lock.
+        let mut cache = match self.cache.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "vellaveto::security", "AgentCardCache write lock poisoned — invalidate skipped");
+                return;
+            }
+        };
         cache.remove(base_url);
     }
 
     /// Clear all cached entries.
     pub fn clear(&self) {
-        let mut cache = self.cache.write().unwrap_or_else(|e| {
-            tracing::error!("AgentCardCache write lock poisoned");
-            e.into_inner()
-        });
+        // SECURITY (FIND-R180-009): Fail-closed on poisoned lock.
+        let mut cache = match self.cache.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "vellaveto::security", "AgentCardCache write lock poisoned — clear skipped");
+                return;
+            }
+        };
         cache.clear();
     }
 
     /// Get the number of cached entries.
     pub fn len(&self) -> usize {
-        self.cache
-            .read()
-            .unwrap_or_else(|e| {
-                tracing::error!("AgentCardCache read lock poisoned");
-                e.into_inner()
-            })
-            .len()
+        // SECURITY (FIND-R180-009): Fail-closed on poisoned lock — return 0
+        // instead of using potentially corrupted data via into_inner().
+        match self.cache.read() {
+            Ok(g) => g.len(),
+            Err(_) => {
+                tracing::error!(target: "vellaveto::security", "AgentCardCache read lock poisoned — returning 0");
+                0
+            }
+        }
     }
 
     /// Check if the cache is empty.

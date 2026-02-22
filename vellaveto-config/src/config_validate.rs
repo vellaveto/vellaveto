@@ -1560,6 +1560,35 @@ impl PolicyConfig {
                 .map_err(|e| format!("policies[{}]: {}", i, e))?;
         }
 
+        // SECURITY (FIND-R180-001): Wire sub-config validate() methods that have
+        // additional checks beyond the inline validation above (per-entry control
+        // char validation, URL scheme checks, cache size bounds).
+        // Note: some sub-configs use #[derive(Default)] which produces invalid
+        // field values (e.g. empty on_match) — guard with `enabled` where present
+        // to avoid rejecting inactive defaults.
+        self.tls.validate().map_err(|e| format!("tls: {e}"))?;
+        if self.spiffe.enabled {
+            self.spiffe
+                .validate()
+                .map_err(|e| format!("spiffe: {e}"))?;
+        }
+        if self.opa.enabled {
+            self.opa.validate().map_err(|e| format!("opa: {e}"))?;
+        }
+        if self.threat_intel.enabled {
+            self.threat_intel
+                .validate()
+                .map_err(|e| format!("threat_intel: {e}"))?;
+        }
+        if self.jit_access.enabled {
+            self.jit_access
+                .validate()
+                .map_err(|e| format!("jit_access: {e}"))?;
+        }
+        self.audit_export
+            .validate()
+            .map_err(|e| format!("audit_export: {e}"))?;
+
         Ok(())
     }
 

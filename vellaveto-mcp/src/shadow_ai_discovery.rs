@@ -134,41 +134,48 @@ impl ShadowAiDiscovery {
             .unwrap_or(false);
 
         if !agent_registered && !agent_id.is_empty() {
-            if let Ok(mut unregistered) = self.unregistered.write() {
-                if let Some(entry) = unregistered.get_mut(agent_id) {
-                    entry.request_count = entry.request_count.saturating_add(1);
-                    entry.last_seen = now.clone();
-                    if entry.tools_used.len() < MAX_TOOLS_PER_AGENT {
-                        entry.tools_used.insert(tool_name.to_string());
-                    }
-                    entry.risk_score =
-                        Self::compute_risk_score(entry.request_count, entry.tools_used.len());
-                } else if unregistered.len() < MAX_UNREGISTERED_AGENTS {
-                    let mut tools_used = HashSet::new();
-                    tools_used.insert(tool_name.to_string());
-                    let request_count = 1;
-                    let risk_score = Self::compute_risk_score(request_count, tools_used.len());
-                    unregistered.insert(
-                        agent_id.to_string(),
-                        UnregisteredAgent {
-                            agent_id: agent_id.to_string(),
-                            first_seen: now.clone(),
-                            last_seen: now.clone(),
-                            request_count,
-                            tools_used,
-                            risk_score,
-                        },
+            // SECURITY (FIND-R180-006): Fail-closed on poisoned lock — log error
+            // instead of silently dropping shadow AI observations.
+            let mut unregistered = match self.unregistered.write() {
+                Ok(g) => g,
+                Err(_) => {
+                    tracing::error!(target: "vellaveto::security", "RwLock poisoned in ShadowAiDiscovery::observe_request (unregistered) — observation dropped");
+                    return;
+                }
+            };
+            if let Some(entry) = unregistered.get_mut(agent_id) {
+                entry.request_count = entry.request_count.saturating_add(1);
+                entry.last_seen = now.clone();
+                if entry.tools_used.len() < MAX_TOOLS_PER_AGENT {
+                    entry.tools_used.insert(tool_name.to_string());
+                }
+                entry.risk_score =
+                    Self::compute_risk_score(entry.request_count, entry.tools_used.len());
+            } else if unregistered.len() < MAX_UNREGISTERED_AGENTS {
+                let mut tools_used = HashSet::new();
+                tools_used.insert(tool_name.to_string());
+                let request_count = 1;
+                let risk_score = Self::compute_risk_score(request_count, tools_used.len());
+                unregistered.insert(
+                    agent_id.to_string(),
+                    UnregisteredAgent {
+                        agent_id: agent_id.to_string(),
+                        first_seen: now.clone(),
+                        last_seen: now.clone(),
+                        request_count,
+                        tools_used,
+                        risk_score,
+                    },
+                );
+            } else {
+                // FIND-R44-016: Log warning on capacity drop (every 100th drop)
+                let count = self.unregistered_drop_count.fetch_add(1, Ordering::SeqCst);
+                if count.is_multiple_of(100) {
+                    tracing::warn!(
+                        "Shadow AI discovery: unregistered agents at capacity ({}), new entries dropped (total drops: {})",
+                        MAX_UNREGISTERED_AGENTS,
+                        count + 1,
                     );
-                } else {
-                    // FIND-R44-016: Log warning on capacity drop (every 100th drop)
-                    let count = self.unregistered_drop_count.fetch_add(1, Ordering::SeqCst);
-                    if count.is_multiple_of(100) {
-                        tracing::warn!(
-                            "Shadow AI discovery: unregistered agents at capacity ({}), new entries dropped (total drops: {})",
-                            MAX_UNREGISTERED_AGENTS,
-                            count + 1,
-                        );
-                    }
                 }
             }
         }
@@ -182,34 +189,40 @@ impl ShadowAiDiscovery {
             .unwrap_or(true);
 
         if tool_check_needed && !tool_name.is_empty() {
-            if let Ok(mut unapproved) = self.unapproved.write() {
-                if let Some(entry) = unapproved.get_mut(tool_name) {
-                    entry.request_count = entry.request_count.saturating_add(1);
-                    if entry.requesting_agents.len() < MAX_AGENTS_PER_TOOL {
-                        entry.requesting_agents.insert(agent_id.to_string());
-                    }
-                } else if unapproved.len() < MAX_UNAPPROVED_TOOLS {
-                    let mut requesting_agents = HashSet::new();
-                    requesting_agents.insert(agent_id.to_string());
-                    unapproved.insert(
-                        tool_name.to_string(),
-                        UnapprovedTool {
-                            tool_name: tool_name.to_string(),
-                            first_seen: now.clone(),
-                            request_count: 1,
-                            requesting_agents,
-                        },
+            // SECURITY (FIND-R180-006): Fail-closed on poisoned lock.
+            let mut unapproved = match self.unapproved.write() {
+                Ok(g) => g,
+                Err(_) => {
+                    tracing::error!(target: "vellaveto::security", "RwLock poisoned in ShadowAiDiscovery::observe_request (unapproved) — observation dropped");
+                    return;
+                }
+            };
+            if let Some(entry) = unapproved.get_mut(tool_name) {
+                entry.request_count = entry.request_count.saturating_add(1);
+                if entry.requesting_agents.len() < MAX_AGENTS_PER_TOOL {
+                    entry.requesting_agents.insert(agent_id.to_string());
+                }
+            } else if unapproved.len() < MAX_UNAPPROVED_TOOLS {
+                let mut requesting_agents = HashSet::new();
+                requesting_agents.insert(agent_id.to_string());
+                unapproved.insert(
+                    tool_name.to_string(),
+                    UnapprovedTool {
+                        tool_name: tool_name.to_string(),
+                        first_seen: now.clone(),
+                        request_count: 1,
+                        requesting_agents,
+                    },
+                );
+            } else {
+                // FIND-R44-016: Log warning on capacity drop (every 100th drop)
+                let count = self.unapproved_drop_count.fetch_add(1, Ordering::SeqCst);
+                if count.is_multiple_of(100) {
+                    tracing::warn!(
+                        "Shadow AI discovery: unapproved tools at capacity ({}), new entries dropped (total drops: {})",
+                        MAX_UNAPPROVED_TOOLS,
+                        count + 1,
                     );
-                } else {
-                    // FIND-R44-016: Log warning on capacity drop (every 100th drop)
-                    let count = self.unapproved_drop_count.fetch_add(1, Ordering::SeqCst);
-                    if count.is_multiple_of(100) {
-                        tracing::warn!(
-                            "Shadow AI discovery: unapproved tools at capacity ({}), new entries dropped (total drops: {})",
-                            MAX_UNAPPROVED_TOOLS,
-                            count + 1,
-                        );
-                    }
                 }
             }
         }
@@ -225,36 +238,42 @@ impl ShadowAiDiscovery {
                 .unwrap_or(true);
 
             if server_check_needed && !sid.is_empty() {
-                if let Ok(mut unknown) = self.unknown_servers.write() {
-                    if let Some(entry) = unknown.get_mut(sid) {
-                        entry.connection_count = entry.connection_count.saturating_add(1);
-                        if entry.advertised_tools.len() < MAX_TOOLS_PER_SERVER {
-                            entry.advertised_tools.insert(tool_name.to_string());
-                        }
-                    } else if unknown.len() < MAX_UNKNOWN_SERVERS {
-                        let mut advertised_tools = HashSet::new();
-                        advertised_tools.insert(tool_name.to_string());
-                        unknown.insert(
-                            sid.to_string(),
-                            UnknownMcpServer {
-                                server_id: sid.to_string(),
-                                first_seen: now,
-                                connection_count: 1,
-                                advertised_tools,
-                            },
+                // SECURITY (FIND-R180-006): Fail-closed on poisoned lock.
+                let mut unknown = match self.unknown_servers.write() {
+                    Ok(g) => g,
+                    Err(_) => {
+                        tracing::error!(target: "vellaveto::security", "RwLock poisoned in ShadowAiDiscovery::observe_request (unknown_servers) — observation dropped");
+                        return;
+                    }
+                };
+                if let Some(entry) = unknown.get_mut(sid) {
+                    entry.connection_count = entry.connection_count.saturating_add(1);
+                    if entry.advertised_tools.len() < MAX_TOOLS_PER_SERVER {
+                        entry.advertised_tools.insert(tool_name.to_string());
+                    }
+                } else if unknown.len() < MAX_UNKNOWN_SERVERS {
+                    let mut advertised_tools = HashSet::new();
+                    advertised_tools.insert(tool_name.to_string());
+                    unknown.insert(
+                        sid.to_string(),
+                        UnknownMcpServer {
+                            server_id: sid.to_string(),
+                            first_seen: now,
+                            connection_count: 1,
+                            advertised_tools,
+                        },
+                    );
+                } else {
+                    // FIND-R44-016: Log warning on capacity drop (every 100th drop)
+                    let count = self
+                        .unknown_servers_drop_count
+                        .fetch_add(1, Ordering::SeqCst);
+                    if count.is_multiple_of(100) {
+                        tracing::warn!(
+                            "Shadow AI discovery: unknown servers at capacity ({}), new entries dropped (total drops: {})",
+                            MAX_UNKNOWN_SERVERS,
+                            count + 1,
                         );
-                    } else {
-                        // FIND-R44-016: Log warning on capacity drop (every 100th drop)
-                        let count = self
-                            .unknown_servers_drop_count
-                            .fetch_add(1, Ordering::SeqCst);
-                        if count.is_multiple_of(100) {
-                            tracing::warn!(
-                                "Shadow AI discovery: unknown servers at capacity ({}), new entries dropped (total drops: {})",
-                                MAX_UNKNOWN_SERVERS,
-                                count + 1,
-                            );
-                        }
                     }
                 }
             }
@@ -309,16 +328,30 @@ impl ShadowAiDiscovery {
         if agent_id.len() > MAX_ID_LENGTH {
             return;
         }
-        if let Ok(mut registered) = self.registered_agents.write() {
-            // FIND-R44-006: Only insert if already present or under capacity
-            if !registered.contains(agent_id) && registered.len() >= MAX_REGISTERED_AGENTS {
+        // SECURITY (FIND-R180-006): Fail-closed on poisoned lock.
+        let mut registered = match self.registered_agents.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "vellaveto::security", "RwLock poisoned in ShadowAiDiscovery::register_agent (registered) — registration skipped");
                 return;
             }
-            registered.insert(agent_id.to_string());
+        };
+        // FIND-R44-006: Only insert if already present or under capacity
+        if !registered.contains(agent_id) && registered.len() >= MAX_REGISTERED_AGENTS {
+            return;
         }
+        registered.insert(agent_id.to_string());
+        // Explicitly drop to avoid holding two write locks simultaneously
+        drop(registered);
         // Remove from unregistered if previously observed
-        if let Ok(mut unregistered) = self.unregistered.write() {
-            unregistered.remove(agent_id);
+        // SECURITY (FIND-R180-006): Fail-closed on poisoned lock.
+        match self.unregistered.write() {
+            Ok(mut unregistered) => {
+                unregistered.remove(agent_id);
+            }
+            Err(_) => {
+                tracing::error!(target: "vellaveto::security", "RwLock poisoned in ShadowAiDiscovery::register_agent (unregistered) — cleanup skipped");
+            }
         }
     }
 
