@@ -85,13 +85,19 @@ static WS_MESSAGES_TOTAL: AtomicU64 = AtomicU64::new(0);
 
 /// Record WebSocket connection metric.
 fn record_ws_connection() {
-    WS_CONNECTIONS_TOTAL.fetch_add(1, Ordering::Relaxed);
+    // SECURITY (FIND-R182-003): Use saturating arithmetic to prevent overflow.
+    let _ = WS_CONNECTIONS_TOTAL.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+        Some(v.saturating_add(1))
+    });
     metrics::counter!("vellaveto_ws_connections_total").increment(1);
 }
 
 /// Record WebSocket message metric.
 fn record_ws_message(direction: &str) {
-    WS_MESSAGES_TOTAL.fetch_add(1, Ordering::Relaxed);
+    // SECURITY (FIND-R182-003): Use saturating arithmetic to prevent overflow.
+    let _ = WS_MESSAGES_TOTAL.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+        Some(v.saturating_add(1))
+    });
     metrics::counter!(
         "vellaveto_ws_messages_total",
         "direction" => direction.to_string()
@@ -3935,7 +3941,11 @@ fn check_rate_limit(
         counter.store(1, Ordering::SeqCst);
         true
     } else {
-        let count = counter.fetch_add(1, Ordering::SeqCst) + 1;
+        // SECURITY (FIND-R182-003): saturating arithmetic prevents overflow wrap-to-zero.
+        let _ = counter.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+            Some(v.saturating_add(1))
+        });
+        let count = counter.load(Ordering::SeqCst);
         count <= max_per_sec as u64
     }
 }

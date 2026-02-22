@@ -3,9 +3,9 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 170)
-> **Total audit rounds:** 170
-> **Cumulative findings fixed:** 609+
+> **Last updated:** 2026-02-22 (Round 182)
+> **Total audit rounds:** 182
+> **Cumulative findings fixed:** 618+
 
 ---
 
@@ -38,6 +38,23 @@ R169 (http-proxy+server): PASSED — no genuine findings.
 R167 (engine+types): PASSED — no genuine findings. Codebase thoroughly hardened from prior 166 rounds.
 
 5 new tests: 3 cache config validation (TTL exceeds max, zero TTL enabled, zero TTL disabled ok), 2 service config (max latency exceeds bound, default passes).
+
+---
+
+## Round 182 — Code Block Size, Tokenize Cap, Explanation Bound, Rate Limit Fail-Closed, WS Metrics Saturating (5 findings fixed)
+
+**Subsystem:** `vellaveto-mcp/src/projector/repair.rs`, `vellaveto-mcp/src/discovery/index.rs`, `vellaveto-mcp/src/transparency.rs`, `vellaveto-http-proxy/src/proxy/websocket/mod.rs`
+**Commits:** `f858f98`, pending
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R182-002 | P2 | `repair.rs` | `extract_json_from_code_block()` rejects input >1MB (`MAX_CODE_BLOCK_INPUT_SIZE`) preventing unbounded clone on attacker-controlled repair input |
+| FIND-R182-004 | P3 | `index.rs` | `tokenize()` capped at `MAX_TOKENS_PER_TEXT=512` preventing unbounded allocation on large tool descriptions |
+| FIND-R182-005 | P3 | `transparency.rs` | `inject_decision_explanation()` bounded at 64KB with automatic fallback to Summary when Full verbosity exceeds cap |
+| FIND-R182-006 | P3 | `websocket/mod.rs` | `check_rate_limit()` returns `false` (deny) when `max_per_sec==0` — fail-closed instead of unlimited |
+| FIND-R182-003 | P3 | `websocket/mod.rs` | WS metrics counters (`WS_CONNECTIONS_TOTAL`, `WS_MESSAGES_TOTAL`, rate limit counter) switched from `fetch_add` to `fetch_update` with `saturating_add` |
+
+Deferred: FIND-R182-001 (P2, WS idle_timeout design — max-lifetime vs true idle), FIND-R182-007 (P4, discovery tag substring matching).
 
 ---
 
