@@ -51,6 +51,25 @@ pub fn has_dangerous_chars(s: &str) -> bool {
     s.chars().any(|c| c.is_control() || is_unicode_format_char(c))
 }
 
+/// Sanitize a string for safe inclusion in log messages by stripping control
+/// characters and Unicode format characters, then truncating to `max_len` chars.
+///
+/// SECURITY (IMP-R154-001): Extracted from 9+ duplicate sites in relay.rs,
+/// federation.rs, and websocket handler. Canonical implementation prevents
+/// log injection via control characters, bidi overrides, and zero-width chars.
+///
+/// # Examples
+/// ```
+/// assert_eq!(vellaveto_types::sanitize_for_log("hello\x00world", 128), "helloworld");
+/// assert_eq!(vellaveto_types::sanitize_for_log("long string", 4), "long");
+/// ```
+pub fn sanitize_for_log(s: &str, max_len: usize) -> String {
+    s.chars()
+        .filter(|c| !c.is_control() && !is_unicode_format_char(*c))
+        .take(max_len)
+        .collect()
+}
+
 /// Check whether an IPv4 address is private/reserved for SSRF prevention.
 ///
 /// SECURITY (FIND-R116-TE-001): Shared helper used by `validate_url_no_ssrf` for

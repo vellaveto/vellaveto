@@ -736,22 +736,78 @@ impl McpGrpcService {
             }
         }
 
-        let ctx = self.build_evaluation_context(session_id);
+        // SECURITY (FIND-R160-001): TOCTOU-safe context+eval+update.
+        // Hold DashMap shard lock across context build, evaluation, and session
+        // update to prevent concurrent gRPC requests from reading stale
+        // call_counts and bypassing max_calls_in_window.
+        // Also extract risk_score and call_chain for post-eval ABAC/priv checks.
+        let (verdict, ctx, session_risk, call_chain) =
+            if let Some(mut session) = self.state.sessions.get_mut(session_id) {
+                let ctx = EvaluationContext {
+                    timestamp: None,
+                    agent_id: session.oauth_subject.clone(),
+                    agent_identity: session.agent_identity.clone(),
+                    call_counts: session.call_counts.clone(),
+                    previous_actions: session.action_history.iter().cloned().collect(),
+                    call_chain: session.current_call_chain.clone(),
+                    tenant_id: None,
+                    verification_tier: None,
+                    capability_token: None,
+                    session_state: None,
+                };
+                let risk = session.risk_score.clone();
+                let chain = session.current_call_chain.clone();
 
-        let verdict = match self.state.engine.evaluate_action_with_context(
-            &action,
-            &self.state.policies,
-            Some(&ctx),
-        ) {
-            Ok(v) => v,
-            Err(e) => {
-                // Fail-closed: engine errors produce Deny
-                tracing::error!(session_id = %session_id, "Policy evaluation error: {}", e);
-                Verdict::Deny {
-                    reason: format!("Policy evaluation failed: {}", e),
+                let verdict = match self.state.engine.evaluate_action_with_context(
+                    &action,
+                    &self.state.policies,
+                    Some(&ctx),
+                ) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!(session_id = %session_id, "Policy evaluation error: {}", e);
+                        Verdict::Deny {
+                            reason: format!("Policy evaluation failed: {}", e),
+                        }
+                    }
+                };
+
+                // Atomically update session on Allow (within same shard lock)
+                if matches!(verdict, Verdict::Allow) {
+                    session.touch();
+                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                        || session.call_counts.contains_key(tool_name)
+                    {
+                        let count = session
+                            .call_counts
+                            .entry(tool_name.to_string())
+                            .or_insert(0);
+                        *count = count.saturating_add(1);
+                    }
+                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                        session.action_history.pop_front();
+                    }
+                    session.action_history.push_back(tool_name.to_string());
                 }
-            }
-        };
+
+                (verdict, ctx, risk, chain)
+            } else {
+                // No session — evaluate without context
+                let verdict = match self.state.engine.evaluate_action_with_context(
+                    &action,
+                    &self.state.policies,
+                    None,
+                ) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!(session_id = %session_id, "Policy evaluation error: {}", e);
+                        Verdict::Deny {
+                            reason: format!("Policy evaluation failed: {}", e),
+                        }
+                    }
+                };
+                (verdict, EvaluationContext::default(), None, vec![])
+            };
 
         match &verdict {
             Verdict::Allow => {
@@ -764,11 +820,7 @@ impl McpGrpcService {
                         .and_then(|aid| aid.claims.get("type"))
                         .and_then(|v: &serde_json::Value| v.as_str())
                         .unwrap_or("Agent");
-                    let session_risk = self
-                        .state
-                        .sessions
-                        .get_mut(session_id)
-                        .and_then(|s| s.risk_score.clone());
+                    // NOTE: session_risk extracted in TOCTOU-safe block above (FIND-R160-001).
                     let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
                         eval_ctx: &ctx,
                         principal_type,
@@ -831,12 +883,7 @@ impl McpGrpcService {
 
                 // SECURITY (FIND-R54-002): Privilege escalation check.
                 // Parity with HTTP handler (handlers.rs:762).
-                let call_chain = self
-                    .state
-                    .sessions
-                    .get_mut(session_id)
-                    .map(|s| s.current_call_chain.clone())
-                    .unwrap_or_default();
+                // NOTE: call_chain extracted in TOCTOU-safe block above (FIND-R160-001).
                 if !call_chain.is_empty() {
                     let current_agent_id = ctx.agent_id.as_deref();
                     let priv_check = check_privilege_escalation(
@@ -892,27 +939,8 @@ impl McpGrpcService {
                     registry.record_call(tool_name).await;
                 }
 
-                // Touch session and update call_counts/action_history
-                if let Some(mut session) = self.state.sessions.get_mut(session_id) {
-                    session.touch();
-                    // SECURITY (FIND-R54-003): Update call_counts and action_history on Allow.
-                    // Without this, context-aware policies (max_calls_in_window,
-                    // ForbiddenActionSequence) are ineffective on the gRPC transport.
-                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                        || session.call_counts.contains_key(tool_name)
-                    {
-                        // SECURITY (FIND-R108-003): saturating_add.
-                        let count = session
-                            .call_counts
-                            .entry(tool_name.to_string())
-                            .or_insert(0);
-                        *count = count.saturating_add(1);
-                    }
-                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                        session.action_history.pop_front();
-                    }
-                    session.action_history.push_back(tool_name.to_string());
-                }
+                // NOTE: Session touch + call_counts/action_history update already
+                // performed inside the TOCTOU-safe block above (FIND-R160-001).
 
                 // Audit the allow
                 if let Err(e) = self
@@ -1158,25 +1186,73 @@ impl McpGrpcService {
             }
         }
 
-        let ctx = self.build_evaluation_context(session_id);
+        // SECURITY (FIND-R160-001): TOCTOU-safe context+eval+update for resource_read.
+        let resource_key = format!("resources/read:{}", uri.chars().take(128).collect::<String>());
+        let (verdict, ctx, session_risk) =
+            if let Some(mut session) = self.state.sessions.get_mut(session_id) {
+                let ctx = EvaluationContext {
+                    timestamp: None,
+                    agent_id: session.oauth_subject.clone(),
+                    agent_identity: session.agent_identity.clone(),
+                    call_counts: session.call_counts.clone(),
+                    previous_actions: session.action_history.iter().cloned().collect(),
+                    call_chain: session.current_call_chain.clone(),
+                    tenant_id: None,
+                    verification_tier: None,
+                    capability_token: None,
+                    session_state: None,
+                };
+                let risk = session.risk_score.clone();
 
-        let verdict = match self.state.engine.evaluate_action_with_context(
-            &action,
-            &self.state.policies,
-            Some(&ctx),
-        ) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::error!(session_id = %session_id, "Resource policy evaluation error: {}", e);
-                Verdict::Deny {
-                    reason: format!("Policy evaluation failed: {}", e),
+                let verdict = match self.state.engine.evaluate_action_with_context(
+                    &action,
+                    &self.state.policies,
+                    Some(&ctx),
+                ) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!(session_id = %session_id, "Resource policy evaluation error: {}", e);
+                        Verdict::Deny {
+                            reason: format!("Policy evaluation failed: {}", e),
+                        }
+                    }
+                };
+
+                if matches!(verdict, Verdict::Allow) {
+                    session.touch();
+                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                        || session.call_counts.contains_key(&resource_key)
+                    {
+                        let count = session.call_counts.entry(resource_key.clone()).or_insert(0);
+                        *count = count.saturating_add(1);
+                    }
+                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                        session.action_history.pop_front();
+                    }
+                    session.action_history.push_back("resources/read".to_string());
                 }
-            }
-        };
+
+                (verdict, ctx, risk)
+            } else {
+                let verdict = match self.state.engine.evaluate_action_with_context(
+                    &action,
+                    &self.state.policies,
+                    None,
+                ) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!(session_id = %session_id, "Resource policy evaluation error: {}", e);
+                        Verdict::Deny {
+                            reason: format!("Policy evaluation failed: {}", e),
+                        }
+                    }
+                };
+                (verdict, EvaluationContext::default(), None)
+            };
 
         match &verdict {
             Verdict::Allow => {
-                // SECURITY (FIND-R114-004): ABAC refinement — parity with handle_tool_call (line 674).
+                // SECURITY (FIND-R114-004): ABAC refinement — parity with handle_tool_call.
                 if let Some(ref abac) = self.state.abac_engine {
                     let principal_id = ctx.agent_id.as_deref().unwrap_or("anonymous");
                     let principal_type = ctx
@@ -1185,11 +1261,7 @@ impl McpGrpcService {
                         .and_then(|aid| aid.claims.get("type"))
                         .and_then(|v: &serde_json::Value| v.as_str())
                         .unwrap_or("Agent");
-                    let session_risk = self
-                        .state
-                        .sessions
-                        .get_mut(session_id)
-                        .and_then(|s| s.risk_score.clone());
+                    // NOTE: session_risk extracted in TOCTOU-safe block above (FIND-R160-001).
                     let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
                         eval_ctx: &ctx,
                         principal_type,
@@ -1212,7 +1284,6 @@ impl McpGrpcService {
                                 tracing::warn!("Failed to audit gRPC resource ABAC deny: {}", e);
                             }
                             // SECURITY (FIND-R116-003): Generic client-facing message.
-                            // The policy_id and reason are preserved in the audit log above.
                             return make_proto_denial_response(
                                 proto_req,
                                 "Denied by policy",
@@ -1228,22 +1299,8 @@ impl McpGrpcService {
                     }
                 }
 
-                // SECURITY (FIND-R114-008): Track resource reads in call_counts/action_history.
-                // Enables ForbiddenActionSequence detection (e.g., resources/read → http_request).
-                if let Some(mut session) = self.state.sessions.get_mut(session_id) {
-                    session.touch();
-                    let resource_key = format!("resources/read:{}", uri.chars().take(128).collect::<String>());
-                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                        || session.call_counts.contains_key(&resource_key)
-                    {
-                        let count = session.call_counts.entry(resource_key).or_insert(0);
-                        *count = count.saturating_add(1);
-                    }
-                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                        session.action_history.pop_front();
-                    }
-                    session.action_history.push_back("resources/read".to_string());
-                }
+                // NOTE: Session touch + call_counts/action_history update already
+                // performed inside the TOCTOU-safe block above (FIND-R160-001).
 
                 // SECURITY (FIND-R114-007): Audit Allow verdict for resource reads.
                 if let Err(e) = self.state.audit.log_entry(
@@ -1756,21 +1813,57 @@ impl McpGrpcService {
         }
 
         let action = extractor::extract_task_action(task_method, task_id);
-        let ctx = self.build_evaluation_context(session_id);
 
-        let verdict = match self.state.engine.evaluate_action_with_context(
-            &action,
-            &self.state.policies,
-            Some(&ctx),
-        ) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::error!(session_id = %session_id, "Task policy evaluation error: {}", e);
-                Verdict::Deny {
-                    reason: format!("Policy evaluation failed: {}", e),
-                }
-            }
-        };
+        // SECURITY (FIND-R160-001): TOCTOU-safe context+eval for task requests.
+        // No session update needed for tasks, but context must be read atomically
+        // to prevent stale call_counts from bypassing max_calls_in_window.
+        let (verdict, ctx) =
+            if let Some(session) = self.state.sessions.get_mut(session_id) {
+                let ctx = EvaluationContext {
+                    timestamp: None,
+                    agent_id: session.oauth_subject.clone(),
+                    agent_identity: session.agent_identity.clone(),
+                    call_counts: session.call_counts.clone(),
+                    previous_actions: session.action_history.iter().cloned().collect(),
+                    call_chain: session.current_call_chain.clone(),
+                    tenant_id: None,
+                    verification_tier: None,
+                    capability_token: None,
+                    session_state: None,
+                };
+                let verdict = match self.state.engine.evaluate_action_with_context(
+                    &action,
+                    &self.state.policies,
+                    Some(&ctx),
+                ) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!(session_id = %session_id, "Task policy evaluation error: {}", e);
+                        Verdict::Deny {
+                            reason: format!("Policy evaluation failed: {}", e),
+                        }
+                    }
+                };
+                (verdict, ctx)
+            } else {
+                let verdict = match self.state.engine.evaluate_action_with_context(
+                    &action,
+                    &self.state.policies,
+                    None,
+                ) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!(session_id = %session_id, "Task policy evaluation error: {}", e);
+                        Verdict::Deny {
+                            reason: format!("Policy evaluation failed: {}", e),
+                        }
+                    }
+                };
+                (verdict, EvaluationContext::default())
+            };
+
+        // Suppress unused variable warning — ctx needed for consistency.
+        let _ = &ctx;
 
         match &verdict {
             Verdict::Allow => {
@@ -1930,27 +2023,73 @@ impl McpGrpcService {
             super::super::helpers::resolve_domains(&mut action).await;
         }
 
-        let ctx = self.build_evaluation_context(session_id);
+        // SECURITY (FIND-R160-001): TOCTOU-safe context+eval+update for extension methods.
         let ext_key = format!("extension:{}:{}", extension_id, method);
+        let (verdict, ctx, session_risk) =
+            if let Some(mut session) = self.state.sessions.get_mut(session_id) {
+                let ctx = EvaluationContext {
+                    timestamp: None,
+                    agent_id: session.oauth_subject.clone(),
+                    agent_identity: session.agent_identity.clone(),
+                    call_counts: session.call_counts.clone(),
+                    previous_actions: session.action_history.iter().cloned().collect(),
+                    call_chain: session.current_call_chain.clone(),
+                    tenant_id: None,
+                    verification_tier: None,
+                    capability_token: None,
+                    session_state: None,
+                };
+                let risk = session.risk_score.clone();
 
-        let verdict = match self.state.engine.evaluate_action_with_context(
-            &action,
-            &self.state.policies,
-            Some(&ctx),
-        ) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::error!(session_id = %session_id, "Extension policy evaluation error: {}", e);
-                Verdict::Deny {
-                    reason: format!("Policy evaluation failed: {}", e),
+                let verdict = match self.state.engine.evaluate_action_with_context(
+                    &action,
+                    &self.state.policies,
+                    Some(&ctx),
+                ) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!(session_id = %session_id, "Extension policy evaluation error: {}", e);
+                        Verdict::Deny {
+                            reason: format!("Policy evaluation failed: {}", e),
+                        }
+                    }
+                };
+
+                if matches!(verdict, Verdict::Allow) {
+                    session.touch();
+                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                        || session.call_counts.contains_key(&ext_key)
+                    {
+                        let count = session.call_counts.entry(ext_key.clone()).or_insert(0);
+                        *count = count.saturating_add(1);
+                    }
+                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                        session.action_history.pop_front();
+                    }
+                    session.action_history.push_back(ext_key.clone());
                 }
-            }
-        };
+
+                (verdict, ctx, risk)
+            } else {
+                let verdict = match self.state.engine.evaluate_action_with_context(
+                    &action,
+                    &self.state.policies,
+                    None,
+                ) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!(session_id = %session_id, "Extension policy evaluation error: {}", e);
+                        Verdict::Deny {
+                            reason: format!("Policy evaluation failed: {}", e),
+                        }
+                    }
+                };
+                (verdict, EvaluationContext::default(), None)
+            };
 
         match &verdict {
             Verdict::Allow => {
                 // SECURITY (FIND-R118-002): ABAC refinement for extension methods.
-                // Parity with handle_tool_call (line 758) and handle_resource_read (line 1096).
                 if let Some(ref abac) = self.state.abac_engine {
                     let principal_id = ctx.agent_id.as_deref().unwrap_or("anonymous");
                     let principal_type = ctx
@@ -1959,11 +2098,7 @@ impl McpGrpcService {
                         .and_then(|aid| aid.claims.get("type"))
                         .and_then(|v: &serde_json::Value| v.as_str())
                         .unwrap_or("Agent");
-                    let session_risk = self
-                        .state
-                        .sessions
-                        .get_mut(session_id)
-                        .and_then(|s| s.risk_score.clone());
+                    // NOTE: session_risk extracted in TOCTOU-safe block above (FIND-R160-001).
                     let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
                         eval_ctx: &ctx,
                         principal_type,
@@ -2018,21 +2153,8 @@ impl McpGrpcService {
                     }
                 }
 
-                // SECURITY (FIND-R118-003): Track extension calls in call_counts/action_history.
-                // Parity with handle_tool_call (line 889) and handle_resource_read (line 1148).
-                if let Some(mut session) = self.state.sessions.get_mut(session_id) {
-                    session.touch();
-                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                        || session.call_counts.contains_key(&ext_key)
-                    {
-                        let count = session.call_counts.entry(ext_key.clone()).or_insert(0);
-                        *count = count.saturating_add(1);
-                    }
-                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                        session.action_history.pop_front();
-                    }
-                    session.action_history.push_back(ext_key.clone());
-                }
+                // NOTE: Session touch + call_counts/action_history update already
+                // performed inside the TOCTOU-safe block above (FIND-R160-001).
 
                 if let Err(e) = self
                     .state

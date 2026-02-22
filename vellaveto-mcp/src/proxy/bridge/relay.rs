@@ -1084,11 +1084,7 @@ impl ProxyBridge {
         let dlp_findings = scan_parameters_for_secrets(&uri_as_json);
         if !dlp_findings.is_empty() {
             // SECURITY (FIND-R136-003): Sanitize URI before logging.
-            let safe_uri: String = uri
-                .chars()
-                .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
-                .take(512)
-                .collect();
+            let safe_uri = vellaveto_types::sanitize_for_log(&uri, 512);
             tracing::warn!(
                 "SECURITY: DLP alert in resource URI '{}': {:?}",
                 safe_uri,
@@ -1414,17 +1410,10 @@ impl ProxyBridge {
         } = io;
         // SECURITY (FIND-R136-003): Sanitize agent-sourced task_method/task_id
         // before logging to prevent log injection via control/format characters.
-        let safe_task_method: String = task_method
-            .chars()
-            .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
-            .take(256)
-            .collect();
-        let safe_task_id: Option<String> = task_id.as_ref().map(|id| {
-            id.chars()
-                .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
-                .take(256)
-                .collect()
-        });
+        let safe_task_method = vellaveto_types::sanitize_for_log(&task_method, 256);
+        let safe_task_id: Option<String> = task_id
+            .as_ref()
+            .map(|id| vellaveto_types::sanitize_for_log(id, 256));
         tracing::debug!("Task request: {} (task_id: {:?})", safe_task_method, safe_task_id);
 
         // R4-1: DLP scan task request parameters for secret exfiltration.
@@ -1748,16 +1737,8 @@ impl ProxyBridge {
         } = io;
         // SECURITY (FIND-R136-003): Sanitize agent-sourced extension_id and method
         // before logging to prevent log injection via control/format characters.
-        let safe_extension_id: String = extension_id
-            .chars()
-            .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
-            .take(256)
-            .collect();
-        let safe_ext_method: String = method
-            .chars()
-            .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
-            .take(256)
-            .collect();
+        let safe_extension_id = vellaveto_types::sanitize_for_log(&extension_id, 256);
+        let safe_ext_method = vellaveto_types::sanitize_for_log(&method, 256);
         tracing::debug!("Extension method: {} (extension: {})", safe_ext_method, safe_extension_id);
 
         let params = msg.get("params").cloned().unwrap_or(json!({}));
@@ -2337,11 +2318,7 @@ impl ProxyBridge {
                 // All other server-initiated requests are blocked.
                 // SECURITY (FIND-R110-004): Sanitize method name before logging/echoing
                 // to prevent log injection and information leakage from child server.
-                let safe_method: String = method
-                    .chars()
-                    .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
-                    .take(128)
-                    .collect();
+                let safe_method = vellaveto_types::sanitize_for_log(method, 128);
                 tracing::warn!(
                     "SECURITY: Server sent request '{}' — blocked (only notifications and sampling/elicitation allowed from server)",
                     safe_method
@@ -2549,14 +2526,7 @@ impl ProxyBridge {
                         // SECURITY (FIND-R136-002): Cap + sanitize protocol version
                         // from child server to prevent unbounded storage and log injection.
                         const MAX_PROTOCOL_VERSION_LEN: usize = 64;
-                        let safe_ver: String = ver
-                            .chars()
-                            .filter(|c| {
-                                !c.is_control()
-                                    && !vellaveto_types::is_unicode_format_char(*c)
-                            })
-                            .take(MAX_PROTOCOL_VERSION_LEN)
-                            .collect();
+                        let safe_ver = vellaveto_types::sanitize_for_log(ver, MAX_PROTOCOL_VERSION_LEN);
                         tracing::info!(
                             "MCP initialize: server negotiated protocol version {}",
                             safe_ver
@@ -2999,12 +2969,7 @@ impl ProxyBridge {
             for finding in &desc_findings {
                 // SECURITY (FIND-R150-001): Sanitize child-provided tool_name before
                 // logging to prevent log injection via control/format characters.
-                let safe_desc_tool: String = finding
-                    .tool_name
-                    .chars()
-                    .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
-                    .take(256)
-                    .collect();
+                let safe_desc_tool = vellaveto_types::sanitize_for_log(&finding.tool_name, 256);
                 tracing::warn!(
                     "SECURITY: Injection detected in tool '{}' description! Patterns: {:?}",
                     safe_desc_tool,

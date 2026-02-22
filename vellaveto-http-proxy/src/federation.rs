@@ -62,7 +62,7 @@ impl std::fmt::Display for FederationError {
                 // to prevent control character injection in logs.
                 // SECURITY (IMP-R154-003): Also filter Unicode format chars
                 // (zero-width, bidi, TAG) — not just control chars.
-                let safe_kid: String = kid.chars().filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c)).take(128).collect();
+                let safe_kid = vellaveto_types::sanitize_for_log(kid, 128);
                 write!(
                     f,
                     "no matching key in JWKS for org {}, kid '{}'",

@@ -391,7 +391,8 @@ impl SecureTaskManager {
             )));
         }
         checkpoints.insert(checkpoint_id, checkpoint.clone());
-        self.checkpoints_created.fetch_add(1, Ordering::Relaxed);
+        // SECURITY (FIND-R160-004): SeqCst for parity with other security counters (Trap 8).
+        self.checkpoints_created.fetch_add(1, Ordering::SeqCst);
 
         Ok(checkpoint)
     }
@@ -495,10 +496,10 @@ impl SecureTaskManager {
             total_tasks: tasks.len(),
             encrypted_tasks: encrypted_count,
             total_transitions,
-            checkpoints_created: self.checkpoints_created.load(Ordering::Relaxed),
-            resume_attempts: self.resume_attempts.load(Ordering::Relaxed),
-            resume_successes: self.resume_successes.load(Ordering::Relaxed),
-            // SECURITY (FIND-R117-MA-005): SeqCst for security-relevant counters.
+            // SECURITY (FIND-R160-004): All counters use SeqCst for consistency.
+            checkpoints_created: self.checkpoints_created.load(Ordering::SeqCst),
+            resume_attempts: self.resume_attempts.load(Ordering::SeqCst),
+            resume_successes: self.resume_successes.load(Ordering::SeqCst),
             replay_attacks_blocked: self.replay_blocked.load(Ordering::SeqCst),
             integrity_violations: self.integrity_violations.load(Ordering::SeqCst),
         }

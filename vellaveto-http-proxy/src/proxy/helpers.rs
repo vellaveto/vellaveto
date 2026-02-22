@@ -15,16 +15,36 @@ use crate::session::SessionStore;
 /// resolves to. If DNS resolution fails for a domain, no IPs are added for it —
 /// the engine will deny the action fail-closed if IP rules are configured.
 pub(super) async fn resolve_domains(action: &mut Action) {
+    /// SECURITY (IMP-R160-003): Cap resolved IPs to prevent OOM from domains with
+    /// many A/AAAA records. Parity with stdio relay (FIND-R80-004).
+    const MAX_RESOLVED_IPS: usize = 100;
+
     if action.target_domains.is_empty() {
         return;
     }
     let mut resolved = Vec::new();
     for domain in &action.target_domains {
+        if resolved.len() >= MAX_RESOLVED_IPS {
+            tracing::warn!(
+                domain = %domain,
+                "Resolved IPs cap ({}) reached — skipping remaining domains",
+                MAX_RESOLVED_IPS,
+            );
+            break;
+        }
         // Strip port if present (domain might be "example.com:8080")
         let host = domain.split(':').next().unwrap_or(domain);
         match tokio::net::lookup_host((host, 0)).await {
             Ok(addrs) => {
                 for addr in addrs {
+                    if resolved.len() >= MAX_RESOLVED_IPS {
+                        tracing::warn!(
+                            domain = %domain,
+                            "Resolved IPs cap ({}) reached during DNS iteration",
+                            MAX_RESOLVED_IPS,
+                        );
+                        break;
+                    }
                     resolved.push(addr.ip().to_string());
                 }
             }

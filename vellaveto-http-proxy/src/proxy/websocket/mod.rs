@@ -3943,7 +3943,6 @@ fn extract_strings_recursive(val: &Value, parts: &mut Vec<String>, depth: usize)
 }
 
 /// Extract scannable text from a JSON-RPC response for injection scanning.
-/// Extract scannable text from a JSON-RPC response for injection scanning.
 ///
 /// SECURITY (FIND-R130-004): Delegates to the shared `extract_text_from_result()`
 /// which covers `resource.text`, `resource.blob` (base64-decoded), `annotations`,
