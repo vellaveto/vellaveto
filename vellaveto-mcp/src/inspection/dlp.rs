@@ -664,12 +664,18 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
     // SECURITY (R17-DLP-1): Use multi-layer decode pipeline (scan_string_for_secrets)
     // instead of raw regex matching, so base64/percent-encoded secrets in responses
     // are detected the same way as in request parameters.
+    // SECURITY (FIND-R172-001): Bound content array iteration and total findings
+    // to prevent CPU exhaustion from malicious responses with 100K+ content items.
+    const MAX_RESPONSE_CONTENT_ITEMS: usize = 1000;
     if let Some(content) = response
         .get("result")
         .and_then(|r| r.get("content"))
         .and_then(|c| c.as_array())
     {
-        for (i, item) in content.iter().enumerate() {
+        for (i, item) in content.iter().take(MAX_RESPONSE_CONTENT_ITEMS).enumerate() {
+            if findings.len() >= MAX_DLP_FINDINGS {
+                break;
+            }
             if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
                 scan_string_for_secrets(
                     text,
@@ -729,50 +735,61 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
 
     // SECURITY (R32-PROXY-3): Scan instructionsForUser — this MCP 2025-06-18 field
     // is displayed to the user and could contain exfiltrated secrets.
-    if let Some(instructions) = response
-        .get("result")
-        .and_then(|r| r.get("instructionsForUser"))
-        .and_then(|i| i.as_str())
-    {
-        scan_string_for_secrets(
-            instructions,
-            "result.instructionsForUser",
-            regexes,
-            &mut findings,
-        );
+    // SECURITY (FIND-R172-001): Check findings cap before each scan block.
+    if findings.len() < MAX_DLP_FINDINGS {
+        if let Some(instructions) = response
+            .get("result")
+            .and_then(|r| r.get("instructionsForUser"))
+            .and_then(|i| i.as_str())
+        {
+            scan_string_for_secrets(
+                instructions,
+                "result.instructionsForUser",
+                regexes,
+                &mut findings,
+            );
+        }
     }
 
     // SECURITY (R33-MCP-2): Scan result._meta for secrets — this field can contain
     // arbitrary server metadata that could embed exfiltrated secrets. The injection
     // scanner already covers _meta but DLP scanning was missing.
-    if let Some(meta) = response.get("result").and_then(|r| r.get("_meta")) {
-        scan_value_for_secrets(meta, "result._meta", regexes, &mut findings, 0);
+    if findings.len() < MAX_DLP_FINDINGS {
+        if let Some(meta) = response.get("result").and_then(|r| r.get("_meta")) {
+            scan_value_for_secrets(meta, "result._meta", regexes, &mut findings, 0);
+        }
     }
 
     // Scan result.structuredContent recursively
-    if let Some(structured) = response
-        .get("result")
-        .and_then(|r| r.get("structuredContent"))
-    {
-        scan_value_for_secrets(
-            structured,
-            "result.structuredContent",
-            regexes,
-            &mut findings,
-            0,
-        );
+    if findings.len() < MAX_DLP_FINDINGS {
+        if let Some(structured) = response
+            .get("result")
+            .and_then(|r| r.get("structuredContent"))
+        {
+            scan_value_for_secrets(
+                structured,
+                "result.structuredContent",
+                regexes,
+                &mut findings,
+                0,
+            );
+        }
     }
 
     // SECURITY (R8-MCP-9): Also scan error.message and error.data for secrets.
     // A malicious server could embed secrets in error responses, and a subsequent
     // agent action could exfiltrate them.
     // SECURITY (R17-DLP-1): Use multi-layer decode for error.message too.
-    if let Some(error) = response.get("error") {
-        if let Some(msg) = error.get("message").and_then(|m| m.as_str()) {
-            scan_string_for_secrets(msg, "error.message", regexes, &mut findings);
-        }
-        if let Some(data) = error.get("data") {
-            scan_value_for_secrets(data, "error.data", regexes, &mut findings, 0);
+    if findings.len() < MAX_DLP_FINDINGS {
+        if let Some(error) = response.get("error") {
+            if let Some(msg) = error.get("message").and_then(|m| m.as_str()) {
+                scan_string_for_secrets(msg, "error.message", regexes, &mut findings);
+            }
+            if findings.len() < MAX_DLP_FINDINGS {
+                if let Some(data) = error.get("data") {
+                    scan_value_for_secrets(data, "error.data", regexes, &mut findings, 0);
+                }
+            }
         }
     }
 
@@ -808,8 +825,11 @@ pub fn scan_notification_for_secrets(notification: &serde_json::Value) -> Vec<Dl
     }
 
     // Also scan the method name itself (unlikely but defensive)
-    if let Some(method) = notification.get("method").and_then(|m| m.as_str()) {
-        scan_string_for_secrets(method, "method", regexes, &mut findings);
+    // SECURITY (FIND-R172-003): Check findings cap before additional scanning.
+    if findings.len() < MAX_DLP_FINDINGS {
+        if let Some(method) = notification.get("method").and_then(|m| m.as_str()) {
+            scan_string_for_secrets(method, "method", regexes, &mut findings);
+        }
     }
 
     // IMPROVEMENT_PLAN 1.1: Log DLP findings for observability

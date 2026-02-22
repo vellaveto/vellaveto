@@ -184,6 +184,15 @@ impl LlmEvalInput {
         self
     }
 
+    /// Maximum length of a single NL policy string (64KB).
+    const MAX_NL_POLICY_LEN: usize = 64_000;
+    /// Maximum length of a context message content field (32KB).
+    const MAX_CONTEXT_CONTENT_LEN: usize = 32_000;
+    /// Maximum length of a context message role field.
+    const MAX_CONTEXT_ROLE_LEN: usize = 32;
+    /// Maximum serialized size of parameters JSON (1MB).
+    const MAX_PARAMETERS_SIZE: usize = 1_048_576;
+
     /// Validates the input, returning an error if invalid.
     pub fn validate(&self) -> Result<(), LlmEvalError> {
         if self.tool.is_empty() {
@@ -202,12 +211,57 @@ impl LlmEvalInput {
                 "too many NL policies (max 50)".to_string(),
             ));
         }
+        // SECURITY (FIND-R172-002): Bound individual NL policy string lengths.
+        for (i, policy) in self.nl_policies.iter().enumerate() {
+            if policy.len() > Self::MAX_NL_POLICY_LEN {
+                return Err(LlmEvalError::InvalidInput(format!(
+                    "nl_policies[{}] exceeds max length {}",
+                    i,
+                    Self::MAX_NL_POLICY_LEN
+                )));
+            }
+        }
         if let Some(ctx) = &self.context {
             if ctx.len() > 100 {
                 return Err(LlmEvalError::InvalidInput(
                     "context too long (max 100 messages)".to_string(),
                 ));
             }
+            // SECURITY (FIND-R172-002): Bound per-element context fields.
+            for (i, msg) in ctx.iter().enumerate() {
+                if msg.role.len() > Self::MAX_CONTEXT_ROLE_LEN {
+                    return Err(LlmEvalError::InvalidInput(format!(
+                        "context[{}].role exceeds max length {}",
+                        i,
+                        Self::MAX_CONTEXT_ROLE_LEN
+                    )));
+                }
+                if msg.content.len() > Self::MAX_CONTEXT_CONTENT_LEN {
+                    return Err(LlmEvalError::InvalidInput(format!(
+                        "context[{}].content exceeds max length {}",
+                        i,
+                        Self::MAX_CONTEXT_CONTENT_LEN
+                    )));
+                }
+                // SECURITY (FIND-R172-004): Reject control/format chars in role/content.
+                if vellaveto_types::has_dangerous_chars(&msg.role) {
+                    return Err(LlmEvalError::InvalidInput(format!(
+                        "context[{}].role contains control or format characters",
+                        i
+                    )));
+                }
+            }
+        }
+        // SECURITY (FIND-R172-002): Bound parameters serialized size.
+        let params_size = serde_json::to_string(&self.parameters)
+            .map(|s| s.len())
+            .unwrap_or(0);
+        if params_size > Self::MAX_PARAMETERS_SIZE {
+            return Err(LlmEvalError::InvalidInput(format!(
+                "parameters size {} exceeds max {}",
+                params_size,
+                Self::MAX_PARAMETERS_SIZE
+            )));
         }
         Ok(())
     }
