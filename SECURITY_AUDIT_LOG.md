@@ -3,9 +3,21 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 192)
-> **Total audit rounds:** 192
-> **Cumulative findings fixed:** 625+
+> **Last updated:** 2026-02-22 (Round 194)
+> **Total audit rounds:** 194
+> **Cumulative findings fixed:** 627+
+
+---
+
+## Round 192 — ABAC Audit Field Parity + ResourceRead Least-Agency Tracking (2 findings fixed)
+
+**Subsystem:** `vellaveto-http-proxy/src/proxy/handlers.rs`, `vellaveto-http-proxy/src/proxy/websocket/mod.rs`, `vellaveto-http-proxy/src/proxy/grpc/service.rs`
+**Commit:** `1788169`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R192-001 | P3 | `handlers.rs` | Normalize ABAC audit field `"abac_policy_id"` → `"abac_policy"` across all 4 HTTP handler sites for consistency with WS/gRPC |
+| FIND-R192-002 | P2 | `handlers.rs`, `websocket/mod.rs`, `grpc/service.rs` | Add `least_agency.record_usage()` to ResourceRead ABAC Allow across all 3 transports, matching ToolCall/TaskRequest/ExtensionMethod parity |
 
 ---
 
