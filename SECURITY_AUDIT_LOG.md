@@ -3,9 +3,29 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 166)
-> **Total audit rounds:** 166
-> **Cumulative findings fixed:** 561+
+> **Last updated:** 2026-02-22 (Round 170)
+> **Total audit rounds:** 170
+> **Cumulative findings fixed:** 574+
+
+---
+
+## Round 168 — WS Non-JSON Audit Trail + Engine Stack Bounds + json_has_dangerous_chars Dedup (7 findings fixed)
+
+**Subsystem:** `vellaveto-http-proxy/src/proxy/websocket/mod.rs`, `vellaveto-engine/src/lib.rs`, `vellaveto-types/src/core.rs`, `vellaveto-http-proxy/src/proxy/grpc/service.rs`, `vellaveto-mcp/src/a2a/proxy.rs`
+**Commits:** `7d7c03a`, `b399b04`, `5fcb5a1`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R166-001 | P2 | `websocket/mod.rs` | WS upstream non-JSON text frames now scanned for DLP/injection before forwarding (previously bypassed all security checks) |
+| FIND-R166-003 | P3 | `websocket/mod.rs` | Log injection in `convert_to_ws_url` sanitized via `sanitize_for_log()` |
+| FIND-R166-004 | P3 | `a2a/proxy.rs` | `collect_string_leaves` stack push loops now check MAX_STACK_SIZE inside inner loops |
+| IMP-R166-002 | P2 | `grpc/service.rs` | gRPC `extract_scannable_text` delegates to shared `extract_text_from_result()` for full scan coverage (resource.blob, annotations, _meta) |
+| IMP-R166-001 | P2 | `core.rs` | `json_has_dangerous_chars` extracted to vellaveto-types, deduplicating from gRPC + A2A |
+| FIND-R168-001 | P2 | `websocket/mod.rs` | WS non-JSON DLP/injection detections now create audit log entries (was missing audit trail) |
+| FIND-R168-002 | P2 | `websocket/mod.rs` | WS non-JSON injection now logs in both blocking and log-only modes |
+| FIND-R168-003 | P3 | `engine/lib.rs` | `collect_all_string_values` stack bounded by MAX_STACK_SIZE=10,000 inside push loops |
+
+R166 verification: FIND-R166-001 partially fixed (audit gaps), completed in R168. FIND-R166-002/003/004 confirmed FIXED.
 
 ---
 
