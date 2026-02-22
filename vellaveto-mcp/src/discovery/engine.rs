@@ -322,8 +322,18 @@ fn infer_domain_tags(name: &str, description: &str) -> Vec<String> {
         ),
     ];
 
+    // SECURITY (FIND-R182-007): Use word-boundary matching instead of substring
+    // to prevent false positives (e.g. "api" matching inside "capital").
+    let words: Vec<&str> = text
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|s| !s.is_empty())
+        .collect();
+
     for (keywords, tag) in DOMAIN_MAP {
-        if keywords.iter().any(|kw| text.contains(kw)) {
+        if keywords
+            .iter()
+            .any(|kw| words.iter().any(|w| w == kw))
+        {
             tags.push(tag.to_string());
         }
     }
@@ -701,6 +711,25 @@ mod tests {
     fn test_infer_domain_tags_none() {
         let tags = infer_domain_tags("noop", "Does nothing useful");
         assert!(tags.is_empty());
+    }
+
+    #[test]
+    fn test_infer_domain_tags_no_substring_false_positive() {
+        // FIND-R182-007: "api" must not match inside "capital", "row" must not
+        // match inside "browse", "path" must not match inside "empathy".
+        let tags = infer_domain_tags("capital_gain", "Browse results with empathy");
+        assert!(
+            !tags.contains(&"network".to_string()),
+            "should not match 'api' inside 'capital'"
+        );
+        assert!(
+            !tags.contains(&"database".to_string()),
+            "should not match 'row' inside 'browse'"
+        );
+        assert!(
+            !tags.contains(&"filesystem".to_string()),
+            "should not match 'path' inside 'empathy'"
+        );
     }
 
     // ── Schema hash ─────────────────────────────────────────────────────
