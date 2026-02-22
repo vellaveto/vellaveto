@@ -76,15 +76,30 @@ impl MutationEngine {
     }
 
     /// Apply all mutations to all payloads in the given scenarios.
+    ///
+    /// SECURITY (FIND-R188-004): Caps total payloads per scenario at
+    /// `MAX_MUTATED_PAYLOADS` to prevent unbounded O(payloads × mutations) growth.
     pub fn mutate_all(&self, scenarios: &[AttackScenario]) -> Vec<AttackScenario> {
+        /// Maximum payloads per mutated scenario.
+        const MAX_MUTATED_PAYLOADS: usize = 10_000;
+
         let mutations = MutationType::all();
         scenarios
             .iter()
             .map(|scenario| {
                 let mut new_payloads = scenario.payloads.clone();
                 for payload in &scenario.payloads {
+                    if new_payloads.len() >= MAX_MUTATED_PAYLOADS {
+                        tracing::warn!(
+                            scenario = %scenario.id,
+                            "mutate_all payload cap reached ({}), truncating",
+                            MAX_MUTATED_PAYLOADS
+                        );
+                        break;
+                    }
                     let variants = self.mutate_payload(payload, mutations);
-                    new_payloads.extend(variants);
+                    let remaining = MAX_MUTATED_PAYLOADS.saturating_sub(new_payloads.len());
+                    new_payloads.extend(variants.into_iter().take(remaining));
                 }
                 AttackScenario {
                     id: format!("{}-mutated", scenario.id),

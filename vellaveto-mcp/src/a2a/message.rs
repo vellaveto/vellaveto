@@ -25,6 +25,29 @@ const MAX_A2A_METADATA_ENTRIES: usize = 100;
 /// Maximum length of inline base64 file content (16 MB).
 const MAX_A2A_FILE_BYTES_LEN: usize = 16 * 1024 * 1024;
 
+/// Maximum length of an A2A task_id.
+///
+/// Matches vellaveto-types `SecureTask::MAX_TASK_ID_LEN` (256).
+const MAX_A2A_TASK_ID_LEN: usize = 256;
+
+/// SECURITY (FIND-R188-002): Validate A2A task_id for length and dangerous chars.
+///
+/// Returns `None` for valid task IDs, `Some(reason)` for invalid ones.
+/// Prevents log injection, oversized allocation, and control character attacks.
+fn validate_a2a_task_id(tid: &str) -> Option<String> {
+    if tid.len() > MAX_A2A_TASK_ID_LEN {
+        return Some(format!(
+            "task_id length {} exceeds maximum {}",
+            tid.len(),
+            MAX_A2A_TASK_ID_LEN
+        ));
+    }
+    if vellaveto_types::has_dangerous_chars(tid) {
+        return Some("task_id contains control or format characters".to_string());
+    }
+    None
+}
+
 /// A2A Task state (from A2A specification).
 ///
 /// Represents the lifecycle states of an A2A task.
@@ -282,11 +305,19 @@ pub fn classify_a2a_message(msg: &Value) -> A2aMessageType {
                 Some(m) => {
                     let task_id = params
                         .and_then(|p| p.get("id"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
+                        .and_then(|v| v.as_str());
+                    // SECURITY (FIND-R188-002): Validate task_id when present.
+                    if let Some(tid) = task_id {
+                        if let Some(reason) = validate_a2a_task_id(tid) {
+                            return A2aMessageType::Invalid {
+                                id,
+                                reason: format!("message/send: {}", reason),
+                            };
+                        }
+                    }
                     A2aMessageType::MessageSend {
                         id,
-                        task_id,
+                        task_id: task_id.map(|s| s.to_string()),
                         message: m,
                     }
                 }
@@ -302,11 +333,19 @@ pub fn classify_a2a_message(msg: &Value) -> A2aMessageType {
                 Some(m) => {
                     let task_id = params
                         .and_then(|p| p.get("id"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
+                        .and_then(|v| v.as_str());
+                    // SECURITY (FIND-R188-002): Validate task_id when present.
+                    if let Some(tid) = task_id {
+                        if let Some(reason) = validate_a2a_task_id(tid) {
+                            return A2aMessageType::Invalid {
+                                id,
+                                reason: format!("message/stream: {}", reason),
+                            };
+                        }
+                    }
                     A2aMessageType::MessageStream {
                         id,
-                        task_id,
+                        task_id: task_id.map(|s| s.to_string()),
                         message: m,
                     }
                 }
@@ -319,10 +358,19 @@ pub fn classify_a2a_message(msg: &Value) -> A2aMessageType {
         "tasks/get" => {
             let task_id = params.and_then(|p| p.get("id")).and_then(|v| v.as_str());
             match task_id {
-                Some(tid) => A2aMessageType::TaskGet {
-                    id,
-                    task_id: tid.to_string(),
-                },
+                Some(tid) => {
+                    // SECURITY (FIND-R188-002): Validate task_id.
+                    if let Some(reason) = validate_a2a_task_id(tid) {
+                        return A2aMessageType::Invalid {
+                            id,
+                            reason: format!("tasks/get: {}", reason),
+                        };
+                    }
+                    A2aMessageType::TaskGet {
+                        id,
+                        task_id: tid.to_string(),
+                    }
+                }
                 None => A2aMessageType::Invalid {
                     id,
                     reason: "tasks/get requires id in params".to_string(),
@@ -332,10 +380,19 @@ pub fn classify_a2a_message(msg: &Value) -> A2aMessageType {
         "tasks/cancel" => {
             let task_id = params.and_then(|p| p.get("id")).and_then(|v| v.as_str());
             match task_id {
-                Some(tid) => A2aMessageType::TaskCancel {
-                    id,
-                    task_id: tid.to_string(),
-                },
+                Some(tid) => {
+                    // SECURITY (FIND-R188-002): Validate task_id.
+                    if let Some(reason) = validate_a2a_task_id(tid) {
+                        return A2aMessageType::Invalid {
+                            id,
+                            reason: format!("tasks/cancel: {}", reason),
+                        };
+                    }
+                    A2aMessageType::TaskCancel {
+                        id,
+                        task_id: tid.to_string(),
+                    }
+                }
                 None => A2aMessageType::Invalid {
                     id,
                     reason: "tasks/cancel requires id in params".to_string(),
@@ -345,10 +402,19 @@ pub fn classify_a2a_message(msg: &Value) -> A2aMessageType {
         "tasks/resubscribe" => {
             let task_id = params.and_then(|p| p.get("id")).and_then(|v| v.as_str());
             match task_id {
-                Some(tid) => A2aMessageType::TaskResubscribe {
-                    id,
-                    task_id: tid.to_string(),
-                },
+                Some(tid) => {
+                    // SECURITY (FIND-R188-002): Validate task_id.
+                    if let Some(reason) = validate_a2a_task_id(tid) {
+                        return A2aMessageType::Invalid {
+                            id,
+                            reason: format!("tasks/resubscribe: {}", reason),
+                        };
+                    }
+                    A2aMessageType::TaskResubscribe {
+                        id,
+                        task_id: tid.to_string(),
+                    }
+                }
                 None => A2aMessageType::Invalid {
                     id,
                     reason: "tasks/resubscribe requires id in params".to_string(),
@@ -771,6 +837,84 @@ mod tests {
         let json = r#"{"name":"test","extra":"bad"}"#;
         let result: Result<FileContent, _> = serde_json::from_str(json);
         assert!(result.is_err(), "deny_unknown_fields should reject unknown fields");
+    }
+
+    #[test]
+    fn test_classify_a2a_rejects_oversized_task_id() {
+        let long_id = "x".repeat(300);
+        let msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "tasks/get",
+            "id": 1,
+            "params": { "id": long_id }
+        });
+        let result = classify_a2a_message(&msg);
+        match result {
+            A2aMessageType::Invalid { reason, .. } => {
+                assert!(reason.contains("exceeds maximum"), "reason: {reason}");
+            }
+            other => panic!("expected Invalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_classify_a2a_rejects_control_chars_in_task_id() {
+        let msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "tasks/cancel",
+            "id": 1,
+            "params": { "id": "task\x00injected" }
+        });
+        let result = classify_a2a_message(&msg);
+        match result {
+            A2aMessageType::Invalid { reason, .. } => {
+                assert!(
+                    reason.contains("control or format"),
+                    "reason: {reason}"
+                );
+            }
+            other => panic!("expected Invalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_classify_a2a_message_send_valid_task_id() {
+        let msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "message/send",
+            "id": 1,
+            "params": {
+                "id": "valid-task-123",
+                "message": { "role": "user", "parts": [] }
+            }
+        });
+        let result = classify_a2a_message(&msg);
+        match result {
+            A2aMessageType::MessageSend { task_id, .. } => {
+                assert_eq!(task_id.as_deref(), Some("valid-task-123"));
+            }
+            other => panic!("expected MessageSend, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_classify_a2a_message_send_rejects_bad_task_id() {
+        let msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "message/send",
+            "id": 1,
+            "params": {
+                "id": "task\u{200B}invisible",
+                "message": { "role": "user", "parts": [] }
+            }
+        });
+        let result = classify_a2a_message(&msg);
+        match result {
+            A2aMessageType::Invalid { reason, .. } => {
+                assert!(reason.contains("control or format"), "reason: {reason}");
+            }
+            other => panic!("expected Invalid, got {other:?}"),
+        }
     }
 
     #[test]

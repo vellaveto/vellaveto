@@ -89,6 +89,18 @@ pub fn generate_did_plc_from_key(
             MAX_KEY_ALGORITHM_LEN
         )));
     }
+    // SECURITY (FIND-R188-006): Reject control/format characters in key_algorithm
+    // and public_key_hex to prevent log injection and canonicalization attacks.
+    if vellaveto_types::has_dangerous_chars(key_algorithm) {
+        return Err(DidPlcError::MissingField(
+            "key_algorithm contains control or format characters".to_string(),
+        ));
+    }
+    if vellaveto_types::has_dangerous_chars(public_key_hex) {
+        return Err(DidPlcError::MissingField(
+            "public_key_hex contains control or format characters".to_string(),
+        ));
+    }
 
     // Construct a did:key-style identifier (simplified)
     let key_id = format!("did:key:z{}:{}", key_algorithm, public_key_hex);

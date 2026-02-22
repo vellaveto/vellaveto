@@ -122,6 +122,21 @@ impl FipsMode {
             return Ok(());
         }
 
+        // SECURITY (FIND-R188-003): Validate input before processing to prevent
+        // oversized allocation in to_lowercase() and control char injection.
+        const MAX_ALGORITHM_NAME_LEN: usize = 64;
+        if algorithm.len() > MAX_ALGORITHM_NAME_LEN {
+            return Err(FipsError::NonFipsAlgorithm(format!(
+                "<algorithm name too long: {} bytes>",
+                algorithm.len()
+            )));
+        }
+        if vellaveto_types::has_dangerous_chars(algorithm) {
+            return Err(FipsError::NonFipsAlgorithm(
+                "<algorithm name contains control characters>".to_string(),
+            ));
+        }
+
         let alg_lower = algorithm.to_lowercase();
 
         // Check explicit non-FIPS list first

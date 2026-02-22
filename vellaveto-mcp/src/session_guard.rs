@@ -344,6 +344,10 @@ fn truncate_event_field(s: &str) -> &str {
 /// This guard prevents infinite recursion if a bug causes a state loop.
 const MAX_COMPUTE_TRANSITION_DEPTH: u8 = 2;
 
+/// SECURITY (FIND-R188-005): Maximum failed admin unlock attempts before
+/// permanently ending the session. Prevents brute-force token guessing.
+const MAX_FAILED_UNLOCK_ATTEMPTS: u32 = 5;
+
 struct SessionContext {
     state: SessionState,
     anomaly_count: u32,
@@ -352,6 +356,8 @@ struct SessionContext {
     last_action_at: u64,
     /// Timestamp when the session entered the Locked state (for cooldown validation).
     locked_at: Option<u64>,
+    /// SECURITY (FIND-R188-005): Count of failed admin unlock attempts.
+    failed_unlock_attempts: u32,
     transition_history: Vec<(SessionState, SessionState, u64)>,
 }
 
@@ -364,6 +370,7 @@ impl SessionContext {
             started_at: now,
             last_action_at: now,
             locked_at: None,
+            failed_unlock_attempts: 0,
             transition_history: Vec::new(),
         }
     }
@@ -769,7 +776,21 @@ impl SessionGuard {
             // The token is verified with constant-time comparison to prevent
             // timing side-channels. If no admin_unlock_token is configured,
             // admin unlock is disabled entirely (fail-closed).
+            // SECURITY (FIND-R188-005): Rate-limit failed attempts — end session
+            // after MAX_FAILED_UNLOCK_ATTEMPTS to prevent brute-force.
             (SessionState::Locked, SessionEvent::AdminUnlock { ref admin_token }) => {
+                // Check if too many failed attempts already
+                if ctx.failed_unlock_attempts >= MAX_FAILED_UNLOCK_ATTEMPTS {
+                    return (
+                        SessionState::Ended,
+                        TransitionAction::DenyAll {
+                            reason: format!(
+                                "Admin unlock permanently denied: {} failed attempts exceeded limit ({})",
+                                ctx.failed_unlock_attempts, MAX_FAILED_UNLOCK_ATTEMPTS
+                            ),
+                        },
+                    );
+                }
                 let authorized = match &self.config.admin_unlock_token {
                     Some(expected) => {
                         use subtle::ConstantTimeEq;
@@ -780,6 +801,7 @@ impl SessionGuard {
                 if authorized {
                     ctx.anomaly_count = 0;
                     ctx.violation_count = 0;
+                    ctx.failed_unlock_attempts = 0;
                     (
                         SessionState::Active,
                         TransitionAction::AuditEvent {
@@ -787,13 +809,26 @@ impl SessionGuard {
                         },
                     )
                 } else {
-                    (
-                        SessionState::Locked,
-                        TransitionAction::DenyAll {
-                            reason: "Admin unlock denied: invalid or missing admin token"
-                                .to_string(),
-                        },
-                    )
+                    ctx.failed_unlock_attempts = ctx.failed_unlock_attempts.saturating_add(1);
+                    if ctx.failed_unlock_attempts >= MAX_FAILED_UNLOCK_ATTEMPTS {
+                        (
+                            SessionState::Ended,
+                            TransitionAction::DenyAll {
+                                reason: format!(
+                                    "Admin unlock permanently denied: {} failed attempts exceeded limit ({})",
+                                    ctx.failed_unlock_attempts, MAX_FAILED_UNLOCK_ATTEMPTS
+                                ),
+                            },
+                        )
+                    } else {
+                        (
+                            SessionState::Locked,
+                            TransitionAction::DenyAll {
+                                reason: "Admin unlock denied: invalid or missing admin token"
+                                    .to_string(),
+                            },
+                        )
+                    }
                 }
             }
             (SessionState::Locked, SessionEvent::SessionEnd) => (
