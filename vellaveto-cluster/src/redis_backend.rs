@@ -191,15 +191,43 @@ impl RedisBackend {
     }
 
     /// Set the default TTL for approvals (useful for testing).
-    pub fn with_ttl_secs(mut self, ttl: u64) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if TTL is 0 or exceeds 30 days (2,592,000 seconds).
+    pub fn with_ttl_secs(mut self, ttl: u64) -> Result<Self, ClusterError> {
+        // SECURITY (FIND-R184-006): Validate TTL to prevent immediate-expiry (0)
+        // or i64 overflow (u64::MAX wraps to negative Duration::seconds).
+        const MAX_APPROVAL_TTL_SECS: u64 = 86400 * 30; // 30 days
+        if ttl == 0 {
+            return Err(ClusterError::Validation(
+                "approval TTL must be >= 1 second".to_string(),
+            ));
+        }
+        if ttl > MAX_APPROVAL_TTL_SECS {
+            return Err(ClusterError::Validation(format!(
+                "approval TTL {} exceeds maximum {} seconds",
+                ttl, MAX_APPROVAL_TTL_SECS
+            )));
+        }
         self.default_ttl_secs = ttl;
-        self
+        Ok(self)
     }
 
     /// Set the maximum number of pending approvals.
-    pub fn with_max_pending(mut self, max: usize) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if max is 0.
+    pub fn with_max_pending(mut self, max: usize) -> Result<Self, ClusterError> {
+        // SECURITY (FIND-R184-006): Zero means all creation blocked — likely misconfiguration.
+        if max == 0 {
+            return Err(ClusterError::Validation(
+                "max_pending must be >= 1".to_string(),
+            ));
+        }
         self.max_pending = max;
-        self
+        Ok(self)
     }
 
     fn key(&self, suffix: &str) -> String {
