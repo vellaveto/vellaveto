@@ -98,8 +98,25 @@ impl CapabilityGrant {
     pub const MAX_ENTRIES: usize = 1000;
     /// Maximum byte length per path or domain entry.
     pub const MAX_ENTRY_LEN: usize = 2048;
+    /// SECURITY (FIND-R174-005): Maximum byte length for pattern fields.
+    pub const MAX_PATTERN_LEN: usize = 1024;
 
     pub fn validate(&self) -> Result<(), CapabilityError> {
+        // SECURITY (FIND-R174-005): Validate pattern field lengths.
+        if self.tool_pattern.len() > Self::MAX_PATTERN_LEN {
+            return Err(CapabilityError::ValidationFailed(format!(
+                "CapabilityGrant tool_pattern length {} exceeds maximum {}",
+                self.tool_pattern.len(),
+                Self::MAX_PATTERN_LEN
+            )));
+        }
+        if self.function_pattern.len() > Self::MAX_PATTERN_LEN {
+            return Err(CapabilityError::ValidationFailed(format!(
+                "CapabilityGrant function_pattern length {} exceeds maximum {}",
+                self.function_pattern.len(),
+                Self::MAX_PATTERN_LEN
+            )));
+        }
         // SECURITY (FIND-R113-007): Validate control/format chars on pattern fields.
         if crate::core::has_dangerous_chars(&self.tool_pattern)
         {

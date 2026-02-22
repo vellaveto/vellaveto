@@ -319,6 +319,26 @@ impl SessionGuardConfig {
 /// Maximum number of transitions stored per session to prevent unbounded growth.
 const MAX_TRANSITION_HISTORY: usize = 1000;
 
+/// SECURITY (FIND-R174-002): Maximum session ID length to prevent HashMap key bloat.
+const MAX_SESSION_ID_LEN: usize = 256;
+
+/// SECURITY (FIND-R174-006): Maximum length for event description/reason strings
+/// included in TransitionAction messages. Prevents unbounded string growth from
+/// user-supplied SessionEvent fields.
+const MAX_EVENT_FIELD_LEN: usize = 1024;
+
+/// Truncate a string to `MAX_EVENT_FIELD_LEN` at a UTF-8 char boundary.
+fn truncate_event_field(s: &str) -> &str {
+    if s.len() <= MAX_EVENT_FIELD_LEN {
+        return s;
+    }
+    let mut end = MAX_EVENT_FIELD_LEN;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 /// SECURITY (FIND-R73-007): Maximum recursion depth for compute_transition().
 /// The Init catch-all arm recurses once to reprocess the event in Active state.
 /// This guard prevents infinite recursion if a bug causes a state loop.
@@ -404,6 +424,33 @@ impl SessionGuard {
         event: SessionEvent,
         now: u64,
     ) -> Result<TransitionResult, SessionGuardError> {
+        // SECURITY (FIND-R174-002): Validate session_id before use as HashMap key.
+        if session_id.is_empty() {
+            return Err(SessionGuardError::SessionNotFound(
+                "session_id must not be empty".to_string(),
+            ));
+        }
+        if session_id.len() > MAX_SESSION_ID_LEN {
+            return Err(SessionGuardError::SessionNotFound(format!(
+                "session_id length {} exceeds maximum {}",
+                session_id.len(),
+                MAX_SESSION_ID_LEN
+            )));
+        }
+        if session_id.chars().any(|c| c.is_control()) {
+            return Err(SessionGuardError::SessionNotFound(
+                "session_id contains control characters".to_string(),
+            ));
+        }
+        if session_id
+            .chars()
+            .any(vellaveto_types::is_unicode_format_char)
+        {
+            return Err(SessionGuardError::SessionNotFound(
+                "session_id contains Unicode format characters".to_string(),
+            ));
+        }
+
         let mut sessions = self
             .sessions
             .write()
@@ -526,13 +573,15 @@ impl SessionGuard {
                 ctx.anomaly_count = ctx.anomaly_count.saturating_add(1);
                 // Critical severity → immediate Suspicious
                 let immediate = matches!(severity, AnomalySeverity::Critical);
+                // SECURITY (FIND-R174-006): Truncate user-supplied description.
+                let desc = truncate_event_field(description);
                 if immediate || ctx.anomaly_count >= self.config.suspicious_threshold {
                     (
                         SessionState::Suspicious,
                         TransitionAction::Warn {
                             message: format!(
                                 "Session transitioning to Suspicious: {} (anomalies: {})",
-                                description, ctx.anomaly_count
+                                desc, ctx.anomaly_count
                             ),
                         },
                     )
@@ -540,7 +589,7 @@ impl SessionGuard {
                     (
                         SessionState::Active,
                         TransitionAction::Warn {
-                            message: format!("Anomaly detected: {}", description),
+                            message: format!("Anomaly detected: {}", desc),
                         },
                     )
                 }
@@ -548,13 +597,15 @@ impl SessionGuard {
             (SessionState::Active, SessionEvent::PolicyViolation { reason }) => {
                 ctx.violation_count = ctx.violation_count.saturating_add(1);
                 ctx.anomaly_count = ctx.anomaly_count.saturating_add(1);
+                // SECURITY (FIND-R174-006): Truncate user-supplied reason.
+                let rsn = truncate_event_field(reason);
                 if ctx.anomaly_count >= self.config.suspicious_threshold {
                     (
                         SessionState::Suspicious,
                         TransitionAction::Warn {
                             message: format!(
                                 "Session transitioning to Suspicious after violation: {}",
-                                reason
+                                rsn
                             ),
                         },
                     )
@@ -562,12 +613,16 @@ impl SessionGuard {
                     (
                         SessionState::Active,
                         TransitionAction::Warn {
-                            message: format!("Policy violation: {}", reason),
+                            message: format!("Policy violation: {}", rsn),
                         },
                     )
                 }
             }
             (SessionState::Active, SessionEvent::RepeatedViolation { count }) => {
+                // SECURITY (FIND-R174-003): count=0 should be a no-op, not escalate state.
+                if *count == 0 {
+                    return (SessionState::Active, TransitionAction::None);
+                }
                 ctx.violation_count = ctx.violation_count.saturating_add(*count);
                 ctx.anomaly_count = ctx.anomaly_count.saturating_add(*count);
                 (
@@ -601,13 +656,15 @@ impl SessionGuard {
                 ctx.anomaly_count = ctx.anomaly_count.saturating_add(1);
                 let immediate =
                     matches!(severity, AnomalySeverity::Critical | AnomalySeverity::High);
+                // SECURITY (FIND-R174-006): Truncate user-supplied description.
+                let desc = truncate_event_field(description);
                 if immediate || ctx.violation_count >= self.config.lock_threshold {
                     (
                         SessionState::Locked,
                         TransitionAction::DenyAll {
                             reason: format!(
                                 "Session locked: {} (violations: {})",
-                                description, ctx.violation_count
+                                desc, ctx.violation_count
                             ),
                         },
                     )
@@ -615,20 +672,22 @@ impl SessionGuard {
                     (
                         SessionState::Suspicious,
                         TransitionAction::Warn {
-                            message: format!("Anomaly in suspicious session: {}", description),
+                            message: format!("Anomaly in suspicious session: {}", desc),
                         },
                     )
                 }
             }
             (SessionState::Suspicious, SessionEvent::PolicyViolation { reason }) => {
                 ctx.violation_count = ctx.violation_count.saturating_add(1);
+                // SECURITY (FIND-R174-006): Truncate user-supplied reason.
+                let rsn = truncate_event_field(reason);
                 if ctx.violation_count >= self.config.lock_threshold {
                     (
                         SessionState::Locked,
                         TransitionAction::DenyAll {
                             reason: format!(
                                 "Session locked after {} violations: {}",
-                                ctx.violation_count, reason
+                                ctx.violation_count, rsn
                             ),
                         },
                     )
@@ -636,12 +695,16 @@ impl SessionGuard {
                     (
                         SessionState::Suspicious,
                         TransitionAction::Warn {
-                            message: format!("Policy violation in suspicious session: {}", reason),
+                            message: format!("Policy violation in suspicious session: {}", rsn),
                         },
                     )
                 }
             }
             (SessionState::Suspicious, SessionEvent::RepeatedViolation { count }) => {
+                // SECURITY (FIND-R174-003): count=0 should be a no-op, not escalate state.
+                if *count == 0 {
+                    return (SessionState::Suspicious, TransitionAction::None);
+                }
                 ctx.violation_count = ctx.violation_count.saturating_add(*count);
                 (
                     SessionState::Locked,
@@ -824,7 +887,9 @@ impl SessionGuard {
     ) -> Result<TransitionResult, SessionGuardError> {
         // Map similarity score to anomaly severity:
         // 0.0 = completely different (Critical), 1.0 = identical (Low)
-        let severity = if drift.similarity < 0.2 {
+        // SECURITY (FIND-R174-001): NaN/Infinity/negative values fail-closed to Critical.
+        // NaN causes all `<` comparisons to return false, falling through to Low.
+        let severity = if !drift.similarity.is_finite() || drift.similarity < 0.2 {
             AnomalySeverity::Critical
         } else if drift.similarity < 0.4 {
             AnomalySeverity::High

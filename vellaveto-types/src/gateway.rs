@@ -58,9 +58,55 @@ impl UpstreamBackend {
     /// SECURITY (FIND-R51-011): After scheme validation, parse the URL host
     /// and reject localhost, loopback, link-local, and private IP ranges to
     /// prevent SSRF attacks routing traffic to internal services.
+    /// Maximum length for backend ID.
+    const MAX_ID_LEN: usize = 256;
+    /// Maximum length per tool prefix.
+    const MAX_PREFIX_LEN: usize = 256;
+    /// Maximum number of tool prefixes per backend.
+    const MAX_PREFIXES: usize = 1000;
+
     pub fn validate(&self) -> Result<(), String> {
         if self.id.is_empty() {
             return Err("UpstreamBackend id must not be empty".to_string());
+        }
+        // SECURITY (FIND-R174-004): Validate id length and characters.
+        if self.id.len() > Self::MAX_ID_LEN {
+            return Err(format!(
+                "UpstreamBackend id length {} exceeds maximum {}",
+                self.id.len(),
+                Self::MAX_ID_LEN
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.id) {
+            return Err(
+                "UpstreamBackend id contains control or Unicode format characters".to_string(),
+            );
+        }
+        // SECURITY (FIND-R174-004): Validate tool_prefixes count and entries.
+        if self.tool_prefixes.len() > Self::MAX_PREFIXES {
+            return Err(format!(
+                "UpstreamBackend '{}' tool_prefixes count {} exceeds maximum {}",
+                self.id,
+                self.tool_prefixes.len(),
+                Self::MAX_PREFIXES
+            ));
+        }
+        for (i, prefix) in self.tool_prefixes.iter().enumerate() {
+            if prefix.len() > Self::MAX_PREFIX_LEN {
+                return Err(format!(
+                    "UpstreamBackend '{}' tool_prefixes[{}] length {} exceeds maximum {}",
+                    self.id,
+                    i,
+                    prefix.len(),
+                    Self::MAX_PREFIX_LEN
+                ));
+            }
+            if crate::core::has_dangerous_chars(prefix) {
+                return Err(format!(
+                    "UpstreamBackend '{}' tool_prefixes[{}] contains control or Unicode format characters",
+                    self.id, i
+                ));
+            }
         }
         if self.url.is_empty() {
             return Err(format!(

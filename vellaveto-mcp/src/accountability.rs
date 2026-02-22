@@ -28,6 +28,9 @@ const MAX_STATEMENT_LEN: usize = 4096;
 /// SECURITY (IMP-R118-013): Maximum length for policy_hash strings.
 const MAX_POLICY_HASH_LEN: usize = 256;
 
+/// SECURITY (FIND-R174-007): Maximum length for DID strings.
+const MAX_DID_LEN: usize = 512;
+
 /// SECURITY (IMP-R118-004): Validate string has no control or Unicode format characters.
 /// SECURITY (IMP-R120-008): Delegates to shared `has_dangerous_chars()` predicate.
 fn validate_no_dangerous_chars(value: &str, field_name: &str) -> Result<(), AttestationError> {
@@ -135,6 +138,14 @@ pub fn sign_attestation(
     validate_no_dangerous_chars(statement, "statement")?;
     validate_no_dangerous_chars(policy_hash, "policy_hash")?;
     if let Some(d) = did {
+        // SECURITY (FIND-R174-007): Validate DID length.
+        if d.len() > MAX_DID_LEN {
+            return Err(AttestationError::SigningFailed(format!(
+                "did length {} exceeds maximum {}",
+                d.len(),
+                MAX_DID_LEN
+            )));
+        }
         validate_no_dangerous_chars(d, "did")?;
     }
 
