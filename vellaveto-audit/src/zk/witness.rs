@@ -73,10 +73,22 @@ impl WitnessStore {
     }
 
     /// Create a new witness store with a custom capacity.
+    ///
+    /// SECURITY (FIND-R176-007): If `max_capacity` is 0, it is silently
+    /// clamped to 1 and a warning is logged to prevent a permanently full
+    /// store that disables ZK audit without any startup error.
     pub fn with_capacity(max_capacity: usize) -> Self {
+        let effective = if max_capacity == 0 {
+            tracing::warn!(
+                "WitnessStore::with_capacity(0) is invalid — clamping to 1"
+            );
+            1
+        } else {
+            max_capacity
+        };
         Self {
             witnesses: Mutex::new(Vec::new()),
-            max_capacity,
+            max_capacity: effective,
         }
     }
 

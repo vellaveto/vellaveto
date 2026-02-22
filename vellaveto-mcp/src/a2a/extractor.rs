@@ -122,10 +122,13 @@ pub fn make_a2a_error_response(id: &Value, code: i32, message: &str) -> Value {
 /// Uses [`vellaveto_types::json_rpc::VALIDATION_ERROR`] with the denial reason.
 pub fn make_a2a_denial_response(id: &Value, reason: &str) -> Value {
     use vellaveto_types::json_rpc;
+    // SECURITY (FIND-R176-010): Sanitize reason to prevent control char propagation
+    // into client-visible error messages and audit logs.
+    let sanitized = vellaveto_types::sanitize_for_log(reason, 256);
     make_a2a_error_response(
         id,
         json_rpc::VALIDATION_ERROR as i32,
-        &format!("Policy denied: {}", reason),
+        &format!("Policy denied: {}", sanitized),
     )
 }
 

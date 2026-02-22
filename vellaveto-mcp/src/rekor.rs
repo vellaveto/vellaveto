@@ -102,6 +102,103 @@ pub struct RekorInclusionProof {
     pub hashes: Vec<String>,
 }
 
+impl RekorEntry {
+    /// Maximum length for hex-encoded log_id.
+    const MAX_LOG_ID_LEN: usize = 128;
+    /// Maximum length for api_version.
+    const MAX_API_VERSION_LEN: usize = 32;
+    /// Maximum length for entry kind.
+    const MAX_KIND_LEN: usize = 64;
+    /// Maximum length for base64-encoded signature/public key content.
+    const MAX_CRYPTO_CONTENT_LEN: usize = 16384;
+    /// Maximum length for hash algorithm name.
+    const MAX_HASH_ALGO_LEN: usize = 32;
+    /// Maximum length for hex-encoded hash value.
+    const MAX_HASH_VALUE_LEN: usize = 128;
+    /// Maximum number of inclusion proof hashes.
+    const MAX_PROOF_HASHES: usize = 64;
+
+    /// SECURITY (FIND-R176-006): Validate a deserialized Rekor entry.
+    pub fn validate(&self) -> Result<(), RekorError> {
+        if self.log_id.len() > Self::MAX_LOG_ID_LEN {
+            return Err(RekorError::InvalidProof(format!(
+                "log_id length {} exceeds maximum {}",
+                self.log_id.len(),
+                Self::MAX_LOG_ID_LEN
+            )));
+        }
+        if self.body.api_version.len() > Self::MAX_API_VERSION_LEN {
+            return Err(RekorError::InvalidProof(format!(
+                "api_version length {} exceeds maximum {}",
+                self.body.api_version.len(),
+                Self::MAX_API_VERSION_LEN
+            )));
+        }
+        if self.body.kind.len() > Self::MAX_KIND_LEN {
+            return Err(RekorError::InvalidProof(format!(
+                "kind length {} exceeds maximum {}",
+                self.body.kind.len(),
+                Self::MAX_KIND_LEN
+            )));
+        }
+        if self.body.spec.signature.content.len() > Self::MAX_CRYPTO_CONTENT_LEN {
+            return Err(RekorError::InvalidProof(format!(
+                "signature content length {} exceeds maximum {}",
+                self.body.spec.signature.content.len(),
+                Self::MAX_CRYPTO_CONTENT_LEN
+            )));
+        }
+        if self.body.spec.signature.public_key.content.len() > Self::MAX_CRYPTO_CONTENT_LEN {
+            return Err(RekorError::InvalidProof(format!(
+                "public_key content length {} exceeds maximum {}",
+                self.body.spec.signature.public_key.content.len(),
+                Self::MAX_CRYPTO_CONTENT_LEN
+            )));
+        }
+        if self.body.spec.data.hash.algorithm.len() > Self::MAX_HASH_ALGO_LEN {
+            return Err(RekorError::InvalidProof(format!(
+                "hash algorithm length {} exceeds maximum {}",
+                self.body.spec.data.hash.algorithm.len(),
+                Self::MAX_HASH_ALGO_LEN
+            )));
+        }
+        if self.body.spec.data.hash.value.len() > Self::MAX_HASH_VALUE_LEN {
+            return Err(RekorError::InvalidProof(format!(
+                "hash value length {} exceeds maximum {}",
+                self.body.spec.data.hash.value.len(),
+                Self::MAX_HASH_VALUE_LEN
+            )));
+        }
+        if let Some(ref proof) = self.inclusion_proof {
+            if proof.root_hash.len() > Self::MAX_HASH_VALUE_LEN {
+                return Err(RekorError::InvalidProof(format!(
+                    "root_hash length {} exceeds maximum {}",
+                    proof.root_hash.len(),
+                    Self::MAX_HASH_VALUE_LEN
+                )));
+            }
+            if proof.hashes.len() > Self::MAX_PROOF_HASHES {
+                return Err(RekorError::InvalidProof(format!(
+                    "proof hashes count {} exceeds maximum {}",
+                    proof.hashes.len(),
+                    Self::MAX_PROOF_HASHES
+                )));
+            }
+            for (i, hash) in proof.hashes.iter().enumerate() {
+                if hash.len() > Self::MAX_HASH_VALUE_LEN {
+                    return Err(RekorError::InvalidProof(format!(
+                        "proof hash[{}] length {} exceeds maximum {}",
+                        i,
+                        hash.len(),
+                        Self::MAX_HASH_VALUE_LEN
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Verification
 // ═══════════════════════════════════════════════════════════════════

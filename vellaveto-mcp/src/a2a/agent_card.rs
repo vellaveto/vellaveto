@@ -597,6 +597,17 @@ pub fn validate_agent_card(card: &AgentCard) -> Result<(), A2aError> {
                     MAX_AUTH_SCHEME_DETAILS
                 )));
             }
+            // SECURITY (FIND-R176-009): Per-value size bound on auth scheme details.
+            const MAX_AUTH_DETAIL_VALUE_SIZE: usize = 8192;
+            for (key, value) in &scheme.details {
+                let size = serde_json::to_string(value).map(|s| s.len()).unwrap_or(0);
+                if size > MAX_AUTH_DETAIL_VALUE_SIZE {
+                    return Err(A2aError::AgentCardInvalid(format!(
+                        "auth scheme detail '{}' value size {} exceeds maximum {}",
+                        key, size, MAX_AUTH_DETAIL_VALUE_SIZE
+                    )));
+                }
+            }
         }
     }
 
