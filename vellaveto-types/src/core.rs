@@ -70,6 +70,38 @@ pub fn sanitize_for_log(s: &str, max_len: usize) -> String {
         .collect()
 }
 
+/// Recursively check a JSON value for control or Unicode format characters
+/// in string values and object keys. Bounded by depth to prevent stack overflow.
+///
+/// SECURITY (IMP-R166-001): Canonical implementation extracted from duplicate
+/// copies in gRPC service.rs and A2A proxy.rs. Returns `true` (fail-closed)
+/// on excessive nesting (>64 levels).
+///
+/// # Examples
+/// ```
+/// use serde_json::json;
+/// assert!(!vellaveto_types::json_has_dangerous_chars(&json!({"key": "safe"}), 0));
+/// assert!(vellaveto_types::json_has_dangerous_chars(&json!({"key": "bad\x00"}), 0));
+/// ```
+pub fn json_has_dangerous_chars(val: &serde_json::Value, depth: usize) -> bool {
+    if depth > 64 {
+        return true; // fail-closed on excessive nesting
+    }
+    match val {
+        serde_json::Value::String(s) => has_dangerous_chars(s),
+        serde_json::Value::Array(arr) => arr
+            .iter()
+            .any(|v| json_has_dangerous_chars(v, depth + 1)),
+        serde_json::Value::Object(map) => {
+            map.keys().any(|k| has_dangerous_chars(k))
+                || map
+                    .values()
+                    .any(|v| json_has_dangerous_chars(v, depth + 1))
+        }
+        _ => false,
+    }
+}
+
 /// Check whether an IPv4 address is private/reserved for SSRF prevention.
 ///
 /// SECURITY (FIND-R116-TE-001): Shared helper used by `validate_url_no_ssrf` for

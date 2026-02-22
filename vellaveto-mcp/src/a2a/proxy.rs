@@ -36,28 +36,10 @@ use super::extractor::{
 };
 use super::message::{classify_a2a_message, A2aMessageType};
 
-/// SECURITY (FIND-R160-003): Recursively check a JSON value for control or
-/// Unicode format characters in string values and object keys.
-/// Bounded by depth to prevent stack overflow on deeply nested inputs.
-/// Parity with gRPC service.rs `json_contains_dangerous_chars`.
+/// SECURITY (FIND-R160-003, IMP-R166-001): Delegates to canonical
+/// `vellaveto_types::json_has_dangerous_chars` for control/format char detection.
 fn json_contains_dangerous_chars(val: &Value, depth: usize) -> bool {
-    if depth > 64 {
-        return true; // fail-closed on excessive nesting
-    }
-    match val {
-        Value::String(s) => vellaveto_types::has_dangerous_chars(s),
-        Value::Array(arr) => arr
-            .iter()
-            .any(|v| json_contains_dangerous_chars(v, depth + 1)),
-        Value::Object(map) => {
-            map.keys()
-                .any(|k| vellaveto_types::has_dangerous_chars(k))
-                || map
-                    .values()
-                    .any(|v| json_contains_dangerous_chars(v, depth + 1))
-        }
-        _ => false,
-    }
+    vellaveto_types::json_has_dangerous_chars(val, depth)
 }
 
 /// Configuration for the A2A proxy service.
