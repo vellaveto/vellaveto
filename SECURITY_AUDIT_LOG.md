@@ -3,9 +3,25 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 158)
-> **Total audit rounds:** 158
-> **Cumulative findings fixed:** 541+
+> **Last updated:** 2026-02-22 (Round 160)
+> **Total audit rounds:** 160
+> **Cumulative findings fixed:** 543+
+
+---
+
+## Round 159+160 — DELETE Call Chain Parity + WebSocket Agent Identity Storage (2 findings fixed)
+
+**Subsystem:** `vellaveto-http-proxy/src/proxy/handlers.rs`, `vellaveto-http-proxy/src/proxy/websocket/mod.rs`
+**Commit:** `1b629e7`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R159-001 | P1 | `handlers.rs` | DELETE handler skipped `validate_call_chain_header()` — parity gap with POST and GET allowing oversized/malformed X-Upstream-Agents headers |
+| FIND-R159-003 | P2 | `websocket/mod.rs` | WebSocket handler validated `agent_identity` but discarded it (`let _agent_identity`) — ABAC policies evaluated against None for WS connections |
+
+R160 (SDKs): No genuine P1/P2 — TS approval methods already exist, Python redaction correct, Go NaN handled by json.Marshal error.
+
+**Tests:** 95 http-proxy tests pass, 0 failures.
 
 ---
 
