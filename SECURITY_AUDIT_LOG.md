@@ -3,9 +3,24 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 152)
-> **Total audit rounds:** 152
-> **Cumulative findings fixed:** 536+
+> **Last updated:** 2026-02-22 (Round 154)
+> **Total audit rounds:** 154
+> **Cumulative findings fixed:** 539+
+
+---
+
+## Round 153+154 — DLP Hex Threshold + Simulator Truncation + ZK Error Normalization (3 findings fixed)
+
+**Subsystem:** `vellaveto-mcp/src/inspection/dlp.rs`, `vellaveto-server/src/routes/simulator.rs`, `vellaveto-server/src/routes/zk_audit.rs`
+**Commit:** `142ac93`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R154-001 | P1 | `dlp.rs` | Hex decode threshold lowered from 32 to 16 chars — catches short hex-encoded secrets (AWS AKIA prefix = 20 hex chars, Twilio SK = 32 hex chars) |
+| FIND-R153-006 | P2 | `simulator.rs` | Error message truncation uses UTF-8 safe `is_char_boundary()` loop — `String::truncate()` panics on non-char-boundary indices |
+| FIND-R153-001 | P2 | `zk_audit.rs` | ZK commitments error messages normalized — don't echo user-supplied `from`/`to` values or internal `MAX_ENTRY_RANGE_SPAN` bounds |
+
+**Tests added:** 1 (hex decode at 16-char threshold)
 
 ---
 
