@@ -102,13 +102,13 @@ fn test_ws_rate_limit_blocks_over_limit() {
 }
 
 #[test]
-fn test_ws_rate_limit_zero_means_unlimited() {
+fn test_ws_rate_limit_zero_blocks_all() {
     let counter = AtomicU64::new(0);
     let window = std::sync::Mutex::new(std::time::Instant::now());
 
-    // With limit=0, all messages should pass
-    for _ in 0..1000 {
-        assert!(check_rate_limit(&counter, &window, 0));
+    // SECURITY (FIND-R182-006): With limit=0, all messages should be blocked (fail-closed).
+    for _ in 0..10 {
+        assert!(!check_rate_limit(&counter, &window, 0));
     }
 }
 
@@ -898,13 +898,13 @@ fn test_ws_upstream_rate_limit_configurable() {
 }
 
 #[test]
-fn test_ws_upstream_rate_limit_zero_means_unlimited() {
+fn test_ws_upstream_rate_limit_zero_blocks_all() {
     let counter = AtomicU64::new(0);
     let window = std::sync::Mutex::new(std::time::Instant::now());
 
-    // With limit=0, all messages should pass (unlimited)
-    for _ in 0..2000 {
-        assert!(check_rate_limit(&counter, &window, 0));
+    // SECURITY (FIND-R182-006): With limit=0, all messages should be blocked (fail-closed).
+    for _ in 0..10 {
+        assert!(!check_rate_limit(&counter, &window, 0));
     }
 }
 

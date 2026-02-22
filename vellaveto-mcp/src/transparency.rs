@@ -74,15 +74,39 @@ pub fn inject_decision_explanation(
         ExplanationVerbosity::None => return, // already handled above
     };
 
+    // SECURITY (FIND-R182-005): Bound serialized explanation size. With many
+    // policies, Full verbosity can produce multi-MB explanations inflating every
+    // proxied response. Fall back to Summary if Full exceeds the cap.
+    const MAX_EXPLANATION_SIZE: usize = 65_536; // 64 KiB
+
     if let Some(result) = msg.get_mut("result") {
         if let Some(obj) = result.as_object_mut() {
             let meta = obj.entry("_meta").or_insert_with(|| serde_json::json!({}));
             if let Some(meta_obj) = meta.as_object_mut() {
                 if let Ok(explanation_value) = serde_json::to_value(&explanation) {
-                    meta_obj.insert(
-                        "vellaveto_decision_explanation".to_string(),
-                        explanation_value,
-                    );
+                    let size = serde_json::to_string(&explanation_value)
+                        .map(|s| s.len())
+                        .unwrap_or(0);
+                    if size <= MAX_EXPLANATION_SIZE {
+                        meta_obj.insert(
+                            "vellaveto_decision_explanation".to_string(),
+                            explanation_value,
+                        );
+                    } else {
+                        tracing::warn!(
+                            size = size,
+                            max = MAX_EXPLANATION_SIZE,
+                            "Decision explanation too large, falling back to summary"
+                        );
+                        let summary =
+                            vellaveto_types::VerdictExplanation::summary(trace);
+                        if let Ok(summary_value) = serde_json::to_value(&summary) {
+                            meta_obj.insert(
+                                "vellaveto_decision_explanation".to_string(),
+                                summary_value,
+                            );
+                        }
+                    }
                 }
             }
         }

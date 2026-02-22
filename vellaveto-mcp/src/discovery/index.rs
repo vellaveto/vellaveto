@@ -349,10 +349,15 @@ impl ToolIndex {
 
 /// Tokenize text for indexing/search: lowercase, split on non-alphanumeric,
 /// filter tokens shorter than 2 characters.
+///
+/// SECURITY (FIND-R182-004): Caps at `MAX_TOKENS_PER_TEXT` to prevent
+/// excessive per-tool token allocations when ingesting many tools.
 fn tokenize(text: &str) -> Vec<String> {
+    const MAX_TOKENS_PER_TEXT: usize = 512;
     text.to_lowercase()
         .split(|c: char| !c.is_alphanumeric() && c != '_')
         .filter(|s| s.len() >= 2)
+        .take(MAX_TOKENS_PER_TEXT)
         .map(|s| s.to_string())
         .collect()
 }

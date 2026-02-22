@@ -3919,8 +3919,10 @@ fn check_rate_limit(
     window_start: &std::sync::Mutex<std::time::Instant>,
     max_per_sec: u32,
 ) -> bool {
+    // SECURITY (FIND-R182-006): Fail-closed — zero rate limit blocks all messages.
+    // Previously returned true (fail-open), which disabled rate limiting entirely.
     if max_per_sec == 0 {
-        return true; // No limit
+        return false;
     }
 
     let now = std::time::Instant::now();

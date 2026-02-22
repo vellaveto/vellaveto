@@ -58,6 +58,16 @@ impl CallRepairer {
 /// - ```\n{...}\n```
 /// - <think>...</think> prefix followed by JSON or code block
 fn extract_json_from_code_block(text: &str) -> Result<Value, ProjectorError> {
+    // SECURITY (FIND-R182-002): Bound input size before cloning to prevent
+    // memory exhaustion from oversized model responses.
+    const MAX_CODE_BLOCK_INPUT_SIZE: usize = 1_048_576; // 1 MiB
+    if text.len() > MAX_CODE_BLOCK_INPUT_SIZE {
+        return Err(ProjectorError::ParseError(format!(
+            "input too large for code block extraction: {} bytes (max {})",
+            text.len(),
+            MAX_CODE_BLOCK_INPUT_SIZE
+        )));
+    }
     let mut cleaned = text.to_string();
 
     // Remove <think>...</think> blocks
