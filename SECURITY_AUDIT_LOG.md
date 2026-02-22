@@ -3,9 +3,43 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 160)
-> **Total audit rounds:** 160
-> **Cumulative findings fixed:** 543+
+> **Last updated:** 2026-02-22 (Round 162)
+> **Total audit rounds:** 162
+> **Cumulative findings fixed:** 553+
+
+---
+
+## Round 162 — gRPC TOCTOU Fix + sanitize_for_log Dedup + resolve_domains Cap (10 findings fixed)
+
+**Subsystem:** `vellaveto-http-proxy/src/proxy/grpc/service.rs`, `vellaveto-types/src/core.rs`, `vellaveto-mcp/src/proxy/bridge/relay.rs`, `vellaveto-http-proxy/src/proxy/helpers.rs`, `vellaveto-mcp/src/task_security.rs`
+**Commit:** `2821050`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R160-001 | P1 | `grpc/service.rs` | gRPC handle_tool_call/resource_read/task_request/extension_method TOCTOU — context+eval+update now atomic (DashMap shard lock held). Parity with WS FIND-R130-002 |
+| FIND-R160-004 | P2 | `task_security.rs` | `checkpoints_created` + `stats()` loads upgraded Relaxed→SeqCst for consistency |
+| IMP-R154-001 | P3 | `core.rs`, `relay.rs`, `federation.rs` | Added `sanitize_for_log(s, max_len)` to vellaveto-types; replaced 7 duplicate sites |
+| IMP-R160-003 | P2 | `helpers.rs` | HTTP `resolve_domains()` capped at MAX_RESOLVED_IPS=100 — parity with stdio relay |
+| IMP-R160-007 | P4 | `websocket/mod.rs` | Removed duplicate doc comment line |
+
+**Also committed in prior batch (b96c20d):**
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R154-001 | P2 | `injection.rs` | `sanitize_stripped()` adds 4 missing combining char ranges |
+| FIND-R154-003 | P2 | `websocket/mod.rs` | `extract_strings_recursive` scans object keys |
+| FIND-R154-004 | P2 | `websocket/mod.rs` | `schema_violation_found` guards memory tracker |
+| FIND-R154-005 | P3 | `websocket/mod.rs` | Extract depth limit 10→32 matching MAX_SCAN_DEPTH |
+| FIND-R155-001/002 | P2 | `handlers.rs`, `grpc/service.rs` | HTTP+gRPC key scanning + depth 32 parity |
+
+**Open (deferred to future rounds):**
+- FIND-R160-002 (P2): A2A PassThrough DLP/injection scanning bypass
+- FIND-R160-003 (P2): A2A missing control/format char validation
+- FIND-R160-005 (P3): A2A traceparent format validation
+- IMP-R160-001 (P2): Triplicated extract_strings_for_injection across transports
+- IMP-R160-006 (P3): MAX_RESPONSE_BODY_BYTES 16MB vs config 10MB inconsistency
+
+**Tests:** 7,085+ Rust tests pass, 0 failures.
 
 ---
 
