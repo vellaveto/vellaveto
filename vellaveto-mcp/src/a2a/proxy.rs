@@ -36,6 +36,30 @@ use super::extractor::{
 };
 use super::message::{classify_a2a_message, A2aMessageType};
 
+/// SECURITY (FIND-R160-003): Recursively check a JSON value for control or
+/// Unicode format characters in string values and object keys.
+/// Bounded by depth to prevent stack overflow on deeply nested inputs.
+/// Parity with gRPC service.rs `json_contains_dangerous_chars`.
+fn json_contains_dangerous_chars(val: &Value, depth: usize) -> bool {
+    if depth > 64 {
+        return true; // fail-closed on excessive nesting
+    }
+    match val {
+        Value::String(s) => vellaveto_types::has_dangerous_chars(s),
+        Value::Array(arr) => arr
+            .iter()
+            .any(|v| json_contains_dangerous_chars(v, depth + 1)),
+        Value::Object(map) => {
+            map.keys()
+                .any(|k| vellaveto_types::has_dangerous_chars(k))
+                || map
+                    .values()
+                    .any(|v| json_contains_dangerous_chars(v, depth + 1))
+        }
+        _ => false,
+    }
+}
+
 /// Configuration for the A2A proxy service.
 #[derive(Debug, Clone)]
 pub struct A2aProxyConfig {
@@ -108,11 +132,38 @@ pub enum A2aProxyDecision {
 /// A2A messages may carry trace context in a `metadata.traceparent` field
 /// for cross-protocol trace linking between MCP and A2A flows.
 pub fn extract_a2a_trace_context(msg: &Value) -> Option<String> {
-    msg.get("params")
+    // SECURITY (FIND-R160-005): Validate W3C Trace Context format before returning.
+    // Prevents log injection via malicious traceparent values and rejects
+    // non-compliant strings (Trap 17: protocol compliance must be validated).
+    const MAX_TRACEPARENT_LEN: usize = 55;
+
+    let raw = msg
+        .get("params")
         .and_then(|p| p.get("metadata"))
         .and_then(|m| m.get("traceparent"))
-        .and_then(|tp| tp.as_str())
-        .map(|s| s.to_string())
+        .and_then(|tp| tp.as_str())?;
+
+    // Reject excessively long values and control/format characters
+    if raw.len() > MAX_TRACEPARENT_LEN || vellaveto_types::has_dangerous_chars(raw) {
+        tracing::warn!(
+            "SECURITY: Invalid traceparent (len={}, has_dangerous={}), rejecting",
+            raw.len(),
+            vellaveto_types::has_dangerous_chars(raw),
+        );
+        return None;
+    }
+
+    // Validate W3C format: version-trace_id-parent_id-trace_flags
+    // where version=2hex, trace_id=32hex, parent_id=16hex, trace_flags=2hex
+    if raw.len() >= 55
+        && raw.as_bytes().iter().all(|&b| b.is_ascii_hexdigit() || b == b'-')
+        && raw.chars().filter(|&c| c == '-').count() == 3
+    {
+        Some(raw.to_string())
+    } else {
+        tracing::debug!("traceparent '{}' does not match W3C format, ignoring", vellaveto_types::sanitize_for_log(raw, 55));
+        None
+    }
 }
 
 /// A2A proxy service for intercepting and evaluating A2A traffic.
@@ -157,6 +208,15 @@ impl A2aProxyService {
         // 2. Parse JSON-RPC
         let msg: Value = serde_json::from_slice(body)?;
 
+        // 2b. SECURITY (FIND-R160-003): Reject messages with control/format characters
+        // in string values or object keys. Parity with HTTP (handlers.rs:203),
+        // WebSocket (websocket/mod.rs:565), and gRPC (service.rs:107) handlers.
+        if json_contains_dangerous_chars(&msg, 0) {
+            return Err(A2aError::InjectionDetected(
+                "Message contains control or Unicode format characters".to_string(),
+            ));
+        }
+
         // 3. Classify message
         let msg_type = classify_a2a_message(&msg);
 
@@ -175,8 +235,12 @@ impl A2aProxyService {
             });
         }
 
-        // 6. Pass through non-request messages
+        // 6. Pass through non-request messages — but still run security scans.
+        // SECURITY (FIND-R160-002): PassThrough messages (responses, notifications,
+        // unrecognized methods) must still be DLP/injection scanned to prevent
+        // exfiltration or prompt injection via non-request traffic.
         if !requires_policy_check(&msg_type) {
+            self.run_security_scans(&msg_type, &msg)?;
             return Ok(A2aProxyDecision::PassThrough { message: msg });
         }
 
