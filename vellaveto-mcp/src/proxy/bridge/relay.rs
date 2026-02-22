@@ -1639,10 +1639,12 @@ impl ProxyBridge {
             }
             Ok((verdict @ Verdict::Deny { .. }, _))
             | Ok((verdict @ Verdict::RequireApproval { .. }, _)) => {
+                // SECURITY (FIND-R166-001/002): Extract reason without unreachable!().
+                // Verdict is #[non_exhaustive] — future variants must not panic.
                 let reason = match &verdict {
                     Verdict::Deny { reason } => reason.clone(),
                     Verdict::RequireApproval { reason } => reason.clone(),
-                    _ => unreachable!(),
+                    other => format!("Denied by policy: {:?}", other),
                 };
                 let response = make_denial_response(&id, &reason);
                 if let Err(e) = self
@@ -1916,10 +1918,12 @@ impl ProxyBridge {
             }
             Ok((verdict @ Verdict::Deny { .. }, _))
             | Ok((verdict @ Verdict::RequireApproval { .. }, _)) => {
+                // SECURITY (FIND-R166-001/002): Extract reason without unreachable!().
+                // Verdict is #[non_exhaustive] — future variants must not panic.
                 let reason = match &verdict {
                     Verdict::Deny { reason } => reason.clone(),
                     Verdict::RequireApproval { reason } => reason.clone(),
-                    _ => unreachable!(),
+                    other => format!("Denied by policy: {:?}", other),
                 };
                 let response = make_denial_response(&id, &reason);
                 if let Err(e) = self

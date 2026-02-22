@@ -148,6 +148,13 @@ pub async fn enforce_retention(
     retention_days: u32,
 ) -> Result<Vec<PathBuf>, AuditError> {
     let rotated_files = logger.list_rotated_files()?;
+
+    // SECURITY (FIND-R165-001): retention_days=0 means "keep forever". Without this
+    // guard, cutoff would be `now - 0 = now`, deleting ALL archives immediately.
+    if retention_days == 0 {
+        return Ok(Vec::new());
+    }
+
     let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(retention_days));
     let mut deleted = Vec::new();
 
