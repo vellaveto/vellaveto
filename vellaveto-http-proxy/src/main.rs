@@ -1282,9 +1282,10 @@ async fn request_id(request: Request, next: Next) -> Response {
         .headers()
         .get("x-request-id")
         .and_then(|v| v.to_str().ok())
-        // Reject control chars (including TAB) to prevent log/header injection
-        // via client-supplied request identifiers.
-        .filter(|s| s.len() <= 128 && !s.chars().any(|c| c.is_control()))
+        // SECURITY (IMP-R154-007): Reject control AND Unicode format chars
+        // (zero-width, bidi, TAG) to prevent log/header injection via
+        // client-supplied request identifiers.
+        .filter(|s| s.len() <= 128 && !vellaveto_types::has_dangerous_chars(s))
         .map(|s| s.to_string());
 
     let mut response = next.run(request).await;

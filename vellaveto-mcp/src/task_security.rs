@@ -58,6 +58,11 @@ const MAX_SECURE_TASKS: usize = 50_000;
 /// SECURITY (FIND-R69-002): Maximum checkpoints in memory.
 const MAX_CHECKPOINTS: usize = 100_000;
 
+/// SECURITY (FIND-R117-MA-004): Maximum retention period (1 year in seconds).
+/// Prevents u64→i64 overflow in `cleanup_old_tasks()` which would cause the
+/// cutoff to become a future timestamp, silently skipping all cleanup.
+const MAX_RETENTION_SECS: u64 = 365 * 24 * 3600;
+
 /// Errors from secure task operations.
 #[derive(Error, Debug)]
 pub enum TaskSecurityError {
@@ -260,7 +265,9 @@ impl SecureTaskManager {
         &self,
         request: &TaskResumeRequest,
     ) -> Result<TaskResumeResult, TaskSecurityError> {
-        self.resume_attempts.fetch_add(1, Ordering::Relaxed);
+        // SECURITY (FIND-R155-005): SeqCst for parity with replay_blocked and
+        // integrity_violations counters in this same struct (Trap 8).
+        self.resume_attempts.fetch_add(1, Ordering::SeqCst);
 
         let mut tasks = self.tasks.write().await;
 
@@ -270,7 +277,9 @@ impl SecureTaskManager {
 
         // Check replay protection
         if task.is_nonce_seen(&request.nonce) {
-            self.replay_blocked.fetch_add(1, Ordering::Relaxed);
+            // SECURITY (FIND-R117-MA-005): SeqCst for security-relevant counter
+            // (Trap 8 — relaxed ordering on security counters can miss updates).
+            self.replay_blocked.fetch_add(1, Ordering::SeqCst);
             return Err(TaskSecurityError::ReplayDetected);
         }
 
@@ -301,7 +310,8 @@ impl SecureTaskManager {
             None
         };
 
-        self.resume_successes.fetch_add(1, Ordering::Relaxed);
+        // SECURITY (FIND-R155-005): SeqCst for parity with replay_blocked counter.
+        self.resume_successes.fetch_add(1, Ordering::SeqCst);
 
         Ok(TaskResumeResult {
             authorized: true,
@@ -325,7 +335,9 @@ impl SecureTaskManager {
         let result = self.verify_chain(&task.state_chain);
 
         if !result.valid {
-            self.integrity_violations.fetch_add(1, Ordering::Relaxed);
+            // SECURITY (FIND-R117-MA-005): SeqCst for security-relevant counter
+            // (Trap 8 — relaxed ordering on security counters can miss updates).
+            self.integrity_violations.fetch_add(1, Ordering::SeqCst);
         }
 
         Ok(result)
@@ -486,14 +498,29 @@ impl SecureTaskManager {
             checkpoints_created: self.checkpoints_created.load(Ordering::Relaxed),
             resume_attempts: self.resume_attempts.load(Ordering::Relaxed),
             resume_successes: self.resume_successes.load(Ordering::Relaxed),
-            replay_attacks_blocked: self.replay_blocked.load(Ordering::Relaxed),
-            integrity_violations: self.integrity_violations.load(Ordering::Relaxed),
+            // SECURITY (FIND-R117-MA-005): SeqCst for security-relevant counters.
+            replay_attacks_blocked: self.replay_blocked.load(Ordering::SeqCst),
+            integrity_violations: self.integrity_violations.load(Ordering::SeqCst),
         }
     }
 
     /// Remove terminal tasks older than retention period.
+    ///
+    /// SECURITY (FIND-R117-MA-004): Clamps `retention_secs` to [`MAX_RETENTION_SECS`]
+    /// to prevent u64→i64 cast overflow which would produce a negative duration,
+    /// shifting the cutoff into the future and silently skipping all cleanup.
     pub async fn cleanup_old_tasks(&self, retention_secs: u64) -> usize {
-        let cutoff = chrono::Utc::now() - chrono::Duration::seconds(retention_secs as i64);
+        let clamped_secs = if retention_secs > MAX_RETENTION_SECS {
+            tracing::warn!(
+                requested = retention_secs,
+                max = MAX_RETENTION_SECS,
+                "FIND-R117-MA-004: retention_secs exceeds MAX_RETENTION_SECS, clamping"
+            );
+            MAX_RETENTION_SECS
+        } else {
+            retention_secs
+        };
+        let cutoff = chrono::Utc::now() - chrono::Duration::seconds(clamped_secs as i64);
         let mut tasks = self.tasks.write().await;
 
         let old_len = tasks.len();
@@ -955,5 +982,108 @@ mod tests {
         let result = manager.verify_integrity("task-1").await.unwrap();
         assert!(!result.valid);
         assert_eq!(result.first_broken_at, Some(0));
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R117-MA-004: cleanup_old_tasks retention overflow
+    // ════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_cleanup_old_tasks_clamps_huge_retention() {
+        let (enc_key, hmac_key) = make_keys();
+        let manager = SecureTaskManager::new(enc_key, hmac_key).unwrap();
+
+        // Create a terminal task
+        let task = make_task("task-old");
+        manager.create_secure_task(task, None).await.unwrap();
+        manager
+            .update_status("task-old", TaskStatus::Completed, None)
+            .await
+            .unwrap();
+
+        // Use a retention_secs that exceeds MAX_RETENTION_SECS (i.e., would overflow i64).
+        // The fix clamps this to MAX_RETENTION_SECS so the task is retained (not erroneously
+        // cleaned up), and the function does not panic from overflow.
+        let huge_retention = u64::MAX;
+        let cleaned = manager.cleanup_old_tasks(huge_retention).await;
+        // The clamped retention of 1 year means a recently-created task is NOT cleaned up.
+        assert_eq!(cleaned, 0, "recently created task should not be cleaned with clamped retention");
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_old_tasks_normal_retention() {
+        let (enc_key, hmac_key) = make_keys();
+        let manager = SecureTaskManager::new(enc_key, hmac_key).unwrap();
+
+        // Create a terminal task
+        let task = make_task("task-recent");
+        manager.create_secure_task(task, None).await.unwrap();
+        manager
+            .update_status("task-recent", TaskStatus::Completed, None)
+            .await
+            .unwrap();
+
+        // Retention of 0 seconds means everything terminal is cleaned up immediately.
+        let cleaned = manager.cleanup_old_tasks(0).await;
+        assert_eq!(cleaned, 1, "terminal task should be cleaned with zero retention");
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R117-MA-005: SeqCst on security counters
+    // ════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_replay_blocked_counter_incremented() {
+        let (enc_key, hmac_key) = make_keys();
+        let manager = SecureTaskManager::new(enc_key, hmac_key).unwrap();
+
+        let task = make_task("task-1");
+        let secure = manager.create_secure_task(task, None).await.unwrap();
+
+        let nonce = hex::encode([99u8; 16]);
+        let resume_req = TaskResumeRequest {
+            task_id: "task-1".to_string(),
+            resume_token: secure.resume_token.clone().unwrap(),
+            nonce: nonce.clone(),
+            agent_id: None,
+        };
+
+        // First request succeeds
+        let _ = manager.resume_task(&resume_req).await.unwrap();
+
+        // Replay fails and increments counter
+        let _ = manager.resume_task(&resume_req).await;
+
+        let stats = manager.stats().await;
+        assert_eq!(
+            stats.replay_attacks_blocked, 1,
+            "FIND-R117-MA-005: replay_blocked should be incremented via SeqCst"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_integrity_violations_counter_incremented() {
+        let (enc_key, hmac_key) = make_keys();
+        let manager = SecureTaskManager::new(enc_key, hmac_key).unwrap();
+
+        let task = make_task("task-1");
+        manager.create_secure_task(task, None).await.unwrap();
+
+        // Tamper with hash chain
+        {
+            let mut tasks = manager.tasks.write().await;
+            let task = tasks.get_mut("task-1").unwrap();
+            if let Some(transition) = task.state_chain.first_mut() {
+                transition.hash = "tampered".to_string();
+            }
+        }
+
+        let _ = manager.verify_integrity("task-1").await.unwrap();
+
+        let stats = manager.stats().await;
+        assert_eq!(
+            stats.integrity_violations, 1,
+            "FIND-R117-MA-005: integrity_violations should be incremented via SeqCst"
+        );
     }
 }

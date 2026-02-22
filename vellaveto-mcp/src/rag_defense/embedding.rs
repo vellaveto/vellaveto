@@ -67,7 +67,10 @@ impl EmbeddingBaseline {
 
     /// Updates the baseline with a new embedding using online mean algorithm.
     fn update(&mut self, embedding: &EmbeddingVector) {
-        self.sample_count += 1;
+        // SECURITY (FIND-R155-007): saturating_add prevents overflow wrapping
+        // sample_count to zero, which would cause division-by-zero in Welford's
+        // algorithm below (Trap 9).
+        self.sample_count = self.sample_count.saturating_add(1);
         let n = self.sample_count as f32;
 
         // Update centroid using Welford's online algorithm
@@ -185,7 +188,16 @@ impl EmbeddingAnomalyDetector {
         }
 
         // Add to recent embeddings
-        if let Ok(mut recent) = self.recent_embeddings.write() {
+        // SECURITY (FIND-R155-004): Fail-closed on lock poisoning instead of
+        // silently succeeding. Previous `if let Ok(...)` pattern returned Ok(())
+        // when the lock was poisoned, violating fail-closed (Trap 5/12).
+        let mut recent = self.recent_embeddings.write().map_err(|_| {
+            tracing::error!("recent_embeddings lock poisoned in add_to_baseline");
+            RagDefenseError::Internal(
+                "Failed to acquire recent embeddings write lock".to_string(),
+            )
+        })?;
+        {
             // SECURITY (FIND-R69-005): Cap number of tracked agents.
             if !recent.contains_key(agent_id) && recent.len() >= MAX_AGENT_BASELINES {
                 tracing::warn!(

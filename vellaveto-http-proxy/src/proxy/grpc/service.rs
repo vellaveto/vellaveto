@@ -2165,7 +2165,10 @@ fn extract_scannable_text(json_val: &Value) -> String {
 /// highly branched JSON structures. Parity with HTTP handler's
 /// `extract_passthrough_text_for_injection` (handlers.rs).
 fn extract_passthrough_text_for_injection(msg: &Value) -> String {
-    const MAX_DEPTH: usize = 10;
+    // SECURITY (FIND-R155-002): Raised from 10 to 32 for parity with WS handler
+    // (FIND-R154-005) and shared MAX_SCAN_DEPTH in scanner_base.rs. Previous limit
+    // allowed injection payloads nested at depth 11-32 to evade gRPC scanning.
+    const MAX_DEPTH: usize = 32;
     const MAX_PARTS: usize = 1000;
     let mut parts = Vec::new();
 
@@ -2200,7 +2203,12 @@ fn extract_strings_for_injection(
             }
         }
         Value::Object(map) => {
-            for (_key, v) in map {
+            for (key, v) in map {
+                // SECURITY (FIND-R155-001): Also scan object keys for injection
+                // payloads. Parity with WS extract_strings_recursive (FIND-R154-003).
+                if parts.len() < max_parts {
+                    parts.push(key.clone());
+                }
                 extract_strings_for_injection(v, parts, depth + 1, max_depth, max_parts);
             }
         }

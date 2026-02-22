@@ -622,14 +622,20 @@ fn sanitize_stripped(text: &str) -> String {
         .filter(|c| !is_invisible_char(*c as u32))
         .collect();
     let normalized: String = stripped.nfkc().collect();
-    // SECURITY (FIND-R142-001): Post-NFKC combining mark strip — parity with
-    // sanitize_for_injection_scan. Without this, NFKC-expanded combining marks
-    // survive in the stripped pass, causing Aho-Corasick to miss patterns.
+    // SECURITY (FIND-R142-001, FIND-R154-001): Post-NFKC combining mark strip
+    // — parity with sanitize_for_injection_scan. Without this, NFKC-expanded
+    // combining marks survive in the stripped pass, causing Aho-Corasick to miss
+    // patterns. All 6 ranges must match sanitize_for_injection_scan exactly.
     let normalized: String = normalized
         .chars()
         .filter(|c| {
             let cp = *c as u32;
-            !((0x0300..=0x036F).contains(&cp) || cp == 0x034F)
+            !((0x0300..=0x036F).contains(&cp)
+                || cp == 0x034F
+                || (0x1AB0..=0x1AFF).contains(&cp)
+                || (0x1DC0..=0x1DFF).contains(&cp)
+                || (0x20D0..=0x20FF).contains(&cp)
+                || (0xFE20..=0xFE2F).contains(&cp))
         })
         .collect();
     normalized

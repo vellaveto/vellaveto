@@ -27,6 +27,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 use vellaveto_types::{NhiAttestationType, NhiIdentityStatus};
@@ -48,6 +49,109 @@ const MAX_CHAIN_DISPLAY: usize = 100;
 
 // SECURITY (IMP-R106-001): Use canonical is_unsafe_char from routes/mod.rs.
 use super::is_unsafe_char;
+
+// ═══════════════════════════════════════════════════════
+// SECURITY (FIND-R117-SP-002): Typed query structs for GET handlers.
+// ═══════════════════════════════════════════════════════
+
+/// Query parameters for listing NHI agents.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ListNhiAgentsQuery {
+    pub status: Option<String>,
+}
+
+/// Query parameters for listing NHI delegations.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ListNhiDelegationsQuery {
+    pub agent_id: Option<String>,
+}
+
+// ═══════════════════════════════════════════════════════
+// SECURITY (FIND-R117-SP-001): Typed request structs for POST handlers.
+// ═══════════════════════════════════════════════════════
+
+/// Request body for registering a new NHI agent identity.
+///
+/// SECURITY (FIND-R155-003): Custom Debug redacts `public_key` to prevent
+/// cryptographic material from leaking into logs (Trap 6).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegisterNhiAgentRequest {
+    pub name: Option<String>,
+    pub attestation_type: Option<String>,
+    pub spiffe_id: Option<String>,
+    pub public_key: Option<String>,
+    pub key_algorithm: Option<String>,
+    pub ttl_secs: Option<u64>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub metadata: HashMap<String, String>,
+}
+
+impl std::fmt::Debug for RegisterNhiAgentRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegisterNhiAgentRequest")
+            .field("name", &self.name)
+            .field("attestation_type", &self.attestation_type)
+            .field("spiffe_id", &self.spiffe_id)
+            .field("public_key", &self.public_key.as_ref().map(|_| "[REDACTED]"))
+            .field("key_algorithm", &self.key_algorithm)
+            .field("ttl_secs", &self.ttl_secs)
+            .field("tags", &self.tags)
+            .field("metadata", &self.metadata)
+            .finish()
+    }
+}
+
+/// Request body for checking NHI agent behavior against baseline.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckNhiBehaviorRequest {
+    pub tool_call: Option<String>,
+    pub request_interval_secs: Option<f64>,
+    pub source_ip: Option<String>,
+}
+
+/// Request body for creating an NHI delegation.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateNhiDelegationRequest {
+    pub from_agent: String,
+    pub to_agent: String,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+    #[serde(default)]
+    pub scope_constraints: Vec<String>,
+    pub ttl_secs: Option<u64>,
+    pub reason: Option<String>,
+}
+
+/// Request body for rotating NHI agent credentials.
+///
+/// SECURITY (FIND-R155-003): Custom Debug redacts `new_public_key` to prevent
+/// cryptographic material from leaking into logs (Trap 6).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RotateNhiCredentialsRequest {
+    pub new_public_key: String,
+    pub new_key_algorithm: Option<String>,
+    pub trigger: Option<String>,
+    pub new_ttl_secs: Option<u64>,
+}
+
+impl std::fmt::Debug for RotateNhiCredentialsRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RotateNhiCredentialsRequest")
+            .field("new_public_key", &"[REDACTED]")
+            .field("new_key_algorithm", &self.new_key_algorithm)
+            .field("trigger", &self.trigger)
+            .field("new_ttl_secs", &self.new_ttl_secs)
+            .finish()
+    }
+}
 
 /// Validate a string field: reject if too long or contains control/format characters.
 /// SECURITY (FIND-R41-011, FIND-R43-019): Rejects ALL control characters AND
@@ -179,7 +283,7 @@ fn validate_request_interval(
 /// List all NHI agent identities.
 pub async fn list_nhi_agents(
     State(state): State<AppState>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(params): Query<ListNhiAgentsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let Some(ref manager) = state.nhi else {
         return Err((
@@ -188,7 +292,7 @@ pub async fn list_nhi_agents(
         ));
     };
 
-    let status_filter = parse_status_filter(params.get("status").map(String::as_str))?;
+    let status_filter = parse_status_filter(params.status.as_deref())?;
 
     let agents = manager.list_identities(status_filter).await;
     // SECURITY (FIND-R66-001): Cap response to prevent unbounded serialization.
@@ -202,7 +306,7 @@ pub async fn list_nhi_agents(
 /// Register a new NHI agent identity.
 pub async fn register_nhi_agent(
     State(state): State<AppState>,
-    Json(body): Json<serde_json::Value>,
+    Json(body): Json<RegisterNhiAgentRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let Some(ref manager) = state.nhi else {
         return Err((
@@ -211,23 +315,23 @@ pub async fn register_nhi_agent(
         ));
     };
 
-    let name = body["name"].as_str().unwrap_or("unnamed");
+    let name = body.name.as_deref().unwrap_or("unnamed");
     validate_string_field(name, "name")?;
 
-    let attestation_type = parse_attestation_type(body["attestation_type"].as_str())?;
-    let spiffe_id = body["spiffe_id"].as_str();
+    let attestation_type = parse_attestation_type(body.attestation_type.as_deref())?;
+    let spiffe_id = body.spiffe_id.as_deref();
     if let Some(s) = spiffe_id {
         validate_string_field(s, "spiffe_id")?;
     }
-    let public_key = body["public_key"].as_str();
+    let public_key = body.public_key.as_deref();
     if let Some(s) = public_key {
         validate_string_field(s, "public_key")?;
     }
-    let key_algorithm = body["key_algorithm"].as_str();
+    let key_algorithm = body.key_algorithm.as_deref();
     if let Some(s) = key_algorithm {
         validate_string_field(s, "key_algorithm")?;
     }
-    let ttl_secs = body["ttl_secs"].as_u64();
+    let ttl_secs = body.ttl_secs;
     if let Some(secs) = ttl_secs {
         if secs > MAX_TTL_SECS {
             return Err((
@@ -236,25 +340,8 @@ pub async fn register_nhi_agent(
             ));
         }
     }
-    let tags: Vec<String> = body["tags"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    validate_string_array(&tags, "tags")?;
-
-    let metadata: HashMap<String, String> = body["metadata"]
-        .as_object()
-        .map(|obj| {
-            obj.iter()
-                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                .collect()
-        })
-        .unwrap_or_default();
-    validate_string_map(&metadata, "metadata")?;
+    validate_string_array(&body.tags, "tags")?;
+    validate_string_map(&body.metadata, "metadata")?;
 
     match manager
         .register_identity(
@@ -264,8 +351,8 @@ pub async fn register_nhi_agent(
             public_key,
             key_algorithm,
             ttl_secs,
-            tags,
-            metadata,
+            body.tags,
+            body.metadata,
         )
         .await
     {
@@ -412,7 +499,7 @@ pub async fn get_nhi_baseline(
 pub async fn check_nhi_behavior(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(body): Json<serde_json::Value>,
+    Json(body): Json<CheckNhiBehaviorRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_string_field(&id, "id")?;
 
@@ -423,19 +510,17 @@ pub async fn check_nhi_behavior(
         ));
     };
 
-    let tool_call = body["tool_call"].as_str().unwrap_or("unknown");
+    let tool_call = body.tool_call.as_deref().unwrap_or("unknown");
     // SECURITY (FIND-R43-021): Validate body fields.
     validate_string_field(tool_call, "tool_call")?;
-    let request_interval = body["request_interval_secs"].as_f64();
-    validate_request_interval(request_interval)?;
-    let source_ip = body["source_ip"].as_str();
+    validate_request_interval(body.request_interval_secs)?;
     // SECURITY (FIND-R43-021): Validate source_ip if present.
-    if let Some(ip) = source_ip {
+    if let Some(ref ip) = body.source_ip {
         validate_string_field(ip, "source_ip")?;
     }
 
     let result = manager
-        .check_behavior(&id, tool_call, request_interval, source_ip)
+        .check_behavior(&id, tool_call, body.request_interval_secs, body.source_ip.as_deref())
         .await;
     Ok(Json(json!({"result": result})))
 }
@@ -443,7 +528,7 @@ pub async fn check_nhi_behavior(
 /// List NHI delegations.
 pub async fn list_nhi_delegations(
     State(state): State<AppState>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(params): Query<ListNhiDelegationsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let Some(ref manager) = state.nhi else {
         return Err((
@@ -452,12 +537,11 @@ pub async fn list_nhi_delegations(
         ));
     };
 
-    let agent_id = params.get("agent_id");
     // SECURITY (FIND-R43-021): Validate agent_id query parameter if present.
-    if let Some(aid) = &agent_id {
+    if let Some(ref aid) = params.agent_id {
         validate_string_field(aid, "agent_id")?;
     }
-    let delegations = if let Some(agent) = agent_id {
+    let delegations = if let Some(ref agent) = params.agent_id {
         manager.list_delegations(agent).await
     } else {
         // Return all delegations for the first agent or empty
@@ -475,7 +559,7 @@ pub async fn list_nhi_delegations(
 /// Create an NHI delegation.
 pub async fn create_nhi_delegation(
     State(state): State<AppState>,
-    Json(body): Json<serde_json::Value>,
+    Json(body): Json<CreateNhiDelegationRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let Some(ref manager) = state.nhi else {
         return Err((
@@ -484,71 +568,40 @@ pub async fn create_nhi_delegation(
         ));
     };
 
-    let from_agent = body["from_agent"].as_str().ok_or_else(|| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": "from_agent required"})),
-        )
-    })?;
-    validate_string_field(from_agent, "from_agent")?;
-
-    let to_agent = body["to_agent"].as_str().ok_or_else(|| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": "to_agent required"})),
-        )
-    })?;
-    validate_string_field(to_agent, "to_agent")?;
+    validate_string_field(&body.from_agent, "from_agent")?;
+    validate_string_field(&body.to_agent, "to_agent")?;
 
     // SECURITY (FIND-R43-033, FIND-R44-037): Reject self-delegation.
     // Use case-insensitive comparison consistent with deputy route (FIND-R43-024).
-    if from_agent.eq_ignore_ascii_case(to_agent) {
+    if body.from_agent.eq_ignore_ascii_case(&body.to_agent) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "from_agent and to_agent must differ"})),
         ));
     }
 
-    let permissions: Vec<String> = body["permissions"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    validate_string_array(&permissions, "permissions")?;
+    validate_string_array(&body.permissions, "permissions")?;
+    validate_string_array(&body.scope_constraints, "scope_constraints")?;
 
-    let scope_constraints: Vec<String> = body["scope_constraints"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    validate_string_array(&scope_constraints, "scope_constraints")?;
-
-    let ttl_secs = body["ttl_secs"].as_u64().unwrap_or(3600);
+    let ttl_secs = body.ttl_secs.unwrap_or(3600);
     if ttl_secs > MAX_TTL_SECS {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": format!("ttl_secs must be <= {}", MAX_TTL_SECS)})),
         ));
     }
-    let reason = body["reason"].as_str().map(|s| s.to_string());
-    if let Some(ref r) = reason {
+    if let Some(ref r) = body.reason {
         validate_string_field(r, "reason")?;
     }
 
     match manager
         .create_delegation(
-            from_agent,
-            to_agent,
-            permissions,
-            scope_constraints,
+            &body.from_agent,
+            &body.to_agent,
+            body.permissions,
+            body.scope_constraints,
             ttl_secs,
-            reason,
+            body.reason,
         )
         .await
     {
@@ -646,7 +699,7 @@ pub async fn get_nhi_delegation_chain(
 pub async fn rotate_nhi_credentials(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(body): Json<serde_json::Value>,
+    Json(body): Json<RotateNhiCredentialsRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_string_field(&id, "id")?;
 
@@ -657,24 +710,16 @@ pub async fn rotate_nhi_credentials(
         ));
     };
 
-    let new_public_key = body["new_public_key"].as_str().ok_or_else(|| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": "new_public_key required"})),
-        )
-    })?;
     // SECURITY (FIND-R43-021): Validate body fields.
-    validate_string_field(new_public_key, "new_public_key")?;
-    let new_key_algorithm = body["new_key_algorithm"].as_str();
+    validate_string_field(&body.new_public_key, "new_public_key")?;
     // SECURITY (FIND-R43-021): Validate new_key_algorithm if present.
-    if let Some(alg) = new_key_algorithm {
+    if let Some(ref alg) = body.new_key_algorithm {
         validate_string_field(alg, "new_key_algorithm")?;
     }
-    let trigger = body["trigger"].as_str().unwrap_or("manual");
+    let trigger = body.trigger.as_deref().unwrap_or("manual");
     // SECURITY (FIND-R43-021): Validate trigger field.
     validate_string_field(trigger, "trigger")?;
-    let new_ttl_secs = body["new_ttl_secs"].as_u64();
-    if let Some(secs) = new_ttl_secs {
+    if let Some(secs) = body.new_ttl_secs {
         if secs > MAX_TTL_SECS {
             return Err((
                 StatusCode::BAD_REQUEST,
@@ -686,10 +731,10 @@ pub async fn rotate_nhi_credentials(
     match manager
         .rotate_credentials(
             &id,
-            new_public_key,
-            new_key_algorithm,
+            &body.new_public_key,
+            body.new_key_algorithm.as_deref(),
             trigger,
-            new_ttl_secs,
+            body.new_ttl_secs,
         )
         .await
     {

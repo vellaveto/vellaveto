@@ -811,7 +811,34 @@ impl NhiManager {
             return Err(NhiError::SelfDelegation);
         }
 
+        // SECURITY (FIND-R117-MA-003): Warn if homoglyph normalization changed either agent ID.
+        // This asymmetry is intentional:
+        //   - Self-delegation check uses normalized strings to catch visual spoofing (e.g.,
+        //     Cyrillic "а" vs Latin "a") — prevents an attacker from creating a delegation
+        //     that is effectively self-referential through homoglyph confusion.
+        //   - Identity existence check below uses the ORIGINAL (non-normalized) strings
+        //     because the identity registry stores agents by their registered key. You cannot
+        //     delegate FROM an identity that doesn't exist in the registry, so the lookup
+        //     must match the exact registered key.
+        // The warning alerts operators to registrations that may involve confusable characters.
+        if normalized_from != from_agent {
+            tracing::warn!(
+                agent = from_agent,
+                normalized = %normalized_from,
+                "FIND-R117-MA-003: from_agent contains homoglyph characters — normalized form differs"
+            );
+        }
+        if normalized_to != to_agent {
+            tracing::warn!(
+                agent = to_agent,
+                normalized = %normalized_to,
+                "FIND-R117-MA-003: to_agent contains homoglyph characters — normalized form differs"
+            );
+        }
+
         // Check both agents exist and are not in terminal state (read lock on identities only).
+        // NOTE: Uses original (non-normalized) strings intentionally — see FIND-R117-MA-003
+        // comment above for the security rationale.
         let identities = self.identities.read().await;
         if !identities.contains_key(from_agent) {
             return Err(NhiError::IdentityNotFound(from_agent.to_string()));
@@ -3371,6 +3398,66 @@ mod tests {
         assert!(
             matches!(result, Err(NhiError::SelfDelegation)),
             "FIND-R116-MCP-005: Self-delegation must still be rejected"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R117-MA-003: Homoglyph warning on delegation identity lookup
+    // ════════════════════════════════════════════════════════
+
+    /// FIND-R117-MA-003: Verify that delegation with clean ASCII agent IDs
+    /// does not trigger homoglyph warnings (functional correctness).
+    #[tokio::test]
+    async fn test_delegation_ascii_agents_no_homoglyph_divergence() {
+        let manager = NhiManager::new(enabled_config());
+
+        // Register two distinct agents with plain ASCII names
+        let id_a = manager
+            .register_identity(
+                "agent-alpha",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let id_b = manager
+            .register_identity(
+                "agent-beta",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // For ASCII IDs, normalization should not change them, so no warning
+        let normalized_a = vellaveto_types::unicode::normalize_homoglyphs(&id_a);
+        let normalized_b = vellaveto_types::unicode::normalize_homoglyphs(&id_b);
+        assert_eq!(
+            normalized_a, id_a,
+            "FIND-R117-MA-003: ASCII agent ID should not change after normalization"
+        );
+        assert_eq!(
+            normalized_b, id_b,
+            "FIND-R117-MA-003: ASCII agent ID should not change after normalization"
+        );
+
+        // Delegation should succeed
+        let result = manager
+            .create_delegation(&id_a, &id_b, vec!["read".to_string()], vec![], 3600, None)
+            .await;
+        assert!(
+            result.is_ok(),
+            "FIND-R117-MA-003: Delegation between distinct ASCII agents should succeed"
         );
     }
 }

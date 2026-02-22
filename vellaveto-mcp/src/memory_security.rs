@@ -487,8 +487,14 @@ impl MemorySecurityManager {
     }
 
     /// Compute SHA-256 fingerprint for a string.
+    ///
+    /// SECURITY (FIND-R117-MA-006): Domain-separated from `compute_hash()` by
+    /// prepending `b"fingerprint:"` to the hash input. This ensures the
+    /// fingerprint (used as a HashMap key and potentially logged) never
+    /// equals the content hash, preventing one from revealing the other.
     fn compute_fingerprint(content: &str) -> String {
         let mut hasher = Sha256::new();
+        hasher.update(b"fingerprint:");
         hasher.update(content.as_bytes());
         hex::encode(hasher.finalize())
     }
@@ -1040,5 +1046,57 @@ mod tests {
             .await;
 
         assert!(entry_id.is_none());
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R117-MA-006: fingerprint != content_hash (domain separation)
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_fingerprint_differs_from_content_hash() {
+        let content = "This is a test string that is long enough to track properly";
+        let fingerprint = MemorySecurityManager::compute_fingerprint(content);
+        let content_hash = MemorySecurityManager::compute_hash(content);
+
+        assert_ne!(
+            fingerprint, content_hash,
+            "FIND-R117-MA-006: fingerprint and content_hash must differ due to domain separation"
+        );
+        // Both should still be valid 64-char hex strings (SHA-256).
+        assert_eq!(fingerprint.len(), 64);
+        assert_eq!(content_hash.len(), 64);
+    }
+
+    #[test]
+    fn test_fingerprint_is_deterministic() {
+        let content = "Deterministic fingerprint test string for verification";
+        let fp1 = MemorySecurityManager::compute_fingerprint(content);
+        let fp2 = MemorySecurityManager::compute_fingerprint(content);
+        assert_eq!(fp1, fp2, "fingerprint must be deterministic for the same input");
+    }
+
+    #[test]
+    fn test_content_hash_is_deterministic() {
+        let content = "Deterministic content hash test string for verification";
+        let h1 = MemorySecurityManager::compute_hash(content);
+        let h2 = MemorySecurityManager::compute_hash(content);
+        assert_eq!(h1, h2, "content_hash must be deterministic for the same input");
+    }
+
+    #[tokio::test]
+    async fn test_record_stores_different_fingerprint_and_hash() {
+        let manager = MemorySecurityManager::new(test_config());
+
+        let content = "Content for testing domain-separated fingerprint vs hash";
+        let entry_id = manager
+            .record_response(content, "test_tool", Some("session-1"), Some("agent-1"))
+            .await
+            .unwrap();
+
+        let entry = manager.get_entry(&entry_id).await.unwrap();
+        assert_ne!(
+            entry.fingerprint, entry.content_hash,
+            "FIND-R117-MA-006: stored entry must have different fingerprint and content_hash"
+        );
     }
 }

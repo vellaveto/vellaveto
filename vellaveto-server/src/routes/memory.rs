@@ -130,7 +130,8 @@ pub async fn list_memory_entries(
     };
 
     let limit = params.limit.unwrap_or(100).min(1000);
-    let offset = params.offset.unwrap_or(0);
+    // SECURITY (FIND-R117-SP-003): Cap offset to prevent unbounded skip.
+    let offset = params.offset.unwrap_or(0).min(1_000_000);
     let quarantined_only = params.quarantined_only.unwrap_or(false);
 
     let entries = manager

@@ -3496,14 +3496,16 @@ async fn relay_upstream_to_client(
                     }
 
                     // SECURITY: Enforce output schema on WS structuredContent.
-                    if validate_ws_structured_content_response(
+                    // SECURITY (FIND-R154-004): Track schema violations for the
+                    // record_response guard below, even in non-blocking mode.
+                    let schema_violation_found = validate_ws_structured_content_response(
                         &json_val,
                         &state,
                         &session_id,
                         tracked_tool_name.as_deref(),
                     )
-                    .await
-                    {
+                    .await;
+                    if schema_violation_found {
                         let id = json_val.get("id");
                         let error = make_ws_error_response(
                             id,
@@ -3515,12 +3517,12 @@ async fn relay_upstream_to_client(
                         continue;
                     }
 
-                    // SECURITY (FIND-R75-003): Record response fingerprints for memory
-                    // poisoning detection. Parity with HTTP handler (inspection.rs:638)
-                    // and gRPC handler (service.rs:968). Skip recording when DLP or
-                    // injection was detected (even in log-only mode) to avoid poisoning
-                    // the tracker with tainted data.
-                    if !dlp_found && !injection_found {
+                    // SECURITY (FIND-R75-003, FIND-R154-004): Record response
+                    // fingerprints for memory poisoning detection. Skip recording
+                    // when DLP, injection, or schema violation was detected (even
+                    // in log-only mode) to avoid poisoning the tracker with tainted
+                    // data. Parity with stdio relay (relay.rs:2919).
+                    if !dlp_found && !injection_found && !schema_violation_found {
                         if let Some(mut session) = state.sessions.get_mut(&session_id) {
                             session.memory_tracker.record_response(&json_val);
                         }
@@ -3898,7 +3900,11 @@ fn extract_scannable_text_from_request(json_val: &Value) -> String {
 /// SECURITY (FIND-R48-007): Added MAX_PARTS to prevent memory amplification
 /// from messages containing many short strings.
 fn extract_strings_recursive(val: &Value, parts: &mut Vec<String>, depth: usize) {
-    const MAX_DEPTH: usize = 10;
+    // SECURITY (FIND-R154-005): Use depth 32 matching shared MAX_SCAN_DEPTH
+    // in scanner_base.rs. Previous limit of 10 allowed injection payloads
+    // nested between depth 11-32 to evade WS scanning while being caught
+    // by the stdio relay and DLP scanner (both use MAX_SCAN_DEPTH=32).
+    const MAX_DEPTH: usize = 32;
     const MAX_PARTS: usize = 1000;
     if depth > MAX_DEPTH || parts.len() >= MAX_PARTS {
         return;
@@ -3911,7 +3917,13 @@ fn extract_strings_recursive(val: &Value, parts: &mut Vec<String>, depth: usize)
             }
         }
         Value::Object(map) => {
-            for (_key, v) in map {
+            for (key, v) in map {
+                // SECURITY (FIND-R154-003): Also scan object keys for injection
+                // payloads. Parity with stdio relay's traverse_json_strings_with_keys.
+                // Without this, attackers can hide injection in JSON key names.
+                if parts.len() < MAX_PARTS {
+                    parts.push(key.clone());
+                }
                 extract_strings_recursive(v, parts, depth + 1);
             }
         }

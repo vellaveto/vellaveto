@@ -60,7 +60,9 @@ impl std::fmt::Display for FederationError {
             Self::NoMatchingKey { org_id, kid } => {
                 // SECURITY (FIND-R50-040): Sanitize kid value in error messages
                 // to prevent control character injection in logs.
-                let safe_kid: String = kid.chars().filter(|c| !c.is_control()).take(128).collect();
+                // SECURITY (IMP-R154-003): Also filter Unicode format chars
+                // (zero-width, bidi, TAG) — not just control chars.
+                let safe_kid: String = kid.chars().filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c)).take(128).collect();
                 write!(
                     f,
                     "no matching key in JWKS for org {}, kid '{}'",
@@ -576,7 +578,8 @@ impl FederationResolver {
 fn sanitize_claim_for_template(value: &str) -> String {
     let sanitized: String = value
         .chars()
-        .filter(|c| !c.is_control() && *c != '{' && *c != '}')
+        // SECURITY (IMP-R154-003): Also strip Unicode format chars
+        .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c) && *c != '{' && *c != '}')
         .collect();
     if sanitized.len() > MAX_TEMPLATE_CLAIM_VALUE_LEN {
         // Truncate at a char boundary
