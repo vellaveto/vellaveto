@@ -857,6 +857,8 @@ pub fn scan_text_for_secrets(text: &str, location: &str) -> Vec<DlpFinding> {
 
     let mut findings = Vec::new();
     scan_string_for_secrets(text, location, regexes, &mut findings);
+    // SECURITY (FIND-R172-005): Cap findings per call.
+    findings.truncate(MAX_DLP_FINDINGS);
 
     // IMPROVEMENT_PLAN 1.1: Log DLP findings for observability
     if !findings.is_empty() {
