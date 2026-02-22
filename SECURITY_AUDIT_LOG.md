@@ -5,7 +5,22 @@
 >
 > **Last updated:** 2026-02-22 (Round 178)
 > **Total audit rounds:** 178
-> **Cumulative findings fixed:** 600+
+> **Cumulative findings fixed:** 603+
+
+---
+
+## Round 165+166 — unreachable!() Panics + Archive Retention Data Loss (3 findings fixed)
+
+**Subsystem:** `vellaveto-mcp/src/proxy/bridge/relay.rs`, `vellaveto-audit/src/archive.rs`
+**Commit:** `6dd69f9`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R166-001 | P1 | `relay.rs:1645` | `unreachable!()` in task request Verdict match — Verdict is `#[non_exhaustive]`, future variants would panic. Replaced with safe fallback |
+| FIND-R166-002 | P1 | `relay.rs:1922` | Same `unreachable!()` in extension method Verdict match |
+| FIND-R165-001 | P2 | `archive.rs:151` | `enforce_retention(0)` computed cutoff = now, deleting ALL archives. Doc says "keep forever". Added early return guard |
+
+**Tests:** All 1,195 MCP + 441 audit tests pass.
 
 ---
 
