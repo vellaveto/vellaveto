@@ -3,9 +3,21 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 172)
-> **Total audit rounds:** 172
-> **Cumulative findings fixed:** 613+
+> **Last updated:** 2026-02-22 (Round 174)
+> **Total audit rounds:** 174
+> **Cumulative findings fixed:** 615+
+
+---
+
+## Round 173+174 — Extension Negotiation OOM + Config Validation Divergence (2 findings fixed)
+
+**Subsystem:** `vellaveto-mcp/src/extension_registry.rs`, `vellaveto-config/src/config_validate.rs`
+**Commit:** `3b9bc00`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R173-001 | P2 | `extension_registry.rs:292` | `negotiate()` iteration capped at 1000 entries — prevents OOM from oversized extension request lists |
+| FIND-R174-002 | P2 | `config_validate.rs:1347` | Inline `trust_decay_rate` validation aligned with `MemorySecurityConfig::validate()` — now requires `(0.0, 10.0]` instead of `>= 0.0` with no upper bound |
 
 ---
 
