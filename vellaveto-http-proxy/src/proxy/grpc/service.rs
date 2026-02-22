@@ -425,6 +425,75 @@ impl McpGrpcService {
                     }
                 }
 
+                // SECURITY (IMP-R184-007): Memory poisoning check — parity with tool calls,
+                // resource reads, extension methods, and HTTP/WS/stdio passthrough.
+                if let Some(mut session) = self.state.sessions.get_mut(session_id) {
+                    let params_to_scan = json_req
+                        .get("params")
+                        .cloned()
+                        .unwrap_or(json!({}));
+                    let mut poisoning_matches =
+                        session.memory_tracker.check_parameters(&params_to_scan);
+                    if let Some(result_val) = json_req.get("result") {
+                        poisoning_matches
+                            .extend(session.memory_tracker.check_parameters(result_val));
+                    }
+                    if !poisoning_matches.is_empty() {
+                        for m in &poisoning_matches {
+                            tracing::warn!(
+                                "SECURITY: Memory poisoning in gRPC passthrough '{}' (session {}): \
+                                 param '{}' replayed data (fingerprint: {})",
+                                method_name,
+                                session_id,
+                                m.param_location,
+                                m.fingerprint
+                            );
+                        }
+                        let poison_action = Action::new(
+                            "vellaveto",
+                            "grpc_passthrough_memory_poisoning",
+                            json!({
+                                "method": method_name,
+                                "session": session_id,
+                                "matches": poisoning_matches.len(),
+                                "transport": "grpc",
+                            }),
+                        );
+                        if let Err(e) = self
+                            .state
+                            .audit
+                            .log_entry(
+                                &poison_action,
+                                &Verdict::Deny {
+                                    reason: format!(
+                                        "gRPC passthrough blocked: memory poisoning ({} matches)",
+                                        poisoning_matches.len()
+                                    ),
+                                },
+                                json!({
+                                    "source": "grpc_proxy",
+                                    "event": "grpc_passthrough_memory_poisoning",
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                "Failed to audit gRPC passthrough memory poisoning: {}",
+                                e
+                            );
+                        }
+                        return make_proto_error_response(
+                            proto_req,
+                            -32001,
+                            "Request blocked: security policy violation",
+                        );
+                    }
+                    session.memory_tracker.extract_from_value(&params_to_scan);
+                    if let Some(result_val) = json_req.get("result") {
+                        session.memory_tracker.extract_from_value(result_val);
+                    }
+                }
+
                 // SECURITY (FIND-R55-GRPC-005): Audit log PassThrough messages.
                 // Parity with HTTP handler (handlers.rs:1731-1757) and WS handler
                 // (websocket/mod.rs:1809-1838). PassThrough bypasses policy evaluation

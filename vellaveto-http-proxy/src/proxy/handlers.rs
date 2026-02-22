@@ -2279,6 +2279,73 @@ pub async fn handle_mcp_post(
                 }
             }
 
+            // SECURITY (IMP-R184-007): Memory poisoning check — parity with tool calls,
+            // resource reads, extension methods, and WS/stdio passthrough handlers.
+            if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                let params_to_scan = msg.get("params").cloned().unwrap_or(json!({}));
+                let mut poisoning_matches =
+                    session.memory_tracker.check_parameters(&params_to_scan);
+                // IMP-R184-010: Also scan `result` field — parity with DLP (FIND-R96-001).
+                if let Some(result_val) = msg.get("result") {
+                    poisoning_matches
+                        .extend(session.memory_tracker.check_parameters(result_val));
+                }
+                if !poisoning_matches.is_empty() {
+                    for m in &poisoning_matches {
+                        tracing::warn!(
+                            "SECURITY: Memory poisoning in HTTP passthrough '{}' (session {}): \
+                             param '{}' replayed data (fingerprint: {})",
+                            method_name,
+                            session_id,
+                            m.param_location,
+                            m.fingerprint
+                        );
+                    }
+                    let poison_action = Action::new(
+                        "vellaveto",
+                        "http_passthrough_memory_poisoning",
+                        json!({
+                            "method": method_name,
+                            "session": &session_id,
+                            "matches": poisoning_matches.len(),
+                            "transport": "http",
+                        }),
+                    );
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &poison_action,
+                            &Verdict::Deny {
+                                reason: format!(
+                                    "HTTP passthrough blocked: memory poisoning ({} matches)",
+                                    poisoning_matches.len()
+                                ),
+                            },
+                            json!({
+                                "source": "http_proxy",
+                                "event": "http_passthrough_memory_poisoning",
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            "Failed to audit HTTP passthrough memory poisoning: {}",
+                            e
+                        );
+                    }
+                    return make_jsonrpc_error(
+                        msg.get("id"),
+                        -32001,
+                        "Request blocked: security policy violation",
+                    );
+                }
+                // Fingerprint for future poisoning detection.
+                session.memory_tracker.extract_from_value(&params_to_scan);
+                if let Some(result_val) = msg.get("result") {
+                    session.memory_tracker.extract_from_value(result_val);
+                }
+            }
+
             // Canonicalize if configured (KL2 TOCTOU fix)
             let forward_body = match canonicalize_body(&state, &msg, body) {
                 Some(b) => b,
