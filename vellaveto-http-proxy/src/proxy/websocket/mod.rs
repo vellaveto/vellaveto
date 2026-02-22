@@ -164,9 +164,10 @@ pub async fn handle_ws_upgrade(
         Err(response) => return response,
     };
 
-    // SECURITY (FIND-R53-WS-002): Validate agent identity at upgrade time.
+    // SECURITY (FIND-R53-WS-002, FIND-R159-003): Validate agent identity at upgrade time.
     // Parity with HTTP POST (handlers.rs:160) and GET (handlers.rs:2871).
-    let _agent_identity = match validate_agent_identity(&state, &headers).await {
+    // FIND-R159-003: Identity MUST be stored in session (was previously discarded with `_`).
+    let agent_identity = match validate_agent_identity(&state, &headers).await {
         Ok(identity) => identity,
         Err(response) => return response,
     };
@@ -229,6 +230,16 @@ pub async fn handle_ws_upgrade(
                     }
                 }
             }
+        }
+    }
+
+    // SECURITY (FIND-R159-003): Store agent identity in session — parity with HTTP
+    // POST (handlers.rs:295-298) and GET (handlers.rs:3641-3643). Without this,
+    // ABAC policies referencing agent_identity would evaluate against None for
+    // WebSocket connections, creating a policy bypass.
+    if let Some(ref identity) = agent_identity {
+        if let Some(mut session) = state.sessions.get_mut(&session_id) {
+            session.agent_identity = Some(identity.clone());
         }
     }
 

@@ -3159,6 +3159,18 @@ pub async fn handle_mcp_delete(
             Err(response) => return response,
         };
 
+    // SECURITY (FIND-R159-001): Validate call chain header on DELETE for parity
+    // with POST (line 323) and GET (line 3649). Prevents oversized or malformed
+    // X-Upstream-Agents headers from reaching downstream code.
+    if let Err(reason) = validate_call_chain_header(&headers, &state.limits) {
+        tracing::warn!("DELETE /mcp: call chain validation failed: {}", reason);
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid request"})),
+        )
+            .into_response();
+    }
+
     match session_id {
         Some(id) => {
             // Session ownership check: when OAuth is active, only the session
