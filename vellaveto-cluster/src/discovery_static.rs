@@ -10,14 +10,30 @@ use crate::discovery::ServiceDiscovery;
 use crate::ClusterError;
 
 /// Static service discovery backed by a fixed endpoint list.
+#[derive(Debug)]
 pub struct StaticServiceDiscovery {
     endpoints: Vec<ServiceEndpoint>,
 }
 
+/// Maximum number of static endpoints (parity with MAX_DNS_RESULTS=256 in DNS discovery).
+const MAX_STATIC_ENDPOINTS: usize = 256;
+
 impl StaticServiceDiscovery {
     /// Create a new static discovery with the given endpoints.
-    pub fn new(endpoints: Vec<ServiceEndpoint>) -> Self {
-        Self { endpoints }
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the endpoint count exceeds `MAX_STATIC_ENDPOINTS` (256).
+    pub fn new(endpoints: Vec<ServiceEndpoint>) -> Result<Self, ClusterError> {
+        // SECURITY (FIND-R184-004): Bound endpoint list — parity with DNS discovery.
+        if endpoints.len() > MAX_STATIC_ENDPOINTS {
+            return Err(ClusterError::Validation(format!(
+                "static endpoint list size {} exceeds maximum {}",
+                endpoints.len(),
+                MAX_STATIC_ENDPOINTS
+            )));
+        }
+        Ok(Self { endpoints })
     }
 }
 
@@ -57,7 +73,7 @@ mod tests {
                 healthy: false,
             },
         ];
-        let sd = StaticServiceDiscovery::new(endpoints.clone());
+        let sd = StaticServiceDiscovery::new(endpoints.clone()).unwrap();
 
         let discovered = sd.discover().await.unwrap();
         assert_eq!(discovered.len(), 2);
@@ -69,16 +85,49 @@ mod tests {
 
     #[tokio::test]
     async fn test_static_discovery_empty() {
-        let sd = StaticServiceDiscovery::new(vec![]);
+        let sd = StaticServiceDiscovery::new(vec![]).unwrap();
         let discovered = sd.discover().await.unwrap();
         assert!(discovered.is_empty());
     }
 
     #[tokio::test]
     async fn test_static_discovery_watch_returns_none() {
-        let sd = StaticServiceDiscovery::new(vec![]);
+        let sd = StaticServiceDiscovery::new(vec![]).unwrap();
         let rx = sd.watch().await.unwrap();
         assert!(rx.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_static_discovery_exceeds_max_endpoints() {
+        let endpoints: Vec<ServiceEndpoint> = (0..257)
+            .map(|i| ServiceEndpoint {
+                id: format!("backend-{}", i),
+                url: format!("http://backend-{}:3000", i),
+                labels: HashMap::new(),
+                healthy: true,
+            })
+            .collect();
+        let err = StaticServiceDiscovery::new(endpoints).unwrap_err();
+        assert!(
+            err.to_string().contains("exceeds maximum"),
+            "Expected exceeds maximum error, got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_static_discovery_at_max_endpoints() {
+        let endpoints: Vec<ServiceEndpoint> = (0..256)
+            .map(|i| ServiceEndpoint {
+                id: format!("backend-{}", i),
+                url: format!("http://backend-{}:3000", i),
+                labels: HashMap::new(),
+                healthy: true,
+            })
+            .collect();
+        let sd = StaticServiceDiscovery::new(endpoints).unwrap();
+        let discovered = sd.discover().await.unwrap();
+        assert_eq!(discovered.len(), 256);
     }
 
     #[tokio::test]
@@ -89,7 +138,7 @@ mod tests {
             labels: HashMap::new(),
             healthy: true,
         }];
-        let sd = StaticServiceDiscovery::new(endpoints);
+        let sd = StaticServiceDiscovery::new(endpoints).unwrap();
 
         let first = sd.discover().await.unwrap();
         let second = sd.discover().await.unwrap();

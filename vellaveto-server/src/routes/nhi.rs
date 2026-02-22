@@ -571,9 +571,16 @@ pub async fn create_nhi_delegation(
     validate_string_field(&body.from_agent, "from_agent")?;
     validate_string_field(&body.to_agent, "to_agent")?;
 
-    // SECURITY (FIND-R43-033, FIND-R44-037): Reject self-delegation.
-    // Use case-insensitive comparison consistent with deputy route (FIND-R43-024).
-    if body.from_agent.eq_ignore_ascii_case(&body.to_agent) {
+    // SECURITY (FIND-R43-033, FIND-R44-037, FIND-R184-001): Reject self-delegation.
+    // Use homoglyph-aware comparison — eq_ignore_ascii_case misses Cyrillic confusables.
+    // Parity with vellaveto-approval self-approval check (FIND-R58-CFG-001).
+    let from_norm = vellaveto_types::unicode::normalize_homoglyphs(
+        &body.from_agent.to_lowercase(),
+    );
+    let to_norm = vellaveto_types::unicode::normalize_homoglyphs(
+        &body.to_agent.to_lowercase(),
+    );
+    if from_norm == to_norm {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "from_agent and to_agent must differ"})),

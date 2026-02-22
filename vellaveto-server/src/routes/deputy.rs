@@ -113,8 +113,15 @@ pub async fn register_delegation(
     validate_field(&req.from_principal, "from_principal", MAX_FIELD_LEN)?;
     validate_field(&req.to_principal, "to_principal", MAX_FIELD_LEN)?;
 
-    // SECURITY (FIND-R42-018, FIND-R43-024): Reject self-delegation (case-insensitive).
-    if req.from_principal.eq_ignore_ascii_case(&req.to_principal) {
+    // SECURITY (FIND-R42-018, FIND-R43-024, FIND-R184-002): Reject self-delegation.
+    // Use homoglyph-aware comparison — eq_ignore_ascii_case misses Cyrillic confusables.
+    let from_norm = vellaveto_types::unicode::normalize_homoglyphs(
+        &req.from_principal.to_lowercase(),
+    );
+    let to_norm = vellaveto_types::unicode::normalize_homoglyphs(
+        &req.to_principal.to_lowercase(),
+    );
+    if from_norm == to_norm {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {

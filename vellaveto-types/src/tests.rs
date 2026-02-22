@@ -5111,6 +5111,29 @@ fn test_nhi_delegation_link_self_delegation_case_insensitive() {
     assert!(err.contains("self-delegation is not allowed"));
 }
 
+// FIND-R184-003: NhiDelegationLink homoglyph self-delegation rejection
+#[test]
+fn test_nhi_delegation_link_self_delegation_cyrillic_homoglyph() {
+    // Cyrillic 'а' (U+0430) looks identical to Latin 'a' (U+0061).
+    // The self-delegation check must normalize homoglyphs to catch this.
+    let link = NhiDelegationLink {
+        from_agent: "admin".to_string(),      // Latin 'a'
+        to_agent: "\u{0430}dmin".to_string(),  // Cyrillic 'а'
+        permissions: vec!["read".to_string()],
+        scope_constraints: vec![],
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-02-01T00:00:00Z".to_string(),
+        active: true,
+        reason: None,
+    };
+    let err = link.validate().unwrap_err();
+    assert!(
+        err.contains("self-delegation is not allowed"),
+        "Cyrillic homoglyph should be caught: {}",
+        err
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // FIND-R114-015: NhiDelegationLink Unicode format char validation
 // ═══════════════════════════════════════════════════════════════════

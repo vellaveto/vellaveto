@@ -698,9 +698,14 @@ impl NhiDelegationLink {
                     .to_string(),
             );
         }
-        // SECURITY (FIND-R51-009): Reject self-delegation to prevent
-        // privilege escalation loops. Case-insensitive comparison.
-        if self.from_agent.eq_ignore_ascii_case(&self.to_agent) {
+        // SECURITY (FIND-R51-009, FIND-R184-003): Reject self-delegation to prevent
+        // privilege escalation loops. Use homoglyph-aware comparison to catch Cyrillic
+        // confusables that bypass ASCII case-insensitive comparison.
+        let from_norm =
+            crate::unicode::normalize_homoglyphs(&self.from_agent.to_lowercase());
+        let to_norm =
+            crate::unicode::normalize_homoglyphs(&self.to_agent.to_lowercase());
+        if from_norm == to_norm {
             return Err("self-delegation is not allowed".to_string());
         }
         // SECURITY (FIND-R51-012): Validate temporal ordering.

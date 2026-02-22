@@ -156,6 +156,15 @@ impl ClusterConfig {
         if vellaveto_types::has_dangerous_chars(&self.key_prefix) {
             return Err("cluster.key_prefix contains control or format characters".to_string());
         }
+        // SECURITY (FIND-R184-005): Reject Redis hash tag characters. A key_prefix
+        // containing {..} forces all keys to hash to the same cluster slot, creating
+        // a hot-key DoS condition in Redis Cluster deployments.
+        if self.key_prefix.contains('{') || self.key_prefix.contains('}') {
+            return Err(
+                "cluster.key_prefix must not contain '{' or '}' (Redis hash tag characters)"
+                    .to_string(),
+            );
+        }
 
         Ok(())
     }
