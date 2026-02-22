@@ -3182,6 +3182,12 @@ async fn relay_client_to_upstream(
                                     .memory_tracker
                                     .extract_from_value(result_val);
                             }
+                        } else {
+                            // IMP-R186-005: Log when session is missing so the skip is observable.
+                            tracing::warn!(
+                                "Session {} not found for WS passthrough memory poisoning check",
+                                session_id
+                            );
                         }
 
                         // SECURITY (FIND-R46-WS-004): Audit log forwarded passthrough/notification messages

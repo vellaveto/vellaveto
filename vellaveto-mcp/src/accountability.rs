@@ -290,10 +290,17 @@ pub fn verify_attestation(
                 None
             }
         })
-        .unwrap_or(Some(0)); // Fail-closed: unparseable created_at = rejected
+        .ok(); // None = unparseable created_at
 
-    if created_at_future_skew.is_some() {
-        expired = true; // Future-dated = temporally invalid
+    // Determine if created_at is invalid: either unparseable or too far in the future.
+    let created_at_invalid = match created_at_future_skew {
+        Some(Some(skew)) => Some(skew), // Parsed and too far in the future
+        Some(None) => None,             // Parsed and within skew tolerance
+        None => Some(-1),               // Unparseable — use sentinel for fail-closed
+    };
+
+    if created_at_invalid.is_some() {
+        expired = true; // Temporally invalid
     }
 
     // Check key match (constant-time to prevent timing side-channel)
@@ -308,11 +315,16 @@ pub fn verify_attestation(
 
     let message = if !signature_valid {
         "Invalid signature".to_string()
-    } else if let Some(skew) = created_at_future_skew {
-        format!(
-            "created_at is {} seconds in the future (max allowed skew: {} seconds)",
-            skew, MAX_CREATED_AT_SKEW_SECS
-        )
+    } else if let Some(skew) = created_at_invalid {
+        if skew < 0 {
+            // IMP-R186-001: Distinct message for unparseable created_at
+            "created_at is malformed (unparseable RFC 3339 timestamp)".to_string()
+        } else {
+            format!(
+                "created_at is {} seconds in the future (max allowed skew: {} seconds)",
+                skew, MAX_CREATED_AT_SKEW_SECS
+            )
+        }
     } else if expired {
         "Attestation has expired".to_string()
     } else if !key_matches_agent {
@@ -1016,6 +1028,60 @@ mod tests {
         assert!(
             result.is_valid(),
             "attestation within 60s skew should be valid: {}",
+            result.message
+        );
+    }
+
+    #[test]
+    fn test_verify_malformed_created_at_treated_as_expired() {
+        let (signing_key_hex, public_key_hex) = generate_test_keypair();
+        let mut attestation = sign_attestation(
+            "agent-1",
+            None,
+            "statement",
+            "hash",
+            &signing_key_hex,
+            86400,
+        )
+        .expect("sign");
+
+        // Set created_at to unparseable value and re-sign so signature is still valid
+        attestation.created_at = "not-a-valid-date".to_string();
+        let canonical = build_canonical_content(
+            &attestation.attestation_id,
+            &attestation.agent_id,
+            attestation.did.as_deref(),
+            &attestation.statement,
+            &attestation.policy_hash,
+            &attestation.created_at,
+            &attestation.expires_at,
+        );
+        let mut hasher = Sha256::new();
+        hasher.update(canonical.as_bytes());
+        let content_hash = hasher.finalize();
+        let sk_bytes = hex::decode(&signing_key_hex).unwrap();
+        let signing_key = SigningKey::from_bytes(sk_bytes.as_slice().try_into().unwrap());
+        let sig = signing_key.sign(&content_hash);
+        attestation.signature = hex::encode(sig.to_bytes());
+
+        let now = chrono::Utc::now();
+        let result =
+            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        assert!(
+            result.signature_valid,
+            "re-signed attestation should have valid signature"
+        );
+        assert!(
+            result.expired,
+            "malformed created_at should be treated as expired"
+        );
+        assert!(
+            !result.is_valid(),
+            "malformed created_at must not pass is_valid()"
+        );
+        assert!(
+            result.message.contains("malformed"),
+            "message should mention malformed: {}",
             result.message
         );
     }

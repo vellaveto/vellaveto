@@ -350,4 +350,56 @@ mod tests {
             "Email identity spoofing must be detected"
         );
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // IMP-R186-009: normalize_identity unit tests
+    // ═══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_normalize_identity_empty_string() {
+        assert_eq!(normalize_identity(""), "");
+    }
+
+    #[test]
+    fn test_normalize_identity_pure_ascii() {
+        assert_eq!(normalize_identity("admin"), "admin");
+    }
+
+    #[test]
+    fn test_normalize_identity_case_folding() {
+        assert_eq!(normalize_identity("AgentAlpha"), "agentalpha");
+        assert_eq!(normalize_identity("ADMIN"), "admin");
+    }
+
+    #[test]
+    fn test_normalize_identity_cyrillic_with_case() {
+        // Uppercase Cyrillic А (U+0410) -> lowercase via to_lowercase -> 'а' (U+0430)
+        // -> homoglyph mapping -> Latin 'a'
+        assert_eq!(
+            normalize_identity("\u{0410}GENT"),
+            normalize_identity("agent")
+        );
+    }
+
+    #[test]
+    fn test_normalize_identity_mixed_homoglyphs_case() {
+        // Mixed Cyrillic + case
+        assert_eq!(
+            normalize_identity("\u{0430}dmin"),
+            normalize_identity("Admin")
+        );
+        assert_eq!(
+            normalize_identity("\u{0410}DMIN"),
+            normalize_identity("admin")
+        );
+    }
+
+    #[test]
+    fn test_normalize_identity_reflexive() {
+        // normalize_identity(normalize_identity(x)) == normalize_identity(x)
+        let input = "AgentAlph\u{0430}";
+        let once = normalize_identity(input);
+        let twice = normalize_identity(&once);
+        assert_eq!(once, twice, "normalize_identity must be idempotent");
+    }
 }

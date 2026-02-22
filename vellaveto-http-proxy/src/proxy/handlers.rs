@@ -2344,6 +2344,12 @@ pub async fn handle_mcp_post(
                 if let Some(result_val) = msg.get("result") {
                     session.memory_tracker.extract_from_value(result_val);
                 }
+            } else {
+                // IMP-R186-003: Log when session is missing so the skip is observable.
+                tracing::warn!(
+                    "Session {} not found for HTTP passthrough memory poisoning check",
+                    session_id
+                );
             }
 
             // Canonicalize if configured (KL2 TOCTOU fix)

@@ -492,6 +492,12 @@ impl McpGrpcService {
                     if let Some(result_val) = json_req.get("result") {
                         session.memory_tracker.extract_from_value(result_val);
                     }
+                } else {
+                    // IMP-R186-004: Log when session is missing so the skip is observable.
+                    tracing::warn!(
+                        "Session {} not found for gRPC passthrough memory poisoning check",
+                        session_id
+                    );
                 }
 
                 // SECURITY (FIND-R55-GRPC-005): Audit log PassThrough messages.
