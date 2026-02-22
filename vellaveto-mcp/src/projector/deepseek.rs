@@ -359,4 +359,32 @@ mod tests {
     fn test_first_sentence_exclamation() {
         assert_eq!(first_sentence("Wow! That is cool."), "Wow!");
     }
+
+    // ── IMP-R182-002: DeepSeek input size bound ─────────────────────────
+
+    #[test]
+    fn test_extract_json_from_response_exceeds_max_size() {
+        let huge = "x".repeat(1_048_577);
+        let err = extract_json_from_response(&huge).unwrap_err();
+        assert!(
+            err.to_string().contains("input too large"),
+            "Expected 'input too large', got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_extract_json_from_response_at_max_size() {
+        let at_max = "x".repeat(1_048_576);
+        let result = extract_json_from_response(&at_max);
+        // Should fail to parse, not be size-rejected
+        match result {
+            Err(e) => assert!(
+                !e.to_string().contains("input too large"),
+                "1MiB input should not be size-rejected: {}",
+                e
+            ),
+            Ok(_) => {}
+        }
+    }
 }

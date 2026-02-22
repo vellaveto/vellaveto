@@ -990,4 +990,34 @@ mod tests {
         // Parses as array, not object, so string remains
         assert_eq!(result["arguments"], "[1, 2, 3]");
     }
+
+    // ── FIND-R182-002: Code block input size bound ────────────────────────
+
+    #[test]
+    fn test_extract_json_from_code_block_exceeds_max_size() {
+        // Input > 1 MiB should be rejected.
+        let huge = "x".repeat(1_048_577);
+        let err = extract_json_from_code_block(&huge).unwrap_err();
+        assert!(
+            err.to_string().contains("input too large"),
+            "Expected 'input too large', got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_extract_json_from_code_block_at_max_size() {
+        // Input at exactly 1 MiB should be accepted (may fail to parse, but not size-rejected).
+        let at_max = "x".repeat(1_048_576);
+        let result = extract_json_from_code_block(&at_max);
+        // Should be a parse error, not a size error
+        match result {
+            Err(e) => assert!(
+                !e.to_string().contains("input too large"),
+                "1MiB input should not be size-rejected: {}",
+                e
+            ),
+            Ok(_) => {} // unlikely but fine
+        }
+    }
 }

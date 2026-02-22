@@ -1163,4 +1163,26 @@ mod tests {
         assert_eq!(deserialized.tools.len(), 1);
         assert_eq!(deserialized.tools[0].metadata.name, "test");
     }
+
+    // ── FIND-R182-004: Tokenize cap ──────────────────────────────────────
+
+    #[test]
+    fn test_tokenize_caps_at_max_tokens() {
+        // Generate 600 tokens (each ≥2 chars)
+        let words: Vec<String> = (0..600).map(|i| format!("word{}", i)).collect();
+        let input = words.join(" ");
+        let tokens = super::tokenize(&input);
+        assert_eq!(
+            tokens.len(),
+            512,
+            "tokenize should cap at MAX_TOKENS_PER_TEXT=512"
+        );
+    }
+
+    #[test]
+    fn test_tokenize_within_limit() {
+        let tokens = super::tokenize("hello world foo bar baz");
+        assert_eq!(tokens.len(), 5);
+        assert_eq!(tokens[0], "hello");
+    }
 }
