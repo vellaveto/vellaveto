@@ -3,9 +3,31 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 184)
-> **Total audit rounds:** 184
-> **Cumulative findings fixed:** 626+
+> **Last updated:** 2026-02-22 (Round 186)
+> **Total audit rounds:** 186
+> **Cumulative findings fixed:** 634+
+
+---
+
+## Round 186 — Injection Scanner Truncation, Attestation Future-Date, Transport Memory Poisoning Parity (6 findings fixed)
+
+**Subsystem:** `vellaveto-mcp/src/inspection/injection.rs`, `vellaveto-mcp/src/accountability.rs`, `vellaveto-audit/src/archive.rs`, `vellaveto-http-proxy/src/proxy/{handlers,grpc/service,websocket/mod}.rs`, `vellaveto-mcp/src/proxy/bridge/relay.rs`
+**Commits:** `dd898c8`, `2a27830`, `0d82630`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R186-001 | P2 | `injection.rs:476` | `InjectionScanner::scan_notification` now has final `MAX_SCAN_MATCHES` truncation matching `scan_response` and free function |
+| FIND-R186-002 | P2 | `accountability.rs:287` | `verify_attestation` rejects `created_at` >60s in future (`MAX_CREATED_AT_SKEW_SECS`), sets `expired=true` so `is_valid()` rejects; parity with `verify_capability_token` |
+| FIND-R186-003 | P3 | `injection.rs:488` | `scan_json_value` has internal `MAX_SCAN_MATCHES` early-exit for defense-in-depth |
+| FIND-R186-004 | P3 | `archive.rs:59` | `ArchiveReport.errors` bounded at `MAX_ARCHIVE_ERRORS=100` |
+| IMP-R184-007 | P2 | `handlers.rs`, `service.rs` | HTTP + gRPC PassThrough handlers now have memory poisoning detection — closes transport parity gap with WS/stdio |
+| IMP-R184-010 | P3 | `relay.rs`, `mod.rs` | All passthrough memory poisoning checks now scan `result` field in addition to `params` — parity with DLP scan |
+
+**Additional improvements:**
+- `normalize_identity()` extracted to `vellaveto-types/src/unicode.rs` (IMP-R184-003/009) — deduplicates identity normalization across 5 call sites
+- NHI route test updated from stale `eq_ignore_ascii_case` to `normalize_identity` with Cyrillic adversarial case (IMP-R184-001)
+- 3 ClusterConfig key_prefix hash tag tests added (IMP-R184-004)
+- 2 attestation future-date tests added (FIND-R186-002)
 
 ---
 
