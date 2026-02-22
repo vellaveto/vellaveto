@@ -87,7 +87,8 @@ static WS_MESSAGES_TOTAL: AtomicU64 = AtomicU64::new(0);
 /// Record WebSocket connection metric.
 fn record_ws_connection() {
     // SECURITY (FIND-R182-003): Use saturating arithmetic to prevent overflow.
-    let _ = WS_CONNECTIONS_TOTAL.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+    // SECURITY (CA-005): SeqCst for security-adjacent metrics counters.
+    let _ = WS_CONNECTIONS_TOTAL.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
         Some(v.saturating_add(1))
     });
     metrics::counter!("vellaveto_ws_connections_total").increment(1);
@@ -96,7 +97,8 @@ fn record_ws_connection() {
 /// Record WebSocket message metric.
 fn record_ws_message(direction: &str) {
     // SECURITY (FIND-R182-003): Use saturating arithmetic to prevent overflow.
-    let _ = WS_MESSAGES_TOTAL.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+    // SECURITY (CA-005): SeqCst for security-adjacent metrics counters.
+    let _ = WS_MESSAGES_TOTAL.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
         Some(v.saturating_add(1))
     });
     metrics::counter!(
@@ -109,13 +111,13 @@ fn record_ws_message(direction: &str) {
 /// Get current connection count (for testing).
 #[cfg(test)]
 pub(crate) fn ws_connections_count() -> u64 {
-    WS_CONNECTIONS_TOTAL.load(Ordering::Relaxed)
+    WS_CONNECTIONS_TOTAL.load(Ordering::SeqCst)
 }
 
 /// Get current message count (for testing).
 #[cfg(test)]
 pub(crate) fn ws_messages_count() -> u64 {
-    WS_MESSAGES_TOTAL.load(Ordering::Relaxed)
+    WS_MESSAGES_TOTAL.load(Ordering::SeqCst)
 }
 
 use vellaveto_types::is_unicode_format_char as is_unicode_format_char_ws;
@@ -1833,8 +1835,19 @@ async fn relay_client_to_upstream(
                                                 sink.send(Message::Text(error_resp.into())).await;
                                             continue;
                                         }
-                                        vellaveto_engine::abac::AbacDecision::Allow { .. } => {
-                                            // ABAC allow — proceed
+                                        vellaveto_engine::abac::AbacDecision::Allow {
+                                            policy_id,
+                                        } => {
+                                            // SECURITY (FIND-R192-002): record_usage parity.
+                                            if let Some(ref la) = state.least_agency {
+                                                la.record_usage(
+                                                    principal_id,
+                                                    &session_id,
+                                                    &policy_id,
+                                                    uri,
+                                                    &action.function,
+                                                );
+                                            }
                                         }
                                         vellaveto_engine::abac::AbacDecision::NoMatch => {
                                             // Fall through — existing Allow stands
@@ -3887,10 +3900,17 @@ async fn relay_upstream_to_client(
                                 "vellaveto", "ws_nonjson_dlp_scan",
                                 json!({ "findings": patterns, "session": session_id, "transport": "websocket" }),
                             );
-                            let _ = state.audit.log_entry(
+                            // SECURITY (SE-004): Log audit failures instead of silently discarding.
+                            if let Err(e) = state.audit.log_entry(
                                 &action, &verdict,
                                 json!({ "source": "ws_proxy", "event": "ws_nonjson_dlp_alert" }),
-                            ).await;
+                            ).await {
+                                tracing::error!(
+                                    session_id = %session_id,
+                                    error = %e,
+                                    "AUDIT FAILURE: failed to log ws_nonjson_dlp_alert"
+                                );
+                            }
                             if state.response_dlp_blocking {
                                 continue;
                             }
@@ -3915,10 +3935,17 @@ async fn relay_upstream_to_client(
                                 "vellaveto", "ws_nonjson_injection_scan",
                                 json!({ "alerts": alerts.len(), "session": session_id, "transport": "websocket" }),
                             );
-                            let _ = state.audit.log_entry(
+                            // SECURITY (SE-004): Log audit failures instead of silently discarding.
+                            if let Err(e) = state.audit.log_entry(
                                 &action, &verdict,
                                 json!({ "source": "ws_proxy", "event": "ws_nonjson_injection_alert" }),
-                            ).await;
+                            ).await {
+                                tracing::error!(
+                                    session_id = %session_id,
+                                    error = %e,
+                                    "AUDIT FAILURE: failed to log ws_nonjson_injection_alert"
+                                );
+                            }
                             if state.injection_blocking {
                                 continue;
                             }
@@ -4203,11 +4230,19 @@ fn check_rate_limit(
         true
     } else {
         // SECURITY (FIND-R182-003): saturating arithmetic prevents overflow wrap-to-zero.
-        let _ = counter.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+        // SECURITY (AUDIT-001): Use the return value of fetch_update to eliminate TOCTOU
+        // between increment and check. Previously a separate load() could observe a value
+        // incremented by a concurrent thread, causing false rate-limit triggers.
+        let prev = counter.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
             Some(v.saturating_add(1))
         });
-        let count = counter.load(Ordering::SeqCst);
-        count <= max_per_sec as u64
+        // fetch_update with infallible closure always returns Ok(previous_value).
+        // The new value after increment is previous + 1 (or u64::MAX on saturation).
+        let new_count = match prev {
+            Ok(previous) => previous.saturating_add(1),
+            Err(_) => unreachable!("infallible closure"),
+        };
+        new_count <= max_per_sec as u64
     }
 }
 

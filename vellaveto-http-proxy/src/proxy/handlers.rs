@@ -895,7 +895,7 @@ pub async fn handle_mcp_post(
                                             serde_json::json!({
                                                 "tool": tool_name,
                                                 "event": "abac_deny",
-                                                "abac_policy_id": policy_id,
+                                                "abac_policy": policy_id,
                                             }),
                                             &oauth_claims,
                                             &full_call_chain,
@@ -1816,7 +1816,7 @@ pub async fn handle_mcp_post(
                                             serde_json::json!({
                                                 "uri": uri,
                                                 "event": "abac_deny",
-                                                "abac_policy_id": policy_id,
+                                                "abac_policy": policy_id,
                                             }),
                                             &oauth_claims,
                                         ),
@@ -1838,8 +1838,18 @@ pub async fn handle_mcp_post(
                                     &session_id,
                                 );
                             }
-                            vellaveto_engine::abac::AbacDecision::Allow { .. } => {
-                                // ABAC allow — proceed to forward
+                            vellaveto_engine::abac::AbacDecision::Allow { policy_id } => {
+                                // SECURITY (FIND-R192-002): record_usage parity
+                                // with ToolCall/TaskRequest/ExtensionMethod.
+                                if let Some(ref la) = state.least_agency {
+                                    la.record_usage(
+                                        principal_id,
+                                        &session_id,
+                                        &policy_id,
+                                        &uri,
+                                        &action.function,
+                                    );
+                                }
                             }
                             vellaveto_engine::abac::AbacDecision::NoMatch => {
                                 // Fall through — existing Allow verdict stands
@@ -2749,7 +2759,7 @@ pub async fn handle_mcp_post(
                                             json!({
                                                 "task_method": task_method,
                                                 "event": "abac_deny",
-                                                "abac_policy_id": policy_id,
+                                                "abac_policy": policy_id,
                                             }),
                                             &oauth_claims,
                                         ),
@@ -3143,7 +3153,7 @@ pub async fn handle_mcp_post(
                                                 "extension_id": extension_id,
                                                 "method": method,
                                                 "event": "abac_deny",
-                                                "abac_policy_id": policy_id,
+                                                "abac_policy": policy_id,
                                             }),
                                             &oauth_claims,
                                         ),

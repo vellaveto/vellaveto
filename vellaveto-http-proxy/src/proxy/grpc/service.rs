@@ -1364,7 +1364,18 @@ impl McpGrpcService {
                                 "Denied by policy",
                             );
                         }
-                        vellaveto_engine::abac::AbacDecision::Allow { .. } => {}
+                        vellaveto_engine::abac::AbacDecision::Allow { policy_id } => {
+                            // SECURITY (FIND-R192-002): record_usage parity.
+                            if let Some(ref la) = self.state.least_agency {
+                                la.record_usage(
+                                    principal_id,
+                                    session_id,
+                                    &policy_id,
+                                    uri,
+                                    &action.function,
+                                );
+                            }
+                        }
                         vellaveto_engine::abac::AbacDecision::NoMatch => {}
                         #[allow(unreachable_patterns)]
                         _ => {
