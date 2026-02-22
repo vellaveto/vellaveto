@@ -93,13 +93,25 @@ pub fn generate_access_review(
     // SECURITY (FIND-R110-AUD-002): Parse period bounds once upfront with chrono.
     // If the period bounds themselves are unparseable, return an empty report rather
     // than silently including all entries (fail-closed).
+    // SECURITY (FIND-R151-001): Sanitize period bounds and org_name before logging
+    // to prevent log injection via control/format characters from API callers.
+    let safe_period_start: String = period_start
+        .chars()
+        .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
+        .take(64)
+        .collect();
+    let safe_period_end: String = period_end
+        .chars()
+        .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
+        .take(64)
+        .collect();
     let period_start_dt = match parse_rfc3339_utc(period_start) {
         Some(dt) => dt,
         None => {
             tracing::error!(
                 "Access review: period_start '{}' is not a valid RFC 3339 timestamp — \
                  returning empty report (fail-closed)",
-                period_start
+                safe_period_start
             );
             return AccessReviewReport {
                 generated_at: Utc::now().to_rfc3339(),
@@ -134,7 +146,7 @@ pub fn generate_access_review(
             tracing::error!(
                 "Access review: period_end '{}' is not a valid RFC 3339 timestamp — \
                  returning empty report (fail-closed)",
-                period_end
+                safe_period_end
             );
             return AccessReviewReport {
                 generated_at: Utc::now().to_rfc3339(),
@@ -206,12 +218,15 @@ pub fn generate_access_review(
         processed = processed.saturating_add(1);
 
         // Extract agent_id from metadata, falling back to tool name
-        let agent_id = entry
+        // SECURITY (FIND-R151-002): Bound per-string length to prevent OOM from
+        // adversarial entries with extremely long agent_id values (10K entries × 1MB = 10GB).
+        const MAX_ID_STRING_LEN: usize = 1024;
+        let raw_agent_id = entry
             .metadata
             .get("agent_id")
             .and_then(|v| v.as_str())
-            .unwrap_or(&entry.action.tool)
-            .to_string();
+            .unwrap_or(&entry.action.tool);
+        let agent_id: String = raw_agent_id.chars().take(MAX_ID_STRING_LEN).collect();
 
         // Bound distinct agents
         if !agents.contains_key(&agent_id) && agents.len() >= MAX_AGENTS_PER_REPORT {
@@ -222,12 +237,12 @@ pub fn generate_access_review(
             continue;
         }
 
-        let session_id = entry
+        let raw_session_id = entry
             .metadata
             .get("session_id")
             .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string();
+            .unwrap_or("unknown");
+        let session_id: String = raw_session_id.chars().take(MAX_ID_STRING_LEN).collect();
 
         let acc = agents.entry(agent_id).or_insert_with(|| AgentAccumulator {
             session_ids: BTreeSet::new(),

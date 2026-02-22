@@ -155,6 +155,18 @@ impl GatewayConfig {
                     backend.id
                 ));
             }
+            // SECURITY (FIND-R152-002): Bound total tool_prefixes per backend to prevent
+            // memory exhaustion and O(n) routing overhead from config bloat.
+            const MAX_TOOL_PREFIXES_PER_BACKEND: usize = 1000;
+            if backend.tool_prefixes.len() > MAX_TOOL_PREFIXES_PER_BACKEND {
+                return Err(format!(
+                    "gateway.backends[{}].tool_prefixes has {} entries, max is {} (id: '{}')",
+                    i,
+                    backend.tool_prefixes.len(),
+                    MAX_TOOL_PREFIXES_PER_BACKEND,
+                    backend.id
+                ));
+            }
             // SECURITY (FIND-R43-005): Validate tool_prefixes are bounded, non-empty strings,
             // and unique across all backends to prevent ambiguous routing.
             for (pi, prefix) in backend.tool_prefixes.iter().enumerate() {
@@ -179,6 +191,19 @@ impl GatewayConfig {
             }
             if backend.tool_prefixes.is_empty() {
                 default_count += 1;
+            }
+            // SECURITY (FIND-R152-001): Bound transport_urls per backend. TransportProtocol
+            // is an enum with ~4 variants, but without a bound a malicious config could
+            // exploit HashMap capacity or future enum extensions.
+            const MAX_TRANSPORT_URLS_PER_BACKEND: usize = 10;
+            if backend.transport_urls.len() > MAX_TRANSPORT_URLS_PER_BACKEND {
+                return Err(format!(
+                    "gateway.backends[{}].transport_urls has {} entries, max is {} (id: '{}')",
+                    i,
+                    backend.transport_urls.len(),
+                    MAX_TRANSPORT_URLS_PER_BACKEND,
+                    backend.id
+                ));
             }
             // Phase 29: Validate transport_urls values are non-empty and use safe schemes.
             // SECURITY (FIND-R41-008): Validate URL scheme matches expected protocol.
