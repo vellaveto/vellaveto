@@ -84,9 +84,11 @@ pub fn inject_decision_explanation(
             let meta = obj.entry("_meta").or_insert_with(|| serde_json::json!({}));
             if let Some(meta_obj) = meta.as_object_mut() {
                 if let Ok(explanation_value) = serde_json::to_value(&explanation) {
+                    // SECURITY (IMP-R182-006): unwrap_or(usize::MAX) instead of 0
+                    // so serialization failure triggers the fallback (fail-closed).
                     let size = serde_json::to_string(&explanation_value)
                         .map(|s| s.len())
-                        .unwrap_or(0);
+                        .unwrap_or(usize::MAX);
                     if size <= MAX_EXPLANATION_SIZE {
                         meta_obj.insert(
                             "vellaveto_decision_explanation".to_string(),
@@ -101,10 +103,22 @@ pub fn inject_decision_explanation(
                         let summary =
                             vellaveto_types::VerdictExplanation::summary(trace);
                         if let Ok(summary_value) = serde_json::to_value(&summary) {
-                            meta_obj.insert(
-                                "vellaveto_decision_explanation".to_string(),
-                                summary_value,
-                            );
+                            // SECURITY (IMP-R182-007): Also bound the Summary fallback.
+                            let summary_size = serde_json::to_string(&summary_value)
+                                .map(|s| s.len())
+                                .unwrap_or(usize::MAX);
+                            if summary_size <= MAX_EXPLANATION_SIZE {
+                                meta_obj.insert(
+                                    "vellaveto_decision_explanation".to_string(),
+                                    summary_value,
+                                );
+                            } else {
+                                tracing::warn!(
+                                    size = summary_size,
+                                    max = MAX_EXPLANATION_SIZE,
+                                    "Summary explanation also too large, omitting entirely"
+                                );
+                            }
                         }
                     }
                 }

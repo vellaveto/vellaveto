@@ -2320,6 +2320,75 @@ impl ProxyBridge {
             }
         }
 
+        // SECURITY (IMP-R182-008): Memory poisoning check — parity with tool calls,
+        // resource reads, tasks, and extension methods.
+        let poisoning_matches = state.memory_tracker.check_parameters(&params_to_scan);
+        if !poisoning_matches.is_empty() {
+            let method_name = msg
+                .get("method")
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown");
+            for m in &poisoning_matches {
+                tracing::warn!(
+                    "SECURITY: Memory poisoning detected in passthrough '{}': \
+                     param '{}' contains replayed data (fingerprint: {})",
+                    method_name,
+                    m.param_location,
+                    m.fingerprint
+                );
+            }
+            let action = vellaveto_types::Action::new(
+                "vellaveto",
+                "passthrough_memory_poisoning",
+                json!({
+                    "method": method_name,
+                    "matches": poisoning_matches.len(),
+                }),
+            );
+            if let Err(e) = self
+                .audit
+                .log_entry(
+                    &action,
+                    &Verdict::Deny {
+                        reason: format!(
+                            "PassThrough blocked: memory poisoning detected ({} matches)",
+                            poisoning_matches.len()
+                        ),
+                    },
+                    json!({
+                        "source": "proxy",
+                        "event": "passthrough_memory_poisoning",
+                        "method": method_name,
+                    }),
+                )
+                .await
+            {
+                tracing::warn!("Failed to audit passthrough memory poisoning: {}", e);
+            }
+            if let Some(id) = msg.get("id") {
+                if !id.is_null() {
+                    let id_key = id.to_string();
+                    state.pending_requests.remove(&id_key);
+                    state.tools_list_request_ids.remove(&id_key);
+                    state.initialize_request_ids.remove(&id_key);
+                    let response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32005,
+                            "message": "Request blocked: security policy violation",
+                        }
+                    });
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                }
+            }
+            return Ok(());
+        }
+        // Fingerprint passthrough params for future poisoning detection.
+        state.memory_tracker.extract_from_value(&params_to_scan);
+
         // Forward the message after security scanning passes
         write_message(child_stdin, msg)
             .await

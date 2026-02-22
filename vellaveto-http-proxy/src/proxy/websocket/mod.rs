@@ -3108,6 +3108,70 @@ async fn relay_client_to_upstream(
                             }
                         }
 
+                        // SECURITY (IMP-R182-009): Memory poisoning check — parity with
+                        // tool calls, resource reads, tasks, and extension methods.
+                        if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                            let params_to_scan = parsed
+                                .get("params")
+                                .cloned()
+                                .unwrap_or(json!({}));
+                            let poisoning_matches =
+                                session.memory_tracker.check_parameters(&params_to_scan);
+                            if !poisoning_matches.is_empty() {
+                                let method_name = parsed
+                                    .get("method")
+                                    .and_then(|m| m.as_str())
+                                    .unwrap_or("unknown");
+                                for m in &poisoning_matches {
+                                    tracing::warn!(
+                                        "SECURITY: Memory poisoning in WS passthrough '{}' (session {}): \
+                                         param '{}' replayed data (fingerprint: {})",
+                                        method_name,
+                                        session_id,
+                                        m.param_location,
+                                        m.fingerprint
+                                    );
+                                }
+                                let poison_action = Action::new(
+                                    "vellaveto",
+                                    "ws_passthrough_memory_poisoning",
+                                    json!({
+                                        "method": method_name,
+                                        "session": session_id,
+                                        "matches": poisoning_matches.len(),
+                                        "transport": "websocket",
+                                    }),
+                                );
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &poison_action,
+                                        &Verdict::Deny {
+                                            reason: format!(
+                                                "WS passthrough blocked: memory poisoning ({} matches)",
+                                                poisoning_matches.len()
+                                            ),
+                                        },
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "event": "ws_passthrough_memory_poisoning",
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to audit WS passthrough memory poisoning: {}",
+                                        e
+                                    );
+                                }
+                                continue; // Drop the message
+                            }
+                            // Fingerprint for future poisoning detection.
+                            session
+                                .memory_tracker
+                                .extract_from_value(&params_to_scan);
+                        }
+
                         // SECURITY (FIND-R46-WS-004): Audit log forwarded passthrough/notification messages
                         let msg_type = match &classified {
                             MessageType::ProgressNotification { .. } => "progress_notification",

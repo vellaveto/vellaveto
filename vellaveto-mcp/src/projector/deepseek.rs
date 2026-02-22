@@ -15,6 +15,16 @@ fn first_sentence(desc: &str) -> &str {
 /// Strip `<think>...</think>` blocks and extract JSON from raw text.
 /// DeepSeek R1 sometimes wraps tool calls in reasoning blocks.
 fn extract_json_from_response(text: &str) -> Result<Value, ProjectorError> {
+    // SECURITY (IMP-R182-002): Parity with repair.rs — bound input size to prevent
+    // unbounded clone on attacker-controlled model output.
+    const MAX_INPUT_SIZE: usize = 1_048_576; // 1 MiB
+    if text.len() > MAX_INPUT_SIZE {
+        return Err(ProjectorError::ParseError(format!(
+            "input too large for DeepSeek JSON extraction: {} bytes (max {})",
+            text.len(),
+            MAX_INPUT_SIZE
+        )));
+    }
     let mut cleaned = text.to_string();
 
     // Remove <think>...</think> blocks (non-greedy)
