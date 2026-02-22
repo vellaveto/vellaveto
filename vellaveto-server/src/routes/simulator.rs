@@ -196,8 +196,14 @@ fn compile_from_toml_bounded(
         if errors.len() > 10 {
             msg.push_str(&format!(" ... and {} more", errors.len() - 10));
         }
+        // SECURITY (FIND-R153-006): UTF-8 safe truncation — String::truncate()
+        // panics if the index is not on a char boundary.
         if msg.len() > 4096 {
-            msg.truncate(4096);
+            let mut end = 4096;
+            while end > 0 && !msg.is_char_boundary(end) {
+                end -= 1;
+            }
+            msg.truncate(end);
             msg.push_str("...");
         }
         msg

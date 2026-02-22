@@ -340,7 +340,8 @@ pub async fn zk_audit_commitments(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("from ({}) must be <= to ({})", params.from, params.to),
+                // SECURITY (FIND-R153-001): Generic error — don't echo user values
+                error: "invalid entry range: from must be <= to".to_string(),
             }),
         ));
     }
@@ -350,10 +351,8 @@ pub async fn zk_audit_commitments(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!(
-                    "entry range span {} exceeds max {}",
-                    span, MAX_ENTRY_RANGE_SPAN
-                ),
+                // SECURITY (FIND-R153-001): Generic error — don't disclose max bounds
+                error: "entry range span exceeds maximum allowed".to_string(),
             }),
         ));
     }

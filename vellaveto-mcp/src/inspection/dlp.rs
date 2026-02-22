@@ -385,9 +385,11 @@ pub(crate) use super::util::try_base64_decode;
 ///
 /// Implemented without the `hex` crate to avoid adding a dependency.
 fn try_hex_decode(s: &str) -> Option<String> {
-    // Must be even length, >= 32 hex chars (16 decoded bytes minimum),
-    // and contain only hex digits
-    if s.len() < 32 || !s.len().is_multiple_of(2) {
+    // SECURITY (FIND-R154-001): Lowered from 32 to 16 hex chars (8 decoded bytes)
+    // for consistency with try_base64_decode threshold (>8 chars ≈ 6 decoded bytes).
+    // Previous 32-char minimum allowed short hex-encoded secrets (e.g., 12-char AWS
+    // AKIA prefix = 24 hex chars) to bypass DLP detection entirely.
+    if s.len() < 16 || !s.len().is_multiple_of(2) {
         return None;
     }
     if !s.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -2055,10 +2057,18 @@ mod tests {
 
     #[test]
     fn test_try_hex_decode_too_short() {
-        // FIND-R44-003: Short hex strings should not be decoded
-        let input = "414b49414f53464f"; // 16 chars, below 32 threshold
+        // FIND-R154-001: Threshold lowered from 32 to 16; use 12-char input (below threshold)
+        let input = "414b494f5346"; // 12 chars, below 16 threshold
         let result = try_hex_decode(input);
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_try_hex_decode_at_16_char_threshold() {
+        // FIND-R154-001: 16 hex chars (8 decoded bytes) should now decode
+        let input = "414b49414f53464f"; // 16 chars = "AKIAOSFO"
+        let result = try_hex_decode(input);
+        assert_eq!(result, Some("AKIAOSFO".to_string()));
     }
 
     #[test]
