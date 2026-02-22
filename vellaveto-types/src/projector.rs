@@ -143,6 +143,21 @@ impl CanonicalToolCall {
                 self.tool_name, args_size, MAX_PROJECTOR_VALUE_SIZE
             ));
         }
+        // SECURITY (FIND-R172-005): Validate call_id for length and dangerous chars.
+        if let Some(ref id) = self.call_id {
+            if id.len() > MAX_PROJECTOR_NAME_LENGTH {
+                return Err(format!(
+                    "CanonicalToolCall call_id length {} exceeds max {}",
+                    id.len(),
+                    MAX_PROJECTOR_NAME_LENGTH
+                ));
+            }
+            if crate::core::has_dangerous_chars(id) {
+                return Err(
+                    "CanonicalToolCall call_id contains control or format characters".to_string(),
+                );
+            }
+        }
         Ok(())
     }
 }
@@ -177,6 +192,22 @@ impl CanonicalToolResponse {
                 "CanonicalToolResponse '{}' content serialized size {} exceeds max {}",
                 id, content_size, MAX_PROJECTOR_VALUE_SIZE
             ));
+        }
+        // SECURITY (FIND-R172-005): Validate call_id for length and dangerous chars.
+        if let Some(ref id) = self.call_id {
+            if id.len() > MAX_PROJECTOR_NAME_LENGTH {
+                return Err(format!(
+                    "CanonicalToolResponse call_id length {} exceeds max {}",
+                    id.len(),
+                    MAX_PROJECTOR_NAME_LENGTH
+                ));
+            }
+            if crate::core::has_dangerous_chars(id) {
+                return Err(
+                    "CanonicalToolResponse call_id contains control or format characters"
+                        .to_string(),
+                );
+            }
         }
         Ok(())
     }

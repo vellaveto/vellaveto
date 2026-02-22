@@ -6592,6 +6592,74 @@ fn test_r115_003_zk_batch_proof_valid_passes() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// FIND-R172-001/002/003: ZkVerifyResult + ZkSchedulerStatus dangerous char validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r172_001_zk_verify_result_rejects_control_char_in_error() {
+    let result = crate::zk_audit::ZkVerifyResult {
+        batch_id: "batch-1".to_string(),
+        valid: false,
+        entry_range: (0, 100),
+        verified_at: "2026-01-01T00:00:00Z".to_string(),
+        error: Some("error\x07msg".to_string()),
+    };
+    let err = result.validate().unwrap_err();
+    assert!(err.contains("error") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r172_002_zk_verify_result_rejects_bidi_in_batch_id() {
+    let result = crate::zk_audit::ZkVerifyResult {
+        batch_id: "batch\u{202E}evil".to_string(),
+        valid: true,
+        entry_range: (0, 100),
+        verified_at: "2026-01-01T00:00:00Z".to_string(),
+        error: None,
+    };
+    let err = result.validate().unwrap_err();
+    assert!(err.contains("batch_id") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r172_002_zk_verify_result_rejects_zwsp_in_verified_at() {
+    let result = crate::zk_audit::ZkVerifyResult {
+        batch_id: "batch-1".to_string(),
+        valid: true,
+        entry_range: (0, 100),
+        verified_at: "2026-01\u{200B}-01T00:00:00Z".to_string(),
+        error: None,
+    };
+    let err = result.validate().unwrap_err();
+    assert!(err.contains("verified_at") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r172_003_zk_scheduler_status_rejects_control_char_in_last_proof_at() {
+    let status = crate::zk_audit::ZkSchedulerStatus {
+        active: true,
+        pending_witnesses: 0,
+        completed_proofs: 1,
+        last_proved_sequence: Some(42),
+        last_proof_at: Some("2026-01-01\x00T00:00:00Z".to_string()),
+    };
+    let err = status.validate().unwrap_err();
+    assert!(err.contains("last_proof_at") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r172_zk_verify_result_valid_passes() {
+    let result = crate::zk_audit::ZkVerifyResult {
+        batch_id: "batch-123".to_string(),
+        valid: true,
+        entry_range: (0, 100),
+        verified_at: "2026-01-01T00:00:00Z".to_string(),
+        error: None,
+    };
+    assert!(result.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // FIND-R115-004: CanonicalToolSchema/CanonicalToolCall control/format char validation
 // ═══════════════════════════════════════════════════════════════════
 
@@ -6660,6 +6728,43 @@ fn test_r115_004_canonical_tool_call_valid_passes() {
         call_id: Some("call-1".to_string()),
     };
     assert!(call.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R172-005: CanonicalToolCall/Response call_id validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r172_005_canonical_tool_call_rejects_control_char_in_call_id() {
+    let call = crate::projector::CanonicalToolCall {
+        tool_name: "tool".to_string(),
+        arguments: json!({}),
+        call_id: Some("call\x07id".to_string()),
+    };
+    let err = call.validate().unwrap_err();
+    assert!(err.contains("call_id") && err.contains("control or format"), "got: {}", err);
+}
+
+#[test]
+fn test_r172_005_canonical_tool_call_rejects_oversized_call_id() {
+    let call = crate::projector::CanonicalToolCall {
+        tool_name: "tool".to_string(),
+        arguments: json!({}),
+        call_id: Some("x".repeat(257)),
+    };
+    let err = call.validate().unwrap_err();
+    assert!(err.contains("call_id") && err.contains("exceeds max"), "got: {}", err);
+}
+
+#[test]
+fn test_r172_005_canonical_tool_response_rejects_control_char_in_call_id() {
+    let resp = crate::projector::CanonicalToolResponse {
+        call_id: Some("call\u{202E}id".to_string()),
+        content: json!("ok"),
+        is_error: false,
+    };
+    let err = resp.validate().unwrap_err();
+    assert!(err.contains("call_id") && err.contains("control or format"), "got: {}", err);
 }
 
 // ═══════════════════════════════════════════════════════════════════

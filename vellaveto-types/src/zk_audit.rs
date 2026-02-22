@@ -200,12 +200,26 @@ impl ZkVerifyResult {
                 Self::MAX_BATCH_ID_LEN,
             ));
         }
+        // SECURITY (FIND-R172-002): Reject control/format chars in batch_id —
+        // parity with ZkBatchProof::validate() (line 123).
+        if crate::core::has_dangerous_chars(&self.batch_id) {
+            return Err(
+                "ZkVerifyResult batch_id contains control or format characters".to_string(),
+            );
+        }
         if self.verified_at.len() > Self::MAX_TIMESTAMP_LEN {
             return Err(format!(
                 "ZkVerifyResult verified_at length {} exceeds max {}",
                 self.verified_at.len(),
                 Self::MAX_TIMESTAMP_LEN,
             ));
+        }
+        // SECURITY (FIND-R172-002): Reject control/format chars in verified_at —
+        // parity with ZkBatchProof::validate() created_at (line 159).
+        if crate::core::has_dangerous_chars(&self.verified_at) {
+            return Err(
+                "ZkVerifyResult verified_at contains control or format characters".to_string(),
+            );
         }
         if let Some(ref err) = self.error {
             if err.len() > Self::MAX_ERROR_LEN {
@@ -214,6 +228,13 @@ impl ZkVerifyResult {
                     err.len(),
                     Self::MAX_ERROR_LEN,
                 ));
+            }
+            // SECURITY (FIND-R172-001): Reject control/format chars in error field
+            // to prevent log injection via crafted error messages.
+            if crate::core::has_dangerous_chars(err) {
+                return Err(
+                    "ZkVerifyResult error contains control or format characters".to_string(),
+                );
             }
         }
         Ok(())
@@ -251,6 +272,14 @@ impl ZkSchedulerStatus {
                     ts.len(),
                     Self::MAX_TIMESTAMP_LEN,
                 ));
+            }
+            // SECURITY (FIND-R172-003): Reject control/format chars in timestamp —
+            // parity with ZkBatchProof::validate() created_at (line 159).
+            if crate::core::has_dangerous_chars(ts) {
+                return Err(
+                    "ZkSchedulerStatus last_proof_at contains control or format characters"
+                        .to_string(),
+                );
             }
         }
         Ok(())
