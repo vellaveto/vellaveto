@@ -1,14 +1,14 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 complete, 147 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 complete, 152 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 6,826 Rust tests + 361 Python SDK tests + 106 Go SDK tests + 111 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 7,085 Rust tests + 361 Python SDK tests + 106 Go SDK tests + 111 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
 > **CI workflows:** 12 (16 jobs)
 > **Domain:** [www.vellaveto.online](https://www.vellaveto.online) (Cloudflare Pages)
-> **Updated:** 2026-02-20
+> **Updated:** 2026-02-22
 
 ---
 
@@ -197,6 +197,11 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - Round 108 (7 adversarial + 8 improvement findings: #[must_use = "security verdicts must not be discarded"] added to Verdict enum/AbacDecision enum/evaluate_action_traced()/AbacEngine::evaluate()/DeputyGuard::validate_action(), call_counts += 1 replaced with saturating_add across HTTP/WebSocket/gRPC transports preventing u64 overflow resetting call-limit policies)
 - Round 110 (28 P2 findings: enterprise/ETDI validate() wiring, schema depth limits, A2A response bounds, relay input sanitization, route handler Content-Type validation, path parameter bounds across 10 route modules)
 - Round 111 (1 P1 + 26 P2: RequireCapabilityToken holder bypass when agent_id absent — capability token theft vector closed with explicit None→Deny, DLP pattern name leakage to clients in HTTP/gRPC generic messages, audit sequence number reset across rotations via global AtomicU64, audit rotation sub-second filename collision via monotonic counter, AgentIdentity claims per-key/value length bounds, AbacEngine entity validation on construction, policy compile conditions size canonical constant, unbounded required_claims/agents/issuers/subjects/resources bounded, CapabilityRequired CSV MAX_DECLARED_CAPABILITIES=256, DLP OnceLock atomic initialization, SessionGuardConfig zero threshold rejection, capability_token issued_at future-date check, sampling_detector MAX_SCAN_MATCHES=1000, extension_registry TOCTOU write-lock re-check, rug_pull HashSet dedup, Redis approval MAX_REASON_LEN=4096, cluster redis_url empty check, SDK discovery/approval/zk param validation parity)
+- Rounds 128–131 (DLP NFKC→NFKD combining mark stripping, JSON key scanning, extension registry per-method/name/version content validation, projector `estimate_tokens()` fail-closed with FAILSAFE_TOKEN_ESTIMATE=100K, semantic guardrails MAX_SESSION_ID_LEN + policy validation before insertion)
+- Round 130 WS+gRPC injection scanning parity (4 findings: WS PassThrough injection scanning added, WS+gRPC upstream tools/list tool-description injection scanning, WS `extract_scannable_text()` rewritten to delegate to shared `extract_text_from_result()` covering resource.blob/annotations/_meta)
+- Rounds 133–140 (proxy bridge relay input sanitization — request ID key length/method name truncation/log injection prevention/agent_id bounds, config per-entry validation for PII patterns/resource indicators/CIMD capabilities/trigger tools/async nonces, compliance format allowlisting preventing log injection, ZK proofs offset info disclosure, behavioral engine call_counts map cap + EMA non-finite clamp, least-agency unbounded growth prevention, Merkle leaf fail-closed on wrong-length hash, audit manifest line size limit)
+- Rounds 141–149 (types validation: EvaluationContext timestamp/AgentIdentity audience/ToolSignature/ToolAttestation control+format char checks, capability token parent expiry verification, approval empty `requested_by`/`by` rejection, DLP combining mark ranges extended, injection scan final truncation, NHI create_delegation link validation/rotate_credentials validate-before-mutate, governance info disclosure — enforcement_mode removed + auto_revoke_candidates count-only, semantic guardrails evaluate() input validation + data flow pattern name bounds + A2A parts iteration bounded, ABAC path normalization fail-closed, HTTP ProgressNotification DLP+injection scanning parity)
+- **Canonical `has_dangerous_chars()` dedup campaign:** ~100 inline char validation patterns replaced with `vellaveto_types::has_dangerous_chars()` across ~35 files (types 82, config 71, mcp 7), removing 4 local helper functions and upgrading control-only checks to also reject Unicode format chars
 - **CI/CD:** 11 workflows, Docker/GHCR, release automation, SBOM, provenance attestation
 - **SDKs:** Python (sync+async, LangChain/LangGraph/Composio, 361 tests), TypeScript (fetch-based, 111 tests), Go (stdlib-only, 106 tests)
 - **Composio Integration:** `ComposioGuard` with `before_execute`/`after_execute` modifier factories for universal Composio provider support (OpenAI, LangChain, CrewAI, AutoGen, Google ADK), client-side response scanning (DLP + injection with NFKC normalization + invisible char stripping), `CallChainTracker` (thread-safe, bounded FIFO), slug normalization (ASCII-only with homoglyph rejection), target extraction (recursive with depth bound, file:// URI support), standalone `execute()` wrapper with TOCTOU prevention, 84 tests (49 adversarial)

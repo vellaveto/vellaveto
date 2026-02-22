@@ -13,7 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Interactive Setup Wizard** (`/setup`): Web-based 7-step configuration wizard for first-time users (Welcome → Security → Policies → Detection → Audit → Compliance → Review/Apply). Server-side rendered HTML, CSRF protection, bounded session management, TOML config generation with hot-reload. Guard middleware locks wizard after initial setup via `.setup-complete` marker file.
 - **Cloudflare Pages deployment** for [www.vellaveto.online](https://www.vellaveto.online): `deploy-site.yml` workflow, `_redirects` (apex → www), `_headers` (security headers), Astro site URL updated from `vellaveto.dev`.
 
+### Refactored
+
+- **Canonical `has_dangerous_chars()` dedup campaign:** Replaced ~100 inline `is_control()`/`is_unicode_format_char()` patterns with canonical `vellaveto_types::has_dangerous_chars()` across ~35 files (vellaveto-types 82, vellaveto-config 71, vellaveto-mcp 7). Removed 4 local helper functions (`a2a_contains_control_chars`, `cluster_contains_control_chars`, `is_valid_id` in shadow_ai_discovery, redundant `c == '\0'` in tool_namespace). All previously control-only checks now also reject Unicode format characters. Updated ~40 test assertions for new error message format.
+
 ### Security
+
+#### Round 130 WS+gRPC Injection Scanning Parity (4 findings — 1 P1 + 3 P2)
+
+- **FIND-R130-001 (P1):** WS PassThrough arm missing injection scanning — injection payloads in `prompts/get`, `completion/complete` passed undetected while HTTP and gRPC both had the check. Added `extract_strings_recursive` + `inspect_for_injection` scanning.
+- **FIND-R130-003 (P2):** WS+gRPC upstream `tools/list` missing tool-description injection scanning — malicious MCP servers could embed injection in tool descriptions. Added `scan_tool_descriptions()` to both handlers.
+- **FIND-R130-004 (P2):** WS `extract_scannable_text()` had reduced scan coverage vs HTTP — missing `resource.blob` (base64), `annotations`, `_meta`. Rewritten to delegate to shared `inspection::extract_text_from_result()`.
 
 #### Round 82 Adversarial Audit (9 findings — 4 P2 + 5 P3)
 

@@ -5,7 +5,7 @@
 >
 > **Last updated:** 2026-02-22 (Round 152)
 > **Total audit rounds:** 152
-> **Cumulative findings fixed:** 532+
+> **Cumulative findings fixed:** 536+
 
 ---
 
@@ -199,12 +199,22 @@
 
 ---
 
-## Round 130 — Semantic Guardrails (2 findings fixed)
+## Round 130 — Semantic Guardrails + WS/gRPC Injection Scanning Parity (6 findings fixed)
+
+**Subsystem:** `vellaveto-mcp/src/semantic_guardrails/`, `vellaveto-http-proxy/src/proxy/websocket/mod.rs`, `vellaveto-http-proxy/src/proxy/grpc/service.rs`
+**Commits:** (semantic guardrails), `14085ed` (WS+gRPC injection parity)
 
 | ID | Sev | File | Fix |
 |----|-----|------|-----|
+| FIND-R130-001 | P1 | `websocket/mod.rs` | WS PassThrough arm missing injection scanning — injection payloads in `prompts/get`, `completion/complete` passed undetected while HTTP and gRPC both had the check |
 | FIND-R130-002 | P2 | `semantic_guardrails/mod.rs` | `MAX_SESSION_ID_LEN=256` bounds check before HashMap insertion |
+| FIND-R130-003 | P2 | `websocket/mod.rs`, `grpc/service.rs` | WS+gRPC upstream `tools/list` response handlers missing tool-description injection scanning — malicious MCP servers could embed injection in tool descriptions |
 | FIND-R130-003 | P2 | `semantic_guardrails/nl_policy.rs` | `policy.validate()` called in `add_policy()` before insertion |
+| FIND-R130-004 | P2 | `websocket/mod.rs` | WS `extract_scannable_text()` rewritten to delegate to shared `inspection::extract_text_from_result()` — now covers `resource.text`, `resource.blob` (base64), `annotations`, `_meta` (previously missing) |
+
+**Also this session:** Canonical `has_dangerous_chars()` adoption across ~35 files (~100 inline patterns replaced), upgrading control-only checks to also reject Unicode format characters.
+
+**Tests added:** 0 (existing proxy + engine tests continue to pass)
 
 ---
 
@@ -235,8 +245,8 @@
 |----------|-----------|
 | Rounds completed | 152 |
 | P0 (Critical) findings fixed | 3 |
-| P1 (High) findings fixed | 36+ |
-| P2 (Medium) findings fixed | 374+ |
+| P1 (High) findings fixed | 37+ |
+| P2 (Medium) findings fixed | 377+ |
 | P3 (Low) findings fixed | 151+ |
 | Tests added from audits | 220+ |
 | CLEAN rounds (no findings) | ~25 |
