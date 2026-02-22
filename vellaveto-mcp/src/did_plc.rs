@@ -110,7 +110,16 @@ pub fn generate_did_plc_from_key(
 pub fn validate_did_plc(did: &str) -> Result<(), DidPlcError> {
     DidPlc::from_str_validated(did).map(|_| ()).ok_or_else(|| {
         // SECURITY (FIND-R178-005): Truncate to prevent oversized error messages.
-        let display = if did.len() > 60 { &did[..60] } else { did };
+        // SECURITY (IMP-R178-008): Use char boundary to avoid panic on multi-byte UTF-8.
+        let display = if did.len() > 60 {
+            let mut end = 60;
+            while end > 0 && !did.is_char_boundary(end) {
+                end -= 1;
+            }
+            &did[..end]
+        } else {
+            did
+        };
         DidPlcError::InvalidFormat(format!(
             "expected 'did:plc:<24-char-base32-suffix>', got '{}'",
             display
@@ -331,5 +340,80 @@ mod tests {
         assert!(validate_did_plc("not-a-did").is_err());
         assert!(validate_did_plc("did:plc:short").is_err());
         assert!(validate_did_plc("did:web:example.com").is_err());
+    }
+
+    // ── R178 validation tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_generate_did_plc_from_key_oversized_public_key() {
+        let big_key = "a".repeat(1025);
+        let result = generate_did_plc_from_key(&big_key, "Ed25519");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, DidPlcError::MissingField(_)));
+    }
+
+    #[test]
+    fn test_generate_did_plc_from_key_at_max_public_key() {
+        let max_key = "a".repeat(1024);
+        // Should not fail on the length check (may succeed or fail downstream)
+        let result = generate_did_plc_from_key(&max_key, "Ed25519");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_generate_did_plc_from_key_oversized_algorithm() {
+        let big_algo = "x".repeat(65);
+        let result = generate_did_plc_from_key("abcdef1234", &big_algo);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, DidPlcError::MissingField(_)));
+    }
+
+    #[test]
+    fn test_generate_did_plc_from_key_at_max_algorithm() {
+        let max_algo = "x".repeat(64);
+        let result = generate_did_plc_from_key("abcdef1234", &max_algo);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_generate_did_plc_genesis_exceeds_max_entries() {
+        let many_keys: Vec<String> = (0..101)
+            .map(|i| format!("did:key:zKey{:04}", i))
+            .collect();
+        let genesis = DidPlcGenesisOperation {
+            op_type: "plc_operation".to_string(),
+            rotation_keys: many_keys,
+            verification_methods: vec![],
+            also_known_as: vec![],
+            services: vec![],
+            sig: None,
+            prev: None,
+        };
+        let result = generate_did_plc(&genesis);
+        assert!(result.is_err(), "Should reject genesis with 101 rotation keys");
+    }
+
+    #[test]
+    fn test_validate_did_plc_oversized_input() {
+        let big_input = "did:plc:".to_string() + &"x".repeat(10_000);
+        let result = validate_did_plc(&big_input);
+        assert!(result.is_err());
+        // Error message should be bounded (truncated to ~60 chars)
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(err_msg.len() < 200, "Error message should be bounded: len={}", err_msg.len());
+    }
+
+    #[test]
+    fn test_validate_did_plc_multibyte_utf8_no_panic() {
+        // Multi-byte chars that would cause &did[..60] to panic if byte-sliced
+        let mut input = "did:plc:".to_string();
+        // Each emoji is 4 bytes; 15 of them = 60 bytes + 8 for prefix = 68 bytes
+        for _ in 0..15 {
+            input.push('\u{1F600}'); // 😀
+        }
+        let result = validate_did_plc(&input);
+        assert!(result.is_err()); // Should not panic
     }
 }

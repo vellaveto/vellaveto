@@ -204,8 +204,7 @@ pub fn span_to_otel_attributes(span: &SecuritySpan) -> Vec<KeyValue> {
 
     // Custom attributes from the span
     // SECURITY (FIND-R178-004): Cap iteration to prevent unbounded OTel attribute explosion.
-    const MAX_CUSTOM_ATTRIBUTES: usize = 128;
-    for (key, value) in span.attributes.iter().take(MAX_CUSTOM_ATTRIBUTES) {
+    for (key, value) in span.attributes.iter().take(super::MAX_SPAN_ATTRIBUTES) {
         let otel_key = format!("vellaveto.custom.{}", key);
         if let Some(s) = value.as_str() {
             attrs.push(KeyValue::new(otel_key, s.to_string()));
@@ -495,5 +494,50 @@ mod tests {
         assert_eq!(config.endpoint, "http://localhost:4317");
         assert_eq!(config.service_name, "vellaveto");
         assert_eq!(config.base.batch_size, 100);
+    }
+
+    #[test]
+    fn test_span_to_otel_attributes_custom_cap() {
+        // Construct a span with 200 custom attributes directly (bypassing builder)
+        let mut span = make_test_span();
+        for i in 0..200 {
+            span.attributes.insert(
+                format!("custom_key_{}", i),
+                serde_json::json!(format!("value_{}", i)),
+            );
+        }
+        assert_eq!(span.attributes.len(), 200);
+
+        let attrs = span_to_otel_attributes(&span);
+        let custom_count = attrs
+            .iter()
+            .filter(|kv| kv.key.as_str().starts_with("vellaveto.custom."))
+            .count();
+        assert!(
+            custom_count <= 128,
+            "Custom attributes should be capped at 128, got {}",
+            custom_count,
+        );
+    }
+
+    #[test]
+    fn test_span_builder_attribute_cap() {
+        let mut builder = SecuritySpan::builder("trace-cap-test", SpanKind::Tool)
+            .verdict(VerdictSummary {
+                outcome: "allow".to_string(),
+                reason: None,
+            });
+        for i in 0..200 {
+            builder = builder.attribute(
+                format!("key_{}", i),
+                serde_json::json!(format!("val_{}", i)),
+            );
+        }
+        let span = builder.build().unwrap();
+        assert!(
+            span.attributes.len() <= 128,
+            "Builder should cap attributes at 128, got {}",
+            span.attributes.len(),
+        );
     }
 }

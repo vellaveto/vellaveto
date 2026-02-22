@@ -287,4 +287,30 @@ mod tests {
             );
         }
     }
+
+    // ── R178 tool name length validation ────────────────────────────────
+
+    #[test]
+    fn test_get_record_tool_name_at_max_length() {
+        let registry = DataGovernanceRegistry::new();
+        let name = "a".repeat(DataGovernanceRegistry::MAX_TOOL_NAME_LEN);
+        // Should not be rejected by length guard; returns None because no glob matches
+        assert!(registry.get_record(&name).is_none());
+    }
+
+    #[test]
+    fn test_get_record_tool_name_exceeds_max_length() {
+        let registry = DataGovernanceRegistry::new();
+        let name = "a".repeat(DataGovernanceRegistry::MAX_TOOL_NAME_LEN + 1);
+        // Should be rejected by length guard before glob matching
+        assert!(registry.get_record(&name).is_none());
+    }
+
+    #[test]
+    fn test_get_record_oversized_tool_name_returns_none() {
+        let registry = DataGovernanceRegistry::new();
+        let name = "filesystem.".to_string() + &"x".repeat(5000);
+        // Even though it starts with "filesystem.", the length guard rejects it
+        assert!(registry.get_record(&name).is_none());
+    }
 }

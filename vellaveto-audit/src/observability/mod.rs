@@ -462,7 +462,6 @@ impl SecuritySpanBuilder {
     /// SECURITY (FIND-R178-004): Silently drops attributes beyond `MAX_SPAN_ATTRIBUTES`
     /// to prevent unbounded memory growth from attacker-controlled span metadata.
     pub fn attribute(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
-        const MAX_SPAN_ATTRIBUTES: usize = 128;
         if self.attributes.len() < MAX_SPAN_ATTRIBUTES {
             self.attributes.insert(key.into(), value);
         }
@@ -743,6 +742,12 @@ pub mod trace_context {
     /// The tracestate header name.
     pub const TRACESTATE: &str = "tracestate";
 }
+
+/// Maximum custom attributes per `SecuritySpan`.
+///
+/// SECURITY (FIND-R178-004): Bounds the builder and OTLP exporter to prevent
+/// unbounded memory growth from attacker-controlled span metadata.
+pub(crate) const MAX_SPAN_ATTRIBUTES: usize = 128;
 
 /// Maximum allowed tracestate header size in bytes (W3C Trace Context limit).
 ///
