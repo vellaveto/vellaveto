@@ -270,23 +270,14 @@ pub fn verify_attestation(
     let signature_valid = verifying_key.verify(&content_hash, &signature).is_ok();
 
     // Check expiry
-    let expired = chrono::DateTime::parse_from_rfc3339(&attestation.expires_at)
+    let mut expired = chrono::DateTime::parse_from_rfc3339(&attestation.expires_at)
         .map(|expires| now >= &expires.with_timezone(&chrono::Utc))
         .unwrap_or(true); // Fail-closed: unparseable expiry = expired
-
-    // Check key match (constant-time to prevent timing side-channel)
-    let key_matches_agent = match expected_public_key_hex {
-        Some(expected) => {
-            let a = attestation.public_key.to_ascii_lowercase();
-            let b = expected.to_ascii_lowercase();
-            a.len() == b.len() && a.as_bytes().ct_eq(b.as_bytes()).into()
-        }
-        None => true, // No expected key to compare against
-    };
 
     // SECURITY (FIND-R186-002): Reject attestations with created_at unreasonably far
     // in the future. Parity with verify_capability_token MAX_ISSUED_AT_SKEW_SECS check.
     // Prevents pre-minting attack: compromised key stockpiles future-dated attestations.
+    // Treated as temporal invalidity (expired=true) so is_valid() correctly rejects.
     let created_at_future_skew = chrono::DateTime::parse_from_rfc3339(&attestation.created_at)
         .map(|created| {
             let skew = created
@@ -300,6 +291,20 @@ pub fn verify_attestation(
             }
         })
         .unwrap_or(Some(0)); // Fail-closed: unparseable created_at = rejected
+
+    if created_at_future_skew.is_some() {
+        expired = true; // Future-dated = temporally invalid
+    }
+
+    // Check key match (constant-time to prevent timing side-channel)
+    let key_matches_agent = match expected_public_key_hex {
+        Some(expected) => {
+            let a = attestation.public_key.to_ascii_lowercase();
+            let b = expected.to_ascii_lowercase();
+            a.len() == b.len() && a.as_bytes().ct_eq(b.as_bytes()).into()
+        }
+        None => true, // No expected key to compare against
+    };
 
     let message = if !signature_valid {
         "Invalid signature".to_string()
@@ -936,5 +941,82 @@ mod tests {
         assert_ne!(att1.attestation_id, att2.attestation_id);
         // Signatures must differ because attestation_id and timestamps differ
         assert_ne!(att1.signature, att2.signature);
+    }
+
+    // ── FIND-R186-002: Future created_at validation ──────────────────────
+
+    #[test]
+    fn test_verify_rejects_future_created_at() {
+        let (signing_key_hex, public_key_hex) = generate_test_keypair();
+        let mut attestation = sign_attestation(
+            "agent-1",
+            None,
+            "statement",
+            "hash",
+            &signing_key_hex,
+            86400,
+        )
+        .expect("sign");
+
+        // Set created_at 120 seconds in the future (beyond 60s skew tolerance)
+        let future = chrono::Utc::now() + chrono::Duration::seconds(120);
+        attestation.created_at = future.to_rfc3339();
+
+        // Re-sign with the new created_at (so signature is still valid)
+        let canonical = build_canonical_content(
+            &attestation.attestation_id,
+            &attestation.agent_id,
+            attestation.did.as_deref(),
+            &attestation.statement,
+            &attestation.policy_hash,
+            &attestation.created_at,
+            &attestation.expires_at,
+        );
+        let mut hasher = Sha256::new();
+        hasher.update(canonical.as_bytes());
+        let content_hash = hasher.finalize();
+        let sk_bytes = hex::decode(&signing_key_hex).unwrap();
+        let signing_key = SigningKey::from_bytes(sk_bytes.as_slice().try_into().unwrap());
+        let sig = signing_key.sign(&content_hash);
+        attestation.signature = hex::encode(sig.to_bytes());
+
+        let now = chrono::Utc::now();
+        let result =
+            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        assert!(result.signature_valid, "signature should be valid");
+        assert!(result.expired, "future-dated attestation should be treated as expired");
+        assert!(
+            !result.is_valid(),
+            "future-dated attestation must not pass is_valid()"
+        );
+        assert!(
+            result.message.contains("in the future"),
+            "message should mention future: {}",
+            result.message
+        );
+    }
+
+    #[test]
+    fn test_verify_accepts_created_at_within_skew() {
+        let (signing_key_hex, public_key_hex) = generate_test_keypair();
+        let attestation = sign_attestation(
+            "agent-1",
+            None,
+            "statement",
+            "hash",
+            &signing_key_hex,
+            86400,
+        )
+        .expect("sign");
+
+        // Verify with "now" 30 seconds in the past (simulates clock skew < 60s)
+        let past_now = chrono::Utc::now() - chrono::Duration::seconds(30);
+        let result =
+            verify_attestation(&attestation, Some(&public_key_hex), &past_now).expect("verify");
+        assert!(
+            result.is_valid(),
+            "attestation within 60s skew should be valid: {}",
+            result.message
+        );
     }
 }

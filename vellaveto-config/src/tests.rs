@@ -7661,6 +7661,44 @@ fn test_cluster_pool_size_valid_accepted() {
 }
 
 // ════════════════════════════════════════════════════════
+// FIND-R184-005: ClusterConfig key_prefix hash tag tests
+// ════════════════════════════════════════════════════════
+
+#[test]
+fn test_cluster_key_prefix_with_open_brace_rejected() {
+    let mut cfg = crate::cluster::ClusterConfig::default();
+    cfg.key_prefix = "vellaveto{slot}:".to_string();
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("hash tag"),
+        "Expected 'hash tag' error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_cluster_key_prefix_with_close_brace_rejected() {
+    let mut cfg = crate::cluster::ClusterConfig::default();
+    cfg.key_prefix = "vellaveto}:".to_string();
+    let err = cfg.validate().unwrap_err();
+    assert!(
+        err.contains("hash tag"),
+        "Expected 'hash tag' error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_cluster_key_prefix_without_braces_accepted() {
+    let mut cfg = crate::cluster::ClusterConfig::default();
+    cfg.key_prefix = "vellaveto:".to_string();
+    assert!(
+        cfg.validate().is_ok(),
+        "key_prefix without braces should be accepted"
+    );
+}
+
+// ════════════════════════════════════════════════════════
 // FIND-R125: Elicitation/Sampling config validation tests
 // ════════════════════════════════════════════════════════
 
