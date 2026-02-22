@@ -3,9 +3,28 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 174)
-> **Total audit rounds:** 174
-> **Cumulative findings fixed:** 585+
+> **Last updated:** 2026-02-22 (Round 176)
+> **Total audit rounds:** 176
+> **Cumulative findings fixed:** 592+
+
+---
+
+## Round 174 — NaN Drift Fail-Closed, Session ID Validation, Event Field Bounds (7 findings fixed)
+
+**Subsystem:** `vellaveto-mcp/src/session_guard.rs`, `vellaveto-mcp/src/accountability.rs`, `vellaveto-types/src/gateway.rs`, `vellaveto-types/src/capability.rs`
+**Commit:** `63e4338`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R174-001 | P2 | `session_guard.rs` | `integrate_goal_drift` NaN/Infinity/negative similarity now fail-closed to `AnomalySeverity::Critical` instead of falling through to `Low` |
+| FIND-R174-002 | P2 | `session_guard.rs` | `process_event_at` session_id validated for empty/length(256)/control chars/Unicode format chars before HashMap insertion |
+| FIND-R174-003 | P3 | `session_guard.rs` | `RepeatedViolation{count:0}` is now a no-op in Active and Suspicious states, preventing spurious state escalation |
+| FIND-R174-004 | P3 | `gateway.rs` | `UpstreamBackend.id` (256) and `tool_prefixes` (count:1000, len:256) validated for length bounds and dangerous characters |
+| FIND-R174-005 | P3 | `capability.rs` | `CapabilityGrant.tool_pattern`/`function_pattern` bounded at `MAX_PATTERN_LEN=1024` |
+| FIND-R174-006 | P3 | `session_guard.rs` | TransitionAction message/reason strings truncated at `MAX_EVENT_FIELD_LEN=1024` (UTF-8-safe) |
+| FIND-R174-007 | P3 | `accountability.rs` | `sign_attestation` did field bounded at `MAX_DID_LEN=512` |
+
+R172 verification: All 4 R172 fixes (FIND-R172-001/002/003/004) confirmed VERIFIED.
 
 ---
 
