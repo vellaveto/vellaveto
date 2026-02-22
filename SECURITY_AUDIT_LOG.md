@@ -3,9 +3,9 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 190)
-> **Total audit rounds:** 190
-> **Cumulative findings fixed:** 635+
+> **Last updated:** 2026-02-22 (Round 176)
+> **Total audit rounds:** 176
+> **Cumulative findings fixed:** 615+
 
 ---
 
