@@ -3596,28 +3596,65 @@ async fn relay_upstream_to_client(
                     // scanned for DLP/injection before forwarding. A malicious upstream
                     // could exfiltrate secrets or inject payloads via non-JSON frames.
                     let text_str: &str = &text;
+                    // SECURITY (FIND-R168-001): DLP scan with audit logging parity.
                     if state.response_dlp_enabled {
                         let findings = scan_text_for_secrets(
                             text_str, "ws.upstream.non_json_text",
                         );
                         if !findings.is_empty() {
+                            let patterns: Vec<String> = findings
+                                .iter()
+                                .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                                .collect();
                             tracing::warn!(
                                 session_id = %session_id,
-                                "DLP: non-JSON upstream text contains sensitive data ({} findings), dropping",
+                                "DLP: non-JSON upstream text contains sensitive data ({} findings)",
                                 findings.len(),
                             );
-                            continue;
+                            let verdict = if state.response_dlp_blocking {
+                                Verdict::Deny { reason: format!("WS non-JSON DLP: {:?}", patterns) }
+                            } else {
+                                Verdict::Allow
+                            };
+                            let action = Action::new(
+                                "vellaveto", "ws_nonjson_dlp_scan",
+                                json!({ "findings": patterns, "session": session_id, "transport": "websocket" }),
+                            );
+                            let _ = state.audit.log_entry(
+                                &action, &verdict,
+                                json!({ "source": "ws_proxy", "event": "ws_nonjson_dlp_alert" }),
+                            ).await;
+                            if state.response_dlp_blocking {
+                                continue;
+                            }
                         }
                     }
+                    // SECURITY (FIND-R168-002): Injection scan with log-only mode
+                    // parity. Always log detections; only block when injection_blocking.
                     {
                         let alerts = inspect_for_injection(text_str);
-                        if !alerts.is_empty() && state.injection_blocking {
+                        if !alerts.is_empty() {
                             tracing::warn!(
                                 session_id = %session_id,
-                                "Injection: non-JSON upstream text blocked ({} alerts)",
-                                alerts.len(),
+                                "Injection: non-JSON upstream text ({} alerts), blocking={}",
+                                alerts.len(), state.injection_blocking,
                             );
-                            continue;
+                            let verdict = if state.injection_blocking {
+                                Verdict::Deny { reason: format!("WS non-JSON injection: {} alerts", alerts.len()) }
+                            } else {
+                                Verdict::Allow
+                            };
+                            let action = Action::new(
+                                "vellaveto", "ws_nonjson_injection_scan",
+                                json!({ "alerts": alerts.len(), "session": session_id, "transport": "websocket" }),
+                            );
+                            let _ = state.audit.log_entry(
+                                &action, &verdict,
+                                json!({ "source": "ws_proxy", "event": "ws_nonjson_injection_alert" }),
+                            ).await;
+                            if state.injection_blocking {
+                                continue;
+                            }
                         }
                     }
                     text.to_string()

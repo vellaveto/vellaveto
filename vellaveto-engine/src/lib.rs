@@ -963,6 +963,14 @@ impl PolicyEngine {
     /// This prevents stack/memory exhaustion from attacker-crafted deeply nested JSON.
     const MAX_JSON_DEPTH: usize = 32;
 
+    /// Maximum work stack size for iterative JSON traversal.
+    ///
+    /// SECURITY (FIND-R168-003): Caps the iterative traversal stack to prevent
+    /// transient memory spikes from flat JSON objects/arrays with many children.
+    /// Without this, a 1MB JSON with 100K keys at depth 0 would push all 100K
+    /// items before the depth/results checks trigger.
+    const MAX_STACK_SIZE: usize = 10_000;
+
     /// Recursively collect all string values from a JSON structure.
     ///
     /// Returns a list of `(path, value)` pairs where `path` is a dot-separated
@@ -991,6 +999,10 @@ impl PolicyEngine {
                         continue;
                     }
                     for (key, child) in obj {
+                        // SECURITY (FIND-R168-003): Bound stack inside push loop.
+                        if stack.len() >= Self::MAX_STACK_SIZE {
+                            break;
+                        }
                         let child_path = if path.is_empty() {
                             key.clone()
                         } else {
@@ -1008,6 +1020,9 @@ impl PolicyEngine {
                         continue;
                     }
                     for (i, child) in arr.iter().enumerate() {
+                        if stack.len() >= Self::MAX_STACK_SIZE {
+                            break;
+                        }
                         let child_path = if path.is_empty() {
                             format!("[{}]", i)
                         } else {
