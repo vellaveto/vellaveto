@@ -1,10 +1,10 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 complete, 152 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 complete, 178 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 7,085 Rust tests + 361 Python SDK tests + 106 Go SDK tests + 111 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 7,098 Rust tests + 361 Python SDK tests + 106 Go SDK tests + 111 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
 > **CI workflows:** 12 (16 jobs)
 > **Domain:** [www.vellaveto.online](https://www.vellaveto.online) (Cloudflare Pages)
@@ -201,6 +201,8 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - Round 130 WS+gRPC injection scanning parity (4 findings: WS PassThrough injection scanning added, WS+gRPC upstream tools/list tool-description injection scanning, WS `extract_scannable_text()` rewritten to delegate to shared `extract_text_from_result()` covering resource.blob/annotations/_meta)
 - Rounds 133–140 (proxy bridge relay input sanitization — request ID key length/method name truncation/log injection prevention/agent_id bounds, config per-entry validation for PII patterns/resource indicators/CIMD capabilities/trigger tools/async nonces, compliance format allowlisting preventing log injection, ZK proofs offset info disclosure, behavioral engine call_counts map cap + EMA non-finite clamp, least-agency unbounded growth prevention, Merkle leaf fail-closed on wrong-length hash, audit manifest line size limit)
 - Rounds 141–149 (types validation: EvaluationContext timestamp/AgentIdentity audience/ToolSignature/ToolAttestation control+format char checks, capability token parent expiry verification, approval empty `requested_by`/`by` rejection, DLP combining mark ranges extended, injection scan final truncation, NHI create_delegation link validation/rotate_credentials validate-before-mutate, governance info disclosure — enforcement_mode removed + auto_revoke_candidates count-only, semantic guardrails evaluate() input validation + data flow pattern name bounds + A2A parts iteration bounded, ABAC path normalization fail-closed, HTTP ProgressNotification DLP+injection scanning parity)
+- Rounds 154–162 (injection key scanning parity: WS/HTTP/gRPC/A2A all scan JSON object keys, MAX_DEPTH 10→32 across all transports, combining mark ranges extended, NHI Debug redaction, embedding lock fail-closed, task security SeqCst parity, gRPC TOCTOU atomic session+eval+update, sanitize_for_log dedup, resolve_domains cap)
+- Rounds 164–178 (OAuth/DPoP control char validation, A2A DLP text extraction, WS non-JSON DLP/injection scanning, gRPC error.data scanning, Redis approval UTF-8 truncation, DLP response content bounds, semantic guardrail input validation, NaN drift fail-closed, session_id validation, extension rollback, agent card chars, FIPS config validation, red team coverage bounds, session_guard has_dangerous_chars, Rekor validate, WitnessStore cap)
 - **Canonical `has_dangerous_chars()` dedup campaign:** ~100 inline char validation patterns replaced with `vellaveto_types::has_dangerous_chars()` across ~35 files (types 82, config 71, mcp 7), removing 4 local helper functions and upgrading control-only checks to also reject Unicode format chars
 - **CI/CD:** 11 workflows, Docker/GHCR, release automation, SBOM, provenance attestation
 - **SDKs:** Python (sync+async, LangChain/LangGraph/Composio, 361 tests), TypeScript (fetch-based, 111 tests), Go (stdlib-only, 106 tests)
