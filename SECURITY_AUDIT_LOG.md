@@ -3,9 +3,28 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 172)
-> **Total audit rounds:** 172
-> **Cumulative findings fixed:** 579+
+> **Last updated:** 2026-02-22 (Round 174)
+> **Total audit rounds:** 174
+> **Cumulative findings fixed:** 585+
+
+---
+
+## Round 172 — DLP Response Content Bounds + Semantic Guardrail Input Validation (4 findings fixed + 2 improvements)
+
+**Subsystem:** `vellaveto-mcp/src/inspection/dlp.rs`, `vellaveto-mcp/src/semantic_guardrails/evaluator.rs`, `vellaveto-mcp/src/inspection/scanner_base.rs`, `vellaveto-cluster/src/redis_backend.rs`, `vellaveto-http-proxy/src/proxy/grpc/service.rs`, `vellaveto-http-proxy/src/proxy/websocket/mod.rs`
+**Commits:** `db63e87`, `c855d2e`, `3d973c3`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R172-001 | P2 | `dlp.rs` | `scan_response_for_secrets` bounded by `MAX_RESPONSE_CONTENT_ITEMS=1000` + `MAX_DLP_FINDINGS` cap checks between all scan blocks |
+| FIND-R172-002 | P2 | `evaluator.rs` | `LlmEvalInput::validate()` bounds individual nl_policies (64KB), context role (32 chars), content (32KB), parameters JSON (1MB), plus control/format char validation on role |
+| FIND-R172-003 | P3 | `dlp.rs` | `scan_notification_for_secrets` checks findings cap before method name scan |
+| FIND-R172-004 | P3 | `evaluator.rs` | Context message role validated for control/format characters |
+| FIND-R168-005 | P3 | `grpc/service.rs`, `websocket/mod.rs` | gRPC/WS `error.data` scanning uses `as_str()` first to avoid JSON quoting |
+| IMP-R170-005 | P3 | `scanner_base.rs` | Test for `MAX_TRAVERSE_ELEMENTS` element count bound |
+| IMP-R170-007 | P3 | `redis_backend.rs` | Extracted `validate_resolver_identity()` deduplicating 24 lines from approve/deny |
+
+R170 verification: All 5 R170 fixes (FIND-R170-001/002/003/004/005) confirmed VERIFIED.
 
 ---
 
