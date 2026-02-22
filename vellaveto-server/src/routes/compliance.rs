@@ -578,10 +578,8 @@ fn parse_period_days(period: &str) -> Result<u32, String> {
         return Err("Period must be at least 1 day".to_string());
     }
     if days > MAX_PERIOD_DAYS {
-        return Err(format!(
-            "Period {} days exceeds maximum of {} days",
-            days, MAX_PERIOD_DAYS
-        ));
+        // SECURITY (FIND-R155-003): Don't echo user value or internal bounds.
+        return Err("Period exceeds maximum allowed".to_string());
     }
     Ok(days)
 }
