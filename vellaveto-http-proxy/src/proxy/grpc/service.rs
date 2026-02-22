@@ -1937,11 +1937,77 @@ impl McpGrpcService {
                 (verdict, EvaluationContext::default())
             };
 
-        // Suppress unused variable warning — ctx needed for consistency.
-        let _ = &ctx;
-
         match &verdict {
             Verdict::Allow => {
+                // SECURITY (FIND-R190-001): ABAC refinement for TaskRequest,
+                // matching ToolCall/ResourceRead/ExtensionMethod parity.
+                if let Some(ref abac) = self.state.abac_engine {
+                    let principal_id = ctx.agent_id.as_deref().unwrap_or("anonymous");
+                    let principal_type = ctx
+                        .agent_identity
+                        .as_ref()
+                        .and_then(|aid| aid.claims.get("type"))
+                        .and_then(|v: &serde_json::Value| v.as_str())
+                        .unwrap_or("Agent");
+                    let session_risk = self
+                        .state
+                        .sessions
+                        .get_mut(session_id)
+                        .and_then(|s| s.risk_score.clone());
+                    let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
+                        eval_ctx: &ctx,
+                        principal_type,
+                        principal_id,
+                        risk_score: session_risk.as_ref(),
+                    };
+                    match abac.evaluate(&action, &abac_ctx) {
+                        vellaveto_engine::abac::AbacDecision::Deny { policy_id, reason } => {
+                            let deny_verdict = Verdict::Deny {
+                                reason: format!("ABAC denied by {}: {}", policy_id, reason),
+                            };
+                            if let Err(e) = self
+                                .state
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &deny_verdict,
+                                    json!({
+                                        "source": "grpc_proxy",
+                                        "session": session_id,
+                                        "transport": "grpc",
+                                        "event": "abac_deny",
+                                        "abac_policy": policy_id,
+                                        "task_method": task_method,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!("Failed to audit gRPC task ABAC deny: {}", e);
+                            }
+                            return make_proto_denial_response(proto_req, "Denied by policy");
+                        }
+                        vellaveto_engine::abac::AbacDecision::Allow { policy_id } => {
+                            if let Some(ref la) = self.state.least_agency {
+                                la.record_usage(
+                                    principal_id,
+                                    session_id,
+                                    &policy_id,
+                                    task_method,
+                                    &action.function,
+                                );
+                            }
+                        }
+                        vellaveto_engine::abac::AbacDecision::NoMatch => {
+                            // Fall through — existing Allow stands
+                        }
+                        #[allow(unreachable_patterns)]
+                        _ => {
+                            tracing::warn!("Unknown AbacDecision variant in task_request — fail-closed");
+                            return make_proto_denial_response(proto_req, "Denied by policy");
+                        }
+                    }
+                }
+
                 if let Err(e) = self
                     .state
                     .audit

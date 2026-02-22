@@ -57,12 +57,15 @@ impl Default for ArchiveConfig {
 /// SECURITY (FIND-R186-004): Maximum number of errors tracked in ArchiveReport.
 const MAX_ARCHIVE_ERRORS: usize = 100;
 
+/// SECURITY (FIND-R190-004): Maximum entries tracked per ArchiveReport vector.
+const MAX_ARCHIVE_REPORT_ENTRIES: usize = 100_000;
+
 /// Report of archive maintenance operations.
 #[derive(Debug, Default)]
 pub struct ArchiveReport {
-    /// Files that were compressed.
+    /// Files that were compressed (capped at MAX_ARCHIVE_REPORT_ENTRIES).
     pub compressed: Vec<PathBuf>,
-    /// Files that were deleted due to retention policy.
+    /// Files that were deleted due to retention policy (capped at MAX_ARCHIVE_REPORT_ENTRIES).
     pub deleted: Vec<PathBuf>,
     /// Non-fatal errors encountered during maintenance (capped at MAX_ARCHIVE_ERRORS).
     pub errors: Vec<String>,
@@ -205,7 +208,11 @@ pub async fn run_archive_maintenance(
                 continue;
             }
             match compress_rotated_file(&path).await {
-                Ok(gz_path) => report.compressed.push(gz_path),
+                Ok(gz_path) => {
+                    if report.compressed.len() < MAX_ARCHIVE_REPORT_ENTRIES {
+                        report.compressed.push(gz_path);
+                    }
+                }
                 Err(e) => {
                     if report.errors.len() < MAX_ARCHIVE_ERRORS {
                         report
@@ -219,7 +226,10 @@ pub async fn run_archive_maintenance(
 
     // Phase 2: Enforce retention
     match enforce_retention(logger, config.retention_days).await {
-        Ok(deleted) => report.deleted = deleted,
+        Ok(mut deleted) => {
+            deleted.truncate(MAX_ARCHIVE_REPORT_ENTRIES);
+            report.deleted = deleted;
+        }
         Err(e) => {
             if report.errors.len() < MAX_ARCHIVE_ERRORS {
                 report

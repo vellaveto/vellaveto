@@ -2706,6 +2706,99 @@ pub async fn handle_mcp_post(
 
             match eval_result {
                 Ok((Verdict::Allow, trace)) => {
+                    // SECURITY (FIND-R190-001): ABAC refinement for TaskRequest,
+                    // matching ToolCall/ResourceRead parity.
+                    if let Some(ref abac) = state.abac_engine {
+                        let abac_eval_ctx =
+                            build_evaluation_context(&state.sessions, &session_id)
+                                .unwrap_or_default();
+                        let principal_id =
+                            abac_eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
+                        let principal_type = abac_eval_ctx
+                            .agent_identity
+                            .as_ref()
+                            .and_then(|id| id.claims.get("type"))
+                            .and_then(|v: &serde_json::Value| v.as_str())
+                            .unwrap_or("Agent");
+                        let session_risk = state
+                            .sessions
+                            .get_mut(&session_id)
+                            .and_then(|s| s.risk_score.clone());
+                        let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
+                            eval_ctx: &abac_eval_ctx,
+                            principal_type,
+                            principal_id,
+                            risk_score: session_risk.as_ref(),
+                        };
+
+                        match abac.evaluate(&action, &abac_ctx) {
+                            vellaveto_engine::abac::AbacDecision::Deny {
+                                policy_id,
+                                reason,
+                            } => {
+                                let verdict = Verdict::Deny {
+                                    reason: reason.clone(),
+                                };
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &verdict,
+                                        build_audit_context(
+                                            &session_id,
+                                            json!({
+                                                "task_method": task_method,
+                                                "event": "abac_deny",
+                                                "abac_policy_id": policy_id,
+                                            }),
+                                            &oauth_claims,
+                                        ),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to audit task ABAC deny: {}",
+                                        e
+                                    );
+                                }
+                                return attach_session_header(
+                                    make_jsonrpc_error(
+                                        msg.get("id"),
+                                        -32001,
+                                        "Denied by policy",
+                                    ),
+                                    &session_id,
+                                );
+                            }
+                            vellaveto_engine::abac::AbacDecision::Allow { policy_id } => {
+                                if let Some(ref la) = state.least_agency {
+                                    la.record_usage(
+                                        principal_id,
+                                        &session_id,
+                                        &policy_id,
+                                        &task_method,
+                                        &action.function,
+                                    );
+                                }
+                            }
+                            vellaveto_engine::abac::AbacDecision::NoMatch => {}
+                            #[allow(unreachable_patterns)]
+                            _ => {
+                                tracing::warn!(
+                                    "Unknown AbacDecision variant — fail-closed"
+                                );
+                                return attach_session_header(
+                                    make_jsonrpc_error(
+                                        msg.get("id"),
+                                        -32001,
+                                        "Denied by policy",
+                                    ),
+                                    &session_id,
+                                );
+                            }
+                        }
+                    }
+
                     if let Err(e) = state
                         .audit
                         .log_entry(

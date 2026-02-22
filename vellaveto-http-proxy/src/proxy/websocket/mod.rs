@@ -2254,7 +2254,7 @@ async fn relay_client_to_upstream(
                         // SECURITY (FIND-R190-006): Update session state on Allow
                         // (touch + call_counts + action_history) while still holding
                         // the shard lock, matching ToolCall/ResourceRead parity.
-                        let verdict =
+                        let (verdict, task_eval_ctx) =
                             if let Some(mut session) = state.sessions.get_mut(&session_id) {
                                 let ctx = EvaluationContext {
                                     timestamp: None,
@@ -2310,9 +2310,9 @@ async fn relay_client_to_upstream(
                                     session.action_history.push_back(task_method.to_string());
                                 }
 
-                                verdict
+                                (verdict, ctx)
                             } else {
-                                match state.engine.evaluate_action_with_context(
+                                let verdict = match state.engine.evaluate_action_with_context(
                                     &action,
                                     &state.policies,
                                     None,
@@ -2327,11 +2327,109 @@ async fn relay_client_to_upstream(
                                             reason: format!("Policy evaluation failed: {}", e),
                                         }
                                     }
-                                }
+                                };
+                                (verdict, EvaluationContext::default())
                             };
 
                         match verdict {
                             Verdict::Allow => {
+                                // SECURITY (FIND-R190-001): ABAC refinement for TaskRequest,
+                                // matching ToolCall/ResourceRead parity.
+                                if let Some(ref abac) = state.abac_engine {
+                                    let principal_id =
+                                        task_eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
+                                    let principal_type = task_eval_ctx
+                                        .agent_identity
+                                        .as_ref()
+                                        .and_then(|aid| aid.claims.get("type"))
+                                        .and_then(|v: &serde_json::Value| v.as_str())
+                                        .unwrap_or("Agent");
+                                    let session_risk = state
+                                        .sessions
+                                        .get_mut(&session_id)
+                                        .and_then(|s| s.risk_score.clone());
+                                    let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
+                                        eval_ctx: &task_eval_ctx,
+                                        principal_type,
+                                        principal_id,
+                                        risk_score: session_risk.as_ref(),
+                                    };
+                                    match abac.evaluate(&action, &abac_ctx) {
+                                        vellaveto_engine::abac::AbacDecision::Deny {
+                                            policy_id,
+                                            reason,
+                                        } => {
+                                            let deny_verdict = Verdict::Deny {
+                                                reason: format!(
+                                                    "ABAC denied by {}: {}",
+                                                    policy_id, reason
+                                                ),
+                                            };
+                                            if let Err(e) = state
+                                                .audit
+                                                .log_entry(
+                                                    &action,
+                                                    &deny_verdict,
+                                                    json!({
+                                                        "source": "ws_proxy",
+                                                        "session": session_id,
+                                                        "transport": "websocket",
+                                                        "event": "abac_deny",
+                                                        "abac_policy": policy_id,
+                                                        "task_method": task_method,
+                                                    }),
+                                                )
+                                                .await
+                                            {
+                                                tracing::warn!(
+                                                    "Failed to audit WS task ABAC deny: {}",
+                                                    e
+                                                );
+                                            }
+                                            let error_resp = make_ws_error_response(
+                                                Some(id),
+                                                -32001,
+                                                "Denied by policy",
+                                            );
+                                            let mut sink = client_sink.lock().await;
+                                            let _ =
+                                                sink.send(Message::Text(error_resp.into())).await;
+                                            continue;
+                                        }
+                                        vellaveto_engine::abac::AbacDecision::Allow {
+                                            policy_id,
+                                        } => {
+                                            if let Some(ref la) = state.least_agency {
+                                                la.record_usage(
+                                                    principal_id,
+                                                    &session_id,
+                                                    &policy_id,
+                                                    task_method,
+                                                    &action.function,
+                                                );
+                                            }
+                                        }
+                                        vellaveto_engine::abac::AbacDecision::NoMatch => {
+                                            // Fall through — existing Allow stands
+                                        }
+                                        #[allow(unreachable_patterns)]
+                                        _ => {
+                                            tracing::warn!(
+                                                "Unknown AbacDecision variant — fail-closed"
+                                            );
+                                            let error_resp = make_ws_error_response(
+                                                Some(id),
+                                                -32001,
+                                                "Denied by policy",
+                                            );
+                                            let mut sink = client_sink.lock().await;
+                                            let _ =
+                                                sink.send(Message::Text(error_resp.into())).await;
+                                            continue;
+                                        }
+                                    }
+                                }
+
                                 if let Err(e) = state
                                     .audit
                                     .log_entry(

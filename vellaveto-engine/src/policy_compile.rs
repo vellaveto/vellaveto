@@ -596,6 +596,15 @@ impl PolicyEngine {
                     })?
                     .to_string();
 
+                // SECURITY (FIND-R190-008): RFC 1035 validation on domain patterns.
+                if let Err(reason) = crate::domain::validate_domain_pattern(&pattern) {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!("domain_match pattern invalid: {}", reason),
+                    });
+                }
+
                 Ok(CompiledConstraint::DomainMatch {
                     param,
                     pattern,
@@ -633,6 +642,14 @@ impl PolicyEngine {
                         policy_name: policy.name.clone(),
                         reason: "domain_not_in patterns must be strings".to_string(),
                     })?;
+                    // SECURITY (FIND-R190-008): RFC 1035 validation on domain patterns.
+                    if let Err(reason) = crate::domain::validate_domain_pattern(pat_str) {
+                        return Err(PolicyValidationError {
+                            policy_id: policy.id.clone(),
+                            policy_name: policy.name.clone(),
+                            reason: format!("domain_not_in pattern invalid: {}", reason),
+                        });
+                    }
                     patterns.push(pat_str.to_string());
                 }
 
