@@ -37,11 +37,24 @@ impl DataGovernanceRegistry {
         registry
     }
 
+    /// Maximum tool name length for glob matching to prevent O(p*t) DP allocation.
+    /// SECURITY (FIND-R178-002): Enforces the documented GAP-S08 guard.
+    const MAX_TOOL_NAME_LEN: usize = 256;
+
     /// Get a record by exact tool name, falling back to glob matching.
     pub fn get_record(&self, tool_name: &str) -> Option<&DataGovernanceRecord> {
         // Exact match first
         if let Some(record) = self.mappings.get(tool_name) {
             return Some(record);
+        }
+        // SECURITY (FIND-R178-002): Reject oversized tool names before DP allocation.
+        if tool_name.len() > Self::MAX_TOOL_NAME_LEN {
+            tracing::warn!(
+                tool_name_len = tool_name.len(),
+                max = Self::MAX_TOOL_NAME_LEN,
+                "Data governance: tool name exceeds maximum length for glob matching"
+            );
+            return None;
         }
         // Glob fallback
         for (pattern, record) in &self.mappings {

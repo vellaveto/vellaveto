@@ -23,6 +23,11 @@ use vellaveto_types::{DidPlc, DidPlcError, DidPlcGenesisOperation};
 ///
 /// This is deterministic: the same genesis op always produces the same DID.
 pub fn generate_did_plc(genesis: &DidPlcGenesisOperation) -> Result<DidPlc, DidPlcError> {
+    // SECURITY (FIND-R178-001): Validate genesis bounds before clone+serialize.
+    genesis
+        .validate()
+        .map_err(|e| DidPlcError::MissingField(format!("genesis validation failed: {}", e)))?;
+
     // Validate required fields
     if genesis.op_type.is_empty() {
         return Err(DidPlcError::MissingField("type".to_string()));
@@ -66,6 +71,23 @@ pub fn generate_did_plc_from_key(
 ) -> Result<DidPlc, DidPlcError> {
     if public_key_hex.is_empty() {
         return Err(DidPlcError::MissingField("public_key_hex".to_string()));
+    }
+    // SECURITY (FIND-R178-001): Bound input lengths to prevent oversized key_id.
+    const MAX_PUBLIC_KEY_HEX_LEN: usize = 1024;
+    const MAX_KEY_ALGORITHM_LEN: usize = 64;
+    if public_key_hex.len() > MAX_PUBLIC_KEY_HEX_LEN {
+        return Err(DidPlcError::MissingField(format!(
+            "public_key_hex length {} exceeds maximum {}",
+            public_key_hex.len(),
+            MAX_PUBLIC_KEY_HEX_LEN
+        )));
+    }
+    if key_algorithm.len() > MAX_KEY_ALGORITHM_LEN {
+        return Err(DidPlcError::MissingField(format!(
+            "key_algorithm length {} exceeds maximum {}",
+            key_algorithm.len(),
+            MAX_KEY_ALGORITHM_LEN
+        )));
     }
 
     // Construct a did:key-style identifier (simplified)
