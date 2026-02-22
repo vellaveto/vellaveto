@@ -3,9 +3,27 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 162)
-> **Total audit rounds:** 162
-> **Cumulative findings fixed:** 553+
+> **Last updated:** 2026-02-22 (Round 164)
+> **Total audit rounds:** 164
+> **Cumulative findings fixed:** 555+
+
+---
+
+## Round 163+164 — IPv6 ULA Rejection + DNS Discovery Input Validation (2 findings fixed)
+
+**Subsystem:** `vellaveto-cluster/src/discovery_dns.rs`, `vellaveto-server/src/main.rs`
+**Commit:** `3045b06`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R163-003 | P2 | `discovery_dns.rs` | `is_safe_addr()` did not reject IPv6 Unique Local Addresses (fc00::/7) — IPv6 equivalent of IPv4 private ranges |
+| FIND-R163-006 | P2 | `discovery_dns.rs` | `DnsServiceDiscovery::new()` accepted dns_name without validation — now rejects empty/oversized/control+format chars; returns `Result` |
+
+R161 (R117 backlog): All items already resolved in prior rounds.
+R162 (inspection): No genuine P1/P2 — MP4 extended box size handled by checked_add, chi-squared overflow infeasible, PDF lookback is design choice.
+R164 (server admin): NHI audit logging gap is known backlog (R117-SP-004); other findings are design observations.
+
+**Tests added:** 2 (DNS discovery validation rejection tests)
 
 ---
 
