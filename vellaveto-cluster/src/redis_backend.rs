@@ -290,6 +290,14 @@ impl ClusterBackend for RedisBackend {
         }
         // Validate identity length (mirrors vellaveto-approval store-level check)
         if let Some(ref rb) = requested_by {
+            // SECURITY (FIND-R170-003): Reject empty requested_by — parity with
+            // local ApprovalStore (FIND-R143-004). Empty requested_by causes the
+            // self-approval check to be skipped entirely.
+            if rb.is_empty() {
+                return Err(ClusterError::Validation(
+                    "requested_by must not be empty".to_string(),
+                ));
+            }
             if rb.len() > vellaveto_approval::MAX_IDENTITY_LEN {
                 return Err(ClusterError::Validation(format!(
                     "requested_by exceeds maximum length of {} bytes",
@@ -438,6 +446,13 @@ impl ClusterBackend for RedisBackend {
     async fn approval_approve(&self, id: &str, by: &str) -> Result<PendingApproval, ClusterError> {
         // SECURITY (FIND-R112-009): Validate ID before constructing Redis key.
         validate_approval_id_for_redis(id)?;
+        // SECURITY (FIND-R170-002): Reject empty resolver identity — parity with
+        // local ApprovalStore (FIND-R143-005).
+        if by.is_empty() {
+            return Err(ClusterError::Validation(
+                "resolved_by must not be empty".to_string(),
+            ));
+        }
         if by.len() > vellaveto_approval::MAX_IDENTITY_LEN {
             return Err(ClusterError::Validation(format!(
                 "resolved_by exceeds maximum length of {} bytes",
@@ -530,6 +545,13 @@ impl ClusterBackend for RedisBackend {
     async fn approval_deny(&self, id: &str, by: &str) -> Result<PendingApproval, ClusterError> {
         // SECURITY (FIND-R112-009): Validate ID before constructing Redis key.
         validate_approval_id_for_redis(id)?;
+        // SECURITY (FIND-R170-002): Reject empty resolver identity — parity with
+        // local ApprovalStore (FIND-R143-005).
+        if by.is_empty() {
+            return Err(ClusterError::Validation(
+                "resolved_by must not be empty".to_string(),
+            ));
+        }
         if by.len() > vellaveto_approval::MAX_IDENTITY_LEN {
             return Err(ClusterError::Validation(format!(
                 "resolved_by exceeds maximum length of {} bytes",

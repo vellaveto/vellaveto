@@ -363,6 +363,12 @@ pub async fn deny_approval(
                 (StatusCode::CONFLICT, "Approval already resolved")
             }
             crate::ApprovalOpError::Expired(_) => (StatusCode::GONE, "Approval expired"),
+            crate::ApprovalOpError::Validation(ref msg) => {
+                // SECURITY (FIND-R170-001): Self-denial validation returns 403,
+                // mirroring approve_approval handler (R9-2 parity).
+                tracing::warn!("Approval denial validation failed for '{}': {}", id, msg);
+                (StatusCode::FORBIDDEN, "Self-denial denied")
+            }
             _ => {
                 tracing::error!("Approval deny error for '{}': {:?}", id, e);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")

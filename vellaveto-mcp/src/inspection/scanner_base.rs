@@ -21,6 +21,14 @@ use unicode_normalization::UnicodeNormalization;
 /// realistic attack vectors.
 pub const MAX_SCAN_DEPTH: usize = 32;
 
+/// Maximum number of elements traversed by `traverse_json_strings_impl`.
+///
+/// SECURITY (FIND-R170-005): Caps the total work done during JSON string
+/// traversal to prevent CPU exhaustion from flat JSON objects/arrays with
+/// many elements at depth 0. Without this, a 1MB JSON with 100K keys
+/// invokes the callback (regex/Aho-Corasick) 100K+ times.
+pub const MAX_TRAVERSE_ELEMENTS: usize = 10_000;
+
 /// Type of scanner that produced a finding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -150,7 +158,8 @@ pub fn traverse_json_strings<F>(value: &serde_json::Value, base_path: &str, call
 where
     F: FnMut(&str, &str),
 {
-    traverse_json_strings_inner(value, base_path, callback, 0);
+    let mut count = 0usize;
+    traverse_json_strings_inner(value, base_path, callback, 0, &mut count);
 }
 
 fn traverse_json_strings_inner<F>(
@@ -158,10 +167,11 @@ fn traverse_json_strings_inner<F>(
     path: &str,
     callback: &mut F,
     depth: usize,
+    count: &mut usize,
 ) where
     F: FnMut(&str, &str),
 {
-    traverse_json_strings_impl(value, path, callback, depth, false);
+    traverse_json_strings_impl(value, path, callback, depth, false, count);
 }
 
 /// Recursively extract all string values from a JSON value, including object keys.
@@ -182,7 +192,8 @@ pub fn traverse_json_strings_with_keys<F>(
 ) where
     F: FnMut(&str, &str),
 {
-    traverse_json_strings_impl(value, base_path, callback, 0, true);
+    let mut count = 0usize;
+    traverse_json_strings_impl(value, base_path, callback, 0, true, &mut count);
 }
 
 fn traverse_json_strings_impl<F>(
@@ -191,32 +202,42 @@ fn traverse_json_strings_impl<F>(
     callback: &mut F,
     depth: usize,
     include_keys: bool,
+    count: &mut usize,
 ) where
     F: FnMut(&str, &str),
 {
-    if depth > MAX_SCAN_DEPTH {
+    // SECURITY (FIND-R170-005): Bound both depth and total element count.
+    if depth > MAX_SCAN_DEPTH || *count >= MAX_TRAVERSE_ELEMENTS {
         return;
     }
 
     match value {
         serde_json::Value::String(s) => {
+            *count = count.saturating_add(1);
             callback(path, s);
         }
         serde_json::Value::Object(map) => {
             for (key, val) in map {
+                if *count >= MAX_TRAVERSE_ELEMENTS {
+                    break;
+                }
                 // SECURITY (R42-MCP-1): Optionally scan object keys for injection patterns.
                 if include_keys {
+                    *count = count.saturating_add(1);
                     let key_path = format!("{}.<key>", path);
                     callback(&key_path, key);
                 }
                 let child_path = format!("{}.{}", path, key);
-                traverse_json_strings_impl(val, &child_path, callback, depth + 1, include_keys);
+                traverse_json_strings_impl(val, &child_path, callback, depth + 1, include_keys, count);
             }
         }
         serde_json::Value::Array(arr) => {
             for (i, val) in arr.iter().enumerate() {
+                if *count >= MAX_TRAVERSE_ELEMENTS {
+                    break;
+                }
                 let child_path = format!("{}[{}]", path, i);
-                traverse_json_strings_impl(val, &child_path, callback, depth + 1, include_keys);
+                traverse_json_strings_impl(val, &child_path, callback, depth + 1, include_keys, count);
             }
         }
         _ => {}

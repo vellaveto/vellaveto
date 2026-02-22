@@ -390,8 +390,14 @@ pub async fn simulate_batch(
             Err(e) => {
                 // SECURITY (FIND-R63-007): Truncate error to prevent large responses.
                 let err_str = e.to_string();
+                // SECURITY (FIND-R170-004): Use char-boundary-aware truncation
+                // to prevent panic on multi-byte UTF-8 strings.
                 let bounded_err = if err_str.len() > 256 {
-                    format!("{}...", &err_str[..256])
+                    let mut end = 256;
+                    while end > 0 && !err_str.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    format!("{}...", &err_str[..end])
                 } else {
                     err_str
                 };
