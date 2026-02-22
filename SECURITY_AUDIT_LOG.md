@@ -3,9 +3,41 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 174)
-> **Total audit rounds:** 174
-> **Cumulative findings fixed:** 615+
+> **Last updated:** 2026-02-22 (Round 190)
+> **Total audit rounds:** 190
+> **Cumulative findings fixed:** 635+
+
+---
+
+## Round 188+190 — A2A Task ID Validation + Session Guard Brute-Force (7 findings fixed)
+
+**Subsystem:** `vellaveto-mcp/src/a2a/message.rs`, `vellaveto-mcp/src/session_guard.rs`, `vellaveto-mcp/src/did_plc.rs`, `vellaveto-mcp/src/fips.rs`, `vellaveto-mcp/src/red_team.rs`
+**Commit:** `acbbb81`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R188-002 | P2 | `a2a/message.rs` | A2A task_id length + dangerous char validation across all message types (send/get/cancel/subscribe) |
+| FIND-R188-005 | P2 | `session_guard.rs` | Brute-force admin unlock prevention: `MAX_FAILED_UNLOCK_ATTEMPTS=5` with permanent session end on exceeded limit |
+| FIND-R188-003 | P3 | `did_plc.rs` | DID:PLC genesis operation field bounds hardening |
+| FIND-R188-004 | P3 | `fips.rs` | FIPS mode validation hardening |
+| FIND-R188-006 | P3 | `red_team.rs` | Red team mutation bounds enforcement |
+
+---
+
+## Round 180+188 — Fail-Closed Locks + Sub-Config Validation Wiring (9 findings fixed)
+
+**Subsystem:** `vellaveto-config/src/config_validate.rs`, `vellaveto-mcp/src/shadow_ai_discovery.rs`, `vellaveto-mcp/src/rekor.rs`, `vellaveto-mcp/src/a2a/agent_card.rs`, `vellaveto-mcp/src/rag_defense/context_budget.rs`, `vellaveto-mcp/src/tool_namespace.rs`, `vellaveto-mcp/src/session_guard.rs`
+**Commit:** `e780f57`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R188-001 | P1 | `session_guard.rs` | Enforce `max_session_duration_secs` in `process_event_at()` — expired sessions now transition to Ended |
+| FIND-R180-001 | P2 | `config_validate.rs` | Wire 6 sub-config `validate()` calls (tls, spiffe, opa, threat_intel, jit_access, audit_export) in `PolicyConfig::validate()` — prevents invalid config from reaching runtime |
+| FIND-R180-005 | P2 | `rekor.rs` | Wire `RekorEntry::validate()` in `verify_inclusion_proof()` and `verify_tool_hash()` — prevents processing of oversized fields |
+| FIND-R180-006 | P2 | `shadow_ai_discovery.rs` | 5 write-side `if let Ok(...)` patterns converted to `match` with error logging — fail-closed instead of silently dropping observations |
+| FIND-R180-007 | P2 | `context_budget.rs` | `record_usage()` fail-closed on poisoned RwLock — logs error instead of silently dropping budget tracking |
+| FIND-R180-008 | P2 | `tool_namespace.rs` | `check_collision()` returns collision alert on poisoned lock instead of `None` (fail-open) |
+| FIND-R180-009 | P2 | `agent_card.rs` | 5 `into_inner()` sites replaced with fail-closed pattern — returns safe defaults instead of potentially corrupted data |
 
 ---
 
