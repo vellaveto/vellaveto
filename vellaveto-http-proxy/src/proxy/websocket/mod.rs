@@ -2251,8 +2251,11 @@ async fn relay_client_to_upstream(
                         // SECURITY (FIND-R130-002): TOCTOU-safe context+eval for task
                         // requests. Context is built inside the DashMap shard lock to
                         // prevent stale snapshot evaluation races.
+                        // SECURITY (FIND-R190-006): Update session state on Allow
+                        // (touch + call_counts + action_history) while still holding
+                        // the shard lock, matching ToolCall/ResourceRead parity.
                         let verdict =
-                            if let Some(session) = state.sessions.get_mut(&session_id) {
+                            if let Some(mut session) = state.sessions.get_mut(&session_id) {
                                 let ctx = EvaluationContext {
                                     timestamp: None,
                                     agent_id: session.oauth_subject.clone(),
@@ -2269,7 +2272,7 @@ async fn relay_client_to_upstream(
                                     capability_token: None,
                                     session_state: None,
                                 };
-                                match state.engine.evaluate_action_with_context(
+                                let verdict = match state.engine.evaluate_action_with_context(
                                     &action,
                                     &state.policies,
                                     Some(&ctx),
@@ -2284,7 +2287,30 @@ async fn relay_client_to_upstream(
                                             reason: format!("Policy evaluation failed: {}", e),
                                         }
                                     }
+                                };
+
+                                // Update session atomically on Allow
+                                if matches!(verdict, Verdict::Allow) {
+                                    session.touch();
+                                    use crate::proxy::call_chain::{
+                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+                                    };
+                                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                                        || session.call_counts.contains_key(task_method)
+                                    {
+                                        let count = session
+                                            .call_counts
+                                            .entry(task_method.to_string())
+                                            .or_insert(0);
+                                        *count = count.saturating_add(1);
+                                    }
+                                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                                        session.action_history.pop_front();
+                                    }
+                                    session.action_history.push_back(task_method.to_string());
                                 }
+
+                                verdict
                             } else {
                                 match state.engine.evaluate_action_with_context(
                                     &action,

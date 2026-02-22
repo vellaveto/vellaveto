@@ -2640,18 +2640,68 @@ pub async fn handle_mcp_post(
 
             let action = extractor::extract_task_action(&task_method, task_id.as_deref());
 
-            let eval_ctx = build_evaluation_context(&state.sessions, &session_id);
+            // SECURITY (FIND-R190-007): TOCTOU-safe context+eval for task requests.
+            // Read context and evaluate inside a single DashMap shard lock, matching
+            // the ToolCall pattern (line 725-789). Without this, concurrent TaskRequests
+            // can bypass max_calls_in_window by reading stale call_counts.
+            let eval_result = if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                let eval_ctx = EvaluationContext {
+                    timestamp: None,
+                    agent_id: session.oauth_subject.clone(),
+                    agent_identity: session.agent_identity.clone(),
+                    call_counts: session.call_counts.clone(),
+                    previous_actions: session.action_history.iter().cloned().collect(),
+                    call_chain: session.current_call_chain.clone(),
+                    tenant_id: None,
+                    verification_tier: None,
+                    capability_token: None,
+                    session_state: None,
+                };
 
-            let eval_result = if params.trace && state.trace_enabled {
-                state
-                    .engine
-                    .evaluate_action_traced_with_context(&action, eval_ctx.as_ref())
-                    .map(|(v, t)| (v, Some(t)))
+                let result = if params.trace && state.trace_enabled {
+                    state
+                        .engine
+                        .evaluate_action_traced_with_context(&action, Some(&eval_ctx))
+                        .map(|(v, t)| (v, Some(t)))
+                } else {
+                    state
+                        .engine
+                        .evaluate_action_with_context(&action, &state.policies, Some(&eval_ctx))
+                        .map(|v| (v, None))
+                };
+
+                // Atomically update session on Allow while holding shard lock
+                if let Ok((Verdict::Allow, _)) = &result {
+                    session.touch();
+                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                        || session.call_counts.contains_key(&task_method)
+                    {
+                        let count = session
+                            .call_counts
+                            .entry(task_method.clone())
+                            .or_insert(0);
+                        *count = count.saturating_add(1);
+                    }
+                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                        session.action_history.pop_front();
+                    }
+                    session.action_history.push_back(task_method.clone());
+                }
+
+                result
             } else {
-                state
-                    .engine
-                    .evaluate_action_with_context(&action, &state.policies, eval_ctx.as_ref())
-                    .map(|v| (v, None))
+                // No session: evaluate without context
+                if params.trace && state.trace_enabled {
+                    state
+                        .engine
+                        .evaluate_action_traced_with_context(&action, None)
+                        .map(|(v, t)| (v, Some(t)))
+                } else {
+                    state
+                        .engine
+                        .evaluate_action_with_context(&action, &state.policies, None)
+                        .map(|v| (v, None))
+                }
             };
 
             match eval_result {
