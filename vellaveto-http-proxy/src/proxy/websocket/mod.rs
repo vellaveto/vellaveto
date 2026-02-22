@@ -49,7 +49,8 @@ use crate::proxy_metrics::record_dlp_finding;
 pub struct WebSocketConfig {
     /// Maximum message size in bytes (default: 1 MB).
     pub max_message_size: usize,
-    /// Idle timeout in seconds — close connection after inactivity (default: 300s).
+    /// Idle timeout in seconds — close connection after no message activity (default: 300s).
+    /// SECURITY (FIND-R182-001): True idle timeout that resets on every message.
     pub idle_timeout_secs: u64,
     /// Maximum messages per second per connection for client-to-upstream (default: 100).
     pub message_rate_limit: u32,
@@ -374,6 +375,11 @@ async fn handle_ws_connection(
 
     let idle_timeout = Duration::from_secs(ws_config.idle_timeout_secs);
 
+    // SECURITY (FIND-R182-001): Shared last-activity tracker so idle timeout resets
+    // on every message (true idle detection, not max-lifetime).
+    let last_activity = Arc::new(AtomicU64::new(0));
+    let connection_epoch = std::time::Instant::now();
+
     // Client → Vellaveto → Upstream relay
     let client_to_upstream = {
         let state = state.clone();
@@ -383,6 +389,7 @@ async fn handle_ws_connection(
         let rate_counter = rate_counter.clone();
         let rate_window_start = rate_window_start.clone();
         let ws_config = ws_config.clone();
+        let last_activity = last_activity.clone();
 
         relay_client_to_upstream(
             client_stream,
@@ -393,6 +400,8 @@ async fn handle_ws_connection(
             ws_config,
             rate_counter,
             rate_window_start,
+            last_activity,
+            connection_epoch,
         )
     };
 
@@ -402,6 +411,7 @@ async fn handle_ws_connection(
         let session_id = session_id.clone();
         let client_sink = client_sink.clone();
         let ws_config = ws_config.clone();
+        let last_activity = last_activity.clone();
 
         relay_upstream_to_client(
             upstream_stream,
@@ -411,7 +421,40 @@ async fn handle_ws_connection(
             ws_config,
             upstream_rate_counter,
             upstream_rate_window_start,
+            last_activity,
+            connection_epoch,
         )
+    };
+
+    // SECURITY (FIND-R182-001): True idle timeout — check periodically and
+    // close only if no message activity since last check.
+    let idle_check = {
+        let session_id = session_id.clone();
+        let last_activity = last_activity.clone();
+        async move {
+            // Check every 10% of idle timeout (min 1s) for responsive detection.
+            let check_interval = Duration::from_secs(
+                (ws_config.idle_timeout_secs / 10).max(1)
+            );
+            let mut interval = tokio::time::interval(check_interval);
+            interval.tick().await; // first tick is immediate, skip it
+            loop {
+                interval.tick().await;
+                let last_ms = last_activity.load(Ordering::Relaxed);
+                let elapsed_since_activity = connection_epoch.elapsed()
+                    .as_millis() as u64
+                    - last_ms;
+                if elapsed_since_activity >= idle_timeout.as_millis() as u64 {
+                    tracing::info!(
+                        session_id = %session_id,
+                        idle_secs = elapsed_since_activity / 1000,
+                        "WebSocket idle timeout ({}s), closing",
+                        ws_config.idle_timeout_secs
+                    );
+                    break;
+                }
+            }
+        }
     };
 
     // Run both relay loops with idle timeout
@@ -422,13 +465,7 @@ async fn handle_ws_connection(
         _ = upstream_to_client => {
             tracing::debug!(session_id = %session_id, "Upstream stream ended");
         }
-        _ = tokio::time::sleep(idle_timeout) => {
-            tracing::info!(
-                session_id = %session_id,
-                "WebSocket idle timeout ({}s), closing",
-                ws_config.idle_timeout_secs
-            );
-        }
+        _ = idle_check => {}
     }
 
     // Clean shutdown: close both sides
@@ -477,6 +514,8 @@ async fn relay_client_to_upstream(
     ws_config: WebSocketConfig,
     rate_counter: Arc<AtomicU64>,
     rate_window_start: Arc<std::sync::Mutex<std::time::Instant>>,
+    last_activity: Arc<AtomicU64>,
+    connection_epoch: std::time::Instant,
 ) {
     while let Some(msg_result) = client_stream.next().await {
         let msg = match msg_result {
@@ -486,6 +525,12 @@ async fn relay_client_to_upstream(
                 break;
             }
         };
+
+        // SECURITY (FIND-R182-001): Update last-activity for true idle detection.
+        last_activity.store(
+            connection_epoch.elapsed().as_millis() as u64,
+            Ordering::Relaxed,
+        );
 
         record_ws_message("client_to_upstream");
 
@@ -3193,6 +3238,8 @@ async fn relay_upstream_to_client(
     ws_config: WebSocketConfig,
     upstream_rate_counter: Arc<AtomicU64>,
     upstream_rate_window_start: Arc<std::sync::Mutex<std::time::Instant>>,
+    last_activity: Arc<AtomicU64>,
+    connection_epoch: std::time::Instant,
 ) {
     while let Some(msg_result) = upstream_stream.next().await {
         let msg = match msg_result {
@@ -3202,6 +3249,12 @@ async fn relay_upstream_to_client(
                 break;
             }
         };
+
+        // SECURITY (FIND-R182-001): Update last-activity for true idle detection.
+        last_activity.store(
+            connection_epoch.elapsed().as_millis() as u64,
+            Ordering::Relaxed,
+        );
 
         record_ws_message("upstream_to_client");
 
