@@ -3,9 +3,25 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 164)
-> **Total audit rounds:** 164
-> **Cumulative findings fixed:** 555+
+> **Last updated:** 2026-02-22 (Round 166)
+> **Total audit rounds:** 166
+> **Cumulative findings fixed:** 561+
+
+---
+
+## Round 164 — OAuth/DPoP Control Char Validation + A2A DLP Text Extraction (6 findings fixed)
+
+**Subsystem:** `vellaveto-http-proxy/src/oauth.rs`, `vellaveto-mcp/src/a2a/proxy.rs`
+**Commit:** `511be9f`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R164-001 | P2 | `oauth.rs` | OAuth `resource` claim missing control/format char validation — log injection via ResourceMismatch error |
+| FIND-R164-002 | P3 | `oauth.rs` | OAuth `cnf.jkt` missing control/format char validation |
+| FIND-R164-003 | P2 | `oauth.rs` | DPoP `htm`/`htu`/`jti` claims missing control/format char validation — log injection via crafted DPoP proofs |
+| FIND-R164-004 | P3 | `oauth.rs` | `DpopClaims` missing `deny_unknown_fields` — field injection via unrecognized JWT fields |
+| FIND-R164-005 | P2 | `a2a/proxy.rs` | A2A PassThrough DLP scan was no-op — `run_security_scans` returned empty Vec for non-MessageSend/TaskGet types; now uses `collect_string_leaves` |
+| FIND-R164-006 | P3 | `oauth.rs` | DPoP `htu` URL comparison was case-sensitive on scheme+host — normalized per RFC 3986 §6.2.2.1 |
 
 ---
 

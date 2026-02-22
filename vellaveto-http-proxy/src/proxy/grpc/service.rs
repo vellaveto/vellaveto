@@ -2248,26 +2248,22 @@ fn json_contains_dangerous_chars(val: &Value, depth: usize) -> bool {
 }
 
 /// Extract scannable text from a JSON-RPC response for injection scanning.
-/// Same logic as the WebSocket transport's `extract_scannable_text`.
+///
+/// SECURITY (IMP-R166-002): Delegates to shared `extract_text_from_result()` for
+/// full scan coverage (content[].text, resource.text, resource.blob, annotations,
+/// instructionsForUser, structuredContent, _meta). Parity with WebSocket transport.
 fn extract_scannable_text(json_val: &Value) -> String {
     let mut text_parts = Vec::new();
 
+    // Scan result via shared extraction — covers all 7 response fields.
     if let Some(result) = json_val.get("result") {
-        if let Some(content) = result.get("content").and_then(|c| c.as_array()) {
-            for item in content {
-                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                    text_parts.push(text.to_string());
-                }
-            }
-        }
-        if let Some(instructions) = result.get("instructionsForUser").and_then(|i| i.as_str()) {
-            text_parts.push(instructions.to_string());
-        }
-        if let Some(structured) = result.get("structuredContent") {
-            text_parts.push(structured.to_string());
+        let result_text = super::super::inspection::extract_text_from_result(result);
+        if !result_text.is_empty() {
+            text_parts.push(result_text);
         }
     }
 
+    // Scan error messages (not covered by extract_text_from_result)
     if let Some(error) = json_val.get("error") {
         if let Some(msg) = error.get("message").and_then(|m| m.as_str()) {
             text_parts.push(msg.to_string());

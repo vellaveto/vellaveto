@@ -649,6 +649,11 @@ fn collect_string_leaves(value: &Value, texts: &mut Vec<String>) {
             Value::String(s) => texts.push(s.clone()),
             Value::Array(items) => {
                 for item in items {
+                    // SECURITY (FIND-R166-004): Check stack size inside the push loop
+                    // to prevent transient overshoot beyond MAX_STACK_SIZE.
+                    if stack.len() >= MAX_STACK_SIZE {
+                        break;
+                    }
                     stack.push((item, depth + 1));
                 }
             }
@@ -658,6 +663,9 @@ fn collect_string_leaves(value: &Value, texts: &mut Vec<String>) {
                     // payloads. Parity with WS extract_strings_recursive (FIND-R154-003).
                     if texts.len() < MAX_STRING_LEAVES {
                         texts.push(key.clone());
+                    }
+                    if stack.len() >= MAX_STACK_SIZE {
+                        break;
                     }
                     stack.push((nested, depth + 1));
                 }

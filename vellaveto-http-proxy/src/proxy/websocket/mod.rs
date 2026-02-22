@@ -3592,7 +3592,34 @@ async fn relay_upstream_to_client(
                         text.to_string()
                     }
                 } else {
-                    // Non-JSON text — forward as-is (may be SSE-like data)
+                    // SECURITY (FIND-R166-001): Non-JSON upstream text must still be
+                    // scanned for DLP/injection before forwarding. A malicious upstream
+                    // could exfiltrate secrets or inject payloads via non-JSON frames.
+                    let text_str: &str = &text;
+                    if state.response_dlp_enabled {
+                        let findings = scan_text_for_secrets(
+                            text_str, "ws.upstream.non_json_text",
+                        );
+                        if !findings.is_empty() {
+                            tracing::warn!(
+                                session_id = %session_id,
+                                "DLP: non-JSON upstream text contains sensitive data ({} findings), dropping",
+                                findings.len(),
+                            );
+                            continue;
+                        }
+                    }
+                    {
+                        let alerts = inspect_for_injection(text_str);
+                        if !alerts.is_empty() && state.injection_blocking {
+                            tracing::warn!(
+                                session_id = %session_id,
+                                "Injection: non-JSON upstream text blocked ({} alerts)",
+                                alerts.len(),
+                            );
+                            continue;
+                        }
+                    }
                     text.to_string()
                 };
 
@@ -3729,9 +3756,14 @@ pub fn convert_to_ws_url(http_url: &str) -> String {
         // SECURITY (FIND-R124-001): Reject unknown schemes. Log warning
         // and return a URL that will fail to connect safely rather than
         // connecting to an unintended scheme (e.g., ftp://, file://).
+        // SECURITY (FIND-R166-003): Sanitize logged value to prevent log injection
+        // from URLs with control characters (possible in gateway mode).
         tracing::warn!(
             "convert_to_ws_url: rejecting URL with unsupported scheme: {}",
-            http_url.split("://").next().unwrap_or("unknown")
+            vellaveto_types::sanitize_for_log(
+                http_url.split("://").next().unwrap_or("unknown"),
+                128,
+            )
         );
         // Return invalid URL that will fail at connect_async()
         format!("ws://invalid-scheme-rejected.localhost/{}", http_url.len())
