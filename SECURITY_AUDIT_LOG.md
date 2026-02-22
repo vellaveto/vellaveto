@@ -3,9 +3,27 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 154)
-> **Total audit rounds:** 154
-> **Cumulative findings fixed:** 539+
+> **Last updated:** 2026-02-22 (Round 158)
+> **Total audit rounds:** 158
+> **Cumulative findings fixed:** 541+
+
+---
+
+## Round 155+156+157+158 — Config Unicode Format Char Bypass + Compliance Error Normalization (2 findings fixed)
+
+**Subsystem:** `vellaveto-config/src/mcp_protocol.rs`, `vellaveto-config/src/zk_audit.rs`, `vellaveto-config/src/projector.rs`, `vellaveto-server/src/routes/compliance.rs`
+**Commits:** `bd3ce67`, `972c678`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R158-001 | P1 | `mcp_protocol.rs`, `zk_audit.rs`, `projector.rs` | 9 config validators used `char::is_control()` instead of canonical `has_dangerous_chars()` — zero-width/bidi/BOM format chars bypassed validation |
+| FIND-R155-003 | P2 | `compliance.rs` | `parse_period()` error echoed user value and `MAX_PERIOD_DAYS` constant — replaced with generic message |
+
+R155 server/proxy: 4/5 findings dismissed as false positives (NHI routes already use typed structs, ZK offset message already generic, DELETE handler already has session ID validation).
+R156 types+engine: PASSED — no P1/P2 findings.
+R157 mcp: DPoP O(n) JTI scan is known backlog (FIND-R116-005). No new genuine P1/P2.
+
+**Tests:** 780 config tests pass, 0 failures.
 
 ---
 
