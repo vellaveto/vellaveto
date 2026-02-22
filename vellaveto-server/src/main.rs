@@ -979,13 +979,19 @@ async fn cmd_serve(
                                 .service_discovery
                                 .refresh_interval_secs,
                         );
-                        Some(
-                            Arc::new(vellaveto_cluster::discovery_dns::DnsServiceDiscovery::new(
-                                dns_name.clone(),
-                                interval,
-                            ))
-                                as Arc<dyn vellaveto_cluster::discovery::ServiceDiscovery>,
-                        )
+                        match vellaveto_cluster::discovery_dns::DnsServiceDiscovery::new(
+                            dns_name.clone(),
+                            interval,
+                        ) {
+                            Ok(disc) => Some(
+                                Arc::new(disc)
+                                    as Arc<dyn vellaveto_cluster::discovery::ServiceDiscovery>,
+                            ),
+                            Err(e) => {
+                                tracing::error!("Invalid DNS discovery config: {}", e);
+                                None
+                            }
+                        }
                     } else {
                         tracing::warn!(
                             "DNS service discovery mode requires dns_name; falling back to none"

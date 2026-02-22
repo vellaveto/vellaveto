@@ -69,6 +69,12 @@ fn is_safe_addr(addr: &SocketAddr) -> bool {
             if segments[0] & 0xffc0 == 0xfe80 {
                 return false;
             }
+            // SECURITY (FIND-R163-003): Reject fc00::/7 (Unique Local Addresses).
+            // ULAs are IPv6 equivalents of IPv4 private ranges (10/8, 172.16/12,
+            // 192.168/16). Both fd00::/8 (private) and fc00::/8 (local) are rejected.
+            if segments[0] & 0xfe00 == 0xfc00 {
+                return false;
+            }
             // Reject IPv4-mapped addresses (::ffff:x.x.x.x) that map to unsafe ranges
             if let Some(v4) = ip.to_ipv4_mapped() {
                 if v4.is_loopback() || v4.is_unspecified() {
@@ -99,11 +105,30 @@ impl DnsServiceDiscovery {
     /// Create a new DNS discovery for the given host:port name.
     ///
     /// `refresh_interval` controls how often the watcher re-resolves.
-    pub fn new(dns_name: String, refresh_interval: std::time::Duration) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `dns_name` is empty, too long, or contains
+    /// control/format characters.
+    pub fn new(dns_name: String, refresh_interval: std::time::Duration) -> Result<Self, String> {
+        // SECURITY (FIND-R163-006): Validate dns_name at construction to prevent
+        // log injection, OOM, and empty-string errors from tokio::lookup_host.
+        if dns_name.is_empty() {
+            return Err("dns_name must not be empty".to_string());
+        }
+        const MAX_DNS_NAME_LEN: usize = 255;
+        if dns_name.len() > MAX_DNS_NAME_LEN {
+            return Err("dns_name exceeds maximum length".to_string());
+        }
+        if vellaveto_types::has_dangerous_chars(&dns_name) {
+            return Err(
+                "dns_name contains control or format characters".to_string(),
+            );
+        }
+        Ok(Self {
             dns_name,
             refresh_interval,
-        }
+        })
     }
 
     /// Perform a single DNS lookup and return sorted endpoints.
@@ -188,7 +213,13 @@ impl ServiceDiscovery for DnsServiceDiscovery {
 
             // FIND-R56-CLUSTER-003: Construct the resolver once before the loop
             // instead of recreating it on every tick.
-            let resolver = DnsServiceDiscovery::new(dns_name, interval);
+            let resolver = match DnsServiceDiscovery::new(dns_name, interval) {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::error!("Invalid DNS discovery configuration: {}", e);
+                    return;
+                }
+            };
 
             loop {
                 tick.tick().await;
@@ -392,7 +423,8 @@ mod tests {
         let dd = DnsServiceDiscovery::new(
             "localhost:80".to_string(),
             std::time::Duration::from_secs(5),
-        );
+        )
+        .unwrap();
         let endpoints = dd.discover().await.unwrap();
         // All loopback addresses should be filtered out.
         assert!(
@@ -406,7 +438,8 @@ mod tests {
         let dd = DnsServiceDiscovery::new(
             "this-host-does-not-exist.invalid:9999".to_string(),
             std::time::Duration::from_secs(5),
-        );
+        )
+        .unwrap();
         let result = dd.discover().await;
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -420,7 +453,8 @@ mod tests {
         let dd = DnsServiceDiscovery::new(
             "localhost:80".to_string(),
             std::time::Duration::from_secs(5),
-        );
+        )
+        .unwrap();
         let endpoints = dd.discover().await.unwrap();
         // Sorted check (even if empty after filtering, this should not fail).
         for pair in endpoints.windows(2) {
@@ -433,7 +467,8 @@ mod tests {
         let dd = DnsServiceDiscovery::new(
             "localhost:80".to_string(),
             std::time::Duration::from_secs(5),
-        );
+        )
+        .unwrap();
         let first = dd.discover().await.unwrap();
         let second = dd.discover().await.unwrap();
         assert_eq!(first, second);
@@ -446,7 +481,8 @@ mod tests {
         let dd = DnsServiceDiscovery::new(
             "localhost:80".to_string(),
             std::time::Duration::from_secs(60),
-        );
+        )
+        .unwrap();
         let rx = dd.watch().await.unwrap();
         assert!(rx.is_some(), "DNS discovery should support watching");
     }
@@ -456,8 +492,27 @@ mod tests {
         let dd = DnsServiceDiscovery::new(
             "this-host-does-not-exist.invalid:9999".to_string(),
             std::time::Duration::from_secs(5),
-        );
+        )
+        .unwrap();
         let result = dd.watch().await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dns_discovery_rejects_empty_name() {
+        let result = DnsServiceDiscovery::new(
+            String::new(),
+            std::time::Duration::from_secs(5),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dns_discovery_rejects_control_chars() {
+        let result = DnsServiceDiscovery::new(
+            "bad\nhost:80".to_string(),
+            std::time::Duration::from_secs(5),
+        );
         assert!(result.is_err());
     }
 }
