@@ -3,9 +3,27 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 186)
-> **Total audit rounds:** 186
-> **Cumulative findings fixed:** 634+
+> **Last updated:** 2026-02-22 (Round 172)
+> **Total audit rounds:** 172
+> **Cumulative findings fixed:** 613+
+
+---
+
+## Round 171+172 — ZK/Projector Control Char Validation Parity (4 findings fixed + 8 tests)
+
+**Subsystem:** `vellaveto-types/src/zk_audit.rs`, `vellaveto-types/src/projector.rs`
+**Commit:** `76f74a3`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R172-001 | P1 | `zk_audit.rs:210` | `ZkVerifyResult.error` now checked for control/format chars — prevents log injection |
+| FIND-R172-002 | P2 | `zk_audit.rs:196` | `ZkVerifyResult.batch_id` + `verified_at` now checked for control/format chars — parity with `ZkBatchProof` |
+| FIND-R172-003 | P2 | `zk_audit.rs:247` | `ZkSchedulerStatus.last_proof_at` now checked for control/format chars |
+| FIND-R172-005 | P2 | `projector.rs:108` | `CanonicalToolCall` + `CanonicalToolResponse` `call_id` validated for length + dangerous chars |
+
+R171 (mcp advanced): Agent rate-limited, deferred to next round.
+
+8 new tests: 5 ZkVerifyResult (control char in error/batch_id/verified_at, bidi override, valid passes), 1 ZkSchedulerStatus (control char in last_proof_at), 2 projector (oversized call_id, bidi in call_id).
 
 ---
 
