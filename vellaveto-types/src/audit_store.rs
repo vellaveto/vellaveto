@@ -253,10 +253,16 @@ impl AuditQueryParams {
                 .map_err(|e| format!("until is not valid ISO 8601: {}", e))?;
         }
 
-        // SECURITY (FIND-R200-005): Validate temporal ordering — since must be before until.
-        // Inverted ranges could return empty results silently or confuse callers.
+        // SECURITY (FIND-R200-005, FIND-R202-001): Validate temporal ordering using parsed
+        // epoch seconds, not lexicographic string comparison. Lexicographic ordering can
+        // disagree with chronological ordering on edge cases (sub-second precision, timezone
+        // suffixes). Both timestamps were already parsed above, so re-parse is infallible.
         if let (Some(ref since), Some(ref until)) = (&self.since, &self.until) {
-            if since.as_str() >= until.as_str() {
+            let since_epoch = crate::time_util::parse_iso8601_secs(since)
+                .map_err(|e| format!("since is not valid ISO 8601: {}", e))?;
+            let until_epoch = crate::time_util::parse_iso8601_secs(until)
+                .map_err(|e| format!("until is not valid ISO 8601: {}", e))?;
+            if since_epoch >= until_epoch {
                 return Err(format!(
                     "since ({}) must be before until ({})",
                     since, until

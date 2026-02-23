@@ -346,6 +346,13 @@ impl AuditStoreConfig {
                 "audit_store.table_name must not start with a digit".to_string(),
             );
         }
+        // SECURITY (FIND-R202-010): Reject pure-underscore identifiers.
+        if self.table_name.chars().all(|c| c == '_') {
+            return Err(
+                "audit_store.table_name must contain at least one alphanumeric character"
+                    .to_string(),
+            );
+        }
 
         // Sink buffer size bounds
         if self.sink_buffer_size == 0 || self.sink_buffer_size > MAX_SINK_BUFFER_SIZE {

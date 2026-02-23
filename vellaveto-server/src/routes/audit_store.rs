@@ -63,8 +63,11 @@ pub async fn audit_store_status(State(state): State<AppState>) -> Json<AuditStor
 /// GET /api/audit/entry/:id
 ///
 /// Look up a single audit entry by its UUID.
+/// SECURITY (FIND-R202-002): Enforces tenant isolation — non-default tenants
+/// can only read entries matching their own tenant_id.
 pub async fn audit_entry_by_id(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     validate_path_param(&id, "entry_id")?;
@@ -80,7 +83,26 @@ pub async fn audit_entry_by_id(
 
     let query_svc = &state.audit_query;
     match query_svc.get_by_id(&id).await {
-        Ok(Some(entry)) => Ok(Json(entry)),
+        Ok(Some(entry)) => {
+            // SECURITY (FIND-R202-002): Enforce tenant isolation on single-entry lookup.
+            // Non-default tenants must only see their own entries.
+            if !tenant_ctx.is_default() {
+                let entry_tenant = entry
+                    .get("tenant_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if entry_tenant != tenant_ctx.tenant_id {
+                    // Return 404 (not 403) to avoid leaking existence of cross-tenant entries.
+                    return Err((
+                        StatusCode::NOT_FOUND,
+                        Json(ErrorResponse {
+                            error: "Audit entry not found".to_string(),
+                        }),
+                    ));
+                }
+            }
+            Ok(Json(entry))
+        }
         Ok(None) => Err((
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {

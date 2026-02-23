@@ -62,6 +62,13 @@ fn validate_table_name(table_name: &str) -> Result<(), QueryError> {
             "table_name must contain only alphanumeric characters and underscores".to_string(),
         ));
     }
+    // SECURITY (FIND-R202-010): Reject pure-underscore identifiers (e.g., "___").
+    // These are technically valid SQL identifiers but are degenerate and confusing.
+    if table_name.chars().all(|c| c == '_') {
+        return Err(QueryError::Validation(
+            "table_name must contain at least one alphanumeric character".to_string(),
+        ));
+    }
     Ok(())
 }
 
@@ -635,6 +642,60 @@ mod tests {
     fn test_validate_table_name_null_byte() {
         let err = validate_table_name("audit\0table").unwrap_err().to_string();
         assert!(err.contains("alphanumeric"), "got: {err}");
+    }
+
+    /// FIND-R200-002: Verify WhereBuilder and build_filter_clauses produce
+    /// the same number of conditions for the same params, catching divergence.
+    #[test]
+    fn test_where_builder_and_build_filter_clauses_parity() {
+        let params = AuditQueryParams {
+            since: Some("2025-01-01T00:00:00Z".to_string()),
+            until: Some("2025-12-31T23:59:59Z".to_string()),
+            tool: Some("file_read".to_string()),
+            agent_id: Some("agent-1".to_string()),
+            verdict: Some(VerdictFilter::Deny),
+            from_sequence: Some(1),
+            to_sequence: Some(100),
+            text_search: Some("secret".to_string()),
+            tenant_id: Some("tenant-1".to_string()),
+            limit: 50,
+            offset: 0,
+        };
+
+        // Count conditions from WhereBuilder
+        let mut wb = WhereBuilder::new();
+        if params.since.is_some() { let p = wb.next_param(); wb.add_condition(format!("timestamp_raw >= {}", p)); }
+        if params.until.is_some() { let p = wb.next_param(); wb.add_condition(format!("timestamp_raw < {}", p)); }
+        if params.tool.is_some() { let p = wb.next_param(); wb.add_condition(format!("tool = {}", p)); }
+        if params.agent_id.is_some() { let p = wb.next_param(); wb.add_condition(format!("metadata @> jsonb_build_object('agent_id', {})", p)); }
+        if params.verdict.is_some() { let p = wb.next_param(); wb.add_condition(format!("verdict_type = {}", p)); }
+        if params.from_sequence.is_some() { let p = wb.next_param(); wb.add_condition(format!("sequence >= {}", p)); }
+        if params.to_sequence.is_some() { let p = wb.next_param(); wb.add_condition(format!("sequence <= {}", p)); }
+        if params.text_search.is_some() { let p = wb.next_param(); wb.add_condition(format!("(ILIKE {})", p)); }
+        if params.tenant_id.is_some() { let p = wb.next_param(); wb.add_condition(format!("tenant_id = {}", p)); }
+        let wb_count = wb.conditions.len();
+
+        // Count conditions from build_filter_clauses
+        let clauses = build_filter_clauses(&params);
+        let bfc_count = clauses.matches("AND ").count();
+
+        assert_eq!(
+            wb_count, bfc_count,
+            "WhereBuilder produced {} conditions but build_filter_clauses produced {} — divergence detected!",
+            wb_count, bfc_count
+        );
+        // Both should use the same param index after processing all filters
+        assert_eq!(wb.param_idx, 10, "Expected 9 filters + 1 = param_idx 10");
+    }
+
+    #[test]
+    fn test_build_filter_clauses_tenant_id() {
+        let params = AuditQueryParams {
+            tenant_id: Some("tenant-abc".to_string()),
+            ..Default::default()
+        };
+        let clauses = build_filter_clauses(&params);
+        assert!(clauses.contains("AND tenant_id = $1"), "got: {clauses}");
     }
 
     #[test]

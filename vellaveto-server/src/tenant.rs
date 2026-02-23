@@ -452,32 +452,50 @@ pub enum TenantError {
 }
 
 /// Extract tenant ID from request headers.
+///
+/// SECURITY (FIND-R202-007): Rejects reserved tenant IDs (starting with `_`)
+/// from header extraction to prevent privilege escalation via `X-Tenant-ID: _default_`.
 pub fn extract_tenant_from_header(headers: &axum::http::HeaderMap) -> Option<String> {
     headers
         .get("x-tenant-id")
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty())
+        // SECURITY (FIND-R202-007): Reject reserved tenant IDs from headers.
+        // The _default_ tenant has admin privileges; allowing it from headers
+        // would let any caller bypass tenant isolation.
+        .filter(|s| !s.starts_with('_'))
         .map(|s| s.to_string())
 }
 
 /// Extract tenant ID from subdomain.
+///
+/// SECURITY (FIND-R202-005): Requires a dot separator between subdomain and base
+/// domain to prevent suffix-matching attacks (e.g., `evil-vellaveto.example.com`
+/// should not match base domain `vellaveto.example.com`).
 pub fn extract_tenant_from_subdomain(host: &str, base_domain: &str) -> Option<String> {
     // Remove port if present
     let host = host.split(':').next().unwrap_or(host);
     let base = base_domain.trim_start_matches('.');
 
-    // Check if host ends with base domain
-    if !host.ends_with(base) {
+    // SECURITY (FIND-R202-005): Require dot separator before base domain.
+    // `host.ends_with(base)` alone would match "evil-base.example.com" against
+    // "base.example.com". We must check for a preceding dot.
+    let with_dot = format!(".{}", base);
+    if host == base {
+        // Exact match = no subdomain
+        return None;
+    }
+    if !host.ends_with(&with_dot) {
         return None;
     }
 
-    // Extract subdomain
-    let prefix = host.strip_suffix(base)?.trim_end_matches('.');
+    // Extract subdomain (everything before ".{base}")
+    let prefix = host.strip_suffix(&with_dot)?;
     if prefix.is_empty() {
         return None;
     }
 
-    // Only use first subdomain segment
+    // Only use first subdomain segment (rightmost before base)
     let tenant = prefix.rsplit('.').next()?;
     if tenant.is_empty() {
         return None;

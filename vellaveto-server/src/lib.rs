@@ -363,7 +363,11 @@ impl PerTenantRateLimiter {
 
         // Convert per-minute to per-second (minimum 1 rps).
         let rps = max_per_minute.div_ceil(60).max(1);
-        let rps_nz = NonZeroU32::new(rps as u32)?;
+        // SECURITY (FIND-R202-003): Use saturating cast to prevent u64→u32 truncation.
+        // Without this, values > u32::MAX wrap to 0, causing NonZeroU32::new to return
+        // None and silently bypassing rate limiting.
+        let rps_u32 = u32::try_from(rps).unwrap_or(u32::MAX);
+        let rps_nz = NonZeroU32::new(rps_u32)?;
 
         // Capacity check before entry()
         let at_capacity = self.buckets.len() >= self.max_capacity;
