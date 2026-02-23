@@ -292,41 +292,93 @@ impl EmbeddingAnomalyDetector {
 
     /// Updates the centroid for an agent with a new embedding.
     fn update_centroid(&self, agent_id: &str, embedding: &EmbeddingVector) {
-        if let Ok(mut baselines) = self.baselines.write() {
-            baselines
-                .entry(agent_id.to_string())
-                .and_modify(|b| b.update(embedding))
-                .or_insert_with(|| EmbeddingBaseline::from_embedding(embedding));
+        // SECURITY (FIND-R192-004): Log error on poisoned lock instead of silent skip.
+        match self.baselines.write() {
+            Ok(mut baselines) => {
+                baselines
+                    .entry(agent_id.to_string())
+                    .and_modify(|b| b.update(embedding))
+                    .or_insert_with(|| EmbeddingBaseline::from_embedding(embedding));
+            }
+            Err(_) => {
+                tracing::error!(
+                    target: "vellaveto::security",
+                    "baselines write lock poisoned in update_centroid — centroid update skipped"
+                );
+            }
         }
     }
 
     /// Returns the number of embeddings tracked for an agent.
     fn embedding_count_for_agent(&self, agent_id: &str) -> usize {
-        self.recent_embeddings
-            .read()
-            .ok()
-            .and_then(|r| r.get(agent_id).map(|q| q.len()))
-            .unwrap_or(0)
+        // SECURITY (FIND-R192-004): Log error and fail-closed (return max to block new adds).
+        match self.recent_embeddings.read() {
+            Ok(r) => r.get(agent_id).map(|q| q.len()).unwrap_or(0),
+            Err(_) => {
+                tracing::error!(
+                    target: "vellaveto::security",
+                    "recent_embeddings read lock poisoned in embedding_count_for_agent — fail-closed returning max"
+                );
+                usize::MAX
+            }
+        }
     }
 
     /// Returns the baseline for an agent.
     pub fn get_baseline(&self, agent_id: &str) -> Option<EmbeddingBaseline> {
-        self.baselines.read().ok()?.get(agent_id).cloned()
+        // SECURITY (FIND-R192-004): Log error on poisoned lock.
+        match self.baselines.read() {
+            Ok(b) => b.get(agent_id).cloned(),
+            Err(_) => {
+                tracing::error!(
+                    target: "vellaveto::security",
+                    "baselines read lock poisoned in get_baseline — returning None"
+                );
+                None
+            }
+        }
     }
 
     /// Clears the baseline for an agent.
     pub fn clear_baseline(&self, agent_id: &str) {
-        if let Ok(mut baselines) = self.baselines.write() {
-            baselines.remove(agent_id);
+        // SECURITY (FIND-R192-004): Log error on poisoned lock instead of silent skip.
+        match self.baselines.write() {
+            Ok(mut baselines) => {
+                baselines.remove(agent_id);
+            }
+            Err(_) => {
+                tracing::error!(
+                    target: "vellaveto::security",
+                    "baselines write lock poisoned in clear_baseline — clear skipped"
+                );
+            }
         }
-        if let Ok(mut recent) = self.recent_embeddings.write() {
-            recent.remove(agent_id);
+        match self.recent_embeddings.write() {
+            Ok(mut recent) => {
+                recent.remove(agent_id);
+            }
+            Err(_) => {
+                tracing::error!(
+                    target: "vellaveto::security",
+                    "recent_embeddings write lock poisoned in clear_baseline — clear skipped"
+                );
+            }
         }
     }
 
     /// Returns the number of agents with baselines.
     pub fn baseline_count(&self) -> usize {
-        self.baselines.read().map(|b| b.len()).unwrap_or(0)
+        // SECURITY (FIND-R192-004): Log error on poisoned lock.
+        match self.baselines.read() {
+            Ok(b) => b.len(),
+            Err(_) => {
+                tracing::error!(
+                    target: "vellaveto::security",
+                    "baselines read lock poisoned in baseline_count — returning 0"
+                );
+                0
+            }
+        }
     }
 }
 

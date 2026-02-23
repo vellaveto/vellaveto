@@ -52,13 +52,21 @@ static GRPC_MESSAGES_TOTAL: AtomicU64 = AtomicU64::new(0);
 fn record_grpc_request() {
     // SECURITY (FIND-R55-GRPC-012): SeqCst on security-adjacent metrics counters
     // to ensure visibility across threads for rate limiting and audit decisions.
-    GRPC_REQUESTS_TOTAL.fetch_add(1, Ordering::SeqCst);
+    // SECURITY (FIND-R155-GRPC-001): Use fetch_update + saturating_add to prevent
+    // overflow wrap-to-zero. Parity with WS counters (websocket/mod.rs:91-93).
+    let _ = GRPC_REQUESTS_TOTAL.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+        Some(v.saturating_add(1))
+    });
     metrics::counter!("vellaveto_grpc_requests_total").increment(1);
 }
 
 fn record_grpc_message(direction: &str) {
     // SECURITY (FIND-R55-GRPC-012): SeqCst on security-adjacent metrics counters.
-    GRPC_MESSAGES_TOTAL.fetch_add(1, Ordering::SeqCst);
+    // SECURITY (FIND-R155-GRPC-001): Use fetch_update + saturating_add to prevent
+    // overflow wrap-to-zero. Parity with WS counters (websocket/mod.rs:101-103).
+    let _ = GRPC_MESSAGES_TOTAL.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+        Some(v.saturating_add(1))
+    });
     metrics::counter!(
         "vellaveto_grpc_messages_total",
         "direction" => direction.to_string()
@@ -221,6 +229,260 @@ impl McpGrpcService {
                 }
             }
             MessageType::ProgressNotification { .. } => {
+                // SECURITY (FIND-R155-GRPC-003): DLP scan, injection detection, and
+                // memory poisoning check for ProgressNotification messages. Previous
+                // code only called forward_and_scan() which scans the *response*, not
+                // the incoming notification params. Parity with PassThrough branch
+                // (service.rs:273-527) and WS handler which treats ProgressNotification
+                // identically to PassThrough (websocket/mod.rs:3095).
+
+                // DLP scan notification parameters for secret exfiltration.
+                if self.state.response_dlp_enabled {
+                    let mut dlp_findings = scan_notification_for_secrets(&json_req);
+                    if let Some(result_val) = json_req.get("result") {
+                        dlp_findings.extend(scan_parameters_for_secrets(result_val));
+                    }
+                    dlp_findings.truncate(1000);
+                    if !dlp_findings.is_empty() {
+                        for finding in &dlp_findings {
+                            record_dlp_finding(&finding.pattern_name);
+                        }
+                        let patterns: Vec<String> = dlp_findings
+                            .iter()
+                            .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                            .collect();
+                        tracing::warn!(
+                            "SECURITY: Secrets in gRPC ProgressNotification params! Session: {}, Findings: {:?}",
+                            session_id,
+                            patterns
+                        );
+                        let n_action = Action::new(
+                            "vellaveto",
+                            "notification_dlp_scan",
+                            json!({
+                                "findings": patterns,
+                                "session": session_id,
+                                "transport": "grpc",
+                                "message_type": "progress_notification",
+                            }),
+                        );
+                        let verdict = if self.state.response_dlp_blocking {
+                            Verdict::Deny {
+                                reason: format!(
+                                    "ProgressNotification blocked: secrets detected ({:?})",
+                                    patterns
+                                ),
+                            }
+                        } else {
+                            Verdict::Allow
+                        };
+                        if let Err(e) = self
+                            .state
+                            .audit
+                            .log_entry(
+                                &n_action,
+                                &verdict,
+                                json!({
+                                    "source": "grpc_proxy",
+                                    "event": "notification_dlp_alert",
+                                    "blocked": self.state.response_dlp_blocking,
+                                    "message_type": "progress_notification",
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit gRPC ProgressNotification DLP: {}", e);
+                        }
+                        if self.state.response_dlp_blocking {
+                            return make_proto_error_response(
+                                proto_req,
+                                -32002,
+                                "Notification blocked: secrets detected in parameters",
+                            );
+                        }
+                    }
+                }
+
+                let method_name = json_req
+                    .get("method")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("notifications/progress");
+
+                // Injection scanning on ProgressNotification parameters.
+                if !self.state.injection_disabled {
+                    let scannable = extract_passthrough_text_for_injection(&json_req);
+                    if !scannable.is_empty() {
+                        let injection_matches: Vec<String> =
+                            if let Some(ref scanner) = self.state.injection_scanner {
+                                scanner
+                                    .inspect(&scannable)
+                                    .into_iter()
+                                    .map(|s| s.to_string())
+                                    .collect()
+                            } else {
+                                inspect_for_injection(&scannable)
+                                    .into_iter()
+                                    .map(|s| s.to_string())
+                                    .collect()
+                            };
+
+                        if !injection_matches.is_empty() {
+                            tracing::warn!(
+                                "SECURITY: Injection in gRPC ProgressNotification params! \
+                                 Session: {}, Method: {}, Patterns: {:?}",
+                                session_id,
+                                method_name,
+                                injection_matches,
+                            );
+
+                            let verdict = if self.state.injection_blocking {
+                                Verdict::Deny {
+                                    reason: format!(
+                                        "ProgressNotification injection blocked: {:?}",
+                                        injection_matches
+                                    ),
+                                }
+                            } else {
+                                Verdict::Allow
+                            };
+
+                            let inj_action = Action::new(
+                                "vellaveto",
+                                "passthrough_injection_scan",
+                                json!({
+                                    "matched_patterns": injection_matches,
+                                    "method": method_name,
+                                    "session": session_id,
+                                    "transport": "grpc",
+                                    "message_type": "progress_notification",
+                                }),
+                            );
+                            if let Err(e) = self
+                                .state
+                                .audit
+                                .log_entry(
+                                    &inj_action,
+                                    &verdict,
+                                    json!({
+                                        "source": "grpc_proxy",
+                                        "event": "passthrough_injection_detected",
+                                        "blocking": self.state.injection_blocking,
+                                        "message_type": "progress_notification",
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    "Failed to audit gRPC ProgressNotification injection: {}",
+                                    e
+                                );
+                            }
+
+                            if self.state.injection_blocking {
+                                return make_proto_error_response(
+                                    proto_req,
+                                    -32001,
+                                    "Request blocked: security policy violation",
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Memory poisoning check — parity with PassThrough branch.
+                if let Some(mut session) = self.state.sessions.get_mut(session_id) {
+                    let params_to_scan = json_req
+                        .get("params")
+                        .cloned()
+                        .unwrap_or(json!({}));
+                    let mut poisoning_matches =
+                        session.memory_tracker.check_parameters(&params_to_scan);
+                    if let Some(result_val) = json_req.get("result") {
+                        poisoning_matches
+                            .extend(session.memory_tracker.check_parameters(result_val));
+                    }
+                    if !poisoning_matches.is_empty() {
+                        for m in &poisoning_matches {
+                            tracing::warn!(
+                                "SECURITY: Memory poisoning in gRPC ProgressNotification '{}' (session {}): \
+                                 param '{}' replayed data (fingerprint: {})",
+                                method_name,
+                                session_id,
+                                m.param_location,
+                                m.fingerprint
+                            );
+                        }
+                        let poison_action = Action::new(
+                            "vellaveto",
+                            "grpc_passthrough_memory_poisoning",
+                            json!({
+                                "method": method_name,
+                                "session": session_id,
+                                "matches": poisoning_matches.len(),
+                                "transport": "grpc",
+                                "message_type": "progress_notification",
+                            }),
+                        );
+                        if let Err(e) = self
+                            .state
+                            .audit
+                            .log_entry(
+                                &poison_action,
+                                &Verdict::Deny {
+                                    reason: format!(
+                                        "gRPC ProgressNotification blocked: memory poisoning ({} matches)",
+                                        poisoning_matches.len()
+                                    ),
+                                },
+                                json!({
+                                    "source": "grpc_proxy",
+                                    "event": "grpc_passthrough_memory_poisoning",
+                                    "message_type": "progress_notification",
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                "Failed to audit gRPC ProgressNotification memory poisoning: {}",
+                                e
+                            );
+                        }
+                        return make_proto_error_response(
+                            proto_req,
+                            -32001,
+                            "Request blocked: security policy violation",
+                        );
+                    }
+                    session.memory_tracker.extract_from_value(&params_to_scan);
+                    if let Some(result_val) = json_req.get("result") {
+                        session.memory_tracker.extract_from_value(result_val);
+                    }
+                } else {
+                    tracing::warn!(
+                        "Session {} not found for gRPC ProgressNotification memory poisoning check",
+                        session_id
+                    );
+                }
+
+                // Audit log the forwarded ProgressNotification.
+                let action = Action::new("progress_notification", method_name, json!({}));
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Allow,
+                        json!({
+                            "source": "grpc_proxy",
+                            "session": session_id,
+                            "transport": "grpc",
+                            "event": "progress_notification_forwarded",
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit gRPC progress notification: {}", e);
+                }
                 self.forward_and_scan(proto_req, &json_req, session_id)
                     .await
             }
@@ -905,7 +1167,7 @@ impl McpGrpcService {
                     match abac.evaluate(&action, &abac_ctx) {
                         vellaveto_engine::abac::AbacDecision::Deny { policy_id, reason } => {
                             let deny_verdict = Verdict::Deny {
-                                reason: format!("ABAC denied by {}: {}", policy_id, reason),
+                                reason: reason.clone(),
                             };
                             if let Err(e) = self
                                 .state
@@ -917,6 +1179,7 @@ impl McpGrpcService {
                                         "source": "grpc_proxy",
                                         "session": session_id,
                                         "transport": "grpc",
+                                        "event": "abac_deny",
                                         "abac_policy": policy_id,
                                     }),
                                 )
@@ -938,7 +1201,7 @@ impl McpGrpcService {
                                     session_id,
                                     &policy_id,
                                     tool_name,
-                                    "",
+                                    &action.function,
                                 );
                             }
                         }
@@ -1346,14 +1609,14 @@ impl McpGrpcService {
                     match abac.evaluate(&action, &abac_ctx) {
                         vellaveto_engine::abac::AbacDecision::Deny { policy_id, reason } => {
                             let deny_verdict = Verdict::Deny {
-                                reason: format!("ABAC denied by {}: {}", policy_id, reason),
+                                reason: reason.clone(),
                             };
                             if let Err(e) = self.state.audit.log_entry(
                                 &action, &deny_verdict,
                                 json!({
                                     "source": "grpc_proxy", "session": session_id,
-                                    "transport": "grpc", "abac_policy": policy_id,
-                                    "uri": uri,
+                                    "transport": "grpc", "event": "abac_deny",
+                                    "abac_policy": policy_id, "uri": uri,
                                 }),
                             ).await {
                                 tracing::warn!("Failed to audit gRPC resource ABAC deny: {}", e);
@@ -1974,7 +2237,7 @@ impl McpGrpcService {
                     match abac.evaluate(&action, &abac_ctx) {
                         vellaveto_engine::abac::AbacDecision::Deny { policy_id, reason } => {
                             let deny_verdict = Verdict::Deny {
-                                reason: format!("ABAC denied by {}: {}", policy_id, reason),
+                                reason: reason.clone(),
                             };
                             if let Err(e) = self
                                 .state
@@ -2260,7 +2523,7 @@ impl McpGrpcService {
                     match abac.evaluate(&action, &abac_ctx) {
                         vellaveto_engine::abac::AbacDecision::Deny { policy_id, reason } => {
                             let deny_verdict = Verdict::Deny {
-                                reason: format!("ABAC denied by {}: {}", policy_id, reason),
+                                reason: reason.clone(),
                             };
                             if let Err(e) = self
                                 .state
@@ -2272,6 +2535,7 @@ impl McpGrpcService {
                                         "source": "grpc_proxy",
                                         "session": session_id,
                                         "transport": "grpc",
+                                        "event": "abac_deny",
                                         "extension_id": extension_id,
                                         "abac_policy": policy_id,
                                     }),
@@ -2767,9 +3031,18 @@ impl McpService for McpGrpcService {
                             rate_counter.store(1, Ordering::SeqCst);
                             true
                         } else {
-                            let count = rate_counter
-                                .fetch_add(1, Ordering::SeqCst)
-                                .saturating_add(1);
+                            // SECURITY (FIND-R155-GRPC-002): Use fetch_update + saturating_add
+                            // to prevent overflow wrap-to-zero resetting rate limit counter.
+                            // Parity with WS check_rate_limit (websocket/mod.rs:4236-4238).
+                            let prev = rate_counter.fetch_update(
+                                Ordering::SeqCst,
+                                Ordering::SeqCst,
+                                |v| Some(v.saturating_add(1)),
+                            );
+                            let count = match prev {
+                                Ok(previous) => previous.saturating_add(1),
+                                Err(_) => unreachable!("infallible closure"),
+                            };
                             count <= stream_rate_limit as u64
                         }
                     };

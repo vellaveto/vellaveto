@@ -61,11 +61,11 @@ impl ObservabilityStats {
     /// Create a snapshot of current stats.
     pub fn snapshot(&self) -> ObservabilityStatsSnapshot {
         ObservabilityStatsSnapshot {
-            spans_submitted: self.spans_submitted.load(Ordering::Relaxed),
-            spans_sampled: self.spans_sampled.load(Ordering::Relaxed),
-            spans_dropped: self.spans_dropped.load(Ordering::Relaxed),
-            spans_exported: self.spans_exported.load(Ordering::Relaxed),
-            export_failures: self.export_failures.load(Ordering::Relaxed),
+            spans_submitted: self.spans_submitted.load(Ordering::SeqCst),
+            spans_sampled: self.spans_sampled.load(Ordering::SeqCst),
+            spans_dropped: self.spans_dropped.load(Ordering::SeqCst),
+            spans_exported: self.spans_exported.load(Ordering::SeqCst),
+            export_failures: self.export_failures.load(Ordering::SeqCst),
         }
     }
 }
@@ -291,20 +291,20 @@ mod enabled {
                 return;
             }
 
-            self.stats.spans_submitted.fetch_add(1, Ordering::Relaxed);
+            self.stats.spans_submitted.fetch_add(1, Ordering::SeqCst);
 
             // Check sampling
             if !self.sampler.should_sample(&span) {
-                self.stats.spans_dropped.fetch_add(1, Ordering::Relaxed);
+                self.stats.spans_dropped.fetch_add(1, Ordering::SeqCst);
                 return;
             }
 
-            self.stats.spans_sampled.fetch_add(1, Ordering::Relaxed);
+            self.stats.spans_sampled.fetch_add(1, Ordering::SeqCst);
 
             // Try to send (non-blocking)
             if let Err(e) = self.tx.try_send(span) {
                 warn!("Observability channel full, dropping span: {}", e);
-                self.stats.spans_dropped.fetch_add(1, Ordering::Relaxed);
+                self.stats.spans_dropped.fetch_add(1, Ordering::SeqCst);
             }
         }
 
@@ -388,7 +388,7 @@ mod enabled {
                         );
                         stats
                             .spans_exported
-                            .fetch_add(span_count, Ordering::Relaxed);
+                            .fetch_add(span_count, Ordering::SeqCst);
                     }
                     Err(e) => {
                         error!(
@@ -397,7 +397,7 @@ mod enabled {
                             count = span_count,
                             "Failed to export spans"
                         );
-                        stats.export_failures.fetch_add(1, Ordering::Relaxed);
+                        stats.export_failures.fetch_add(1, Ordering::SeqCst);
                     }
                 }
             }
@@ -567,9 +567,9 @@ mod tests {
     #[test]
     fn test_stats_snapshot() {
         let stats = ObservabilityStats::default();
-        stats.spans_submitted.store(100, Ordering::Relaxed);
-        stats.spans_sampled.store(50, Ordering::Relaxed);
-        stats.spans_dropped.store(50, Ordering::Relaxed);
+        stats.spans_submitted.store(100, Ordering::SeqCst);
+        stats.spans_sampled.store(50, Ordering::SeqCst);
+        stats.spans_dropped.store(50, Ordering::SeqCst);
 
         let snapshot = stats.snapshot();
         assert_eq!(snapshot.spans_submitted, 100);

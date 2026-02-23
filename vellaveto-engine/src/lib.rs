@@ -803,16 +803,23 @@ impl PolicyEngine {
         input: &str,
         policy_id: &str,
     ) -> Result<bool, EngineError> {
-        // SECURITY (FIND-P2-003/FIND-P3-014): Recover from poisoned RwLock instead
-        // of silently skipping the cache. A poisoned lock means a thread panicked
-        // while holding it, but the data is still valid for read access.
+        // SECURITY: On poisoned read lock, treat as cache miss rather than
+        // accessing potentially corrupted data. The pattern will be compiled fresh.
         {
-            let cache = self.glob_matcher_cache.read().unwrap_or_else(|e| {
-                tracing::error!("glob_matcher_cache read lock poisoned: {}", e);
-                e.into_inner()
-            });
-            if let Some(matcher) = cache.get(pattern) {
-                return Ok(matcher.is_match(input));
+            let cache_result = self.glob_matcher_cache.read();
+            match cache_result {
+                Ok(cache) => {
+                    if let Some(matcher) = cache.get(pattern) {
+                        return Ok(matcher.is_match(input));
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "glob_matcher_cache read lock poisoned, treating as cache miss: {}",
+                        e
+                    );
+                    // Fall through to compile the pattern fresh
+                }
             }
         }
 
@@ -824,11 +831,20 @@ impl PolicyEngine {
             .compile_matcher();
         let is_match = matcher.is_match(input);
 
-        // SECURITY (FIND-P2-003/FIND-P3-014): Recover from poisoned write lock.
-        let mut cache = self.glob_matcher_cache.write().unwrap_or_else(|e| {
-            tracing::error!("glob_matcher_cache write lock poisoned: {}", e);
-            e.into_inner()
-        });
+        // SECURITY: On poisoned write lock, skip cache insertion rather than
+        // writing into potentially corrupted state. The result is still correct,
+        // just not cached.
+        let cache_write = self.glob_matcher_cache.write();
+        let mut cache = match cache_write {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::warn!(
+                    "glob_matcher_cache write lock poisoned, skipping cache insert: {}",
+                    e
+                );
+                return Ok(is_match);
+            }
+        };
         // FIND-R58-ENG-011: Full cache.clear() can cause a thundering herd of
         // recompilation on the legacy (non-precompiled) path. For production,
         // use with_policies() to pre-compile patterns and avoid this cache entirely.

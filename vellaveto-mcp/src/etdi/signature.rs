@@ -59,8 +59,18 @@ pub fn compute_tool_hash(tool_name: &str, schema: &Value) -> String {
     hasher.update(b"|"); // Separator
 
     // Canonicalize and hash schema
-    let canonical = serde_json_canonicalizer::to_string(schema)
-        .unwrap_or_else(|_| serde_json::to_string(schema).unwrap_or_default());
+    // SECURITY (SE-001): Fail-closed on complete serialization failure —
+    // use Debug repr so distinct schemas produce distinct hashes rather
+    // than all colliding on empty-string hash via unwrap_or_default().
+    let canonical = serde_json_canonicalizer::to_string(schema).unwrap_or_else(|_| {
+        serde_json::to_string(schema).unwrap_or_else(|e| {
+            tracing::error!(
+                "compute_tool_hash: both canonical and regular serialization failed: {} — using Debug repr for distinct hash",
+                e
+            );
+            format!("{:?}", schema)
+        })
+    });
     hasher.update(canonical.as_bytes());
 
     hex::encode(hasher.finalize())
@@ -239,7 +249,17 @@ impl ToolSigner {
     pub fn new(signing_key: SigningKey, signer_identity: Option<String>) -> Self {
         let verifying_key = signing_key.verifying_key();
         let public_key_hex = hex::encode(verifying_key.as_bytes());
-        let fingerprint = compute_key_fingerprint(&public_key_hex).unwrap_or_default();
+        // SECURITY (SE-002): Log error on fingerprint computation failure instead of
+        // silently producing an empty fingerprint via unwrap_or_default(). An empty
+        // fingerprint would never match any trusted signer list, which is fail-closed,
+        // but the silent failure hides key material issues.
+        let fingerprint = compute_key_fingerprint(&public_key_hex).unwrap_or_else(|e| {
+            tracing::error!(
+                "compute_key_fingerprint failed: {} — using empty fingerprint (fail-closed: will not match any trusted signer)",
+                e
+            );
+            String::new()
+        });
 
         Self {
             signing_key,

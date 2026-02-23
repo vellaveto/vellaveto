@@ -247,7 +247,8 @@ impl ExecutionGraph {
         }
 
         // Update metadata
-        self.metadata.total_calls += 1;
+        // SECURITY (CA-002): Use saturating_add to prevent counter overflow.
+        self.metadata.total_calls = self.metadata.total_calls.saturating_add(1);
         self.metadata.unique_tools.insert(node.tool.clone());
         if let Some(ref agent) = node.agent_id {
             self.metadata.unique_agents.insert(agent.clone());
@@ -322,9 +323,14 @@ impl ExecutionGraph {
             node.complete(verdict);
             self.metadata.ended_at = node.completed_at;
 
+            // SECURITY (CA-002): Use saturating_add to prevent counter overflow.
             match verdict {
-                NodeVerdict::Allow => self.metadata.allowed_calls += 1,
-                NodeVerdict::Deny => self.metadata.denied_calls += 1,
+                NodeVerdict::Allow => {
+                    self.metadata.allowed_calls = self.metadata.allowed_calls.saturating_add(1);
+                }
+                NodeVerdict::Deny => {
+                    self.metadata.denied_calls = self.metadata.denied_calls.saturating_add(1);
+                }
                 _ => {}
             }
         }

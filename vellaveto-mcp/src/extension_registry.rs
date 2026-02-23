@@ -217,9 +217,18 @@ impl ExtensionRegistry {
             if extensions.len() >= MAX_EXTENSIONS {
                 // SECURITY (FIND-R176-001): Roll back method routes inserted above
                 // to prevent orphaned entries blocking future registrations.
-                if let Ok(mut routes) = self.method_routes.write() {
-                    for method in &descriptor.methods {
-                        routes.remove(method);
+                // SECURITY (FIND-R192-006): Handle poisoned lock with error logging.
+                match self.method_routes.write() {
+                    Ok(mut routes) => {
+                        for method in &descriptor.methods {
+                            routes.remove(method);
+                        }
+                    }
+                    Err(_) => {
+                        tracing::error!(
+                            target: "vellaveto::security",
+                            "method_routes write lock poisoned during rollback (max extensions) — orphaned routes may remain"
+                        );
                     }
                 }
                 return Err(ExtensionError::Validation(format!(
@@ -229,9 +238,18 @@ impl ExtensionRegistry {
             }
             if extensions.contains_key(&descriptor.id) {
                 // SECURITY (FIND-R176-001): Roll back method routes inserted above.
-                if let Ok(mut routes) = self.method_routes.write() {
-                    for method in &descriptor.methods {
-                        routes.remove(method);
+                // SECURITY (FIND-R192-006): Handle poisoned lock with error logging.
+                match self.method_routes.write() {
+                    Ok(mut routes) => {
+                        for method in &descriptor.methods {
+                            routes.remove(method);
+                        }
+                    }
+                    Err(_) => {
+                        tracing::error!(
+                            target: "vellaveto::security",
+                            "method_routes write lock poisoned during rollback (duplicate extension) — orphaned routes may remain"
+                        );
                     }
                 }
                 return Err(ExtensionError::AlreadyRegistered(descriptor.id.clone()));

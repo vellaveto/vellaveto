@@ -133,7 +133,7 @@ impl LeastAgencyTracker {
                     "LeastAgencyTracker::register_grants write lock poisoned: {}",
                     e
                 );
-                e.into_inner()
+                return;
             }
         };
         // Evict oldest if at capacity
@@ -184,7 +184,7 @@ impl LeastAgencyTracker {
         function: &str,
     ) {
         let key = Self::session_key(agent_id, session_id);
-        // SECURITY (FIND-P3-012): Log poisoned lock recovery instead of silently returning.
+        // SECURITY (FIND-P3-012): Fail-closed on poisoned lock — skip usage recording.
         let mut trackers = match self.trackers.write() {
             Ok(guard) => guard,
             Err(e) => {
@@ -192,7 +192,7 @@ impl LeastAgencyTracker {
                     "LeastAgencyTracker::record_usage write lock poisoned: {}",
                     e
                 );
-                e.into_inner()
+                return;
             }
         };
         if let Some(tracker) = trackers.get_mut(&key) {
@@ -242,12 +242,12 @@ impl LeastAgencyTracker {
     /// Return policy IDs that have been granted but never used.
     pub fn check_unused(&self, agent_id: &str, session_id: &str) -> Vec<String> {
         let key = Self::session_key(agent_id, session_id);
-        // SECURITY (FIND-P3-012): Log poisoned lock recovery instead of silently returning empty.
+        // SECURITY (FIND-P3-012): Fail-closed on poisoned lock — return empty (no unused detected).
         let trackers = match self.trackers.read() {
             Ok(guard) => guard,
             Err(e) => {
                 tracing::error!("LeastAgencyTracker::check_unused read lock poisoned: {}", e);
-                e.into_inner()
+                return Vec::new();
             }
         };
         if let Some(tracker) = trackers.get(&key) {
@@ -265,7 +265,7 @@ impl LeastAgencyTracker {
     /// Generate a full least-agency compliance report.
     pub fn generate_report(&self, agent_id: &str, session_id: &str) -> Option<LeastAgencyReport> {
         let key = Self::session_key(agent_id, session_id);
-        // SECURITY (FIND-P3-012): Log poisoned lock recovery instead of silently returning None.
+        // SECURITY (FIND-P3-012): Fail-closed on poisoned lock — return None (no report).
         let trackers = match self.trackers.read() {
             Ok(guard) => guard,
             Err(e) => {
@@ -273,7 +273,7 @@ impl LeastAgencyTracker {
                     "LeastAgencyTracker::generate_report read lock poisoned: {}",
                     e
                 );
-                e.into_inner()
+                return None;
             }
         };
         let tracker = trackers.get(&key)?;
@@ -331,7 +331,7 @@ impl LeastAgencyTracker {
         match self.enforcement_mode {
             EnforcementMode::Monitor => {
                 // Read-only path: just identify candidates
-                // SECURITY (FIND-P3-012): Log poisoned lock recovery.
+                // SECURITY (FIND-P3-012): Fail-closed on poisoned lock — return empty.
                 let trackers = match self.trackers.read() {
                     Ok(guard) => guard,
                     Err(e) => {
@@ -339,7 +339,7 @@ impl LeastAgencyTracker {
                             "LeastAgencyTracker::revoke_stale_permissions read lock poisoned: {}",
                             e
                         );
-                        e.into_inner()
+                        return Vec::new();
                     }
                 };
                 let Some(tracker) = trackers.get(&key) else {
@@ -362,7 +362,7 @@ impl LeastAgencyTracker {
             EnforcementMode::Enforce => {
                 // FIND-R44-019: Atomic identify-and-remove under a single write lock
                 // to prevent TOCTOU between checking staleness and revoking.
-                // SECURITY (FIND-P3-012): Log poisoned lock recovery.
+                // SECURITY (FIND-P3-012): Fail-closed on poisoned lock — return empty.
                 let mut trackers = match self.trackers.write() {
                     Ok(guard) => guard,
                     Err(e) => {
@@ -370,7 +370,7 @@ impl LeastAgencyTracker {
                             "LeastAgencyTracker::revoke_stale_permissions write lock poisoned: {}",
                             e
                         );
-                        e.into_inner()
+                        return Vec::new();
                     }
                 };
                 let Some(tracker) = trackers.get_mut(&key) else {

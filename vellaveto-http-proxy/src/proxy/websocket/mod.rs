@@ -1258,10 +1258,7 @@ async fn relay_client_to_upstream(
                                             reason,
                                         } => {
                                             let deny_verdict = Verdict::Deny {
-                                                reason: format!(
-                                                    "ABAC denied by {}: {}",
-                                                    policy_id, reason
-                                                ),
+                                                reason: reason.clone(),
                                             };
                                             if let Err(e) = state
                                                 .audit
@@ -1272,6 +1269,7 @@ async fn relay_client_to_upstream(
                                                         "source": "ws_proxy",
                                                         "session": session_id,
                                                         "transport": "websocket",
+                                                        "event": "abac_deny",
                                                         "abac_policy": policy_id,
                                                     }),
                                                 )
@@ -1304,7 +1302,7 @@ async fn relay_client_to_upstream(
                                                     &session_id,
                                                     &policy_id,
                                                     tool_name,
-                                                    "",
+                                                    &action.function,
                                                 );
                                             }
                                         }
@@ -1800,10 +1798,7 @@ async fn relay_client_to_upstream(
                                             reason,
                                         } => {
                                             let deny_verdict = Verdict::Deny {
-                                                reason: format!(
-                                                    "ABAC denied by {}: {}",
-                                                    policy_id, reason
-                                                ),
+                                                reason: reason.clone(),
                                             };
                                             if let Err(e) = state
                                                 .audit
@@ -1814,8 +1809,9 @@ async fn relay_client_to_upstream(
                                                         "source": "ws_proxy",
                                                         "session": session_id,
                                                         "transport": "websocket",
+                                                        "event": "abac_deny",
                                                         "abac_policy": policy_id,
-                                                        "resource_uri": uri,
+                                                        "uri": uri,
                                                     }),
                                                 )
                                                 .await
@@ -2373,10 +2369,7 @@ async fn relay_client_to_upstream(
                                             reason,
                                         } => {
                                             let deny_verdict = Verdict::Deny {
-                                                reason: format!(
-                                                    "ABAC denied by {}: {}",
-                                                    policy_id, reason
-                                                ),
+                                                reason: reason.clone(),
                                             };
                                             if let Err(e) = state
                                                 .audit
@@ -2765,10 +2758,7 @@ async fn relay_client_to_upstream(
                                             reason,
                                         } => {
                                             let deny_verdict = Verdict::Deny {
-                                                reason: format!(
-                                                    "ABAC denied by {}: {}",
-                                                    policy_id, reason
-                                                ),
+                                                reason: reason.clone(),
                                             };
                                             if let Err(e) = state
                                                 .audit
@@ -2779,6 +2769,7 @@ async fn relay_client_to_upstream(
                                                         "source": "ws_proxy",
                                                         "session": session_id,
                                                         "transport": "websocket",
+                                                        "event": "abac_deny",
                                                         "extension_id": extension_id,
                                                         "abac_policy": policy_id,
                                                     }),
@@ -4230,19 +4221,22 @@ fn check_rate_limit(
         true
     } else {
         // SECURITY (FIND-R182-003): saturating arithmetic prevents overflow wrap-to-zero.
-        // SECURITY (AUDIT-001): Use the return value of fetch_update to eliminate TOCTOU
-        // between increment and check. Previously a separate load() could observe a value
-        // incremented by a concurrent thread, causing false rate-limit triggers.
-        let prev = counter.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
-            Some(v.saturating_add(1))
-        });
-        // fetch_update with infallible closure always returns Ok(previous_value).
-        // The new value after increment is previous + 1 (or u64::MAX on saturation).
-        let new_count = match prev {
-            Ok(previous) => previous.saturating_add(1),
-            Err(_) => unreachable!("infallible closure"),
-        };
-        new_count <= max_per_sec as u64
+        // SECURITY (FIND-R155-WS-001): Conditional atomic increment — only increment if
+        // within limit, reject otherwise. This eliminates the TOCTOU gap between
+        // load()+compare and also prevents counter inflation from rejected requests.
+        // The closure returns None when limit is reached, causing fetch_update to fail
+        // without modifying the counter.
+        let limit = max_per_sec as u64;
+        match counter.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+            if v >= limit {
+                None // Limit reached — do not increment
+            } else {
+                Some(v.saturating_add(1))
+            }
+        }) {
+            Ok(_prev) => true,  // Within limit, counter was incremented
+            Err(_) => false,    // Limit exceeded, counter unchanged
+        }
     }
 }
 

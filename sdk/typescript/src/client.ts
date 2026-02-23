@@ -452,12 +452,30 @@ export class VellavetoClient {
       const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
       try {
+        // SECURITY (FIND-R155-002): Disable automatic redirects to prevent
+        // Authorization header leakage to different domains on 3xx responses.
         const response = await fetch(url, {
           method,
           headers: this.buildHeaders(),
           body: body !== undefined ? JSON.stringify(body) : undefined,
           signal: controller.signal,
+          redirect: "manual",
         });
+
+        // SECURITY (FIND-R155-002): Reject redirect responses. A 3xx
+        // redirect could send the Authorization header to an attacker-
+        // controlled domain if followed automatically.
+        if (
+          response.status === 301 ||
+          response.status === 302 ||
+          response.status === 307 ||
+          response.status === 308
+        ) {
+          throw new VellavetoError(
+            `Server returned redirect (${response.status}) — redirects are rejected to prevent auth header leakage`,
+            response.status
+          );
+        }
 
         // SECURITY (FIND-R46-TS-001): Check Content-Length header before reading body.
         const contentLength = response.headers.get("content-length");

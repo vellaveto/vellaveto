@@ -863,8 +863,15 @@ impl ProxyBridge {
                     {
                         tracing::error!("AUDIT FAILURE: {}", e);
                     }
+                    // SECURITY (SE-005): Log approval creation errors instead of silently swallowing.
                     let approval_id = if let Some(ref store) = self.approval_store {
-                        store.create(action, reason.clone(), None).await.ok()
+                        match store.create(action, reason.clone(), None).await {
+                            Ok(id) => Some(id),
+                            Err(e) => {
+                                tracing::error!("APPROVAL CREATION FAILURE (unknown_tool): {}", e);
+                                None
+                            }
+                        }
                     } else {
                         None
                     };
@@ -895,8 +902,15 @@ impl ProxyBridge {
                     {
                         tracing::error!("AUDIT FAILURE: {}", e);
                     }
+                    // SECURITY (SE-005): Log approval creation errors instead of silently swallowing.
                     let approval_id = if let Some(ref store) = self.approval_store {
-                        store.create(action, reason.clone(), None).await.ok()
+                        match store.create(action, reason.clone(), None).await {
+                            Ok(id) => Some(id),
+                            Err(e) => {
+                                tracing::error!("APPROVAL CREATION FAILURE (untrusted_tool): {}", e);
+                                None
+                            }
+                        }
                     } else {
                         None
                     };
@@ -961,7 +975,7 @@ impl ProxyBridge {
                                     json!({
                                         "source": "proxy",
                                         "event": "abac_deny",
-                                        "abac_policy_id": policy_id,
+                                        "abac_policy": policy_id,
                                         "tool": tool_name,
                                     }),
                                 )
@@ -976,7 +990,9 @@ impl ProxyBridge {
                             return Ok(());
                         }
                         vellaveto_engine::abac::AbacDecision::Allow { .. } => {
-                            // ABAC explicitly allowed — proceed
+                            // ABAC explicitly allowed — proceed.
+                            // NOTE: record_usage not called here because ProxyBridge
+                            // does not hold a LeastAgencyTracker (stdio mode).
                         }
                         vellaveto_engine::abac::AbacDecision::NoMatch => {
                             // No ABAC rule matched — existing Allow verdict stands
@@ -1561,7 +1577,7 @@ impl ProxyBridge {
                                     json!({
                                         "source": "proxy",
                                         "event": "abac_deny_task",
-                                        "abac_policy_id": policy_id,
+                                        "abac_policy": policy_id,
                                         "task_method": safe_task_method,
                                         "task_id": safe_task_id,
                                     }),
@@ -1577,7 +1593,9 @@ impl ProxyBridge {
                             return Ok(());
                         }
                         vellaveto_engine::abac::AbacDecision::Allow { .. } => {
-                            // ABAC explicitly allowed — proceed
+                            // ABAC explicitly allowed — proceed.
+                            // NOTE: record_usage not called here because ProxyBridge
+                            // does not hold a LeastAgencyTracker (stdio mode).
                         }
                         vellaveto_engine::abac::AbacDecision::NoMatch => {
                             // No ABAC rule matched — existing Allow verdict stands
@@ -1786,7 +1804,7 @@ impl ProxyBridge {
                                     json!({
                                         "source": "proxy",
                                         "event": "abac_deny_extension",
-                                        "abac_policy_id": policy_id,
+                                        "abac_policy": policy_id,
                                         "extension_id": safe_extension_id,
                                         "method": safe_ext_method,
                                     }),
@@ -1802,7 +1820,9 @@ impl ProxyBridge {
                             return Ok(());
                         }
                         vellaveto_engine::abac::AbacDecision::Allow { .. } => {
-                            // ABAC explicitly allowed — proceed
+                            // ABAC explicitly allowed — proceed.
+                            // NOTE: record_usage not called here because ProxyBridge
+                            // does not hold a LeastAgencyTracker (stdio mode).
                         }
                         vellaveto_engine::abac::AbacDecision::NoMatch => {
                             // No ABAC rule matched — existing Allow verdict stands

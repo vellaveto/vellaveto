@@ -394,13 +394,19 @@ class VellavetoClient:
             )
 
         if HAS_HTTPX:
+            # SECURITY (FIND-R155-001): Disable automatic redirects to prevent
+            # Authorization header leakage to different domains on 3xx responses.
             self._client = httpx.Client(
                 timeout=timeout,
                 verify=verify_ssl,
+                follow_redirects=False,
             )
             self._use_httpx = True
         elif HAS_REQUESTS:
             self._session = requests.Session()
+            # SECURITY (FIND-R155-001): Disable automatic redirects to prevent
+            # Authorization header leakage to different domains on 3xx responses.
+            self._session.max_redirects = 0
             self._use_httpx = False
         else:
             raise ImportError(
@@ -1110,9 +1116,12 @@ class AsyncVellavetoClient:
         self._client: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self) -> "AsyncVellavetoClient":
+        # SECURITY (FIND-R155-001): Disable automatic redirects to prevent
+        # Authorization header leakage to different domains on 3xx responses.
         self._client = httpx.AsyncClient(
             timeout=self.timeout,
             verify=self.verify_ssl,
+            follow_redirects=False,
         )
         return self
 

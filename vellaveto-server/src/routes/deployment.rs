@@ -49,7 +49,7 @@ pub async fn deployment_info(State(state): State<AppState>) -> Json<DeploymentIn
 
         let discovered_endpoints = state
             .cached_discovered_endpoints
-            .load(std::sync::atomic::Ordering::Relaxed) as usize;
+            .load(std::sync::atomic::Ordering::SeqCst) as usize;
 
         Json(DeploymentInfo {
             instance_id: Some(instance_id),

@@ -2235,11 +2235,11 @@ async fn metrics_json(State(state): State<AppState>) -> Json<serde_json::Value> 
         "uptime_seconds": uptime.as_secs(),
         "policies_loaded": state.policy_state.load().policies.len(),
         "evaluations": {
-            "total": m.evaluations_total.load(Ordering::Relaxed),
-            "allow": m.evaluations_allow.load(Ordering::Relaxed),
-            "deny": m.evaluations_deny.load(Ordering::Relaxed),
-            "require_approval": m.evaluations_require_approval.load(Ordering::Relaxed),
-            "error": m.evaluations_error.load(Ordering::Relaxed),
+            "total": m.evaluations_total.load(Ordering::SeqCst),
+            "allow": m.evaluations_allow.load(Ordering::SeqCst),
+            "deny": m.evaluations_deny.load(Ordering::SeqCst),
+            "require_approval": m.evaluations_require_approval.load(Ordering::SeqCst),
+            "error": m.evaluations_error.load(Ordering::SeqCst),
         },
         "scanning": {
             "dlp": {

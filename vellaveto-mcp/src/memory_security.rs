@@ -13,13 +13,16 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 use vellaveto_config::MemorySecurityConfig;
 use vellaveto_types::{
-    MemoryAccessDecision, MemoryEntry, MemoryNamespace, MemorySecurityStats, NamespaceAccessType,
-    NamespaceIsolation, NamespaceSharingRequest, ProvenanceEventType, ProvenanceNode,
-    QuarantineDetection, QuarantineEntry, TaintLabel,
+    has_dangerous_chars, MemoryAccessDecision, MemoryEntry, MemoryNamespace, MemorySecurityStats,
+    NamespaceAccessType, NamespaceIsolation, NamespaceSharingRequest, ProvenanceEventType,
+    ProvenanceNode, QuarantineDetection, QuarantineEntry, TaintLabel,
 };
 
 /// Maximum recursion depth for provenance traversal.
 const MAX_PROVENANCE_DEPTH: usize = 100;
+
+/// Maximum length for namespace IDs, keys, and agent IDs.
+const MAX_INPUT_ID_LENGTH: usize = 256;
 
 /// Minimum string length to track (shorter strings cause false positives).
 const MIN_TRACKABLE_LENGTH: usize = 20;
@@ -243,6 +246,12 @@ impl MemorySecurityManager {
         reason: QuarantineDetection,
         triggered_by: Option<&str>,
     ) -> Result<(), MemorySecurityError> {
+        // SECURITY (FIND-R192-002): Validate entry_id input
+        validate_input_id(entry_id, "entry_id")?;
+        if let Some(tb) = triggered_by {
+            validate_input_id(tb, "triggered_by")?;
+        }
+
         let mut entries = self.entries.write().await;
 
         // Find entry by ID
@@ -271,6 +280,9 @@ impl MemorySecurityManager {
 
     /// Release an entry from quarantine.
     pub async fn release_entry(&self, entry_id: &str) -> Result<(), MemorySecurityError> {
+        // SECURITY (FIND-R192-002): Validate entry_id input
+        validate_input_id(entry_id, "entry_id")?;
+
         let mut entries = self.entries.write().await;
 
         let entry = entries
@@ -382,6 +394,11 @@ impl MemorySecurityManager {
         namespace_id: &str,
         owner_agent: &str,
     ) -> Result<MemoryNamespace, MemorySecurityError> {
+        // SECURITY (FIND-R192-001): Validate namespace_id input
+        validate_input_id(namespace_id, "namespace_id")?;
+        // SECURITY (FIND-R192-003): Validate owner_agent input
+        validate_input_id(owner_agent, "owner_agent")?;
+
         if !self.config.namespaces.enabled {
             return Err(MemorySecurityError::NamespacesDisabled);
         }
@@ -426,6 +443,20 @@ impl MemorySecurityManager {
         agent_id: &str,
         access_type: NamespaceAccessType,
     ) -> MemoryAccessDecision {
+        // SECURITY (FIND-R192-001/003): Validate namespace_id and agent_id.
+        // Fail-closed: invalid input produces Deny.
+        if namespace_id.len() > MAX_INPUT_ID_LENGTH || has_dangerous_chars(namespace_id) {
+            return MemoryAccessDecision::Deny {
+                reason: "Invalid namespace_id: too long or contains dangerous characters"
+                    .to_string(),
+            };
+        }
+        if agent_id.len() > MAX_INPUT_ID_LENGTH || has_dangerous_chars(agent_id) {
+            return MemoryAccessDecision::Deny {
+                reason: "Invalid agent_id: too long or contains dangerous characters".to_string(),
+            };
+        }
+
         if !self.config.namespaces.enabled {
             return MemoryAccessDecision::Allow;
         }
@@ -441,6 +472,10 @@ impl MemorySecurityManager {
         requester_agent: &str,
         access_type: NamespaceAccessType,
     ) -> Result<NamespaceSharingRequest, MemorySecurityError> {
+        // SECURITY (FIND-R192-001/003): Validate inputs
+        validate_input_id(namespace_id, "namespace_id")?;
+        validate_input_id(requester_agent, "requester_agent")?;
+
         if !self.config.namespaces.enabled {
             return Err(MemorySecurityError::NamespacesDisabled);
         }
@@ -470,6 +505,10 @@ impl MemorySecurityManager {
         namespace_id: &str,
         requester_agent: &str,
     ) -> Result<(), MemorySecurityError> {
+        // SECURITY (FIND-R192-001/003): Validate inputs
+        validate_input_id(namespace_id, "namespace_id")?;
+        validate_input_id(requester_agent, "requester_agent")?;
+
         let mut ns_manager = self.namespaces.write().await;
         ns_manager.approve_share(namespace_id, requester_agent)?;
 
@@ -569,6 +608,35 @@ pub enum MemorySecurityError {
     AlreadyExists(String),
     #[error("Share request not found")]
     ShareRequestNotFound,
+    /// SECURITY (FIND-R192): Input validation failure.
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+}
+
+/// Validate an input identifier (namespace_id, agent_id, entry_id, etc.).
+///
+/// SECURITY (FIND-R192-001/002/003): Checks length and dangerous characters
+/// to prevent log injection, path traversal, and Unicode format char bypass.
+fn validate_input_id(id: &str, field_name: &str) -> Result<(), MemorySecurityError> {
+    if id.is_empty() {
+        return Err(MemorySecurityError::InvalidInput(format!(
+            "{} must not be empty",
+            field_name
+        )));
+    }
+    if id.len() > MAX_INPUT_ID_LENGTH {
+        return Err(MemorySecurityError::InvalidInput(format!(
+            "{} exceeds maximum length of {}",
+            field_name, MAX_INPUT_ID_LENGTH
+        )));
+    }
+    if has_dangerous_chars(id) {
+        return Err(MemorySecurityError::InvalidInput(format!(
+            "{} contains control or Unicode format characters",
+            field_name
+        )));
+    }
+    Ok(())
 }
 
 /// Provenance graph for tracking data lineage.

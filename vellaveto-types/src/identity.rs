@@ -562,8 +562,14 @@ impl EvaluationContext {
         Ok(())
     }
 
-    /// Validate a single optional identity field: if present, must be non-empty
-    /// and must not contain control or Unicode format characters.
+    /// Maximum byte length for optional identity fields (agent_id, tenant_id, session_state).
+    ///
+    /// SECURITY: Prevents memory amplification via enormous field values in
+    /// deserialized EvaluationContext payloads.
+    pub(crate) const MAX_OPTIONAL_ID_FIELD_LEN: usize = 256;
+
+    /// Validate a single optional identity field: if present, must be non-empty,
+    /// within length bounds, and must not contain control or Unicode format characters.
     ///
     /// SECURITY (FIND-R52-005): Also reject Unicode format characters (category Cf)
     /// to prevent identity confusion via zero-width chars, bidi overrides, or BOM.
@@ -571,6 +577,13 @@ impl EvaluationContext {
         if let Some(value) = field {
             if value.is_empty() {
                 return Err(format!("EvaluationContext {name} is present but empty"));
+            }
+            if value.len() > Self::MAX_OPTIONAL_ID_FIELD_LEN {
+                return Err(format!(
+                    "EvaluationContext {name} length {} exceeds max {}",
+                    value.len(),
+                    Self::MAX_OPTIONAL_ID_FIELD_LEN,
+                ));
             }
             if value
                 .chars()

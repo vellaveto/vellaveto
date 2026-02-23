@@ -127,7 +127,7 @@ fn test_ws_rate_limit_resets_after_window() {
     // After window reset (the next call detects elapsed > 1s), should allow
     // Force a new window by setting start far in the past
     *window.lock().unwrap() = std::time::Instant::now() - std::time::Duration::from_secs(2);
-    counter.store(0, Ordering::Relaxed);
+    counter.store(0, Ordering::SeqCst);
 
     assert!(check_rate_limit(&counter, &window, 5));
 }
@@ -918,7 +918,7 @@ fn test_ws_upstream_rate_limit_resets_window() {
     assert!(check_rate_limit(&counter, &window, 10));
 
     // Counter should be 1 after reset
-    assert_eq!(counter.load(Ordering::Relaxed), 1);
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
 
 // ==========================================================================

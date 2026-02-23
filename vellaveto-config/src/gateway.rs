@@ -143,6 +143,17 @@ impl GatewayConfig {
                     i, backend.id, url_trimmed
                 ));
             }
+            // SECURITY (FIND-R155-004): SSRF validation — reject private IPs,
+            // cloud metadata endpoints (169.254.169.254), and loopback addresses.
+            // Allow localhost for development environments.
+            if !crate::validation::is_http_localhost_url(url_trimmed) {
+                if let Err(e) = vellaveto_types::validate_url_no_ssrf(url_trimmed) {
+                    return Err(format!(
+                        "gateway.backends[{}].url {} (id: '{}')",
+                        i, e, backend.id
+                    ));
+                }
+            }
             if backend.weight == 0 {
                 return Err(format!(
                     "gateway.backends[{}].weight must be >= 1 (id: '{}')",

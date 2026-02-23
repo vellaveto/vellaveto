@@ -6552,7 +6552,7 @@ fn make_valid_zk_batch_proof() -> crate::zk_audit::ZkBatchProof {
     crate::zk_audit::ZkBatchProof {
         proof: "aabbccdd".to_string(),
         batch_id: "batch-1".to_string(),
-        entry_range: (0, 10),
+        entry_range: (0, 9),
         merkle_root: "abcdef".to_string(),
         first_prev_hash: "112233".to_string(),
         final_entry_hash: "445566".to_string(),

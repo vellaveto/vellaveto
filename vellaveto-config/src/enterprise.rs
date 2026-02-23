@@ -585,6 +585,14 @@ impl ThreatIntelConfig {
                         .to_string(),
                 );
             }
+            // SECURITY (FIND-R155-003): SSRF validation — reject private IPs,
+            // cloud metadata endpoints (169.254.169.254), and loopback addresses.
+            // Allow localhost for development (already checked above for scheme).
+            if !crate::validation::is_http_localhost_url(endpoint) {
+                if let Err(e) = vellaveto_types::validate_url_no_ssrf(endpoint) {
+                    return Err(format!("threat_intel.endpoint {}", e));
+                }
+            }
         }
         for ioc in &self.ioc_types {
             if vellaveto_types::has_dangerous_chars(ioc) {

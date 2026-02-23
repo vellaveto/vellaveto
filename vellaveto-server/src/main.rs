@@ -1152,12 +1152,12 @@ async fn cmd_serve(
                 interval.tick().await;
                 match sd_clone.discover().await {
                     Ok(eps) => {
-                        cached_count.store(eps.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                        cached_count.store(eps.len() as u64, std::sync::atomic::Ordering::SeqCst);
                     }
                     Err(e) => {
                         tracing::warn!("Service discovery refresh failed: {:?}", e);
                         // SECURITY: fail-closed — set to 0 on error so we don't report stale data.
-                        cached_count.store(0, std::sync::atomic::Ordering::Relaxed);
+                        cached_count.store(0, std::sync::atomic::Ordering::SeqCst);
                     }
                 }
             }

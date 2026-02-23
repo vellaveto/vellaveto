@@ -100,6 +100,8 @@ impl ZkBatchProof {
     const MAX_HASH_LEN: usize = 256;
     /// Maximum length for ISO 8601 timestamp strings.
     const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum entry count per batch proof.
+    const MAX_ENTRY_COUNT: usize = 10_000;
 
     /// Validate structural bounds on string fields.
     ///
@@ -134,6 +136,13 @@ impl ZkBatchProof {
                 Self::MAX_HASH_LEN,
             ));
         }
+        // SECURITY: Reject control/format chars in merkle_root to prevent
+        // integrity check inconsistencies via invisible characters.
+        if crate::core::has_dangerous_chars(&self.merkle_root) {
+            return Err(
+                "ZkBatchProof merkle_root contains control or format characters".to_string(),
+            );
+        }
         if self.first_prev_hash.len() > Self::MAX_HASH_LEN {
             return Err(format!(
                 "ZkBatchProof first_prev_hash length {} exceeds max {}",
@@ -141,12 +150,26 @@ impl ZkBatchProof {
                 Self::MAX_HASH_LEN,
             ));
         }
+        // SECURITY: Reject control/format chars in first_prev_hash to prevent
+        // hash chain verification bypass via invisible characters.
+        if crate::core::has_dangerous_chars(&self.first_prev_hash) {
+            return Err(
+                "ZkBatchProof first_prev_hash contains control or format characters".to_string(),
+            );
+        }
         if self.final_entry_hash.len() > Self::MAX_HASH_LEN {
             return Err(format!(
                 "ZkBatchProof final_entry_hash length {} exceeds max {}",
                 self.final_entry_hash.len(),
                 Self::MAX_HASH_LEN,
             ));
+        }
+        // SECURITY: Reject control/format chars in final_entry_hash to prevent
+        // hash chain verification bypass via invisible characters.
+        if crate::core::has_dangerous_chars(&self.final_entry_hash) {
+            return Err(
+                "ZkBatchProof final_entry_hash contains control or format characters".to_string(),
+            );
         }
         if self.created_at.len() > Self::MAX_TIMESTAMP_LEN {
             return Err(format!(
@@ -161,6 +184,29 @@ impl ZkBatchProof {
             return Err(
                 "ZkBatchProof created_at contains control or format characters".to_string(),
             );
+        }
+        // SECURITY: Validate entry_range ordering — start must not exceed end.
+        if self.entry_range.0 > self.entry_range.1 {
+            return Err(format!(
+                "ZkBatchProof entry_range start {} exceeds end {}",
+                self.entry_range.0, self.entry_range.1,
+            ));
+        }
+        // SECURITY: Bound entry_count to prevent memory abuse from crafted payloads.
+        if self.entry_count > Self::MAX_ENTRY_COUNT {
+            return Err(format!(
+                "ZkBatchProof entry_count {} exceeds max {}",
+                self.entry_count, Self::MAX_ENTRY_COUNT,
+            ));
+        }
+        // SECURITY: Consistency check — entry_count must match the range span.
+        let expected_count = (self.entry_range.1 - self.entry_range.0)
+            .saturating_add(1) as usize;
+        if self.entry_count != expected_count {
+            return Err(format!(
+                "ZkBatchProof entry_count {} does not match entry_range span {} (range {}-{})",
+                self.entry_count, expected_count, self.entry_range.0, self.entry_range.1,
+            ));
         }
         Ok(())
     }

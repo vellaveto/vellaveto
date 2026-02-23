@@ -131,16 +131,16 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
     let policy_count = snap.policies.len();
     let eval_total = metrics
         .evaluations_total
-        .load(std::sync::atomic::Ordering::Relaxed);
+        .load(std::sync::atomic::Ordering::SeqCst);
     let eval_allow = metrics
         .evaluations_allow
-        .load(std::sync::atomic::Ordering::Relaxed);
+        .load(std::sync::atomic::Ordering::SeqCst);
     let eval_deny = metrics
         .evaluations_deny
-        .load(std::sync::atomic::Ordering::Relaxed);
+        .load(std::sync::atomic::Ordering::SeqCst);
     let eval_approval = metrics
         .evaluations_require_approval
-        .load(std::sync::atomic::Ordering::Relaxed);
+        .load(std::sync::atomic::Ordering::SeqCst);
     let pending_count = state.pending_approval_count().await.unwrap_or(0);
 
     let _ = write!(

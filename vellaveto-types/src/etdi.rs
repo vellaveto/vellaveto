@@ -576,6 +576,14 @@ impl ToolVersionPin {
                     Self::MAX_VERSION_LEN,
                 ));
             }
+            // SECURITY: Reject control/format chars in pinned_version to prevent
+            // version comparison bypass via zero-width characters.
+            if crate::core::has_dangerous_chars(ver) {
+                return Err(
+                    "ToolVersionPin pinned_version contains control or format characters"
+                        .to_string(),
+                );
+            }
         }
         if let Some(ref constraint) = self.version_constraint {
             if constraint.len() > Self::MAX_CONSTRAINT_LEN {
@@ -585,6 +593,14 @@ impl ToolVersionPin {
                     Self::MAX_CONSTRAINT_LEN,
                 ));
             }
+            // SECURITY: Reject control/format chars in version_constraint to prevent
+            // constraint parsing bypass via invisible characters.
+            if crate::core::has_dangerous_chars(constraint) {
+                return Err(
+                    "ToolVersionPin version_constraint contains control or format characters"
+                        .to_string(),
+                );
+            }
         }
         if self.definition_hash.len() > Self::MAX_HASH_LEN {
             return Err(format!(
@@ -593,12 +609,26 @@ impl ToolVersionPin {
                 Self::MAX_HASH_LEN,
             ));
         }
+        // SECURITY: Reject control/format chars in definition_hash to prevent
+        // integrity check inconsistencies via zero-width characters in hash comparison.
+        if crate::core::has_dangerous_chars(&self.definition_hash) {
+            return Err(
+                "ToolVersionPin definition_hash contains control or format characters".to_string(),
+            );
+        }
         if self.pinned_at.len() > Self::MAX_TIMESTAMP_LEN {
             return Err(format!(
                 "ToolVersionPin pinned_at length {} exceeds max {}",
                 self.pinned_at.len(),
                 Self::MAX_TIMESTAMP_LEN,
             ));
+        }
+        // SECURITY: Reject control/format chars in pinned_at to prevent
+        // log injection and timestamp comparison bypass.
+        if crate::core::has_dangerous_chars(&self.pinned_at) {
+            return Err(
+                "ToolVersionPin pinned_at contains control or format characters".to_string(),
+            );
         }
         if self.pinned_by.is_empty() {
             return Err("ToolVersionPin pinned_by must not be empty".to_string());

@@ -348,8 +348,13 @@ impl AuditExportConfig {
                 self.batch_size,
             ));
         }
-        let valid_formats = ["cef", "jsonl"];
-        if !valid_formats.contains(&self.format.as_str()) {
+        // SECURITY (FIND-R155-005): Accept all aliases recognized by
+        // ExportFormat::parse_format() — case-insensitive match for "cef",
+        // "jsonl", "json_lines", "jsonlines". Parity with PolicyConfig::validate()
+        // in config_validate.rs (FIND-R75-004).
+        let valid_formats = ["cef", "jsonl", "json_lines", "jsonlines"];
+        let format_lower = self.format.to_lowercase();
+        if !valid_formats.contains(&format_lower.as_str()) {
             return Err(format!(
                 "audit_export.format must be one of {:?}, got {:?}",
                 valid_formats, self.format,

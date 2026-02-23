@@ -301,7 +301,8 @@ impl JitAccessManager {
         for session_id in session_ids {
             if let Some(mut session) = self.sessions.get_mut(&session_id) {
                 if session.has_permission(permission) && session.approved {
-                    session.use_count += 1;
+                    // SECURITY (CA-001): Use saturating_add to prevent counter overflow.
+                    session.use_count = session.use_count.saturating_add(1);
                     return Ok(true);
                 }
             }
@@ -321,7 +322,8 @@ impl JitAccessManager {
         for session_id in session_ids {
             if let Some(mut session) = self.sessions.get_mut(&session_id) {
                 if session.has_tool_access(tool) && session.approved {
-                    session.use_count += 1;
+                    // SECURITY (CA-001): Use saturating_add to prevent counter overflow.
+                    session.use_count = session.use_count.saturating_add(1);
                     return Ok(true);
                 }
             }
@@ -446,12 +448,19 @@ impl JitAccessManager {
             .or_default()
             .insert(session_id);
 
-        self.session_count.fetch_add(1, Ordering::Relaxed);
+        // SECURITY (CA-007): SeqCst + saturating arithmetic for security-adjacent
+        // session counter. Even though currently used only for metrics, upgrading
+        // prevents future misuse if this counter is later used in authorization decisions.
+        let _ = self
+            .session_count
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                Some(v.saturating_add(1))
+            });
     }
 
     /// Get total session count (for metrics).
     pub fn total_session_count(&self) -> u64 {
-        self.session_count.load(Ordering::Relaxed)
+        self.session_count.load(Ordering::SeqCst)
     }
 }
 

@@ -490,28 +490,58 @@ impl Default for Metrics {
 
 impl Metrics {
     pub fn record_evaluation(&self, verdict: &vellaveto_types::Verdict) {
-        self.evaluations_total.fetch_add(1, Ordering::Relaxed);
+        // SECURITY (CA-005): SeqCst ordering on security-adjacent metrics to ensure
+        // visibility across threads. Saturating arithmetic prevents overflow wrap-to-zero.
+        let _ = self
+            .evaluations_total
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                Some(v.saturating_add(1))
+            });
         match verdict {
             vellaveto_types::Verdict::Allow => {
-                self.evaluations_allow.fetch_add(1, Ordering::Relaxed);
+                let _ = self
+                    .evaluations_allow
+                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                        Some(v.saturating_add(1))
+                    });
             }
             vellaveto_types::Verdict::Deny { .. } => {
-                self.evaluations_deny.fetch_add(1, Ordering::Relaxed);
+                let _ = self
+                    .evaluations_deny
+                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                        Some(v.saturating_add(1))
+                    });
             }
             vellaveto_types::Verdict::RequireApproval { .. } => {
-                self.evaluations_require_approval
-                    .fetch_add(1, Ordering::Relaxed);
+                let _ = self
+                    .evaluations_require_approval
+                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                        Some(v.saturating_add(1))
+                    });
             }
             // Handle future variants - count as deny (fail-closed)
             _ => {
-                self.evaluations_deny.fetch_add(1, Ordering::Relaxed);
+                let _ = self
+                    .evaluations_deny
+                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                        Some(v.saturating_add(1))
+                    });
             }
         }
     }
 
     pub fn record_error(&self) {
-        self.evaluations_total.fetch_add(1, Ordering::Relaxed);
-        self.evaluations_error.fetch_add(1, Ordering::Relaxed);
+        // SECURITY (CA-005): SeqCst + saturating arithmetic.
+        let _ = self
+            .evaluations_total
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                Some(v.saturating_add(1))
+            });
+        let _ = self
+            .evaluations_error
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                Some(v.saturating_add(1))
+            });
     }
 }
 
@@ -1325,20 +1355,20 @@ mod tests {
     #[test]
     fn metrics_default_starts_at_zero() {
         let m = Metrics::default();
-        assert_eq!(m.evaluations_total.load(Ordering::Relaxed), 0);
-        assert_eq!(m.evaluations_allow.load(Ordering::Relaxed), 0);
-        assert_eq!(m.evaluations_deny.load(Ordering::Relaxed), 0);
-        assert_eq!(m.evaluations_require_approval.load(Ordering::Relaxed), 0);
-        assert_eq!(m.evaluations_error.load(Ordering::Relaxed), 0);
+        assert_eq!(m.evaluations_total.load(Ordering::SeqCst), 0);
+        assert_eq!(m.evaluations_allow.load(Ordering::SeqCst), 0);
+        assert_eq!(m.evaluations_deny.load(Ordering::SeqCst), 0);
+        assert_eq!(m.evaluations_require_approval.load(Ordering::SeqCst), 0);
+        assert_eq!(m.evaluations_error.load(Ordering::SeqCst), 0);
     }
 
     #[test]
     fn metrics_record_allow() {
         let m = Metrics::default();
         m.record_evaluation(&Verdict::Allow);
-        assert_eq!(m.evaluations_total.load(Ordering::Relaxed), 1);
-        assert_eq!(m.evaluations_allow.load(Ordering::Relaxed), 1);
-        assert_eq!(m.evaluations_deny.load(Ordering::Relaxed), 0);
+        assert_eq!(m.evaluations_total.load(Ordering::SeqCst), 1);
+        assert_eq!(m.evaluations_allow.load(Ordering::SeqCst), 1);
+        assert_eq!(m.evaluations_deny.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -1347,9 +1377,9 @@ mod tests {
         m.record_evaluation(&Verdict::Deny {
             reason: "test".to_string(),
         });
-        assert_eq!(m.evaluations_total.load(Ordering::Relaxed), 1);
-        assert_eq!(m.evaluations_deny.load(Ordering::Relaxed), 1);
-        assert_eq!(m.evaluations_allow.load(Ordering::Relaxed), 0);
+        assert_eq!(m.evaluations_total.load(Ordering::SeqCst), 1);
+        assert_eq!(m.evaluations_deny.load(Ordering::SeqCst), 1);
+        assert_eq!(m.evaluations_allow.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -1358,16 +1388,16 @@ mod tests {
         m.record_evaluation(&Verdict::RequireApproval {
             reason: "review".to_string(),
         });
-        assert_eq!(m.evaluations_total.load(Ordering::Relaxed), 1);
-        assert_eq!(m.evaluations_require_approval.load(Ordering::Relaxed), 1);
+        assert_eq!(m.evaluations_total.load(Ordering::SeqCst), 1);
+        assert_eq!(m.evaluations_require_approval.load(Ordering::SeqCst), 1);
     }
 
     #[test]
     fn metrics_record_error() {
         let m = Metrics::default();
         m.record_error();
-        assert_eq!(m.evaluations_total.load(Ordering::Relaxed), 1);
-        assert_eq!(m.evaluations_error.load(Ordering::Relaxed), 1);
+        assert_eq!(m.evaluations_total.load(Ordering::SeqCst), 1);
+        assert_eq!(m.evaluations_error.load(Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -1383,10 +1413,10 @@ mod tests {
         }
         m.record_error();
         m.record_error();
-        assert_eq!(m.evaluations_total.load(Ordering::Relaxed), 10);
-        assert_eq!(m.evaluations_allow.load(Ordering::Relaxed), 5);
-        assert_eq!(m.evaluations_deny.load(Ordering::Relaxed), 3);
-        assert_eq!(m.evaluations_error.load(Ordering::Relaxed), 2);
+        assert_eq!(m.evaluations_total.load(Ordering::SeqCst), 10);
+        assert_eq!(m.evaluations_allow.load(Ordering::SeqCst), 5);
+        assert_eq!(m.evaluations_deny.load(Ordering::SeqCst), 3);
+        assert_eq!(m.evaluations_error.load(Ordering::SeqCst), 2);
     }
 
     #[test]

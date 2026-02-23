@@ -256,7 +256,7 @@ impl FederationResolver {
             .get_decoding_key(&anchor, &kid, &alg)
             .await
             .inspect_err(|_| {
-                anchor.failure_count.fetch_add(1, Ordering::Relaxed);
+                let _ = anchor.failure_count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_add(1)));
             })?;
 
         // 4. Validate JWT
@@ -279,7 +279,7 @@ impl FederationResolver {
 
         let token_data = jsonwebtoken::decode::<FederatedClaims>(token, &decoding_key, &validation)
             .map_err(|e| {
-                anchor.failure_count.fetch_add(1, Ordering::Relaxed);
+                let _ = anchor.failure_count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_add(1)));
                 FederationError::JwtValidationFailed {
                     org_id: anchor.config.org_id.clone(),
                     source: e.to_string(),
@@ -288,7 +288,7 @@ impl FederationResolver {
 
         // FIND-R50-013: Validate extra claims are within bounds
         if let Err(reason) = token_data.claims.validate_extra_claims() {
-            anchor.failure_count.fetch_add(1, Ordering::Relaxed);
+            let _ = anchor.failure_count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_add(1)));
             return Err(FederationError::JwtValidationFailed {
                 org_id: anchor.config.org_id.clone(),
                 source: reason,
@@ -302,7 +302,7 @@ impl FederationResolver {
         // different issuer B.
         if let Some(ref verified_iss) = token_data.claims.iss {
             if !issuer_pattern_matches(&anchor.config.issuer_pattern, verified_iss) {
-                anchor.failure_count.fetch_add(1, Ordering::Relaxed);
+                let _ = anchor.failure_count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_add(1)));
                 return Err(FederationError::JwtValidationFailed {
                     org_id: anchor.config.org_id.clone(),
                     source: format!(
@@ -316,7 +316,7 @@ impl FederationResolver {
         // 5. Apply identity mappings
         let identity = self.apply_identity_mappings(&anchor, &token_data.claims);
 
-        anchor.success_count.fetch_add(1, Ordering::Relaxed);
+        let _ = anchor.success_count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_add(1)));
 
         Ok(Some(FederatedIdentity {
             identity,
@@ -348,8 +348,8 @@ impl FederationResolver {
                         jwks_cached: cached,
                         jwks_last_fetched: last_fetched,
                         identity_mapping_count: a.config.identity_mappings.len(),
-                        successful_validations: a.success_count.load(Ordering::Relaxed),
-                        failed_validations: a.failure_count.load(Ordering::Relaxed),
+                        successful_validations: a.success_count.load(Ordering::SeqCst),
+                        failed_validations: a.failure_count.load(Ordering::SeqCst),
                     }
                 })
                 .collect(),
@@ -397,11 +397,30 @@ impl FederationResolver {
                 })?;
 
         // Check cache first (fast path via read lock)
+        // SECURITY (FO-003): Fail-closed on poisoned read lock — treat as cache miss
+        // and re-fetch from upstream, instead of using potentially corrupted data
+        // via into_inner().
         {
-            let cache_guard = anchor.jwks_cache.read().unwrap_or_else(|e| e.into_inner());
-            if let Some(ref cached) = *cache_guard {
-                if cached.fetched_at.elapsed() < self.cache_ttl {
-                    return find_key_in_jwks(&cached.keys, kid, alg, &anchor.config.org_id);
+            match anchor.jwks_cache.read() {
+                Ok(cache_guard) => {
+                    if let Some(ref cached) = *cache_guard {
+                        if cached.fetched_at.elapsed() < self.cache_ttl {
+                            return find_key_in_jwks(
+                                &cached.keys,
+                                kid,
+                                alg,
+                                &anchor.config.org_id,
+                            );
+                        }
+                    }
+                }
+                Err(_) => {
+                    tracing::error!(
+                        target: "vellaveto::security",
+                        org_id = %anchor.config.org_id,
+                        "JWKS cache read lock poisoned — treating as cache miss (fail-closed)"
+                    );
+                    // Fall through to fetch fresh JWKS
                 }
             }
         }

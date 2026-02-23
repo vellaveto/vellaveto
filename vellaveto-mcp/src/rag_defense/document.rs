@@ -364,7 +364,9 @@ impl DocumentVerifier {
         }
 
         let count = counts.entry(session_id.to_string()).or_insert(0);
-        *count += 1;
+        // SECURITY (CA-003): Use saturating_add to prevent u64 overflow which could
+        // reset the counter and bypass document count limits.
+        *count = count.saturating_add(1);
 
         if *count > self.config.max_docs_per_session {
             return Err(RagDefenseError::SessionDocumentLimit {
