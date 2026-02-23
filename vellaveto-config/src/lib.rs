@@ -23,6 +23,7 @@ pub mod transport;
 // ═══════════════════════════════════════════════════════════════════════════════
 pub mod a2a;
 pub mod abac;
+pub mod audit_store;
 pub mod billing;
 pub mod cluster;
 pub mod compliance;
@@ -102,6 +103,7 @@ pub use rag_defense_config::{
 
 // Re-exports from Phase 16.6 split submodules
 pub use a2a::A2aConfig;
+pub use audit_store::AuditStoreConfig;
 pub use abac::AbacConfig;
 pub use billing::BillingConfig;
 pub use cluster::ClusterConfig;
@@ -520,6 +522,14 @@ pub struct PolicyConfig {
     /// Billing webhook configuration for Paddle and Stripe.
     #[serde(default)]
     pub billing: BillingConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 43: CENTRALIZED AUDIT STORE
+    // ═══════════════════════════════════════════════════
+    /// Centralized audit store configuration for dual-writing to PostgreSQL
+    /// and structured audit log querying.
+    #[serde(default)]
+    pub audit_store: AuditStoreConfig,
 }
 
 impl PolicyConfig {

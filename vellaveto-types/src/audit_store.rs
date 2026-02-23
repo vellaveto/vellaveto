@@ -1,0 +1,206 @@
+//! Centralized audit store types — query parameters, results, and backend selection.
+//!
+//! Phase 43: These types define the query interface for structured audit log search.
+//! They live in `vellaveto-types` (leaf crate) so both `vellaveto-audit` and
+//! `vellaveto-server` can reference them without circular dependencies.
+
+use serde::{Deserialize, Serialize};
+
+/// Maximum number of entries returned per query (prevents OOM on large result sets).
+pub const MAX_QUERY_LIMIT: u64 = 1_000;
+
+/// Maximum text search length (bytes) to prevent ReDoS / excessive scan time.
+pub const MAX_TEXT_SEARCH_LEN: usize = 512;
+
+/// Maximum length of agent_id / tool filter strings.
+pub const MAX_FILTER_STRING_LEN: usize = 256;
+
+/// Supported audit store backends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AuditStoreBackend {
+    /// Local JSONL file (default, always active).
+    #[default]
+    File,
+    /// PostgreSQL database (requires `postgres-store` feature).
+    Postgres,
+}
+
+/// Verdict filter for audit queries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VerdictFilter {
+    Allow,
+    Deny,
+    RequireApproval,
+}
+
+/// Query parameters for searching audit entries.
+///
+/// All fields are optional — omitted fields are not filtered.
+/// `limit` is capped at [`MAX_QUERY_LIMIT`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuditQueryParams {
+    /// ISO 8601 start time (inclusive).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+
+    /// ISO 8601 end time (exclusive).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
+
+    /// Filter by agent ID (exact match on metadata.agent_id).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+
+    /// Filter by tool name (exact match on action.tool).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+
+    /// Filter by verdict type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<VerdictFilter>,
+
+    /// Substring text search across tool, function, and metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_search: Option<String>,
+
+    /// Minimum sequence number (inclusive).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_sequence: Option<u64>,
+
+    /// Maximum sequence number (inclusive).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_sequence: Option<u64>,
+
+    /// Maximum number of entries to return (default 100, max 1000).
+    #[serde(default = "default_limit")]
+    pub limit: u64,
+
+    /// Number of entries to skip for pagination.
+    #[serde(default)]
+    pub offset: u64,
+}
+
+fn default_limit() -> u64 {
+    100
+}
+
+impl AuditQueryParams {
+    /// Validate query parameters. Returns an error describing the first violation.
+    pub fn validate(&self) -> Result<(), String> {
+        // Cap limit
+        if self.limit > MAX_QUERY_LIMIT {
+            return Err(format!(
+                "limit {} exceeds maximum {}",
+                self.limit, MAX_QUERY_LIMIT
+            ));
+        }
+        if self.limit == 0 {
+            return Err("limit must be > 0".to_string());
+        }
+
+        // Validate filter string lengths
+        if let Some(ref agent_id) = self.agent_id {
+            if agent_id.len() > MAX_FILTER_STRING_LEN {
+                return Err(format!(
+                    "agent_id length {} exceeds maximum {}",
+                    agent_id.len(),
+                    MAX_FILTER_STRING_LEN
+                ));
+            }
+            if crate::has_dangerous_chars(agent_id) {
+                return Err(
+                    "agent_id contains control or format characters".to_string(),
+                );
+            }
+        }
+
+        if let Some(ref tool) = self.tool {
+            if tool.len() > MAX_FILTER_STRING_LEN {
+                return Err(format!(
+                    "tool length {} exceeds maximum {}",
+                    tool.len(),
+                    MAX_FILTER_STRING_LEN
+                ));
+            }
+            if crate::has_dangerous_chars(tool) {
+                return Err(
+                    "tool contains control or format characters".to_string(),
+                );
+            }
+        }
+
+        if let Some(ref text_search) = self.text_search {
+            if text_search.len() > MAX_TEXT_SEARCH_LEN {
+                return Err(format!(
+                    "text_search length {} exceeds maximum {}",
+                    text_search.len(),
+                    MAX_TEXT_SEARCH_LEN
+                ));
+            }
+            if crate::has_dangerous_chars(text_search) {
+                return Err(
+                    "text_search contains control or format characters".to_string(),
+                );
+            }
+        }
+
+        // Validate sequence range ordering
+        if let (Some(from), Some(to)) = (self.from_sequence, self.to_sequence) {
+            if from > to {
+                return Err(format!(
+                    "from_sequence ({}) must be <= to_sequence ({})",
+                    from, to
+                ));
+            }
+        }
+
+        // Validate timestamp format (basic check — full parse happens at query time)
+        if let Some(ref since) = self.since {
+            if since.len() > 64 {
+                return Err("since timestamp too long".to_string());
+            }
+            if crate::has_dangerous_chars(since) {
+                return Err("since contains control or format characters".to_string());
+            }
+        }
+        if let Some(ref until) = self.until {
+            if until.len() > 64 {
+                return Err("until timestamp too long".to_string());
+            }
+            if crate::has_dangerous_chars(until) {
+                return Err("until contains control or format characters".to_string());
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Result of an audit query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditQueryResult {
+    /// Matching entries for this page.
+    pub entries: Vec<serde_json::Value>,
+    /// Total number of matching entries (across all pages).
+    pub total: u64,
+    /// Current offset.
+    pub offset: u64,
+    /// Page size used.
+    pub limit: u64,
+}
+
+/// Status of the audit store backend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditStoreStatus {
+    /// Which backend is active.
+    pub backend: AuditStoreBackend,
+    /// Whether the centralized store is enabled.
+    pub enabled: bool,
+    /// Whether the sink is healthy (for dual-write backends).
+    pub sink_healthy: bool,
+    /// Number of entries pending flush to the centralized store.
+    pub pending_count: usize,
+}

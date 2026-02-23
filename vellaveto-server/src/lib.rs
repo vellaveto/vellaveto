@@ -1141,6 +1141,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             zk_audit: Default::default(),
             licensing: Default::default(),
             billing: Default::default(),
+            audit_store: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

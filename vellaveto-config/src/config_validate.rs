@@ -1608,6 +1608,11 @@ impl PolicyConfig {
             .validate()
             .map_err(|e| format!("audit_export: {e}"))?;
 
+        // Centralized audit store configuration bounds (Phase 43)
+        self.audit_store
+            .validate()
+            .map_err(|e| format!("audit_store: {e}"))?;
+
         Ok(())
     }
 
