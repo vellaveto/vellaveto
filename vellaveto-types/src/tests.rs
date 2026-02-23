@@ -8696,3 +8696,207 @@ fn test_r159_001_access_review_entry_second_entry_bad_in_vec() {
         err
     );
 }
+
+// ═══════════════════════════════════════════════════════════════
+// R203 fixes: task timestamp validation, audit_store constant,
+// and governance deprecated method removal.
+// ═══════════════════════════════════════════════════════════════
+
+fn make_valid_tracked_task() -> crate::TrackedTask {
+    crate::TrackedTask {
+        task_id: "task-001".to_string(),
+        tool: "read_file".to_string(),
+        function: "read".to_string(),
+        status: crate::TaskStatus::Pending,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: None,
+        created_by: None,
+        session_id: None,
+    }
+}
+
+// FIND-R203-002: TrackedTask.created_at — control character validation
+#[test]
+fn test_r203_002_tracked_task_created_at_control_char_rejected() {
+    let mut task = make_valid_tracked_task();
+    task.created_at = "2026-01-01T00:00:\x0000Z".to_string();
+    let err = task.validate().unwrap_err();
+    assert!(
+        err.contains("created_at") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
+}
+
+// FIND-R203-002: TrackedTask.created_at — Unicode format character validation
+#[test]
+fn test_r203_002_tracked_task_created_at_format_char_rejected() {
+    let mut task = make_valid_tracked_task();
+    // Zero-width space injected into timestamp
+    task.created_at = "2026-01-01T00:\u{200B}00:00Z".to_string();
+    let err = task.validate().unwrap_err();
+    assert!(
+        err.contains("created_at") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
+}
+
+// FIND-R203-002: TrackedTask.created_at — invalid ISO 8601 rejected
+#[test]
+fn test_r203_002_tracked_task_created_at_invalid_iso8601_rejected() {
+    let mut task = make_valid_tracked_task();
+    task.created_at = "not-a-timestamp!!!!!!!!!!!!".to_string();
+    let err = task.validate().unwrap_err();
+    assert!(
+        err.contains("created_at") && err.contains("ISO 8601"),
+        "got: {}",
+        err
+    );
+}
+
+// FIND-R203-002: TrackedTask.expires_at — control character validation
+#[test]
+fn test_r203_002_tracked_task_expires_at_control_char_rejected() {
+    let mut task = make_valid_tracked_task();
+    task.expires_at = Some("2026-02-01T00:00:\x0000Z".to_string());
+    let err = task.validate().unwrap_err();
+    assert!(
+        err.contains("expires_at") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
+}
+
+// FIND-R203-002: TrackedTask.expires_at — invalid ISO 8601 rejected
+#[test]
+fn test_r203_002_tracked_task_expires_at_invalid_iso8601_rejected() {
+    let mut task = make_valid_tracked_task();
+    task.expires_at = Some("YYYY-MM-DDTHH:MM:SSZ-invalid!!!".to_string());
+    let err = task.validate().unwrap_err();
+    assert!(
+        err.contains("expires_at") && err.contains("ISO 8601"),
+        "got: {}",
+        err
+    );
+}
+
+// FIND-R203-002: TrackedTask — valid task with expires_at passes
+#[test]
+fn test_r203_002_tracked_task_valid_with_expires_at_passes() {
+    let mut task = make_valid_tracked_task();
+    task.expires_at = Some("2027-06-15T12:30:00Z".to_string());
+    assert!(task.validate().is_ok());
+}
+
+// FIND-R203-002: TaskStateTransition.timestamp — control character rejected
+#[test]
+fn test_r203_002_task_state_transition_timestamp_control_char_rejected() {
+    let transition = crate::TaskStateTransition {
+        sequence: 0,
+        prev_hash: "".to_string(),
+        new_status: crate::TaskStatus::Running,
+        timestamp: "2026-01-01T00:00:\x0000Z".to_string(),
+        triggered_by: None,
+        hash: "abc".to_string(),
+    };
+    let err = transition.validate().unwrap_err();
+    assert!(
+        err.contains("timestamp") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
+}
+
+// FIND-R203-002: TaskStateTransition.timestamp — Unicode format char rejected
+#[test]
+fn test_r203_002_task_state_transition_timestamp_format_char_rejected() {
+    let transition = crate::TaskStateTransition {
+        sequence: 0,
+        prev_hash: "".to_string(),
+        new_status: crate::TaskStatus::Running,
+        timestamp: "2026-01-01\u{200B}T00:00:00Z".to_string(),
+        triggered_by: None,
+        hash: "abc".to_string(),
+    };
+    let err = transition.validate().unwrap_err();
+    assert!(
+        err.contains("timestamp") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
+}
+
+// FIND-R203-003: AuditQueryParams.tenant_id uses MAX_TENANT_ID_LEN constant
+#[test]
+fn test_r203_003_audit_query_params_tenant_id_at_max_len_ok() {
+    let params = crate::AuditQueryParams {
+        tenant_id: Some("t".repeat(crate::audit_store::MAX_TENANT_ID_LEN)),
+        ..Default::default()
+    };
+    assert!(params.validate().is_ok());
+}
+
+#[test]
+fn test_r203_003_audit_query_params_tenant_id_exceeds_max_len_fails() {
+    let params = crate::AuditQueryParams {
+        tenant_id: Some("t".repeat(crate::audit_store::MAX_TENANT_ID_LEN + 1)),
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(
+        err.contains("tenant_id") && err.contains("exceeds maximum"),
+        "got: {}",
+        err
+    );
+}
+
+// FIND-R203-003: MAX_TENANT_ID_LEN constant is exported at expected value
+#[test]
+fn test_r203_003_max_tenant_id_len_constant_value() {
+    assert_eq!(crate::audit_store::MAX_TENANT_ID_LEN, 64);
+}
+
+// FIND-R203-004: ShadowAiReport.validate() uses agent.validate() (not deprecated validate_finite())
+#[test]
+fn test_r203_004_shadow_ai_report_validate_calls_agent_validate() {
+    // An agent with risk_score out of range should fail validate() and hence ShadowAiReport::validate()
+    let report = crate::ShadowAiReport {
+        unregistered_agents: vec![crate::UnregisteredAgent {
+            agent_id: "agent-x".to_string(),
+            first_seen: "2026-01-01T00:00:00Z".to_string(),
+            last_seen: "2026-01-01T01:00:00Z".to_string(),
+            request_count: 1,
+            tools_used: std::collections::HashSet::new(),
+            // risk_score outside [0.0, 1.0] range — should be caught by validate()
+            risk_score: 1.5,
+        }],
+        unapproved_tools: vec![],
+        unknown_servers: vec![],
+        total_risk_score: 0.5,
+    };
+    let err = report.validate().unwrap_err();
+    assert!(
+        err.contains("risk_score") || err.contains("UnregisteredAgent"),
+        "validate() should delegate to agent.validate(): got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_r203_004_shadow_ai_report_validate_ok_with_valid_agents() {
+    let report = crate::ShadowAiReport {
+        unregistered_agents: vec![crate::UnregisteredAgent {
+            agent_id: "agent-x".to_string(),
+            first_seen: "2026-01-01T00:00:00Z".to_string(),
+            last_seen: "2026-01-01T01:00:00Z".to_string(),
+            request_count: 1,
+            tools_used: std::collections::HashSet::new(),
+            risk_score: 0.5,
+        }],
+        unapproved_tools: vec![],
+        unknown_servers: vec![],
+        total_risk_score: 0.5,
+    };
+    assert!(report.validate().is_ok());
+}

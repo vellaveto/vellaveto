@@ -118,6 +118,9 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     (state, tmp)
 }
@@ -519,6 +522,9 @@ async fn regression_24_error_message_does_not_leak_architecture() {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

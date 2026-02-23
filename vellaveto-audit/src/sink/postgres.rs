@@ -125,6 +125,14 @@ impl PostgresSinkConfig {
                 "table_name must contain only alphanumeric characters and underscores".to_string(),
             ));
         }
+        // SECURITY (FIND-R203-004): Reject pure-underscore identifiers (e.g., "___").
+        // These are technically valid SQL identifiers but are degenerate and confusing,
+        // and would silently produce broken queries. Matches the check in query/postgres.rs.
+        if self.table_name.chars().all(|c| c == '_') {
+            return Err(SinkError::Connection(
+                "table_name must contain at least one alphanumeric character".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -614,5 +622,51 @@ mod tests {
             ..Default::default()
         };
         assert!(config.validate().is_ok());
+    }
+
+    // --- FIND-R203-004: pure-underscore table name rejection ---
+
+    /// FIND-R203-004: A table name consisting entirely of underscores must be rejected.
+    #[test]
+    fn test_config_validate_table_name_pure_underscore() {
+        for name in &["_", "__", "___", "_____"] {
+            let config = PostgresSinkConfig {
+                table_name: name.to_string(),
+                ..Default::default()
+            };
+            let err = config.validate().unwrap_err().to_string();
+            assert!(
+                err.contains("alphanumeric"),
+                "pure-underscore '{name}' should be rejected with alphanumeric message, got: {err}"
+            );
+        }
+    }
+
+    /// FIND-R203-004: A table name starting with underscore but containing
+    /// alphanumeric characters must be accepted.
+    #[test]
+    fn test_config_validate_table_name_leading_underscore_with_alpha_ok() {
+        let config = PostgresSinkConfig {
+            table_name: "_audit_table".to_string(),
+            ..Default::default()
+        };
+        assert!(
+            config.validate().is_ok(),
+            "_audit_table should be a valid table name"
+        );
+    }
+
+    /// FIND-R203-004: A table name with trailing underscores but alphanumeric
+    /// characters must be accepted.
+    #[test]
+    fn test_config_validate_table_name_trailing_underscore_ok() {
+        let config = PostgresSinkConfig {
+            table_name: "audit_".to_string(),
+            ..Default::default()
+        };
+        assert!(
+            config.validate().is_ok(),
+            "audit_ should be a valid table name"
+        );
     }
 }

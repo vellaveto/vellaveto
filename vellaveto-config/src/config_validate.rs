@@ -1616,7 +1616,13 @@ impl PolicyConfig {
             .validate()
             .map_err(|e| format!("audit_store: {e}"))?;
 
+        // Policy lifecycle configuration bounds (Phase 47)
+        self.policy_lifecycle
+            .validate()
+            .map_err(|e| format!("policy_lifecycle: {e}"))?;
+
         Ok(())
+
     }
 
     /// Load config from a file path. Selects parser based on extension.

@@ -26,10 +26,30 @@ use crate::AppState;
 /// List all policies.
 ///
 /// GET /api/policies
+///
+/// # Security (FIND-R203-001)
+///
+/// Non-default tenants only see their own namespaced, global, and legacy
+/// policies — the same filtering applied in `evaluate()`. Default tenant
+/// (admin) sees all policies for operational visibility.
 #[tracing::instrument(name = "vellaveto.list_policies", skip(state))]
-pub async fn list_policies(State(state): State<AppState>) -> Json<Vec<Policy>> {
+pub async fn list_policies(
+    State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+) -> Json<Vec<Policy>> {
     let snap = state.policy_state.load();
-    Json(snap.policies.clone())
+    // SECURITY (FIND-R203-001): Filter by tenant to prevent cross-tenant policy
+    // enumeration. Default tenant has unrestricted access (backwards compatible).
+    let policies: Vec<Policy> = if tenant_ctx.is_default() {
+        snap.policies.clone()
+    } else {
+        snap.policies
+            .iter()
+            .filter(|p| tenant_ctx.policy_matches(&p.id))
+            .cloned()
+            .collect()
+    };
+    Json(policies)
 }
 
 /// Add a new policy.
@@ -216,6 +236,8 @@ pub async fn add_policy(
 /// # Security
 ///
 /// - Validates the policy ID (non-empty, max 256 chars, no control chars)
+/// - Non-default tenants may only delete their own namespaced policies
+///   (FIND-R203-002: cross-tenant deletion prevention)
 /// - Uses compile-first validation to ensure the remaining policy set is valid
 /// - Serializes with other policy mutations via write lock
 #[tracing::instrument(
@@ -225,6 +247,7 @@ pub async fn add_policy(
 )]
 pub async fn remove_policy(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Path(id): Path<String>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     // SECURITY (R23-SRV-4): Validate the path param (same rules as add_policy).
@@ -232,6 +255,18 @@ pub async fn remove_policy(
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "Invalid policy id"})),
+        );
+    }
+
+    // SECURITY (FIND-R203-002): Non-default tenants may only delete their own
+    // namespaced policies. This prevents a tenant from deleting another tenant's
+    // policies or global admin policies via a direct DELETE /api/policies/{id}.
+    if !tenant_ctx.is_default() && !tenant_ctx.policy_matches(&id) {
+        // Return 403 (not 404) to make the boundary explicit; the policy may
+        // exist but simply belongs to a different tenant.
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Access denied: policy belongs to a different tenant"})),
         );
     }
 
@@ -248,9 +283,12 @@ pub async fn remove_policy(
     let removed = existing.policies.len().saturating_sub(candidate.len());
 
     if removed == 0 {
+        // SECURITY (FIND-R203-006): Do not echo the policy ID in the error
+        // response — it adds no value to legitimate callers and may assist
+        // an attacker in probing policy names across tenants.
         return (
             StatusCode::NOT_FOUND,
-            Json(json!({"error": format!("No policy with id '{}'", id)})),
+            Json(json!({"error": "Policy not found"})),
         );
     }
 

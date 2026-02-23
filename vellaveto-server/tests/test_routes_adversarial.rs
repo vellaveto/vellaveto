@@ -116,6 +116,9 @@ fn make_state() -> (AppState, TempDir) {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     (state, tmp)
 }
@@ -205,6 +208,9 @@ fn make_empty_state() -> (AppState, TempDir) {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     (state, tmp)
 }
@@ -678,6 +684,9 @@ priority = 1
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -834,6 +843,9 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     let app = routes::build_router(state);
 
@@ -1111,6 +1123,9 @@ async fn test_find004_metrics_require_auth_true_blocks_unauthenticated() {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     let app = routes::build_router(state);
 
@@ -1211,6 +1226,9 @@ async fn test_find004_metrics_require_auth_false_allows_unauthenticated() {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     let app = routes::build_router(state);
 

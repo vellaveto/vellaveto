@@ -1128,6 +1128,7 @@ fn test_validate_rejects_too_many_policies() {
         licensing: Default::default(),
         billing: Default::default(),
         audit_store: Default::default(),
+        policy_lifecycle: Default::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {
@@ -8065,14 +8066,16 @@ fn test_audit_store_config_default_passes() {
 }
 
 #[test]
-fn test_audit_store_config_disabled_with_bad_pool_size_ok() {
-    // When disabled, numeric bounds are not checked
+fn test_audit_store_config_disabled_with_bad_pool_size_fails() {
+    // FIND-R203-005: Numeric bounds are checked unconditionally — pool_size=0
+    // must be rejected even when the store is disabled.
     let cfg = crate::AuditStoreConfig {
         enabled: false,
         pool_size: 0,
         ..Default::default()
     };
-    assert!(cfg.validate().is_ok());
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("pool_size"), "got: {err}");
 }
 
 #[test]
@@ -8523,4 +8526,181 @@ fn test_audit_store_config_valid_ipv6_public_address_ok() {
         ..Default::default()
     };
     assert!(cfg.validate().is_ok(), "public IPv6 should be accepted");
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Round 203: SSRF + numeric bounds unconditional validation
+// FIND-R203-003: SSRF check runs even when enabled=false
+// FIND-R203-005: Numeric bounds run even when enabled=false
+// ═══════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_audit_store_config_disabled_ssrf_localhost_rejected() {
+    // FIND-R203-003: SSRF check must reject private/loopback URLs even when
+    // the store is disabled. A disabled config with a bad URL is still invalid
+    // because enabled=true could be set later without re-validation.
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        database_url: Some("postgres://user:pass@localhost:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("private/loopback"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_disabled_ssrf_loopback_ip_rejected() {
+    // FIND-R203-003: 127.0.0.1 rejected unconditionally.
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        database_url: Some("postgres://user:pass@127.0.0.1:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("private/loopback"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_disabled_ssrf_private_ip_rejected() {
+    // FIND-R203-003: RFC-1918 private range rejected unconditionally.
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        database_url: Some("postgres://user:pass@10.0.0.1:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("private/loopback"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_disabled_ssrf_ipv6_loopback_rejected() {
+    // FIND-R203-003: IPv6 loopback [::1] rejected unconditionally.
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        database_url: Some("postgres://user:pass@[::1]:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("private/loopback"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_disabled_ssrf_ipv6_unique_local_rejected() {
+    // FIND-R203-003: fc00::/7 unique-local rejected unconditionally.
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        database_url: Some("postgres://user:pass@[fd12:3456:789a::1]:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("unique-local"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_disabled_ssrf_percent_encoded_hostname_rejected() {
+    // FIND-R203-003: Percent-encoded hostname rejected unconditionally.
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        database_url: Some("postgres://user:pass@%6Cocal%68ost:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("percent-encoding"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_disabled_valid_external_url_accepted() {
+    // FIND-R203-003: A valid external postgres URL must still be accepted
+    // when the store is disabled.
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        database_url: Some("postgres://user:pass@db.example.com:5432/mydb".to_string()),
+        ..Default::default()
+    };
+    assert!(
+        cfg.validate().is_ok(),
+        "external URL should pass SSRF check when disabled"
+    );
+}
+
+#[test]
+fn test_audit_store_config_disabled_no_url_passes() {
+    // FIND-R203-003: No database_url at all — valid default disabled config.
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        ..Default::default()
+    };
+    assert!(cfg.validate().is_ok());
+}
+
+#[test]
+fn test_audit_store_config_disabled_sink_buffer_zero_fails() {
+    // FIND-R203-005: sink_buffer_size=0 rejected unconditionally.
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        sink_buffer_size: 0,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("sink_buffer_size"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_disabled_flush_interval_zero_fails() {
+    // FIND-R203-005: flush_interval_ms=0 rejected unconditionally.
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        flush_interval_ms: 0,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("flush_interval_ms"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_disabled_batch_insert_size_zero_fails() {
+    // FIND-R203-005: batch_insert_size=0 rejected unconditionally.
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        batch_insert_size: 0,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("batch_insert_size"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_disabled_connect_timeout_zero_fails() {
+    // FIND-R203-005: connect_timeout_secs=0 rejected unconditionally.
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        connect_timeout_secs: 0,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("connect_timeout_secs"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_disabled_pool_size_over_max_fails() {
+    // FIND-R203-005: pool_size > MAX_POOL_SIZE rejected unconditionally.
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        pool_size: 101,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("pool_size"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_disabled_sink_buffer_over_max_fails() {
+    // FIND-R203-005: sink_buffer_size > MAX_SINK_BUFFER_SIZE rejected unconditionally.
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        sink_buffer_size: 10_001,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("sink_buffer_size"), "got: {err}");
 }

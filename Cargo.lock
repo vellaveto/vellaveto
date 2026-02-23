@@ -4964,6 +4964,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber 0.3.22",
+ "unicode-normalization",
  "url",
  "uuid",
  "vellaveto-approval",

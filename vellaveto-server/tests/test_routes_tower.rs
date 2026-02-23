@@ -117,6 +117,9 @@ fn make_state() -> (AppState, TempDir) {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     (state, tmp)
 }
@@ -206,6 +209,9 @@ fn make_empty_state() -> (AppState, TempDir) {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     (state, tmp)
 }
@@ -1343,6 +1349,9 @@ priority = 1
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     let app = routes::build_router(state.clone());
 
@@ -1497,6 +1506,9 @@ fn make_approval_state() -> (AppState, TempDir) {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     (state, tmp)
 }
@@ -2012,6 +2024,9 @@ fn make_authed_state() -> (AppState, TempDir) {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     (state, tmp)
 }
@@ -2551,6 +2566,9 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     (state, tmp)
 }
@@ -3291,6 +3309,9 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     (state, tmp)
 }

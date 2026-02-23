@@ -1218,6 +1218,18 @@ async fn cmd_serve(
             sink_healthy: pg_sink.as_ref().is_some_and(|s| s.is_healthy()),
             pending_count: pg_sink.as_ref().map(|s| s.pending_count()).unwrap_or(0),
         },
+        // Phase 47: Policy Lifecycle Management
+        policy_lifecycle_store: if policy_config.policy_lifecycle.enabled {
+            Some(Arc::new(
+                vellaveto_server::policy_lifecycle::InMemoryPolicyVersionStore::new(
+                    policy_config.policy_lifecycle.clone(),
+                ),
+            ))
+        } else {
+            None
+        },
+        policy_lifecycle_config: policy_config.policy_lifecycle.clone(),
+        staging_snapshot: Arc::new(ArcSwap::from_pointee(None)),
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -1850,6 +1862,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         licensing: Default::default(),
         billing: Default::default(),
         audit_store: Default::default(),
+        policy_lifecycle: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

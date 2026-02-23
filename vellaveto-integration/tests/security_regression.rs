@@ -438,6 +438,9 @@ mod server_auth {
                 sink_healthy: false,
                 pending_count: 0,
             },
+            policy_lifecycle_store: None,
+            policy_lifecycle_config: Default::default(),
+            staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         };
         (state, tmp)
     }
@@ -621,6 +624,9 @@ mod server_auth {
                 sink_healthy: false,
                 pending_count: 0,
             },
+            policy_lifecycle_store: None,
+            policy_lifecycle_config: Default::default(),
+            staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         };
         let app = routes::build_router(state);
 
@@ -1270,6 +1276,9 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
 
     let app = routes::build_router(state);
@@ -1419,6 +1428,9 @@ async fn finding_12_approval_creation_failure_denies_request() {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
 
     let app = routes::build_router(state);
@@ -1911,6 +1923,9 @@ async fn find_r46_it003_malformed_json_request_body_rejected() {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
 
     // Test 1: Completely invalid JSON

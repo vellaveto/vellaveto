@@ -148,6 +148,9 @@ fn test_state_with_tenants(
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     (state, tmp)
 }
@@ -680,4 +683,270 @@ async fn evaluate_includes_tenant_id_in_context() {
     let response = app.oneshot(request).await.unwrap();
     // Should succeed (no policies block it)
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// FIND-R203 Security Fixes
+// ────────────────────────────────────────────────────────────────────────────
+
+/// FIND-R203-001: list_policies returns only the calling tenant's policies.
+///
+/// Non-default tenants must not see policies belonging to other tenants.
+#[tokio::test]
+async fn list_policies_non_default_tenant_filters_results() {
+    let config = TenantConfig {
+        enabled: true,
+        require_tenant: false,
+        allow_header_tenant: true,
+        ..Default::default()
+    };
+    let (state, _tmp) = test_state_with_tenants(config, None);
+    let app = routes::build_router(state);
+
+    // Tenant "acme" requests the policy list
+    let request = Request::builder()
+        .method("GET")
+        .uri("/api/policies")
+        .header("X-Tenant-ID", "acme")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let policies: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+
+    // Should include acme's own policy, the global policy, and the legacy policy,
+    // but NOT globex's policy.
+    let ids: Vec<&str> = policies
+        .iter()
+        .filter_map(|p| p["id"].as_str())
+        .collect();
+
+    assert!(
+        ids.contains(&"acme:file:allow"),
+        "Tenant 'acme' should see its own policy, got: {:?}",
+        ids
+    );
+    assert!(
+        ids.contains(&"_global_:health:allow"),
+        "Tenant 'acme' should see global policies, got: {:?}",
+        ids
+    );
+    assert!(
+        ids.contains(&"legacy:policy"),
+        "Tenant 'acme' should see legacy policies, got: {:?}",
+        ids
+    );
+    assert!(
+        !ids.contains(&"globex:file:deny"),
+        "Tenant 'acme' must NOT see globex's policy, got: {:?}",
+        ids
+    );
+}
+
+/// FIND-R203-001: Default (admin) tenant sees all policies.
+#[tokio::test]
+async fn list_policies_default_tenant_sees_all() {
+    let config = TenantConfig {
+        enabled: false, // disabled → default tenant
+        ..Default::default()
+    };
+    let (state, _tmp) = test_state_with_tenants(config, None);
+    let app = routes::build_router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/api/policies")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let policies: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+    // test_state_with_tenants loads 4 policies; default tenant sees them all
+    assert_eq!(
+        policies.len(),
+        4,
+        "Default tenant should see all 4 policies, got: {}",
+        policies.len()
+    );
+}
+
+/// FIND-R203-002: Non-default tenant cannot delete another tenant's policy.
+#[tokio::test]
+async fn remove_policy_cross_tenant_returns_403() {
+    let config = TenantConfig {
+        enabled: true,
+        require_tenant: false,
+        allow_header_tenant: true,
+        ..Default::default()
+    };
+    let (state, _tmp) = test_state_with_tenants(config, None);
+    let app = routes::build_router(state);
+
+    // Tenant "acme" tries to delete globex's policy
+    let request = Request::builder()
+        .method("DELETE")
+        .uri("/api/policies/globex:file:deny")
+        .header("X-Tenant-ID", "acme")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "Deleting another tenant's policy must return 403"
+    );
+}
+
+/// FIND-R203-002: Non-default tenant can delete its own policy.
+#[tokio::test]
+async fn remove_policy_own_tenant_policy_succeeds() {
+    let config = TenantConfig {
+        enabled: true,
+        require_tenant: false,
+        allow_header_tenant: true,
+        ..Default::default()
+    };
+    let (state, _tmp) = test_state_with_tenants(config, None);
+    let app = routes::build_router(state);
+
+    // Tenant "acme" deletes its own policy
+    let request = Request::builder()
+        .method("DELETE")
+        .uri("/api/policies/acme:file:allow")
+        .header("X-Tenant-ID", "acme")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Deleting own policy should succeed"
+    );
+}
+
+/// FIND-R203-006: remove_policy 404 does not echo the policy ID in the error.
+#[tokio::test]
+async fn remove_policy_not_found_does_not_echo_id() {
+    let config = TenantConfig {
+        enabled: false, // default tenant to avoid 403 from FIND-R203-002
+        ..Default::default()
+    };
+    let (state, _tmp) = test_state_with_tenants(config, None);
+    let app = routes::build_router(state);
+
+    let request = Request::builder()
+        .method("DELETE")
+        .uri("/api/policies/probe:sensitive:id")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let error_msg = json["error"].as_str().unwrap_or("");
+
+    // The policy ID must NOT appear in the error response.
+    assert!(
+        !error_msg.contains("probe:sensitive:id"),
+        "404 error must not echo the policy ID, got: {}",
+        error_msg
+    );
+    assert_eq!(
+        error_msg, "Policy not found",
+        "404 error should be generic 'Policy not found'"
+    );
+}
+
+/// FIND-R203-003: Subdomain extraction rejects underscore-prefixed tenant names.
+#[test]
+fn extract_tenant_from_subdomain_rejects_reserved_prefix() {
+    use vellaveto_server::tenant::extract_tenant_from_subdomain;
+
+    // _default_ via subdomain must be rejected
+    assert_eq!(
+        extract_tenant_from_subdomain("_default_.vellaveto.example.com", "vellaveto.example.com"),
+        None,
+        "_default_ subdomain must be rejected"
+    );
+
+    // _admin via subdomain must be rejected
+    assert_eq!(
+        extract_tenant_from_subdomain("_admin.vellaveto.example.com", "vellaveto.example.com"),
+        None,
+        "_admin subdomain must be rejected"
+    );
+
+    // Normal tenant still works
+    assert_eq!(
+        extract_tenant_from_subdomain("acme.vellaveto.example.com", "vellaveto.example.com"),
+        Some("acme".to_string()),
+        "Normal subdomain must still be accepted"
+    );
+}
+
+/// FIND-R203-005: audit_store_status returns 403 for non-default tenants.
+#[tokio::test]
+async fn audit_store_status_non_default_tenant_returns_403() {
+    let config = TenantConfig {
+        enabled: true,
+        require_tenant: false,
+        allow_header_tenant: true,
+        ..Default::default()
+    };
+    let (state, _tmp) = test_state_with_tenants(config, None);
+    let app = routes::build_router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/api/audit/store/status")
+        .header("X-Tenant-ID", "acme")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "audit/store/status must return 403 for non-default tenants"
+    );
+}
+
+/// FIND-R203-005: audit_store_status is accessible by the default (admin) tenant.
+#[tokio::test]
+async fn audit_store_status_default_tenant_returns_200() {
+    let config = TenantConfig {
+        enabled: false, // disabled → default tenant
+        ..Default::default()
+    };
+    let (state, _tmp) = test_state_with_tenants(config, None);
+    let app = routes::build_router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/api/audit/store/status")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "audit/store/status must return 200 for default tenant"
+    );
 }

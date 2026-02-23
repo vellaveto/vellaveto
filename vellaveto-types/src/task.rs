@@ -150,6 +150,16 @@ impl TrackedTask {
                 Self::MAX_TIMESTAMP_LEN,
             ));
         }
+        // SECURITY (FIND-R203-002): Reject control/format chars and validate ISO 8601 format.
+        if crate::core::has_dangerous_chars(&self.created_at) {
+            return Err(
+                "TrackedTask created_at contains control or format characters".to_string(),
+            );
+        }
+        if !self.created_at.is_empty() {
+            crate::time_util::parse_iso8601_secs(&self.created_at)
+                .map_err(|e| format!("TrackedTask created_at is not valid ISO 8601: {}", e))?;
+        }
         if let Some(ref ea) = self.expires_at {
             if ea.len() > Self::MAX_TIMESTAMP_LEN {
                 return Err(format!(
@@ -157,6 +167,16 @@ impl TrackedTask {
                     ea.len(),
                     Self::MAX_TIMESTAMP_LEN,
                 ));
+            }
+            // SECURITY (FIND-R203-002): Reject control/format chars and validate ISO 8601 format.
+            if crate::core::has_dangerous_chars(ea) {
+                return Err(
+                    "TrackedTask expires_at contains control or format characters".to_string(),
+                );
+            }
+            if !ea.is_empty() {
+                crate::time_util::parse_iso8601_secs(ea)
+                    .map_err(|e| format!("TrackedTask expires_at is not valid ISO 8601: {}", e))?;
             }
         }
         if let Some(ref cb) = self.created_by {
@@ -249,6 +269,12 @@ impl TaskStateTransition {
                 self.timestamp.len(),
                 Self::MAX_TIMESTAMP_LEN,
             ));
+        }
+        // SECURITY (FIND-R203-002): Reject control/format chars in timestamp.
+        if crate::core::has_dangerous_chars(&self.timestamp) {
+            return Err(
+                "TaskStateTransition timestamp contains control or format characters".to_string(),
+            );
         }
         if let Some(ref tb) = self.triggered_by {
             if tb.len() > MAX_ENTRY_LEN {

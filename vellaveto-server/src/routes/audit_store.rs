@@ -56,8 +56,28 @@ pub async fn audit_search(
 /// GET /api/audit/store/status
 ///
 /// Returns the audit store backend type and enabled state.
-pub async fn audit_store_status(State(state): State<AppState>) -> Json<AuditStoreStatus> {
-    Json(state.audit_store_status.clone())
+///
+/// # Security (FIND-R203-005)
+///
+/// Restricted to the default (admin) tenant. Non-default tenants receive 403
+/// because the response discloses global infrastructure details — backend type,
+/// sink health, and pending queue depth — that are irrelevant to individual
+/// tenants and could assist in denial-of-service or infrastructure mapping.
+pub async fn audit_store_status(
+    State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+) -> Result<Json<AuditStoreStatus>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R203-005): Only the default (admin) tenant may see global
+    // infrastructure status. Return 403 for all other tenants.
+    if !tenant_ctx.is_default() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "Access denied".to_string(),
+            }),
+        ));
+    }
+    Ok(Json(state.audit_store_status.clone()))
 }
 
 /// GET /api/audit/entry/:id

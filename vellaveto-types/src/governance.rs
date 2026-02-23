@@ -400,9 +400,9 @@ impl ShadowAiReport {
                 Self::MAX_UNKNOWN_SERVERS
             ));
         }
-        #[allow(deprecated)]
+        // SECURITY (FIND-R203-004): Use validate() directly — validate_finite() is deprecated.
         for agent in &self.unregistered_agents {
-            agent.validate_finite()?;
+            agent.validate()?;
         }
         for tool in &self.unapproved_tools {
             tool.validate()?;

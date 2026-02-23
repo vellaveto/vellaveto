@@ -783,7 +783,12 @@ pub async fn generate_dpop_nonce(
         ));
     };
 
-    let nonce = manager.generate_dpop_nonce().await;
+    let nonce = manager.generate_dpop_nonce().await.map_err(|e| {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({"error": format!("DPoP nonce tracker at capacity: {}", e)})),
+        )
+    })?;
     Ok(Json(json!({"nonce": nonce})))
 }
 

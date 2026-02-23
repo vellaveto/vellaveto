@@ -36,6 +36,7 @@ pub mod grpc_transport;
 pub mod licensing;
 pub mod limits;
 pub mod policy_rule;
+pub mod policy_lifecycle;
 pub mod projector;
 pub mod tool_registry;
 pub mod zk_audit;
@@ -128,6 +129,7 @@ pub use grpc_transport::GrpcTransportConfig;
 pub use licensing::{LicenseTier, LicenseValidation, LicensingConfig, TierLimits};
 pub use limits::LimitsConfig;
 pub use policy_rule::PolicyRule;
+pub use policy_lifecycle::PolicyLifecycleConfig;
 pub use projector::ProjectorConfig;
 pub use tool_registry::ToolRegistryConfig;
 pub use transport::TransportConfig;
@@ -539,7 +541,12 @@ pub struct PolicyConfig {
     /// and structured audit log querying.
     #[serde(default)]
     pub audit_store: AuditStoreConfig,
+
+    // Phase 47: Policy Lifecycle Management
+    #[serde(default)]
+    pub policy_lifecycle: PolicyLifecycleConfig,
 }
+
 
 impl PolicyConfig {
     /// Parse config from a JSON string.

@@ -117,6 +117,9 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     }
 }
 
@@ -397,6 +400,9 @@ async fn regression_38_prometheus_metrics_rate_limited() {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
 
     // First request should succeed

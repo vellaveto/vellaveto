@@ -26,6 +26,13 @@ use vellaveto_types::{
 /// Maximum nonces to keep for DPoP replay prevention.
 const MAX_DPOP_NONCES: usize = 10000;
 
+/// Maximum entries in the revocation list.
+///
+/// SECURITY (FIND-R203-002): Without a cap, an attacker registering and
+/// revoking many identities could cause unbounded memory growth in the
+/// revocation HashSet.
+const MAX_REVOCATION_LIST: usize = 200_000;
+
 /// SECURITY (FIND-R73-005): Maximum TTL for delegations (1 year).
 /// Prevents `ttl_secs as i64` overflow on u64 values > i64::MAX.
 const MAX_DELEGATION_TTL_SECS: u64 = 365 * 24 * 3600;
@@ -274,6 +281,11 @@ impl NhiManager {
         // is_revoked() would return false.
         if new_status == NhiIdentityStatus::Revoked {
             let mut revoked = self.revocation_list.write().await;
+            // SECURITY (FIND-R203-002): Cap the revocation list to prevent DoS
+            // via unbounded memory growth from attacker-controlled revocations.
+            if revoked.len() >= MAX_REVOCATION_LIST {
+                return Err(NhiError::CapacityExceeded("revocation_list".to_string()));
+            }
             revoked.insert(id.to_string());
         }
 
@@ -646,9 +658,19 @@ impl NhiManager {
     // ═══════════════════════════════════════════════════
 
     /// Generate a new DPoP nonce.
-    pub async fn generate_dpop_nonce(&self) -> String {
+    ///
+    /// Returns `Err(NhiError::CapacityExceeded)` when the nonce tracker is at
+    /// capacity even after TTL-based cleanup.  Callers should surface this as
+    /// HTTP 429 / service-unavailable so clients can back off.
+    ///
+    /// SECURITY (FIND-R203-001): Propagates the capacity error from
+    /// `DpopNonceTracker::generate_nonce` to prevent silent memory growth.
+    pub async fn generate_dpop_nonce(&self) -> Result<String, NhiError> {
         let mut nonces = self.dpop_nonces.write().await;
-        nonces.generate_nonce()
+        match nonces.generate_nonce() {
+            Ok(nonce) => Ok(nonce),
+            Err(e) => Err(NhiError::CapacityExceeded(e)),
+        }
     }
 
     /// Verify a DPoP proof.
@@ -685,11 +707,15 @@ impl NhiManager {
         }
 
         if used_jtis.iter().any(|(jti, _)| jti == &proof.jti) {
+            // Drop used_jtis write guard before calling generate_dpop_nonce,
+            // which acquires a different lock (dpop_nonces write).
+            drop(used_jtis);
+            let new_nonce = self.generate_dpop_nonce().await.ok();
             return NhiDpopVerificationResult {
                 valid: false,
                 thumbprint: None,
                 error: Some("JTI already used (replay attack)".to_string()),
-                new_nonce: Some(self.generate_dpop_nonce().await),
+                new_nonce,
             };
         }
 
@@ -738,11 +764,12 @@ impl NhiManager {
                 } else {
                     "Nonce required but not provided"
                 };
+                let new_nonce = self.generate_dpop_nonce().await.ok();
                 return NhiDpopVerificationResult {
                     valid: false,
                     thumbprint: None,
                     error: Some(reason.to_string()),
-                    new_nonce: Some(self.generate_dpop_nonce().await),
+                    new_nonce,
                 };
             }
         }
@@ -1520,16 +1547,30 @@ impl DpopNonceTracker {
         }
     }
 
-    fn generate_nonce(&mut self) -> String {
+    /// Generate a new nonce, returning `Err` if the tracker is at capacity.
+    ///
+    /// SECURITY (FIND-R203-001): After TTL cleanup, refuse insertion when the
+    /// nonce map is still at `MAX_DPOP_NONCES`. This prevents a DoS attack
+    /// where an attacker floods nonce generation to exhaust server memory.
+    fn generate_nonce(&mut self) -> Result<String, String> {
         let nonce = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().timestamp() as u64;
 
-        // Cleanup old nonces
+        // Cleanup expired nonces first so legitimate requests are not blocked
+        // by stale entries.
         self.nonces
             .retain(|_, ts| now.saturating_sub(*ts) < self.ttl_secs);
 
+        // After cleanup, enforce the capacity limit.
+        if self.nonces.len() >= MAX_DPOP_NONCES {
+            return Err(format!(
+                "DPoP nonce tracker at capacity ({}); try again later",
+                MAX_DPOP_NONCES
+            ));
+        }
+
         self.nonces.insert(nonce.clone(), now);
-        nonce
+        Ok(nonce)
     }
 
     fn is_valid(&self, nonce: &str) -> bool {
@@ -1935,8 +1976,8 @@ mod tests {
     async fn test_dpop_nonce() {
         let manager = NhiManager::new(enabled_config());
 
-        let nonce1 = manager.generate_dpop_nonce().await;
-        let nonce2 = manager.generate_dpop_nonce().await;
+        let nonce1 = manager.generate_dpop_nonce().await.unwrap();
+        let nonce2 = manager.generate_dpop_nonce().await.unwrap();
 
         assert_ne!(nonce1, nonce2);
 
@@ -3459,5 +3500,169 @@ mod tests {
             result.is_ok(),
             "FIND-R117-MA-003: Delegation between distinct ASCII agents should succeed"
         );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R203-001: DpopNonceTracker capacity limit
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R203-001: generate_nonce returns Ok for normal usage.
+    #[test]
+    fn test_dpop_nonce_tracker_generate_ok() {
+        let mut tracker = DpopNonceTracker::new();
+        let result = tracker.generate_nonce();
+        assert!(result.is_ok(), "Expected Ok nonce, got: {:?}", result);
+        let nonce = result.unwrap();
+        assert!(!nonce.is_empty());
+    }
+
+    /// FIND-R203-001: generate_nonce returns Err when at MAX_DPOP_NONCES capacity.
+    #[test]
+    fn test_dpop_nonce_tracker_capacity_exceeded() {
+        let mut tracker = DpopNonceTracker {
+            nonces: HashMap::new(),
+            ttl_secs: 300,
+        };
+        // Fill tracker to capacity with fresh timestamps so TTL cleanup will
+        // not evict them.
+        let now = chrono::Utc::now().timestamp() as u64;
+        for i in 0..MAX_DPOP_NONCES {
+            tracker.nonces.insert(format!("nonce-{}", i), now);
+        }
+        assert_eq!(tracker.nonces.len(), MAX_DPOP_NONCES);
+
+        let result = tracker.generate_nonce();
+        assert!(
+            result.is_err(),
+            "Expected Err at capacity, got: {:?}",
+            result
+        );
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("capacity"),
+            "Error message should mention capacity: {msg}"
+        );
+    }
+
+    /// FIND-R203-001: generate_nonce succeeds after TTL cleanup frees space.
+    #[test]
+    fn test_dpop_nonce_tracker_cleanup_allows_new_nonce() {
+        let mut tracker = DpopNonceTracker {
+            nonces: HashMap::new(),
+            ttl_secs: 1, // 1 second TTL
+        };
+        // Fill with expired timestamps (timestamp 0 is far in the past).
+        for i in 0..MAX_DPOP_NONCES {
+            tracker.nonces.insert(format!("old-{}", i), 0u64);
+        }
+        assert_eq!(tracker.nonces.len(), MAX_DPOP_NONCES);
+
+        // TTL cleanup should evict all expired nonces, allowing a new one.
+        let result = tracker.generate_nonce();
+        assert!(
+            result.is_ok(),
+            "Expected Ok after cleanup of expired nonces, got: {:?}",
+            result
+        );
+    }
+
+    /// FIND-R203-001: generate_dpop_nonce on NhiManager propagates CapacityExceeded.
+    #[tokio::test]
+    async fn test_generate_dpop_nonce_propagates_capacity_error() {
+        let manager = NhiManager::new(enabled_config());
+        // Fill the nonce tracker to capacity with fresh timestamps.
+        {
+            let mut tracker = manager.dpop_nonces.write().await;
+            let now = chrono::Utc::now().timestamp() as u64;
+            for i in 0..MAX_DPOP_NONCES {
+                tracker.nonces.insert(format!("nonce-{}", i), now);
+            }
+        }
+
+        let result = manager.generate_dpop_nonce().await;
+        assert!(
+            matches!(result, Err(NhiError::CapacityExceeded(_))),
+            "Expected CapacityExceeded, got: {:?}",
+            result
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R203-002: revocation_list capacity limit
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R203-002: update_status to Revoked fails with CapacityExceeded
+    /// when the revocation list is at MAX_REVOCATION_LIST.
+    #[tokio::test]
+    async fn test_revocation_list_capacity_exceeded() {
+        let manager = NhiManager::new(enabled_config());
+
+        // Fill the revocation list to capacity.
+        {
+            let mut revoked = manager.revocation_list.write().await;
+            for i in 0..MAX_REVOCATION_LIST {
+                revoked.insert(format!("agent-{}", i));
+            }
+        }
+        assert_eq!(
+            manager.revocation_list.read().await.len(),
+            MAX_REVOCATION_LIST
+        );
+
+        // Register a new agent.
+        let id = manager
+            .register_identity(
+                "Revoke Me",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Attempting to revoke should fail with CapacityExceeded.
+        let result = manager
+            .update_status(&id, NhiIdentityStatus::Revoked)
+            .await;
+        assert!(
+            matches!(result, Err(NhiError::CapacityExceeded(_))),
+            "Expected CapacityExceeded when revocation list is full, got: {:?}",
+            result
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("revocation_list"),
+            "Error message should identify the capacity: {err_msg}"
+        );
+    }
+
+    /// FIND-R203-002: update_status to Revoked succeeds when the list is below capacity.
+    #[tokio::test]
+    async fn test_revocation_list_below_capacity_succeeds() {
+        let manager = NhiManager::new(enabled_config());
+
+        let id = manager
+            .register_identity(
+                "Revoke OK",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let result = manager
+            .update_status(&id, NhiIdentityStatus::Revoked)
+            .await;
+        assert!(result.is_ok(), "Expected Ok, got: {:?}", result);
+        assert!(manager.is_revoked(&id).await);
     }
 }

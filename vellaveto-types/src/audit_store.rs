@@ -18,6 +18,11 @@ pub const MAX_FILTER_STRING_LEN: usize = 256;
 /// Maximum query offset to prevent DoS via astronomical skip values.
 pub const MAX_QUERY_OFFSET: u64 = 1_000_000;
 
+/// Maximum length of `tenant_id` filter string (bytes).
+///
+/// SECURITY (FIND-R203-003): Named constant replaces magic number 64 in validate().
+pub const MAX_TENANT_ID_LEN: usize = 64;
+
 /// Supported audit store backends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -206,10 +211,12 @@ impl AuditQueryParams {
             if tenant_id.is_empty() {
                 return Err("tenant_id filter must not be empty".to_string());
             }
-            if tenant_id.len() > 64 {
+            // SECURITY (FIND-R203-003): Use named constant instead of magic number 64.
+            if tenant_id.len() > MAX_TENANT_ID_LEN {
                 return Err(format!(
-                    "tenant_id length {} exceeds maximum 64",
-                    tenant_id.len()
+                    "tenant_id length {} exceeds maximum {}",
+                    tenant_id.len(),
+                    MAX_TENANT_ID_LEN
                 ));
             }
             if crate::has_dangerous_chars(tenant_id) {

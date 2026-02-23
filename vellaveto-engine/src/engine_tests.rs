@@ -13335,3 +13335,293 @@ fn test_evaluation_context_validate_action_name_length() {
         "Expected Deny (action name too long), got {v:?}"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════
+// R203-001: AgentIdentityMatch sanitizes JWT claim values
+// in denial reasons (blocked issuer/subject, mismatch messages).
+//
+// NOTE: EvaluationContext::validate() rejects control chars and
+// Unicode format chars in AgentIdentity fields before the engine
+// processes them. These tests verify the denial reason structure
+// and that the sanitize_for_log() truncation path works correctly
+// for long-but-clean values. The sanitize path provides defense-in-depth
+// for callers that bypass EvaluationContext::validate().
+// ═══════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r203_001_blocked_issuer_denial_reason_has_correct_structure() {
+    // Blocked issuer generates denial reason containing "blocked issuer: <value>"
+    let policy = make_context_policy(json!([{
+        "type": "agent_identity",
+        "blocked_issuers": ["evil-corp"]
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: Some("evil-corp".to_string()),
+            subject: None,
+            audience: vec![],
+            claims: Default::default(),
+        }),
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    match v {
+        Verdict::Deny { ref reason } => {
+            assert!(
+                reason.contains("blocked issuer"),
+                "should mention blocked issuer: {reason}"
+            );
+            assert!(
+                reason.contains("evil-corp"),
+                "should include sanitized issuer value: {reason}"
+            );
+        }
+        other => panic!("Expected Deny, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_r203_001_blocked_issuer_long_value_truncated_in_reason() {
+    // A very long blocked issuer (> 128 chars) should be truncated in the denial reason.
+    // Uses clean ASCII to avoid triggering AgentIdentity validation failures.
+    let long_issuer = "evil-corp-".repeat(20); // 200 chars, over the 128-char limit
+    let blocked_lower = long_issuer.to_lowercase();
+    let policy = make_context_policy(json!([{
+        "type": "agent_identity",
+        "blocked_issuers": [blocked_lower]
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: Some(long_issuer.clone()),
+            subject: None,
+            audience: vec![],
+            claims: Default::default(),
+        }),
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    match v {
+        Verdict::Deny { ref reason } => {
+            assert!(
+                reason.contains("blocked issuer"),
+                "should mention blocked issuer: {reason}"
+            );
+            // The 200-char verbatim value must not appear; only the truncated version (<=128 chars).
+            assert!(
+                !reason.contains(&long_issuer),
+                "200-char issuer must be truncated in denial reason (got {reason})"
+            );
+            // The total reason length must be reasonable (< 300 chars).
+            assert!(
+                reason.len() < 300,
+                "reason should be short after truncation, got {} chars",
+                reason.len()
+            );
+        }
+        other => panic!("Expected Deny, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_r203_001_issuer_mismatch_denial_reason_has_correct_structure() {
+    // issuer mismatch generates "issuer mismatch: expected '...', got '...'" in reason
+    let policy = make_context_policy(json!([{
+        "type": "agent_identity",
+        "issuer": "https://trusted.example.com"
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: Some("https://evil.example.com".to_string()),
+            subject: None,
+            audience: vec![],
+            claims: Default::default(),
+        }),
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    match v {
+        Verdict::Deny { ref reason } => {
+            assert!(
+                reason.contains("issuer mismatch"),
+                "should mention issuer mismatch: {reason}"
+            );
+            assert!(
+                reason.contains("expected"),
+                "should include expected value: {reason}"
+            );
+            assert!(
+                reason.contains("got"),
+                "should include actual value: {reason}"
+            );
+        }
+        other => panic!("Expected Deny, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_r203_001_issuer_mismatch_long_actual_truncated() {
+    // A 200-char actual issuer that mismatches should be truncated in the denial reason.
+    let long_actual = "https-evil-".repeat(20); // 220 chars, clean ASCII
+    let policy = make_context_policy(json!([{
+        "type": "agent_identity",
+        "issuer": "https://trusted.example.com"
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: Some(long_actual.clone()),
+            subject: None,
+            audience: vec![],
+            claims: Default::default(),
+        }),
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    match v {
+        Verdict::Deny { ref reason } => {
+            assert!(
+                reason.contains("issuer mismatch"),
+                "should mention issuer mismatch: {reason}"
+            );
+            // The 220-char verbatim value must not appear
+            assert!(
+                !reason.contains(&long_actual),
+                "220-char issuer must be truncated in denial reason"
+            );
+        }
+        other => panic!("Expected Deny, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_r203_001_subject_mismatch_denial_reason_has_correct_structure() {
+    // subject mismatch produces "subject mismatch: expected '...', got '...'"
+    let policy = make_context_policy(json!([{
+        "type": "agent_identity",
+        "subject": "trusted-agent"
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: None,
+            subject: Some("untrusted-agent".to_string()),
+            audience: vec![],
+            claims: Default::default(),
+        }),
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    match v {
+        Verdict::Deny { ref reason } => {
+            assert!(
+                reason.contains("subject mismatch"),
+                "should mention subject mismatch: {reason}"
+            );
+            assert!(
+                reason.contains("untrusted-agent"),
+                "should include sanitized actual subject: {reason}"
+            );
+        }
+        other => panic!("Expected Deny, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_r203_001_claim_mismatch_denial_reason_has_correct_structure() {
+    // claim mismatch produces "claim '...' mismatch: expected '...', got '...'"
+    let policy = make_context_policy(json!([{
+        "type": "agent_identity",
+        "claims": {"role": "admin"}
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let mut claims = std::collections::HashMap::new();
+    claims.insert("role".to_string(), serde_json::json!("user"));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: Some("https://auth.example.com".to_string()),
+            subject: Some("agent-1".to_string()),
+            audience: vec![],
+            claims,
+        }),
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    match v {
+        Verdict::Deny { ref reason } => {
+            assert!(
+                reason.contains("claim"),
+                "should mention claim mismatch: {reason}"
+            );
+            assert!(
+                reason.contains("role"),
+                "should include claim name: {reason}"
+            );
+            assert!(
+                reason.contains("user"),
+                "should include sanitized actual value: {reason}"
+            );
+        }
+        other => panic!("Expected Deny, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_r203_001_claim_mismatch_long_value_truncated() {
+    // A very long claim value (> 128 chars) should be truncated in the denial reason.
+    let long_role = "not-admin-".repeat(20); // 200 chars, clean ASCII
+    let policy = make_context_policy(json!([{
+        "type": "agent_identity",
+        "claims": {"role": "admin"}
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let mut claims = std::collections::HashMap::new();
+    claims.insert("role".to_string(), serde_json::json!(long_role.clone()));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: Some("https://auth.example.com".to_string()),
+            subject: Some("agent-1".to_string()),
+            audience: vec![],
+            claims,
+        }),
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    match v {
+        Verdict::Deny { ref reason } => {
+            // The 200-char value must not appear verbatim
+            assert!(
+                !reason.contains(&long_role),
+                "200-char claim value must be truncated in reason"
+            );
+            assert!(
+                reason.contains("claim"),
+                "should still mention claim mismatch: {reason}"
+            );
+        }
+        other => panic!("Expected Deny, got: {other:?}"),
+    }
+}

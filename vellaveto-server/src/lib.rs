@@ -4,6 +4,7 @@ pub mod jit;
 pub mod metrics;
 pub mod observability;
 pub mod opa;
+pub mod policy_lifecycle;
 pub mod rbac;
 pub mod routes;
 pub mod setup_wizard;
@@ -1036,6 +1037,17 @@ pub struct AppState {
 
     /// Cached audit store status for the status endpoint.
     pub audit_store_status: vellaveto_types::audit_store::AuditStoreStatus,
+
+    // Phase 47: Policy Lifecycle Management
+    pub policy_lifecycle_store: Option<Arc<dyn policy_lifecycle::PolicyVersionStore>>,
+    pub policy_lifecycle_config: vellaveto_config::PolicyLifecycleConfig,
+    pub staging_snapshot: Arc<ArcSwap<Option<StagingSnapshot>>>,
+}
+
+/// Staging policy engine snapshot for shadow evaluation.
+pub struct StagingSnapshot {
+    pub engine: PolicyEngine,
+    pub policies: Vec<Policy>,
 }
 
 /// Error type for cluster-dispatched approval operations.
@@ -1263,6 +1275,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             licensing: Default::default(),
             billing: Default::default(),
             audit_store: Default::default(),
+            policy_lifecycle: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

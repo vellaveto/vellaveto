@@ -12,7 +12,7 @@ use crate::compiled::{CompiledContextCondition, CompiledPolicy};
 use crate::matcher::PatternMatcher;
 use crate::PolicyEngine;
 use chrono::{Datelike, Timelike};
-use vellaveto_types::{EvaluationContext, Verdict};
+use vellaveto_types::{sanitize_for_log, EvaluationContext, Verdict};
 
 impl PolicyEngine {
     // VERIFIED [S6]: Context fail-closed — missing context data produces Deny (MCPPolicyEngine.tla S6)
@@ -239,13 +239,24 @@ impl PolicyEngine {
                     deny_reason,
                 } => {
                     // OWASP ASI07: Agent identity attestation via signed JWT
+                    //
+                    // SECURITY (FIND-R203-001): JWT claim values (issuer, subject, custom claims)
+                    // are attacker-controlled strings. Before echoing them into denial reasons,
+                    // sanitize via `sanitize_for_log()` (strips control chars + Unicode format
+                    // chars) and truncate to 128 chars to prevent log injection and overly
+                    // verbose denial reasons.
+                    const MAX_CLAIM_DISPLAY_LEN: usize = 128;
                     match &context.agent_identity {
                         Some(identity) => {
                             // Check blocked issuers first (case-insensitive)
                             if let Some(ref iss) = identity.issuer {
                                 if blocked_issuers.contains(&iss.to_lowercase()) {
+                                    let safe_iss =
+                                        sanitize_for_log(iss, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
-                                        reason: format!("{deny_reason} (blocked issuer: {iss})"),
+                                        reason: format!(
+                                            "{deny_reason} (blocked issuer: {safe_iss})"
+                                        ),
                                     });
                                 }
                             }
@@ -253,8 +264,12 @@ impl PolicyEngine {
                             // Check blocked subjects (case-insensitive)
                             if let Some(ref sub) = identity.subject {
                                 if blocked_subjects.contains(&sub.to_lowercase()) {
+                                    let safe_sub =
+                                        sanitize_for_log(sub, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
-                                        reason: format!("{deny_reason} (blocked subject: {sub})"),
+                                        reason: format!(
+                                            "{deny_reason} (blocked subject: {safe_sub})"
+                                        ),
                                     });
                                 }
                             }
@@ -264,12 +279,15 @@ impl PolicyEngine {
                                 match &identity.issuer {
                                     Some(iss) if iss.to_lowercase() == *req_iss => {}
                                     _ => {
+                                        let safe_got = identity
+                                            .issuer
+                                            .as_deref()
+                                            .map(|s| sanitize_for_log(s, MAX_CLAIM_DISPLAY_LEN))
+                                            .unwrap_or_else(|| "<none>".to_string());
                                         return Some(Verdict::Deny {
                                             reason: format!(
                                                 "{} (issuer mismatch: expected '{}', got '{}')",
-                                                deny_reason,
-                                                req_iss,
-                                                identity.issuer.as_deref().unwrap_or("<none>")
+                                                deny_reason, req_iss, safe_got
                                             ),
                                         });
                                     }
@@ -281,12 +299,15 @@ impl PolicyEngine {
                                 match &identity.subject {
                                     Some(sub) if sub.to_lowercase() == *req_sub => {}
                                     _ => {
+                                        let safe_got = identity
+                                            .subject
+                                            .as_deref()
+                                            .map(|s| sanitize_for_log(s, MAX_CLAIM_DISPLAY_LEN))
+                                            .unwrap_or_else(|| "<none>".to_string());
                                         return Some(Verdict::Deny {
                                             reason: format!(
                                                 "{} (subject mismatch: expected '{}', got '{}')",
-                                                deny_reason,
-                                                req_sub,
-                                                identity.subject.as_deref().unwrap_or("<none>")
+                                                deny_reason, req_sub, safe_got
                                             ),
                                         });
                                     }
@@ -312,18 +333,23 @@ impl PolicyEngine {
                             // Check required custom claims
                             // SECURITY (FIND-044): Case-insensitive comparison,
                             // matching issuer/subject/audience behavior.
+                            // SECURITY (FIND-R203-001): Sanitize attacker-controlled
+                            // actual claim values before including in denial reasons.
                             for (claim_key, expected_value) in required_claims {
                                 match identity.claim_str(claim_key) {
                                     Some(actual)
                                         if actual.to_ascii_lowercase() == *expected_value => {}
                                     actual => {
+                                        let safe_actual = actual
+                                            .map(|s| sanitize_for_log(s, MAX_CLAIM_DISPLAY_LEN))
+                                            .unwrap_or_else(|| "<none>".to_string());
                                         return Some(Verdict::Deny {
                                             reason: format!(
                                                 "{} (claim '{}' mismatch: expected '{}', got '{}')",
                                                 deny_reason,
                                                 claim_key,
                                                 expected_value,
-                                                actual.unwrap_or("<none>")
+                                                safe_actual
                                             ),
                                         });
                                     }

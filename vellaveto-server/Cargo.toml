@@ -73,6 +73,7 @@ lru = "0.16"
 # Phase 43: Centralized Audit Store (PostgreSQL backend)
 sqlx = { workspace = true, optional = true }
 
+async-trait.workspace = true
+unicode-normalization = "0.1"
 [dev-dependencies]
 tempfile = "3.0"
-async-trait.workspace = true

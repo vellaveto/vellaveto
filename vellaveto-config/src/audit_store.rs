@@ -131,7 +131,10 @@ impl std::fmt::Debug for AuditStoreConfig {
         f.debug_struct("AuditStoreConfig")
             .field("enabled", &self.enabled)
             .field("backend", &self.backend)
-            .field("database_url", &self.database_url.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "database_url",
+                &self.database_url.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("pool_size", &self.pool_size)
             .field("table_name", &self.table_name)
             .field("auto_migrate", &self.auto_migrate)
@@ -147,12 +150,14 @@ impl std::fmt::Debug for AuditStoreConfig {
 impl AuditStoreConfig {
     /// Validate configuration.
     ///
-    /// SECURITY (FIND-R198-005): Even when disabled, validate fields that are
-    /// present (e.g. database_url control chars, table_name charset) to catch
-    /// misconfigurations early. Full bounds checks only apply when enabled.
+    /// SECURITY (FIND-R203-003 + FIND-R203-005): All field-level checks
+    /// (SSRF on database_url, table_name charset, and numeric bounds) run
+    /// unconditionally regardless of the `enabled` flag. A config that is
+    /// disabled today may be enabled later without re-validation, so invalid
+    /// values must be caught at load time.
     pub fn validate(&self) -> Result<(), String> {
-        // SECURITY (FIND-R198-005): Validate database_url even when disabled —
-        // control chars and dangerous content should be rejected regardless.
+        // ── Unconditional database_url checks ──────────────────────────────────
+        // Runs whenever a database_url is present, regardless of `enabled`.
         if let Some(ref url) = self.database_url {
             // SECURITY (FIND-R198-003): Length bound prevents OOM on oversized URLs.
             if url.len() > MAX_DATABASE_URL_LEN {
@@ -167,9 +172,114 @@ impl AuditStoreConfig {
                     "audit_store.database_url contains control or format characters".to_string(),
                 );
             }
+
+            // SECURITY (FIND-R203-003): SSRF host validation runs unconditionally
+            // when a database_url is present. Disabled configs may be enabled later
+            // without re-validation, so private-IP URLs must be caught now.
+            let trimmed = url.trim();
+            if !trimmed.is_empty()
+                && (trimmed.starts_with("postgres://") || trimmed.starts_with("postgresql://"))
+            {
+                let after_scheme = trimmed
+                    .strip_prefix("postgres://")
+                    .or_else(|| trimmed.strip_prefix("postgresql://"))
+                    .unwrap_or_default();
+                // Host is after the last `@` (to skip userinfo) and before `/` or end.
+                let host_and_rest = after_scheme
+                    .rsplit_once('@')
+                    .map(|(_, h)| h)
+                    .unwrap_or(after_scheme);
+                let host_port = host_and_rest.split('/').next().unwrap_or("");
+                // Strip port suffix; handle IPv6 [::1]:5432 bracket notation.
+                let host = if host_port.starts_with('[') {
+                    host_port
+                        .find(']')
+                        .map(|i| &host_port[1..i])
+                        .unwrap_or(host_port)
+                } else {
+                    host_port.rsplit_once(':').map(|(h, _)| h).unwrap_or(host_port)
+                };
+                let host_lower = host.to_ascii_lowercase();
+                if host_lower == "localhost"
+                    || host_lower == "::1"
+                    || host_lower == "0.0.0.0"
+                    || host_lower == "metadata.google.internal"
+                {
+                    return Err(format!(
+                        "audit_store.database_url host '{}' is a private/loopback address",
+                        host
+                    ));
+                }
+                // SECURITY (FIND-R200-007): Reject percent-encoded hostnames that
+                // could bypass text-based hostname checks after URL decoding.
+                if host.contains('%') {
+                    return Err(format!(
+                        "audit_store.database_url host '{}' contains percent-encoding",
+                        host
+                    ));
+                }
+                // Check IPv4 private/loopback ranges.
+                if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+                    if ip.is_loopback()
+                        || ip.is_private()
+                        || ip.is_link_local()
+                        || ip.is_unspecified()
+                    {
+                        return Err(format!(
+                            "audit_store.database_url host '{}' is a private/loopback address",
+                            host
+                        ));
+                    }
+                    // Cloud metadata endpoint 169.254.169.254.
+                    if ip.octets()[0] == 169 && ip.octets()[1] == 254 {
+                        return Err(format!(
+                            "audit_store.database_url host '{}' is a link-local/metadata address",
+                            host
+                        ));
+                    }
+                }
+                if let Ok(ip6) = host.parse::<std::net::Ipv6Addr>() {
+                    if ip6.is_loopback() || ip6.is_unspecified() {
+                        return Err(format!(
+                            "audit_store.database_url host '{}' is a private/loopback address",
+                            host
+                        ));
+                    }
+                    // SECURITY (FIND-R200-001): Check IPv6-mapped IPv4 addresses
+                    // (e.g. ::ffff:127.0.0.1) which embed IPv4 addresses inside IPv6.
+                    if let Some(ipv4) = ip6.to_ipv4_mapped() {
+                        if ipv4.is_loopback()
+                            || ipv4.is_private()
+                            || ipv4.is_link_local()
+                            || ipv4.is_unspecified()
+                        {
+                            return Err(format!(
+                                "audit_store.database_url host '{}' is a private/loopback address (IPv6-mapped IPv4)",
+                                host
+                            ));
+                        }
+                    }
+                    // SECURITY (FIND-R200-001): Reject IPv6 unique-local (fc00::/7)
+                    // and link-local (fe80::/10) addresses.
+                    let segments = ip6.segments();
+                    if (segments[0] & 0xfe00) == 0xfc00 {
+                        return Err(format!(
+                            "audit_store.database_url host '{}' is an IPv6 unique-local address",
+                            host
+                        ));
+                    }
+                    if (segments[0] & 0xffc0) == 0xfe80 {
+                        return Err(format!(
+                            "audit_store.database_url host '{}' is an IPv6 link-local address",
+                            host
+                        ));
+                    }
+                }
+            }
         }
 
-        // SECURITY (FIND-R198-005): Validate table_name charset even when disabled.
+        // ── Unconditional table_name charset check ─────────────────────────────
+        // SECURITY (FIND-R198-005): Validate charset even when disabled.
         if !self
             .table_name
             .chars()
@@ -181,13 +291,66 @@ impl AuditStoreConfig {
             );
         }
 
+        // ── Unconditional numeric bounds checks ────────────────────────────────
+        // SECURITY (FIND-R203-005): Reject out-of-range values regardless of the
+        // enabled flag so that misconfigured-but-disabled configs fail fast at
+        // config load time rather than silently at enable time.
+
+        // Pool size bounds.
+        if self.pool_size == 0 || self.pool_size > MAX_POOL_SIZE {
+            return Err(format!(
+                "audit_store.pool_size must be in [1, {}], got {}",
+                MAX_POOL_SIZE, self.pool_size
+            ));
+        }
+
+        // Sink buffer size bounds.
+        if self.sink_buffer_size == 0 || self.sink_buffer_size > MAX_SINK_BUFFER_SIZE {
+            return Err(format!(
+                "audit_store.sink_buffer_size must be in [1, {}], got {}",
+                MAX_SINK_BUFFER_SIZE, self.sink_buffer_size
+            ));
+        }
+
+        // Flush interval bounds.
+        if self.flush_interval_ms == 0 || self.flush_interval_ms > MAX_FLUSH_INTERVAL_MS {
+            return Err(format!(
+                "audit_store.flush_interval_ms must be in [1, {}], got {}",
+                MAX_FLUSH_INTERVAL_MS, self.flush_interval_ms
+            ));
+        }
+
+        // Batch insert size bounds.
+        if self.batch_insert_size == 0 || self.batch_insert_size > MAX_BATCH_INSERT_SIZE {
+            return Err(format!(
+                "audit_store.batch_insert_size must be in [1, {}], got {}",
+                MAX_BATCH_INSERT_SIZE, self.batch_insert_size
+            ));
+        }
+
+        // Connect timeout bounds.
+        if self.connect_timeout_secs == 0 || self.connect_timeout_secs > MAX_CONNECT_TIMEOUT_SECS {
+            return Err(format!(
+                "audit_store.connect_timeout_secs must be in [1, {}], got {}",
+                MAX_CONNECT_TIMEOUT_SECS, self.connect_timeout_secs
+            ));
+        }
+
+        // ── enabled=false early return ─────────────────────────────────────────
+        // All field-level validation above has already run unconditionally.
+        // The remaining checks (database_url presence/scheme/empty and
+        // table_name emptiness/length/digit-start/pure-underscore) only apply
+        // when the store is actually active.
         if !self.enabled {
             return Ok(());
         }
 
-        // Backend-specific validation
+        // ── enabled-only checks ────────────────────────────────────────────────
+
+        // Backend-specific validation: database URL is required and must use a
+        // valid scheme. Note: SSRF host validation was already done unconditionally
+        // in the URL block above.
         if self.backend == AuditStoreBackend::Postgres {
-            // Database URL is required for postgres backend
             match &self.database_url {
                 None => {
                     return Err(
@@ -199,124 +362,20 @@ impl AuditStoreConfig {
                     if trimmed.is_empty() {
                         return Err("audit_store.database_url must not be empty".to_string());
                     }
-                    if !trimmed.starts_with("postgres://") && !trimmed.starts_with("postgresql://")
+                    if !trimmed.starts_with("postgres://")
+                        && !trimmed.starts_with("postgresql://")
                     {
                         return Err(
                             "audit_store.database_url must start with postgres:// or postgresql://"
                                 .to_string(),
                         );
                     }
-                    // SECURITY (FIND-R198-002): Reject private/loopback hosts in database URL
-                    // to prevent SSRF. Extract host after `@` (or after scheme if no userinfo).
-                    let after_scheme = trimmed
-                        .strip_prefix("postgres://")
-                        .or_else(|| trimmed.strip_prefix("postgresql://"))
-                        .unwrap_or_default();
-                    // Host is after the last `@` (to skip userinfo) and before `/` or end
-                    let host_and_rest = after_scheme
-                        .rsplit_once('@')
-                        .map(|(_, h)| h)
-                        .unwrap_or(after_scheme);
-                    let host_port = host_and_rest.split('/').next().unwrap_or("");
-                    // Strip port suffix (handle IPv6 [::1]:5432 brackets)
-                    let host = if host_port.starts_with('[') {
-                        // IPv6 bracket notation: [::1]:5432
-                        host_port
-                            .find(']')
-                            .map(|i| &host_port[1..i])
-                            .unwrap_or(host_port)
-                    } else {
-                        host_port.rsplit_once(':').map(|(h, _)| h).unwrap_or(host_port)
-                    };
-                    let host_lower = host.to_ascii_lowercase();
-                    if host_lower == "localhost"
-                        || host_lower == "::1"
-                        || host_lower == "0.0.0.0"
-                        || host_lower == "metadata.google.internal"
-                    {
-                        return Err(format!(
-                            "audit_store.database_url host '{}' is a private/loopback address",
-                            host
-                        ));
-                    }
-                    // Check IPv4 private/loopback ranges
-                    if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
-                        if ip.is_loopback()
-                            || ip.is_private()
-                            || ip.is_link_local()
-                            || ip.is_unspecified()
-                        {
-                            return Err(format!(
-                                "audit_store.database_url host '{}' is a private/loopback address",
-                                host
-                            ));
-                        }
-                        // Cloud metadata endpoint 169.254.169.254
-                        if ip.octets()[0] == 169 && ip.octets()[1] == 254 {
-                            return Err(format!(
-                                "audit_store.database_url host '{}' is a link-local/metadata address",
-                                host
-                            ));
-                        }
-                    }
-                    // SECURITY (FIND-R200-007): Reject percent-encoded hostnames
-                    // that could bypass text-based hostname checks after URL decoding.
-                    if host.contains('%') {
-                        return Err(format!(
-                            "audit_store.database_url host '{}' contains percent-encoding",
-                            host
-                        ));
-                    }
-                    if let Ok(ip6) = host.parse::<std::net::Ipv6Addr>() {
-                        if ip6.is_loopback() || ip6.is_unspecified() {
-                            return Err(format!(
-                                "audit_store.database_url host '{}' is a private/loopback address",
-                                host
-                            ));
-                        }
-                        // SECURITY (FIND-R200-001): Check IPv6-mapped IPv4 addresses
-                        // (e.g. ::ffff:127.0.0.1) which embed IPv4 addresses inside IPv6.
-                        if let Some(ipv4) = ip6.to_ipv4_mapped() {
-                            if ipv4.is_loopback()
-                                || ipv4.is_private()
-                                || ipv4.is_link_local()
-                                || ipv4.is_unspecified()
-                            {
-                                return Err(format!(
-                                    "audit_store.database_url host '{}' is a private/loopback address (IPv6-mapped IPv4)",
-                                    host
-                                ));
-                            }
-                        }
-                        // SECURITY (FIND-R200-001): Reject IPv6 unique-local (fc00::/7)
-                        // and link-local (fe80::/10) addresses.
-                        let segments = ip6.segments();
-                        if (segments[0] & 0xfe00) == 0xfc00 {
-                            return Err(format!(
-                                "audit_store.database_url host '{}' is an IPv6 unique-local address",
-                                host
-                            ));
-                        }
-                        if (segments[0] & 0xffc0) == 0xfe80 {
-                            return Err(format!(
-                                "audit_store.database_url host '{}' is an IPv6 link-local address",
-                                host
-                            ));
-                        }
-                    }
                 }
             }
         }
 
-        // Pool size bounds
-        if self.pool_size == 0 || self.pool_size > MAX_POOL_SIZE {
-            return Err(format!(
-                "audit_store.pool_size must be in [1, {}], got {}",
-                MAX_POOL_SIZE, self.pool_size
-            ));
-        }
-
-        // Table name: alphanumeric + underscore only (prevents SQL injection)
+        // Table name: full validation (empty / length / digit-start / pure-underscore)
+        // only when enabled. Charset was already checked unconditionally above.
         if self.table_name.is_empty() {
             return Err("audit_store.table_name must not be empty".to_string());
         }
@@ -327,24 +386,12 @@ impl AuditStoreConfig {
                 MAX_TABLE_NAME_LEN
             ));
         }
-        if !self
-            .table_name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_')
-        {
-            return Err(
-                "audit_store.table_name must contain only alphanumeric characters and underscores"
-                    .to_string(),
-            );
-        }
-        // SECURITY: Reject table names starting with digits (invalid SQL identifier)
+        // SECURITY: Reject table names starting with digits (invalid SQL identifier).
         if self
             .table_name
             .starts_with(|c: char| c.is_ascii_digit())
         {
-            return Err(
-                "audit_store.table_name must not start with a digit".to_string(),
-            );
+            return Err("audit_store.table_name must not start with a digit".to_string());
         }
         // SECURITY (FIND-R202-010): Reject pure-underscore identifiers.
         if self.table_name.chars().all(|c| c == '_') {
@@ -352,38 +399,6 @@ impl AuditStoreConfig {
                 "audit_store.table_name must contain at least one alphanumeric character"
                     .to_string(),
             );
-        }
-
-        // Sink buffer size bounds
-        if self.sink_buffer_size == 0 || self.sink_buffer_size > MAX_SINK_BUFFER_SIZE {
-            return Err(format!(
-                "audit_store.sink_buffer_size must be in [1, {}], got {}",
-                MAX_SINK_BUFFER_SIZE, self.sink_buffer_size
-            ));
-        }
-
-        // Flush interval bounds
-        if self.flush_interval_ms == 0 || self.flush_interval_ms > MAX_FLUSH_INTERVAL_MS {
-            return Err(format!(
-                "audit_store.flush_interval_ms must be in [1, {}], got {}",
-                MAX_FLUSH_INTERVAL_MS, self.flush_interval_ms
-            ));
-        }
-
-        // Batch insert size bounds
-        if self.batch_insert_size == 0 || self.batch_insert_size > MAX_BATCH_INSERT_SIZE {
-            return Err(format!(
-                "audit_store.batch_insert_size must be in [1, {}], got {}",
-                MAX_BATCH_INSERT_SIZE, self.batch_insert_size
-            ));
-        }
-
-        // Connect timeout bounds
-        if self.connect_timeout_secs == 0 || self.connect_timeout_secs > MAX_CONNECT_TIMEOUT_SECS {
-            return Err(format!(
-                "audit_store.connect_timeout_secs must be in [1, {}], got {}",
-                MAX_CONNECT_TIMEOUT_SECS, self.connect_timeout_secs
-            ));
         }
 
         Ok(())

@@ -51,6 +51,7 @@ pub mod memory;
 pub mod nhi;
 pub mod observability;
 pub mod policy;
+pub mod policy_lifecycle;
 pub mod projector;
 pub mod registry;
 pub mod sampling;

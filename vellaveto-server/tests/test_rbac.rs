@@ -142,6 +142,9 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
     (state, tmp)
 }

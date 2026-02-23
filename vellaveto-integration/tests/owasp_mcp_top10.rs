@@ -952,6 +952,9 @@ mod owasp_mcp07_auth {
                 sink_healthy: false,
                 pending_count: 0,
             },
+            policy_lifecycle_store: None,
+            policy_lifecycle_config: Default::default(),
+            staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         };
         (state, tmp)
     }
@@ -1406,6 +1409,9 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
                 sink_healthy: false,
                 pending_count: 0,
             },
+            policy_lifecycle_store: None,
+            policy_lifecycle_config: Default::default(),
+            staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         };
 
         let app = routes::build_router(state);
@@ -1712,6 +1718,9 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1969,6 +1978,9 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
             sink_healthy: false,
             pending_count: 0,
         },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

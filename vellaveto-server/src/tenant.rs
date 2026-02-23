@@ -501,6 +501,16 @@ pub fn extract_tenant_from_subdomain(host: &str, base_domain: &str) -> Option<St
         return None;
     }
 
+    // SECURITY (FIND-R203-003): Reject reserved prefixes from subdomain extraction,
+    // matching the guard already applied in `extract_tenant_from_header`.
+    // Without this check, a host like `_default_.vellaveto.example.com` would
+    // extract "_default_" and grant admin-level access to any caller who can
+    // craft the Host header — a privilege-escalation vector identical to
+    // FIND-R202-007 but via the subdomain path.
+    if tenant.starts_with('_') {
+        return None;
+    }
+
     Some(tenant.to_string())
 }
 
