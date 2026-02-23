@@ -309,6 +309,109 @@ impl PerKeyRateLimiter {
     }
 }
 
+/// Maximum number of unique tenants tracked simultaneously by the per-tenant rate limiter.
+/// Beyond this limit, new tenants are rate-limited immediately (fail-closed).
+pub const DEFAULT_MAX_TENANT_CAPACITY: usize = 10_000;
+
+/// Per-tenant evaluation rate limiter (Phase 44).
+///
+/// Each tenant gets its own governor bucket sized by `TenantQuotas.max_evaluations_per_minute`.
+/// If a tenant's quota changes, the bucket is recreated on next check.
+/// DashMap provides lock-free concurrent access across handler threads.
+pub struct PerTenantRateLimiter {
+    /// Maps tenant_id → (rate limiter, last_seen, configured rate-per-minute).
+    buckets: dashmap::DashMap<String, (governor::DefaultDirectRateLimiter, Instant, u64)>,
+    max_capacity: usize,
+}
+
+impl Default for PerTenantRateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PerTenantRateLimiter {
+    /// Create a new per-tenant rate limiter with default capacity.
+    pub fn new() -> Self {
+        Self {
+            buckets: dashmap::DashMap::new(),
+            max_capacity: DEFAULT_MAX_TENANT_CAPACITY,
+        }
+    }
+
+    /// Create with a custom max capacity (useful for testing).
+    pub fn with_max_capacity(max_capacity: usize) -> Self {
+        Self {
+            buckets: dashmap::DashMap::new(),
+            max_capacity,
+        }
+    }
+
+    /// Check the rate limit for a given tenant. Returns `None` if allowed,
+    /// `Some(retry_after_secs)` if rate-limited.
+    ///
+    /// `max_per_minute` is the tenant's configured quota. If 0 or u64::MAX,
+    /// rate limiting is skipped (unlimited). If the stored quota differs from
+    /// the current one (tenant quota was updated), the bucket is recreated.
+    pub fn check(&self, tenant_id: &str, max_per_minute: u64) -> Option<u64> {
+        // Unlimited quota — skip rate limiting
+        if max_per_minute == 0 || max_per_minute == u64::MAX {
+            return None;
+        }
+
+        let now = Instant::now();
+
+        // Convert per-minute to per-second (minimum 1 rps).
+        let rps = max_per_minute.div_ceil(60).max(1);
+        let rps_nz = NonZeroU32::new(rps as u32)?;
+
+        // Capacity check before entry()
+        let at_capacity = self.buckets.len() >= self.max_capacity;
+
+        match self.buckets.entry(tenant_id.to_string()) {
+            dashmap::mapref::entry::Entry::Occupied(mut entry) => {
+                let (ref limiter, ref mut last_seen, ref mut stored_rate) = entry.get_mut();
+                *last_seen = now;
+
+                // If quota changed, recreate the bucket
+                if *stored_rate != max_per_minute {
+                    let new_limiter = RateLimiter::direct(Quota::per_second(rps_nz));
+                    let result = governor_check_to_retry_after(new_limiter.check());
+                    *entry.get_mut() = (new_limiter, now, max_per_minute);
+                    return result;
+                }
+
+                governor_check_to_retry_after(limiter.check())
+            }
+            dashmap::mapref::entry::Entry::Vacant(vacancy) => {
+                if at_capacity {
+                    return Some(CAPACITY_EXCEEDED_RETRY_SECS);
+                }
+                let limiter = RateLimiter::direct(Quota::per_second(rps_nz));
+                let result = governor_check_to_retry_after(limiter.check());
+                vacancy.insert((limiter, now, max_per_minute));
+                result
+            }
+        }
+    }
+
+    /// Remove entries that haven't been seen for the given duration.
+    pub fn cleanup(&self, max_age: std::time::Duration) {
+        let cutoff = Instant::now() - max_age;
+        self.buckets.retain(|_, (_, last_seen, _)| *last_seen > cutoff);
+    }
+
+    /// Number of tracked tenants.
+    pub fn len(&self) -> usize {
+        self.buckets.len()
+    }
+
+    /// Whether any tenants are tracked.
+    pub fn is_empty(&self) -> bool {
+        self.buckets.is_empty()
+    }
+}
+
 /// Build a governor `Quota` from a sustained rate and optional burst size.
 ///
 /// When `burst` is `Some`, `allow_burst(b)` sets the token bucket capacity
@@ -729,6 +832,9 @@ pub struct AppState {
     /// Tenant store for looking up tenant details and quotas.
     /// None means no tenant validation (config + default tenant only).
     pub tenant_store: Option<Arc<dyn tenant::TenantStore>>,
+    /// Per-tenant evaluation rate limiter (Phase 44).
+    /// Enforces `TenantQuotas.max_evaluations_per_minute` per tenant.
+    pub tenant_rate_limiter: Arc<PerTenantRateLimiter>,
     /// Idempotency key store for at-most-once request semantics (Phase 5).
     pub idempotency: idempotency::IdempotencyStore,
 

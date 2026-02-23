@@ -104,6 +104,12 @@ impl AuditQueryService for FileAuditQuery {
         if id.is_empty() || id.len() > 256 {
             return Err(QueryError::Validation("invalid entry ID".to_string()));
         }
+        // SECURITY (FIND-R200-003): Reject control/format characters in entry IDs.
+        if vellaveto_types::has_dangerous_chars(id) {
+            return Err(QueryError::Validation(
+                "entry ID contains control or format characters".to_string(),
+            ));
+        }
 
         let entries = self
             .logger
@@ -205,6 +211,14 @@ fn filter_entries<'a>(
             }
             if let Some(to) = params.to_sequence {
                 if e.sequence > to {
+                    return false;
+                }
+            }
+
+            // Phase 44: Tenant ID filter (exact match on entry.tenant_id)
+            if let Some(ref tid) = params.tenant_id {
+                let entry_tenant = e.tenant_id.as_deref().unwrap_or("");
+                if entry_tenant != tid.as_str() {
                     return false;
                 }
             }

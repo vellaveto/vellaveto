@@ -35,6 +35,10 @@ pub struct AuditEntry {
     /// are configured. Hex-encoded compressed Ristretto point.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commitment: Option<String>,
+    /// Tenant ID that generated this entry (Phase 44: Multi-Tenancy).
+    /// None for entries created before multi-tenancy was enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

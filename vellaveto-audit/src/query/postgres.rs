@@ -126,14 +126,19 @@ impl AuditQueryService for PostgresAuditQuery {
         }
 
         // Text search (ILIKE on tool, function_name, and metadata text)
+        // PostgreSQL allows reusing the same $N parameter in multiple positions.
         if params.text_search.is_some() {
             let p = wb.next_param();
             wb.add_condition(format!(
                 "(tool ILIKE {} OR function_name ILIKE {} OR metadata::text ILIKE {})",
-                p, p, p  // Note: sqlx re-uses the same param for all three
+                p, p, p
             ));
-            // Actually, we need separate params since each $N is consumed once
-            // Let me fix this: use 3 separate params all bound to the same value
+        }
+
+        // Phase 44: Tenant ID filter
+        if params.tenant_id.is_some() {
+            let p = wb.next_param();
+            wb.add_condition(format!("tenant_id = {}", p));
         }
 
         let where_clause = wb.build();
@@ -150,7 +155,7 @@ impl AuditQueryService for PostgresAuditQuery {
         let limit_param = wb.next_param();
         let offset_param = wb.next_param();
         let data_sql = format!(
-            "SELECT action_json, verdict_json, id, sequence, timestamp_raw, metadata, entry_hash, prev_hash, commitment FROM {} {} ORDER BY sequence ASC LIMIT {} OFFSET {}",
+            "SELECT action_json, verdict_json, id, sequence, timestamp_raw, metadata, entry_hash, prev_hash, commitment, tenant_id FROM {} {} ORDER BY sequence ASC LIMIT {} OFFSET {}",
             self.table_name, where_clause, limit_param, offset_param
         );
 
@@ -208,9 +213,15 @@ impl AuditQueryService for PostgresAuditQuery {
         if id.is_empty() || id.len() > 256 {
             return Err(QueryError::Validation("invalid entry ID".to_string()));
         }
+        // SECURITY (FIND-R200-003): Reject control/format characters in entry IDs.
+        if vellaveto_types::has_dangerous_chars(id) {
+            return Err(QueryError::Validation(
+                "entry ID contains control or format characters".to_string(),
+            ));
+        }
 
         let sql = format!(
-            "SELECT action_json, verdict_json, id, sequence, timestamp_raw, metadata, entry_hash, prev_hash, commitment FROM {} WHERE id = $1",
+            "SELECT action_json, verdict_json, id, sequence, timestamp_raw, metadata, entry_hash, prev_hash, commitment, tenant_id FROM {} WHERE id = $1",
             self.table_name
         );
         let row = sqlx::query_as::<_, AuditRow>(&sql)
@@ -237,7 +248,7 @@ impl AuditQueryService for PostgresAuditQuery {
         }
 
         let sql = format!(
-            "SELECT action_json, verdict_json, id, sequence, timestamp_raw, metadata, entry_hash, prev_hash, commitment FROM {} ORDER BY sequence DESC LIMIT $1",
+            "SELECT action_json, verdict_json, id, sequence, timestamp_raw, metadata, entry_hash, prev_hash, commitment, tenant_id FROM {} ORDER BY sequence DESC LIMIT $1",
             self.table_name
         );
         let rows = sqlx::query_as::<_, AuditRow>(&sql)
@@ -269,6 +280,7 @@ struct AuditRow {
     entry_hash: String,
     prev_hash: String,
     commitment: Option<String>,
+    tenant_id: Option<String>,
 }
 
 impl AuditRow {
@@ -283,6 +295,7 @@ impl AuditRow {
             "entry_hash": self.entry_hash,
             "prev_hash": self.prev_hash,
             "commitment": self.commitment,
+            "tenant_id": self.tenant_id,
         }))
     }
 }
@@ -341,6 +354,13 @@ fn build_filter_clauses(params: &AuditQueryParams) -> String {
         idx = idx.saturating_add(1);
     }
 
+    // Phase 44: Tenant ID filter
+    if params.tenant_id.is_some() {
+        clauses.push(format!("AND tenant_id = ${}", idx));
+        idx = idx.saturating_add(1);
+    }
+
+    let _ = idx; // suppress unused assignment warning
     clauses.join(" ")
 }
 
@@ -381,6 +401,10 @@ fn bind_params<'q>(
         let pattern = format!("%{}%", text.replace('%', "\\%").replace('_', "\\_"));
         query = query.bind(pattern);
     }
+    // Phase 44: Tenant ID filter
+    if let Some(ref tenant_id) = params.tenant_id {
+        query = query.bind(tenant_id.as_str());
+    }
     query
 }
 
@@ -419,6 +443,10 @@ fn bind_data_params<'q>(
     if let Some(ref text) = params.text_search {
         let pattern = format!("%{}%", text.replace('%', "\\%").replace('_', "\\_"));
         query = query.bind(pattern);
+    }
+    // Phase 44: Tenant ID filter
+    if let Some(ref tenant_id) = params.tenant_id {
+        query = query.bind(tenant_id.as_str());
     }
     // Bind limit and offset
     // SECURITY (R158-001): limit is validated <= MAX_QUERY_LIMIT (1000) and offset is
@@ -486,6 +514,7 @@ mod tests {
             entry_hash: "deadbeef".to_string(),
             prev_hash: "cafebabe".to_string(),
             commitment: None,
+            tenant_id: None,
         };
         let json = row.to_json().unwrap();
         assert_eq!(json["id"], "abc-123");

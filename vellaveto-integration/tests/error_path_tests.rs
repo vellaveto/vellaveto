@@ -60,6 +60,7 @@ fn make_test_state(tmp: &TempDir) -> AppState {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),

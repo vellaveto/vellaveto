@@ -498,6 +498,7 @@ fn test_audit_entry_commitment_field_absent_by_default() {
         entry_hash: None,
         prev_hash: None,
         commitment: None,
+        tenant_id: None,
     };
     let json = serde_json::to_string(&entry).unwrap();
     assert!(
@@ -518,6 +519,7 @@ fn test_audit_entry_with_commitment_serializes() {
         entry_hash: Some("aabb".repeat(16)),
         prev_hash: None,
         commitment: Some("ccdd".repeat(16)),
+        tenant_id: None,
     };
     let json = serde_json::to_string(&entry).unwrap();
     assert!(json.contains("commitment"), "commitment should be present");

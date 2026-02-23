@@ -15,6 +15,9 @@ pub const MAX_TEXT_SEARCH_LEN: usize = 512;
 /// Maximum length of agent_id / tool filter strings.
 pub const MAX_FILTER_STRING_LEN: usize = 256;
 
+/// Maximum query offset to prevent DoS via astronomical skip values.
+pub const MAX_QUERY_OFFSET: u64 = 1_000_000;
+
 /// Supported audit store backends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -81,6 +84,10 @@ pub struct AuditQueryParams {
     /// Number of entries to skip for pagination.
     #[serde(default)]
     pub offset: u64,
+
+    /// Filter by tenant ID (exact match on entry.tenant_id). Phase 44.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
 }
 
 fn default_limit() -> u64 {
@@ -100,6 +107,7 @@ impl Default for AuditQueryParams {
             to_sequence: None,
             limit: default_limit(),
             offset: 0,
+            tenant_id: None,
         }
     }
 }
@@ -116,6 +124,15 @@ impl AuditQueryParams {
         }
         if self.limit == 0 {
             return Err("limit must be > 0".to_string());
+        }
+
+        // SECURITY (FIND-R200-004): Cap offset to prevent DoS via astronomical skip values
+        // that force the backend to scan/skip huge numbers of rows.
+        if self.offset > MAX_QUERY_OFFSET {
+            return Err(format!(
+                "offset {} exceeds maximum {}",
+                self.offset, MAX_QUERY_OFFSET
+            ));
         }
 
         // Validate filter string lengths
@@ -184,6 +201,24 @@ impl AuditQueryParams {
             }
         }
 
+        // Phase 44: Validate tenant_id filter
+        if let Some(ref tenant_id) = self.tenant_id {
+            if tenant_id.is_empty() {
+                return Err("tenant_id filter must not be empty".to_string());
+            }
+            if tenant_id.len() > 64 {
+                return Err(format!(
+                    "tenant_id length {} exceeds maximum 64",
+                    tenant_id.len()
+                ));
+            }
+            if crate::has_dangerous_chars(tenant_id) {
+                return Err(
+                    "tenant_id contains control or format characters".to_string(),
+                );
+            }
+        }
+
         // Validate sequence range ordering
         if let (Some(from), Some(to)) = (self.from_sequence, self.to_sequence) {
             if from > to {
@@ -218,12 +253,24 @@ impl AuditQueryParams {
                 .map_err(|e| format!("until is not valid ISO 8601: {}", e))?;
         }
 
+        // SECURITY (FIND-R200-005): Validate temporal ordering — since must be before until.
+        // Inverted ranges could return empty results silently or confuse callers.
+        if let (Some(ref since), Some(ref until)) = (&self.since, &self.until) {
+            if since.as_str() >= until.as_str() {
+                return Err(format!(
+                    "since ({}) must be before until ({})",
+                    since, until
+                ));
+            }
+        }
+
         Ok(())
     }
 }
 
 /// Result of an audit query.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuditQueryResult {
     /// Matching entries for this page.
     pub entries: Vec<serde_json::Value>,
@@ -237,6 +284,7 @@ pub struct AuditQueryResult {
 
 /// Status of the audit store backend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuditStoreStatus {
     /// Which backend is active.
     pub backend: AuditStoreBackend,

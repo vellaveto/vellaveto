@@ -1822,6 +1822,26 @@ async fn evaluate(
     // Previously two separate loads had a microsecond-wide race.
     let snap = state.policy_state.load();
 
+    // Phase 44: Per-tenant evaluation rate limiting.
+    // Enforces TenantQuotas.max_evaluations_per_minute. Default tenant (unlimited)
+    // is skipped. Checked before engine evaluation to reject early.
+    if let Some(ref quotas) = tenant_ctx.quotas {
+        if let Some(retry_after) = state
+            .tenant_rate_limiter
+            .check(&tenant_ctx.tenant_id, quotas.max_evaluations_per_minute)
+        {
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(ErrorResponse {
+                    error: format!(
+                        "Tenant evaluation rate limit exceeded (retry after {}s)",
+                        retry_after
+                    ),
+                }),
+            ));
+        }
+    }
+
     // Tool registry check: if enabled, unknown or untrusted tools require approval.
     // This runs BEFORE engine evaluation so that completely unknown tools are caught
     // even if no policy explicitly covers them (fail-closed).
@@ -2014,11 +2034,42 @@ async fn evaluate(
         }
     }
 
+    // Phase 44: Filter policies to only those visible to this tenant.
+    // Default tenant sees all policies (unlimited access for backwards compatibility).
+    // Named tenants only see their own namespaced + global + legacy policies.
+    let tenant_policies: Vec<vellaveto_types::Policy> = if tenant_ctx.is_default() {
+        snap.policies.clone()
+    } else {
+        snap.policies
+            .iter()
+            .filter(|p| tenant_ctx.policy_matches(&p.id))
+            .cloned()
+            .collect()
+    };
+
     // IMPROVEMENT_PLAN 10.4: Support ?trace=true for OPA-style decision logging.
     // When trace is requested, we use the traced evaluation path which returns
     // per-policy match details along with the verdict.
     let (verdict, eval_trace) = if query.trace {
-        snap.engine
+        // Phase 44: Build a temporary engine with tenant-filtered policies for tracing.
+        // Trace is diagnostic-only (not hot path), so compilation cost is acceptable.
+        let trace_engine = vellaveto_engine::PolicyEngine::with_policies(
+            snap.engine.strict_mode(),
+            &tenant_policies,
+        )
+        .map_err(|e| {
+            tracing::error!("Failed to compile tenant-filtered policies for trace: {:?}", e);
+            state.metrics.record_error();
+            crate::metrics::record_evaluation_verdict("error");
+            crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Policy evaluation failed".to_string(),
+                }),
+            )
+        })?;
+        trace_engine
             .evaluate_action_traced_with_context(&action, context.as_ref())
             .map(|(v, t)| (v, Some(t)))
             .map_err(|e| {
@@ -2036,7 +2087,7 @@ async fn evaluate(
     } else {
         let v = snap
             .engine
-            .evaluate_action_with_context(&action, &snap.policies, context.as_ref())
+            .evaluate_action_with_context(&action, &tenant_policies, context.as_ref())
             .map_err(|e| {
                 tracing::error!("Engine evaluation error: {}", e);
                 state.metrics.record_error();

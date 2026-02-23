@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS vellaveto_audit_entries (
     entry_hash       TEXT NOT NULL,
     prev_hash        TEXT NOT NULL,
     commitment       TEXT,
+    tenant_id        TEXT,
     inserted_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -39,6 +40,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_verdict ON vellaveto_audit_entries (verdict
 CREATE INDEX IF NOT EXISTS idx_audit_metadata ON vellaveto_audit_entries USING GIN (metadata);
 CREATE INDEX IF NOT EXISTS idx_audit_ts_verdict ON vellaveto_audit_entries (timestamp_raw, verdict_type);
 CREATE INDEX IF NOT EXISTS idx_audit_deny ON vellaveto_audit_entries (timestamp_raw) WHERE verdict_type = 'deny';
+CREATE INDEX IF NOT EXISTS idx_audit_tenant ON vellaveto_audit_entries (tenant_id);
 "#;
 
 /// Maximum entries in the pending channel before backpressure.
@@ -54,8 +56,9 @@ const DEFAULT_FLUSH_INTERVAL_MS: u64 = 5_000;
 const MAX_RETRY_ATTEMPTS: u32 = 3;
 
 /// Maximum batch size to stay within PostgreSQL's 65535 bind-parameter limit.
-/// Each row uses 13 parameters, so 65535 / 13 = 5041. We cap at 5000 for safety.
-const MAX_BATCH_SIZE: usize = 5_000;
+/// Each row uses 14 parameters (Phase 44: +tenant_id), so 65535 / 14 = 4681.
+/// We cap at 4600 for safety.
+const MAX_BATCH_SIZE: usize = 4_600;
 
 /// PostgreSQL audit sink configuration.
 pub struct PostgresSinkConfig {
@@ -169,8 +172,12 @@ impl PostgresAuditSink {
         config.validate()?;
 
         if auto_migrate {
-            // Replace table name in DDL (already validated by config)
-            let ddl = CREATE_TABLE_DDL.replace("vellaveto_audit_entries", &config.table_name);
+            // Replace table name in DDL (already validated by config).
+            // SECURITY (FIND-R200-008): Also replace index name prefix to avoid
+            // collisions when multiple instances use different table names.
+            let ddl = CREATE_TABLE_DDL
+                .replace("vellaveto_audit_entries", &config.table_name)
+                .replace("idx_audit_", &format!("idx_{}_", config.table_name));
             sqlx::raw_sql(&ddl)
                 .execute(&pool)
                 .await
@@ -359,8 +366,8 @@ impl BackgroundWriter {
 
         // Build parameterized batch INSERT
         // INSERT INTO table (columns) VALUES ($1,$2,...), ($N+1,$N+2,...), ...
-        let cols = "(id, sequence, timestamp_raw, tool, function_name, verdict_type, verdict_reason, action_json, verdict_json, metadata, entry_hash, prev_hash, commitment)";
-        let params_per_row = 13;
+        let cols = "(id, sequence, timestamp_raw, tool, function_name, verdict_type, verdict_reason, action_json, verdict_json, metadata, entry_hash, prev_hash, commitment, tenant_id)";
+        let params_per_row = 14;
         let mut sql = format!(
             "INSERT INTO {} {} VALUES ",
             self.table_name, cols
@@ -449,7 +456,8 @@ impl BackgroundWriter {
                 .bind(&entry.metadata)
                 .bind(&entry.entry_hash)
                 .bind(&entry.prev_hash)
-                .bind(&entry.commitment);
+                .bind(&entry.commitment)
+                .bind(entry.tenant_id.as_deref());
         }
 
         query.execute(&self.pool).await?;

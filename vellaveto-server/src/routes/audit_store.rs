@@ -8,10 +8,11 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    Json,
+    Extension, Json,
 };
 use vellaveto_types::audit_store::{AuditQueryParams, AuditQueryResult, AuditStoreStatus};
 
+use crate::tenant::TenantContext;
 use crate::AppState;
 
 use super::{validate_path_param, ErrorResponse};
@@ -22,8 +23,15 @@ use super::{validate_path_param, ErrorResponse};
 /// Delegates to the configured `AuditQueryService` backend (file or Postgres).
 pub async fn audit_search(
     State(state): State<AppState>,
-    Query(params): Query<AuditQueryParams>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+    Query(mut params): Query<AuditQueryParams>,
 ) -> Result<Json<AuditQueryResult>, (StatusCode, Json<ErrorResponse>)> {
+    // Phase 44: Auto-filter by tenant. Default tenant (admin) can query all tenants.
+    // Named tenants can only see their own audit entries.
+    if !tenant_ctx.is_default() {
+        params.tenant_id = Some(tenant_ctx.tenant_id.clone());
+    }
+
     let query_svc = &state.audit_query;
     match query_svc.search(&params).await {
         Ok(result) => Ok(Json(result)),

@@ -384,6 +384,7 @@ async fn test_fix2_field_separator_prevents_boundary_shift() {
         entry_hash: None,
         prev_hash: None,
         commitment: None,
+        tenant_id: None,
     };
 
     let entry_b = AuditEntry {
@@ -396,6 +397,7 @@ async fn test_fix2_field_separator_prevents_boundary_shift() {
         entry_hash: None,
         prev_hash: None,
         commitment: None,
+        tenant_id: None,
     };
 
     let hash_a = AuditLogger::compute_entry_hash(&entry_a).unwrap();
@@ -431,6 +433,7 @@ async fn test_canonical_json_produces_deterministic_hashes() {
         entry_hash: None,
         prev_hash: None,
         commitment: None,
+        tenant_id: None,
     };
 
     let entry_b = AuditEntry {
@@ -447,6 +450,7 @@ async fn test_canonical_json_produces_deterministic_hashes() {
         entry_hash: None,
         prev_hash: None,
         commitment: None,
+        tenant_id: None,
     };
 
     let hash_a = AuditLogger::compute_entry_hash(&entry_a).unwrap();

@@ -237,6 +237,7 @@ mod tests {
             entry_hash: Some("abc123".to_string()),
             prev_hash: None,
             commitment: None,
+            tenant_id: None,
         }
     }
 

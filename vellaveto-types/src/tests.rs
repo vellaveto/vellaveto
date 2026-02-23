@@ -8349,6 +8349,65 @@ fn test_audit_query_params_all_fields_valid() {
         to_sequence: Some(100),
         limit: 50,
         offset: 0,
+        tenant_id: Some("tenant-abc".to_string()),
+    };
+    assert!(params.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Round 200: Additional validation tests (FIND-R200-004/005)
+// ═══════════════════════════════════════════════════════════════
+
+#[test]
+fn test_audit_query_params_offset_exceeds_max() {
+    let params = crate::AuditQueryParams {
+        offset: crate::audit_store::MAX_QUERY_OFFSET + 1,
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(err.contains("offset"));
+    assert!(err.contains("exceeds maximum"));
+}
+
+#[test]
+fn test_audit_query_params_offset_at_max_ok() {
+    let params = crate::AuditQueryParams {
+        offset: crate::audit_store::MAX_QUERY_OFFSET,
+        ..Default::default()
+    };
+    assert!(params.validate().is_ok());
+}
+
+#[test]
+fn test_audit_query_params_since_after_until_fails() {
+    let params = crate::AuditQueryParams {
+        since: Some("2026-02-01T00:00:00Z".to_string()),
+        until: Some("2026-01-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(err.contains("since"));
+    assert!(err.contains("before until"));
+}
+
+#[test]
+fn test_audit_query_params_since_equals_until_fails() {
+    let params = crate::AuditQueryParams {
+        since: Some("2026-01-15T12:00:00Z".to_string()),
+        until: Some("2026-01-15T12:00:00Z".to_string()),
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(err.contains("since"));
+    assert!(err.contains("before until"));
+}
+
+#[test]
+fn test_audit_query_params_since_before_until_ok() {
+    let params = crate::AuditQueryParams {
+        since: Some("2026-01-01T00:00:00Z".to_string()),
+        until: Some("2026-01-02T00:00:00Z".to_string()),
+        ..Default::default()
     };
     assert!(params.validate().is_ok());
 }

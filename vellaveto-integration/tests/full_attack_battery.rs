@@ -1044,6 +1044,7 @@ fn attack_audit_cef_pipe_injection() {
         entry_hash: None,
         prev_hash: None,
         commitment: None,
+        tenant_id: None,
     };
 
     let cef = to_cef(&entry);
@@ -1083,6 +1084,7 @@ fn attack_audit_cef_equals_injection() {
         entry_hash: None,
         prev_hash: None,
         commitment: None,
+        tenant_id: None,
     };
 
     let cef = to_cef(&entry);
@@ -1393,6 +1395,7 @@ fn attack_r9_3_pii_bypass_numeric_credit_card() {
         entry_hash: None,
         prev_hash: None,
         commitment: None,
+        tenant_id: None,
     };
 
     // The string phone field should be redacted

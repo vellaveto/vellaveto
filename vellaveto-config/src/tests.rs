@@ -8429,3 +8429,98 @@ fn test_audit_store_config_pool_size_boundary_max_ok() {
     };
     assert!(cfg.validate().is_ok());
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Round 200: IPv6-mapped IPv4, unique-local, link-local, and
+// percent-encoded hostname SSRF bypass tests
+// ═══════════════════════════════════════════════════════════════
+
+#[test]
+fn test_audit_store_config_ssrf_ipv6_mapped_ipv4_loopback_rejected() {
+    // FIND-R200-001: ::ffff:127.0.0.1 embeds IPv4 loopback inside IPv6.
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@[::ffff:127.0.0.1]:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("private/loopback") || err.contains("IPv6-mapped"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_ssrf_ipv6_mapped_ipv4_private_rejected() {
+    // FIND-R200-001: ::ffff:10.0.0.1 embeds private IPv4 inside IPv6.
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@[::ffff:10.0.0.1]:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("private/loopback") || err.contains("IPv6-mapped"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_ssrf_ipv6_mapped_ipv4_link_local_rejected() {
+    // FIND-R200-001: ::ffff:169.254.1.1 embeds link-local IPv4 inside IPv6.
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@[::ffff:169.254.1.1]:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("private/loopback") || err.contains("IPv6-mapped"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_ssrf_ipv6_unique_local_rejected() {
+    // FIND-R200-001: fc00::/7 unique-local address.
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@[fd12:3456:789a::1]:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("unique-local"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_ssrf_ipv6_link_local_rejected() {
+    // FIND-R200-001: fe80::/10 link-local address.
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@[fe80::1]:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("link-local"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_ssrf_percent_encoded_hostname_rejected() {
+    // FIND-R200-007: Percent-encoded hostnames could bypass text checks.
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@%6Cocal%68ost:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("percent-encoding"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_valid_ipv6_public_address_ok() {
+    // A public IPv6 address should be accepted.
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@[2001:db8::1]:5432/db".to_string()),
+        ..Default::default()
+    };
+    assert!(cfg.validate().is_ok(), "public IPv6 should be accepted");
+}

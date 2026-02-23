@@ -1012,6 +1012,7 @@ mod tests {
             entry_hash: None,
             prev_hash: None,
             commitment: None,
+            tenant_id: None,
         }
     }
 

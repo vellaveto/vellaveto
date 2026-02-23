@@ -2015,6 +2015,7 @@ mod tests {
             entry_hash: None,
             prev_hash: None,
             commitment: None,
+            tenant_id: None,
         };
 
         let message = exporter.format_rfc5424(&entry);
@@ -2059,6 +2060,7 @@ mod tests {
             entry_hash: None,
             prev_hash: None,
             commitment: None,
+            tenant_id: None,
         };
 
         let message = exporter.format_rfc5424(&entry);

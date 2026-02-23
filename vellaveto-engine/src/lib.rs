@@ -134,6 +134,11 @@ impl PolicyEngine {
         }
     }
 
+    /// Returns the engine's strict_mode setting.
+    pub fn strict_mode(&self) -> bool {
+        self.strict_mode
+    }
+
     /// Validate a domain pattern used in network_rules.
     ///
     /// Rules per RFC 1035:

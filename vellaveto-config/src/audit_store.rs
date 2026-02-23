@@ -259,10 +259,47 @@ impl AuditStoreConfig {
                             ));
                         }
                     }
+                    // SECURITY (FIND-R200-007): Reject percent-encoded hostnames
+                    // that could bypass text-based hostname checks after URL decoding.
+                    if host.contains('%') {
+                        return Err(format!(
+                            "audit_store.database_url host '{}' contains percent-encoding",
+                            host
+                        ));
+                    }
                     if let Ok(ip6) = host.parse::<std::net::Ipv6Addr>() {
                         if ip6.is_loopback() || ip6.is_unspecified() {
                             return Err(format!(
                                 "audit_store.database_url host '{}' is a private/loopback address",
+                                host
+                            ));
+                        }
+                        // SECURITY (FIND-R200-001): Check IPv6-mapped IPv4 addresses
+                        // (e.g. ::ffff:127.0.0.1) which embed IPv4 addresses inside IPv6.
+                        if let Some(ipv4) = ip6.to_ipv4_mapped() {
+                            if ipv4.is_loopback()
+                                || ipv4.is_private()
+                                || ipv4.is_link_local()
+                                || ipv4.is_unspecified()
+                            {
+                                return Err(format!(
+                                    "audit_store.database_url host '{}' is a private/loopback address (IPv6-mapped IPv4)",
+                                    host
+                                ));
+                            }
+                        }
+                        // SECURITY (FIND-R200-001): Reject IPv6 unique-local (fc00::/7)
+                        // and link-local (fe80::/10) addresses.
+                        let segments = ip6.segments();
+                        if (segments[0] & 0xfe00) == 0xfc00 {
+                            return Err(format!(
+                                "audit_store.database_url host '{}' is an IPv6 unique-local address",
+                                host
+                            ));
+                        }
+                        if (segments[0] & 0xffc0) == 0xfe80 {
+                            return Err(format!(
+                                "audit_store.database_url host '{}' is an IPv6 link-local address",
                                 host
                             ));
                         }

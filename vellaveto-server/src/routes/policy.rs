@@ -12,7 +12,7 @@
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    Json,
+    Extension, Json,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -20,6 +20,7 @@ use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, Verdict};
 
 use crate::routes::ErrorResponse;
+use crate::tenant::TenantContext;
 use crate::AppState;
 
 /// List all policies.
@@ -49,6 +50,7 @@ pub async fn list_policies(State(state): State<AppState>) -> Json<Vec<Policy>> {
 )]
 pub async fn add_policy(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Json(policy): Json<Policy>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     // SECURITY (R12-SRV-1): Validate policy fields before insertion.
@@ -130,6 +132,29 @@ pub async fn add_policy(
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "Maximum policy count (10000) reached"})),
         );
+    }
+
+    // Phase 44: Enforce per-tenant max_policies quota.
+    // Default tenant has unlimited quotas, so this only applies to named tenants.
+    if let Some(ref quotas) = tenant_ctx.quotas {
+        if quotas.max_policies < u64::MAX {
+            let tenant_policy_count = existing
+                .policies
+                .iter()
+                .filter(|p| tenant_ctx.policy_matches(&p.id))
+                .count() as u64;
+            if tenant_policy_count >= quotas.max_policies {
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    Json(json!({
+                        "error": format!(
+                            "Tenant policy quota exceeded ({}/{})",
+                            tenant_policy_count, quotas.max_policies
+                        )
+                    })),
+                );
+            }
+        }
     }
 
     // Build candidate policy list

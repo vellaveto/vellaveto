@@ -27,6 +27,9 @@ const defaultTimeout = 10 * time.Second
 const defaultMaxRetries = 3
 const defaultInitialBackoff = 500 * time.Millisecond
 
+// tenantIDPattern validates tenant IDs: 1-64 chars, alphanumeric + hyphen + underscore only.
+var tenantIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
 // retryableStatus returns true for HTTP status codes that should be retried.
 func retryableStatus(code int) bool {
 	return code == 429 || code == 502 || code == 503 || code == 504
@@ -105,6 +108,23 @@ func WithHeaders(h map[string]string) Option {
 			}
 			c.headers[k] = v
 		}
+	}
+}
+
+// WithTenant sets the tenant ID for multi-tenancy support (Phase 44).
+// The tenant ID is sent as X-Tenant-ID header on every request.
+// Must be 1-64 chars, alphanumeric + hyphen + underscore only.
+func WithTenant(tenant string) Option {
+	return func(c *Client) {
+		if len(tenant) == 0 || len(tenant) > 64 {
+			log.Printf("[vellaveto] WARNING: tenant ID length %d out of range [1, 64], ignoring", len(tenant))
+			return
+		}
+		if !tenantIDPattern.MatchString(tenant) {
+			log.Printf("[vellaveto] WARNING: tenant ID %q contains invalid characters, ignoring", tenant)
+			return
+		}
+		c.headers["X-Tenant-ID"] = tenant
 	}
 }
 

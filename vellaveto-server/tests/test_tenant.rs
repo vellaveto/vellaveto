@@ -90,6 +90,7 @@ fn test_state_with_tenants(
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config,
         tenant_store,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),

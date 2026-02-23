@@ -136,6 +136,7 @@ fn test_state() -> (AppState, TempDir) {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -544,6 +545,7 @@ async fn health_not_rate_limited() {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -653,6 +655,7 @@ async fn rate_limit_429_includes_retry_after() {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -856,6 +859,7 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -1007,6 +1011,7 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -1131,6 +1136,7 @@ async fn per_ip_health_exempt_from_rate_limit() {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -1247,6 +1253,7 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -1398,6 +1405,7 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -1533,6 +1541,7 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -1667,6 +1676,7 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -1799,6 +1809,7 @@ async fn per_ip_rate_limit_429_response_body_format() {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -1943,6 +1954,7 @@ async fn health_returns_degraded_when_cluster_unhealthy() {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),

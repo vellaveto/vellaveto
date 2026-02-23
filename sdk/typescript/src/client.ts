@@ -53,6 +53,8 @@ export interface VellavetoClientOptions {
   timeout?: number;
   /** Additional headers to include in every request. */
   headers?: Record<string, string>;
+  /** Tenant identifier for multi-tenant deployments (max 64 chars, alphanumeric/dash/underscore). */
+  tenant?: string;
 }
 
 /** Error thrown by the Vellaveto client. */
@@ -310,6 +312,7 @@ export class VellavetoClient {
   private readonly apiKey?: string;
   private readonly timeout: number;
   private readonly extraHeaders: Record<string, string>;
+  private readonly tenant?: string;
 
   constructor(options: VellavetoClientOptions) {
     // SECURITY (FIND-R46-TS-003): Validate baseUrl before use.
@@ -404,6 +407,24 @@ export class VellavetoClient {
       }
     }
     this.extraHeaders = rawHeaders;
+
+    // Validate and store tenant identifier for multi-tenant deployments.
+    if (options.tenant !== undefined) {
+      if (typeof options.tenant !== "string") {
+        throw new VellavetoError("tenant must be a string");
+      }
+      if (options.tenant.length === 0 || options.tenant.length > 64) {
+        throw new VellavetoError(
+          "tenant must be between 1 and 64 characters"
+        );
+      }
+      if (!/^[a-zA-Z0-9_-]+$/.test(options.tenant)) {
+        throw new VellavetoError(
+          "tenant must contain only alphanumeric characters, hyphens, and underscores"
+        );
+      }
+      this.tenant = options.tenant;
+    }
   }
 
   // ────────────────────────────────────────────────────
@@ -417,6 +438,9 @@ export class VellavetoClient {
     };
     if (this.apiKey) {
       headers["Authorization"] = `Bearer ${this.apiKey}`;
+    }
+    if (this.tenant) {
+      headers["X-Tenant-ID"] = this.tenant;
     }
     return headers;
   }

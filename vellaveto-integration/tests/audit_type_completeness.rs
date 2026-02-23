@@ -120,6 +120,7 @@ fn audit_report_clone_preserves_all_fields() {
             entry_hash: None,
             prev_hash: None,
             commitment: None,
+            tenant_id: None,
         }],
     };
     let cloned = report.clone();
@@ -151,6 +152,7 @@ fn audit_report_with_mixed_verdicts_roundtrips() {
                 entry_hash: None,
                 prev_hash: None,
                 commitment: None,
+                tenant_id: None,
             },
             AuditEntry {
                 id: "b".to_string(),
@@ -164,6 +166,7 @@ fn audit_report_with_mixed_verdicts_roundtrips() {
                 entry_hash: None,
                 prev_hash: None,
                 commitment: None,
+                tenant_id: None,
             },
             AuditEntry {
                 id: "c".to_string(),
@@ -177,6 +180,7 @@ fn audit_report_with_mixed_verdicts_roundtrips() {
                 entry_hash: None,
                 prev_hash: None,
                 commitment: None,
+                tenant_id: None,
             },
         ],
     };

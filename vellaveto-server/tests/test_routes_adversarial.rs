@@ -58,6 +58,7 @@ fn make_state() -> (AppState, TempDir) {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -146,6 +147,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -618,6 +620,7 @@ priority = 1
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -773,6 +776,7 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -1049,6 +1053,7 @@ async fn test_find004_metrics_require_auth_true_blocks_unauthenticated() {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -1148,6 +1153,7 @@ async fn test_find004_metrics_require_auth_false_allows_unauthenticated() {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),

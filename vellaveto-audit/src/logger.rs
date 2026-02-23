@@ -432,6 +432,14 @@ impl AuditLogger {
         // sequence numbers across rotated log files.
         let sequence = self.global_sequence.load(Ordering::SeqCst);
 
+        // Phase 44: Extract tenant_id from metadata for per-tenant audit scoping.
+        // The tenant_id is injected into metadata by build_evaluate_audit_metadata(),
+        // so we extract it here to populate the dedicated AuditEntry field.
+        let tenant_id = logged_metadata
+            .get("tenant_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
         let mut entry = AuditEntry {
             id: Uuid::new_v4().to_string(),
             action: logged_action,
@@ -442,6 +450,7 @@ impl AuditLogger {
             entry_hash: None,
             prev_hash: last_hash_guard.clone(),
             commitment: None,
+            tenant_id,
         };
 
         // Compute hash

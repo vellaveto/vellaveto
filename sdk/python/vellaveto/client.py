@@ -175,6 +175,9 @@ _MAX_METADATA_KEYS = 100
 # bidi overrides, BOM, interlinear annotation anchors.
 import re as _re
 
+_MAX_TENANT_LENGTH = 64
+_TENANT_RE = _re.compile(r"^[a-zA-Z0-9_-]+$")
+
 _CONTROL_CHAR_RE = _re.compile(r"[\x00-\x1f\x7f-\x9f]")
 _UNICODE_FORMAT_RE = _re.compile(
     # SECURITY (FIND-R110-SDK-003): Added U+2028-202F (line/paragraph separators
@@ -358,6 +361,7 @@ class VellavetoClient:
         verify_ssl: bool = True,
         redactor: Optional["ParameterRedactor"] = None,
         max_retries: int = 3,
+        tenant: Optional[str] = None,
     ):
         """
         Initialize the Vellaveto client.
@@ -370,6 +374,8 @@ class VellavetoClient:
             redactor: Optional ParameterRedactor for client-side secret stripping
             max_retries: Maximum number of retries for transient failures
                 (connection errors, 502/503/504). Default 3 (aligned with Go/TS SDKs).
+            tenant: Optional tenant ID for multi-tenant deployments. Must be
+                alphanumeric with hyphens/underscores, max 64 characters.
         """
         # SECURITY (FIND-R73-SDK-002): Validate base URL — parity with Go/TS SDKs.
         self.url = _validate_base_url(url)
@@ -387,6 +393,21 @@ class VellavetoClient:
         self.verify_ssl = verify_ssl
         self.redactor = redactor
         self.max_retries = max(0, max_retries)
+
+        # Validate tenant ID if provided.
+        if tenant is not None:
+            if not isinstance(tenant, str):
+                raise VellavetoError("tenant must be a string")
+            if len(tenant) == 0 or len(tenant) > _MAX_TENANT_LENGTH:
+                raise VellavetoError(
+                    f"tenant must be between 1 and {_MAX_TENANT_LENGTH} characters"
+                )
+            if not _TENANT_RE.match(tenant):
+                raise VellavetoError(
+                    "tenant must match pattern ^[a-zA-Z0-9_-]+$ "
+                    "(alphanumeric, hyphens, underscores only)"
+                )
+        self.tenant = tenant
 
         if not verify_ssl:
             warnings.warn(
@@ -420,7 +441,8 @@ class VellavetoClient:
         """SECURITY (FIND-SDK-013): Redact api_key in repr to prevent log leakage."""
         return (
             f"VellavetoClient(base_url={self.url!r}, api_key=***, "
-            f"timeout={self.timeout}, max_retries={self.max_retries})"
+            f"timeout={self.timeout}, max_retries={self.max_retries}, "
+            f"tenant={self.tenant!r})"
         )
 
     def __enter__(self) -> "VellavetoClient":
@@ -437,6 +459,8 @@ class VellavetoClient:
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+        if self.tenant:
+            headers["X-Tenant-ID"] = self.tenant
         return headers
 
     def _request(
@@ -1085,6 +1109,7 @@ class AsyncVellavetoClient:
         verify_ssl: bool = True,
         redactor: Optional["ParameterRedactor"] = None,
         max_retries: int = 3,
+        tenant: Optional[str] = None,
     ):
         """
         Initialize the async Vellaveto client.
@@ -1097,6 +1122,8 @@ class AsyncVellavetoClient:
             redactor: Optional ParameterRedactor for client-side secret stripping
             max_retries: Maximum number of retries for transient failures
                 (connection errors, 502/503/504). Default 3 (aligned with Go/TS SDKs).
+            tenant: Optional tenant ID for multi-tenant deployments. Must be
+                alphanumeric with hyphens/underscores, max 64 characters.
         """
         if not HAS_HTTPX:
             raise ImportError(
@@ -1120,6 +1147,22 @@ class AsyncVellavetoClient:
         self.verify_ssl = verify_ssl
         self.redactor = redactor
         self.max_retries = max(0, max_retries)
+
+        # Validate tenant ID if provided.
+        if tenant is not None:
+            if not isinstance(tenant, str):
+                raise VellavetoError("tenant must be a string")
+            if len(tenant) == 0 or len(tenant) > _MAX_TENANT_LENGTH:
+                raise VellavetoError(
+                    f"tenant must be between 1 and {_MAX_TENANT_LENGTH} characters"
+                )
+            if not _TENANT_RE.match(tenant):
+                raise VellavetoError(
+                    "tenant must match pattern ^[a-zA-Z0-9_-]+$ "
+                    "(alphanumeric, hyphens, underscores only)"
+                )
+        self.tenant = tenant
+
         self._client: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self) -> "AsyncVellavetoClient":
@@ -1140,7 +1183,8 @@ class AsyncVellavetoClient:
         """SECURITY (FIND-R56-SDK-002): Redact api_key in repr, matching sync client."""
         return (
             f"AsyncVellavetoClient(base_url={self.url!r}, api_key=***, "
-            f"timeout={self.timeout}, max_retries={self.max_retries})"
+            f"timeout={self.timeout}, max_retries={self.max_retries}, "
+            f"tenant={self.tenant!r})"
         )
 
     def _headers(self) -> Dict[str, str]:
@@ -1150,6 +1194,8 @@ class AsyncVellavetoClient:
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+        if self.tenant:
+            headers["X-Tenant-ID"] = self.tenant
         return headers
 
     async def _request(

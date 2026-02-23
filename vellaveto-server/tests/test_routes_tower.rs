@@ -59,6 +59,7 @@ fn make_state() -> (AppState, TempDir) {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -147,6 +148,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -1283,6 +1285,7 @@ priority = 1
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -1436,6 +1439,7 @@ fn make_approval_state() -> (AppState, TempDir) {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -1950,6 +1954,7 @@ fn make_authed_state() -> (AppState, TempDir) {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -2488,6 +2493,7 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
@@ -3227,6 +3233,7 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         rbac_config: vellaveto_server::rbac::RbacConfig::default(),
         tenant_config: vellaveto_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
