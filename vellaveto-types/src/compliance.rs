@@ -416,6 +416,17 @@ impl AccessReviewEntry {
     pub const MAX_UNUSED_PERMISSIONS: usize = 10_000;
     /// Maximum length for ISO 8601 timestamp fields (bytes).
     const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for `agent_id` field (bytes).
+    ///
+    /// SECURITY (FIND-R159-002): Bound agent_id to prevent memory exhaustion
+    /// from attacker-controlled deserialized input.
+    const MAX_AGENT_ID_LEN: usize = 256;
+    /// Maximum length for individual string entries in Vec<String> fields (bytes).
+    ///
+    /// SECURITY (FIND-R159-001): Per-entry length bound on session_ids,
+    /// tools_accessed, functions_called, and unused_permissions to prevent
+    /// memory exhaustion and control/format character injection.
+    const MAX_ENTRY_VALUE_LEN: usize = 256;
 
     /// Validate structural invariants: finite scores, range checks, collection bounds.
     ///
@@ -426,6 +437,17 @@ impl AccessReviewEntry {
     /// SECURITY (FIND-R53-006): Unbounded Vec fields can cause OOM from
     /// attacker-controlled deserialized input.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R159-002): Bound agent_id length to prevent memory exhaustion.
+        if self.agent_id.is_empty() {
+            return Err("AccessReviewEntry agent_id must not be empty".to_string());
+        }
+        if self.agent_id.len() > Self::MAX_AGENT_ID_LEN {
+            return Err(format!(
+                "AccessReviewEntry agent_id length {} exceeds max {}",
+                self.agent_id.len(),
+                Self::MAX_AGENT_ID_LEN,
+            ));
+        }
         // SECURITY (FIND-R115-002): Reject control/format chars in identity fields
         // to prevent zero-width space or bidi override bypasses.
         if crate::core::has_dangerous_chars(&self.agent_id)
@@ -492,6 +514,23 @@ impl AccessReviewEntry {
                 Self::MAX_SESSION_IDS,
             ));
         }
+        // SECURITY (FIND-R159-001): Per-entry validation on session_ids.
+        for item in &self.session_ids {
+            if item.len() > Self::MAX_ENTRY_VALUE_LEN {
+                return Err(format!(
+                    "AccessReviewEntry for agent '{}' session_ids entry length {} exceeds max {}",
+                    self.agent_id,
+                    item.len(),
+                    Self::MAX_ENTRY_VALUE_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(item) {
+                return Err(format!(
+                    "AccessReviewEntry for agent '{}' session_ids entry contains control or format characters",
+                    self.agent_id,
+                ));
+            }
+        }
         if self.tools_accessed.len() > Self::MAX_TOOLS_ACCESSED {
             return Err(format!(
                 "AccessReviewEntry for agent '{}' has {} tools_accessed (max {})",
@@ -499,6 +538,23 @@ impl AccessReviewEntry {
                 self.tools_accessed.len(),
                 Self::MAX_TOOLS_ACCESSED,
             ));
+        }
+        // SECURITY (FIND-R159-001): Per-entry validation on tools_accessed.
+        for item in &self.tools_accessed {
+            if item.len() > Self::MAX_ENTRY_VALUE_LEN {
+                return Err(format!(
+                    "AccessReviewEntry for agent '{}' tools_accessed entry length {} exceeds max {}",
+                    self.agent_id,
+                    item.len(),
+                    Self::MAX_ENTRY_VALUE_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(item) {
+                return Err(format!(
+                    "AccessReviewEntry for agent '{}' tools_accessed entry contains control or format characters",
+                    self.agent_id,
+                ));
+            }
         }
         if self.functions_called.len() > Self::MAX_FUNCTIONS_CALLED {
             return Err(format!(
@@ -508,6 +564,23 @@ impl AccessReviewEntry {
                 Self::MAX_FUNCTIONS_CALLED,
             ));
         }
+        // SECURITY (FIND-R159-001): Per-entry validation on functions_called.
+        for item in &self.functions_called {
+            if item.len() > Self::MAX_ENTRY_VALUE_LEN {
+                return Err(format!(
+                    "AccessReviewEntry for agent '{}' functions_called entry length {} exceeds max {}",
+                    self.agent_id,
+                    item.len(),
+                    Self::MAX_ENTRY_VALUE_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(item) {
+                return Err(format!(
+                    "AccessReviewEntry for agent '{}' functions_called entry contains control or format characters",
+                    self.agent_id,
+                ));
+            }
+        }
         if self.unused_permissions.len() > Self::MAX_UNUSED_PERMISSIONS {
             return Err(format!(
                 "AccessReviewEntry for agent '{}' has {} unused_permissions (max {})",
@@ -515,6 +588,23 @@ impl AccessReviewEntry {
                 self.unused_permissions.len(),
                 Self::MAX_UNUSED_PERMISSIONS,
             ));
+        }
+        // SECURITY (FIND-R159-001): Per-entry validation on unused_permissions.
+        for item in &self.unused_permissions {
+            if item.len() > Self::MAX_ENTRY_VALUE_LEN {
+                return Err(format!(
+                    "AccessReviewEntry for agent '{}' unused_permissions entry length {} exceeds max {}",
+                    self.agent_id,
+                    item.len(),
+                    Self::MAX_ENTRY_VALUE_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(item) {
+                return Err(format!(
+                    "AccessReviewEntry for agent '{}' unused_permissions entry contains control or format characters",
+                    self.agent_id,
+                ));
+            }
         }
         Ok(())
     }

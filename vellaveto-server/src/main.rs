@@ -1181,10 +1181,18 @@ async fn cmd_serve(
                         .connect(db_url)
                         .await
                     {
-                        Arc::new(vellaveto_audit::query::postgres::PostgresAuditQuery::new(
+                        match vellaveto_audit::query::postgres::PostgresAuditQuery::new(
                             pool,
                             policy_config.audit_store.table_name.clone(),
-                        )) as Arc<dyn vellaveto_audit::query::AuditQueryService>
+                        ) {
+                            Ok(query) => Arc::new(query) as Arc<dyn vellaveto_audit::query::AuditQueryService>,
+                            Err(e) => {
+                                tracing::warn!(error = %e, "Invalid audit store table_name, falling back to file query");
+                                Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+                                    Arc::clone(&audit),
+                                )) as Arc<dyn vellaveto_audit::query::AuditQueryService>
+                            }
+                        }
                     } else {
                         tracing::warn!("Failed to create query pool, falling back to file query");
                         Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(

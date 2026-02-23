@@ -8529,3 +8529,170 @@ fn test_audit_store_status_serde_roundtrip_postgres_backend() {
     assert!(!decoded.sink_healthy);
     assert_eq!(decoded.pending_count, 37);
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R159-001: AccessReviewEntry per-entry Vec<String> validation
+// FIND-R159-002: AccessReviewEntry agent_id length bound
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r159_002_access_review_entry_rejects_empty_agent_id() {
+    let mut entry = make_valid_access_review_entry();
+    entry.agent_id = String::new();
+    let err = entry.validate().unwrap_err();
+    assert!(
+        err.contains("agent_id") && err.contains("must not be empty"),
+        "got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_r159_002_access_review_entry_rejects_oversized_agent_id() {
+    let mut entry = make_valid_access_review_entry();
+    entry.agent_id = "a".repeat(257);
+    let err = entry.validate().unwrap_err();
+    assert!(
+        err.contains("agent_id") && err.contains("exceeds max"),
+        "got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_r159_002_access_review_entry_accepts_max_length_agent_id() {
+    let mut entry = make_valid_access_review_entry();
+    entry.agent_id = "a".repeat(256);
+    assert!(entry.validate().is_ok());
+}
+
+#[test]
+fn test_r159_001_access_review_entry_rejects_oversized_session_ids_entry() {
+    let mut entry = make_valid_access_review_entry();
+    entry.session_ids = vec!["x".repeat(257)];
+    let err = entry.validate().unwrap_err();
+    assert!(
+        err.contains("session_ids") && err.contains("entry length") && err.contains("exceeds max"),
+        "got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_r159_001_access_review_entry_rejects_dangerous_char_in_session_ids() {
+    let mut entry = make_valid_access_review_entry();
+    entry.session_ids = vec!["session\u{200B}1".to_string()];
+    let err = entry.validate().unwrap_err();
+    assert!(
+        err.contains("session_ids") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_r159_001_access_review_entry_rejects_control_char_in_session_ids() {
+    let mut entry = make_valid_access_review_entry();
+    entry.session_ids = vec!["session\n1".to_string()];
+    let err = entry.validate().unwrap_err();
+    assert!(
+        err.contains("session_ids") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_r159_001_access_review_entry_rejects_oversized_tools_accessed_entry() {
+    let mut entry = make_valid_access_review_entry();
+    entry.tools_accessed = vec!["t".repeat(257)];
+    let err = entry.validate().unwrap_err();
+    assert!(
+        err.contains("tools_accessed") && err.contains("entry length") && err.contains("exceeds max"),
+        "got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_r159_001_access_review_entry_rejects_dangerous_char_in_tools_accessed() {
+    let mut entry = make_valid_access_review_entry();
+    entry.tools_accessed = vec!["tool\u{FEFF}name".to_string()];
+    let err = entry.validate().unwrap_err();
+    assert!(
+        err.contains("tools_accessed") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_r159_001_access_review_entry_rejects_oversized_functions_called_entry() {
+    let mut entry = make_valid_access_review_entry();
+    entry.functions_called = vec!["f".repeat(257)];
+    let err = entry.validate().unwrap_err();
+    assert!(
+        err.contains("functions_called") && err.contains("entry length") && err.contains("exceeds max"),
+        "got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_r159_001_access_review_entry_rejects_dangerous_char_in_functions_called() {
+    let mut entry = make_valid_access_review_entry();
+    entry.functions_called = vec!["func\x07call".to_string()];
+    let err = entry.validate().unwrap_err();
+    assert!(
+        err.contains("functions_called") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_r159_001_access_review_entry_rejects_oversized_unused_permissions_entry() {
+    let mut entry = make_valid_access_review_entry();
+    entry.unused_permissions = vec!["p".repeat(257)];
+    let err = entry.validate().unwrap_err();
+    assert!(
+        err.contains("unused_permissions") && err.contains("entry length") && err.contains("exceeds max"),
+        "got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_r159_001_access_review_entry_rejects_dangerous_char_in_unused_permissions() {
+    let mut entry = make_valid_access_review_entry();
+    entry.unused_permissions = vec!["perm\u{202E}evil".to_string()];
+    let err = entry.validate().unwrap_err();
+    assert!(
+        err.contains("unused_permissions") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_r159_001_access_review_entry_accepts_max_length_entries() {
+    let mut entry = make_valid_access_review_entry();
+    let max_val = "x".repeat(256);
+    entry.session_ids = vec![max_val.clone()];
+    entry.tools_accessed = vec![max_val.clone()];
+    entry.functions_called = vec![max_val.clone()];
+    entry.unused_permissions = vec![max_val];
+    assert!(entry.validate().is_ok());
+}
+
+#[test]
+fn test_r159_001_access_review_entry_second_entry_bad_in_vec() {
+    let mut entry = make_valid_access_review_entry();
+    entry.session_ids = vec!["good".to_string(), "bad\x00id".to_string()];
+    let err = entry.validate().unwrap_err();
+    assert!(
+        err.contains("session_ids") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
+}

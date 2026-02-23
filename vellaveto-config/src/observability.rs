@@ -627,12 +627,75 @@ impl ObservabilityConfig {
                 MAX_WEBHOOK_HEADERS
             ));
         }
+        // SECURITY (FIND-R159-002): Validate webhook header keys and values for control/format
+        // characters and length bounds. These headers are forwarded to external services —
+        // unvalidated values enable CRLF injection and log poisoning via zero-width/bidi chars.
+        const MAX_HEADER_KEY_LEN: usize = 256;
+        const MAX_HEADER_VALUE_LEN: usize = 4096;
+        for (key, value) in &self.webhook.headers {
+            if key.len() > MAX_HEADER_KEY_LEN {
+                return Err(format!(
+                    "observability.webhook.headers key exceeds max length ({} > {})",
+                    key.len(),
+                    MAX_HEADER_KEY_LEN
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(key) {
+                return Err(
+                    "observability.webhook.headers key contains control or format characters"
+                        .to_string(),
+                );
+            }
+            if value.len() > MAX_HEADER_VALUE_LEN {
+                return Err(format!(
+                    "observability.webhook.headers value exceeds max length ({} > {})",
+                    value.len(),
+                    MAX_HEADER_VALUE_LEN
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(value) {
+                return Err(
+                    "observability.webhook.headers value contains control or format characters"
+                        .to_string(),
+                );
+            }
+        }
         if self.otlp.headers.len() > MAX_OTLP_HEADERS {
             return Err(format!(
                 "observability.otlp.headers has {} entries, max is {}",
                 self.otlp.headers.len(),
                 MAX_OTLP_HEADERS
             ));
+        }
+        // SECURITY (FIND-R159-002): Validate OTLP header keys and values for control/format
+        // characters and length bounds. Same rationale as webhook headers above.
+        for (key, value) in &self.otlp.headers {
+            if key.len() > MAX_HEADER_KEY_LEN {
+                return Err(format!(
+                    "observability.otlp.headers key exceeds max length ({} > {})",
+                    key.len(),
+                    MAX_HEADER_KEY_LEN
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(key) {
+                return Err(
+                    "observability.otlp.headers key contains control or format characters"
+                        .to_string(),
+                );
+            }
+            if value.len() > MAX_HEADER_VALUE_LEN {
+                return Err(format!(
+                    "observability.otlp.headers value exceeds max length ({} > {})",
+                    value.len(),
+                    MAX_HEADER_VALUE_LEN
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(value) {
+                return Err(
+                    "observability.otlp.headers value contains control or format characters"
+                        .to_string(),
+                );
+            }
         }
 
         // SECURITY (FIND-R72-CFG-004): Validate redacted_fields bounds.
@@ -1468,5 +1531,195 @@ mod tests {
             config.validate().is_ok(),
             "explicit non-zero values should be valid"
         );
+    }
+
+    // ========================================
+    // FIND-R159-002: Webhook/OTLP header key/value validation
+    // ========================================
+
+    #[test]
+    fn test_validate_webhook_headers_key_control_chars() {
+        let mut config = ObservabilityConfig::default();
+        config.webhook.headers.insert("X-Bad\nKey".to_string(), "value".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("webhook.headers key contains control or format characters"),
+            "expected control char error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_webhook_headers_key_zero_width() {
+        let mut config = ObservabilityConfig::default();
+        // U+200B ZERO WIDTH SPACE
+        config.webhook.headers.insert("X-Bad\u{200B}Key".to_string(), "value".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("webhook.headers key contains control or format characters"),
+            "expected format char error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_webhook_headers_value_control_chars() {
+        let mut config = ObservabilityConfig::default();
+        config.webhook.headers.insert("X-Good-Key".to_string(), "bad\r\nvalue".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("webhook.headers value contains control or format characters"),
+            "expected control char error on value, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_webhook_headers_value_bidi_override() {
+        let mut config = ObservabilityConfig::default();
+        // U+202E RIGHT-TO-LEFT OVERRIDE
+        config.webhook.headers.insert("X-Key".to_string(), "val\u{202E}ue".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("webhook.headers value contains control or format characters"),
+            "expected format char error on value, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_webhook_headers_key_too_long() {
+        let mut config = ObservabilityConfig::default();
+        let long_key = "X".repeat(257);
+        config.webhook.headers.insert(long_key, "value".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("webhook.headers key exceeds max length"),
+            "expected key length error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_webhook_headers_value_too_long() {
+        let mut config = ObservabilityConfig::default();
+        let long_value = "v".repeat(4097);
+        config.webhook.headers.insert("X-Key".to_string(), long_value);
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("webhook.headers value exceeds max length"),
+            "expected value length error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_webhook_headers_valid() {
+        let mut config = ObservabilityConfig::default();
+        config.webhook.headers.insert("X-Custom-Header".to_string(), "some-value".to_string());
+        config.webhook.headers.insert("Authorization".to_string(), "Bearer token123".to_string());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_otlp_headers_key_control_chars() {
+        let mut config = ObservabilityConfig::default();
+        config.otlp.headers.insert("X-Bad\x00Key".to_string(), "value".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("otlp.headers key contains control or format characters"),
+            "expected control char error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_otlp_headers_key_zero_width() {
+        let mut config = ObservabilityConfig::default();
+        // U+FEFF BOM
+        config.otlp.headers.insert("X-Bad\u{FEFF}Key".to_string(), "value".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("otlp.headers key contains control or format characters"),
+            "expected format char error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_otlp_headers_value_control_chars() {
+        let mut config = ObservabilityConfig::default();
+        config.otlp.headers.insert("X-Key".to_string(), "bad\x1Fvalue".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("otlp.headers value contains control or format characters"),
+            "expected control char error on value, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_otlp_headers_value_zero_width_joiner() {
+        let mut config = ObservabilityConfig::default();
+        // U+200D ZERO WIDTH JOINER
+        config.otlp.headers.insert("X-Key".to_string(), "val\u{200D}ue".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("otlp.headers value contains control or format characters"),
+            "expected format char error on value, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_otlp_headers_key_too_long() {
+        let mut config = ObservabilityConfig::default();
+        let long_key = "H".repeat(257);
+        config.otlp.headers.insert(long_key, "value".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("otlp.headers key exceeds max length"),
+            "expected key length error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_otlp_headers_value_too_long() {
+        let mut config = ObservabilityConfig::default();
+        let long_value = "v".repeat(4097);
+        config.otlp.headers.insert("X-Key".to_string(), long_value);
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("otlp.headers value exceeds max length"),
+            "expected value length error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_otlp_headers_valid() {
+        let mut config = ObservabilityConfig::default();
+        config.otlp.headers.insert("api-key".to_string(), "secret123".to_string());
+        config.otlp.headers.insert("X-Tenant".to_string(), "my-tenant".to_string());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_webhook_headers_key_at_max_length() {
+        let mut config = ObservabilityConfig::default();
+        // Exactly 256 bytes should be accepted
+        let key = "K".repeat(256);
+        config.webhook.headers.insert(key, "value".to_string());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_otlp_headers_value_at_max_length() {
+        let mut config = ObservabilityConfig::default();
+        // Exactly 4096 bytes should be accepted
+        let value = "V".repeat(4096);
+        config.otlp.headers.insert("X-Key".to_string(), value);
+        assert!(config.validate().is_ok());
     }
 }

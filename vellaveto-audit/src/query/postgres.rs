@@ -25,12 +25,62 @@ impl std::fmt::Debug for PostgresAuditQuery {
     }
 }
 
+/// Maximum length for a PostgreSQL identifier (table name).
+const MAX_PG_IDENTIFIER_LEN: usize = 63;
+
+/// Validate that a table name is a safe PostgreSQL identifier.
+///
+/// Defense in depth: even if callers pre-validate, this constructor enforces:
+/// 1. Non-empty and at most 63 characters (PostgreSQL identifier limit)
+/// 2. Only ASCII alphanumeric characters and underscores
+/// 3. Does not start with a digit
+///
+/// This prevents SQL injection when the table name is interpolated into queries
+/// (SQL does not support parameterized table names).
+fn validate_table_name(table_name: &str) -> Result<(), QueryError> {
+    if table_name.is_empty() {
+        return Err(QueryError::Validation(
+            "table_name must not be empty".to_string(),
+        ));
+    }
+    if table_name.len() > MAX_PG_IDENTIFIER_LEN {
+        return Err(QueryError::Validation(format!(
+            "table_name exceeds PostgreSQL's {}-character identifier limit",
+            MAX_PG_IDENTIFIER_LEN
+        )));
+    }
+    if table_name.starts_with(|c: char| c.is_ascii_digit()) {
+        return Err(QueryError::Validation(
+            "table_name must not start with a digit".to_string(),
+        ));
+    }
+    if !table_name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(QueryError::Validation(
+            "table_name must contain only alphanumeric characters and underscores".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 impl PostgresAuditQuery {
     /// Create a new PostgreSQL query service.
     ///
-    /// The `table_name` must have been validated by config (alphanumeric + underscore only).
-    pub fn new(pool: PgPool, table_name: String) -> Self {
-        Self { pool, table_name }
+    /// # Errors
+    ///
+    /// Returns `QueryError::Validation` if `table_name` is not a safe SQL identifier:
+    /// - Empty or longer than 63 characters (PostgreSQL identifier limit)
+    /// - Contains characters other than `[a-zA-Z0-9_]`
+    /// - Starts with a digit
+    ///
+    /// SECURITY (FIND-R159-001): Defense in depth — validates table_name at construction
+    /// time even though callers may pre-validate, because the table name is interpolated
+    /// directly into SQL (parameterized table names are not supported by SQL).
+    pub fn new(pool: PgPool, table_name: String) -> Result<Self, QueryError> {
+        validate_table_name(&table_name)?;
+        Ok(Self { pool, table_name })
     }
 }
 
@@ -500,6 +550,91 @@ mod tests {
         };
         let clauses = build_filter_clauses(&params);
         assert!(clauses.contains("ILIKE"));
+    }
+
+    // --- validate_table_name() / PostgresAuditQuery::new() tests (FIND-R159-001) ---
+
+    #[test]
+    fn test_validate_table_name_valid() {
+        assert!(validate_table_name("audit_entries").is_ok());
+        assert!(validate_table_name("vellaveto_audit_entries").is_ok());
+        assert!(validate_table_name("a").is_ok());
+        assert!(validate_table_name("_private").is_ok());
+        assert!(validate_table_name("Table123").is_ok());
+    }
+
+    #[test]
+    fn test_validate_table_name_empty() {
+        let err = validate_table_name("").unwrap_err().to_string();
+        assert!(err.contains("must not be empty"), "got: {err}");
+    }
+
+    #[test]
+    fn test_validate_table_name_too_long() {
+        let name = "a".repeat(64);
+        let err = validate_table_name(&name).unwrap_err().to_string();
+        assert!(err.contains("63"), "got: {err}");
+    }
+
+    #[test]
+    fn test_validate_table_name_at_max_length() {
+        let name = "a".repeat(63);
+        assert!(validate_table_name(&name).is_ok());
+    }
+
+    #[test]
+    fn test_validate_table_name_starts_with_digit() {
+        let err = validate_table_name("1table").unwrap_err().to_string();
+        assert!(err.contains("digit"), "got: {err}");
+    }
+
+    #[test]
+    fn test_validate_table_name_sql_injection_semicolon() {
+        let err = validate_table_name("audit; DROP TABLE users--").unwrap_err().to_string();
+        assert!(err.contains("alphanumeric"), "got: {err}");
+    }
+
+    #[test]
+    fn test_validate_table_name_sql_injection_quotes() {
+        let err = validate_table_name("audit' OR '1'='1").unwrap_err().to_string();
+        assert!(err.contains("alphanumeric"), "got: {err}");
+    }
+
+    #[test]
+    fn test_validate_table_name_double_quotes() {
+        let err = validate_table_name("\"audit\"").unwrap_err().to_string();
+        assert!(err.contains("alphanumeric"), "got: {err}");
+    }
+
+    #[test]
+    fn test_validate_table_name_dashes() {
+        let err = validate_table_name("my-table").unwrap_err().to_string();
+        assert!(err.contains("alphanumeric"), "got: {err}");
+    }
+
+    #[test]
+    fn test_validate_table_name_spaces() {
+        let err = validate_table_name("my table").unwrap_err().to_string();
+        assert!(err.contains("alphanumeric"), "got: {err}");
+    }
+
+    #[test]
+    fn test_validate_table_name_dot() {
+        // Schema-qualified names are not allowed — must be a bare identifier
+        let err = validate_table_name("public.audit").unwrap_err().to_string();
+        assert!(err.contains("alphanumeric"), "got: {err}");
+    }
+
+    #[test]
+    fn test_validate_table_name_unicode() {
+        let err = validate_table_name("t\u{00E4}ble").unwrap_err().to_string();
+        assert!(err.contains("alphanumeric"), "got: {err}");
+    }
+
+    #[test]
+    fn test_validate_table_name_null_byte() {
+        let err = validate_table_name("audit\0table").unwrap_err().to_string();
+        assert!(err.contains("alphanumeric"), "got: {err}");
     }
 
     #[test]
