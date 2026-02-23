@@ -17,6 +17,7 @@ use vellaveto_types::{Policy, PolicyType};
 
 fn make_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -40,7 +41,7 @@ fn make_state() -> (AppState, TempDir) {
             ],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("nonexistent.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -106,19 +107,29 @@ fn make_state() -> (AppState, TempDir) {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
     (state, tmp)
 }
 
 fn make_empty_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
             policies: vec![],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("nonexistent.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -184,6 +195,15 @@ fn make_empty_state() -> (AppState, TempDir) {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
     (state, tmp)
 }
@@ -1238,13 +1258,14 @@ priority = 1
     )
     .unwrap();
 
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
             policies: vec![],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new(config_path.to_str().unwrap().to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -1310,6 +1331,15 @@ priority = 1
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
     let app = routes::build_router(state.clone());
 
@@ -1362,6 +1392,7 @@ async fn delete_policy_with_url_encoded_colon() {
 
 fn make_approval_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -1387,7 +1418,7 @@ fn make_approval_state() -> (AppState, TempDir) {
             ],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("nonexistent.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -1453,6 +1484,15 @@ fn make_approval_state() -> (AppState, TempDir) {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
     (state, tmp)
 }
@@ -1878,6 +1918,7 @@ async fn security_headers_present_on_post() {
 
 fn make_authed_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -1891,7 +1932,7 @@ fn make_authed_state() -> (AppState, TempDir) {
             }],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("nonexistent.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -1957,6 +1998,15 @@ fn make_authed_state() -> (AppState, TempDir) {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
     (state, tmp)
 }
@@ -2404,6 +2454,9 @@ async fn request_id_at_128_chars_is_preserved() {
 fn make_checkpoint_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let signing_key = AuditLogger::generate_signing_key();
+    let audit = Arc::new(
+        AuditLogger::new(tmp.path().join("audit.log")).with_signing_key(signing_key),
+    );
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -2417,9 +2470,7 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
             }],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(
-            AuditLogger::new(tmp.path().join("audit.log")).with_signing_key(signing_key),
-        ),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("nonexistent.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -2485,6 +2536,15 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
     (state, tmp)
 }
@@ -3133,6 +3193,7 @@ async fn test_security_header_no_hsts_on_http() {
 
 fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let rate_limits =
         RateLimits::disabled().with_per_principal(std::num::NonZeroU32::new(rps).unwrap());
     let state = AppState {
@@ -3148,7 +3209,7 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
             }],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("nonexistent.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -3214,6 +3275,15 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
     (state, tmp)
 }

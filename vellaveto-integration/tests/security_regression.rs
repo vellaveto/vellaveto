@@ -348,6 +348,7 @@ mod server_auth {
 
     fn make_authed_state(api_key: &str) -> (AppState, TempDir) {
         let tmp = TempDir::new().unwrap();
+        let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
         let state = AppState {
             policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
                 engine: PolicyEngine::new(false),
@@ -361,7 +362,7 @@ mod server_auth {
                 }],
                 compliance_config: Default::default(),
             })),
-            audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+            audit: Arc::clone(&audit),
             config_path: Arc::new("test.toml".to_string()),
             approvals: Arc::new(ApprovalStore::new(
                 tmp.path().join("approvals.jsonl"),
@@ -427,6 +428,15 @@ mod server_auth {
             }),
             setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             wizard_sessions: Arc::new(dashmap::DashMap::new()),
+            audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+                Arc::clone(&audit),
+            )),
+            audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+                enabled: false,
+                backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+                sink_healthy: false,
+                pending_count: 0,
+            },
         };
         (state, tmp)
     }
@@ -527,13 +537,14 @@ mod server_auth {
     #[tokio::test]
     async fn no_api_key_configured_allows_all() {
         let tmp = TempDir::new().unwrap();
+        let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
         let state = AppState {
             policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
                 engine: PolicyEngine::new(false),
                 policies: vec![],
                 compliance_config: Default::default(),
             })),
-            audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+            audit: Arc::clone(&audit),
             config_path: Arc::new("test.toml".to_string()),
             approvals: Arc::new(ApprovalStore::new(
                 tmp.path().join("approvals.jsonl"),
@@ -599,6 +610,15 @@ mod server_auth {
             }),
             setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             wizard_sessions: Arc::new(dashmap::DashMap::new()),
+            audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+                Arc::clone(&audit),
+            )),
+            audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+                enabled: false,
+                backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+                sink_healthy: false,
+                pending_count: 0,
+            },
         };
         let app = routes::build_router(state);
 
@@ -1172,7 +1192,7 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
             }],
             compliance_config: Default::default(),
         })),
-        audit: logger,
+        audit: Arc::clone(&logger),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -1238,6 +1258,15 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&logger),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     let app = routes::build_router(state);
@@ -1296,6 +1325,7 @@ async fn finding_12_approval_creation_failure_denies_request() {
         std::time::Duration::from_secs(900),
     ));
 
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -1313,7 +1343,7 @@ async fn finding_12_approval_creation_failure_denies_request() {
             }],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals,
         api_key: None,
@@ -1376,6 +1406,15 @@ async fn finding_12_approval_creation_failure_denies_request() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     let app = routes::build_router(state);
@@ -1779,6 +1818,7 @@ policy_type = "Allow"
 #[tokio::test]
 async fn find_r46_it003_malformed_json_request_body_rejected() {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -1792,7 +1832,7 @@ async fn find_r46_it003_malformed_json_request_body_rejected() {
             }],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -1857,6 +1897,15 @@ async fn find_r46_it003_malformed_json_request_body_rejected() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     // Test 1: Completely invalid JSON

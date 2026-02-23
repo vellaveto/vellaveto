@@ -885,13 +885,33 @@ impl SessionGuard {
     /// Check if a session should deny all actions.
     /// Returns Some(reason) if the session is in a deny-all state, None otherwise.
     ///
+    /// SECURITY (FIND-R198-004): Also enforces `max_session_duration_secs` by
+    /// checking elapsed time since session start. Previously this was only checked
+    /// in `process_event_at`, so sessions that exceeded their duration but had no
+    /// new events would not be denied.
+    ///
     /// Fail-closed: if the lock is poisoned, returns a deny reason.
     pub fn should_deny(&self, session_id: &str) -> Option<String> {
         match self.sessions.read() {
             Ok(sessions) => sessions.get(session_id).and_then(|ctx| match ctx.state {
                 SessionState::Locked => Some(format!("Session '{}' is locked", session_id)),
                 SessionState::Ended => Some(format!("Session '{}' has ended", session_id)),
-                _ => None,
+                _ => {
+                    // SECURITY (FIND-R198-004): Check max_session_duration_secs
+                    // even between events, using current wall-clock time.
+                    if self.config.max_session_duration_secs > 0 {
+                        let now = Self::now();
+                        if now.saturating_sub(ctx.started_at)
+                            >= self.config.max_session_duration_secs
+                        {
+                            return Some(format!(
+                                "Session '{}' exceeded max duration ({} seconds)",
+                                session_id, self.config.max_session_duration_secs
+                            ));
+                        }
+                    }
+                    None
+                }
             }),
             Err(_poisoned) => {
                 // Fail-closed: lock poisoned → deny
@@ -1894,5 +1914,53 @@ mod tests {
             })
             .unwrap();
         assert_eq!(result.current, SessionState::Active);
+    }
+
+    // SECURITY (FIND-R198-004): should_deny() enforces max_session_duration_secs
+    #[test]
+    fn test_should_deny_enforces_duration_limit() {
+        let guard = SessionGuard::new(SessionGuardConfig {
+            max_session_duration_secs: 60,
+            ..Default::default()
+        });
+        // Start session at t=1000
+        guard.process_event_at("s1", SessionEvent::FirstAction, 1000).unwrap();
+
+        // Within duration: should_deny returns None
+        // Note: should_deny uses Self::now() which uses real wall-clock time,
+        // so the session started at t=1000 (epoch seconds) is always in the past.
+        // A session with max_duration=60 started at t=1000 will have expired by
+        // the current time (well past 1060). This validates the duration check.
+        let result = guard.should_deny("s1");
+        assert!(
+            result.is_some(),
+            "should_deny should reject expired session, got: None"
+        );
+        assert!(
+            result.as_ref().unwrap().contains("exceeded max duration"),
+            "got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_should_deny_no_duration_limit_allows() {
+        let guard = SessionGuard::new(SessionGuardConfig {
+            max_session_duration_secs: 0, // unlimited
+            ..Default::default()
+        });
+        guard
+            .process_event("s1", SessionEvent::FirstAction)
+            .unwrap();
+        assert!(
+            guard.should_deny("s1").is_none(),
+            "unlimited duration should not deny"
+        );
+    }
+
+    #[test]
+    fn test_should_deny_unknown_session_returns_none() {
+        let guard = default_guard();
+        assert!(guard.should_deny("nonexistent").is_none());
     }
 }

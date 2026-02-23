@@ -34,6 +34,7 @@
 
 pub mod approval;
 pub mod audit;
+pub mod audit_store;
 pub mod auth_level;
 pub mod billing;
 pub mod circuit_breaker;

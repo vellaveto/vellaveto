@@ -4308,3 +4308,303 @@ async fn test_gap_t07_compress_missing_file() {
     let result = compress_rotated_file(&missing).await;
     assert!(result.is_err(), "Compressing missing file should fail");
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Phase 43: SinkError display, AuditLogger sink builder, and
+// FileAuditQuery tests (IMP-R198-P43)
+// ═══════════════════════════════════════════════════════════════
+
+/// Minimal no-op AuditSink for testing the logger's with_sink builder.
+/// Does not write to any external store; used only to verify wiring.
+#[derive(Debug)]
+struct NoOpSink {
+    healthy: bool,
+}
+
+#[async_trait::async_trait]
+impl crate::sink::AuditSink for NoOpSink {
+    async fn sink(&self, _entry: &crate::AuditEntry) -> Result<(), crate::sink::SinkError> {
+        Ok(())
+    }
+
+    async fn flush(&self) -> Result<(), crate::sink::SinkError> {
+        Ok(())
+    }
+
+    async fn shutdown(&self) -> Result<(), crate::sink::SinkError> {
+        Ok(())
+    }
+
+    fn is_healthy(&self) -> bool {
+        self.healthy
+    }
+
+    fn pending_count(&self) -> usize {
+        0
+    }
+}
+
+// ── SinkError display tests ──────────────────────────────────────────────────
+
+#[test]
+fn test_sink_error_display_connection() {
+    let err = crate::sink::SinkError::Connection("timeout".to_string());
+    let msg = err.to_string();
+    assert!(msg.contains("sink connection error"), "got: {msg}");
+    assert!(msg.contains("timeout"), "got: {msg}");
+}
+
+#[test]
+fn test_sink_error_display_write() {
+    let err = crate::sink::SinkError::Write("disk full".to_string());
+    let msg = err.to_string();
+    assert!(msg.contains("sink write error"), "got: {msg}");
+    assert!(msg.contains("disk full"), "got: {msg}");
+}
+
+#[test]
+fn test_sink_error_display_serialization() {
+    let err = crate::sink::SinkError::Serialization("invalid utf8".to_string());
+    let msg = err.to_string();
+    assert!(msg.contains("sink serialization error"), "got: {msg}");
+    assert!(msg.contains("invalid utf8"), "got: {msg}");
+}
+
+#[test]
+fn test_sink_error_display_buffer_full() {
+    let err = crate::sink::SinkError::BufferFull(42);
+    let msg = err.to_string();
+    assert!(msg.contains("buffer full"), "got: {msg}");
+    assert!(msg.contains("42"), "got: {msg}");
+}
+
+#[test]
+fn test_sink_error_display_shutting_down() {
+    let err = crate::sink::SinkError::ShuttingDown;
+    let msg = err.to_string();
+    assert!(msg.contains("shutting down"), "got: {msg}");
+}
+
+// ── AuditLogger sink builder tests ──────────────────────────────────────────
+
+#[tokio::test]
+async fn test_logger_no_sink_log_entry_succeeds() {
+    // A logger with no sink should log successfully — sink absence is not an error.
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path);
+
+    // Verify the sink field is absent
+    assert!(logger.sink.is_none(), "expected no sink by default");
+
+    // Logging should still succeed
+    logger
+        .log_entry(&test_action(), &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
+
+    let entries = logger.load_entries().await.unwrap();
+    assert_eq!(entries.len(), 1);
+}
+
+#[test]
+fn test_logger_with_sink_sets_sink_field() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+
+    let sink = std::sync::Arc::new(NoOpSink { healthy: true });
+    let logger = AuditLogger::new(log_path).with_sink(sink, false);
+
+    assert!(logger.sink.is_some(), "sink should be set after with_sink()");
+    assert!(
+        !logger.sink_failure_fatal,
+        "sink_failure_fatal should be false"
+    );
+}
+
+#[test]
+fn test_logger_with_sink_fatal_flag() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+
+    let sink = std::sync::Arc::new(NoOpSink { healthy: false });
+    let logger = AuditLogger::new(log_path).with_sink(sink, true);
+
+    assert!(logger.sink.is_some(), "sink should be set");
+    assert!(
+        logger.sink_failure_fatal,
+        "sink_failure_fatal should be true when fatal=true"
+    );
+}
+
+// ── FileAuditQuery tests ─────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_file_audit_query_search_empty_log_returns_zero_total() {
+    use crate::query::{AuditQueryService, file::FileAuditQuery};
+    use vellaveto_types::audit_store::AuditQueryParams;
+
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = std::sync::Arc::new(AuditLogger::new(log_path));
+    let query = FileAuditQuery::new(logger);
+
+    let params = AuditQueryParams::default();
+    let result = query.search(&params).await.unwrap();
+
+    assert_eq!(result.total, 0, "empty log should have 0 total entries");
+    assert!(result.entries.is_empty(), "empty log should have no entries");
+    assert_eq!(result.limit, params.limit);
+    assert_eq!(result.offset, params.offset);
+}
+
+#[tokio::test]
+async fn test_file_audit_query_count_empty_log_returns_zero() {
+    use crate::query::{AuditQueryService, file::FileAuditQuery};
+    use vellaveto_types::audit_store::AuditQueryParams;
+
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = std::sync::Arc::new(AuditLogger::new(log_path));
+    let query = FileAuditQuery::new(logger);
+
+    let params = AuditQueryParams::default();
+    let count = query.count(&params).await.unwrap();
+
+    assert_eq!(count, 0, "empty log should have count 0");
+}
+
+#[tokio::test]
+async fn test_file_audit_query_get_by_id_nonexistent_returns_none() {
+    use crate::query::{AuditQueryService, file::FileAuditQuery};
+
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = std::sync::Arc::new(AuditLogger::new(log_path));
+    let query = FileAuditQuery::new(logger);
+
+    let result = query.get_by_id("nonexistent-uuid").await.unwrap();
+
+    assert!(result.is_none(), "non-existent ID should return None");
+}
+
+#[tokio::test]
+async fn test_file_audit_query_recent_empty_log_returns_empty_vec() {
+    use crate::query::{AuditQueryService, file::FileAuditQuery};
+
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = std::sync::Arc::new(AuditLogger::new(log_path));
+    let query = FileAuditQuery::new(logger);
+
+    let recent = query.recent(10).await.unwrap();
+
+    assert!(recent.is_empty(), "recent() on empty log should return empty vec");
+}
+
+#[tokio::test]
+async fn test_file_audit_query_search_invalid_params_returns_validation_error() {
+    use crate::query::{AuditQueryService, QueryError, file::FileAuditQuery};
+    use vellaveto_types::audit_store::AuditQueryParams;
+
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = std::sync::Arc::new(AuditLogger::new(log_path));
+    let query = FileAuditQuery::new(logger);
+
+    // limit == 0 is an invalid parameter
+    let params = AuditQueryParams {
+        limit: 0,
+        ..Default::default()
+    };
+    let err = query.search(&params).await.unwrap_err();
+
+    assert!(
+        matches!(err, QueryError::Validation(_)),
+        "invalid params should produce Validation error, got: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_file_audit_query_search_with_entries_returns_correct_total() {
+    use crate::query::{AuditQueryService, file::FileAuditQuery};
+    use vellaveto_types::audit_store::AuditQueryParams;
+
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = std::sync::Arc::new(AuditLogger::new(log_path.clone()));
+
+    // Write 3 entries
+    logger.log_entry(&test_action(), &Verdict::Allow, json!({})).await.unwrap();
+    logger.log_entry(&test_action(), &Verdict::Allow, json!({})).await.unwrap();
+    logger
+        .log_entry(
+            &test_action(),
+            &Verdict::Deny { reason: "blocked".to_string() },
+            json!({}),
+        )
+        .await
+        .unwrap();
+
+    let query = FileAuditQuery::new(logger);
+    let params = AuditQueryParams::default();
+    let result = query.search(&params).await.unwrap();
+
+    assert_eq!(result.total, 3, "should find all 3 entries");
+    assert_eq!(result.entries.len(), 3);
+}
+
+#[tokio::test]
+async fn test_file_audit_query_count_invalid_params_returns_validation_error() {
+    use crate::query::{AuditQueryService, QueryError, file::FileAuditQuery};
+    use vellaveto_types::audit_store::AuditQueryParams;
+
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = std::sync::Arc::new(AuditLogger::new(log_path));
+    let query = FileAuditQuery::new(logger);
+
+    // limit exceeds MAX_QUERY_LIMIT (1000)
+    let params = AuditQueryParams {
+        limit: 9999,
+        ..Default::default()
+    };
+    let err = query.count(&params).await.unwrap_err();
+
+    assert!(
+        matches!(err, QueryError::Validation(_)),
+        "invalid params should produce Validation error, got: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_file_audit_query_get_by_id_empty_id_returns_validation_error() {
+    use crate::query::{AuditQueryService, QueryError, file::FileAuditQuery};
+
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = std::sync::Arc::new(AuditLogger::new(log_path));
+    let query = FileAuditQuery::new(logger);
+
+    let err = query.get_by_id("").await.unwrap_err();
+
+    assert!(
+        matches!(err, QueryError::Validation(_)),
+        "empty ID should produce Validation error, got: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_file_audit_query_recent_capped_at_max_query_limit() {
+    use crate::query::{AuditQueryService, file::FileAuditQuery};
+
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = std::sync::Arc::new(AuditLogger::new(log_path));
+    let query = FileAuditQuery::new(logger);
+
+    // Requesting more than MAX_QUERY_LIMIT should be capped, not error
+    let recent = query.recent(u64::MAX).await.unwrap();
+    // Empty log: result is still empty
+    assert!(recent.is_empty());
+}

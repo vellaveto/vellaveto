@@ -862,6 +862,7 @@ mod owasp_mcp07_auth {
 
     fn make_state(api_key: Option<&str>) -> (AppState, TempDir) {
         let tmp = TempDir::new().unwrap();
+        let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
         let state = AppState {
             policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
                 engine: PolicyEngine::new(false),
@@ -875,7 +876,7 @@ mod owasp_mcp07_auth {
                 }],
                 compliance_config: Default::default(),
             })),
-            audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+            audit: Arc::clone(&audit),
             config_path: Arc::new("test.toml".to_string()),
             approvals: Arc::new(ApprovalStore::new(
                 tmp.path().join("approvals.jsonl"),
@@ -941,6 +942,15 @@ mod owasp_mcp07_auth {
             }),
             setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             wizard_sessions: Arc::new(dashmap::DashMap::new()),
+            audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+                Arc::clone(&audit),
+            )),
+            audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+                enabled: false,
+                backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+                sink_healthy: false,
+                pending_count: 0,
+            },
         };
         (state, tmp)
     }
@@ -1319,7 +1329,7 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
                 policies: vec![],
                 compliance_config: Default::default(),
             })),
-            audit: logger,
+            audit: Arc::clone(&logger),
             config_path: Arc::new("test.toml".to_string()),
             approvals: Arc::new(ApprovalStore::new(
                 tmp.path().join("approvals.jsonl"),
@@ -1385,6 +1395,15 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
             }),
             setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             wizard_sessions: Arc::new(dashmap::DashMap::new()),
+            audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+                Arc::clone(&logger),
+            )),
+            audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+                enabled: false,
+                backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+                sink_healthy: false,
+                pending_count: 0,
+            },
         };
 
         let app = routes::build_router(state);
@@ -1606,6 +1625,7 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
     use vellaveto_server::{routes, AppState, Metrics, RateLimits};
 
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
 
     // Set rate limit to 1 request per second for evaluate
     let state = AppState {
@@ -1614,7 +1634,7 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
             policies: vec![allow_policy("file:read", "Allow reads", 10)],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -1680,6 +1700,15 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1854,13 +1883,14 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
     use vellaveto_server::{routes, AppState, Metrics, RateLimits};
 
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
             policies: vec![allow_policy("file:read", "Allow", 10)],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -1926,6 +1956,15 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

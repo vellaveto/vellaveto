@@ -501,6 +501,21 @@ pub fn build_router(state: AppState) -> Router {
             get(super::zk_audit::zk_audit_commitments),
         )
         // ═══════════════════════════════════════════════════════════════════
+        // Phase 43: Centralized Audit Store
+        // ═══════════════════════════════════════════════════════════════════
+        .route(
+            "/api/audit/search",
+            get(super::audit_store::audit_search),
+        )
+        .route(
+            "/api/audit/store/status",
+            get(super::audit_store::audit_store_status),
+        )
+        .route(
+            "/api/audit/entry/{id}",
+            get(super::audit_store::audit_entry_by_id),
+        )
+        // ═══════════════════════════════════════════════════════════════════
         // Phase 39: Agent Identity Federation
         // ═══════════════════════════════════════════════════════════════════
         .route(

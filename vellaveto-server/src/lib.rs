@@ -916,6 +916,16 @@ pub struct AppState {
 
     /// Active wizard sessions (bounded by MAX_WIZARD_SESSIONS).
     pub wizard_sessions: Arc<dashmap::DashMap<String, setup_wizard::WizardSession>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 43: Centralized Audit Store
+    // ═══════════════════════════════════════════════════════════════════
+    /// Audit query service for structured search over audit entries.
+    /// Default: FileAuditQuery wrapping the JSONL audit log.
+    pub audit_query: Arc<dyn vellaveto_audit::query::AuditQueryService>,
+
+    /// Cached audit store status for the status endpoint.
+    pub audit_store_status: vellaveto_types::audit_store::AuditStoreStatus,
 }
 
 /// Error type for cluster-dispatched approval operations.

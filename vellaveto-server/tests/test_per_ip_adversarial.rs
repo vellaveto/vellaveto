@@ -26,6 +26,7 @@ use vellaveto_types::{Policy, PolicyType};
 
 fn per_ip_state(rps: u32) -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -39,7 +40,7 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
             }],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -107,6 +108,15 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
     (state, tmp)
 }
@@ -415,6 +425,7 @@ async fn regression_23_xff_ignored_without_trusted_proxies() {
 #[tokio::test]
 async fn regression_24_error_message_does_not_leak_architecture() {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -428,7 +439,7 @@ async fn regression_24_error_message_does_not_leak_architecture() {
             }],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -497,6 +508,15 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

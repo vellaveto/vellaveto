@@ -94,6 +94,7 @@ impl ClusterBackend for UnhealthyClusterBackend {
 
 fn test_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -117,7 +118,7 @@ fn test_state() -> (AppState, TempDir) {
             ],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test-config.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -183,6 +184,15 @@ fn test_state() -> (AppState, TempDir) {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
     (state, tmp)
 }
@@ -508,13 +518,14 @@ async fn responses_include_security_headers() {
 #[tokio::test]
 async fn health_not_rate_limited() {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
             engine: PolicyEngine::new(false),
             policies: vec![],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -581,6 +592,15 @@ async fn health_not_rate_limited() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     // Rapid /health requests must all succeed despite strict rate limit
@@ -601,6 +621,7 @@ async fn health_not_rate_limited() {
 #[tokio::test]
 async fn rate_limit_429_includes_retry_after() {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -614,7 +635,7 @@ async fn rate_limit_429_includes_retry_after() {
             }],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -680,6 +701,15 @@ async fn rate_limit_429_includes_retry_after() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -792,6 +822,7 @@ async fn per_ip_rate_limit_throttles_single_ip() {
     let tmp = TempDir::new().unwrap();
     // Trust 127.0.0.1 as a proxy so XFF headers are honored in tests.
     // Without this, all requests use the connection IP and XFF is ignored.
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -805,7 +836,7 @@ async fn per_ip_rate_limit_throttles_single_ip() {
             }],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -873,6 +904,15 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -933,6 +973,7 @@ async fn per_ip_rate_limit_throttles_single_ip() {
 #[tokio::test]
 async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -946,7 +987,7 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
             }],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -1014,6 +1055,15 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1054,13 +1104,14 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
 #[tokio::test]
 async fn per_ip_health_exempt_from_rate_limit() {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
             engine: PolicyEngine::new(false),
             policies: vec![],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -1128,6 +1179,15 @@ async fn per_ip_health_exempt_from_rate_limit() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     // Multiple health checks from same IP should all succeed
@@ -1153,6 +1213,7 @@ async fn per_ip_health_exempt_from_rate_limit() {
 async fn per_ip_rate_limit_ipv6_addresses() {
     let tmp = TempDir::new().unwrap();
     // Trust 127.0.0.1 as a proxy so XFF headers are honored in tests.
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -1166,7 +1227,7 @@ async fn per_ip_rate_limit_ipv6_addresses() {
             }],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -1234,6 +1295,15 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1294,6 +1364,7 @@ async fn per_ip_rate_limit_ipv6_addresses() {
 #[tokio::test]
 async fn per_ip_rate_limit_malformed_xff_falls_back() {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -1307,7 +1378,7 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
             }],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -1375,6 +1446,15 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1419,6 +1499,7 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
 #[tokio::test]
 async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -1432,7 +1513,7 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
             }],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -1500,6 +1581,15 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1543,6 +1633,7 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
 #[tokio::test]
 async fn per_ip_rate_limit_no_headers_uses_localhost() {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -1556,7 +1647,7 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
             }],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -1624,6 +1715,15 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1665,6 +1765,7 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
 #[tokio::test]
 async fn per_ip_rate_limit_429_response_body_format() {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -1678,7 +1779,7 @@ async fn per_ip_rate_limit_429_response_body_format() {
             }],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -1746,6 +1847,15 @@ async fn per_ip_rate_limit_429_response_body_format() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1807,13 +1917,14 @@ async fn per_ip_rate_limit_429_response_body_format() {
 #[tokio::test]
 async fn health_returns_degraded_when_cluster_unhealthy() {
     let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
             engine: PolicyEngine::new(false),
             policies: vec![],
             compliance_config: Default::default(),
         })),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::clone(&audit),
         config_path: Arc::new("test-config.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
             tmp.path().join("approvals.jsonl"),
@@ -1879,6 +1990,15 @@ async fn health_returns_degraded_when_cluster_unhealthy() {
         }),
         setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
     };
 
     let app = routes::build_router(state);

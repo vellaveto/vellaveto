@@ -1,14 +1,14 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 complete, 194 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 + 43 complete, 194 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 7,158 Rust tests + 361 Python SDK tests + 106 Go SDK tests + 111 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 7,338 Rust tests + 361 Python SDK tests + 106 Go SDK tests + 111 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
 > **CI workflows:** 12 (16 jobs)
 > **Domain:** [www.vellaveto.online](https://www.vellaveto.online) (Cloudflare Pages)
-> **Updated:** 2026-02-22
+> **Updated:** 2026-02-23
 
 ---
 
@@ -88,6 +88,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Discovery: ToolMetadata, ToolSensitivity, DiscoveryResult | `vellaveto-types/src/discovery.rs` |
 | Projector: CanonicalToolSchema, CanonicalToolCall, ModelFamily | `vellaveto-types/src/projector.rs` |
 | ZK Audit: PedersenCommitment, ZkBatchProof, ZkVerifyResult, ZkSchedulerStatus | `vellaveto-types/src/zk_audit.rs` |
+| Audit Store: AuditStoreBackend, AuditQueryParams, AuditQueryResult, AuditStoreStatus | `vellaveto-types/src/audit_store.rs` |
 | Time utilities: parse_iso8601_secs | `vellaveto-types/src/time_util.rs` |
 | Tests (~180) | `vellaveto-types/src/tests.rs` |
 | **vellaveto-engine** | |
@@ -100,6 +101,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Compliance registries: EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, OWASP ASI, gap analysis | `vellaveto-audit/src/{eu_ai_act,soc2,cosai,adversa_top25,iso42001,owasp_asi,gap_analysis}.rs` |
 | Data governance registry (Art 10) | `vellaveto-audit/src/data_governance.rs` |
 | ZK audit: Pedersen commitments, witness store, Groth16 circuit, batch prover, scheduler | `vellaveto-audit/src/zk/{mod,pedersen,witness,circuit,prover,scheduler}.rs` |
+| Audit sink trait + PostgreSQL sink (feature-gated) | `vellaveto-audit/src/sink.rs`, `vellaveto-audit/src/sink/postgres.rs` |
+| Audit query trait + file/PostgreSQL backends | `vellaveto-audit/src/query.rs`, `vellaveto-audit/src/query/{file,postgres}.rs` |
 | Access review report generator + HTML renderer | `vellaveto-audit/src/access_review.rs` |
 | OTLP exporter, archive | `vellaveto-audit/src/observability/otlp.rs`, `vellaveto-audit/src/archive.rs` |
 | Tests (~421) | `vellaveto-audit/src/tests.rs` |
@@ -108,6 +111,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Detection, enterprise, ETDI, MCP protocol, threat detection | `vellaveto-config/src/*.rs` |
 | Advanced: ABAC, compliance, extension, FIPS, gateway, gRPC, transport | `vellaveto-config/src/*.rs` |
 | Governance config | `vellaveto-config/src/governance.rs` |
+| Audit store config (PostgreSQL dual-write) | `vellaveto-config/src/audit_store.rs` |
 | Discovery config | `vellaveto-config/src/discovery.rs` |
 | Projector config | `vellaveto-config/src/projector.rs` |
 | ZK Audit config | `vellaveto-config/src/zk_audit.rs` |
@@ -140,6 +144,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Discovery API routes | `vellaveto-server/src/routes/discovery.rs` |
 | Projector API routes | `vellaveto-server/src/routes/projector.rs` |
 | ZK Audit API routes (status, proofs, verify, commitments) | `vellaveto-server/src/routes/zk_audit.rs` |
+| Audit store API routes (search, status, entry by ID) | `vellaveto-server/src/routes/audit_store.rs` |
 | SOC 2 Access Review route (JSON/HTML) | `vellaveto-server/src/routes/compliance.rs` |
 | Dashboard | `vellaveto-server/src/dashboard.rs` |
 | Setup wizard | `vellaveto-server/src/setup_wizard.rs` |
@@ -170,10 +175,10 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 + Phase 41 implemented, tested, and hardened through 192 audit rounds. Details in CHANGELOG.md.
+All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 + Phase 41 + Phase 43 implemented, tested, and hardened through 194 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
-- **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention
+- **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention, centralized audit store with PostgreSQL dual-write (Phase 43)
 - **Security Detections:** Injection (Aho-Corasick + NFKC), rug-pull, DLP (5-layer decode), tool squatting (Levenshtein + homoglyph), memory poisoning, semantic injection (TF-IDF), behavioral anomaly (EMA), cross-request exfiltration tracking, multimodal injection (PNG/JPEG/PDF/WAV/MP3/MP4/WebM + stego)
 - **Auth & Transport:** OAuth 2.1/JWT/JWKS, CSRF, rate limiting, MCP 2025-06-18 compliance, 6 deployment modes (HTTP, stdio, HTTP proxy, WebSocket proxy, gRPC proxy, MCP gateway)
 - **Advanced Authorization (Phase 21):** ABAC with forbid-overrides, capability-based delegation tokens, least-agency tracking, identity federation, continuous authorization
@@ -220,6 +225,7 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - **Agent Identity Federation (Phase 39, placeholder):** `FederationResolver` type with config/status methods, `FederationConfig` with trust anchor validation, dashboard federation section, server/proxy federation API routes (`/api/federation/status`, `/api/federation/trust-anchors`), SDK methods (Python/TypeScript/Go), audit events for federation lifecycle
 - **Workflow-Level Policy Constraints (Phase 40):** Three new `CompiledContextCondition` variants in vellaveto-engine: `RequiredActionSequence` (ordered/unordered multi-tool prerequisites, max 20 steps, fail-closed on short history), `ForbiddenActionSequence` (ordered/unordered forbidden pattern detection for exfiltration — e.g. read_secret→http_request), `WorkflowTemplate` (DAG-based tool transition enforcement with Kahn's algorithm cycle detection at compile time, entry point validation, strict/warn modes, max 50 steps). Case-insensitive matching. TLA+ spec (S8 WorkflowPredecessor, S9 AcyclicDAG). 55 new tests.
 - **OWASP Agentic Security Index (Phase 41):** `OwaspAsiRegistry` with 10 categories (ASI01–ASI10), 33 controls, 100% coverage via `VellavetoDetection` mappings. `AsiCoverageReport` with per-category breakdown and control matrix. Wired as 8th framework in gap analysis. `OwaspAsiConfig` with `enabled` flag, `deny_unknown_fields`, `validate()`. `GET /api/compliance/owasp-agentic` endpoint with cache. SDK methods: Python (sync+async), TypeScript, Go with input validation. Dashboard compliance table includes OWASP ASI. ~30 new tests (Rust + SDKs).
+- **Centralized Audit Store (Phase 43):** `AuditSink` trait for pluggable external stores, `PostgresAuditSink` with mpsc channel + background batch INSERT (exponential backoff retry, `ON CONFLICT DO NOTHING`), `AuditQueryService` trait with `FileAuditQuery` (in-memory filtering) and `PostgresAuditQuery` (SQL with bind parameters, GIN indexes on metadata). `AuditStoreConfig` with SSRF validation (private/loopback/metadata host rejection), SQL identifier validation for table_name, `deny_unknown_fields`, custom Debug redacting `database_url`. REST API: `GET /api/audit/search` (paginated, time/tool/verdict/agent/text filters), `GET /api/audit/store/status`, `GET /api/audit/entry/{id}`. Feature-gated behind `postgres-store` (sqlx). Dual-write: file log remains source of truth, PostgreSQL sink optional and non-fatal by default. ~55 new tests.
 - **Interactive Setup Wizard:** Web-based 7-step configuration wizard at `/setup` (Welcome → Security → Policies → Detection → Audit → Compliance → Review/Apply). Server-side rendered HTML matching dashboard dark theme, POST/redirect/GET forms, CSRF protection, bounded session management (MAX_WIZARD_SESSIONS=100, 1hr TTL), TOML config generation with live apply and hot-reload. Guard middleware locks wizard after initial configuration via `.setup-complete` marker file. 28 unit tests.
 - **Cloudflare Pages Deployment:** Site at [www.vellaveto.online](https://www.vellaveto.online), Astro static build deployed via `deploy-site.yml` workflow, `_redirects` (apex → www 301), `_headers` (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)
 - **Docs:** Quickstart guides, security model, benchmarks, 5 policy presets

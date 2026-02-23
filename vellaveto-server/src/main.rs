@@ -382,6 +382,52 @@ async fn cmd_serve(
         }
     }
 
+    // Phase 43: Attach PostgreSQL sink if configured and feature-enabled
+    #[cfg(feature = "postgres-store")]
+    let pg_sink: Option<std::sync::Arc<dyn vellaveto_audit::sink::AuditSink>> = {
+        if policy_config.audit_store.enabled
+            && policy_config.audit_store.backend == vellaveto_types::audit_store::AuditStoreBackend::Postgres
+        {
+            let db_url = policy_config
+                .audit_store
+                .database_url
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("audit_store.database_url required when backend=postgres"))?;
+            let pool = sqlx::postgres::PgPoolOptions::new()
+                .max_connections(policy_config.audit_store.pool_size)
+                .acquire_timeout(std::time::Duration::from_secs(
+                    policy_config.audit_store.connect_timeout_secs as u64,
+                ))
+                .connect(db_url)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to connect to audit store database: {}", e))?;
+            let sink_config = vellaveto_audit::sink::postgres::PostgresSinkConfig {
+                buffer_size: policy_config.audit_store.sink_buffer_size as usize,
+                batch_size: policy_config.audit_store.batch_insert_size as usize,
+                flush_interval_ms: policy_config.audit_store.flush_interval_ms as u64,
+                table_name: policy_config.audit_store.table_name.clone(),
+            };
+            let sink = vellaveto_audit::sink::postgres::PostgresAuditSink::new(
+                pool.clone(),
+                sink_config,
+                policy_config.audit_store.auto_migrate,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to initialize audit sink: {}", e))?;
+            let sink_arc: std::sync::Arc<dyn vellaveto_audit::sink::AuditSink> = std::sync::Arc::new(sink);
+            tracing::info!(
+                table = %policy_config.audit_store.table_name,
+                "PostgreSQL audit sink initialized"
+            );
+            audit_logger = audit_logger.with_sink(sink_arc.clone());
+            Some(sink_arc)
+        } else {
+            None
+        }
+    };
+    #[cfg(not(feature = "postgres-store"))]
+    let pg_sink: Option<std::sync::Arc<dyn vellaveto_audit::sink::AuditSink>> = None;
+
     let audit = Arc::new(audit_logger);
 
     // Initialize hash chain from existing log
@@ -1111,6 +1157,58 @@ async fn cmd_serve(
             Arc::new(std::sync::atomic::AtomicBool::new(completed))
         },
         wizard_sessions: Arc::new(dashmap::DashMap::new()),
+
+        // Phase 43: Centralized Audit Store
+        audit_query: {
+            #[cfg(feature = "postgres-store")]
+            {
+                if policy_config.audit_store.enabled
+                    && policy_config.audit_store.backend
+                        == vellaveto_types::audit_store::AuditStoreBackend::Postgres
+                {
+                    let db_url = policy_config
+                        .audit_store
+                        .database_url
+                        .as_deref()
+                        .unwrap_or("");
+                    // Create a separate pool for queries (read path)
+                    if let Ok(pool) = sqlx::postgres::PgPoolOptions::new()
+                        .max_connections(policy_config.audit_store.pool_size)
+                        .acquire_timeout(std::time::Duration::from_secs(
+                            policy_config.audit_store.connect_timeout_secs as u64,
+                        ))
+                        .connect(db_url)
+                        .await
+                    {
+                        Arc::new(vellaveto_audit::query::postgres::PostgresAuditQuery::new(
+                            pool,
+                            policy_config.audit_store.table_name.clone(),
+                        )) as Arc<dyn vellaveto_audit::query::AuditQueryService>
+                    } else {
+                        tracing::warn!("Failed to create query pool, falling back to file query");
+                        Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+                            Arc::clone(&audit),
+                        )) as Arc<dyn vellaveto_audit::query::AuditQueryService>
+                    }
+                } else {
+                    Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+                        Arc::clone(&audit),
+                    )) as Arc<dyn vellaveto_audit::query::AuditQueryService>
+                }
+            }
+            #[cfg(not(feature = "postgres-store"))]
+            {
+                Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+                    Arc::clone(&audit),
+                )) as Arc<dyn vellaveto_audit::query::AuditQueryService>
+            }
+        },
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: policy_config.audit_store.enabled,
+            backend: policy_config.audit_store.backend,
+            sink_healthy: pg_sink.as_ref().is_some_and(|s| s.is_healthy()),
+            pending_count: pg_sink.as_ref().map(|s| s.pending_count()).unwrap_or(0),
+        },
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -1446,6 +1544,7 @@ async fn cmd_serve(
 
     // Keep a reference to audit for shutdown flush
     let shutdown_audit = state.audit.clone();
+    let shutdown_sink = pg_sink.clone();
 
     let app = routes::build_router(state);
 
@@ -1470,6 +1569,14 @@ async fn cmd_serve(
         // are not lost on graceful shutdown.
         if let Err(e) = shutdown_audit.sync().await {
             tracing::warn!("Failed to sync audit log during shutdown: {}", e);
+        }
+        // Flush and shut down the audit sink (Phase 43)
+        if let Some(ref sink) = shutdown_sink {
+            if let Err(e) = sink.shutdown().await {
+                tracing::warn!("Failed to shut down audit sink: {}", e);
+            } else {
+                tracing::info!("Audit sink shut down successfully");
+            }
         }
         // Create a final checkpoint to capture any entries since the last periodic checkpoint
         match shutdown_audit.create_checkpoint().await {
@@ -1732,6 +1839,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         zk_audit: Default::default(),
         licensing: Default::default(),
         billing: Default::default(),
+        audit_store: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

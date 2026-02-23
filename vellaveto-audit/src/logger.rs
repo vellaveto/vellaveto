@@ -65,6 +65,12 @@ pub struct AuditLogger {
     /// Optional Merkle tree for inclusion proofs.
     /// When enabled, every log entry's hash is appended as a leaf.
     pub(crate) merkle_tree: Option<std::sync::Mutex<MerkleTree>>,
+    /// Optional audit sink for dual-writing to external stores (Phase 43).
+    /// When present, entries are forwarded after the file write succeeds.
+    /// Sink failures are non-fatal by default (logged as warnings).
+    pub(crate) sink: Option<std::sync::Arc<dyn crate::sink::AuditSink>>,
+    /// Whether sink failures should be treated as fatal errors.
+    pub(crate) sink_failure_fatal: bool,
 }
 
 impl AuditLogger {
@@ -88,6 +94,8 @@ impl AuditLogger {
             entry_count: AtomicU64::new(0),
             global_sequence: AtomicU64::new(0),
             merkle_tree: None,
+            sink: None,
+            sink_failure_fatal: false,
         }
     }
 
@@ -105,6 +113,8 @@ impl AuditLogger {
             entry_count: AtomicU64::new(0),
             global_sequence: AtomicU64::new(0),
             merkle_tree: None,
+            sink: None,
+            sink_failure_fatal: false,
         }
     }
 
@@ -162,6 +172,21 @@ impl AuditLogger {
     pub fn with_merkle_tree(mut self) -> Self {
         let leaf_path = self.merkle_leaf_path();
         self.merkle_tree = Some(std::sync::Mutex::new(MerkleTree::new(leaf_path)));
+        self
+    }
+
+    /// Attach an audit sink for dual-writing entries to an external store.
+    ///
+    /// The sink receives each entry after the file write succeeds.
+    /// By default, sink failures are non-fatal (logged as warnings).
+    /// Set `fatal` to `true` to make sink failures return errors to callers.
+    pub fn with_sink(
+        mut self,
+        sink: std::sync::Arc<dyn crate::sink::AuditSink>,
+        fatal: bool,
+    ) -> Self {
+        self.sink = Some(sink);
+        self.sink_failure_fatal = fatal;
         self
     }
 
@@ -517,6 +542,25 @@ impl AuditLogger {
         let _ = self.global_sequence.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
             Some(v.saturating_add(1))
         });
+
+        // Phase 43: Dual-write to external sink (if configured).
+        // The file write above is the source of truth. Sink failures are
+        // non-fatal by default — the entry is already persisted to disk.
+        if let Some(ref sink) = self.sink {
+            if let Err(e) = sink.sink(&entry).await {
+                if self.sink_failure_fatal {
+                    return Err(AuditError::Validation(format!(
+                        "Audit sink write failed (fatal mode): {}",
+                        e
+                    )));
+                }
+                tracing::warn!(
+                    error = %e,
+                    entry_id = %entry.id,
+                    "Audit sink write failed (non-fatal), entry persisted to file only"
+                );
+            }
+        }
 
         Ok(())
     }

@@ -29,6 +29,10 @@ pub mod archive;
 #[cfg(feature = "zk-audit")]
 pub mod zk;
 
+// ── Phase 43: Centralized Audit Store ────────────────────────────────────────
+pub mod query;
+pub mod sink;
+
 // ── Phase 38: SOC 2 Type II Access Review Reports ───────────────────────────
 pub mod access_review;
 

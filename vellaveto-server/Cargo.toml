@@ -16,6 +16,7 @@ redis-backend = ["vellaveto-cluster/redis-backend"]
 observability-exporters = ["vellaveto-audit/observability-exporters"]
 discovery = ["vellaveto-mcp/discovery"]
 projector = ["vellaveto-mcp/projector"]
+postgres-store = ["vellaveto-audit/postgres-store", "dep:sqlx"]
 
 [dependencies]
 vellaveto-types = { path = "../vellaveto-types" }
@@ -69,6 +70,8 @@ x509-parser = "0.18"
 reqwest = { workspace = true }
 # SECURITY: lru >= 0.16.3 required to fix RUSTSEC-2026-0002 (Stacked Borrows violation)
 lru = "0.16"
+# Phase 43: Centralized Audit Store (PostgreSQL backend)
+sqlx = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3.0"
