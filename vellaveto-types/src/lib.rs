@@ -1,4 +1,5 @@
 pub mod abac;
+pub mod audit_store;
 pub mod capability;
 pub mod compliance;
 pub mod core;
@@ -29,6 +30,7 @@ mod tests;
 // External crates import types from the crate root.
 pub use self::core::*;
 pub use abac::*;
+pub use audit_store::*;
 pub use capability::*;
 pub use compliance::*;
 pub use deployment::*;

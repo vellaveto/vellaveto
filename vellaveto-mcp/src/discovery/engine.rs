@@ -132,12 +132,17 @@ impl DiscoveryEngine {
             // Estimate token cost (rough heuristic: 1 token ~ 4 chars of JSON)
             // SECURITY (FIND-R55-MCP-009): Log warning on serialization failure instead
             // of silently using empty string for token cost estimation.
+            // SECURITY (FIND-R196-003): Truncate tool name in log output before
+            // validation to prevent log injection from malicious MCP servers.
+            // The raw `name` comes from untrusted input and may contain control
+            // characters; truncation limits blast radius.
+            let safe_name: String = name.chars().take(64).collect();
             let schema_str = match serde_json::to_string(&input_schema) {
                 Ok(s) => s,
                 Err(e) => {
                     tracing::warn!(
                         "ingest_tools_list: failed to serialize input_schema for token cost of '{}': {}",
-                        name,
+                        safe_name,
                         e
                     );
                     String::new()
@@ -161,9 +166,12 @@ impl DiscoveryEngine {
             // Without this, a malicious MCP server can send tools with multi-MB
             // name/description fields causing memory exhaustion during indexing.
             if let Err(e) = metadata.validate() {
+                // SECURITY (FIND-R196-003): Use safe_name (truncated) in log output
+                // instead of raw metadata.tool_id to prevent log injection.
                 tracing::warn!(
-                    "ingest_tools_list: skipping tool '{}': {}",
-                    metadata.tool_id,
+                    "ingest_tools_list: skipping tool '{}:{}': {}",
+                    server_id,
+                    safe_name,
                     e
                 );
                 continue;
@@ -264,13 +272,44 @@ fn infer_sensitivity(name: &str, description: &str) -> ToolSensitivity {
         "move", "rename", "config",
     ];
 
-    if HIGH_KEYWORDS.iter().any(|kw| text.contains(kw)) {
+    // SECURITY (FIND-R196-004): Use word-boundary matching instead of simple
+    // substring matching. Without this, "key" matches "keyboard", "token"
+    // matches "tokenizer", "sign" matches "design", causing false-positive
+    // High sensitivity that blocks legitimate tools. Word boundary = adjacent
+    // char is non-alphanumeric or start/end of string.
+    if HIGH_KEYWORDS
+        .iter()
+        .any(|kw| contains_word(&text, kw))
+    {
         return ToolSensitivity::High;
     }
-    if MEDIUM_KEYWORDS.iter().any(|kw| text.contains(kw)) {
+    if MEDIUM_KEYWORDS
+        .iter()
+        .any(|kw| contains_word(&text, kw))
+    {
         return ToolSensitivity::Medium;
     }
     ToolSensitivity::Low
+}
+
+/// Check if `text` contains `keyword` at a word boundary.
+///
+/// SECURITY (FIND-R196-004): A word boundary is any character that is not
+/// an ASCII alphanumeric character (letters or digits). The text is expected
+/// to be already lowercased. This prevents "key" from matching "keyboard",
+/// "token" from matching "tokenizer", etc.
+fn contains_word(text: &str, keyword: &str) -> bool {
+    let text_bytes = text.as_bytes();
+    let kw_len = keyword.len();
+    for (i, _) in text.match_indices(keyword) {
+        let left_ok = i == 0 || !text_bytes[i - 1].is_ascii_alphanumeric();
+        let right_ok =
+            i + kw_len >= text.len() || !text_bytes[i + kw_len].is_ascii_alphanumeric();
+        if left_ok && right_ok {
+            return true;
+        }
+    }
+    false
 }
 
 /// Infer domain tags from tool name and description.
@@ -678,6 +717,45 @@ mod tests {
             infer_sensitivity("search", "Search for data"),
             ToolSensitivity::Low
         );
+    }
+
+    // ── FIND-R196-004: Word-boundary matching ─────────────────────────
+
+    #[test]
+    fn test_infer_sensitivity_word_boundary_avoids_false_positives() {
+        // "keyboard" should NOT match "key", "design" should NOT match "sign"
+        assert_eq!(
+            infer_sensitivity("keyboard_layout", "A keyboard design tool"),
+            ToolSensitivity::Low
+        );
+        // "tokenizer" should NOT match "token"
+        assert_eq!(
+            infer_sensitivity("tokenizer", "Tokenize text strings"),
+            ToolSensitivity::Low
+        );
+    }
+
+    #[test]
+    fn test_infer_sensitivity_word_boundary_detects_real_keywords() {
+        // "key" as whole word in description
+        assert_eq!(
+            infer_sensitivity("get_api_key", "Fetch an API key"),
+            ToolSensitivity::High
+        );
+        // "token" separated by underscore
+        assert_eq!(
+            infer_sensitivity("revoke_token", "Revoke auth token"),
+            ToolSensitivity::High
+        );
+    }
+
+    #[test]
+    fn test_contains_word_basic() {
+        assert!(contains_word("hello world", "hello"));
+        assert!(contains_word("hello world", "world"));
+        assert!(!contains_word("helloworld", "hello"));
+        assert!(contains_word("get_key_here", "key"));
+        assert!(!contains_word("keyboard", "key"));
     }
 
     // ── Domain tag inference ────────────────────────────────────────────

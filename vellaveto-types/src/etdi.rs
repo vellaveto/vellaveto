@@ -184,6 +184,30 @@ impl ToolSignature {
                 Self::MAX_PUBLIC_KEY_LEN,
             ));
         }
+        // SECURITY (FIND-R196-006): Validate that signature and public_key contain
+        // only hex characters. These fields are documented as "Hex-encoded" — accepting
+        // non-hex content could cause downstream parsing failures or be used for
+        // injection if the values are logged or interpolated without sanitization.
+        if !self.signature.is_empty()
+            && !self
+                .signature
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit())
+        {
+            return Err(
+                "ToolSignature signature contains non-hex characters".to_string(),
+            );
+        }
+        if !self.public_key.is_empty()
+            && !self
+                .public_key
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit())
+        {
+            return Err(
+                "ToolSignature public_key contains non-hex characters".to_string(),
+            );
+        }
         if self.signed_at.len() > Self::MAX_TIMESTAMP_LEN {
             return Err(format!(
                 "ToolSignature signed_at length {} exceeds max {}",

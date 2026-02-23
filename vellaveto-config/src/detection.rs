@@ -212,6 +212,28 @@ pub struct RateLimitConfig {
     pub per_principal_burst: Option<u32>,
 }
 
+/// Maximum per-IP capacity to prevent unbounded memory usage from tracked IPs.
+const MAX_IP_CAPACITY: usize = 10_000_000;
+
+impl RateLimitConfig {
+    /// Validate rate limit configuration bounds.
+    ///
+    /// SECURITY: Prevents unbounded memory usage from excessively large
+    /// per_ip_max_capacity values that would allocate tracking entries for
+    /// millions of unique IPs.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(cap) = self.per_ip_max_capacity {
+            if cap > MAX_IP_CAPACITY {
+                return Err(format!(
+                    "rate_limit.per_ip_max_capacity must be <= {}, got {}",
+                    MAX_IP_CAPACITY, cap
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// A custom PII detection pattern for audit log redaction.
 ///
 /// Allows operators to add site-specific patterns beyond the built-in set

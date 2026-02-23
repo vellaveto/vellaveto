@@ -186,20 +186,30 @@ impl Interceptor for RateLimitInterceptor {
             *window = Instant::now();
         }
 
-        // Increment under lock to prevent TOCTOU between reset and count check.
-        let count = self.counter.fetch_add(1, Ordering::SeqCst);
+        // SECURITY (FIND-R155-GRPC-003): Use fetch_update with conditional increment
+        // to prevent overflow wrap-to-zero resetting rate limit counter.
+        // Parity with WS check_rate_limit (websocket/mod.rs:4236-4238).
+        let limit = self.limit;
+        let result = self.counter.fetch_update(
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+            |v| {
+                if v >= limit {
+                    None
+                } else {
+                    Some(v.saturating_add(1))
+                }
+            },
+        );
         drop(window);
 
-        if count >= self.limit {
-            tracing::warn!(
-                "gRPC rate limit exceeded: {} requests in window (limit: {})",
-                count,
-                self.limit
-            );
-            return Err(Status::resource_exhausted("Rate limit exceeded"));
+        match result {
+            Ok(_prev) => Ok(request),
+            Err(_) => {
+                tracing::warn!("gRPC rate limit exceeded (limit: {})", self.limit);
+                Err(Status::resource_exhausted("Rate limit exceeded"))
+            }
         }
-
-        Ok(request)
     }
 }
 

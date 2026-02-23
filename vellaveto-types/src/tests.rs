@@ -6731,6 +6731,36 @@ fn test_r115_004_canonical_tool_call_valid_passes() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// FIND-R196-002: CanonicalToolSchema description dangerous chars
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r196_002_canonical_tool_schema_rejects_control_in_description() {
+    let schema = crate::projector::CanonicalToolSchema {
+        name: "tool_name".to_string(),
+        description: "A tool with \x00 null byte".to_string(),
+        input_schema: json!({}),
+        output_schema: None,
+    };
+    let result = schema.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("description"));
+}
+
+#[test]
+fn test_r196_002_canonical_tool_schema_rejects_bidi_in_description() {
+    let schema = crate::projector::CanonicalToolSchema {
+        name: "tool_name".to_string(),
+        description: format!("A tool with \u{200B}zero-width space"),
+        input_schema: json!({}),
+        output_schema: None,
+    };
+    let result = schema.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("description"));
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // FIND-R172-005: CanonicalToolCall/Response call_id validation
 // ═══════════════════════════════════════════════════════════════════
 
@@ -7744,6 +7774,70 @@ fn test_r141_tool_signature_format_char_in_spiffe_id() {
     let result = sig.validate();
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("signer_spiffe_id"));
+}
+
+// FIND-R196-006: ToolSignature rejects non-hex signature
+#[test]
+fn test_r196_tool_signature_rejects_non_hex_signature() {
+    use crate::etdi::{SignatureAlgorithm, ToolSignature};
+    let sig = ToolSignature {
+        signature_id: "sig-001".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        signature: "not-hex-value!".to_string(),
+        public_key: "abcdef0123456789".to_string(),
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: None,
+        key_fingerprint: None,
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    let result = sig.validate();
+    assert!(result.is_err());
+    assert!(
+        result.unwrap_err().contains("non-hex"),
+        "should mention non-hex"
+    );
+}
+
+// FIND-R196-006: ToolSignature rejects non-hex public_key
+#[test]
+fn test_r196_tool_signature_rejects_non_hex_public_key() {
+    use crate::etdi::{SignatureAlgorithm, ToolSignature};
+    let sig = ToolSignature {
+        signature_id: "sig-001".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        signature: "deadbeef".to_string(),
+        public_key: "GHIJK_not_hex".to_string(),
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: None,
+        key_fingerprint: None,
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    let result = sig.validate();
+    assert!(result.is_err());
+    assert!(
+        result.unwrap_err().contains("non-hex"),
+        "should mention non-hex"
+    );
+}
+
+// FIND-R196-006: ToolSignature allows valid hex signature/public_key
+#[test]
+fn test_r196_tool_signature_accepts_valid_hex() {
+    use crate::etdi::{SignatureAlgorithm, ToolSignature};
+    let sig = ToolSignature {
+        signature_id: "sig-001".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        signature: "0123456789abcdefABCDEF".to_string(),
+        public_key: "fedcba9876543210".to_string(),
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: None,
+        key_fingerprint: None,
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    assert!(sig.validate().is_ok());
 }
 
 #[test]

@@ -4211,7 +4211,13 @@ fn check_rate_limit(
     }
 
     let now = std::time::Instant::now();
-    let mut start = window_start.lock().unwrap_or_else(|e| e.into_inner());
+    let mut start = match window_start.lock() {
+        Ok(guard) => guard,
+        Err(e) => {
+            tracing::error!("WS rate limiter mutex poisoned — fail-closed: {}", e);
+            return false;
+        }
+    };
 
     if now.duration_since(*start) >= Duration::from_secs(1) {
         // Reset window

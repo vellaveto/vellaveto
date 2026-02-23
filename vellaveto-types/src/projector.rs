@@ -65,6 +65,14 @@ impl CanonicalToolSchema {
                 MAX_PROJECTOR_DESCRIPTION_LENGTH
             ));
         }
+        // SECURITY (FIND-R196-002): Reject control/format chars in description field.
+        // Previously only `name` was checked, allowing control char injection via description
+        // which propagates into projected schemas and token estimation output.
+        if crate::core::has_dangerous_chars(&self.description) {
+            return Err(
+                "CanonicalToolSchema description contains control or format characters".to_string(),
+            );
+        }
         let input_size = serde_json::to_string(&self.input_schema)
             .map_err(|e| {
                 format!(

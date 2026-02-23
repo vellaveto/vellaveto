@@ -111,7 +111,17 @@ pub async fn discovery_search(
     }
 
     // SECURITY (FIND-R46-006): Validate token_budget upper bound.
+    // SECURITY (FIND-R196-005): Also reject token_budget: 0 which would
+    // return empty results after processing overhead (wasteful/DoS vector).
     if let Some(budget) = body.token_budget {
+        if budget == 0 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "token_budget must be > 0".to_string(),
+                }),
+            ));
+        }
         if budget > MAX_TOKEN_BUDGET {
             return Err((
                 StatusCode::BAD_REQUEST,
@@ -485,5 +495,14 @@ mod tests {
     #[test]
     fn test_max_token_budget_constant() {
         assert_eq!(MAX_TOKEN_BUDGET, 1_000_000);
+    }
+
+    // FIND-R196-005: token_budget: 0 is parsed but rejected at runtime
+    #[test]
+    fn test_search_request_deserialize_zero_token_budget() {
+        let json = r#"{"query": "test", "token_budget": 0}"#;
+        let req: DiscoverySearchRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.token_budget, Some(0));
+        // token_budget: 0 is syntactically valid but the handler rejects it
     }
 }

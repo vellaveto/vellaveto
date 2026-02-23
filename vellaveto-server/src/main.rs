@@ -1214,7 +1214,7 @@ async fn cmd_serve(
             interval.tick().await;
             loop {
                 interval.tick().await;
-                sequence += 1;
+                sequence = sequence.saturating_add(1);
                 if let Err(e) = heartbeat_audit
                     .log_heartbeat(heartbeat_interval, sequence)
                     .await

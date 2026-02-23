@@ -3021,11 +3021,37 @@ impl McpService for McpGrpcService {
             while let Ok(Some(proto_req)) = stream.message().await {
                 record_grpc_message("stream_request");
 
+                // SECURITY (FIND-R155-GRPC-001): Fail-closed — zero rate limit blocks
+                // all messages. Parity with WS check_rate_limit (websocket/mod.rs:4209).
+                if stream_rate_limit == 0 {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        "SECURITY: gRPC stream rate limit is 0 — blocking all messages (fail-closed)"
+                    );
+                    let _ = tx
+                        .send(Err(Status::resource_exhausted(
+                            "Stream rate limit is zero — all messages blocked",
+                        )))
+                        .await;
+                    break;
+                }
+
                 // SECURITY (FIND-R55-GRPC-010): Check per-message rate limit.
                 if stream_rate_limit > 0 {
                     let now = std::time::Instant::now();
                     let within_limit = {
-                        let mut start = rate_window_start.lock().unwrap_or_else(|e| e.into_inner());
+                        let mut start = match rate_window_start.lock() {
+                            Ok(guard) => guard,
+                            Err(e) => {
+                                tracing::error!("gRPC stream rate limiter mutex poisoned — fail-closed: {}", e);
+                                let _ = tx
+                                    .send(Err(Status::resource_exhausted(
+                                        "Rate limiter unavailable",
+                                    )))
+                                    .await;
+                                break;
+                            }
+                        };
                         if now.duration_since(*start) >= std::time::Duration::from_secs(1) {
                             *start = now;
                             rate_counter.store(1, Ordering::SeqCst);

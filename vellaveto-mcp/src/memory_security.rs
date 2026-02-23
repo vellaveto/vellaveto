@@ -871,6 +871,16 @@ impl NamespaceManager {
                     .read_allowed
                     .contains(&requester_agent.to_string())
                 {
+                    // SECURITY (FIND-R155-MEM-001): Enforce MAX_ACL_ENTRIES before push
+                    // to prevent unbounded growth via repeated approve_share() calls.
+                    if namespace.read_allowed.len()
+                        >= vellaveto_types::MemoryNamespace::MAX_ACL_ENTRIES
+                    {
+                        return Err(MemorySecurityError::CapacityExceeded(format!(
+                            "read_allowed ACL at capacity ({})",
+                            vellaveto_types::MemoryNamespace::MAX_ACL_ENTRIES,
+                        )));
+                    }
                     namespace.read_allowed.push(requester_agent.to_string());
                 }
             }
@@ -879,12 +889,30 @@ impl NamespaceManager {
                     .read_allowed
                     .contains(&requester_agent.to_string())
                 {
+                    // SECURITY (FIND-R155-MEM-001): Enforce MAX_ACL_ENTRIES before push.
+                    if namespace.read_allowed.len()
+                        >= vellaveto_types::MemoryNamespace::MAX_ACL_ENTRIES
+                    {
+                        return Err(MemorySecurityError::CapacityExceeded(format!(
+                            "read_allowed ACL at capacity ({})",
+                            vellaveto_types::MemoryNamespace::MAX_ACL_ENTRIES,
+                        )));
+                    }
                     namespace.read_allowed.push(requester_agent.to_string());
                 }
                 if !namespace
                     .write_allowed
                     .contains(&requester_agent.to_string())
                 {
+                    // SECURITY (FIND-R155-MEM-001): Enforce MAX_ACL_ENTRIES before push.
+                    if namespace.write_allowed.len()
+                        >= vellaveto_types::MemoryNamespace::MAX_ACL_ENTRIES
+                    {
+                        return Err(MemorySecurityError::CapacityExceeded(format!(
+                            "write_allowed ACL at capacity ({})",
+                            vellaveto_types::MemoryNamespace::MAX_ACL_ENTRIES,
+                        )));
+                    }
                     namespace.write_allowed.push(requester_agent.to_string());
                 }
             }

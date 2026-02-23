@@ -81,6 +81,42 @@ impl GrpcTransportConfig {
         if vellaveto_types::has_dangerous_chars(addr) {
             return Err("grpc.listen_address contains control or format characters".to_string());
         }
+        // SECURITY: Validate upstream_grpc_url for SSRF when present.
+        if let Some(ref url) = self.upstream_grpc_url {
+            let trimmed = url.trim();
+            if trimmed.is_empty() {
+                return Err(
+                    "grpc.upstream_grpc_url must not be empty when provided".to_string(),
+                );
+            }
+            const MAX_UPSTREAM_GRPC_URL_LEN: usize = 2048;
+            if trimmed.len() > MAX_UPSTREAM_GRPC_URL_LEN {
+                return Err(format!(
+                    "grpc.upstream_grpc_url exceeds max length ({} > {})",
+                    trimmed.len(),
+                    MAX_UPSTREAM_GRPC_URL_LEN,
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(trimmed) {
+                return Err(
+                    "grpc.upstream_grpc_url contains control or format characters".to_string(),
+                );
+            }
+            // SECURITY: Require http:// or https:// scheme.
+            let lower = trimmed.to_lowercase();
+            if !lower.starts_with("http://") && !lower.starts_with("https://") {
+                return Err(
+                    "grpc.upstream_grpc_url must use http:// or https:// scheme".to_string(),
+                );
+            }
+            // SECURITY: SSRF validation — reject private IPs, cloud metadata endpoints.
+            // Allow localhost for development environments.
+            if !crate::validation::is_http_localhost_url(trimmed) {
+                if let Err(e) = vellaveto_types::validate_url_no_ssrf(trimmed) {
+                    return Err(format!("grpc.upstream_grpc_url {}", e));
+                }
+            }
+        }
         Ok(())
     }
 }

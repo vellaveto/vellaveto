@@ -120,6 +120,9 @@ impl PolicyConfig {
         // SECURITY: Validate DLP numeric field bounds (max_depth, time_budget_ms, max_string_size).
         self.dlp.validate()?;
 
+        // SECURITY: Validate rate limit configuration bounds (per_ip_max_capacity upper bound).
+        self.rate_limit.validate()?;
+
         // SECURITY (FIND-R72-CFG-002): Validate dlp.disabled_patterns bounds.
         // Unbounded disabled_patterns can cause excessive memory usage during matching.
         const MAX_DLP_DISABLED_PATTERNS: usize = 100;
@@ -945,11 +948,23 @@ impl PolicyConfig {
                 self.advanced_threat.goal_drift_threshold
             ));
         }
-        if self.advanced_threat.workflow_step_budget == 0 {
-            return Err("advanced_threat.workflow_step_budget must be > 0".to_string());
+        const MAX_WORKFLOW_STEP_BUDGET: usize = 10_000;
+        if self.advanced_threat.workflow_step_budget == 0
+            || self.advanced_threat.workflow_step_budget > MAX_WORKFLOW_STEP_BUDGET
+        {
+            return Err(format!(
+                "advanced_threat.workflow_step_budget must be in [1, {}], got {}",
+                MAX_WORKFLOW_STEP_BUDGET, self.advanced_threat.workflow_step_budget
+            ));
         }
-        if self.advanced_threat.default_context_budget == 0 {
-            return Err("advanced_threat.default_context_budget must be > 0".to_string());
+        const MAX_DEFAULT_CONTEXT_BUDGET: usize = 10_000_000;
+        if self.advanced_threat.default_context_budget == 0
+            || self.advanced_threat.default_context_budget > MAX_DEFAULT_CONTEXT_BUDGET
+        {
+            return Err(format!(
+                "advanced_threat.default_context_budget must be in [1, {}], got {}",
+                MAX_DEFAULT_CONTEXT_BUDGET, self.advanced_threat.default_context_budget
+            ));
         }
 
         // ── Enterprise hardening validation ────────────────────────────────
