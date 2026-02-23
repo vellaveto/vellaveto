@@ -226,7 +226,13 @@ pub fn generate_access_review(
             .get("agent_id")
             .and_then(|v| v.as_str())
             .unwrap_or(&entry.action.tool);
-        let agent_id: String = raw_agent_id.chars().take(MAX_ID_STRING_LEN).collect();
+        // SECURITY (FIND-R196-005): Filter control/format characters from agent_id —
+        // parity with period_start/period_end sanitization (line 98).
+        let agent_id: String = raw_agent_id
+            .chars()
+            .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
+            .take(MAX_ID_STRING_LEN)
+            .collect();
 
         // Bound distinct agents
         if !agents.contains_key(&agent_id) && agents.len() >= MAX_AGENTS_PER_REPORT {
@@ -242,7 +248,13 @@ pub fn generate_access_review(
             .get("session_id")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
-        let session_id: String = raw_session_id.chars().take(MAX_ID_STRING_LEN).collect();
+        // SECURITY (FIND-R196-005): Filter control/format characters from session_id —
+        // parity with period_start/period_end sanitization (line 98).
+        let session_id: String = raw_session_id
+            .chars()
+            .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c))
+            .take(MAX_ID_STRING_LEN)
+            .collect();
 
         let acc = agents.entry(agent_id).or_insert_with(|| AgentAccumulator {
             session_ids: BTreeSet::new(),
@@ -425,6 +437,13 @@ pub(crate) fn html_escape(s: &str) -> String {
             '\'' => out.push_str("&#x27;"),
             // SECURITY (FIND-R49-008): Escape / for OWASP-recommended comprehensive HTML escaping.
             '/' => out.push_str("&#x2F;"),
+            // SECURITY (FIND-R196-003): Encode control characters (ASCII C0/C1) and Unicode
+            // format characters (zero-width joiners, bidi overrides, BOM) as numeric HTML
+            // entities to prevent invisible char injection in rendered HTML reports.
+            c if c.is_control() || vellaveto_types::is_unicode_format_char(c) => {
+                use std::fmt::Write;
+                let _ = write!(out, "&#{};", c as u32);
+            }
             _ => out.push(c),
         }
     }
@@ -1175,5 +1194,38 @@ mod tests {
         assert_eq!(html_escape("safe text"), "safe text");
         assert_eq!(html_escape("<>&\"'"), "&lt;&gt;&amp;&quot;&#x27;");
         assert_eq!(html_escape(""), "");
+    }
+
+    /// SECURITY (FIND-R196-003): html_escape encodes control chars as numeric entities.
+    #[test]
+    fn test_html_escape_control_chars() {
+        // Null byte
+        assert_eq!(html_escape("a\0b"), "a&#0;b");
+        // Newline + carriage return
+        assert_eq!(html_escape("a\n\rb"), "a&#10;&#13;b");
+        // Tab
+        assert_eq!(html_escape("a\tb"), "a&#9;b");
+    }
+
+    /// SECURITY (FIND-R196-003): html_escape encodes Unicode format chars.
+    #[test]
+    fn test_html_escape_unicode_format_chars() {
+        // Zero-width space U+200B
+        let zwsp = "a\u{200B}b";
+        let escaped = html_escape(zwsp);
+        assert!(escaped.contains("&#8203;"), "ZWSP not escaped: {}", escaped);
+        assert!(!escaped.contains('\u{200B}'));
+
+        // Bidi override U+202E (right-to-left override)
+        let bidi = "a\u{202E}b";
+        let escaped = html_escape(bidi);
+        assert!(escaped.contains("&#8238;"), "Bidi not escaped: {}", escaped);
+        assert!(!escaped.contains('\u{202E}'));
+
+        // BOM U+FEFF
+        let bom = "a\u{FEFF}b";
+        let escaped = html_escape(bom);
+        assert!(escaped.contains("&#65279;"), "BOM not escaped: {}", escaped);
+        assert!(!escaped.contains('\u{FEFF}'));
     }
 }
