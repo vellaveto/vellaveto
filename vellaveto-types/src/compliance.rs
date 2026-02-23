@@ -343,6 +343,14 @@ impl ReviewerAttestation {
                     Self::MAX_TIMESTAMP_LEN,
                 ));
             }
+            // SECURITY (FIND-R157-005): Reject control/format chars in reviewed_at
+            // timestamp to prevent log injection.
+            if crate::core::has_dangerous_chars(ts) {
+                return Err(
+                    "ReviewerAttestation reviewed_at contains control or format characters"
+                        .to_string(),
+                );
+            }
         }
         if self.notes.len() > Self::MAX_NOTES_LEN {
             return Err(format!(
@@ -406,6 +414,8 @@ impl AccessReviewEntry {
     pub const MAX_FUNCTIONS_CALLED: usize = 10_000;
     /// Maximum number of unused permissions per entry.
     pub const MAX_UNUSED_PERMISSIONS: usize = 10_000;
+    /// Maximum length for ISO 8601 timestamp fields (bytes).
+    const MAX_TIMESTAMP_LEN: usize = 64;
 
     /// Validate structural invariants: finite scores, range checks, collection bounds.
     ///
@@ -429,6 +439,36 @@ impl AccessReviewEntry {
         {
             return Err(format!(
                 "AccessReviewEntry for agent '{}' agency_recommendation contains control or format characters",
+                self.agent_id,
+            ));
+        }
+        // SECURITY (FIND-R157-006): Validate first_access/last_access timestamp
+        // length and reject control/format characters to prevent log injection.
+        if self.first_access.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "AccessReviewEntry for agent '{}' first_access length {} exceeds max {}",
+                self.agent_id,
+                self.first_access.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.first_access) {
+            return Err(format!(
+                "AccessReviewEntry for agent '{}' first_access contains control or format characters",
+                self.agent_id,
+            ));
+        }
+        if self.last_access.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "AccessReviewEntry for agent '{}' last_access length {} exceeds max {}",
+                self.agent_id,
+                self.last_access.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.last_access) {
+            return Err(format!(
+                "AccessReviewEntry for agent '{}' last_access contains control or format characters",
                 self.agent_id,
             ));
         }

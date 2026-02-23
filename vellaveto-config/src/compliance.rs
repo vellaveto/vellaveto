@@ -28,6 +28,11 @@ const MAX_DATA_CLASSIFICATIONS_PER_TOOL: usize = 20;
 /// Minimum record retention in days (Art 12 floor).
 pub const MIN_RETENTION_DAYS: u32 = 30;
 
+/// Maximum record retention in days (~100 years).
+/// SECURITY (FIND-R157-005): Prevents unreasonable retention values that could
+/// cause integer overflow in date arithmetic or unbounded storage growth.
+pub const MAX_RETENTION_DAYS: u32 = 36_500;
+
 /// Maximum SOC 2 tracked categories.
 pub const MAX_SOC2_CATEGORIES: usize = 9;
 
@@ -302,6 +307,14 @@ impl ComplianceConfig {
                 self.eu_ai_act.record_retention_days, MIN_RETENTION_DAYS,
             ));
         }
+        // SECURITY (FIND-R157-005): Upper bound prevents unreasonable retention values
+        // that could cause integer overflow in date arithmetic.
+        if self.eu_ai_act.record_retention_days > MAX_RETENTION_DAYS {
+            return Err(format!(
+                "eu_ai_act.record_retention_days is {}, maximum is {}",
+                self.eu_ai_act.record_retention_days, MAX_RETENTION_DAYS,
+            ));
+        }
         if self.soc2.tracked_categories.len() > MAX_SOC2_CATEGORIES {
             return Err(format!(
                 "soc2.tracked_categories has {} entries, max is {}",
@@ -359,6 +372,19 @@ impl ComplianceConfig {
                     MAX_DATA_CLASSIFICATIONS_PER_TOOL,
                 ));
             }
+        }
+        // SECURITY (FIND-R157-005): Validate data_governance.default_retention_days bounds.
+        if self.data_governance.default_retention_days < MIN_RETENTION_DAYS {
+            return Err(format!(
+                "data_governance.default_retention_days is {}, minimum is {}",
+                self.data_governance.default_retention_days, MIN_RETENTION_DAYS,
+            ));
+        }
+        if self.data_governance.default_retention_days > MAX_RETENTION_DAYS {
+            return Err(format!(
+                "data_governance.default_retention_days is {}, maximum is {}",
+                self.data_governance.default_retention_days, MAX_RETENTION_DAYS,
+            ));
         }
         // Phase 38: Access review config validation
         let ar = &self.soc2.access_review;

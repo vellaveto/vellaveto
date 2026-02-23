@@ -39,7 +39,7 @@ pub enum VerdictFilter {
 ///
 /// All fields are optional — omitted fields are not filtered.
 /// `limit` is capped at [`MAX_QUERY_LIMIT`].
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuditQueryParams {
     /// ISO 8601 start time (inclusive).
@@ -87,6 +87,23 @@ fn default_limit() -> u64 {
     100
 }
 
+impl Default for AuditQueryParams {
+    fn default() -> Self {
+        Self {
+            since: None,
+            until: None,
+            agent_id: None,
+            tool: None,
+            verdict: None,
+            text_search: None,
+            from_sequence: None,
+            to_sequence: None,
+            limit: default_limit(),
+            offset: 0,
+        }
+    }
+}
+
 impl AuditQueryParams {
     /// Validate query parameters. Returns an error describing the first violation.
     pub fn validate(&self) -> Result<(), String> {
@@ -103,6 +120,11 @@ impl AuditQueryParams {
 
         // Validate filter string lengths
         if let Some(ref agent_id) = self.agent_id {
+            // SECURITY (IMP-R198-013): Reject empty filter strings — they are
+            // semantically meaningless and likely caller errors.
+            if agent_id.is_empty() {
+                return Err("agent_id filter must not be empty".to_string());
+            }
             if agent_id.len() > MAX_FILTER_STRING_LEN {
                 return Err(format!(
                     "agent_id length {} exceeds maximum {}",
@@ -118,6 +140,10 @@ impl AuditQueryParams {
         }
 
         if let Some(ref tool) = self.tool {
+            // SECURITY (IMP-R198-013): Reject empty filter strings.
+            if tool.is_empty() {
+                return Err("tool filter must not be empty".to_string());
+            }
             if tool.len() > MAX_FILTER_STRING_LEN {
                 return Err(format!(
                     "tool length {} exceeds maximum {}",
@@ -133,6 +159,9 @@ impl AuditQueryParams {
         }
 
         if let Some(ref text_search) = self.text_search {
+            if text_search.is_empty() {
+                return Err("text_search must not be empty".to_string());
+            }
             if text_search.len() > MAX_TEXT_SEARCH_LEN {
                 return Err(format!(
                     "text_search length {} exceeds maximum {}",
@@ -143,6 +172,14 @@ impl AuditQueryParams {
             if crate::has_dangerous_chars(text_search) {
                 return Err(
                     "text_search contains control or format characters".to_string(),
+                );
+            }
+            // SECURITY (FIND-R198-007): Reject text_search consisting solely of
+            // SQL LIKE wildcards (% and _). Such patterns match everything and
+            // could be used for data exfiltration or DoS via full-table scan.
+            if text_search.chars().all(|c| c == '%' || c == '_') {
+                return Err(
+                    "text_search must not consist solely of SQL wildcard characters".to_string(),
                 );
             }
         }
@@ -157,7 +194,9 @@ impl AuditQueryParams {
             }
         }
 
-        // Validate timestamp format (basic check — full parse happens at query time)
+        // SECURITY (FIND-R198-006): Validate timestamps with full ISO 8601 parsing
+        // at validation time rather than deferring to query time. Malformed timestamps
+        // could bypass time-range filters or cause unexpected query behavior.
         if let Some(ref since) = self.since {
             if since.len() > 64 {
                 return Err("since timestamp too long".to_string());
@@ -165,6 +204,8 @@ impl AuditQueryParams {
             if crate::has_dangerous_chars(since) {
                 return Err("since contains control or format characters".to_string());
             }
+            crate::time_util::parse_iso8601_secs(since)
+                .map_err(|e| format!("since is not valid ISO 8601: {}", e))?;
         }
         if let Some(ref until) = self.until {
             if until.len() > 64 {
@@ -173,6 +214,8 @@ impl AuditQueryParams {
             if crate::has_dangerous_chars(until) {
                 return Err("until contains control or format characters".to_string());
             }
+            crate::time_util::parse_iso8601_secs(until)
+                .map_err(|e| format!("until is not valid ISO 8601: {}", e))?;
         }
 
         Ok(())

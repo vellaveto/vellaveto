@@ -181,7 +181,9 @@ _UNICODE_FORMAT_RE = _re.compile(
     # and bidi embedding controls). The broader 2028-202F range supersedes the
     # old 202A-202E range and also covers U+2028 LINE SEPARATOR and U+2029
     # PARAGRAPH SEPARATOR which can be used for injection.
-    r"[\u200b-\u200f\u2028-\u202f\u2060-\u2069\ufeff\ufff9-\ufffb]"
+    # SECURITY (FIND-R157-003): Added U+00AD (soft hyphen) and U+E0001-E007F
+    # (TAG characters). Parity with Rust canonical is_unicode_format_char().
+    r"[\u00ad\u200b-\u200f\u2028-\u202f\u2060-\u2069\ufeff\ufff9-\ufffb\U000e0001-\U000e007f]"
 )
 
 
@@ -817,6 +819,11 @@ class VellavetoClient:
                 )
             if _CONTROL_CHAR_RE.search(server_id):
                 raise VellavetoError("server_id contains control characters")
+            # SECURITY (FIND-R157-003): Reject Unicode format characters (zero-width,
+            # bidi overrides, soft hyphen, TAG chars). Parity with Go SDK and
+            # approval ID validation.
+            if _UNICODE_FORMAT_RE.search(server_id):
+                raise VellavetoError("server_id contains Unicode format characters")
         if sensitivity is not None:
             if sensitivity not in _VALID_SENSITIVITIES:
                 raise VellavetoError(
@@ -1424,6 +1431,9 @@ class AsyncVellavetoClient:
                 )
             if _CONTROL_CHAR_RE.search(server_id):
                 raise VellavetoError("server_id contains control characters")
+            # SECURITY (FIND-R157-003): Reject Unicode format characters (async parity).
+            if _UNICODE_FORMAT_RE.search(server_id):
+                raise VellavetoError("server_id contains Unicode format characters")
         if sensitivity is not None:
             if sensitivity not in _VALID_SENSITIVITIES:
                 raise VellavetoError(

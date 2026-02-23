@@ -45,12 +45,12 @@ impl ReportCache {
     fn get(&self) -> Option<serde_json::Value> {
         let guard = match self.0.lock() {
             Ok(g) => g,
-            Err(_poisoned) => {
-                // SECURITY (FIND-GAP-008): Log an error when the mutex is poisoned
-                // instead of silently returning no data. Poisoned mutex indicates a
-                // prior panic in a thread that held this lock.
-                tracing::error!("ReportCache mutex poisoned — returning stale/no data");
-                return None;
+            Err(poisoned) => {
+                // SECURITY (FIND-R157): Recover from mutex poisoning instead of
+                // discarding cached data. This is a non-security cache so recovery
+                // is safe and avoids unnecessary regeneration.
+                tracing::warn!("ReportCache mutex poisoned — recovering for cache read");
+                poisoned.into_inner()
             }
         };
         if let Some(ref cached) = *guard {
@@ -63,18 +63,20 @@ impl ReportCache {
 
     /// Store a freshly generated report.
     fn set(&self, value: serde_json::Value) {
-        match self.0.lock() {
-            Ok(mut guard) => {
-                *guard = Some(CachedReport {
-                    generated_at: Instant::now(),
-                    value,
-                });
+        let mut guard = match self.0.lock() {
+            Ok(g) => g,
+            Err(poisoned) => {
+                // SECURITY (FIND-R157): Recover from mutex poisoning instead of
+                // silently discarding the report. This is a non-security cache so
+                // recovery is safe and avoids data loss.
+                tracing::warn!("ReportCache mutex poisoned — recovering for cache write");
+                poisoned.into_inner()
             }
-            Err(_poisoned) => {
-                // SECURITY (FIND-GAP-008): Log an error when the mutex is poisoned.
-                tracing::error!("ReportCache mutex poisoned — cannot store report");
-            }
-        }
+        };
+        *guard = Some(CachedReport {
+            generated_at: Instant::now(),
+            value,
+        });
     }
 }
 

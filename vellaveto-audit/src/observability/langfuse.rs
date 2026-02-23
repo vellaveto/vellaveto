@@ -31,7 +31,10 @@ use std::time::Duration;
 use tracing::{debug, error, warn};
 
 /// Langfuse exporter configuration.
-#[derive(Debug, Clone)]
+///
+/// SECURITY (FIND-R157-005): Custom Debug redacts `secret_key` and `public_key`
+/// to prevent credentials leaking into logs.
+#[derive(Clone)]
 pub struct LangfuseExporterConfig {
     /// Langfuse API endpoint.
     pub endpoint: String,
@@ -45,6 +48,19 @@ pub struct LangfuseExporterConfig {
     pub metadata: HashMap<String, serde_json::Value>,
     /// Common exporter config.
     pub common: ObservabilityExporterConfig,
+}
+
+impl std::fmt::Debug for LangfuseExporterConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LangfuseExporterConfig")
+            .field("endpoint", &self.endpoint)
+            .field("public_key", &"[REDACTED]")
+            .field("secret_key", &"[REDACTED]")
+            .field("release", &self.release)
+            .field("metadata", &self.metadata)
+            .field("common", &self.common)
+            .finish()
+    }
 }
 
 impl LangfuseExporterConfig {

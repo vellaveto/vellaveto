@@ -559,6 +559,11 @@ const maxApprovalIDLength = 256
 // embedding controls (U+202A-U+202E). The range 0x2028-0x202F supersedes the
 // old 0x202A-0x202E range, so the narrower check is removed.
 func isUnicodeFormatChar(r rune) bool {
+	// Soft hyphen: U+00AD
+	// SECURITY (FIND-R157-002): Parity with Rust canonical is_unicode_format_char().
+	if r == 0x00AD {
+		return true
+	}
 	// Zero-width and joining chars: U+200B-U+200F
 	if r >= 0x200B && r <= 0x200F {
 		return true
@@ -578,6 +583,11 @@ func isUnicodeFormatChar(r rune) bool {
 	}
 	// Interlinear annotation anchors: U+FFF9-U+FFFB
 	if r >= 0xFFF9 && r <= 0xFFFB {
+		return true
+	}
+	// TAG characters: U+E0001-U+E007F
+	// SECURITY (FIND-R157-002): Parity with Rust canonical is_unicode_format_char().
+	if r >= 0xE0001 && r <= 0xE007F {
 		return true
 	}
 	return false
@@ -706,6 +716,12 @@ func (c *Client) DiscoveryTools(ctx context.Context, serverID, sensitivity strin
 		for _, r := range serverID {
 			if r < ' ' || (r >= 0x7F && r <= 0x9F) {
 				return nil, fmt.Errorf("vellaveto: serverID contains control characters")
+			}
+			// SECURITY (FIND-R157-002): Reject Unicode format characters (zero-width,
+			// bidi overrides, soft hyphen, TAG chars). Parity with approval ID and
+			// agent ID validation.
+			if isUnicodeFormatChar(r) {
+				return nil, fmt.Errorf("vellaveto: serverID contains Unicode format characters")
 			}
 		}
 	}

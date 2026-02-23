@@ -193,7 +193,9 @@ pub trait SiemExporter: Send + Sync {
 /// SECURITY (FIND-R112-006): `deny_unknown_fields` cannot be applied due to
 /// `#[serde(flatten)]` on the `common` field (serde#1358). Validated via
 /// `ExporterConfig::validate()`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// SECURITY (FIND-R157-004): Custom Debug redacts `token` field to prevent
+/// HEC token leaking into logs.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SplunkConfig {
     /// HEC endpoint URL (e.g., "https://splunk:8088/services/collector").
     pub endpoint: String,
@@ -221,6 +223,20 @@ pub struct SplunkConfig {
     /// Common exporter configuration (batching, retries).
     #[serde(flatten)]
     pub common: ExporterConfig,
+}
+
+impl std::fmt::Debug for SplunkConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SplunkConfig")
+            .field("endpoint", &self.endpoint)
+            .field("token", &"[REDACTED]")
+            .field("token_env", &self.token_env)
+            .field("index", &self.index)
+            .field("source", &self.source)
+            .field("sourcetype", &self.sourcetype)
+            .field("common", &self.common)
+            .finish()
+    }
 }
 
 fn default_splunk_source() -> String {
@@ -755,7 +771,9 @@ const MAX_TAG_LEN: usize = 256;
 /// SECURITY (FIND-R112-006): `deny_unknown_fields` cannot be applied due to
 /// `#[serde(flatten)]` on the `common` field (serde#1358). Validated via
 /// `DatadogConfig::validate()` + `ExporterConfig::validate()`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// SECURITY (FIND-R157-004): Custom Debug redacts `api_key` field to prevent
+/// Datadog API key leaking into logs.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DatadogConfig {
     /// Datadog logs intake endpoint.
     /// US: `https://http-intake.logs.datadoghq.com/api/v2/logs`
@@ -786,6 +804,20 @@ pub struct DatadogConfig {
     /// Common exporter configuration.
     #[serde(flatten)]
     pub common: ExporterConfig,
+}
+
+impl std::fmt::Debug for DatadogConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DatadogConfig")
+            .field("endpoint", &self.endpoint)
+            .field("api_key", &"[REDACTED]")
+            .field("api_key_env", &self.api_key_env)
+            .field("service", &self.service)
+            .field("source", &self.source)
+            .field("tags", &self.tags)
+            .field("common", &self.common)
+            .finish()
+    }
 }
 
 fn default_datadog_endpoint() -> String {
@@ -1054,7 +1086,9 @@ impl SiemExporter for DatadogExporter {
 /// SECURITY (FIND-R112-006): `deny_unknown_fields` cannot be applied due to
 /// `#[serde(flatten)]` on the `common` field (serde#1358). Validated via
 /// `ExporterConfig::validate()`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// SECURITY (FIND-R157-004): Custom Debug redacts `api_key` field to prevent
+/// Elasticsearch API key leaking into logs.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ElasticsearchConfig {
     /// Elasticsearch endpoint (e.g., "https://elasticsearch:9200").
     pub endpoint: String,
@@ -1082,6 +1116,20 @@ pub struct ElasticsearchConfig {
     /// Common exporter configuration.
     #[serde(flatten)]
     pub common: ExporterConfig,
+}
+
+impl std::fmt::Debug for ElasticsearchConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ElasticsearchConfig")
+            .field("endpoint", &self.endpoint)
+            .field("index", &self.index)
+            .field("username", &self.username)
+            .field("password_env", &self.password_env)
+            .field("api_key", &"[REDACTED]")
+            .field("api_key_env", &self.api_key_env)
+            .field("common", &self.common)
+            .finish()
+    }
 }
 
 fn default_es_index() -> String {

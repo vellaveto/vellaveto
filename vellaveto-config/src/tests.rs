@@ -1126,6 +1126,7 @@ fn test_validate_rejects_too_many_policies() {
         zk_audit: Default::default(),
         licensing: Default::default(),
         billing: Default::default(),
+        audit_store: Default::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {
@@ -8050,4 +8051,380 @@ fn test_async_tasks_allows_zero_nonces_without_replay_protection() {
         cfg.validate().is_ok(),
         "zero nonces without replay_protection should be ok"
     );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AuditStoreConfig validation tests (IMP-R198-001)
+// ═══════════════════════════════════════════════════════════════
+
+#[test]
+fn test_audit_store_config_default_passes() {
+    let cfg = crate::AuditStoreConfig::default();
+    assert!(cfg.validate().is_ok());
+}
+
+#[test]
+fn test_audit_store_config_disabled_with_bad_pool_size_ok() {
+    // When disabled, numeric bounds are not checked
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        pool_size: 0,
+        ..Default::default()
+    };
+    assert!(cfg.validate().is_ok());
+}
+
+#[test]
+fn test_audit_store_config_disabled_rejects_control_chars_in_url() {
+    // FIND-R198-005: Even when disabled, control chars are rejected
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        database_url: Some("postgres://user\x00@host/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("control or format"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_disabled_rejects_bad_table_name() {
+    // FIND-R198-005: Even when disabled, table name charset is validated
+    let cfg = crate::AuditStoreConfig {
+        enabled: false,
+        table_name: "drop;table".to_string(),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("alphanumeric"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_enabled_postgres_no_url_fails() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: None,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("database_url is required"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_enabled_postgres_empty_url_fails() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("   ".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("must not be empty"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_wrong_scheme_fails() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("mysql://host/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("postgres://"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_ssrf_localhost_rejected() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@localhost:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("private/loopback"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_ssrf_loopback_ip_rejected() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@127.0.0.1:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("private/loopback"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_ssrf_private_ip_rejected() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@10.0.0.1:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("private/loopback"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_ssrf_ipv6_loopback_rejected() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@[::1]:5432/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("private/loopback"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_url_too_long() {
+    let long_url = format!("postgres://user:pass@host/{}", "x".repeat(2100));
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some(long_url),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("length") && err.contains("exceeds"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_valid_external_postgres() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@db.example.com:5432/mydb".to_string()),
+        ..Default::default()
+    };
+    assert!(cfg.validate().is_ok());
+}
+
+#[test]
+fn test_audit_store_config_pool_size_zero_fails() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@db.example.com/db".to_string()),
+        pool_size: 0,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("pool_size"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_pool_size_over_max_fails() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@db.example.com/db".to_string()),
+        pool_size: 101,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("pool_size"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_table_name_empty_fails() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@db.example.com/db".to_string()),
+        table_name: "".to_string(),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("table_name"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_table_name_digit_start_fails() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@db.example.com/db".to_string()),
+        table_name: "1table".to_string(),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("must not start with a digit"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_sink_buffer_zero_fails() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@db.example.com/db".to_string()),
+        sink_buffer_size: 0,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("sink_buffer_size"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_flush_interval_zero_fails() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@db.example.com/db".to_string()),
+        flush_interval_ms: 0,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("flush_interval_ms"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_batch_insert_over_max_fails() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@db.example.com/db".to_string()),
+        batch_insert_size: 1001,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("batch_insert_size"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_connect_timeout_zero_fails() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@db.example.com/db".to_string()),
+        connect_timeout_secs: 0,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("connect_timeout_secs"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_debug_redacts_url() {
+    let cfg = crate::AuditStoreConfig {
+        database_url: Some("postgres://secret:hunter2@host/db".to_string()),
+        ..Default::default()
+    };
+    let debug_output = format!("{:?}", cfg);
+    assert!(!debug_output.contains("hunter2"), "password leaked in Debug: {debug_output}");
+    assert!(debug_output.contains("[REDACTED]"), "missing redaction: {debug_output}");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Phase 43: Additional AuditStoreConfig validation tests
+// covering batch_insert_size == 0, sink_buffer_size > max,
+// table_name with special chars (enabled mode), and
+// valid postgresql:// scheme. (IMP-R198-P43)
+// ═══════════════════════════════════════════════════════════════
+
+#[test]
+fn test_audit_store_config_disabled_default_validates_ok() {
+    // When disabled (default), validate() succeeds immediately after
+    // the always-applied charset checks for url/table_name.
+    let cfg = crate::AuditStoreConfig::default();
+    assert!(!cfg.enabled, "default should be disabled");
+    assert!(cfg.validate().is_ok());
+}
+
+#[test]
+fn test_audit_store_config_batch_insert_size_zero_fails() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@db.example.com/db".to_string()),
+        batch_insert_size: 0,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("batch_insert_size"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_sink_buffer_size_over_max_fails() {
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@db.example.com/db".to_string()),
+        sink_buffer_size: 10_001,
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("sink_buffer_size"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_table_name_special_chars_fails_when_enabled() {
+    // Enabled mode rejects special chars via the always-applied charset check
+    // (executed before the `if !self.enabled { return Ok(()) }` guard).
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@db.example.com/db".to_string()),
+        table_name: "audit-entries".to_string(), // hyphen not allowed
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("alphanumeric"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_postgresql_scheme_accepted() {
+    // Both postgres:// and postgresql:// must be accepted.
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgresql://user:pass@db.example.com/db".to_string()),
+        ..Default::default()
+    };
+    assert!(cfg.validate().is_ok(), "postgresql:// scheme should be accepted");
+}
+
+#[test]
+fn test_audit_store_config_http_scheme_fails() {
+    // http:// is not a valid database URL scheme.
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("http://db.example.com/db".to_string()),
+        ..Default::default()
+    };
+    let err = cfg.validate().unwrap_err();
+    assert!(err.contains("postgres://"), "got: {err}");
+}
+
+#[test]
+fn test_audit_store_config_pool_size_boundary_one_ok() {
+    // pool_size == 1 is the minimum valid value.
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@db.example.com/db".to_string()),
+        pool_size: 1,
+        ..Default::default()
+    };
+    assert!(cfg.validate().is_ok());
+}
+
+#[test]
+fn test_audit_store_config_pool_size_boundary_max_ok() {
+    // pool_size == MAX_POOL_SIZE (100) is the maximum valid value.
+    let cfg = crate::AuditStoreConfig {
+        enabled: true,
+        backend: vellaveto_types::AuditStoreBackend::Postgres,
+        database_url: Some("postgres://user:pass@db.example.com/db".to_string()),
+        pool_size: 100,
+        ..Default::default()
+    };
+    assert!(cfg.validate().is_ok());
 }

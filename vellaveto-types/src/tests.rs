@@ -8125,3 +8125,313 @@ fn test_r146_nhi_behavioral_baseline_validate_agent_id_control_chars() {
         "got: {err}"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════
+// AuditQueryParams validation tests (IMP-R198-002)
+// ═══════════════════════════════════════════════════════════════
+
+#[test]
+fn test_audit_query_params_default_passes() {
+    let params = crate::AuditQueryParams::default();
+    assert!(params.validate().is_ok());
+}
+
+#[test]
+fn test_audit_query_params_limit_zero_fails() {
+    let params = crate::AuditQueryParams {
+        limit: 0,
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(err.contains("limit must be > 0"), "got: {err}");
+}
+
+#[test]
+fn test_audit_query_params_limit_exceeds_max() {
+    let params = crate::AuditQueryParams {
+        limit: 1001,
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(err.contains("exceeds maximum"), "got: {err}");
+}
+
+#[test]
+fn test_audit_query_params_limit_at_max() {
+    let params = crate::AuditQueryParams {
+        limit: 1000,
+        ..Default::default()
+    };
+    assert!(params.validate().is_ok());
+}
+
+#[test]
+fn test_audit_query_params_empty_agent_id_fails() {
+    let params = crate::AuditQueryParams {
+        agent_id: Some("".to_string()),
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(err.contains("agent_id filter must not be empty"), "got: {err}");
+}
+
+#[test]
+fn test_audit_query_params_agent_id_too_long() {
+    let params = crate::AuditQueryParams {
+        agent_id: Some("x".repeat(257)),
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(err.contains("agent_id length"), "got: {err}");
+}
+
+#[test]
+fn test_audit_query_params_agent_id_control_chars() {
+    let params = crate::AuditQueryParams {
+        agent_id: Some("agent\x00bad".to_string()),
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(err.contains("control or format"), "got: {err}");
+}
+
+#[test]
+fn test_audit_query_params_empty_tool_fails() {
+    let params = crate::AuditQueryParams {
+        tool: Some("".to_string()),
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(err.contains("tool filter must not be empty"), "got: {err}");
+}
+
+#[test]
+fn test_audit_query_params_text_search_empty_fails() {
+    let params = crate::AuditQueryParams {
+        text_search: Some("".to_string()),
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(err.contains("text_search must not be empty"), "got: {err}");
+}
+
+#[test]
+fn test_audit_query_params_text_search_too_long() {
+    let params = crate::AuditQueryParams {
+        text_search: Some("x".repeat(513)),
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(err.contains("text_search length"), "got: {err}");
+}
+
+#[test]
+fn test_audit_query_params_text_search_sql_wildcards_only() {
+    let params = crate::AuditQueryParams {
+        text_search: Some("%%".to_string()),
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(err.contains("SQL wildcard"), "got: {err}");
+
+    let params2 = crate::AuditQueryParams {
+        text_search: Some("%_%%".to_string()),
+        ..Default::default()
+    };
+    assert!(params2.validate().is_err());
+}
+
+#[test]
+fn test_audit_query_params_text_search_with_mixed_content_ok() {
+    let params = crate::AuditQueryParams {
+        text_search: Some("test%search".to_string()),
+        ..Default::default()
+    };
+    assert!(params.validate().is_ok());
+}
+
+#[test]
+fn test_audit_query_params_sequence_range_inverted() {
+    let params = crate::AuditQueryParams {
+        from_sequence: Some(100),
+        to_sequence: Some(50),
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(err.contains("from_sequence"), "got: {err}");
+}
+
+#[test]
+fn test_audit_query_params_sequence_range_equal_ok() {
+    let params = crate::AuditQueryParams {
+        from_sequence: Some(100),
+        to_sequence: Some(100),
+        ..Default::default()
+    };
+    assert!(params.validate().is_ok());
+}
+
+#[test]
+fn test_audit_query_params_since_invalid_iso8601() {
+    let params = crate::AuditQueryParams {
+        since: Some("not-a-date".to_string()),
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(err.contains("since is not valid ISO 8601"), "got: {err}");
+}
+
+#[test]
+fn test_audit_query_params_until_invalid_iso8601() {
+    let params = crate::AuditQueryParams {
+        until: Some("2026-13-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    let err = params.validate().unwrap_err();
+    assert!(err.contains("until is not valid ISO 8601"), "got: {err}");
+}
+
+#[test]
+fn test_audit_query_params_valid_timestamps_ok() {
+    let params = crate::AuditQueryParams {
+        since: Some("2026-01-01T00:00:00Z".to_string()),
+        until: Some("2026-02-01T00:00:00Z".to_string()),
+        ..Default::default()
+    };
+    assert!(params.validate().is_ok());
+}
+
+#[test]
+fn test_audit_query_params_all_fields_valid() {
+    let params = crate::AuditQueryParams {
+        since: Some("2026-01-01T00:00:00Z".to_string()),
+        until: Some("2026-02-01T00:00:00Z".to_string()),
+        agent_id: Some("agent-1".to_string()),
+        tool: Some("file_read".to_string()),
+        verdict: Some(crate::VerdictFilter::Deny),
+        text_search: Some("secret".to_string()),
+        from_sequence: Some(1),
+        to_sequence: Some(100),
+        limit: 50,
+        offset: 0,
+    };
+    assert!(params.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Phase 43: AuditStoreBackend, VerdictFilter, AuditQueryResult,
+// and AuditStoreStatus serde/default tests (IMP-R198-P43)
+// ═══════════════════════════════════════════════════════════════
+
+#[test]
+fn test_audit_store_backend_default_is_file() {
+    let backend = crate::AuditStoreBackend::default();
+    assert_eq!(backend, crate::AuditStoreBackend::File);
+}
+
+#[test]
+fn test_audit_store_backend_serde_roundtrip_file() {
+    let backend = crate::AuditStoreBackend::File;
+    let json = serde_json::to_string(&backend).unwrap();
+    assert_eq!(json, r#""file""#);
+    let decoded: crate::AuditStoreBackend = serde_json::from_str(&json).unwrap();
+    assert_eq!(decoded, crate::AuditStoreBackend::File);
+}
+
+#[test]
+fn test_audit_store_backend_serde_roundtrip_postgres() {
+    let backend = crate::AuditStoreBackend::Postgres;
+    let json = serde_json::to_string(&backend).unwrap();
+    assert_eq!(json, r#""postgres""#);
+    let decoded: crate::AuditStoreBackend = serde_json::from_str(&json).unwrap();
+    assert_eq!(decoded, crate::AuditStoreBackend::Postgres);
+}
+
+#[test]
+fn test_verdict_filter_serde_roundtrip_allow() {
+    let filter = crate::VerdictFilter::Allow;
+    let json = serde_json::to_string(&filter).unwrap();
+    assert_eq!(json, r#""allow""#);
+    let decoded: crate::VerdictFilter = serde_json::from_str(&json).unwrap();
+    assert_eq!(decoded, crate::VerdictFilter::Allow);
+}
+
+#[test]
+fn test_verdict_filter_serde_roundtrip_deny() {
+    let filter = crate::VerdictFilter::Deny;
+    let json = serde_json::to_string(&filter).unwrap();
+    assert_eq!(json, r#""deny""#);
+    let decoded: crate::VerdictFilter = serde_json::from_str(&json).unwrap();
+    assert_eq!(decoded, crate::VerdictFilter::Deny);
+}
+
+#[test]
+fn test_verdict_filter_serde_roundtrip_require_approval() {
+    let filter = crate::VerdictFilter::RequireApproval;
+    let json = serde_json::to_string(&filter).unwrap();
+    assert_eq!(json, r#""requireapproval""#);
+    let decoded: crate::VerdictFilter = serde_json::from_str(&json).unwrap();
+    assert_eq!(decoded, crate::VerdictFilter::RequireApproval);
+}
+
+#[test]
+fn test_audit_query_result_serde_roundtrip() {
+    let result = crate::AuditQueryResult {
+        entries: vec![serde_json::json!({"id": "abc", "tool": "file_read"})],
+        total: 42,
+        offset: 10,
+        limit: 100,
+    };
+    let json = serde_json::to_string(&result).unwrap();
+    let decoded: crate::AuditQueryResult = serde_json::from_str(&json).unwrap();
+    assert_eq!(decoded.total, 42);
+    assert_eq!(decoded.offset, 10);
+    assert_eq!(decoded.limit, 100);
+    assert_eq!(decoded.entries.len(), 1);
+}
+
+#[test]
+fn test_audit_query_result_empty_serde_roundtrip() {
+    let result = crate::AuditQueryResult {
+        entries: vec![],
+        total: 0,
+        offset: 0,
+        limit: 100,
+    };
+    let json = serde_json::to_string(&result).unwrap();
+    let decoded: crate::AuditQueryResult = serde_json::from_str(&json).unwrap();
+    assert_eq!(decoded.total, 0);
+    assert!(decoded.entries.is_empty());
+}
+
+#[test]
+fn test_audit_store_status_serde_roundtrip_file_backend() {
+    let status = crate::AuditStoreStatus {
+        backend: crate::AuditStoreBackend::File,
+        enabled: false,
+        sink_healthy: true,
+        pending_count: 0,
+    };
+    let json = serde_json::to_string(&status).unwrap();
+    let decoded: crate::AuditStoreStatus = serde_json::from_str(&json).unwrap();
+    assert_eq!(decoded.backend, crate::AuditStoreBackend::File);
+    assert!(!decoded.enabled);
+    assert!(decoded.sink_healthy);
+    assert_eq!(decoded.pending_count, 0);
+}
+
+#[test]
+fn test_audit_store_status_serde_roundtrip_postgres_backend() {
+    let status = crate::AuditStoreStatus {
+        backend: crate::AuditStoreBackend::Postgres,
+        enabled: true,
+        sink_healthy: false,
+        pending_count: 37,
+    };
+    let json = serde_json::to_string(&status).unwrap();
+    let decoded: crate::AuditStoreStatus = serde_json::from_str(&json).unwrap();
+    assert_eq!(decoded.backend, crate::AuditStoreBackend::Postgres);
+    assert!(decoded.enabled);
+    assert!(!decoded.sink_healthy);
+    assert_eq!(decoded.pending_count, 37);
+}

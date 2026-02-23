@@ -222,6 +222,20 @@ impl AccountabilityAttestation {
                 Self::MAX_TIMESTAMP_LEN,
             ));
         }
+        // SECURITY (FIND-R157-004): Reject control/format chars in timestamp fields
+        // to prevent log injection via crafted ISO 8601 strings.
+        if crate::core::has_dangerous_chars(&self.created_at) {
+            return Err(
+                "AccountabilityAttestation created_at contains control or format characters"
+                    .to_string(),
+            );
+        }
+        if crate::core::has_dangerous_chars(&self.expires_at) {
+            return Err(
+                "AccountabilityAttestation expires_at contains control or format characters"
+                    .to_string(),
+            );
+        }
         // SECURITY (FIND-R113-009): Validate control/format chars on non-hex string fields.
         if crate::core::has_dangerous_chars(&self.attestation_id)
         {

@@ -23,13 +23,16 @@ pub const MAX_CONNECT_TIMEOUT_SECS: u64 = 60;
 /// Maximum table name length (SQL identifier).
 const MAX_TABLE_NAME_LEN: usize = 128;
 
+/// Maximum database URL length (prevents OOM from excessively long URLs).
+const MAX_DATABASE_URL_LEN: usize = 2048;
+
 /// Configuration for the centralized audit store.
 ///
 /// When `enabled` is false (default), no centralized store is used and
 /// all audit data is read from the local JSONL file. When enabled with
 /// `backend: postgres`, entries are dual-written to PostgreSQL via an
 /// async mpsc channel for structured querying.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuditStoreConfig {
     /// Whether the centralized audit store is enabled.
@@ -121,9 +124,63 @@ impl Default for AuditStoreConfig {
     }
 }
 
+/// SECURITY (FIND-R157-001): Custom Debug impl redacts `database_url` which may
+/// contain PostgreSQL credentials (username/password in connection string).
+impl std::fmt::Debug for AuditStoreConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuditStoreConfig")
+            .field("enabled", &self.enabled)
+            .field("backend", &self.backend)
+            .field("database_url", &self.database_url.as_ref().map(|_| "[REDACTED]"))
+            .field("pool_size", &self.pool_size)
+            .field("table_name", &self.table_name)
+            .field("auto_migrate", &self.auto_migrate)
+            .field("sink_buffer_size", &self.sink_buffer_size)
+            .field("flush_interval_ms", &self.flush_interval_ms)
+            .field("batch_insert_size", &self.batch_insert_size)
+            .field("connect_timeout_secs", &self.connect_timeout_secs)
+            .field("sink_failure_fatal", &self.sink_failure_fatal)
+            .finish()
+    }
+}
+
 impl AuditStoreConfig {
-    /// Validate configuration. Skips most checks when disabled.
+    /// Validate configuration.
+    ///
+    /// SECURITY (FIND-R198-005): Even when disabled, validate fields that are
+    /// present (e.g. database_url control chars, table_name charset) to catch
+    /// misconfigurations early. Full bounds checks only apply when enabled.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R198-005): Validate database_url even when disabled —
+        // control chars and dangerous content should be rejected regardless.
+        if let Some(ref url) = self.database_url {
+            // SECURITY (FIND-R198-003): Length bound prevents OOM on oversized URLs.
+            if url.len() > MAX_DATABASE_URL_LEN {
+                return Err(format!(
+                    "audit_store.database_url length {} exceeds maximum {}",
+                    url.len(),
+                    MAX_DATABASE_URL_LEN
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(url.trim()) {
+                return Err(
+                    "audit_store.database_url contains control or format characters".to_string(),
+                );
+            }
+        }
+
+        // SECURITY (FIND-R198-005): Validate table_name charset even when disabled.
+        if !self
+            .table_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(
+                "audit_store.table_name must contain only alphanumeric characters and underscores"
+                    .to_string(),
+            );
+        }
+
         if !self.enabled {
             return Ok(());
         }
@@ -149,12 +206,66 @@ impl AuditStoreConfig {
                                 .to_string(),
                         );
                     }
-                    // SECURITY: Reject control characters in URL
-                    if vellaveto_types::has_dangerous_chars(trimmed) {
-                        return Err(
-                            "audit_store.database_url contains control or format characters"
-                                .to_string(),
-                        );
+                    // SECURITY (FIND-R198-002): Reject private/loopback hosts in database URL
+                    // to prevent SSRF. Extract host after `@` (or after scheme if no userinfo).
+                    let after_scheme = trimmed
+                        .strip_prefix("postgres://")
+                        .or_else(|| trimmed.strip_prefix("postgresql://"))
+                        .unwrap_or_default();
+                    // Host is after the last `@` (to skip userinfo) and before `/` or end
+                    let host_and_rest = after_scheme
+                        .rsplit_once('@')
+                        .map(|(_, h)| h)
+                        .unwrap_or(after_scheme);
+                    let host_port = host_and_rest.split('/').next().unwrap_or("");
+                    // Strip port suffix (handle IPv6 [::1]:5432 brackets)
+                    let host = if host_port.starts_with('[') {
+                        // IPv6 bracket notation: [::1]:5432
+                        host_port
+                            .find(']')
+                            .map(|i| &host_port[1..i])
+                            .unwrap_or(host_port)
+                    } else {
+                        host_port.rsplit_once(':').map(|(h, _)| h).unwrap_or(host_port)
+                    };
+                    let host_lower = host.to_ascii_lowercase();
+                    if host_lower == "localhost"
+                        || host_lower == "::1"
+                        || host_lower == "0.0.0.0"
+                        || host_lower == "metadata.google.internal"
+                    {
+                        return Err(format!(
+                            "audit_store.database_url host '{}' is a private/loopback address",
+                            host
+                        ));
+                    }
+                    // Check IPv4 private/loopback ranges
+                    if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+                        if ip.is_loopback()
+                            || ip.is_private()
+                            || ip.is_link_local()
+                            || ip.is_unspecified()
+                        {
+                            return Err(format!(
+                                "audit_store.database_url host '{}' is a private/loopback address",
+                                host
+                            ));
+                        }
+                        // Cloud metadata endpoint 169.254.169.254
+                        if ip.octets()[0] == 169 && ip.octets()[1] == 254 {
+                            return Err(format!(
+                                "audit_store.database_url host '{}' is a link-local/metadata address",
+                                host
+                            ));
+                        }
+                    }
+                    if let Ok(ip6) = host.parse::<std::net::Ipv6Addr>() {
+                        if ip6.is_loopback() || ip6.is_unspecified() {
+                            return Err(format!(
+                                "audit_store.database_url host '{}' is a private/loopback address",
+                                host
+                            ));
+                        }
                     }
                 }
             }
@@ -192,9 +303,7 @@ impl AuditStoreConfig {
         // SECURITY: Reject table names starting with digits (invalid SQL identifier)
         if self
             .table_name
-            .chars()
-            .next()
-            .map_or(false, |c| c.is_ascii_digit())
+            .starts_with(|c: char| c.is_ascii_digit())
         {
             return Err(
                 "audit_store.table_name must not start with a digit".to_string(),

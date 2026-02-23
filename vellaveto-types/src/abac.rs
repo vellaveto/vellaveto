@@ -338,6 +338,9 @@ pub struct RiskFactor {
 }
 
 impl RiskScore {
+    /// Maximum length for `updated_at` ISO 8601 timestamp (bytes).
+    const MAX_TIMESTAMP_LEN: usize = 64;
+
     /// Validate that all f64 fields are finite (not NaN or Infinity).
     pub fn validate_finite(&self) -> Result<(), String> {
         if !self.score.is_finite() {
@@ -362,13 +365,45 @@ impl RiskScore {
         for factor in &self.factors {
             factor.validate_finite()?;
         }
+        // SECURITY (FIND-R157-002): Validate updated_at timestamp length and
+        // reject control/format characters to prevent log injection.
+        if self.updated_at.len() > Self::MAX_TIMESTAMP_LEN {
+            return Err(format!(
+                "RiskScore updated_at length {} exceeds max {}",
+                self.updated_at.len(),
+                Self::MAX_TIMESTAMP_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.updated_at) {
+            return Err(
+                "RiskScore updated_at contains control or format characters".to_string(),
+            );
+        }
         Ok(())
     }
 }
 
 impl RiskFactor {
+    /// Maximum length for `name` field (bytes).
+    const MAX_NAME_LEN: usize = 256;
+
     /// Validate that all f64 fields are finite and in [0.0, 1.0].
     pub fn validate_finite(&self) -> Result<(), String> {
+        // SECURITY (FIND-R157-003): Validate name length and reject
+        // control/format characters to prevent log injection and OOM.
+        if self.name.len() > Self::MAX_NAME_LEN {
+            return Err(format!(
+                "RiskFactor name length {} exceeds max {}",
+                self.name.len(),
+                Self::MAX_NAME_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.name) {
+            return Err(format!(
+                "RiskFactor '{}' name contains control or format characters",
+                self.name,
+            ));
+        }
         // SECURITY (FIND-R52-003): Range-validate weight and value to prevent
         // adversarial composite score manipulation via negative factors.
         if !self.weight.is_finite() || self.weight < 0.0 || self.weight > 1.0 {
@@ -393,6 +428,7 @@ impl RiskFactor {
 
 /// Federation trust anchor for cross-org identity mapping.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct FederationTrustAnchor {
     /// Organization identifier.
     pub org_id: String,
@@ -443,6 +479,14 @@ impl FederationTrustAnchor {
         {
             return Err(format!(
                 "FederationTrustAnchor '{}' org_id contains control or format characters",
+                self.org_id
+            ));
+        }
+        // SECURITY (FIND-R157-P3): Reject control/format chars in display_name
+        // to prevent log injection and misleading visual display.
+        if crate::core::has_dangerous_chars(&self.display_name) {
+            return Err(format!(
+                "FederationTrustAnchor '{}' display_name contains control or format characters",
                 self.org_id
             ));
         }
@@ -518,6 +562,7 @@ impl FederationTrustAnchor {
 
 /// Maps external identity claims to an internal Vellaveto principal.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct IdentityMapping {
     /// JWT claim to read (e.g., "sub", "email").
     pub external_claim: String,
@@ -563,6 +608,14 @@ impl IdentityMapping {
         if self.internal_principal_type.is_empty() {
             return Err("internal_principal_type must not be empty".to_string());
         }
+        // SECURITY (FIND-R157-P3): Reject control/format chars in internal_principal_type
+        // to prevent log injection and identity spoofing.
+        if crate::core::has_dangerous_chars(&self.internal_principal_type) {
+            return Err(format!(
+                "internal_principal_type '{}' contains control or format characters",
+                self.internal_principal_type
+            ));
+        }
         Ok(())
     }
 }
@@ -573,6 +626,7 @@ impl IdentityMapping {
 
 /// Federation status returned by GET /api/federation/status.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct FederationStatus {
     /// Whether federation is enabled.
     pub enabled: bool,
@@ -584,6 +638,7 @@ pub struct FederationStatus {
 
 /// Per-anchor status with JWKS cache info.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct FederationAnchorStatus {
     /// Organization identifier.
     pub org_id: String,
@@ -611,6 +666,7 @@ pub struct FederationAnchorStatus {
 
 /// Abbreviated anchor info for API listing (excludes JWKS keys).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct FederationAnchorInfo {
     /// Organization identifier.
     pub org_id: String,

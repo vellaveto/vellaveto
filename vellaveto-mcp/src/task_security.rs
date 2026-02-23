@@ -40,6 +40,7 @@ use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
@@ -113,6 +114,25 @@ pub struct SecureTaskManager {
     replay_blocked: AtomicU64,
     integrity_violations: AtomicU64,
     checkpoints_created: AtomicU64,
+}
+
+/// SECURITY (FIND-R157-001): Custom Debug redacts `hmac_key`, `signing_key`,
+/// and `cipher` to prevent cryptographic material leaking into logs.
+impl fmt::Debug for SecureTaskManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SecureTaskManager")
+            .field("tasks", &"<RwLock>")
+            .field("checkpoints", &"<RwLock>")
+            .field("cipher", &"[REDACTED]")
+            .field("hmac_key", &"[REDACTED]")
+            .field("signing_key", &"[REDACTED]")
+            .field("resume_attempts", &self.resume_attempts)
+            .field("resume_successes", &self.resume_successes)
+            .field("replay_blocked", &self.replay_blocked)
+            .field("integrity_violations", &self.integrity_violations)
+            .field("checkpoints_created", &self.checkpoints_created)
+            .finish()
+    }
 }
 
 impl SecureTaskManager {

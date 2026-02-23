@@ -3910,7 +3910,12 @@ async fn relay_upstream_to_client(
                     // SECURITY (FIND-R168-002): Injection scan with log-only mode
                     // parity. Always log detections; only block when injection_blocking.
                     {
-                        let alerts = inspect_for_injection(text_str);
+                        let alerts: Vec<String> =
+                            if let Some(ref scanner) = state.injection_scanner {
+                                scanner.inspect(text_str).into_iter().map(|s| s.to_string()).collect()
+                            } else {
+                                inspect_for_injection(text_str).into_iter().map(|s| s.to_string()).collect()
+                            };
                         if !alerts.is_empty() {
                             tracing::warn!(
                                 session_id = %session_id,

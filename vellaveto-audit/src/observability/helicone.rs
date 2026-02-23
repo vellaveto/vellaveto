@@ -15,7 +15,10 @@ use std::time::Duration;
 use tracing::{debug, error, warn};
 
 /// Helicone exporter configuration.
-#[derive(Debug, Clone)]
+///
+/// SECURITY (FIND-R157-005): Custom Debug redacts `api_key` to prevent
+/// credentials leaking into logs.
+#[derive(Clone)]
 pub struct HeliconeExporterConfig {
     /// Helicone API endpoint.
     pub endpoint: String,
@@ -25,6 +28,17 @@ pub struct HeliconeExporterConfig {
     pub custom_properties: HashMap<String, String>,
     /// Common exporter config.
     pub common: ObservabilityExporterConfig,
+}
+
+impl std::fmt::Debug for HeliconeExporterConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HeliconeExporterConfig")
+            .field("endpoint", &self.endpoint)
+            .field("api_key", &"[REDACTED]")
+            .field("custom_properties", &self.custom_properties)
+            .field("common", &self.common)
+            .finish()
+    }
 }
 
 impl HeliconeExporterConfig {

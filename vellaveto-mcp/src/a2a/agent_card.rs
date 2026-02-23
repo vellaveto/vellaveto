@@ -383,6 +383,10 @@ const MAX_SKILL_LIST_ENTRIES: usize = 50;
 const MAX_AUTH_SCHEMES: usize = 20;
 /// Maximum auth scheme details entries.
 const MAX_AUTH_SCHEME_DETAILS: usize = 20;
+/// SECURITY (FIND-R157-002): Maximum auth scheme name length.
+const MAX_AUTH_SCHEME_LEN: usize = 64;
+/// SECURITY (FIND-R157-003): Maximum auth detail key length.
+const MAX_AUTH_DETAIL_KEY_LEN: usize = 256;
 /// Maximum input/output modes.
 const MAX_IO_MODES: usize = 20;
 /// Maximum length of individual IO mode strings (IMP-R116-012).
@@ -610,6 +614,19 @@ pub fn validate_agent_card(card: &AgentCard) -> Result<(), A2aError> {
             )));
         }
         for scheme in &auth.schemes {
+            // SECURITY (FIND-R157-002): Validate scheme name length and content.
+            if scheme.scheme.len() > MAX_AUTH_SCHEME_LEN {
+                return Err(A2aError::AgentCardInvalid(format!(
+                    "auth scheme name length {} exceeds maximum {}",
+                    scheme.scheme.len(),
+                    MAX_AUTH_SCHEME_LEN
+                )));
+            }
+            if vellaveto_types::has_dangerous_chars(&scheme.scheme) {
+                return Err(A2aError::AgentCardInvalid(
+                    "auth scheme name contains dangerous characters".to_string(),
+                ));
+            }
             if scheme.details.len() > MAX_AUTH_SCHEME_DETAILS {
                 return Err(A2aError::AgentCardInvalid(format!(
                     "auth scheme details count {} exceeds maximum {}",
@@ -620,6 +637,19 @@ pub fn validate_agent_card(card: &AgentCard) -> Result<(), A2aError> {
             // SECURITY (FIND-R176-009): Per-value size bound on auth scheme details.
             const MAX_AUTH_DETAIL_VALUE_SIZE: usize = 8192;
             for (key, value) in &scheme.details {
+                // SECURITY (FIND-R157-003): Per-key length and content validation.
+                if key.len() > MAX_AUTH_DETAIL_KEY_LEN {
+                    return Err(A2aError::AgentCardInvalid(format!(
+                        "auth scheme detail key length {} exceeds maximum {}",
+                        key.len(),
+                        MAX_AUTH_DETAIL_KEY_LEN
+                    )));
+                }
+                if vellaveto_types::has_dangerous_chars(key) {
+                    return Err(A2aError::AgentCardInvalid(
+                        "auth scheme detail key contains dangerous characters".to_string(),
+                    ));
+                }
                 let size = serde_json::to_string(value).map(|s| s.len()).unwrap_or(0);
                 if size > MAX_AUTH_DETAIL_VALUE_SIZE {
                     return Err(A2aError::AgentCardInvalid(format!(

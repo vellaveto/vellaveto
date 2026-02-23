@@ -18,7 +18,10 @@ use std::time::Duration;
 use tracing::{debug, error, warn};
 
 /// Webhook exporter configuration.
-#[derive(Debug, Clone)]
+///
+/// SECURITY (FIND-R157-005): Custom Debug redacts `auth_header` to prevent
+/// credentials leaking into logs.
+#[derive(Clone)]
 pub struct WebhookExporterConfig {
     /// Webhook endpoint URL.
     pub endpoint: String,
@@ -30,6 +33,18 @@ pub struct WebhookExporterConfig {
     pub compress: bool,
     /// Common exporter config.
     pub common: ObservabilityExporterConfig,
+}
+
+impl std::fmt::Debug for WebhookExporterConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WebhookExporterConfig")
+            .field("endpoint", &self.endpoint)
+            .field("auth_header", &"[REDACTED]")
+            .field("headers", &self.headers)
+            .field("compress", &self.compress)
+            .field("common", &self.common)
+            .finish()
+    }
 }
 
 impl WebhookExporterConfig {

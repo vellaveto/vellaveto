@@ -169,6 +169,13 @@ impl TransportAttempt {
                     Self::MAX_ERROR_LEN,
                 ));
             }
+            // SECURITY (FIND-R157-007): Reject control/format chars in error
+            // messages to prevent log injection via crafted transport errors.
+            if crate::core::has_dangerous_chars(err) {
+                return Err(
+                    "TransportAttempt error contains control or format characters".to_string(),
+                );
+            }
         }
         Ok(())
     }
