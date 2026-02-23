@@ -3,9 +3,23 @@
 > **Living document** tracking all adversarial security audit findings and fixes.
 > Updated after each audit round. See also `CHANGELOG.md` for feature changes.
 >
-> **Last updated:** 2026-02-22 (Round 194)
-> **Total audit rounds:** 194
-> **Cumulative findings fixed:** 627+
+> **Last updated:** 2026-02-23 (Round 196)
+> **Total audit rounds:** 196
+> **Cumulative findings fixed:** 629+
+
+---
+
+## Round 195+196 — HTML Escape Control/Format Chars + Access Review Sanitization Parity (2 findings fixed)
+
+**Subsystem:** `vellaveto-audit/src/access_review.rs`
+**Commit:** `c7eb2d3`
+
+| ID | Sev | File | Fix |
+|----|-----|------|-----|
+| FIND-R196-003 | P3 | `access_review.rs` | `html_escape()` now encodes control chars (ASCII C0/C1) and Unicode format chars (zero-width joiners, bidi overrides, BOM) as numeric HTML entities — defense-in-depth for rendered SOC 2 reports |
+| FIND-R196-005 | P2 | `access_review.rs` | `agent_id` and `session_id` extraction in `generate_access_review()` now filter control/format chars before truncation, achieving parity with `period_start`/`period_end` sanitization |
+
+**False positives dismissed:** R195-001 (already-known serde flatten limitation), R196-001 (eviction math correct), R196-002 (eviction always succeeds), R196-004 (thread_rng standard practice), R196-006 (compile-time constants can't be NaN)
 
 ---
 
