@@ -1820,6 +1820,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         etdi: Default::default(),
         memory_security: Default::default(),
         nhi: Default::default(),
+        semantic_guardrails: Default::default(),
         rag_defense: Default::default(),
         a2a: Default::default(),
         observability: Default::default(),

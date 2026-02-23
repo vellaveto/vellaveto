@@ -323,6 +323,23 @@ impl EvaluationContext {
         self.call_chain.first().map(|e| e.agent_id.as_str())
     }
 
+    /// Returns the principal type from the agent identity claims.
+    ///
+    /// Extracts `claims["type"]` from the agent identity, defaulting to `"Agent"`
+    /// when no identity is present or the claim is missing. This centralizes the
+    /// extraction pattern used across all ABAC evaluation sites (HTTP, WebSocket,
+    /// gRPC, stdio handlers).
+    ///
+    /// DEDUP (IMP-R198-012): Extracted from 15 identical inline blocks across
+    /// handlers.rs, websocket/mod.rs, grpc/service.rs, and relay.rs.
+    pub fn principal_type(&self) -> &str {
+        self.agent_identity
+            .as_ref()
+            .and_then(|id| id.claims.get("type"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("Agent")
+    }
+
     /// Create a new builder for constructing an `EvaluationContext`.
     ///
     /// # Example

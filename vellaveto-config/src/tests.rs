@@ -1107,6 +1107,7 @@ fn test_validate_rejects_too_many_policies() {
         etdi: EtdiConfig::default(),
         memory_security: MemorySecurityConfig::default(),
         nhi: NhiConfig::default(),
+        semantic_guardrails: SemanticGuardrailsConfig::default(),
         rag_defense: RagDefenseConfig::default(),
         a2a: A2aConfig::default(),
         observability: ObservabilityConfig::default(),

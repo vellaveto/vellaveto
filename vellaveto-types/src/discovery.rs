@@ -260,11 +260,15 @@ pub struct DiscoveredTool {
 }
 
 impl DiscoveredTool {
-    /// Validate structural invariants: finite score, range check.
+    /// Validate structural invariants: nested metadata, finite score, range check.
     ///
+    /// SECURITY (FIND-R158-002): Validate nested ToolMetadata to prevent
+    /// bypassing metadata bounds via DiscoveredTool deserialization.
     /// SECURITY (FIND-P2-007): Non-finite relevance_score could cause
     /// incorrect ranking or bypass score threshold checks.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R158-002): Validate nested ToolMetadata.
+        self.metadata.validate()?;
         if !self.relevance_score.is_finite() {
             return Err(format!(
                 "DiscoveredTool '{}' has non-finite relevance_score: {}",

@@ -863,12 +863,7 @@ pub async fn handle_mcp_post(
                         let abac_eval_ctx = build_evaluation_context(&state.sessions, &session_id)
                             .unwrap_or_default();
                         let principal_id = abac_eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
-                        let principal_type = abac_eval_ctx
-                            .agent_identity
-                            .as_ref()
-                            .and_then(|id| id.claims.get("type"))
-                            .and_then(|v: &serde_json::Value| v.as_str())
-                            .unwrap_or("Agent");
+                        let principal_type = abac_eval_ctx.principal_type();
                         let session_risk = state
                             .sessions
                             .get_mut(&session_id)
@@ -1785,12 +1780,7 @@ pub async fn handle_mcp_post(
                                 .unwrap_or_default();
                         let principal_id =
                             abac_eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
-                        let principal_type = abac_eval_ctx
-                            .agent_identity
-                            .as_ref()
-                            .and_then(|id| id.claims.get("type"))
-                            .and_then(|v: &serde_json::Value| v.as_str())
-                            .unwrap_or("Agent");
+                        let principal_type = abac_eval_ctx.principal_type();
                         let session_risk = state
                             .sessions
                             .get_mut(&session_id)
@@ -2724,12 +2714,7 @@ pub async fn handle_mcp_post(
                                 .unwrap_or_default();
                         let principal_id =
                             abac_eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
-                        let principal_type = abac_eval_ctx
-                            .agent_identity
-                            .as_ref()
-                            .and_then(|id| id.claims.get("type"))
-                            .and_then(|v: &serde_json::Value| v.as_str())
-                            .unwrap_or("Agent");
+                        let principal_type = abac_eval_ctx.principal_type();
                         let session_risk = state
                             .sessions
                             .get_mut(&session_id)
@@ -3120,12 +3105,7 @@ pub async fn handle_mcp_post(
                         let abac_eval_ctx = build_evaluation_context(&state.sessions, &session_id)
                             .unwrap_or_default();
                         let principal_id = abac_eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
-                        let principal_type = abac_eval_ctx
-                            .agent_identity
-                            .as_ref()
-                            .and_then(|id| id.claims.get("type"))
-                            .and_then(|v: &serde_json::Value| v.as_str())
-                            .unwrap_or("Agent");
+                        let principal_type = abac_eval_ctx.principal_type();
                         let session_risk = state
                             .sessions
                             .get_mut(&session_id)

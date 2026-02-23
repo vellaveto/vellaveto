@@ -357,6 +357,15 @@ pub struct PolicyConfig {
     pub nhi: NhiConfig,
 
     // ═══════════════════════════════════════════════════
+    // PHASE 12: SEMANTIC GUARDRAILS
+    // ═══════════════════════════════════════════════════
+    /// Semantic guardrails configuration for LLM-based policy evaluation.
+    /// Enables intent classification, natural language policies, and jailbreak
+    /// detection beyond pattern matching.
+    #[serde(default)]
+    pub semantic_guardrails: SemanticGuardrailsConfig,
+
+    // ═══════════════════════════════════════════════════
     // PHASE 13: RAG POISONING DEFENSE CONFIGURATION
     // ═══════════════════════════════════════════════════
     /// RAG (Retrieval-Augmented Generation) poisoning defense configuration.

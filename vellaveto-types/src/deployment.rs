@@ -26,6 +26,57 @@ pub enum LeaderStatus {
     Unknown,
 }
 
+impl LeaderStatus {
+    /// Maximum length for the `since` timestamp field.
+    const MAX_SINCE_LEN: usize = 64;
+    /// Maximum length for the `leader_id` field.
+    const MAX_LEADER_ID_LEN: usize = 256;
+
+    /// Validate structural bounds on string fields within each variant.
+    ///
+    /// SECURITY (FIND-R158-006): LeaderStatus variants carry user-facing strings
+    /// (`since`, `leader_id`) that were not validated, allowing control/format
+    /// character injection into deployment info responses and audit logs.
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            LeaderStatus::Leader { since } => {
+                if since.len() > Self::MAX_SINCE_LEN {
+                    return Err(format!(
+                        "LeaderStatus::Leader since length {} exceeds max {}",
+                        since.len(),
+                        Self::MAX_SINCE_LEN,
+                    ));
+                }
+                if crate::core::has_dangerous_chars(since) {
+                    return Err(
+                        "LeaderStatus::Leader since contains control or format characters"
+                            .to_string(),
+                    );
+                }
+            }
+            LeaderStatus::Follower { leader_id } => {
+                if let Some(ref id) = leader_id {
+                    if id.len() > Self::MAX_LEADER_ID_LEN {
+                        return Err(format!(
+                            "LeaderStatus::Follower leader_id length {} exceeds max {}",
+                            id.len(),
+                            Self::MAX_LEADER_ID_LEN,
+                        ));
+                    }
+                    if crate::core::has_dangerous_chars(id) {
+                        return Err(
+                            "LeaderStatus::Follower leader_id contains control or format characters"
+                                .to_string(),
+                        );
+                    }
+                }
+            }
+            LeaderStatus::Unknown => {}
+        }
+        Ok(())
+    }
+}
+
 /// A discovered service endpoint in the cluster.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -187,6 +238,10 @@ impl DeploymentInfo {
 
     /// Validate structural bounds on deserialized data.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R158-006): Validate nested LeaderStatus.
+        if let Some(ref status) = self.leader_status {
+            status.validate()?;
+        }
         if let Some(ref id) = self.instance_id {
             if id.len() > Self::MAX_INSTANCE_ID_LEN {
                 return Err(format!(

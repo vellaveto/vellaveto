@@ -1236,12 +1236,7 @@ async fn relay_client_to_upstream(
                                 if let Some(ref abac) = state.abac_engine {
                                     let principal_id =
                                         ctx.agent_id.as_deref().unwrap_or("anonymous");
-                                    let principal_type = ctx
-                                        .agent_identity
-                                        .as_ref()
-                                        .and_then(|aid| aid.claims.get("type"))
-                                        .and_then(|v: &serde_json::Value| v.as_str())
-                                        .unwrap_or("Agent");
+                                    let principal_type = ctx.principal_type();
                                     let session_risk = state
                                         .sessions
                                         .get_mut(&session_id)
@@ -1776,12 +1771,7 @@ async fn relay_client_to_upstream(
                                 if let Some(ref abac) = state.abac_engine {
                                     let principal_id =
                                         ctx.agent_id.as_deref().unwrap_or("anonymous");
-                                    let principal_type = ctx
-                                        .agent_identity
-                                        .as_ref()
-                                        .and_then(|aid| aid.claims.get("type"))
-                                        .and_then(|v: &serde_json::Value| v.as_str())
-                                        .unwrap_or("Agent");
+                                    let principal_type = ctx.principal_type();
                                     let session_risk = state
                                         .sessions
                                         .get_mut(&session_id)
@@ -2011,7 +2001,8 @@ async fn relay_client_to_upstream(
                         let _ = sink.send(Message::Text(error_text.into())).await;
                     }
                     MessageType::Invalid { ref id, ref reason } => {
-                        let error = make_ws_error_response(Some(id), -32600, reason);
+                        tracing::warn!("Invalid JSON-RPC request in WebSocket transport: {}", reason);
+                        let error = make_ws_error_response(Some(id), -32600, "Invalid JSON-RPC request");
                         let mut sink = client_sink.lock().await;
                         let _ = sink.send(Message::Text(error.into())).await;
                     }
@@ -2347,12 +2338,7 @@ async fn relay_client_to_upstream(
                                 if let Some(ref abac) = state.abac_engine {
                                     let principal_id =
                                         task_eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
-                                    let principal_type = task_eval_ctx
-                                        .agent_identity
-                                        .as_ref()
-                                        .and_then(|aid| aid.claims.get("type"))
-                                        .and_then(|v: &serde_json::Value| v.as_str())
-                                        .unwrap_or("Agent");
+                                    let principal_type = task_eval_ctx.principal_type();
                                     let session_risk = state
                                         .sessions
                                         .get_mut(&session_id)
@@ -2736,12 +2722,7 @@ async fn relay_client_to_upstream(
                                 if let Some(ref abac) = state.abac_engine {
                                     let principal_id =
                                         ctx.agent_id.as_deref().unwrap_or("anonymous");
-                                    let principal_type = ctx
-                                        .agent_identity
-                                        .as_ref()
-                                        .and_then(|aid| aid.claims.get("type"))
-                                        .and_then(|v: &serde_json::Value| v.as_str())
-                                        .unwrap_or("Agent");
+                                    let principal_type = ctx.principal_type();
                                     let session_risk = state
                                         .sessions
                                         .get_mut(&session_id)

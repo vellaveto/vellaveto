@@ -114,7 +114,7 @@ pub async fn approve_registry_tool(
         vellaveto_mcp::tool_registry::RegistryError::NotFound(_) => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: format!("Tool '{}' not found in registry", name),
+                error: "Tool not found in registry".to_string(),
             }),
         ),
         _ => {
@@ -206,7 +206,7 @@ pub async fn revoke_registry_tool(
         vellaveto_mcp::tool_registry::RegistryError::NotFound(_) => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: format!("Tool '{}' not found in registry", name),
+                error: "Tool not found in registry".to_string(),
             }),
         ),
         _ => {

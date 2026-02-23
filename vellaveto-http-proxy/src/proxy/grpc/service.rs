@@ -522,7 +522,8 @@ impl McpGrpcService {
                 "JSON-RPC batch requests are not supported",
             ),
             MessageType::Invalid { ref reason, .. } => {
-                make_proto_error_response(proto_req, -32600, reason)
+                tracing::warn!("Invalid JSON-RPC request in gRPC transport: {}", reason);
+                make_proto_error_response(proto_req, -32600, "Invalid JSON-RPC request")
             }
             MessageType::PassThrough => {
                 // SECURITY (FIND-R77-002): DLP scan PassThrough params for secrets.
@@ -1151,12 +1152,7 @@ impl McpGrpcService {
                 // Phase 21: ABAC refinement — only runs when ABAC engine is configured
                 if let Some(ref abac) = self.state.abac_engine {
                     let principal_id = ctx.agent_id.as_deref().unwrap_or("anonymous");
-                    let principal_type = ctx
-                        .agent_identity
-                        .as_ref()
-                        .and_then(|aid| aid.claims.get("type"))
-                        .and_then(|v: &serde_json::Value| v.as_str())
-                        .unwrap_or("Agent");
+                    let principal_type = ctx.principal_type();
                     // NOTE: session_risk extracted in TOCTOU-safe block above (FIND-R160-001).
                     let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
                         eval_ctx: &ctx,
@@ -1593,12 +1589,7 @@ impl McpGrpcService {
                 // SECURITY (FIND-R114-004): ABAC refinement — parity with handle_tool_call.
                 if let Some(ref abac) = self.state.abac_engine {
                     let principal_id = ctx.agent_id.as_deref().unwrap_or("anonymous");
-                    let principal_type = ctx
-                        .agent_identity
-                        .as_ref()
-                        .and_then(|aid| aid.claims.get("type"))
-                        .and_then(|v: &serde_json::Value| v.as_str())
-                        .unwrap_or("Agent");
+                    let principal_type = ctx.principal_type();
                     // NOTE: session_risk extracted in TOCTOU-safe block above (FIND-R160-001).
                     let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
                         eval_ctx: &ctx,
@@ -2217,12 +2208,7 @@ impl McpGrpcService {
                 // matching ToolCall/ResourceRead/ExtensionMethod parity.
                 if let Some(ref abac) = self.state.abac_engine {
                     let principal_id = ctx.agent_id.as_deref().unwrap_or("anonymous");
-                    let principal_type = ctx
-                        .agent_identity
-                        .as_ref()
-                        .and_then(|aid| aid.claims.get("type"))
-                        .and_then(|v: &serde_json::Value| v.as_str())
-                        .unwrap_or("Agent");
+                    let principal_type = ctx.principal_type();
                     let session_risk = self
                         .state
                         .sessions
@@ -2507,12 +2493,7 @@ impl McpGrpcService {
                 // SECURITY (FIND-R118-002): ABAC refinement for extension methods.
                 if let Some(ref abac) = self.state.abac_engine {
                     let principal_id = ctx.agent_id.as_deref().unwrap_or("anonymous");
-                    let principal_type = ctx
-                        .agent_identity
-                        .as_ref()
-                        .and_then(|aid| aid.claims.get("type"))
-                        .and_then(|v: &serde_json::Value| v.as_str())
-                        .unwrap_or("Agent");
+                    let principal_type = ctx.principal_type();
                     // NOTE: session_risk extracted in TOCTOU-safe block above (FIND-R160-001).
                     let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
                         eval_ctx: &ctx,

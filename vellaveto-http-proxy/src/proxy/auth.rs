@@ -253,7 +253,7 @@ pub(super) async fn validate_oauth(
                 [(axum::http::header::WWW_AUTHENTICATE, www_auth)],
                 Json(json!({
                     "error": "insufficient_scope",
-                    "required_scope": required
+                    "required_scope": sanitized_scope
                 })),
             )
                 .into_response())

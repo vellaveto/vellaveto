@@ -45,12 +45,26 @@ impl PedersenCommitment {
                 Self::MAX_COMMITMENT_LEN,
             ));
         }
+        // SECURITY (FIND-R158-004): Reject control/format chars in commitment
+        // to prevent invisible character injection in hex-encoded commitments.
+        if crate::core::has_dangerous_chars(&self.commitment) {
+            return Err(
+                "PedersenCommitment commitment contains control or format characters".to_string(),
+            );
+        }
         if self.blinding_hint.len() > Self::MAX_BLINDING_HINT_LEN {
             return Err(format!(
                 "PedersenCommitment blinding_hint length {} exceeds max {}",
                 self.blinding_hint.len(),
                 Self::MAX_BLINDING_HINT_LEN,
             ));
+        }
+        // SECURITY (FIND-R158-004): Reject control/format chars in blinding_hint
+        // to prevent invisible character injection in hex-encoded blinding factors.
+        if crate::core::has_dangerous_chars(&self.blinding_hint) {
+            return Err(
+                "PedersenCommitment blinding_hint contains control or format characters".to_string(),
+            );
         }
         Ok(())
     }
@@ -114,6 +128,13 @@ impl ZkBatchProof {
                 self.proof.len(),
                 Self::MAX_PROOF_LEN,
             ));
+        }
+        // SECURITY (FIND-R158-005): Reject control/format chars in proof field
+        // to prevent invisible character injection in hex-encoded proof bytes.
+        if crate::core::has_dangerous_chars(&self.proof) {
+            return Err(
+                "ZkBatchProof proof contains control or format characters".to_string(),
+            );
         }
         if self.batch_id.len() > Self::MAX_BATCH_ID_LEN {
             return Err(format!(

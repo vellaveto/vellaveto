@@ -136,6 +136,7 @@ impl UnregisteredAgent {
             ));
         }
         // SECURITY (FIND-R113-014): Per-entry length bounds on tools_used.
+        // SECURITY (FIND-R158-001): Per-entry control/format char validation.
         for tool in &self.tools_used {
             if tool.len() > Self::MAX_TOOL_NAME_LEN {
                 return Err(format!(
@@ -143,6 +144,12 @@ impl UnregisteredAgent {
                     self.agent_id,
                     tool.len(),
                     Self::MAX_TOOL_NAME_LEN
+                ));
+            }
+            if crate::has_dangerous_chars(tool) {
+                return Err(format!(
+                    "UnregisteredAgent '{}' tools_used entry contains control or format characters",
+                    self.agent_id
                 ));
             }
         }
@@ -224,6 +231,7 @@ impl UnapprovedTool {
             ));
         }
         // SECURITY (FIND-R113-014): Per-entry length bounds on requesting_agents.
+        // SECURITY (FIND-R158-001): Per-entry control/format char validation.
         for agent in &self.requesting_agents {
             if agent.len() > Self::MAX_AGENT_NAME_LEN {
                 return Err(format!(
@@ -231,6 +239,12 @@ impl UnapprovedTool {
                     self.tool_name,
                     agent.len(),
                     Self::MAX_AGENT_NAME_LEN
+                ));
+            }
+            if crate::has_dangerous_chars(agent) {
+                return Err(format!(
+                    "UnapprovedTool '{}' requesting_agents entry contains control or format characters",
+                    self.tool_name
                 ));
             }
         }
@@ -306,6 +320,7 @@ impl UnknownMcpServer {
             ));
         }
         // SECURITY (FIND-R113-014): Per-entry length bounds on advertised_tools.
+        // SECURITY (FIND-R158-001): Per-entry control/format char validation.
         for tool in &self.advertised_tools {
             if tool.len() > Self::MAX_TOOL_NAME_LEN {
                 return Err(format!(
@@ -313,6 +328,12 @@ impl UnknownMcpServer {
                     self.server_id,
                     tool.len(),
                     Self::MAX_TOOL_NAME_LEN
+                ));
+            }
+            if crate::has_dangerous_chars(tool) {
+                return Err(format!(
+                    "UnknownMcpServer '{}' advertised_tools entry contains control or format characters",
+                    self.server_id
                 ));
             }
         }

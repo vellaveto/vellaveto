@@ -42,6 +42,10 @@ const MAX_BIND_PARAMS: usize = 100;
 ///
 /// Returns `(where_clause, bind_values)` where bind_values are in order.
 /// The table name is embedded directly (pre-validated), all data uses $N params.
+///
+/// **MAINTENANCE NOTE (R158-003):** This builder is used by `search()`. The `count()`
+/// method uses [`build_filter_clauses`] instead. Both implement the same filter
+/// logic and must be kept in sync.
 struct WhereBuilder {
     conditions: Vec<String>,
     param_idx: u32,
@@ -222,7 +226,12 @@ impl AuditQueryService for PostgresAuditQuery {
     }
 
     async fn recent(&self, limit: u64) -> Result<Vec<serde_json::Value>, QueryError> {
-        let capped_limit = limit.min(vellaveto_types::audit_store::MAX_QUERY_LIMIT) as i64;
+        // SECURITY (R158-001): MAX_QUERY_LIMIT is 1000, well within i64 range,
+        // but use try_from for defense in depth.
+        let capped_limit = i64::try_from(
+            limit.min(vellaveto_types::audit_store::MAX_QUERY_LIMIT),
+        )
+        .unwrap_or(i64::MAX);
         if capped_limit == 0 {
             return Ok(vec![]);
         }
@@ -281,6 +290,14 @@ impl AuditRow {
 /// Build filter clauses as `AND condition` fragments.
 /// Returns an empty string if no filters are active.
 /// All data is passed via bind parameters (never interpolated).
+///
+/// **MAINTENANCE NOTE (R158-003):** This function and [`WhereBuilder`] implement
+/// the *same* filter logic via two separate code paths. `search()` uses
+/// `WhereBuilder` (producing `WHERE col = $N` clauses), while `count()` uses
+/// this function (producing `AND col = $N` fragments appended to `WHERE TRUE`).
+/// Both paths must be kept in sync: any new filter added to one MUST be added
+/// to the other, and the parameter binding order in [`bind_params`] /
+/// [`bind_data_params`] must match both.
 fn build_filter_clauses(params: &AuditQueryParams) -> String {
     let mut clauses = Vec::new();
     let mut idx = 1u32;
@@ -353,10 +370,12 @@ fn bind_params<'q>(
         query = query.bind(v);
     }
     if let Some(from) = params.from_sequence {
-        query = query.bind(from as i64);
+        // SECURITY (R158-001): Use saturating cast — values > i64::MAX are clamped
+        // to i64::MAX, which is correct because no sequence can exceed that in PG BIGINT.
+        query = query.bind(i64::try_from(from).unwrap_or(i64::MAX));
     }
     if let Some(to) = params.to_sequence {
-        query = query.bind(to as i64);
+        query = query.bind(i64::try_from(to).unwrap_or(i64::MAX));
     }
     if let Some(ref text) = params.text_search {
         let pattern = format!("%{}%", text.replace('%', "\\%").replace('_', "\\_"));
@@ -391,18 +410,21 @@ fn bind_data_params<'q>(
         query = query.bind(v);
     }
     if let Some(from) = params.from_sequence {
-        query = query.bind(from as i64);
+        // SECURITY (R158-001): Saturating cast to i64 — see bind_params().
+        query = query.bind(i64::try_from(from).unwrap_or(i64::MAX));
     }
     if let Some(to) = params.to_sequence {
-        query = query.bind(to as i64);
+        query = query.bind(i64::try_from(to).unwrap_or(i64::MAX));
     }
     if let Some(ref text) = params.text_search {
         let pattern = format!("%{}%", text.replace('%', "\\%").replace('_', "\\_"));
         query = query.bind(pattern);
     }
     // Bind limit and offset
-    query = query.bind(params.limit as i64);
-    query = query.bind(params.offset as i64);
+    // SECURITY (R158-001): limit is validated <= MAX_QUERY_LIMIT (1000) and offset is
+    // validated by AuditQueryParams::validate(), both well within i64 range.
+    query = query.bind(i64::try_from(params.limit).unwrap_or(i64::MAX));
+    query = query.bind(i64::try_from(params.offset).unwrap_or(i64::MAX));
     query
 }
 

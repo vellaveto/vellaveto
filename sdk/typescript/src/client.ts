@@ -704,7 +704,7 @@ export class VellavetoClient {
         );
       }
       // Unicode format chars: zero-width, bidi overrides, BOM, bidi isolates (\u2065-\u2069)
-      if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB]/.test(value)) {
+      if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(value)) {
         throw new VellavetoError(
           `context.${name} contains Unicode format characters`
         );
@@ -740,7 +740,7 @@ export class VellavetoClient {
             `context.call_chain[${i}] contains control characters`
           );
         }
-        if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB]/.test(ctx.call_chain[i])) {
+        if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(ctx.call_chain[i])) {
           throw new VellavetoError(
             `context.call_chain[${i}] contains Unicode format characters`
           );
@@ -1049,7 +1049,7 @@ export class VellavetoClient {
       }
       // SECURITY (FIND-R157-004): Reject Unicode format characters (zero-width,
       // bidi overrides, soft hyphen). Parity with approval ID and agent ID validation.
-      if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB]/.test(serverId)) {
+      if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(serverId)) {
         throw new VellavetoError("serverId contains Unicode format characters");
       }
     }
@@ -1209,7 +1209,7 @@ export class VellavetoClient {
       }
       // SECURITY (FIND-R112-007): Reject Unicode format characters (zero-width,
       // bidi overrides, BOM, etc.). Parity with Go SDK and context validation.
-      if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB]/.test(agentId)) {
+      if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(agentId)) {
         throw new VellavetoError("agent_id contains Unicode format characters");
       }
       params.set("agent_id", agentId);
@@ -1247,7 +1247,7 @@ export class VellavetoClient {
       }
       // SECURITY (FIND-R113-001): Reject Unicode format characters (zero-width,
       // bidi overrides, BOM, etc.). Parity with soc2AccessReview agentId check.
-      if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB]/.test(orgId)) {
+      if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(orgId)) {
         throw new VellavetoError("org_id contains Unicode format characters");
       }
     }
@@ -1303,7 +1303,7 @@ function validateApprovalId(id: string): void {
     throw new VellavetoError("approval ID contains control characters");
   }
   // SECURITY (FIND-R104-SDK-002): Reject Unicode format characters (parity with Go SDK).
-  if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB]/.test(id)) {
+  if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(id)) {
     throw new VellavetoError("approval ID contains Unicode format characters");
   }
 }

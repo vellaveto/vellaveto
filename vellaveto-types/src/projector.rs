@@ -254,6 +254,13 @@ impl ModelFamily {
                     Self::MAX_CUSTOM_LEN
                 ));
             }
+            // SECURITY (FIND-R158-003): Reject control/format chars in Custom variant
+            // to prevent invisible character injection in model family identifiers.
+            if crate::core::has_dangerous_chars(name) {
+                return Err(
+                    "ModelFamily::Custom name contains control or format characters".to_string(),
+                );
+            }
         }
         Ok(())
     }

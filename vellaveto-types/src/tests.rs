@@ -625,6 +625,41 @@ fn test_originating_agent() {
     assert_eq!(ctx.originating_agent(), Some("origin-agent"));
 }
 
+// --- principal_type() tests (IMP-R198-012) ---
+
+#[test]
+fn test_principal_type_default_is_agent() {
+    let ctx = EvaluationContext::default();
+    assert_eq!(ctx.principal_type(), "Agent");
+}
+
+#[test]
+fn test_principal_type_from_identity_claims() {
+    let mut claims = serde_json::Map::new();
+    claims.insert("type".to_string(), serde_json::Value::String("Service".to_string()));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            subject: Some("svc-1".to_string()),
+            claims: claims.into_iter().collect(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    assert_eq!(ctx.principal_type(), "Service");
+}
+
+#[test]
+fn test_principal_type_missing_claim_defaults() {
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            subject: Some("agent-1".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    assert_eq!(ctx.principal_type(), "Agent");
+}
+
 // --- AgentIdentity tests (OWASP ASI07) ---
 
 #[test]

@@ -53,6 +53,10 @@ const DEFAULT_FLUSH_INTERVAL_MS: u64 = 5_000;
 /// Maximum retry attempts for transient failures.
 const MAX_RETRY_ATTEMPTS: u32 = 3;
 
+/// Maximum batch size to stay within PostgreSQL's 65535 bind-parameter limit.
+/// Each row uses 13 parameters, so 65535 / 13 = 5041. We cap at 5000 for safety.
+const MAX_BATCH_SIZE: usize = 5_000;
+
 /// PostgreSQL audit sink configuration.
 pub struct PostgresSinkConfig {
     /// Channel buffer size.
@@ -63,6 +67,63 @@ pub struct PostgresSinkConfig {
     pub flush_interval_ms: u64,
     /// Table name (pre-validated to be safe SQL identifier).
     pub table_name: String,
+}
+
+impl PostgresSinkConfig {
+    /// Validate configuration values.
+    ///
+    /// Rejects zero values for `buffer_size`, `batch_size`, and `flush_interval_ms`.
+    /// Validates `table_name` is a safe SQL identifier (non-empty, alphanumeric + underscore,
+    /// does not start with a digit, max 63 chars per PostgreSQL identifier limit).
+    /// Caps `batch_size` at [`MAX_BATCH_SIZE`] to stay within PostgreSQL's 65535 param limit.
+    pub fn validate(&self) -> Result<(), SinkError> {
+        if self.buffer_size == 0 {
+            return Err(SinkError::Connection(
+                "buffer_size must be > 0".to_string(),
+            ));
+        }
+        if self.batch_size == 0 {
+            return Err(SinkError::Connection(
+                "batch_size must be > 0".to_string(),
+            ));
+        }
+        if self.batch_size > MAX_BATCH_SIZE {
+            return Err(SinkError::Connection(format!(
+                "batch_size ({}) exceeds maximum ({}); PostgreSQL has a 65535 bind-parameter limit",
+                self.batch_size, MAX_BATCH_SIZE
+            )));
+        }
+        if self.flush_interval_ms == 0 {
+            return Err(SinkError::Connection(
+                "flush_interval_ms must be > 0".to_string(),
+            ));
+        }
+        if self.table_name.is_empty() {
+            return Err(SinkError::Connection(
+                "table_name must not be empty".to_string(),
+            ));
+        }
+        if self.table_name.len() > 63 {
+            return Err(SinkError::Connection(
+                "table_name exceeds PostgreSQL's 63-character identifier limit".to_string(),
+            ));
+        }
+        if self.table_name.starts_with(|c: char| c.is_ascii_digit()) {
+            return Err(SinkError::Connection(
+                "table_name must not start with a digit".to_string(),
+            ));
+        }
+        if !self
+            .table_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(SinkError::Connection(
+                "table_name must contain only alphanumeric characters and underscores".to_string(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Default for PostgresSinkConfig {
@@ -105,6 +166,8 @@ impl PostgresAuditSink {
         config: PostgresSinkConfig,
         auto_migrate: bool,
     ) -> Result<Self, SinkError> {
+        config.validate()?;
+
         if auto_migrate {
             // Replace table name in DDL (already validated by config)
             let ddl = CREATE_TABLE_DDL.replace("vellaveto_audit_entries", &config.table_name);
@@ -321,35 +384,68 @@ impl BackgroundWriter {
         }
         sql.push_str(" ON CONFLICT (id) DO NOTHING");
 
-        let mut query = sqlx::query(&sql);
+        // Pre-compute derived values so they live long enough for the query borrow.
+        // Each tuple: (sequence_i64, verdict_type, verdict_reason, action_json, verdict_json)
+        let mut derived: Vec<(i64, &'static str, Option<String>, serde_json::Value, serde_json::Value)> =
+            Vec::with_capacity(batch.len());
 
         for entry in batch {
-            let verdict_type = match &entry.verdict {
+            // SECURITY (R158-001): Use try_from to prevent wrapping when sequence > i64::MAX.
+            let sequence_i64 = i64::try_from(entry.sequence).map_err(|_| {
+                sqlx::Error::Protocol(format!(
+                    "sequence {} exceeds i64::MAX for entry {}",
+                    entry.sequence, entry.id
+                ))
+            })?;
+
+            let verdict_type: &'static str = match &entry.verdict {
                 vellaveto_types::Verdict::Allow => "allow",
                 vellaveto_types::Verdict::Deny { .. } => "deny",
                 vellaveto_types::Verdict::RequireApproval { .. } => "require_approval",
                 _ => "unknown",
             };
             let verdict_reason = match &entry.verdict {
-                vellaveto_types::Verdict::Deny { reason } => Some(reason.as_str()),
-                vellaveto_types::Verdict::RequireApproval { reason } => Some(reason.as_str()),
+                vellaveto_types::Verdict::Deny { reason } => Some(reason.clone()),
+                vellaveto_types::Verdict::RequireApproval { reason } => Some(reason.clone()),
                 _ => None,
             };
-            let action_json = serde_json::to_value(&entry.action)
-                .unwrap_or_else(|_| serde_json::Value::Null);
-            let verdict_json = serde_json::to_value(&entry.verdict)
-                .unwrap_or_else(|_| serde_json::Value::Null);
+            // SECURITY (R158-005): Log a warning when serialization fails instead of
+            // silently converting to null, which loses audit data.
+            let action_json = serde_json::to_value(&entry.action).unwrap_or_else(|e| {
+                tracing::warn!(
+                    entry_id = %entry.id,
+                    error = %e,
+                    "Action serialization failed for audit entry, storing null"
+                );
+                serde_json::Value::Null
+            });
+            let verdict_json = serde_json::to_value(&entry.verdict).unwrap_or_else(|e| {
+                tracing::warn!(
+                    entry_id = %entry.id,
+                    error = %e,
+                    "Verdict serialization failed for audit entry, storing null"
+                );
+                serde_json::Value::Null
+            });
 
+            derived.push((sequence_i64, verdict_type, verdict_reason, action_json, verdict_json));
+        }
+
+        let mut query = sqlx::query(&sql);
+
+        for (entry, (sequence_i64, verdict_type, verdict_reason, action_json, verdict_json)) in
+            batch.iter().zip(derived.iter())
+        {
             query = query
                 .bind(&entry.id)
-                .bind(entry.sequence as i64)
+                .bind(*sequence_i64)
                 .bind(&entry.timestamp)
                 .bind(&entry.action.tool)
                 .bind(&entry.action.function)
-                .bind(verdict_type)
-                .bind(verdict_reason)
-                .bind(&action_json)
-                .bind(&verdict_json)
+                .bind(*verdict_type)
+                .bind(verdict_reason.as_deref())
+                .bind(action_json)
+                .bind(verdict_json)
                 .bind(&entry.metadata)
                 .bind(&entry.entry_hash)
                 .bind(&entry.prev_hash)
@@ -391,5 +487,124 @@ mod tests {
             format_args!("PostgresAuditSink {{ pending: 0, healthy: true }}")
         );
         assert!(!debug_output.contains("postgres://"));
+    }
+
+    // --- PostgresSinkConfig::validate() tests (R158-002) ---
+
+    #[test]
+    fn test_config_validate_default_passes() {
+        let config = PostgresSinkConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_validate_zero_buffer_size() {
+        let config = PostgresSinkConfig {
+            buffer_size: 0,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("buffer_size"), "got: {err}");
+    }
+
+    #[test]
+    fn test_config_validate_zero_batch_size() {
+        let config = PostgresSinkConfig {
+            batch_size: 0,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("batch_size"), "got: {err}");
+    }
+
+    #[test]
+    fn test_config_validate_batch_size_exceeds_max() {
+        let config = PostgresSinkConfig {
+            batch_size: MAX_BATCH_SIZE + 1,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("batch_size"), "got: {err}");
+        assert!(err.contains("65535"), "should mention PG param limit: {err}");
+    }
+
+    #[test]
+    fn test_config_validate_batch_size_at_max() {
+        let config = PostgresSinkConfig {
+            batch_size: MAX_BATCH_SIZE,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_validate_zero_flush_interval() {
+        let config = PostgresSinkConfig {
+            flush_interval_ms: 0,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("flush_interval_ms"), "got: {err}");
+    }
+
+    #[test]
+    fn test_config_validate_empty_table_name() {
+        let config = PostgresSinkConfig {
+            table_name: String::new(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("table_name"), "got: {err}");
+    }
+
+    #[test]
+    fn test_config_validate_table_name_starts_with_digit() {
+        let config = PostgresSinkConfig {
+            table_name: "1audit".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("digit"), "got: {err}");
+    }
+
+    #[test]
+    fn test_config_validate_table_name_special_chars() {
+        let config = PostgresSinkConfig {
+            table_name: "audit; DROP TABLE --".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(
+            err.contains("alphanumeric"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_config_validate_table_name_too_long() {
+        let config = PostgresSinkConfig {
+            table_name: "a".repeat(64),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("63"), "got: {err}");
+    }
+
+    #[test]
+    fn test_config_validate_table_name_at_max_length() {
+        let config = PostgresSinkConfig {
+            table_name: "a".repeat(63),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_validate_table_name_with_underscore() {
+        let config = PostgresSinkConfig {
+            table_name: "my_audit_table".to_string(),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
     }
 }

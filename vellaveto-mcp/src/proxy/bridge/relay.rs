@@ -949,12 +949,7 @@ impl ProxyBridge {
                 // constraints. Parity with HTTP/WS/gRPC proxy handlers.
                 if let Some(ref abac) = self.abac_engine {
                     let principal_id = eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
-                    let principal_type = eval_ctx
-                        .agent_identity
-                        .as_ref()
-                        .and_then(|id| id.claims.get("type"))
-                        .and_then(|v: &serde_json::Value| v.as_str())
-                        .unwrap_or("Agent");
+                    let principal_type = eval_ctx.principal_type();
                     let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
                         eval_ctx: &eval_ctx,
                         principal_type,
@@ -1551,12 +1546,7 @@ impl ProxyBridge {
                 // constraints. Parity with tool call handler.
                 if let Some(ref abac) = self.abac_engine {
                     let principal_id = eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
-                    let principal_type = eval_ctx
-                        .agent_identity
-                        .as_ref()
-                        .and_then(|id| id.claims.get("type"))
-                        .and_then(|v: &serde_json::Value| v.as_str())
-                        .unwrap_or("Agent");
+                    let principal_type = eval_ctx.principal_type();
                     let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
                         eval_ctx: &eval_ctx,
                         principal_type,
@@ -1778,12 +1768,7 @@ impl ProxyBridge {
                 // constraints. Parity with tool call handler.
                 if let Some(ref abac) = self.abac_engine {
                     let principal_id = eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
-                    let principal_type = eval_ctx
-                        .agent_identity
-                        .as_ref()
-                        .and_then(|id| id.claims.get("type"))
-                        .and_then(|v: &serde_json::Value| v.as_str())
-                        .unwrap_or("Agent");
+                    let principal_type = eval_ctx.principal_type();
                     let abac_ctx = vellaveto_engine::abac::AbacEvalContext {
                         eval_ctx: &eval_ctx,
                         principal_type,

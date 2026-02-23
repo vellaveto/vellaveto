@@ -1536,6 +1536,9 @@ impl PolicyConfig {
         // MCP Streamable HTTP configuration bounds (Phase 30)
         self.streamable_http.validate()?;
 
+        // Semantic guardrails configuration bounds (Phase 12)
+        self.semantic_guardrails.validate()?;
+
         // RAG defense configuration bounds
         self.rag_defense.validate()?;
 

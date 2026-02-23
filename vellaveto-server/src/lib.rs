@@ -1132,6 +1132,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             etdi: Default::default(),
             memory_security: Default::default(),
             nhi: Default::default(),
+            semantic_guardrails: Default::default(),
             rag_defense: Default::default(),
             a2a: Default::default(),
             observability: Default::default(),
