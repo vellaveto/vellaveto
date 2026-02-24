@@ -314,6 +314,17 @@ impl RelayState {
                 );
                 return;
             }
+            // SECURITY (FIND-R210-001): Reject duplicate in-flight request IDs.
+            // A silent HashMap::insert overwrite would corrupt the pending entry,
+            // causing response attribution to the wrong tool and circuit breaker
+            // state corruption.
+            if self.pending_requests.contains_key(&id_key) {
+                tracing::warn!(
+                    "SECURITY: duplicate in-flight request ID detected (tool={}); keeping original entry",
+                    tool_name
+                );
+                return;
+            }
             if self.pending_requests.len() < MAX_PENDING_REQUESTS {
                 self.pending_requests.insert(
                     id_key,
@@ -2101,21 +2112,32 @@ impl ProxyBridge {
                     );
                     // Still forward the message but don't track it
                 } else {
-                    // SECURITY (FIND-R136-001): Truncate method name to prevent
-                    // unbounded strings stored in PendingRequest.
-                    let method_name: String = method
-                        .unwrap_or("unknown")
-                        .chars()
-                        .take(256)
-                        .collect();
-                    state.pending_requests.insert(
-                        id_key.clone(),
-                        PendingRequest {
-                            sent_at: Instant::now(),
-                            tool_name: method_name,
-                            trace: None,
-                        },
-                    );
+                    // SECURITY (FIND-R210-002): Check for duplicate in-flight IDs
+                    // before inserting passthrough tracking entry.  A collision
+                    // between a tools/call entry and a passthrough entry would
+                    // corrupt circuit breaker attribution.
+                    if state.pending_requests.contains_key(&id_key) {
+                        tracing::warn!(
+                            "SECURITY: duplicate in-flight request ID in passthrough (method={:?}); keeping original entry",
+                            method
+                        );
+                    } else {
+                        // SECURITY (FIND-R136-001): Truncate method name to prevent
+                        // unbounded strings stored in PendingRequest.
+                        let method_name: String = method
+                            .unwrap_or("unknown")
+                            .chars()
+                            .take(256)
+                            .collect();
+                        state.pending_requests.insert(
+                            id_key.clone(),
+                            PendingRequest {
+                                sent_at: Instant::now(),
+                                tool_name: method_name,
+                                trace: None,
+                            },
+                        );
+                    }
                 }
                 // SECURITY (R29-MCP-1): Normalize method before tracking.
                 let normalized_method = method.map(crate::extractor::normalize_method);

@@ -208,8 +208,13 @@ pub struct OAuthConfirmationClaim {
 }
 
 /// Claims expected in a DPoP proof JWT (RFC 9449).
+///
+/// SECURITY (FIND-R210-005): RFC 9449 permits additional standard JWT claims
+/// (`exp`, `nbf`, `iss`, `sub`) alongside the required DPoP claims. Using
+/// `deny_unknown_fields` would reject compliant proofs from authorization
+/// servers that include these fields.  We accept (and validate) `exp`/`nbf`
+/// when present, and tolerate other standard claims via `flatten`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct DpopClaims {
     #[serde(default)]
     htm: String,
@@ -221,6 +226,16 @@ struct DpopClaims {
     jti: String,
     #[serde(default)]
     ath: Option<String>,
+    /// RFC 9449 §4.2: Authorization servers MAY include `exp`.
+    #[serde(default)]
+    exp: Option<u64>,
+    /// RFC 9449 §4.2: Authorization servers MAY include `nbf`.
+    #[serde(default)]
+    nbf: Option<u64>,
+    /// Absorb any other standard JWT claims (iss, sub, aud, etc.) without
+    /// rejecting the proof.  We do not use these values but must tolerate them.
+    #[serde(flatten)]
+    _extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl OAuthClaims {
@@ -680,6 +695,30 @@ impl OAuthValidator {
                 "iat outside allowed skew window (iat={}, now={})",
                 claims.iat, now
             )));
+        }
+
+        // SECURITY (FIND-R210-005): Validate exp/nbf when present in DPoP proof.
+        if let Some(exp) = claims.exp {
+            if (exp as i64) < now - skew {
+                return Err(OAuthError::InvalidDpopProof(
+                    "DPoP proof expired".to_string(),
+                ));
+            }
+        }
+        if let Some(nbf) = claims.nbf {
+            if (nbf as i64) > now + skew {
+                return Err(OAuthError::InvalidDpopProof(
+                    "DPoP proof not yet valid (nbf in future)".to_string(),
+                ));
+            }
+        }
+
+        // SECURITY (FIND-R210-005): Bound extra claims map size to prevent
+        // memory abuse from DPoP proofs with excessive unknown claims.
+        if claims._extra.len() > 20 {
+            return Err(OAuthError::InvalidDpopProof(
+                "DPoP proof contains too many unknown claims".to_string(),
+            ));
         }
 
         if self.config.dpop_require_ath {
