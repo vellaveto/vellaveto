@@ -192,6 +192,11 @@ pub async fn add_policy(
                 policies: candidate,
                 compliance_config: state.policy_state.load().compliance_config.clone(),
             }));
+            // SECURITY (FIND-R206-003): Invalidate staging snapshot when the
+            // active policy set changes via legacy API. A stale staging snapshot
+            // would compare against an outdated baseline, producing misleading
+            // staging evaluation results.
+            state.staging_snapshot.store(std::sync::Arc::new(None));
             tracing::info!("Added policy: {}", id);
         }
         Err(errors) => {
@@ -301,6 +306,9 @@ pub async fn remove_policy(
                 policies: candidate,
                 compliance_config: state.policy_state.load().compliance_config.clone(),
             }));
+            // SECURITY (FIND-R206-003): Invalidate staging snapshot when the
+            // active policy set changes via legacy API.
+            state.staging_snapshot.store(std::sync::Arc::new(None));
             tracing::info!("Removed {} policy(ies) with id: {}", removed, id);
         }
         Err(errors) => {

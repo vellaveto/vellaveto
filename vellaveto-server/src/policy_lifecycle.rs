@@ -278,12 +278,16 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
         let versions = map.entry(policy_id.to_string()).or_default();
 
         // Next version number
-        let next_version = versions
-            .iter()
-            .map(|v| v.version)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1);
+        let max_ver = versions.iter().map(|v| v.version).max().unwrap_or(0);
+        // SECURITY (FIND-R206-004): Guard against u64::MAX overflow. After
+        // saturating_add, all subsequent versions would share the same number,
+        // breaking uniqueness assumptions (get_version, diff, rollback).
+        if max_ver == u64::MAX {
+            return Err(LifecycleError::CapacityExceeded(
+                "Maximum version number reached".to_string(),
+            ));
+        }
+        let next_version = max_ver.saturating_add(1);
 
         let previous_version_id = versions.last().map(|v| v.version_id.clone());
 
@@ -676,12 +680,15 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
         let policy_clone = source.policy.clone();
         let source_version_id = source.version_id.clone();
 
-        let next_version = versions
-            .iter()
-            .map(|v| v.version)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1);
+        let max_ver = versions.iter().map(|v| v.version).max().unwrap_or(0);
+        // SECURITY (FIND-R206-004): Guard against u64::MAX overflow (parity
+        // with create_version).
+        if max_ver == u64::MAX {
+            return Err(LifecycleError::CapacityExceeded(
+                "Maximum version number reached".to_string(),
+            ));
+        }
+        let next_version = max_ver.saturating_add(1);
 
         let pv = PolicyVersion {
             version_id: Self::make_version_id(policy_id, next_version),

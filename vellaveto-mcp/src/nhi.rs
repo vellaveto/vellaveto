@@ -573,13 +573,11 @@ impl NhiManager {
             let _ = expected_freq;
         } else {
             // Unknown tool - flag it
+            // SECURITY (FIND-R209-002): Do not leak tool patterns in deviation data.
             deviations.push(NhiBehavioralDeviation {
                 deviation_type: "unknown_tool".to_string(),
                 observed: tool_call.to_string(),
-                expected: format!(
-                    "one of {:?}",
-                    baseline.tool_call_patterns.keys().collect::<Vec<_>>()
-                ),
+                expected: format!("{} known tools", baseline.tool_call_patterns.len()),
                 severity: 0.3,
             });
             total_severity += 0.3;
@@ -600,13 +598,11 @@ impl NhiManager {
                     } else {
                         0.5 // Max severity for non-finite z_score (fail-closed)
                     };
+                    // SECURITY (FIND-R209-002): Do not leak timing baseline data in deviation.
                     deviations.push(NhiBehavioralDeviation {
                         deviation_type: "request_interval".to_string(),
                         observed: format!("{:.2}s", interval),
-                        expected: format!(
-                            "{:.2}s ± {:.2}s",
-                            baseline.avg_request_interval_secs, baseline.request_interval_stddev
-                        ),
+                        expected: "within expected request rate".to_string(),
                         severity,
                     });
                     total_severity += severity;
@@ -619,10 +615,11 @@ impl NhiManager {
             if !baseline.typical_source_ips.is_empty()
                 && !baseline.typical_source_ips.contains(&ip.to_string())
             {
+                // SECURITY (FIND-R209-002): Do not leak known IPs in deviation data.
                 deviations.push(NhiBehavioralDeviation {
                     deviation_type: "source_ip".to_string(),
                     observed: ip.to_string(),
-                    expected: format!("one of {:?}", baseline.typical_source_ips),
+                    expected: format!("{} known IPs", baseline.typical_source_ips.len()),
                     severity: 0.4,
                 });
                 total_severity += 0.4;
@@ -775,13 +772,25 @@ impl NhiManager {
         }
 
         // Check access token hash if required
+        // SECURITY (FIND-R209-001): When require_ath is true, None access_token_hash
+        // must be rejected (fail-closed) per RFC 9449 Section 4.2 binding.
         if self.config.dpop.require_ath {
-            if let Some(expected_ath) = access_token_hash {
-                if proof.ath.as_deref() != Some(expected_ath) {
+            match access_token_hash {
+                Some(expected_ath) => {
+                    if proof.ath.as_deref() != Some(expected_ath) {
+                        return NhiDpopVerificationResult {
+                            valid: false,
+                            thumbprint: None,
+                            error: Some("Access token hash mismatch".to_string()),
+                            new_nonce: None,
+                        };
+                    }
+                }
+                None => {
                     return NhiDpopVerificationResult {
                         valid: false,
                         thumbprint: None,
-                        error: Some("Access token hash mismatch".to_string()),
+                        error: Some("Access token hash required but not provided".to_string()),
                         new_nonce: None,
                     };
                 }

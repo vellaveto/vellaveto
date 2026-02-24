@@ -98,6 +98,11 @@ impl PolicyEngine {
                     // which could wrap to 0, bypassing rate limits.
                     // SECURITY (R34-ENG-5): Case-insensitive matching for consistency
                     // with ForbiddenPreviousAction/RequirePreviousAction (R31-ENG-7).
+                    // SECURITY (FIND-R209-003): Normalize homoglyphs on call_counts
+                    // keys before pattern matching, consistent with MaxCallsInWindow
+                    // which already normalizes. Without this, an attacker can bypass
+                    // rate limits by using Cyrillic/fullwidth tool name variants that
+                    // don't match the pattern but invoke the same tool.
                     let count = if matches!(tool_pattern, PatternMatcher::Any) {
                         context
                             .call_counts
@@ -107,7 +112,11 @@ impl PolicyEngine {
                         context
                             .call_counts
                             .iter()
-                            .filter(|(name, _)| tool_pattern.matches(&name.to_ascii_lowercase()))
+                            .filter(|(name, _)| {
+                                let norm =
+                                    normalize_homoglyphs(&name.to_ascii_lowercase());
+                                tool_pattern.matches_normalized(&norm)
+                            })
                             .map(|(_, count)| count)
                             .fold(0u64, |acc, v| acc.saturating_add(*v))
                     };
@@ -127,7 +136,10 @@ impl PolicyEngine {
                         Some(id) => {
                             // SECURITY: Compare case-insensitively to prevent
                             // bypasses via "Agent-A" when policy specifies "agent-a".
-                            let id_lower = id.to_lowercase();
+                            // SECURITY (FIND-R209-002): Normalize homoglyphs to prevent
+                            // Cyrillic/Greek/fullwidth characters from bypassing
+                            // agent_id blocklists/allowlists.
+                            let id_lower = normalize_homoglyphs(&id.to_lowercase());
                             // Check blocked list first
                             if blocked.contains(&id_lower) {
                                 return Some(Verdict::Deny {

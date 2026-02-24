@@ -1363,6 +1363,10 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
         policies: new_policies,
         compliance_config: policy_config.compliance.clone(),
     }));
+    // SECURITY (FIND-R206-003): Invalidate staging snapshot when the active
+    // policy set changes via config reload. Stale staging snapshots would
+    // compare against an outdated baseline.
+    state.staging_snapshot.store(Arc::new(None));
 
     tracing::info!(
         "Reloaded {} policies from {} (source: {})",

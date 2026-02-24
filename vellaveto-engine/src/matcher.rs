@@ -4,6 +4,7 @@
 //! segments, used to efficiently match policies against actions at evaluation time.
 
 use vellaveto_types::unicode::normalize_homoglyphs;
+#[cfg(test)]
 use vellaveto_types::Action;
 
 /// Pre-compiled pattern matcher for tool/function ID segments.
@@ -122,6 +123,7 @@ impl CompiledToolMatcher {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn matches(&self, action: &Action) -> bool {
         match self {
             CompiledToolMatcher::Universal => true,

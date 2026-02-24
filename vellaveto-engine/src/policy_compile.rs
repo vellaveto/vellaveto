@@ -938,9 +938,16 @@ impl PolicyEngine {
                         ),
                     });
                 }
+                // SECURITY (FIND-R209-002): Normalize homoglyphs at compile time
+                // to prevent Cyrillic/Greek/fullwidth agent IDs from bypassing
+                // blocklists/allowlists.
                 let allowed: Vec<String> = allowed_raw
                     .iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                    .filter_map(|v| {
+                        v.as_str().map(|s| {
+                            vellaveto_types::unicode::normalize_homoglyphs(&s.to_lowercase())
+                        })
+                    })
                     .collect();
 
                 let blocked_raw = obj
@@ -959,9 +966,14 @@ impl PolicyEngine {
                         ),
                     });
                 }
+                // SECURITY (FIND-R209-002): Normalize homoglyphs at compile time.
                 let blocked: Vec<String> = blocked_raw
                     .iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                    .filter_map(|v| {
+                        v.as_str().map(|s| {
+                            vellaveto_types::unicode::normalize_homoglyphs(&s.to_lowercase())
+                        })
+                    })
                     .collect();
 
                 let deny_reason =

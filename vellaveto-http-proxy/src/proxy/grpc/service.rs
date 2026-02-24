@@ -3045,15 +3045,12 @@ impl McpService for McpGrpcService {
         let (tx, rx) = mpsc::channel(32);
 
         let state = self.state.clone();
-        let upstream = self.upstream.clone();
         let stream_rate_limit = self.stream_message_rate_limit;
 
         tokio::spawn(async move {
-            let svc = McpGrpcService {
-                state,
-                upstream,
-                stream_message_rate_limit: stream_rate_limit,
-            };
+            // SECURITY (FIND-R208-008): Use constructor instead of manual struct
+            // construction to ensure any future initialization logic is not bypassed.
+            let svc = McpGrpcService::new(state, stream_rate_limit);
 
             // SECURITY (FIND-R55-GRPC-010): Per-message rate limiting for streaming RPCs.
             // Uses a counter-per-second window matching the WS handler's check_rate_limit

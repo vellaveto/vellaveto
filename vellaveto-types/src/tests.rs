@@ -9315,6 +9315,26 @@ fn test_staging_report_validate_bad_format_staging_started_at() {
     assert!(r.validate().unwrap_err().contains("staging_started_at"));
 }
 
+// ── FIND-R209-004: StagingReport policy_id length bound ──
+
+#[test]
+fn test_staging_report_validate_policy_id_too_long() {
+    let r = crate::StagingReport {
+        policy_id: "x".repeat(crate::MAX_DIFF_POLICY_ID_LEN + 1),
+        staging_version: 2,
+        total_evaluations: 100,
+        divergent_evaluations: 0,
+        divergences: vec![],
+        staging_started_at: "2026-01-15T10:00:00Z".to_string(),
+    };
+    let err = r.validate().unwrap_err();
+    assert!(
+        err.contains("policy_id exceeds"),
+        "expected policy_id length error, got: {}",
+        err
+    );
+}
+
 // ── FIND-R205-004: PolicyVersionDiff per-entry change validation ──
 
 #[test]

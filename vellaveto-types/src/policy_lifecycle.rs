@@ -454,6 +454,14 @@ impl StagingReport {
         if self.policy_id.is_empty() {
             return Err("policy_id must be non-empty".to_string());
         }
+        // SECURITY (FIND-R209-004): Enforce length bound on policy_id,
+        // matching PolicyVersionDiff::validate() which uses MAX_DIFF_POLICY_ID_LEN.
+        if self.policy_id.len() > MAX_DIFF_POLICY_ID_LEN {
+            return Err(format!(
+                "policy_id exceeds {} chars",
+                MAX_DIFF_POLICY_ID_LEN
+            ));
+        }
         if has_dangerous_chars(&self.policy_id) {
             return Err("policy_id contains invalid characters".to_string());
         }

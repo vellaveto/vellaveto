@@ -244,7 +244,9 @@ pub async fn create_version(
             "event": "version_created",
             "policy_id": id,
             "version": version.version,
-            "created_by": body.created_by,
+            // SECURITY (FIND-R206-001): Log the auth-bound identity, not the
+            // client-asserted value, to preserve non-repudiation in audit trail.
+            "created_by": bound_created_by,
         }),
     );
     if let Err(e) = state
@@ -313,7 +315,9 @@ pub async fn approve_version(
             "event": "version_approved",
             "policy_id": id,
             "version": v,
-            "approved_by": body.approved_by,
+            // SECURITY (FIND-R206-001): Log the auth-bound identity, not the
+            // client-asserted value, to preserve non-repudiation in audit trail.
+            "approved_by": bound_approved_by,
         }),
     );
     if let Err(e) = state
@@ -391,16 +395,15 @@ pub async fn promote_version(
     let pre_compiled = match PolicyEngine::with_policies(snap.engine.strict_mode(), &candidate) {
         Ok(engine) => Some(engine),
         Err(errors) => {
-            // If the version would be promoted to Active, compilation failure
-            // is fatal. For Staging, it's non-fatal (shadow evaluation just
-            // won't be available). We determine the target by checking:
-            // - Staging → Active (always requires compilation)
-            // - Draft → Active (when staging_period_secs == 0, also requires compilation)
-            // For Draft → Staging, compilation failure is non-fatal.
+            // SECURITY (FIND-R209-001): For both Draft and Staging versions,
+            // always treat compilation failure as fatal (fail-safe). The previous
+            // heuristic used `!candidate.is_empty()` which was always true since
+            // the candidate vec always contains at least the new policy. Catching
+            // compilation errors early is correct regardless of whether the draft
+            // transitions to Staging or Active — a policy that cannot compile
+            // should not enter any promoted state.
             let would_be_active = matches!(before.status, PolicyVersionStatus::Staging)
-                || (matches!(before.status, PolicyVersionStatus::Draft)
-                    && before.staged_at.is_none()
-                    && !candidate.is_empty()); // heuristic: always check
+                || matches!(before.status, PolicyVersionStatus::Draft);
 
             if would_be_active {
                 let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
@@ -416,10 +419,13 @@ pub async fn promote_version(
                     })),
                 ));
             }
-            // For Draft → Staging, compilation failure is non-fatal
+            // Defensive fallback: unreachable for Draft/Staging (both handled
+            // above), but kept for forward-compatibility since PolicyVersionStatus
+            // is #[non_exhaustive].
             let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
             tracing::warn!(
-                "Policy lifecycle: staging snapshot pre-compile failed (non-fatal): {:?}",
+                "Policy lifecycle: pre-compile failed for unexpected status {:?} (non-fatal): {:?}",
+                before.status,
                 msgs
             );
             None
@@ -532,6 +538,11 @@ pub async fn archive_version(
     let store = get_store(&state)?;
     super::validate_path_param_json(&id, "policy_id")?;
 
+    // SECURITY (FIND-R206-002): Acquire policy_write_lock BEFORE reading version
+    // status to eliminate TOCTOU gap between the status check and the
+    // archive + staging-snapshot-clear operations.
+    let _guard = state.policy_write_lock.lock().await;
+
     // Check if this was a Staging version — if so, clear the staging snapshot
     let before = store
         .get_version(&id, v)
@@ -618,7 +629,9 @@ pub async fn rollback_policy(
             "policy_id": id,
             "to_version": body.to_version,
             "new_version": version.version,
-            "created_by": body.created_by,
+            // SECURITY (FIND-R206-001): Log the auth-bound identity, not the
+            // client-asserted value, to preserve non-repudiation in audit trail.
+            "created_by": bound_created_by,
         }),
     );
     if let Err(e) = state

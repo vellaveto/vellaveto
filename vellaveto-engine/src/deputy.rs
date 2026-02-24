@@ -33,6 +33,7 @@ use crate::PatternMatcher;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
+use vellaveto_types::unicode::normalize_homoglyphs;
 use vellaveto_types::PrincipalContext;
 
 /// Error types for deputy validation.
@@ -265,13 +266,17 @@ impl DeputyValidator {
                 allowed_tools.to_vec()
             } else {
                 // Intersect: child can only get tools parent already has
+                // SECURITY (FIND-R209-001): Normalize homoglyphs before comparison
+                // to prevent Cyrillic/Greek/fullwidth characters from bypassing
+                // delegation tool restrictions.
                 allowed_tools
                     .iter()
                     .filter(|t| {
+                        let norm_t = normalize_homoglyphs(&t.to_ascii_lowercase());
                         parent
                             .allowed_tools
                             .iter()
-                            .any(|p| p.eq_ignore_ascii_case(t))
+                            .any(|p| normalize_homoglyphs(&p.to_ascii_lowercase()) == norm_t)
                     })
                     .cloned()
                     .collect()
@@ -373,12 +378,15 @@ impl DeputyValidator {
         }
 
         // Check if tool is in allowed set
+        // SECURITY (FIND-R209-001): Normalize homoglyphs before comparison
+        // to prevent Cyrillic/Greek/fullwidth characters from bypassing
+        // delegation tool restrictions.
         if !ctx.allowed_tools.is_empty() {
-            let tool_lower = tool.to_lowercase();
+            let tool_norm = normalize_homoglyphs(&tool.to_ascii_lowercase());
             let allowed = ctx
                 .allowed_tools
                 .iter()
-                .any(|t| t.eq_ignore_ascii_case(&tool_lower));
+                .any(|t| normalize_homoglyphs(&t.to_ascii_lowercase()) == tool_norm);
 
             if !allowed {
                 return Err(DeputyError::ToolNotInDelegation {
@@ -435,10 +443,13 @@ impl DeputyValidator {
             return true;
         }
 
-        let tool_lower = tool.to_lowercase();
+        // SECURITY (FIND-R209-001): Normalize homoglyphs before comparison
+        // to prevent Cyrillic/Greek/fullwidth characters from bypassing
+        // delegation tool restrictions.
+        let tool_norm = normalize_homoglyphs(&tool.to_ascii_lowercase());
         ctx.allowed_tools
             .iter()
-            .any(|t| t.eq_ignore_ascii_case(&tool_lower))
+            .any(|t| normalize_homoglyphs(&t.to_ascii_lowercase()) == tool_norm)
     }
 
     /// Get the current principal context for a session.

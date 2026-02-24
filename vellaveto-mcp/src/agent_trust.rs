@@ -37,6 +37,10 @@ const MAX_LAST_ACTIVITY_ENTRIES: usize = 10_000;
 /// SECURITY (FIND-R43-006): Maximum trust targets per source agent.
 const MAX_TRUST_TARGETS_PER_AGENT: usize = 1_000;
 
+/// SECURITY (FIND-R209-003): Maximum entries in trust_closure BFS result
+/// to prevent unbounded memory allocation from large transitive graphs.
+const MAX_CLOSURE_SIZE: usize = 10_000;
+
 /// Privilege level assigned to an agent.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
@@ -536,7 +540,16 @@ impl AgentTrustGraph {
         let mut closure = HashSet::new();
         let mut to_visit = vec![agent.to_string()];
 
+        // SECURITY (FIND-R209-003): Cap BFS to prevent unbounded memory allocation.
         while let Some(current) = to_visit.pop() {
+            if closure.len() >= MAX_CLOSURE_SIZE {
+                tracing::warn!(
+                    target: "vellaveto::security",
+                    "trust_closure capped at {} entries",
+                    MAX_CLOSURE_SIZE
+                );
+                break;
+            }
             if let Some(trusted) = edges.get(&current) {
                 for t in trusted {
                     if closure.insert(t.clone()) {

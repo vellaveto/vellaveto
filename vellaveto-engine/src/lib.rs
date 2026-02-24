@@ -36,6 +36,12 @@ use std::sync::RwLock;
 /// Maximum number of compiled glob matchers kept in the legacy runtime cache.
 const MAX_GLOB_MATCHER_CACHE_ENTRIES: usize = 2048;
 /// Maximum number of domain normalization results kept in the runtime cache.
+///
+/// Currently the cache starts empty and is not actively populated by
+/// evaluation paths (domain normalization is done inline).  The constant is
+/// retained as the documented eviction cap for the `domain_norm_cache`
+/// field so that any future population path has a bound ready.
+#[allow(dead_code)]
 const MAX_DOMAIN_NORM_CACHE_ENTRIES: usize = 4096;
 
 /// The core policy evaluation engine.
@@ -128,9 +134,8 @@ impl PolicyEngine {
             trust_context_timestamps: false,
             max_path_decode_iterations: DEFAULT_MAX_PATH_DECODE_ITERATIONS,
             glob_matcher_cache: RwLock::new(HashMap::with_capacity(256)),
-            domain_norm_cache: RwLock::new(HashMap::with_capacity(
-                MAX_DOMAIN_NORM_CACHE_ENTRIES.min(512),
-            )),
+            // IMP-R208-001: Zero initial capacity — cache not actively populated.
+            domain_norm_cache: RwLock::new(HashMap::new()),
         }
     }
 
@@ -172,9 +177,8 @@ impl PolicyEngine {
             trust_context_timestamps: false,
             max_path_decode_iterations: DEFAULT_MAX_PATH_DECODE_ITERATIONS,
             glob_matcher_cache: RwLock::new(HashMap::with_capacity(256)),
-            domain_norm_cache: RwLock::new(HashMap::with_capacity(
-                MAX_DOMAIN_NORM_CACHE_ENTRIES.min(512),
-            )),
+            // IMP-R208-001: Zero initial capacity — cache not actively populated.
+            domain_norm_cache: RwLock::new(HashMap::new()),
         })
     }
 
