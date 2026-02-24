@@ -1,14 +1,14 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 + 43 + 44 complete, 194 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 + 43 + 44 + 47 complete, 210 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
 > **Tests:** 7,469 Rust tests + 385 Python SDK tests + 127 Go SDK tests + 119 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
 > **CI workflows:** 12 (16 jobs)
 > **Domain:** [www.vellaveto.online](https://www.vellaveto.online) (Cloudflare Pages)
-> **Updated:** 2026-02-23
+> **Updated:** 2026-02-24
 
 ---
 
@@ -179,7 +179,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 + Phase 41 + Phase 43 + Phase 44 + Phase 47 implemented, tested, and hardened through 194 audit rounds. Details in CHANGELOG.md.
+All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 + Phase 41 + Phase 43 + Phase 44 + Phase 47 implemented, tested, and hardened through 210 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
 - **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention, centralized audit store with PostgreSQL dual-write (Phase 43)
@@ -212,6 +212,7 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - Rounds 141–149 (types validation: EvaluationContext timestamp/AgentIdentity audience/ToolSignature/ToolAttestation control+format char checks, capability token parent expiry verification, approval empty `requested_by`/`by` rejection, DLP combining mark ranges extended, injection scan final truncation, NHI create_delegation link validation/rotate_credentials validate-before-mutate, governance info disclosure — enforcement_mode removed + auto_revoke_candidates count-only, semantic guardrails evaluate() input validation + data flow pattern name bounds + A2A parts iteration bounded, ABAC path normalization fail-closed, HTTP ProgressNotification DLP+injection scanning parity)
 - Rounds 154–162 (injection key scanning parity: WS/HTTP/gRPC/A2A all scan JSON object keys, MAX_DEPTH 10→32 across all transports, combining mark ranges extended, NHI Debug redaction, embedding lock fail-closed, task security SeqCst parity, gRPC TOCTOU atomic session+eval+update, sanitize_for_log dedup, resolve_domains cap)
 - Rounds 164–178 (OAuth/DPoP control char validation, A2A DLP text extraction, WS non-JSON DLP/injection scanning, gRPC error.data scanning, Redis approval UTF-8 truncation, DLP response content bounds, semantic guardrail input validation, NaN drift fail-closed, session_id validation, extension rollback, agent card chars, FIPS config validation, red team coverage bounds, session_guard has_dangerous_chars, Rekor validate, WitnessStore cap)
+- Round 206 Phase 47 Hardening (4 findings — 1 P1 + 2 P2 + 1 P3: FIND-R206-001 audit events logged spoofable client-asserted identity instead of auth-bound identity — create_version/approve_version/rollback now log `bound_created_by`/`bound_approved_by` from `derive_resolver_identity()`, FIND-R206-002 archive_version TOCTOU — status read and staging snapshot clearance not synchronized — added `policy_write_lock` acquisition, FIND-R206-003 stale staging snapshot — legacy add/remove/reload policy handlers didn't invalidate `staging_snapshot` when mutating active policy set — added `staging_snapshot.store(Arc::new(None))` to all three, FIND-R206-004 version number u64::MAX overflow — `saturating_add(1)` would create duplicate version numbers — added capacity guard rejecting creation at `u64::MAX`). Round 209 linter hardening: promote_version `would_be_active` heuristic replaced with strict Draft|Staging match making compilation failure always fatal (fail-safe). Round 210: setup wizard CSRF token rotation per step, TOML escape Unicode format chars, Python SDK module-level constants, archive OsString path handling.
 - **Canonical `has_dangerous_chars()` dedup campaign:** ~100 inline char validation patterns replaced with `vellaveto_types::has_dangerous_chars()` across ~35 files (types 82, config 71, mcp 7), removing 4 local helper functions and upgrading control-only checks to also reject Unicode format chars
 - **CI/CD:** 11 workflows, Docker/GHCR, release automation, SBOM, provenance attestation
 - **SDKs:** Python (sync+async, LangChain/LangGraph/Composio, 361 tests), TypeScript (fetch-based, 111 tests), Go (stdlib-only, 106 tests)

@@ -335,11 +335,17 @@ pub fn verify_capability_token(
     }
 
     // Check holder match
-    // SECURITY (FIND-R52-003): Case-insensitive comparison is intentional to accommodate
-    // identity providers with inconsistent casing (e.g., "Alice" vs "alice"). Callers
-    // that need case-sensitive holder matching should normalize both sides before calling.
+    // SECURITY (FIND-R212-002): Use homoglyph normalization for holder comparison
+    // instead of plain eq_ignore_ascii_case.  This prevents cross-identity token
+    // theft where "alice" (different principal) claims a token issued to "Alice",
+    // and also normalizes Cyrillic/Greek confusables that could bypass ASCII-only
+    // case folding.  Both sides are normalized before comparison.
     if let Some(expected) = expected_holder {
-        if !token.holder.eq_ignore_ascii_case(expected) {
+        let norm_holder =
+            vellaveto_types::unicode::normalize_homoglyphs(&token.holder.to_ascii_lowercase());
+        let norm_expected =
+            vellaveto_types::unicode::normalize_homoglyphs(&expected.to_ascii_lowercase());
+        if norm_holder != norm_expected {
             return Ok(CapabilityVerification {
                 valid: false,
                 failure_reason: Some(format!(

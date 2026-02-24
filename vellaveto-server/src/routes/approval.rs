@@ -107,6 +107,11 @@ pub fn derive_resolver_identity(headers: &HeaderMap, client_value: &str) -> Stri
 pub struct ResolveRequest {
     #[serde(default = "default_resolver")]
     pub resolved_by: String,
+    /// Optional reason for the approval/denial decision (audit trail).
+    /// SECURITY (IMP-R212-002): Python SDK sends `reason` in the body;
+    /// without this field `deny_unknown_fields` would reject the request.
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 fn default_resolver() -> String {
@@ -224,9 +229,15 @@ pub async fn approve_approval(
     // principal (Bearer token hash) rather than trusting the client-supplied
     // resolved_by field. The client value is kept as a note but the auth
     // identity is the authoritative record.
-    let client_resolved_by = body
-        .map(|b| b.resolved_by.clone())
-        .unwrap_or_else(|| "anonymous".to_string());
+    // SECURITY (IMP-R212-002): Extract both resolved_by and optional reason
+    // from the body before consuming it.
+    let (client_resolved_by, reason) = match body {
+        Some(b) => {
+            let reason = b.reason.clone();
+            (b.resolved_by.clone(), reason)
+        }
+        None => ("anonymous".to_string(), None),
+    };
     let resolved_by =
         sanitize_resolved_by(&derive_resolver_identity(&headers, &client_resolved_by));
 
@@ -240,6 +251,25 @@ pub async fn approve_approval(
                 ),
             }),
         ));
+    }
+    // Validate reason if present
+    if let Some(ref r) = reason {
+        if r.len() > 4096 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "reason exceeds maximum length (4096)".to_string(),
+                }),
+            ));
+        }
+        if r.chars().any(super::is_unsafe_char) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "reason contains invalid characters".to_string(),
+                }),
+            ));
+        }
     }
 
     let approval = state
@@ -283,16 +313,20 @@ pub async fn approve_approval(
                 "original_function": &approval.action.function,
             }),
         );
+        let mut meta = json!({
+            "source": "api",
+            "event": "approval_approved",
+            "resolved_by": &resolved_by,
+        });
+        if let Some(ref r) = reason {
+            meta["reason"] = json!(r);
+        }
         if let Err(e) = state
             .audit
             .log_entry(
                 &audit_action,
                 &Verdict::Allow,
-                json!({
-                    "source": "api",
-                    "event": "approval_approved",
-                    "resolved_by": &resolved_by,
-                }),
+                meta,
             )
             .await
         {
@@ -338,9 +372,14 @@ pub async fn deny_approval(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     validate_approval_id(&id)?;
 
-    let client_resolved_by = body
-        .map(|b| b.resolved_by.clone())
-        .unwrap_or_else(|| "anonymous".to_string());
+    // SECURITY (IMP-R212-002): Extract both resolved_by and optional reason.
+    let (client_resolved_by, reason) = match body {
+        Some(b) => {
+            let reason = b.reason.clone();
+            (b.resolved_by.clone(), reason)
+        }
+        None => ("anonymous".to_string(), None),
+    };
     let resolved_by =
         sanitize_resolved_by(&derive_resolver_identity(&headers, &client_resolved_by));
 
@@ -354,6 +393,24 @@ pub async fn deny_approval(
                 ),
             }),
         ));
+    }
+    if let Some(ref r) = reason {
+        if r.len() > 4096 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "reason exceeds maximum length (4096)".to_string(),
+                }),
+            ));
+        }
+        if r.chars().any(super::is_unsafe_char) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "reason contains invalid characters".to_string(),
+                }),
+            ));
+        }
     }
 
     let approval = state.deny_approval(&id, &resolved_by).await.map_err(|e| {
@@ -393,6 +450,14 @@ pub async fn deny_approval(
                 "original_function": &approval.action.function,
             }),
         );
+        let mut meta = json!({
+            "source": "api",
+            "event": "approval_denied",
+            "resolved_by": &resolved_by,
+        });
+        if let Some(ref r) = reason {
+            meta["reason"] = json!(r);
+        }
         if let Err(e) = state
             .audit
             .log_entry(
@@ -400,11 +465,7 @@ pub async fn deny_approval(
                 &Verdict::Deny {
                     reason: "approval_denied".to_string(),
                 },
-                json!({
-                    "source": "api",
-                    "event": "approval_denied",
-                    "resolved_by": &resolved_by,
-                }),
+                meta,
             )
             .await
         {
