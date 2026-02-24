@@ -80,6 +80,9 @@ _MAX_INPUT_STRING_LEN = 1024
 # that approach the server's MAX_REQUEST_BODY_SIZE (1MB).
 _MAX_PARAMETERS_JSON_SIZE = 524288
 
+# IMP-R210-005: Module-level constant instead of per-call allocation.
+_VALID_SENSITIVITIES = frozenset({"low", "medium", "high"})
+
 
 def _validate_approval_id(approval_id: str) -> None:
     """Validate approval_id format — shared by sync and async clients.
@@ -833,7 +836,7 @@ class VellavetoClient:
         # SECURITY (FIND-R111-009): Validate filter parameters. Without validation,
         # an attacker can inject unbounded or control-character-containing strings
         # into query parameters, potentially causing log injection or server OOM.
-        _VALID_SENSITIVITIES = frozenset({"low", "medium", "high"})
+
         if server_id is not None:
             if not isinstance(server_id, str):
                 raise VellavetoError("server_id must be a string or None")
@@ -1002,8 +1005,7 @@ class VellavetoClient:
             raise VellavetoError("period must be a non-empty string")
         if len(period) > 32:
             raise VellavetoError("period exceeds max length (32)")
-        import re
-        if not re.match(r'^[a-zA-Z0-9\-:]+$', period):
+        if not _re.match(r'^[a-zA-Z0-9\-:]+$', period):
             raise VellavetoError(
                 "period contains invalid characters: only alphanumeric, dashes, and colons are allowed"
             )
@@ -1467,7 +1469,7 @@ class AsyncVellavetoClient:
             sensitivity: Filter by sensitivity level (low, medium, high)
         """
         # SECURITY (FIND-R111-009): Validate filter parameters (async parity).
-        _VALID_SENSITIVITIES = frozenset({"low", "medium", "high"})
+
         if server_id is not None:
             if not isinstance(server_id, str):
                 raise VellavetoError("server_id must be a string or None")
@@ -1592,8 +1594,7 @@ class AsyncVellavetoClient:
             raise VellavetoError("period must be a non-empty string")
         if len(period) > 32:
             raise VellavetoError("period exceeds max length (32)")
-        import re
-        if not re.match(r'^[a-zA-Z0-9\-:]+$', period):
+        if not _re.match(r'^[a-zA-Z0-9\-:]+$', period):
             raise VellavetoError(
                 "period contains invalid characters: only alphanumeric, dashes, and colons are allowed"
             )

@@ -103,7 +103,11 @@ pub async fn compress_rotated_file(path: &Path) -> Result<PathBuf, AuditError> {
     let content = tokio::fs::read(path).await.map_err(AuditError::Io)?;
     let original_len = content.len();
 
-    let gz_path = PathBuf::from(format!("{}.gz", path.display()));
+    // SECURITY (FIND-R210-006): Use OsString operations instead of Display
+    // formatting to avoid lossy UTF-8 conversion on non-UTF-8 filenames.
+    let mut gz_os = path.as_os_str().to_owned();
+    gz_os.push(".gz");
+    let gz_path = PathBuf::from(gz_os);
 
     // Compress in blocking task to avoid blocking the async runtime
     let gz_path_clone = gz_path.clone();

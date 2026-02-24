@@ -698,6 +698,9 @@ pub async fn step_security_post(State(state): State<AppState>, req: Request) -> 
         session.api_key = api_key;
         session.cors_origins = origins;
         session.allow_anonymous = allow_anonymous;
+        // SECURITY (FIND-R210-003): Rotate CSRF token after each successful step
+        // submission so a leaked token is only valid for one step.
+        session.csrf_token = uuid::Uuid::new_v4().to_string();
     }
 
     Redirect::to("/setup/policies").into_response()
@@ -804,6 +807,8 @@ pub async fn step_policies_post(State(state): State<AppState>, req: Request) -> 
 
     if let Some(mut session) = state.wizard_sessions.get_mut(&session_id) {
         session.policy_preset = preset;
+        // SECURITY (FIND-R210-003): Rotate CSRF token after each step.
+        session.csrf_token = uuid::Uuid::new_v4().to_string();
     }
 
     Redirect::to("/setup/detection").into_response()
@@ -912,6 +917,8 @@ pub async fn step_detection_post(State(state): State<AppState>, req: Request) ->
         session.dlp_enabled = form.contains_key("dlp_enabled");
         session.dlp_blocking = form.contains_key("dlp_blocking");
         session.behavioral_enabled = form.contains_key("behavioral_enabled");
+        // SECURITY (FIND-R210-003): Rotate CSRF token after each step.
+        session.csrf_token = uuid::Uuid::new_v4().to_string();
     }
 
     Redirect::to("/setup/audit").into_response()
@@ -1082,6 +1089,8 @@ pub async fn step_audit_post(State(state): State<AppState>, req: Request) -> Res
         session.audit_export_format = export_format;
         session.audit_export_target = export_target;
         session.checkpoint_interval_secs = checkpoint_interval;
+        // SECURITY (FIND-R210-003): Rotate CSRF token after each step.
+        session.csrf_token = uuid::Uuid::new_v4().to_string();
     }
 
     Redirect::to("/setup/compliance").into_response()
@@ -1210,6 +1219,8 @@ pub async fn step_compliance_post(State(state): State<AppState>, req: Request) -
         session.dora = form.contains_key("dora");
         session.soc2 = form.contains_key("soc2");
         session.iso42001 = form.contains_key("iso42001");
+        // SECURITY (FIND-R210-003): Rotate CSRF token after each step.
+        session.csrf_token = uuid::Uuid::new_v4().to_string();
     }
 
     Redirect::to("/setup/review").into_response()
@@ -1831,6 +1842,12 @@ fn escape_toml_string(s: &str) -> String {
             '\t' => out.push_str("\\t"),
             // Escape all other control characters as Unicode escapes
             c if c.is_control() => {
+                let _ = write!(out, "\\u{:04X}", c as u32);
+            }
+            // SECURITY (FIND-R210-004): Escape Unicode format characters (zero-width,
+            // bidi overrides, BOM) that are invisible but could be interpreted
+            // differently by TOML parsers, causing config injection.
+            c if vellaveto_types::is_unicode_format_char(c) => {
                 let _ = write!(out, "\\u{:04X}", c as u32);
             }
             c => out.push(c),
