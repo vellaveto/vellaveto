@@ -586,16 +586,45 @@ fn glob_match(pattern: &[u8], value: &[u8]) -> bool {
 /// - Path patterns are normalized before comparison to prevent `/../` traversal
 /// - `max_invocations` must be monotonically attenuated (child <= parent)
 fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) -> bool {
-    // Tool pattern must match under parent
-    if !pattern_matches(&parent_grant.tool_pattern, &new_grant.tool_pattern)
-        && parent_grant.tool_pattern != "*"
-    {
+    // SECURITY (FIND-CREATIVE-002): Glob metacharacter confusion in pattern-to-pattern
+    // subset check. pattern_matches(parent, child) treats the child as a LITERAL string
+    // matched against the parent glob. But at runtime, child patterns are used as GLOBS.
+    // Example: parent "fi?" matches literal "fi*", but at runtime "fi*" is broader than "fi?".
+    //
+    // Fix: When the child pattern contains glob metacharacters (* or ?), we must ensure
+    // it is not broader than the parent. The safe rules are:
+    // 1. parent == "*" → any child is subset (parent allows everything)
+    // 2. parent == child → exact match is always safe
+    // 3. child has metacharacters AND differs from parent → reject (potential escalation)
+    // 4. child has no metacharacters → use pattern_matches (literal child under parent glob)
+    fn pattern_is_subset(parent: &str, child: &str) -> bool {
+        if parent == "*" {
+            return true;
+        }
+        if parent.eq_ignore_ascii_case(child) {
+            return true;
+        }
+        // If child contains glob metacharacters and differs from parent,
+        // we cannot safely determine subset relationship via simple glob matching.
+        // Reject to prevent escalation (e.g., parent "fi?" child "fi*").
+        if child.contains('*') || child.contains('?') {
+            // Child is a glob pattern different from parent — could be broader.
+            // Only allow if child is strictly a longer prefix match:
+            // parent "file_*" child "file_read_*" — child is more specific.
+            // But this requires proper language containment checking.
+            // For safety, reject all non-equal glob-to-glob comparisons.
+            return false;
+        }
+        // Child is a literal value — safe to check against parent glob.
+        pattern_matches(parent, child)
+    }
+
+    // Tool pattern must be subset of parent
+    if !pattern_is_subset(&parent_grant.tool_pattern, &new_grant.tool_pattern) {
         return false;
     }
-    // Function pattern must match under parent
-    if !pattern_matches(&parent_grant.function_pattern, &new_grant.function_pattern)
-        && parent_grant.function_pattern != "*"
-    {
+    // Function pattern must be subset of parent
+    if !pattern_is_subset(&parent_grant.function_pattern, &new_grant.function_pattern) {
         return false;
     }
     // SECURITY (FIND-FV46-001): If parent has path restrictions, child MUST also
@@ -1815,6 +1844,164 @@ mod tests {
         assert!(
             result.unwrap_err().to_string().contains("self-delegation"),
             "FIND-R116-MCP-005: Error should mention self-delegation"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-CREATIVE-002: Glob metacharacter escalation in
+    // capability token delegation
+    // ════════════════════════════════════════════════════════
+
+    /// FIND-CREATIVE-002 (P1): Parent grants "fi?" tool pattern (matches fi + one char).
+    /// Child attempts "fi*" (matches fi + any suffix). Before the fix, pattern_matches("fi?", "fi*")
+    /// treated "fi*" as a literal and matched successfully (? matches *). But at runtime,
+    /// "fi*" is broader than "fi?" — this is a privilege escalation.
+    #[test]
+    fn test_attenuation_rejects_glob_escalation_tool_pattern() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "fi?".into(), // Matches fi + exactly one char
+                function_pattern: "*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 100,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        // Child tries to escalate: "fi*" matches anything starting with "fi"
+        let child_grants = vec![CapabilityGrant {
+            tool_pattern: "fi*".into(), // Broader than parent's "fi?"
+            function_pattern: "*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 50,
+        }];
+        let result =
+            attenuate_capability_token(&parent, "agent-b", child_grants, &child_key_hex, 1800);
+        assert!(
+            result.is_err(),
+            "FIND-CREATIVE-002: Child 'fi*' is broader than parent 'fi?' — must be rejected"
+        );
+    }
+
+    /// FIND-CREATIVE-002: Same escalation on function_pattern.
+    #[test]
+    fn test_attenuation_rejects_glob_escalation_function_pattern() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "*".into(),
+                function_pattern: "read_?".into(), // Matches read_ + one char
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 100,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        // Child tries: "read_*" matches read_ + anything
+        let child_grants = vec![CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "read_*".into(), // Broader than parent's "read_?"
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 50,
+        }];
+        let result =
+            attenuate_capability_token(&parent, "agent-b", child_grants, &child_key_hex, 1800);
+        assert!(
+            result.is_err(),
+            "FIND-CREATIVE-002: Child 'read_*' is broader than parent 'read_?' — must be rejected"
+        );
+    }
+
+    /// FIND-CREATIVE-002: Exact same glob pattern should still be allowed.
+    #[test]
+    fn test_attenuation_allows_identical_glob_pattern() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "file_*".into(),
+                function_pattern: "read_?".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 100,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        // Child uses exact same patterns — should succeed
+        let child_grants = vec![CapabilityGrant {
+            tool_pattern: "file_*".into(),
+            function_pattern: "read_?".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 50,
+        }];
+        let result =
+            attenuate_capability_token(&parent, "agent-b", child_grants, &child_key_hex, 1800);
+        assert!(
+            result.is_ok(),
+            "FIND-CREATIVE-002: Identical glob patterns must be accepted: {:?}",
+            result.err()
+        );
+    }
+
+    /// FIND-CREATIVE-002: Literal child under glob parent should still work.
+    #[test]
+    fn test_attenuation_allows_literal_child_under_glob_parent() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "file_*".into(), // Matches file_ + anything
+                function_pattern: "*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 100,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        // Child uses a literal — strictly narrower than parent's glob
+        let child_grants = vec![CapabilityGrant {
+            tool_pattern: "file_read".into(), // Literal, matched by parent's "file_*"
+            function_pattern: "execute".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 50,
+        }];
+        let result =
+            attenuate_capability_token(&parent, "agent-b", child_grants, &child_key_hex, 1800);
+        assert!(
+            result.is_ok(),
+            "FIND-CREATIVE-002: Literal child 'file_read' under parent 'file_*' must succeed: {:?}",
+            result.err()
         );
     }
 }

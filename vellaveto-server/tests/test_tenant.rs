@@ -927,6 +927,186 @@ async fn audit_store_status_non_default_tenant_returns_403() {
     );
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// FIND-CREATIVE-001: Tenant Policy Isolation with Compiled Engine
+// ────────────────────────────────────────────────────────────────────────────
+
+/// FIND-CREATIVE-001 (P0): Verifies that a non-default tenant does NOT see
+/// another tenant's policies on the non-traced evaluation path.
+///
+/// The bug: `evaluate_action_with_context()` ignores the `policies` parameter
+/// when compiled policies exist. The pre-compiled engine was built from ALL
+/// tenants' policies, so tenant "globex" could trigger a match on "acme:*" rules.
+/// The fix builds a tenant-scoped engine for non-default tenants.
+#[tokio::test]
+async fn evaluate_non_default_tenant_does_not_see_other_tenant_policies() {
+    // Create policies: acme has an Allow for "file:*", globex has a Deny.
+    // Without the fix, globex calling `file:read` would match acme's Allow rule
+    // because the compiled engine has all policies.
+    let all_policies = vec![
+        Policy {
+            id: "acme:file:allow".to_string(),
+            name: "Acme file access".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        },
+        Policy {
+            id: "globex:file:deny".to_string(),
+            name: "Globex file deny".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        },
+    ];
+
+    // CRITICAL: Use with_policies() to create a COMPILED engine — this is what
+    // production uses. PolicyEngine::new(false) would not trigger the bug because
+    // there are no compiled policies and the fallback path uses the policies param.
+    let compiled_engine = PolicyEngine::with_policies(false, &all_policies).unwrap();
+
+    let config = TenantConfig {
+        enabled: true,
+        require_tenant: false,
+        allow_header_tenant: true,
+        ..Default::default()
+    };
+
+    let tmp = TempDir::new().unwrap();
+    let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
+    let state = AppState {
+        policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
+            engine: compiled_engine,
+            policies: all_policies,
+            compliance_config: Default::default(),
+        })),
+        audit: Arc::clone(&audit),
+        config_path: Arc::new("test-config.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
+        tool_registry: None,
+        cluster: None,
+        rbac_config: vellaveto_server::rbac::RbacConfig::default(),
+        tenant_config: config,
+        tenant_store: None,
+        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
+        idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
+            vellaveto_server::idempotency::IdempotencyConfig::default(),
+        ),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
+        exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
+        memory_security: None,
+        nhi: None,
+        observability: None,
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
+        metrics_require_auth: true,
+        audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
+        discovery_engine: None,
+        discovery_audit: None,
+        projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
+        federation_resolver: None,
+        billing_config: std::sync::Arc::new(vellaveto_server::BillingState {
+            paddle: Default::default(),
+            stripe: Default::default(),
+            enabled: false,
+            licensing_validation: vellaveto_config::LicenseValidation {
+                tier: vellaveto_config::LicenseTier::Community,
+                limits: vellaveto_config::LicenseTier::Community.limits(),
+                reason: "test".to_string(),
+            },
+        }),
+        setup_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wizard_sessions: Arc::new(dashmap::DashMap::new()),
+        audit_query: Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
+            Arc::clone(&audit),
+        )),
+        audit_store_status: vellaveto_types::audit_store::AuditStoreStatus {
+            enabled: false,
+            backend: vellaveto_types::audit_store::AuditStoreBackend::File,
+            sink_healthy: false,
+            pending_count: 0,
+        },
+        policy_lifecycle_store: None,
+        policy_lifecycle_config: Default::default(),
+        staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+    };
+
+    let app = routes::build_router(state);
+
+    // Globex tenant evaluates "file:read" — should see its own Deny policy,
+    // NOT acme's Allow policy.
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/evaluate")
+        .header("content-type", "application/json")
+        .header("X-Tenant-ID", "globex")
+        .body(Body::from(
+            json!({
+                "tool": "file",
+                "function": "read",
+                "parameters": {}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    // SECURITY: The verdict MUST NOT be "allow" because globex's only matching policy is Deny.
+    // Before the fix, the compiled engine would match acme's Allow rule and return "allow".
+    // The verdict is either {"Deny": {"reason": ...}} or "allow".
+    let verdict = &result["verdict"];
+    assert!(
+        verdict.get("Deny").is_some() || verdict.as_str() == Some("deny"),
+        "FIND-CREATIVE-001: Non-default tenant must NOT see other tenants' Allow policies. \
+         Expected Deny verdict, got: {:?}",
+        result
+    );
+    // Verify it is NOT allow
+    assert_ne!(
+        verdict.as_str().unwrap_or(""),
+        "allow",
+        "FIND-CREATIVE-001: Globex must not receive Allow from acme's policies"
+    );
+}
+
 /// FIND-R203-005: audit_store_status is accessible by the default (admin) tenant.
 #[tokio::test]
 async fn audit_store_status_default_tenant_returns_200() {

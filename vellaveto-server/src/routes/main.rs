@@ -527,6 +527,42 @@ pub fn build_router(state: AppState) -> Router {
             get(super::federation::federation_trust_anchors),
         )
         // ═══════════════════════════════════════════════════════════════════
+        // Phase 47: Policy Lifecycle Management
+        // ═══════════════════════════════════════════════════════════════════
+        .route(
+            "/api/policies/{id}/versions",
+            get(super::policy_lifecycle::list_versions)
+                .post(super::policy_lifecycle::create_version),
+        )
+        .route(
+            "/api/policies/{id}/versions/{version}",
+            get(super::policy_lifecycle::get_version),
+        )
+        .route(
+            "/api/policies/{id}/versions/{version}/approve",
+            post(super::policy_lifecycle::approve_version),
+        )
+        .route(
+            "/api/policies/{id}/versions/{version}/promote",
+            post(super::policy_lifecycle::promote_version),
+        )
+        .route(
+            "/api/policies/{id}/versions/{version}/archive",
+            post(super::policy_lifecycle::archive_version),
+        )
+        .route(
+            "/api/policies/{id}/rollback",
+            post(super::policy_lifecycle::rollback_policy),
+        )
+        .route(
+            "/api/policies/{id}/versions/{v1}/diff/{v2}",
+            get(super::policy_lifecycle::diff_versions),
+        )
+        .route(
+            "/api/policy-lifecycle/status",
+            get(super::policy_lifecycle::lifecycle_status),
+        )
+        // ═══════════════════════════════════════════════════════════════════
         // Billing & Licensing
         // ═══════════════════════════════════════════════════════════════════
         .route("/api/billing/license", get(super::billing::license_info))
@@ -2085,11 +2121,22 @@ async fn evaluate(
                 )
             })?
     } else {
-        let v = snap
-            .engine
-            .evaluate_action_with_context(&action, &tenant_policies, context.as_ref())
+        // SECURITY (FIND-CREATIVE-001): For non-default tenants, build a tenant-scoped
+        // engine rather than using snap.engine (which was compiled with ALL tenants'
+        // policies). The compiled engine's evaluate_action_with_context() ignores
+        // the `policies` parameter on the compiled path, so passing tenant_policies
+        // is insufficient — a scoped engine is required for correct tenant isolation.
+        // Default tenant uses the pre-compiled engine for maximum performance.
+        let v = if !tenant_ctx.is_default() {
+            let scoped_engine = vellaveto_engine::PolicyEngine::with_policies(
+                snap.engine.strict_mode(),
+                &tenant_policies,
+            )
             .map_err(|e| {
-                tracing::error!("Engine evaluation error: {}", e);
+                tracing::error!(
+                    "Failed to compile tenant-scoped policies: {:?}",
+                    e
+                );
                 state.metrics.record_error();
                 crate::metrics::record_evaluation_verdict("error");
                 crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
@@ -2100,6 +2147,40 @@ async fn evaluate(
                     }),
                 )
             })?;
+            scoped_engine
+                .evaluate_action_with_context(&action, &tenant_policies, context.as_ref())
+                .map_err(|e| {
+                    tracing::error!("Engine evaluation error: {}", e);
+                    state.metrics.record_error();
+                    crate::metrics::record_evaluation_verdict("error");
+                    crate::metrics::record_evaluation_duration(
+                        eval_start.elapsed().as_secs_f64(),
+                    );
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: "Policy evaluation failed".to_string(),
+                        }),
+                    )
+                })?
+        } else {
+            snap.engine
+                .evaluate_action_with_context(&action, &tenant_policies, context.as_ref())
+                .map_err(|e| {
+                    tracing::error!("Engine evaluation error: {}", e);
+                    state.metrics.record_error();
+                    crate::metrics::record_evaluation_verdict("error");
+                    crate::metrics::record_evaluation_duration(
+                        eval_start.elapsed().as_secs_f64(),
+                    );
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: "Policy evaluation failed".to_string(),
+                        }),
+                    )
+                })?
+        };
         (v, None)
     };
 
