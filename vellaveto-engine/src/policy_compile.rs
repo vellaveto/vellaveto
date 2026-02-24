@@ -1110,20 +1110,22 @@ impl PolicyEngine {
             }
             "agent_identity" => {
                 // OWASP ASI07: Agent identity attestation via signed JWT
-                // SECURITY: Normalize required fields to lowercase for case-insensitive
-                // matching, consistent with blocked_issuers/blocked_subjects (R40-ENG-2)
+                // SECURITY: Normalize required fields to lowercase + homoglyphs for
+                // case-insensitive matching, consistent with blocked_issuers/blocked_subjects (R40-ENG-2)
+                // SECURITY (FIND-R211-002): Normalize homoglyphs at compile time to match
+                // evaluation-time normalization, preventing Cyrillic/fullwidth bypass.
                 let required_issuer = obj
                     .get("issuer")
                     .and_then(|v| v.as_str())
-                    .map(|s| s.to_lowercase());
+                    .map(|s| vellaveto_types::unicode::normalize_homoglyphs(&s.to_lowercase()));
                 let required_subject = obj
                     .get("subject")
                     .and_then(|v| v.as_str())
-                    .map(|s| s.to_lowercase());
+                    .map(|s| vellaveto_types::unicode::normalize_homoglyphs(&s.to_lowercase()));
                 let required_audience = obj
                     .get("audience")
                     .and_then(|v| v.as_str())
-                    .map(|s| s.to_lowercase());
+                    .map(|s| vellaveto_types::unicode::normalize_homoglyphs(&s.to_lowercase()));
 
                 // SECURITY (FIND-R111-005): Per-key/value length bounds on required_claims.
                 const MAX_REQUIRED_CLAIMS: usize = 64;
@@ -1186,7 +1188,9 @@ impl PolicyEngine {
                 const MAX_ISSUER_LIST: usize = 256;
                 const MAX_SUBJECT_LIST: usize = 256;
 
-                // SECURITY: Normalize blocked lists to lowercase for case-insensitive matching
+                // SECURITY: Normalize blocked lists to lowercase + homoglyphs for case-insensitive matching
+                // SECURITY (FIND-R211-002): Normalize homoglyphs at compile time to match
+                // evaluation-time normalization, preventing Cyrillic/fullwidth bypass.
                 let blocked_issuers_raw = obj
                     .get("blocked_issuers")
                     .and_then(|v| v.as_array())
@@ -1205,7 +1209,7 @@ impl PolicyEngine {
                 }
                 let blocked_issuers: Vec<String> = blocked_issuers_raw
                     .iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                    .filter_map(|v| v.as_str().map(|s| vellaveto_types::unicode::normalize_homoglyphs(&s.to_lowercase())))
                     .collect();
 
                 let blocked_subjects_raw = obj
@@ -1226,7 +1230,7 @@ impl PolicyEngine {
                 }
                 let blocked_subjects: Vec<String> = blocked_subjects_raw
                     .iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                    .filter_map(|v| v.as_str().map(|s| vellaveto_types::unicode::normalize_homoglyphs(&s.to_lowercase())))
                     .collect();
 
                 // When true, fail if no agent_identity is present (require JWT attestation)

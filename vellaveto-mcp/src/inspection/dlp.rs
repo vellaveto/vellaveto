@@ -454,7 +454,9 @@ fn scan_decoded_layer<'a>(
                 || (0x1AB0..=0x1AFF).contains(&cp) // Combining Diacritical Marks Extended
                 || (0x1DC0..=0x1DFF).contains(&cp) // Combining Diacritical Marks Supplement
                 || (0x20D0..=0x20FF).contains(&cp) // Combining Marks for Symbols
-                || (0xFE20..=0xFE2F).contains(&cp)) // Combining Half Marks
+                || (0xFE20..=0xFE2F).contains(&cp) // Combining Half Marks
+                || (0xFE00..=0xFE0F).contains(&cp) // Variation Selectors
+                || (0xE0100..=0xE01EF).contains(&cp)) // Variation Selectors Supplement
         })
         .collect();
 

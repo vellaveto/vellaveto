@@ -1582,31 +1582,28 @@ impl PolicyConfig {
                 .map_err(|e| format!("policies[{}]: {}", i, e))?;
         }
 
-        // SECURITY (FIND-R180-001): Wire sub-config validate() methods that have
-        // additional checks beyond the inline validation above (per-entry control
-        // char validation, URL scheme checks, cache size bounds).
-        // Note: some sub-configs use #[derive(Default)] which produces invalid
-        // field values (e.g. empty on_match) — guard with `enabled` where present
-        // to avoid rejecting inactive defaults.
+        // SECURITY (FIND-R180-001, FIND-R211-001): Wire sub-config validate()
+        // methods unconditionally. Structural checks (SSRF, char validation, bounds)
+        // must run even on disabled configs to prevent malicious values from
+        // activating without validation when later enabled via hot-reload.
+        // Individual validate() methods gate enabled-specific checks internally.
         self.tls.validate().map_err(|e| format!("tls: {e}"))?;
-        if self.spiffe.enabled {
-            self.spiffe
-                .validate()
-                .map_err(|e| format!("spiffe: {e}"))?;
-        }
-        if self.opa.enabled {
-            self.opa.validate().map_err(|e| format!("opa: {e}"))?;
-        }
-        if self.threat_intel.enabled {
-            self.threat_intel
-                .validate()
-                .map_err(|e| format!("threat_intel: {e}"))?;
-        }
-        if self.jit_access.enabled {
-            self.jit_access
-                .validate()
-                .map_err(|e| format!("jit_access: {e}"))?;
-        }
+        // SECURITY (FIND-R211-001): Always run sub-config validate() regardless of
+        // `enabled` flag. Structural checks (SSRF, char validation, bounds) must run
+        // even on disabled configs to prevent malicious values from activating without
+        // validation when later enabled via hot-reload. Each validate() method already
+        // guards enabled-specific checks (like "endpoint is required when enabled")
+        // internally.
+        self.spiffe
+            .validate()
+            .map_err(|e| format!("spiffe: {e}"))?;
+        self.opa.validate().map_err(|e| format!("opa: {e}"))?;
+        self.threat_intel
+            .validate()
+            .map_err(|e| format!("threat_intel: {e}"))?;
+        self.jit_access
+            .validate()
+            .map_err(|e| format!("jit_access: {e}"))?;
         self.audit_export
             .validate()
             .map_err(|e| format!("audit_export: {e}"))?;

@@ -36,6 +36,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
+use vellaveto_types::unicode::normalize_homoglyphs;
 use vellaveto_types::{CircuitState, CircuitStats};
 
 /// Maximum number of tracked circuits to bound memory (FIND-R44-032).
@@ -144,8 +145,9 @@ impl CircuitBreakerManager {
     /// - `vellaveto_circuit_breaker_rejections_total`: Counter of rejected requests
     pub fn can_proceed(&self, tool: &str) -> Result<(), String> {
         let start = std::time::Instant::now();
-        // SECURITY (FIND-077): Normalize tool name to prevent case-variation bypass.
-        let tool_lower = tool.to_lowercase();
+        // SECURITY (FIND-077, FIND-R211-001): Normalize tool name to prevent
+        // case-variation and homoglyph (Cyrillic/fullwidth) bypass.
+        let tool_lower = normalize_homoglyphs(&tool.to_lowercase());
 
         // SECURITY: Fail-closed on RwLock poisoning instead of recovering stale state.
         let circuits = self.circuits.read().map_err(|_| {
@@ -290,8 +292,9 @@ impl CircuitBreakerManager {
     /// FIND-R44-032: If the circuit map is at capacity and this is a new tool,
     /// the insert is skipped silently.
     pub fn record_success(&self, tool: &str) {
-        // SECURITY (FIND-077): Normalize tool name to prevent case-variation bypass.
-        let tool_lower = tool.to_lowercase();
+        // SECURITY (FIND-077, FIND-R211-001): Normalize tool name to prevent
+        // case-variation and homoglyph (Cyrillic/fullwidth) bypass.
+        let tool_lower = normalize_homoglyphs(&tool.to_lowercase());
         let mut circuits = match self.circuits.write() {
             Ok(c) => c,
             Err(e) => {
@@ -385,8 +388,9 @@ impl CircuitBreakerManager {
     /// FIND-R44-032: If the circuit map is at capacity and this is a new tool,
     /// the insert is skipped and `Open` is returned (fail-closed).
     pub fn record_failure(&self, tool: &str) -> CircuitState {
-        // SECURITY (FIND-077): Normalize tool name to prevent case-variation bypass.
-        let tool_lower = tool.to_lowercase();
+        // SECURITY (FIND-077, FIND-R211-001): Normalize tool name to prevent
+        // case-variation and homoglyph (Cyrillic/fullwidth) bypass.
+        let tool_lower = normalize_homoglyphs(&tool.to_lowercase());
         let mut circuits = match self.circuits.write() {
             Ok(c) => c,
             Err(e) => {
@@ -480,8 +484,8 @@ impl CircuitBreakerManager {
     ///
     /// Note: If RwLock is poisoned, returns Open (fail-closed behavior).
     pub fn get_state(&self, tool: &str) -> CircuitState {
-        // SECURITY (FIND-077): Normalize tool name.
-        let tool_lower = tool.to_lowercase();
+        // SECURITY (FIND-077, FIND-R211-001): Normalize tool name with homoglyphs.
+        let tool_lower = normalize_homoglyphs(&tool.to_lowercase());
         let circuits = match self.circuits.read() {
             Ok(c) => c,
             Err(e) => {
@@ -515,8 +519,8 @@ impl CircuitBreakerManager {
     ///
     /// Note: If RwLock is poisoned, returns None and logs error.
     pub fn get_stats(&self, tool: &str) -> Option<CircuitStats> {
-        // SECURITY (FIND-077): Normalize tool name.
-        let tool_lower = tool.to_lowercase();
+        // SECURITY (FIND-077, FIND-R211-001): Normalize tool name with homoglyphs.
+        let tool_lower = normalize_homoglyphs(&tool.to_lowercase());
         let circuits = match self.circuits.read() {
             Ok(c) => c,
             Err(e) => {
@@ -539,8 +543,8 @@ impl CircuitBreakerManager {
     ///
     /// Note: If RwLock is poisoned, logs error and returns an error.
     pub fn reset(&self, tool: &str) -> Result<(), String> {
-        // SECURITY (FIND-077): Normalize tool name.
-        let tool_lower = tool.to_lowercase();
+        // SECURITY (FIND-077, FIND-R211-001): Normalize tool name with homoglyphs.
+        let tool_lower = normalize_homoglyphs(&tool.to_lowercase());
         let mut circuits = match self.circuits.write() {
             Ok(c) => c,
             Err(e) => {

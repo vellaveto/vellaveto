@@ -218,6 +218,11 @@ const MAX_SPIFFE_IDS: usize = 1000;
 /// Maximum number of SPIFFE ID-to-role mappings.
 const MAX_SPIFFE_ROLE_MAPPINGS: usize = 1000;
 
+/// Maximum cache TTL in seconds (24 hours).
+/// SECURITY (FIND-R211-004): Shared upper bound for SVID cache, OPA cache, and
+/// threat intel cache to prevent stale cached data from persisting indefinitely.
+const MAX_CACHE_TTL_SECS: u64 = 86400;
+
 impl SpiffeConfig {
     /// Validate SPIFFE configuration.
     pub fn validate(&self) -> Result<(), String> {
@@ -251,6 +256,14 @@ impl SpiffeConfig {
             if vellaveto_types::has_dangerous_chars(domain) {
                 return Err("spiffe.trust_domain contains control or format characters".to_string());
             }
+        }
+        // SECURITY (FIND-R211-004): Upper bound on SVID cache TTL to prevent
+        // stale cached identities from persisting indefinitely.
+        if self.svid_cache_ttl_secs > MAX_CACHE_TTL_SECS {
+            return Err(format!(
+                "spiffe.svid_cache_ttl_secs {} exceeds maximum {} (24 hours)",
+                self.svid_cache_ttl_secs, MAX_CACHE_TTL_SECS
+            ));
         }
         // SECURITY (BUG-R110-003): Fail-closed when enabled without trust_domain
         if self.enabled && self.trust_domain.is_none() {
@@ -360,6 +373,12 @@ const MAX_OPA_HEADERS: usize = 50;
 /// Maximum OPA cache size.
 const MAX_OPA_CACHE_SIZE: usize = 1_000_000;
 
+/// Maximum length for OPA header keys.
+const MAX_OPA_HEADER_KEY_LEN: usize = 256;
+
+/// Maximum length for OPA header values.
+const MAX_OPA_HEADER_VALUE_LEN: usize = 4096;
+
 impl OpaConfig {
     /// Validate OPA configuration.
     pub fn validate(&self) -> Result<(), String> {
@@ -368,6 +387,42 @@ impl OpaConfig {
                 "opa.headers count {} exceeds maximum {}",
                 self.headers.len(),
                 MAX_OPA_HEADERS
+            ));
+        }
+        // SECURITY (FIND-R211-005): Validate header keys and values for dangerous
+        // chars (control, Unicode format, CRLF) and enforce length bounds to prevent
+        // header injection and unbounded memory usage.
+        for (key, value) in &self.headers {
+            if key.len() > MAX_OPA_HEADER_KEY_LEN {
+                return Err(format!(
+                    "opa.headers key exceeds max length {} (got {})",
+                    MAX_OPA_HEADER_KEY_LEN,
+                    key.len()
+                ));
+            }
+            if value.len() > MAX_OPA_HEADER_VALUE_LEN {
+                return Err(format!(
+                    "opa.headers value exceeds max length {} (got {})",
+                    MAX_OPA_HEADER_VALUE_LEN,
+                    value.len()
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(key) {
+                return Err(
+                    "opa.headers key contains control or format characters".to_string(),
+                );
+            }
+            if vellaveto_types::has_dangerous_chars(value) {
+                return Err(
+                    "opa.headers value contains control or format characters".to_string(),
+                );
+            }
+        }
+        // SECURITY (FIND-R211-004): Upper bound on OPA cache TTL.
+        if self.cache_ttl_secs > MAX_CACHE_TTL_SECS {
+            return Err(format!(
+                "opa.cache_ttl_secs {} exceeds maximum {} (24 hours)",
+                self.cache_ttl_secs, MAX_CACHE_TTL_SECS
             ));
         }
         if self.cache_size > MAX_OPA_CACHE_SIZE {
@@ -560,13 +615,18 @@ impl ThreatIntelConfig {
                 MAX_IOC_TYPES
             ));
         }
-        let valid_actions = ["deny", "alert", "require_approval"];
-        if !valid_actions.contains(&self.on_match.to_lowercase().as_str()) {
-            return Err(format!(
-                "threat_intel.on_match must be one of {:?} (got: \"{}\")",
-                valid_actions,
-                self.on_match.chars().take(64).collect::<String>()
-            ));
+        // SECURITY (FIND-R211-001): on_match validation is gated on `enabled` because
+        // #[derive(Default)] produces an empty string which is invalid. When disabled,
+        // on_match is irrelevant — it only matters at runtime when the feature is active.
+        if self.enabled {
+            let valid_actions = ["deny", "alert", "require_approval"];
+            if !valid_actions.contains(&self.on_match.to_lowercase().as_str()) {
+                return Err(format!(
+                    "threat_intel.on_match must be one of {:?} (got: \"{}\")",
+                    valid_actions,
+                    self.on_match.chars().take(64).collect::<String>()
+                ));
+            }
         }
         if let Some(ref endpoint) = self.endpoint {
             if vellaveto_types::has_dangerous_chars(endpoint) {

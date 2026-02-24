@@ -1077,6 +1077,17 @@ impl McpGrpcService {
                     {
                         tracing::warn!("Failed to audit gRPC unknown tool: {}", e);
                     }
+                    // SECURITY (FIND-R211-003): Create pending approval in store — parity
+                    // with HTTP handler (handlers.rs:669) Unknown tool branch.
+                    if let Some(ref approval_store) = self.state.approval_store {
+                        let _ = approval_store
+                            .create(
+                                action.clone(),
+                                "Unknown tool requires approval".to_string(),
+                                None,
+                            )
+                            .await;
+                    }
                     return make_proto_denial_response(proto_req, "Approval required");
                 }
                 vellaveto_mcp::tool_registry::TrustLevel::Untrusted { score: _ } => {
@@ -1100,6 +1111,17 @@ impl McpGrpcService {
                         .await
                     {
                         tracing::warn!("Failed to audit gRPC untrusted tool: {}", e);
+                    }
+                    // SECURITY (FIND-R211-003): Create pending approval in store — parity
+                    // with HTTP handler (handlers.rs:699) Untrusted tool branch.
+                    if let Some(ref approval_store) = self.state.approval_store {
+                        let _ = approval_store
+                            .create(
+                                action.clone(),
+                                "Untrusted tool requires approval".to_string(),
+                                None,
+                            )
+                            .await;
                     }
                     return make_proto_denial_response(proto_req, "Approval required");
                 }
@@ -1375,6 +1397,13 @@ impl McpGrpcService {
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC approval request: {}", e);
+                }
+                // SECURITY (FIND-R211-002): Create pending approval in store — parity
+                // with HTTP handler (handlers.rs:1384) and WS (create_ws_approval).
+                if let Some(ref approval_store) = self.state.approval_store {
+                    let _ = approval_store
+                        .create(action.clone(), reason.clone(), None)
+                        .await;
                 }
                 // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
                 make_proto_denial_response(proto_req, "Denied by policy")
@@ -1720,6 +1749,13 @@ impl McpGrpcService {
                     }),
                 ).await {
                     tracing::warn!("Failed to audit gRPC resource approval request: {}", e);
+                }
+                // SECURITY (FIND-R211-002): Create pending approval in store — parity
+                // with HTTP handler (handlers.rs:1927) and WS (create_ws_approval).
+                if let Some(ref approval_store) = self.state.approval_store {
+                    let _ = approval_store
+                        .create(action.clone(), reason.clone(), None)
+                        .await;
                 }
                 // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
                 let _ = reason;
@@ -2387,6 +2423,13 @@ impl McpGrpcService {
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC task approval request: {}", e);
+                }
+                // SECURITY (FIND-R211-002): Create pending approval in store — parity
+                // with HTTP handler (handlers.rs:2942) and WS (create_ws_approval).
+                if let Some(ref approval_store) = self.state.approval_store {
+                    let _ = approval_store
+                        .create(action.clone(), reason.clone(), None)
+                        .await;
                 }
                 // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
                 make_proto_denial_response(proto_req, "Denied by policy")

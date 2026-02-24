@@ -61,8 +61,26 @@ func (a *Action) Validate() error {
 	if len(a.Tool) > maxActionToolLength {
 		return fmt.Errorf("vellaveto: action.Tool exceeds max length %d", maxActionToolLength)
 	}
+	// SECURITY (FIND-R211-002): Reject control and Unicode format characters in
+	// Tool and Function names to prevent invisible-text manipulation attacks.
+	for _, c := range a.Tool {
+		if c < ' ' || (c >= 0x7F && c <= 0x9F) {
+			return fmt.Errorf("vellaveto: action.Tool contains control characters")
+		}
+		if isUnicodeFormatChar(c) {
+			return fmt.Errorf("vellaveto: action.Tool contains Unicode format characters")
+		}
+	}
 	if len(a.Function) > maxActionFunctionLength {
 		return fmt.Errorf("vellaveto: action.Function exceeds max length %d", maxActionFunctionLength)
+	}
+	for _, c := range a.Function {
+		if c < ' ' || (c >= 0x7F && c <= 0x9F) {
+			return fmt.Errorf("vellaveto: action.Function contains control characters")
+		}
+		if isUnicodeFormatChar(c) {
+			return fmt.Errorf("vellaveto: action.Function contains Unicode format characters")
+		}
 	}
 	if len(a.TargetPaths) > maxActionTargetEntries {
 		return fmt.Errorf("vellaveto: action.TargetPaths has %d entries, max %d", len(a.TargetPaths), maxActionTargetEntries)

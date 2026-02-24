@@ -647,12 +647,29 @@ export class VellavetoClient {
     if (action.tool.length > 256) {
       throw new VellavetoError("action.tool exceeds max length (256)");
     }
+    // SECURITY (FIND-R211-002): Reject control and Unicode format characters in
+    // tool and function names to prevent invisible-text manipulation attacks.
+    // Parity with context field validation (session_id, agent_id, tenant_id).
+    if (/[\x00-\x1f\x7f-\x9f]/.test(action.tool)) {
+      throw new VellavetoError("action.tool contains control characters");
+    }
+    if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(action.tool)) {
+      throw new VellavetoError("action.tool contains Unicode format characters");
+    }
     if (
       action.function !== undefined &&
       action.function !== null &&
       typeof action.function !== "string"
     ) {
       throw new VellavetoError("action.function must be a string if provided");
+    }
+    if (typeof action.function === "string") {
+      if (/[\x00-\x1f\x7f-\x9f]/.test(action.function)) {
+        throw new VellavetoError("action.function contains control characters");
+      }
+      if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(action.function)) {
+        throw new VellavetoError("action.function contains Unicode format characters");
+      }
     }
     if (
       action.parameters !== undefined &&

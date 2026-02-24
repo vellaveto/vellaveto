@@ -721,10 +721,7 @@ impl NhiManager {
             return NhiDpopVerificationResult {
                 valid: false,
                 thumbprint: None,
-                error: Some(format!(
-                    "Method mismatch: expected {}, got {}",
-                    expected_method, proof.htm
-                )),
+                error: Some("DPoP HTTP method does not match expected value".to_string()),
                 new_nonce: None,
             };
         }
@@ -734,10 +731,7 @@ impl NhiManager {
             return NhiDpopVerificationResult {
                 valid: false,
                 thumbprint: None,
-                error: Some(format!(
-                    "URI mismatch: expected {}, got {}",
-                    expected_uri, proof.htu
-                )),
+                error: Some("DPoP URI does not match expected value".to_string()),
                 new_nonce: None,
             };
         }

@@ -1243,12 +1243,17 @@ pub async fn step_review(State(state): State<AppState>, req: Request) -> Respons
     let csrf = render_csrf(&session.csrf_token);
 
     // Summary cards
+    // SECURITY (FIND-R211-001): Use char-based slicing to avoid panic on
+    // multi-byte UTF-8 API keys. Byte-level slicing (`&key[..4]`) can hit
+    // mid-character and panic if the key contains non-ASCII characters.
     let api_key_display = if session.api_key.is_empty() {
         "(not set)".to_string()
     } else {
         let key = &session.api_key;
-        if key.len() > 8 {
-            format!("{}...{}", &key[..4], &key[key.len() - 4..])
+        if key.chars().count() > 8 {
+            let first4: String = key.chars().take(4).collect();
+            let last4: String = key.chars().rev().take(4).collect::<String>().chars().rev().collect();
+            format!("{}...{}", first4, last4)
         } else {
             "****".to_string()
         }

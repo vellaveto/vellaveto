@@ -8,7 +8,6 @@ import asyncio
 import json
 import logging
 import time
-import unicodedata
 import warnings
 from typing import Optional, Dict, Any, List
 from urllib.parse import quote, urljoin, urlparse
@@ -126,6 +125,13 @@ def _validate_evaluate_inputs(
         raise VellavetoError(
             f"tool name too long: {len(tool)} > {_MAX_INPUT_STRING_LEN}"
         )
+    # SECURITY (FIND-R211-002): Reject control and Unicode format characters in
+    # tool and function names to prevent invisible-text manipulation attacks.
+    # Parity with context field validation (session_id, agent_id, tenant_id).
+    if _CONTROL_CHAR_RE.search(tool):
+        raise VellavetoError("tool contains control characters")
+    if _UNICODE_FORMAT_RE.search(tool):
+        raise VellavetoError("tool contains Unicode format characters")
     if function is not None:
         if not isinstance(function, str):
             raise VellavetoError("function must be a string or None")
@@ -133,6 +139,10 @@ def _validate_evaluate_inputs(
             raise VellavetoError(
                 f"function name too long: {len(function)} > {_MAX_INPUT_STRING_LEN}"
             )
+        if _CONTROL_CHAR_RE.search(function):
+            raise VellavetoError("function contains control characters")
+        if _UNICODE_FORMAT_RE.search(function):
+            raise VellavetoError("function contains Unicode format characters")
     if parameters is not None and not isinstance(parameters, dict):
         raise VellavetoError("parameters must be a dict or None")
     # SECURITY (FIND-R114-002): Validate parameters serialized size (512KB).

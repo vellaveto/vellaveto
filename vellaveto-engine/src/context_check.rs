@@ -275,9 +275,11 @@ impl PolicyEngine {
                     const MAX_CLAIM_DISPLAY_LEN: usize = 128;
                     match &context.agent_identity {
                         Some(identity) => {
-                            // Check blocked issuers first (case-insensitive)
+                            // Check blocked issuers first (case-insensitive + homoglyph-normalized)
+                            // SECURITY (FIND-R211-002): Normalize homoglyphs to prevent
+                            // Cyrillic/fullwidth characters from bypassing blocked issuer checks.
                             if let Some(ref iss) = identity.issuer {
-                                if blocked_issuers.contains(&iss.to_lowercase()) {
+                                if blocked_issuers.contains(&normalize_homoglyphs(&iss.to_lowercase())) {
                                     let safe_iss =
                                         sanitize_for_log(iss, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
@@ -288,9 +290,11 @@ impl PolicyEngine {
                                 }
                             }
 
-                            // Check blocked subjects (case-insensitive)
+                            // Check blocked subjects (case-insensitive + homoglyph-normalized)
+                            // SECURITY (FIND-R211-002): Normalize homoglyphs to prevent
+                            // Cyrillic/fullwidth characters from bypassing blocked subject checks.
                             if let Some(ref sub) = identity.subject {
-                                if blocked_subjects.contains(&sub.to_lowercase()) {
+                                if blocked_subjects.contains(&normalize_homoglyphs(&sub.to_lowercase())) {
                                     let safe_sub =
                                         sanitize_for_log(sub, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
@@ -301,10 +305,12 @@ impl PolicyEngine {
                                 }
                             }
 
-                            // Check required issuer (case-insensitive, R40-ENG-2)
+                            // Check required issuer (case-insensitive + homoglyph-normalized, R40-ENG-2)
+                            // SECURITY (FIND-R211-002): Normalize homoglyphs for consistency
+                            // with blocked_issuers/blocked_subjects normalization.
                             if let Some(ref req_iss) = required_issuer {
                                 match &identity.issuer {
-                                    Some(iss) if iss.to_lowercase() == *req_iss => {}
+                                    Some(iss) if normalize_homoglyphs(&iss.to_lowercase()) == *req_iss => {}
                                     _ => {
                                         let safe_got = identity
                                             .issuer
@@ -321,10 +327,11 @@ impl PolicyEngine {
                                 }
                             }
 
-                            // Check required subject (case-insensitive, R40-ENG-2)
+                            // Check required subject (case-insensitive + homoglyph-normalized, R40-ENG-2)
+                            // SECURITY (FIND-R211-002): Normalize homoglyphs for consistency.
                             if let Some(ref req_sub) = required_subject {
                                 match &identity.subject {
-                                    Some(sub) if sub.to_lowercase() == *req_sub => {}
+                                    Some(sub) if normalize_homoglyphs(&sub.to_lowercase()) == *req_sub => {}
                                     _ => {
                                         let safe_got = identity
                                             .subject
@@ -341,15 +348,16 @@ impl PolicyEngine {
                                 }
                             }
 
-                            // Check required audience (case-insensitive, R40-ENG-2)
+                            // Check required audience (case-insensitive + homoglyph-normalized, R40-ENG-2)
                             // SECURITY (FIND-R205-004): Sanitize audience values before
                             // including in denial reason — audience comes from JWT claims
                             // and is attacker-controlled. Bound displayed entries to 10.
+                            // SECURITY (FIND-R211-002): Normalize homoglyphs for consistency.
                             if let Some(ref req_aud) = required_audience {
                                 if !identity
                                     .audience
                                     .iter()
-                                    .any(|a| a.to_lowercase() == *req_aud)
+                                    .any(|a| normalize_homoglyphs(&a.to_lowercase()) == *req_aud)
                                 {
                                     let safe_audiences: Vec<String> = identity
                                         .audience
