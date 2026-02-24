@@ -910,31 +910,74 @@ impl SessionGuard {
     ///
     /// Fail-closed: if the lock is poisoned, returns a deny reason.
     pub fn should_deny(&self, session_id: &str) -> Option<String> {
-        match self.sessions.read() {
-            Ok(sessions) => sessions.get(session_id).and_then(|ctx| match ctx.state {
-                SessionState::Locked => Some(format!("Session '{}' is locked", session_id)),
-                SessionState::Ended => Some(format!("Session '{}' has ended", session_id)),
-                _ => {
-                    // SECURITY (FIND-R198-004): Check max_session_duration_secs
-                    // even between events, using current wall-clock time.
-                    if self.config.max_session_duration_secs > 0 {
-                        let now = Self::now();
-                        if now.saturating_sub(ctx.started_at)
-                            >= self.config.max_session_duration_secs
-                        {
-                            return Some(format!(
-                                "Session '{}' exceeded max duration ({} seconds)",
-                                session_id, self.config.max_session_duration_secs
-                            ));
+        // Phase 1: read-only check for terminal states and expiry detection.
+        let expired = match self.sessions.read() {
+            Ok(sessions) => {
+                match sessions.get(session_id) {
+                    Some(ctx) => match ctx.state {
+                        SessionState::Locked => {
+                            return Some(format!("Session '{}' is locked", session_id));
                         }
-                    }
-                    None
+                        SessionState::Ended => {
+                            return Some(format!("Session '{}' has ended", session_id));
+                        }
+                        _ => {
+                            // SECURITY (FIND-R198-004): Check max_session_duration_secs
+                            // even between events, using current wall-clock time.
+                            if self.config.max_session_duration_secs > 0 {
+                                let now = Self::now();
+                                if now.saturating_sub(ctx.started_at)
+                                    >= self.config.max_session_duration_secs
+                                {
+                                    true // expired — need write lock to transition
+                                } else {
+                                    return None; // not expired
+                                }
+                            } else {
+                                return None; // no duration limit
+                            }
+                        }
+                    },
+                    None => return None, // session not found
                 }
-            }),
+            }
             Err(_poisoned) => {
                 // Fail-closed: lock poisoned → deny
-                Some("Session guard lock poisoned — fail-closed deny".to_string())
+                return Some(
+                    "Session guard lock poisoned — fail-closed deny".to_string(),
+                );
             }
+        };
+
+        // Phase 2: SECURITY (FIND-R212-003): Transition expired sessions to Ended
+        // state so subsequent checks short-circuit without re-computing expiry.
+        if expired {
+            if let Ok(mut sessions) = self.sessions.write() {
+                if let Some(ctx) = sessions.get_mut(session_id) {
+                    // Double-check: another thread may have transitioned it already.
+                    if ctx.state != SessionState::Ended && ctx.state != SessionState::Locked {
+                        let old = ctx.state;
+                        let now = Self::now();
+                        ctx.state = SessionState::Ended;
+                        ctx.last_action_at = now;
+                        if ctx.transition_history.len() < MAX_TRANSITION_HISTORY {
+                            ctx.transition_history.push((old, SessionState::Ended, now));
+                        }
+                        tracing::info!(
+                            session_id = session_id,
+                            "Session expired — transitioned {} → Ended",
+                            old
+                        );
+                    }
+                }
+            }
+            // Fail-closed: even if write lock fails, still deny.
+            Some(format!(
+                "Session '{}' exceeded max duration ({} seconds)",
+                session_id, self.config.max_session_duration_secs
+            ))
+        } else {
+            None
         }
     }
 

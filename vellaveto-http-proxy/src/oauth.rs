@@ -37,6 +37,50 @@ fn contains_control_chars(s: &str) -> bool {
     vellaveto_types::has_dangerous_chars(s)
 }
 
+/// Decode unreserved percent-encoded characters per RFC 3986 §2.3.
+/// Unreserved chars: A-Z a-z 0-9 - . _ ~
+/// E.g. `%2D` → `-`, `%7E` → `~`, but `%2F` (/) stays encoded.
+fn decode_unreserved_percent(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = (
+                hex_digit(bytes[i + 1]),
+                hex_digit(bytes[i + 2]),
+            ) {
+                let ch = (hi << 4) | lo;
+                if ch.is_ascii_alphanumeric() || ch == b'-' || ch == b'.' || ch == b'_' || ch == b'~'
+                {
+                    out.push(ch as char);
+                    i += 3;
+                    continue;
+                }
+                // Reserved/other: keep as uppercase percent-encoding (§6.2.2.1)
+                out.push('%');
+                out.push((bytes[i + 1] as char).to_ascii_uppercase());
+                out.push((bytes[i + 2] as char).to_ascii_uppercase());
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
+/// Parse a single hex digit.
+fn hex_digit(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(10 + b - b'a'),
+        b'A'..=b'F' => Some(10 + b - b'A'),
+        _ => None,
+    }
+}
+
 /// DPoP enforcement mode for OAuth requests.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -454,6 +498,16 @@ impl OAuthValidator {
     ///
     /// The `http_client` is reused from the proxy's existing reqwest client.
     pub fn new(config: OAuthConfig, http_client: reqwest::Client) -> Self {
+        // SECURITY (FIND-R212-004): Warn when DPoP is active but ath (access
+        // token hash) binding is disabled.  Without ath, a stolen DPoP proof
+        // can be replayed with any access token issued to the same key.
+        if config.dpop_mode != DpopMode::Off && !config.dpop_require_ath {
+            tracing::warn!(
+                "DPoP mode is {:?} but dpop_require_ath is false — \
+                 access-token binding (RFC 9449 §4.3) is NOT enforced",
+                config.dpop_mode
+            );
+        }
         Self {
             config,
             http_client,
@@ -656,20 +710,24 @@ impl OAuthValidator {
 
         // SECURITY (FIND-R164-006): Normalize htu comparison — lowercase scheme+host
         // prevents case-based bypass (e.g. HTTP://... vs http://...).
+        // SECURITY (FIND-R212-011): Decode unreserved percent-encoded chars per
+        // RFC 3986 §2.3 so that e.g. `/foo%2Dbar` matches `/foo-bar`.
         let normalize_htu = |u: &str| -> String {
             let trimmed = u.trim_end_matches('/');
-            // Lowercase scheme + authority, preserve path case per RFC 3986 §6.2.2.1
-            if let Some(idx) = trimmed.find("://") {
-                if let Some(path_start) = trimmed[idx + 3..].find('/') {
+            // Step 1: Decode unreserved percent-encoding (RFC 3986 §2.3)
+            let decoded = decode_unreserved_percent(trimmed);
+            // Step 2: Lowercase scheme + authority, preserve path case per RFC 3986 §6.2.2.1
+            if let Some(idx) = decoded.find("://") {
+                if let Some(path_start) = decoded[idx + 3..].find('/') {
                     let authority_end = idx + 3 + path_start;
-                    let mut normalized = trimmed[..authority_end].to_ascii_lowercase();
-                    normalized.push_str(&trimmed[authority_end..]);
+                    let mut normalized = decoded[..authority_end].to_ascii_lowercase();
+                    normalized.push_str(&decoded[authority_end..]);
                     normalized
                 } else {
-                    trimmed.to_ascii_lowercase()
+                    decoded.to_ascii_lowercase()
                 }
             } else {
-                trimmed.to_string()
+                decoded
             }
         };
         if normalize_htu(&claims.htu) != normalize_htu(expected_uri) {

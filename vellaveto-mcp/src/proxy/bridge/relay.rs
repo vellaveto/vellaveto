@@ -125,6 +125,11 @@ const RELAY_CHANNEL_BUFFER: usize = 64;
 /// this limit are dropped with a warning.
 const MAX_RELAY_MESSAGE_SIZE: usize = 4 * 1024 * 1024; // 4 MB
 
+/// SECURITY (FIND-R212-012): Interval between pending-request timeout sweeps.
+/// Named constant (was hard-coded 5s) so it can be tuned for latency-sensitive
+/// deployments without code changes.
+const SWEEP_TIMEOUT_INTERVAL_SECS: u64 = 5;
+
 /// Bundled mutable I/O handles for the relay loop.
 ///
 /// Groups agent-side and child-side writers to reduce handler argument counts.
@@ -406,7 +411,7 @@ impl ProxyBridge {
         });
 
         // Timer for periodic timeout sweeps
-        let mut timeout_interval = tokio::time::interval(Duration::from_secs(5));
+        let mut timeout_interval = tokio::time::interval(Duration::from_secs(SWEEP_TIMEOUT_INTERVAL_SECS));
         timeout_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         // Main loop: read from agent, evaluate, forward or block
