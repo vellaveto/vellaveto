@@ -873,6 +873,22 @@ impl PolicyEngine {
                 } => {
                     let history = &context.previous_actions;
 
+                    // SECURITY (FIND-CREATIVE-004): Warn when history is at capacity.
+                    // If previous_actions has been truncated to MAX_PREVIOUS_ACTIONS,
+                    // earlier entries may have been evicted, meaning a forbidden prefix
+                    // could have aged out of the retained window. This is a false-negative
+                    // risk — the forbidden sequence may not be detected because the
+                    // attacker's earlier actions are no longer in history.
+                    if history.len() >= vellaveto_types::EvaluationContext::MAX_PREVIOUS_ACTIONS {
+                        tracing::warn!(
+                            policy = %cp.policy.name,
+                            history_len = history.len(),
+                            max = vellaveto_types::EvaluationContext::MAX_PREVIOUS_ACTIONS,
+                            "ForbiddenActionSequence check on truncated history — \
+                             earlier actions may have been evicted, risk of false negatives"
+                        );
+                    }
+
                     // SECURITY (FIND-R50-010): Include current_tool in the effective
                     // history for forbidden sequence matching. Without this, a two-step
                     // exfiltration like [read_secret, http_request] is only detected

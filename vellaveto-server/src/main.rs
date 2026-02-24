@@ -294,6 +294,7 @@ async fn cmd_serve(
                     .verifying_key()
                     .as_bytes(),
             );
+            tracing::warn!("SECURITY: VELLAVETO_SIGNING_KEY not set — using ephemeral signing key. Audit checkpoints cannot be verified across restarts. Set VELLAVETO_SIGNING_KEY for persistent tamper detection.");
             tracing::info!("Auto-generated Ed25519 signing key (verifying key: {})", vk);
             key
         }
@@ -354,7 +355,7 @@ async fn cmd_serve(
         if let Ok(max_size) = max_size_str.parse::<u64>() {
             audit_logger = audit_logger.with_max_file_size(max_size);
             if max_size == 0 {
-                tracing::info!("Audit log rotation disabled (VELLAVETO_LOG_MAX_SIZE=0)");
+                tracing::warn!("SECURITY: Audit log rotation disabled (VELLAVETO_LOG_MAX_SIZE=0). Disk exhaustion will prevent future audit logging.");
             } else {
                 tracing::info!("Audit log rotation threshold: {} bytes", max_size);
             }
@@ -1313,6 +1314,8 @@ async fn cmd_serve(
             "Audit checkpoint task enabled (every {}s)",
             checkpoint_interval
         );
+    } else {
+        tracing::warn!("SECURITY: Audit checkpoint interval is 0 — checkpoints disabled. Tamper evidence requires periodic checkpoints.");
     }
 
     // Spawn periodic audit heartbeat task.
@@ -1346,6 +1349,8 @@ async fn cmd_serve(
             "Audit heartbeat task enabled (every {}s)",
             heartbeat_interval
         );
+    } else {
+        tracing::warn!("SECURITY: Audit heartbeat interval is 0 — heartbeat disabled. Log gap detection requires periodic heartbeats.");
     }
 
     // Spawn periodic SOC 2 access review report generation (Phase 38).

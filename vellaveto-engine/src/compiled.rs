@@ -417,6 +417,17 @@ pub enum CompiledContextCondition {
     /// **Unordered:** if all tools present anywhere → Deny.
     ///
     /// Max 20 steps. Empty history → Allow (nothing forbidden yet).
+    ///
+    /// # Known limitation (FIND-CREATIVE-004)
+    ///
+    /// `previous_actions` is bounded at `MAX_PREVIOUS_ACTIONS` (10,000 entries).
+    /// If an attacker performs the forbidden prefix actions and then issues enough
+    /// additional tool calls to push the prefix out of the retained history window,
+    /// the forbidden sequence will no longer be detected. This is an inherent
+    /// trade-off of bounded history. When the history is at capacity, a warning
+    /// is emitted so operators can investigate or increase monitoring. Consider
+    /// pairing `ForbiddenActionSequence` with `ForbiddenPreviousAction` for
+    /// individual high-risk tools that must never appear at all.
     ForbiddenActionSequence {
         /// Tool names (lowercased at compile time).
         sequence: Vec<String>,

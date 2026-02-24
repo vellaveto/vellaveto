@@ -628,6 +628,7 @@ async fn main() -> Result<()> {
             .ok()
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false),
+        audit_strict_mode: policy_config.audit.strict_mode,
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: policy_config.elicitation.clone(),
         sampling_config: policy_config.sampling.clone(),
@@ -789,6 +790,8 @@ async fn main() -> Result<()> {
 
     if state.canonicalize {
         tracing::info!("TOCTOU canonicalization enabled — forwarding re-serialized JSON");
+    } else {
+        tracing::warn!("SECURITY: TOCTOU canonicalization DISABLED via VELLAVETO_NO_CANONICALIZE env var");
     }
 
     // Log WebSocket transport configuration

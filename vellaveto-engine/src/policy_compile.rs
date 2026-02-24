@@ -272,7 +272,7 @@ impl PolicyEngine {
             .map(|s| s == "continue")
             .unwrap_or(false);
 
-        let forbidden_parameters = conditions
+        let forbidden_parameters: Vec<String> = conditions
             .get("forbidden_parameters")
             .and_then(|v| v.as_array())
             .map(|arr| {
@@ -282,7 +282,7 @@ impl PolicyEngine {
             })
             .unwrap_or_default();
 
-        let required_parameters = conditions
+        let required_parameters: Vec<String> = conditions
             .get("required_parameters")
             .and_then(|v| v.as_array())
             .map(|arr| {
@@ -382,6 +382,32 @@ impl PolicyEngine {
                     }
                 }
             }
+        }
+
+        // SECURITY (FIND-CREATIVE-006): Warn when on_no_match="continue" is combined
+        // with ALL constraints having on_missing="skip". This combination means:
+        //   1. If the action omits the required parameters, every constraint is skipped.
+        //   2. Since on_no_match="continue", the policy returns None (skip to next).
+        //   3. An attacker who intentionally omits context parameters bypasses ALL
+        //      Conditional policies with this pattern, falling through to the default verdict.
+        // This is always exploitable — the attacker controls which parameters to send.
+        // Operators should set at least one constraint to on_missing="deny" or remove
+        // on_no_match="continue" to ensure fail-closed behavior.
+        if on_no_match_continue
+            && !constraints.is_empty()
+            && constraints.iter().all(|c| c.on_missing() == "skip")
+            && forbidden_parameters.is_empty()
+            && required_parameters.is_empty()
+        {
+            tracing::warn!(
+                policy_id = %policy.id,
+                policy_name = %policy.name,
+                constraint_count = constraints.len(),
+                "Conditional policy has on_no_match=\"continue\" with ALL constraints \
+                 using on_missing=\"skip\" — an attacker can bypass this policy entirely \
+                 by omitting the required parameters. Set at least one constraint to \
+                 on_missing=\"deny\" or remove on_no_match=\"continue\"."
+            );
         }
 
         Ok(CompiledConditions {

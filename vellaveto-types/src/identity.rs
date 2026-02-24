@@ -366,7 +366,11 @@ impl EvaluationContext {
     /// Maximum number of entries in `call_counts` before validation fails.
     const MAX_CALL_COUNTS: usize = 10_000;
     /// Maximum number of entries in `previous_actions` before validation fails.
-    const MAX_PREVIOUS_ACTIONS: usize = 10_000;
+    ///
+    /// SECURITY (FIND-CREATIVE-004): Made `pub` so that `vellaveto-engine` can emit
+    /// a warning when `ForbiddenActionSequence` checks run on a history at capacity,
+    /// since truncated history means earlier forbidden actions may have aged out.
+    pub const MAX_PREVIOUS_ACTIONS: usize = 10_000;
     /// Maximum number of entries in `call_chain` before validation fails.
     const MAX_CALL_CHAIN: usize = 100;
     /// SECURITY (FIND-R50-064): Maximum byte length per `previous_actions` entry.
