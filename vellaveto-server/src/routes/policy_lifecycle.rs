@@ -9,7 +9,7 @@
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -21,7 +21,24 @@ use vellaveto_types::{
 };
 
 use crate::policy_lifecycle::LifecycleError;
+use crate::tenant::TenantContext;
 use crate::AppState;
+
+/// SECURITY (FIND-R204-004): Policy lifecycle management is a global
+/// administrative operation. Non-default tenants must not be able to
+/// create, approve, promote, archive, or rollback policy versions that
+/// affect the shared policy engine.
+fn require_admin_tenant(
+    tenant_ctx: &TenantContext,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if !tenant_ctx.is_default() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Policy lifecycle management requires admin access"})),
+        ));
+    }
+    Ok(())
+}
 
 // ─── Request Types ───────────────────────────────────────────────────────────
 
@@ -130,12 +147,12 @@ fn validate_input_string(
 )]
 pub async fn list_versions(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin_tenant(&tenant_ctx)?;
     let store = get_store(&state)?;
-    if let Err(e) = super::validate_path_param_json(&id, "policy_id") {
-        return Err(e);
-    }
+    super::validate_path_param_json(&id, "policy_id")?;
     let versions = store.list_versions(&id).await.map_err(lifecycle_error_response)?;
     Ok(Json(json!({ "versions": versions })))
 }
@@ -150,14 +167,23 @@ pub async fn list_versions(
 )]
 pub async fn get_version(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Path((id, v)): Path<(String, u64)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin_tenant(&tenant_ctx)?;
     let store = get_store(&state)?;
-    if let Err(e) = super::validate_path_param_json(&id, "policy_id") {
-        return Err(e);
-    }
+    super::validate_path_param_json(&id, "policy_id")?;
     let version = store.get_version(&id, v).await.map_err(lifecycle_error_response)?;
-    Ok(Json(serde_json::to_value(&version).unwrap_or(json!({}))))
+    // SECURITY (FIND-R204-003): Propagate serialization errors instead of
+    // silently returning empty JSON, which would be a fail-open pattern.
+    let val = serde_json::to_value(&version).map_err(|e| {
+        tracing::error!("Failed to serialize policy version: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Internal serialization error"})),
+        )
+    })?;
+    Ok(Json(val))
 }
 
 /// POST /api/policies/{id}/versions
@@ -170,13 +196,13 @@ pub async fn get_version(
 )]
 pub async fn create_version(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Path(id): Path<String>,
     Json(body): Json<CreateVersionRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
+    require_admin_tenant(&tenant_ctx)?;
     let store = get_store(&state)?;
-    if let Err(e) = super::validate_path_param_json(&id, "policy_id") {
-        return Err(e);
-    }
+    super::validate_path_param_json(&id, "policy_id")?;
     validate_input_string("created_by", &body.created_by, MAX_LIFECYCLE_IDENTITY_LEN)?;
     if let Some(ref c) = body.comment {
         validate_input_string("comment", c, MAX_VERSION_COMMENT_LEN)?;
@@ -228,7 +254,13 @@ pub async fn create_version(
 
     Ok((
         StatusCode::CREATED,
-        Json(serde_json::to_value(&version).unwrap_or(json!({}))),
+        Json(serde_json::to_value(&version).map_err(|e| {
+            tracing::error!("Failed to serialize policy version: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Internal serialization error"})),
+            )
+        })?),
     ))
 }
 
@@ -242,13 +274,13 @@ pub async fn create_version(
 )]
 pub async fn approve_version(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Path((id, v)): Path<(String, u64)>,
     Json(body): Json<ApproveVersionRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin_tenant(&tenant_ctx)?;
     let store = get_store(&state)?;
-    if let Err(e) = super::validate_path_param_json(&id, "policy_id") {
-        return Err(e);
-    }
+    super::validate_path_param_json(&id, "policy_id")?;
     validate_input_string("approved_by", &body.approved_by, MAX_LIFECYCLE_IDENTITY_LEN)?;
     if let Some(ref c) = body.comment {
         validate_input_string("comment", c, MAX_VERSION_COMMENT_LEN)?;
@@ -284,7 +316,13 @@ pub async fn approve_version(
         crate::metrics::increment_audit_entries();
     }
 
-    Ok(Json(serde_json::to_value(&version).unwrap_or(json!({}))))
+    Ok(Json(serde_json::to_value(&version).map_err(|e| {
+            tracing::error!("Failed to serialize policy version: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Internal serialization error"})),
+            )
+        })?))
 }
 
 /// POST /api/policies/{id}/versions/{v}/promote
@@ -298,12 +336,19 @@ pub async fn approve_version(
 )]
 pub async fn promote_version(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Path((id, v)): Path<(String, u64)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin_tenant(&tenant_ctx)?;
     let store = get_store(&state)?;
-    if let Err(e) = super::validate_path_param_json(&id, "policy_id") {
-        return Err(e);
-    }
+    super::validate_path_param_json(&id, "policy_id")?;
+
+    // SECURITY (FIND-R204-004): Acquire policy_write_lock BEFORE reading version
+    // state and performing the promotion. This eliminates the TOCTOU window where
+    // the store says Active but the engine hasn't been updated, and ensures the
+    // original_status read and the promote+compile+swap are atomic with respect
+    // to other policy mutations.
+    let _guard = state.policy_write_lock.lock().await;
 
     // Read the version before promotion to know the original status
     let before = store
@@ -326,8 +371,6 @@ pub async fn promote_version(
 
     // If promoted to Active, compile and swap the live policy set
     if matches!(promoted.status, PolicyVersionStatus::Active) {
-        // Acquire the write lock to serialize with other policy mutations
-        let _guard = state.policy_write_lock.lock().await;
         let snap = state.policy_state.load();
 
         // Build candidate policy list: replace matching policy or append
@@ -360,9 +403,13 @@ pub async fn promote_version(
                     .store(Arc::new(None));
             }
             Err(errors) => {
-                // SECURITY: Revert the promotion in the store on compile failure.
-                // This prevents an inconsistency where the store says Active but
-                // the live engine doesn't have the policy.
+                // SECURITY (FIND-R204-003): Revert the promotion in the store on
+                // compile failure. This also restores any previously-active version
+                // that was archived during the promotion — promote_version archives
+                // them, and revert_promotion restores the promoted version to its
+                // original status, but the store's promote logic already archived
+                // the old active version. The engine still holds the old policy in
+                // its ArcSwap snapshot, so the live evaluation is consistent.
                 let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
                 tracing::error!(
                     "Policy lifecycle: compile failed on promote, reverting: {:?}",
@@ -447,7 +494,13 @@ pub async fn promote_version(
         crate::metrics::increment_audit_entries();
     }
 
-    Ok(Json(serde_json::to_value(&promoted).unwrap_or(json!({}))))
+    Ok(Json(serde_json::to_value(&promoted).map_err(|e| {
+            tracing::error!("Failed to serialize promoted version: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Internal serialization error"})),
+            )
+        })?))
 }
 
 /// POST /api/policies/{id}/versions/{v}/archive
@@ -460,12 +513,12 @@ pub async fn promote_version(
 )]
 pub async fn archive_version(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Path((id, v)): Path<(String, u64)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin_tenant(&tenant_ctx)?;
     let store = get_store(&state)?;
-    if let Err(e) = super::validate_path_param_json(&id, "policy_id") {
-        return Err(e);
-    }
+    super::validate_path_param_json(&id, "policy_id")?;
 
     // Check if this was a Staging version — if so, clear the staging snapshot
     let before = store
@@ -507,7 +560,13 @@ pub async fn archive_version(
         crate::metrics::increment_audit_entries();
     }
 
-    Ok(Json(serde_json::to_value(&version).unwrap_or(json!({}))))
+    Ok(Json(serde_json::to_value(&version).map_err(|e| {
+            tracing::error!("Failed to serialize policy version: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Internal serialization error"})),
+            )
+        })?))
 }
 
 /// POST /api/policies/{id}/rollback
@@ -520,13 +579,13 @@ pub async fn archive_version(
 )]
 pub async fn rollback_policy(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Path(id): Path<String>,
     Json(body): Json<RollbackRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
+    require_admin_tenant(&tenant_ctx)?;
     let store = get_store(&state)?;
-    if let Err(e) = super::validate_path_param_json(&id, "policy_id") {
-        return Err(e);
-    }
+    super::validate_path_param_json(&id, "policy_id")?;
     validate_input_string("created_by", &body.created_by, MAX_LIFECYCLE_IDENTITY_LEN)?;
 
     let version = store
@@ -562,7 +621,13 @@ pub async fn rollback_policy(
 
     Ok((
         StatusCode::CREATED,
-        Json(serde_json::to_value(&version).unwrap_or(json!({}))),
+        Json(serde_json::to_value(&version).map_err(|e| {
+            tracing::error!("Failed to serialize policy version: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Internal serialization error"})),
+            )
+        })?),
     ))
 }
 
@@ -576,17 +641,23 @@ pub async fn rollback_policy(
 )]
 pub async fn diff_versions(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Path((id, v1, v2)): Path<(String, u64, u64)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin_tenant(&tenant_ctx)?;
     let store = get_store(&state)?;
-    if let Err(e) = super::validate_path_param_json(&id, "policy_id") {
-        return Err(e);
-    }
+    super::validate_path_param_json(&id, "policy_id")?;
     let diff = store
         .diff_versions(&id, v1, v2)
         .await
         .map_err(lifecycle_error_response)?;
-    Ok(Json(serde_json::to_value(&diff).unwrap_or(json!({}))))
+    Ok(Json(serde_json::to_value(&diff).map_err(|e| {
+            tracing::error!("Failed to serialize policy diff: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Internal serialization error"})),
+            )
+        })?))
 }
 
 /// GET /api/policy-lifecycle/status
@@ -595,8 +666,16 @@ pub async fn diff_versions(
 #[tracing::instrument(name = "vellaveto.policy_lifecycle_status", skip(state))]
 pub async fn lifecycle_status(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin_tenant(&tenant_ctx)?;
     let store = get_store(&state)?;
     let status = store.status().await;
-    Ok(Json(serde_json::to_value(&status).unwrap_or(json!({}))))
+    Ok(Json(serde_json::to_value(&status).map_err(|e| {
+            tracing::error!("Failed to serialize lifecycle status: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Internal serialization error"})),
+            )
+        })?))
 }

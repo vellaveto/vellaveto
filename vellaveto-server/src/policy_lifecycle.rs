@@ -14,6 +14,13 @@ use vellaveto_types::{
     PolicyVersionDiff, PolicyVersionStatus, MAX_DIFF_CHANGES, MAX_TOTAL_VERSIONS,
 };
 
+/// Maximum number of distinct policy IDs tracked in the store.
+///
+/// SECURITY (FIND-R204-002): Without this bound, an attacker could create
+/// versions for an unlimited number of unique policy IDs, exhausting memory
+/// even within the MAX_TOTAL_VERSIONS limit (e.g. 10,000 policies × 1 version).
+const MAX_TRACKED_POLICIES: usize = 1_000;
+
 // ─── Error Type ──────────────────────────────────────────────────────────────
 
 /// Errors from policy lifecycle operations.
@@ -21,6 +28,7 @@ use vellaveto_types::{
 /// All error variants produce fail-closed behavior: on any error, the
 /// operation is rejected and no state mutation occurs.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum LifecycleError {
     #[error("Policy not found: {0}")]
     PolicyNotFound(String),
@@ -200,7 +208,7 @@ impl InMemoryPolicyVersionStore {
         let mut year = 1970u64;
         let mut remaining_days = days;
         loop {
-            let days_in_year = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
+            let days_in_year = if year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)) {
                 366
             } else {
                 365
@@ -211,7 +219,7 @@ impl InMemoryPolicyVersionStore {
             remaining_days -= days_in_year;
             year += 1;
         }
-        let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+        let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
         let month_days: [u64; 12] = if leap {
             [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
         } else {
@@ -278,6 +286,15 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
             return Err(LifecycleError::CapacityExceeded(format!(
                 "Total version limit ({}) reached",
                 MAX_TOTAL_VERSIONS
+            )));
+        }
+
+        // SECURITY (FIND-R204-002): Bound distinct policy IDs to prevent
+        // memory exhaustion via many unique policy IDs with few versions each.
+        if !map.contains_key(policy_id) && map.len() >= MAX_TRACKED_POLICIES {
+            return Err(LifecycleError::CapacityExceeded(format!(
+                "Tracked policy limit ({}) reached",
+                MAX_TRACKED_POLICIES
             )));
         }
 
@@ -529,6 +546,19 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
         version: u64,
         original_status: PolicyVersionStatus,
     ) -> Result<(), LifecycleError> {
+        // SECURITY (FIND-R204-001): Only Draft and Staging are valid revert
+        // targets. Allowing Active or Archived would let callers bypass the
+        // approval workflow entirely by reverting directly to Active.
+        match original_status {
+            PolicyVersionStatus::Draft | PolicyVersionStatus::Staging => {}
+            _ => {
+                return Err(LifecycleError::InvalidTransition(format!(
+                    "Cannot revert to {} status — only Draft or Staging are valid revert targets",
+                    original_status
+                )));
+            }
+        }
+
         let mut map = self.versions.write().await;
         let versions = map
             .get_mut(policy_id)
@@ -714,7 +744,10 @@ fn diff_policies(before: &Policy, after: &Policy) -> Vec<String> {
     if before.name != after.name {
         changes.push(format!("name: '{}' -> '{}'", before.name, after.name));
     }
-    if format!("{:?}", before.policy_type) != format!("{:?}", after.policy_type) {
+    // SECURITY (IMP-R204-020): Use direct PartialEq comparison instead of
+    // Debug-format string comparison. Debug formatting allocates two strings
+    // per comparison and is fragile if the Debug representation changes.
+    if before.policy_type != after.policy_type {
         changes.push(format!(
             "type: {:?} -> {:?}",
             before.policy_type, after.policy_type
@@ -1092,5 +1125,136 @@ mod tests {
             .unwrap();
         let pv = store.get_version("pol-1", 1).await.unwrap();
         assert!(matches!(pv.status, PolicyVersionStatus::Draft));
+    }
+
+    // ── Adversarial tests (FIND-R204-*) ───────────────────────────────────
+
+    /// SECURITY (FIND-R204-001): Reverting to Active status would bypass the
+    /// approval workflow entirely. Only Draft and Staging are valid targets.
+    #[tokio::test]
+    async fn test_revert_promotion_to_active_rejected() {
+        let store = InMemoryPolicyVersionStore::new(test_config());
+        store
+            .create_version("pol-1", test_policy("pol-1"), "alice", None)
+            .await
+            .unwrap();
+        store
+            .approve_version("pol-1", 1, "bob", None)
+            .await
+            .unwrap();
+        store.promote_version("pol-1", 1).await.unwrap(); // → staging
+
+        // Attempt to revert to Active — must fail
+        let result = store
+            .revert_promotion("pol-1", 1, PolicyVersionStatus::Active)
+            .await;
+        assert!(
+            matches!(result, Err(LifecycleError::InvalidTransition(ref msg)) if msg.contains("valid revert targets")),
+            "expected InvalidTransition, got: {:?}",
+            result
+        );
+    }
+
+    /// SECURITY (FIND-R204-001): Reverting to Archived is also invalid.
+    #[tokio::test]
+    async fn test_revert_promotion_to_archived_rejected() {
+        let store = InMemoryPolicyVersionStore::new(test_config());
+        store
+            .create_version("pol-1", test_policy("pol-1"), "alice", None)
+            .await
+            .unwrap();
+        store
+            .approve_version("pol-1", 1, "bob", None)
+            .await
+            .unwrap();
+        store.promote_version("pol-1", 1).await.unwrap(); // → staging
+
+        let result = store
+            .revert_promotion("pol-1", 1, PolicyVersionStatus::Archived)
+            .await;
+        assert!(matches!(result, Err(LifecycleError::InvalidTransition(_))));
+    }
+
+    /// SECURITY (FIND-R204-002): Creating versions for too many distinct
+    /// policy IDs must be rejected to prevent HashMap memory exhaustion.
+    #[tokio::test]
+    async fn test_tracked_policy_limit_enforced() {
+        let mut config = test_config();
+        config.max_versions_per_policy = 50;
+        let store = InMemoryPolicyVersionStore::new(config);
+
+        // Create versions for MAX_TRACKED_POLICIES distinct policies
+        for i in 0..super::MAX_TRACKED_POLICIES {
+            let pid = format!("pol-{}", i);
+            store
+                .create_version(&pid, test_policy(&pid), "alice", None)
+                .await
+                .unwrap();
+        }
+
+        // One more should fail
+        let result = store
+            .create_version("pol-overflow", test_policy("pol-overflow"), "alice", None)
+            .await;
+        assert!(
+            matches!(result, Err(LifecycleError::CapacityExceeded(ref msg)) if msg.contains("Tracked policy limit")),
+            "expected CapacityExceeded, got: {:?}",
+            result
+        );
+    }
+
+    /// SECURITY: Verify that promoting from Archived is rejected (can't skip
+    /// back to Draft→Staging→Active via promote).
+    #[tokio::test]
+    async fn test_promote_archived_rejected() {
+        let mut config = test_config();
+        config.required_approvals = 0; // skip approval requirement
+        let store = InMemoryPolicyVersionStore::new(config);
+        store
+            .create_version("pol-1", test_policy("pol-1"), "alice", None)
+            .await
+            .unwrap();
+        // Archive the draft
+        store.archive_version("pol-1", 1).await.unwrap();
+        // Try to promote the archived version
+        let result = store.promote_version("pol-1", 1).await;
+        assert!(
+            matches!(result, Err(LifecycleError::InvalidTransition(ref msg)) if msg.contains("rollback")),
+            "expected InvalidTransition about rollback, got: {:?}",
+            result
+        );
+    }
+
+    /// SECURITY: Verify double-staging is rejected (only one staging version
+    /// per policy at a time).
+    #[tokio::test]
+    async fn test_only_one_staging_per_policy() {
+        let store = InMemoryPolicyVersionStore::new(test_config());
+        // Create and promote v1 to staging
+        store
+            .create_version("pol-1", test_policy("pol-1"), "alice", None)
+            .await
+            .unwrap();
+        store
+            .approve_version("pol-1", 1, "bob", None)
+            .await
+            .unwrap();
+        store.promote_version("pol-1", 1).await.unwrap(); // → staging
+
+        // Create v2 and try to also stage it
+        store
+            .create_version("pol-1", test_policy("pol-1"), "alice", None)
+            .await
+            .unwrap();
+        store
+            .approve_version("pol-1", 2, "bob", None)
+            .await
+            .unwrap();
+        let result = store.promote_version("pol-1", 2).await;
+        assert!(
+            matches!(result, Err(LifecycleError::InvalidTransition(ref msg)) if msg.contains("already in staging")),
+            "expected InvalidTransition about staging, got: {:?}",
+            result
+        );
     }
 }
