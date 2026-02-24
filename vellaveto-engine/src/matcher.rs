@@ -3,6 +3,7 @@
 //! This module provides pre-compiled pattern matchers for tool/function ID
 //! segments, used to efficiently match policies against actions at evaluation time.
 
+use vellaveto_types::unicode::normalize_homoglyphs;
 use vellaveto_types::Action;
 
 /// Pre-compiled pattern matcher for tool/function ID segments.
@@ -12,15 +13,20 @@ use vellaveto_types::Action;
 /// casing of tool names. The main engine's context checks (agent identity, action
 /// sequences) use `eq_ignore_ascii_case()` where case-insensitive matching is the
 /// security-correct behavior. (FIND-R58-ENG-006)
+///
+/// SECURITY (FIND-SEM-003): Pattern strings are normalized through
+/// `normalize_homoglyphs()` at compile time to prevent fullwidth Unicode
+/// characters from bypassing exact-match Deny policies. The evaluation
+/// path must also normalize action tool/function names before matching.
 #[derive(Debug, Clone)]
 pub enum PatternMatcher {
     /// Matches anything ("*")
     Any,
-    /// Exact string match
+    /// Exact string match (pattern is homoglyph-normalized at compile time)
     Exact(String),
-    /// Prefix match ("prefix*")
+    /// Prefix match ("prefix*") (prefix is homoglyph-normalized at compile time)
     Prefix(String),
-    /// Suffix match ("*suffix")
+    /// Suffix match ("*suffix") (suffix is homoglyph-normalized at compile time)
     Suffix(String),
 }
 
@@ -41,7 +47,8 @@ impl PatternMatcher {
                 );
                 PatternMatcher::Any
             } else {
-                PatternMatcher::Suffix(suffix.to_string())
+                // SECURITY (FIND-SEM-003): Normalize homoglyphs at compile time
+                PatternMatcher::Suffix(normalize_homoglyphs(suffix))
             }
         } else if let Some(prefix) = pattern.strip_suffix('*') {
             if prefix.contains('*') {
@@ -51,7 +58,8 @@ impl PatternMatcher {
                 );
                 PatternMatcher::Any
             } else {
-                PatternMatcher::Prefix(prefix.to_string())
+                // SECURITY (FIND-SEM-003): Normalize homoglyphs at compile time
+                PatternMatcher::Prefix(normalize_homoglyphs(prefix))
             }
         } else if pattern.contains('*') {
             // Infix wildcard like "file_*_system" — not supported
@@ -61,7 +69,8 @@ impl PatternMatcher {
             );
             PatternMatcher::Any
         } else {
-            PatternMatcher::Exact(pattern.to_string())
+            // SECURITY (FIND-SEM-003): Normalize homoglyphs at compile time
+            PatternMatcher::Exact(normalize_homoglyphs(pattern))
         }
     }
 
@@ -72,6 +81,15 @@ impl PatternMatcher {
             PatternMatcher::Prefix(p) => value.starts_with(p.as_str()),
             PatternMatcher::Suffix(s) => value.ends_with(s.as_str()),
         }
+    }
+
+    /// Match against a pre-normalized value.
+    ///
+    /// SECURITY (FIND-SEM-003): Since patterns are normalized at compile time,
+    /// callers must pass homoglyph-normalized input for consistent matching.
+    /// This method is identical to `matches()` but makes the contract explicit.
+    pub(crate) fn matches_normalized(&self, normalized_value: &str) -> bool {
+        self.matches(normalized_value)
     }
 }
 
@@ -110,6 +128,25 @@ impl CompiledToolMatcher {
             CompiledToolMatcher::ToolOnly(m) => m.matches(&action.tool),
             CompiledToolMatcher::ToolAndFunction(t, f) => {
                 t.matches(&action.tool) && f.matches(&action.function)
+            }
+        }
+    }
+
+    /// Match against pre-normalized tool and function names.
+    ///
+    /// SECURITY (FIND-SEM-003): Callers must pass homoglyph-normalized tool
+    /// and function names to ensure fullwidth Unicode characters cannot bypass
+    /// exact-match Deny policies.
+    pub(crate) fn matches_normalized(
+        &self,
+        normalized_tool: &str,
+        normalized_function: &str,
+    ) -> bool {
+        match self {
+            CompiledToolMatcher::Universal => true,
+            CompiledToolMatcher::ToolOnly(m) => m.matches_normalized(normalized_tool),
+            CompiledToolMatcher::ToolAndFunction(t, f) => {
+                t.matches_normalized(normalized_tool) && f.matches_normalized(normalized_function)
             }
         }
     }
@@ -209,5 +246,57 @@ mod tests {
         let matcher = CompiledToolMatcher::compile("filesystem:read:sensitive");
         assert!(matcher.matches(&make_action("filesystem", "read")));
         assert!(!matcher.matches(&make_action("filesystem", "read:sensitive")));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // FIND-SEM-003: Homoglyph normalization tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_pattern_exact_normalizes_homoglyphs_at_compile() {
+        // Fullwidth "ｒｅａｄ" is normalized to "read" at compile time
+        let matcher = PatternMatcher::compile("\u{FF52}\u{FF45}\u{FF41}\u{FF44}");
+        assert!(matcher.matches("read"));
+        assert!(!matcher.matches("\u{FF52}\u{FF45}\u{FF41}\u{FF44}"));
+    }
+
+    #[test]
+    fn test_pattern_prefix_normalizes_homoglyphs() {
+        // Fullwidth prefix "ｒｅａｄ＿*" → normalized to "read_*"
+        let matcher = PatternMatcher::compile("\u{FF52}\u{FF45}\u{FF41}\u{FF44}\u{FF3F}*");
+        assert!(matches!(matcher, PatternMatcher::Prefix(_)));
+        assert!(matcher.matches("read_file"));
+        assert!(matcher.matches("read_dir"));
+    }
+
+    #[test]
+    fn test_pattern_suffix_normalizes_homoglyphs() {
+        // "*＿ｆｉｌｅ" suffix → normalized to "*_file"
+        let matcher = PatternMatcher::compile("*\u{FF3F}\u{FF46}\u{FF49}\u{FF4C}\u{FF45}");
+        assert!(matches!(matcher, PatternMatcher::Suffix(_)));
+        assert!(matcher.matches("read_file"));
+        assert!(matcher.matches("write_file"));
+    }
+
+    #[test]
+    fn test_compiled_tool_matcher_normalized_method() {
+        let matcher = CompiledToolMatcher::compile("read_file");
+        // Normal ASCII match via matches_normalized
+        assert!(matcher.matches_normalized("read_file", "any"));
+        // Fullwidth input pre-normalized by caller
+        let norm = vellaveto_types::unicode::normalize_homoglyphs(
+            "\u{FF52}\u{FF45}\u{FF41}\u{FF44}\u{FF3F}\u{FF46}\u{FF49}\u{FF4C}\u{FF45}",
+        );
+        assert_eq!(norm, "read_file");
+        assert!(matcher.matches_normalized(&norm, "any"));
+    }
+
+    #[test]
+    fn test_cyrillic_homoglyph_tool_name_normalized() {
+        // Policy blocks "admin" — Cyrillic "аdmin" (U+0430 Cyrillic а) should also match
+        let matcher = PatternMatcher::compile("admin");
+        let norm = vellaveto_types::unicode::normalize_homoglyphs("\u{0430}dmin");
+        assert_eq!(norm, "admin");
+        assert!(matcher.matches_normalized(&norm));
     }
 }

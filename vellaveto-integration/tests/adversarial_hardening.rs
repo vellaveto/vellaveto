@@ -139,8 +139,11 @@ fn ip_address_format_domain_bypass() {
 // ADVERSARIAL 3: Unicode lookalike policy IDs
 // ═══════════════════════════════════════════════════
 
-/// Cyrillic 'а' (U+0430) vs ASCII 'a' (U+0061) in policy IDs must not cause
-/// confusion. Policies with visually similar but different IDs should not match.
+/// Cyrillic 'а' (U+0430) vs ASCII 'a' (U+0061) — after FIND-SEM-003,
+/// the engine normalizes homoglyphs before policy matching. This means
+/// Cyrillic lookalikes DO match their ASCII equivalents, which is the
+/// more secure behavior: an attacker cannot use homoglyph characters
+/// to bypass Deny policies targeting ASCII tool names.
 #[test]
 fn policy_id_unicode_lookalike() {
     // Policy uses ASCII "admin:*"
@@ -160,10 +163,12 @@ fn policy_id_unicode_lookalike() {
     let action = Action::new(cyrillic_admin, "execute", json!({}));
 
     let result = engine.evaluate_action(&action, &[]);
-    // The Cyrillic tool name must NOT match the ASCII policy
+    // SECURITY (FIND-SEM-003): After homoglyph normalization, the Cyrillic
+    // lookalike IS matched by the ASCII policy. This is correct — it prevents
+    // an attacker from using Cyrillic 'а' to bypass a Deny policy for 'admin'.
     assert!(
-        matches!(result, Ok(Verdict::Deny { .. })),
-        "Cyrillic lookalike '{}' must not match ASCII 'admin'. Got: {:?}",
+        matches!(result, Ok(Verdict::Allow)),
+        "Cyrillic lookalike '{}' should match ASCII 'admin' after homoglyph normalization. Got: {:?}",
         cyrillic_admin,
         result
     );

@@ -13787,3 +13787,143 @@ fn test_on_no_match_continue_mixed_on_missing_no_bypass() {
         "on_missing=deny should prevent bypass: {v:?}"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FIND-SEM-003: Fullwidth Unicode homoglyph bypass prevention
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_sem003_fullwidth_tool_name_matches_deny_policy() {
+    // A Deny policy for "read_file" must also catch the fullwidth variant
+    // "ｒｅａｄ＿ｆｉｌｅ" (U+FF52 U+FF45 U+FF41 U+FF44 U+FF3F U+FF46 U+FF49 U+FF4C U+FF45)
+    let deny_policy = Policy {
+        id: "read_file".to_string(),
+        name: "Block read_file".to_string(),
+        policy_type: PolicyType::Deny,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    };
+    let allow_all = Policy {
+        id: "*".to_string(),
+        name: "Allow all".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 1,
+        path_rules: None,
+        network_rules: None,
+    };
+
+    let engine = PolicyEngine::with_policies(false, &[deny_policy, allow_all]).unwrap();
+
+    // Normal ASCII — should be denied
+    let action_ascii = Action::new("read_file", "exec", json!({}));
+    let v = engine.evaluate_action(&action_ascii, &[]).unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "ASCII read_file should be denied: {v:?}"
+    );
+
+    // Fullwidth Unicode — should ALSO be denied (FIND-SEM-003 fix)
+    let action_fullwidth = Action::new(
+        "\u{FF52}\u{FF45}\u{FF41}\u{FF44}\u{FF3F}\u{FF46}\u{FF49}\u{FF4C}\u{FF45}",
+        "exec",
+        json!({}),
+    );
+    let v = engine.evaluate_action(&action_fullwidth, &[]).unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Fullwidth read_file should be denied (homoglyph normalization): {v:?}"
+    );
+}
+
+#[test]
+fn test_sem003_cyrillic_tool_name_matches_deny_policy() {
+    // A Deny policy for "admin" must catch Cyrillic "а" (U+0430) replacing Latin "a"
+    let deny_policy = Policy {
+        id: "admin".to_string(),
+        name: "Block admin".to_string(),
+        policy_type: PolicyType::Deny,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    };
+    let allow_all = Policy {
+        id: "*".to_string(),
+        name: "Allow all".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 1,
+        path_rules: None,
+        network_rules: None,
+    };
+
+    let engine = PolicyEngine::with_policies(false, &[deny_policy, allow_all]).unwrap();
+
+    // Cyrillic "а" + Latin "dmin" — should be denied
+    let action_cyrillic = Action::new("\u{0430}dmin", "exec", json!({}));
+    let v = engine.evaluate_action(&action_cyrillic, &[]).unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Cyrillic аdmin should be denied (homoglyph normalization): {v:?}"
+    );
+}
+
+#[test]
+fn test_sem003_fullwidth_tool_name_matches_allow_policy() {
+    // An Allow policy for "read_file" must also match the fullwidth variant
+    let allow_policy = Policy {
+        id: "read_file".to_string(),
+        name: "Allow read_file".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    };
+
+    let engine = PolicyEngine::with_policies(false, &[allow_policy]).unwrap();
+
+    let action_fullwidth = Action::new(
+        "\u{FF52}\u{FF45}\u{FF41}\u{FF44}\u{FF3F}\u{FF46}\u{FF49}\u{FF4C}\u{FF45}",
+        "exec",
+        json!({}),
+    );
+    let v = engine.evaluate_action(&action_fullwidth, &[]).unwrap();
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Fullwidth read_file should match Allow policy: {v:?}"
+    );
+}
+
+#[test]
+fn test_sem003_prefix_policy_catches_fullwidth_prefix() {
+    // A Deny policy "read_*" must catch fullwidth "ｒｅａｄ_anything"
+    let deny_policy = Policy {
+        id: "read_*".to_string(),
+        name: "Block read_ prefix".to_string(),
+        policy_type: PolicyType::Deny,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    };
+    let allow_all = Policy {
+        id: "*".to_string(),
+        name: "Allow all".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 1,
+        path_rules: None,
+        network_rules: None,
+    };
+
+    let engine = PolicyEngine::with_policies(false, &[deny_policy, allow_all]).unwrap();
+
+    // Fullwidth "ｒｅａｄ" + ASCII "_secret" → normalized to "read_secret" → matches "read_*"
+    let action = Action::new(
+        "\u{FF52}\u{FF45}\u{FF41}\u{FF44}_secret",
+        "exec",
+        json!({}),
+    );
+    let v = engine.evaluate_action(&action, &[]).unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Fullwidth prefix should match Deny read_* policy: {v:?}"
+    );
+}

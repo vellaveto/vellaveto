@@ -403,7 +403,12 @@ impl NlPolicyCompiler {
     /// Finds all policies that match the given tool and function.
     ///
     /// Returns matches sorted by priority (highest first).
+    /// Capped at `MAX_POLICY_MATCHES` to prevent unbounded memory growth.
     pub fn match_policies(&self, tool: &str, function: &str) -> Vec<NlPolicyMatch> {
+        // SECURITY (FIND-R205-007): Cap matches to prevent unbounded memory
+        // growth (10,000 policies * 64KB statement = 640MB worst case).
+        const MAX_POLICY_MATCHES: usize = 100;
+
         let mut matches: Vec<NlPolicyMatch> = Vec::new();
 
         for (id, compiled_patterns) in &self.patterns {
@@ -423,6 +428,14 @@ impl NlPolicyCompiler {
                         });
                         break; // One match per policy is enough
                     }
+                }
+
+                if matches.len() >= MAX_POLICY_MATCHES {
+                    tracing::warn!(
+                        "NlPolicyCompiler match_policies capped at {}",
+                        MAX_POLICY_MATCHES
+                    );
+                    break;
                 }
             }
         }

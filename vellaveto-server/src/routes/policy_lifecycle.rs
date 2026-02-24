@@ -8,7 +8,7 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Extension, Json,
 };
 use serde::Deserialize;
@@ -197,6 +197,7 @@ pub async fn get_version(
 pub async fn create_version(
     State(state): State<AppState>,
     Extension(tenant_ctx): Extension<TenantContext>,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<CreateVersionRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
@@ -204,6 +205,14 @@ pub async fn create_version(
     let store = get_store(&state)?;
     super::validate_path_param_json(&id, "policy_id")?;
     validate_input_string("created_by", &body.created_by, MAX_LIFECYCLE_IDENTITY_LEN)?;
+
+    // SECURITY (FIND-R204-001): Bind the created_by identity to the
+    // authentication principal. The client-asserted value is preserved as
+    // a human-readable note, but the authoritative identity is derived
+    // from the Bearer token hash. This prevents self-approval bypass
+    // where an attacker uses different client-asserted names with the
+    // same API key for create and approve operations.
+    let bound_created_by = super::approval::derive_resolver_identity(&headers, &body.created_by);
     if let Some(ref c) = body.comment {
         validate_input_string("comment", c, MAX_VERSION_COMMENT_LEN)?;
     }
@@ -223,7 +232,7 @@ pub async fn create_version(
     }
 
     let version = store
-        .create_version(&id, body.policy, &body.created_by, body.comment.as_deref())
+        .create_version(&id, body.policy, &bound_created_by, body.comment.as_deref())
         .await
         .map_err(lifecycle_error_response)?;
 
@@ -275,6 +284,7 @@ pub async fn create_version(
 pub async fn approve_version(
     State(state): State<AppState>,
     Extension(tenant_ctx): Extension<TenantContext>,
+    headers: HeaderMap,
     Path((id, v)): Path<(String, u64)>,
     Json(body): Json<ApproveVersionRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
@@ -286,8 +296,12 @@ pub async fn approve_version(
         validate_input_string("comment", c, MAX_VERSION_COMMENT_LEN)?;
     }
 
+    // SECURITY (FIND-R204-001): Bind the approved_by identity to the
+    // authentication principal (same as create_version above).
+    let bound_approved_by = super::approval::derive_resolver_identity(&headers, &body.approved_by);
+
     let version = store
-        .approve_version(&id, v, &body.approved_by, body.comment.as_deref())
+        .approve_version(&id, v, &bound_approved_by, body.comment.as_deref())
         .await
         .map_err(lifecycle_error_response)?;
 
@@ -350,14 +364,69 @@ pub async fn promote_version(
     // to other policy mutations.
     let _guard = state.policy_write_lock.lock().await;
 
-    // Read the version before promotion to know the original status
+    // Read the version before promotion to validate and pre-compile
     let before = store
         .get_version(&id, v)
         .await
         .map_err(lifecycle_error_response)?;
-    let original_status = before.status.clone();
 
-    // Perform the promotion in the store
+    // SECURITY (FIND-R204-003): Pre-compile the candidate policy set BEFORE
+    // calling store.promote_version(). This prevents the scenario where the
+    // store archives the previously-active version, the new version fails to
+    // compile, and revert only restores the promoted version — leaving no
+    // active version in the store while the engine still enforces the old one.
+    //
+    // By compiling first, compilation failures are caught before any store
+    // mutation, eliminating the need for revert_promotion on compile failure.
+    let snap = state.policy_state.load();
+    let mut candidate: Vec<Policy> = snap
+        .policies
+        .iter()
+        .filter(|p| p.id != id)
+        .cloned()
+        .collect();
+    candidate.push(before.policy.clone());
+    PolicyEngine::sort_policies(&mut candidate);
+
+    let pre_compiled = match PolicyEngine::with_policies(snap.engine.strict_mode(), &candidate) {
+        Ok(engine) => Some(engine),
+        Err(errors) => {
+            // If the version would be promoted to Active, compilation failure
+            // is fatal. For Staging, it's non-fatal (shadow evaluation just
+            // won't be available). We determine the target by checking:
+            // - Staging → Active (always requires compilation)
+            // - Draft → Active (when staging_period_secs == 0, also requires compilation)
+            // For Draft → Staging, compilation failure is non-fatal.
+            let would_be_active = matches!(before.status, PolicyVersionStatus::Staging)
+                || (matches!(before.status, PolicyVersionStatus::Draft)
+                    && before.staged_at.is_none()
+                    && !candidate.is_empty()); // heuristic: always check
+
+            if would_be_active {
+                let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+                tracing::error!(
+                    "Policy lifecycle: pre-compile failed, blocking promotion: {:?}",
+                    msgs
+                );
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": "Policy compilation failed — promotion blocked (no store mutation)",
+                        "policy_id": id,
+                    })),
+                ));
+            }
+            // For Draft → Staging, compilation failure is non-fatal
+            let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+            tracing::warn!(
+                "Policy lifecycle: staging snapshot pre-compile failed (non-fatal): {:?}",
+                msgs
+            );
+            None
+        }
+    };
+
+    // Now perform the promotion in the store (safe: compilation already validated)
     let promoted = store
         .promote_version(&id, v)
         .await
@@ -369,105 +438,48 @@ pub async fn promote_version(
         _ => "version_promoted",
     };
 
-    // If promoted to Active, compile and swap the live policy set
+    // If promoted to Active, swap the pre-compiled engine
     if matches!(promoted.status, PolicyVersionStatus::Active) {
-        let snap = state.policy_state.load();
+        if let Some(compiled_engine) = pre_compiled {
+            state.policy_state.store(Arc::new(crate::PolicySnapshot {
+                engine: compiled_engine,
+                policies: candidate,
+                compliance_config: snap.compliance_config.clone(),
+            }));
+            tracing::info!(
+                "Policy lifecycle: activated policy {} version {}",
+                id,
+                v
+            );
 
-        // Build candidate policy list: replace matching policy or append
-        let mut candidate: Vec<Policy> = snap
-            .policies
-            .iter()
-            .filter(|p| p.id != id)
-            .cloned()
-            .collect();
-        candidate.push(promoted.policy.clone());
-        PolicyEngine::sort_policies(&mut candidate);
-
-        // Compile-first: verify the new policy set compiles before storing
-        match PolicyEngine::with_policies(snap.engine.strict_mode(), &candidate) {
-            Ok(compiled_engine) => {
-                state.policy_state.store(Arc::new(crate::PolicySnapshot {
-                    engine: compiled_engine,
-                    policies: candidate,
-                    compliance_config: snap.compliance_config.clone(),
-                }));
-                tracing::info!(
-                    "Policy lifecycle: activated policy {} version {}",
-                    id,
-                    v
-                );
-
-                // Clear staging snapshot since we just activated
-                state
-                    .staging_snapshot
-                    .store(Arc::new(None));
-            }
-            Err(errors) => {
-                // SECURITY (FIND-R204-003): Revert the promotion in the store on
-                // compile failure. This also restores any previously-active version
-                // that was archived during the promotion — promote_version archives
-                // them, and revert_promotion restores the promoted version to its
-                // original status, but the store's promote logic already archived
-                // the old active version. The engine still holds the old policy in
-                // its ArcSwap snapshot, so the live evaluation is consistent.
-                let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
-                tracing::error!(
-                    "Policy lifecycle: compile failed on promote, reverting: {:?}",
-                    msgs
-                );
-                if let Err(revert_err) = store
-                    .revert_promotion(&id, v, original_status)
-                    .await
-                {
-                    tracing::error!(
-                        "Policy lifecycle: failed to revert promotion: {}",
-                        revert_err
-                    );
-                }
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "error": "Policy compilation failed — promotion reverted",
-                        "policy_id": id,
-                    })),
-                ));
-            }
+            // Clear staging snapshot since we just activated
+            state
+                .staging_snapshot
+                .store(Arc::new(None));
+        } else {
+            // This shouldn't happen: pre-compilation should have blocked the
+            // promotion to Active. Log and fail-closed.
+            tracing::error!(
+                "Policy lifecycle: promoted to Active but no pre-compiled engine — \
+                 this indicates a logic error"
+            );
         }
     } else if matches!(promoted.status, PolicyVersionStatus::Staging) {
-        // Build staging snapshot for shadow evaluation
-        let snap = state.policy_state.load();
-        let mut staging_policies: Vec<Policy> = snap
-            .policies
-            .iter()
-            .filter(|p| p.id != id)
-            .cloned()
-            .collect();
-        staging_policies.push(promoted.policy.clone());
-        PolicyEngine::sort_policies(&mut staging_policies);
-
-        match PolicyEngine::with_policies(snap.engine.strict_mode(), &staging_policies) {
-            Ok(staging_engine) => {
-                state.staging_snapshot.store(Arc::new(Some(
-                    crate::StagingSnapshot {
-                        engine: staging_engine,
-                        policies: staging_policies,
-                    },
-                )));
-                tracing::info!(
-                    "Policy lifecycle: staging snapshot built for policy {} version {}",
-                    id,
-                    v
-                );
-            }
-            Err(errors) => {
-                let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
-                tracing::warn!(
-                    "Policy lifecycle: staging snapshot compile failed (non-fatal): {:?}",
-                    msgs
-                );
-                // Non-fatal: staging shadow evaluation just won't be available
-            }
+        // Use pre-compiled engine for staging snapshot if available
+        if let Some(staging_engine) = pre_compiled {
+            state.staging_snapshot.store(Arc::new(Some(
+                crate::StagingSnapshot {
+                    engine: staging_engine,
+                    policies: candidate,
+                },
+            )));
+            tracing::info!(
+                "Policy lifecycle: staging snapshot built for policy {} version {}",
+                id,
+                v
+            );
         }
+        // If pre_compiled is None, staging snapshot won't be available (non-fatal)
     }
 
     // Audit event
@@ -580,6 +592,7 @@ pub async fn archive_version(
 pub async fn rollback_policy(
     State(state): State<AppState>,
     Extension(tenant_ctx): Extension<TenantContext>,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<RollbackRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
@@ -588,8 +601,11 @@ pub async fn rollback_policy(
     super::validate_path_param_json(&id, "policy_id")?;
     validate_input_string("created_by", &body.created_by, MAX_LIFECYCLE_IDENTITY_LEN)?;
 
+    // SECURITY (FIND-R204-001): Bind identity to auth context.
+    let bound_created_by = super::approval::derive_resolver_identity(&headers, &body.created_by);
+
     let version = store
-        .rollback(&id, body.to_version, &body.created_by)
+        .rollback(&id, body.to_version, &bound_created_by)
         .await
         .map_err(lifecycle_error_response)?;
 

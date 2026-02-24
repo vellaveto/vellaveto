@@ -158,6 +158,25 @@ pub struct InMemoryPolicyVersionStore {
 impl InMemoryPolicyVersionStore {
     /// Create a new in-memory store.
     pub fn new(config: PolicyLifecycleConfig) -> Self {
+        // SECURITY (FIND-R204-006): Warn when auto_approve_roles is configured
+        // but has no effect. This field is validated in config but never checked
+        // during approval or promotion. Operators who set it would expect role-
+        // based auto-approval to work, but it silently does nothing.
+        if !config.auto_approve_roles.is_empty() {
+            tracing::warn!(
+                "policy_lifecycle: auto_approve_roles is configured ({} roles) but not \
+                 enforced — role-based auto-approval is not yet implemented",
+                config.auto_approve_roles.len()
+            );
+        }
+        // FIND-R204-006: Warn when notification_webhook_url is set but unused.
+        if config.notification_webhook_url.is_some() {
+            tracing::warn!(
+                "policy_lifecycle: notification_webhook_url is configured but not \
+                 implemented — no webhook notifications will be sent"
+            );
+        }
+
         Self {
             versions: RwLock::new(HashMap::new()),
             config,
@@ -374,11 +393,28 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
         }
 
         // SECURITY: Self-approval prevention.
-        // Normalize with NFKC + case-fold for robust comparison.
+        // Normalize with NFKC + Unicode case fold + homoglyph normalization
+        // for robust comparison — parity with vellaveto-approval store
+        // (FIND-R205-001).
         use unicode_normalization::UnicodeNormalization;
-        let normalized_approver: String = approved_by.nfkc().collect::<String>().to_lowercase();
-        let normalized_creator: String =
-            pv.created_by.as_str().nfkc().collect::<String>().to_lowercase();
+        use vellaveto_types::unicode::normalize_homoglyphs;
+        let normalized_approver: String = normalize_homoglyphs(
+            &approved_by
+                .nfkc()
+                .collect::<String>()
+                .chars()
+                .flat_map(char::to_lowercase)
+                .collect::<String>(),
+        );
+        let normalized_creator: String = normalize_homoglyphs(
+            &pv.created_by
+                .as_str()
+                .nfkc()
+                .collect::<String>()
+                .chars()
+                .flat_map(char::to_lowercase)
+                .collect::<String>(),
+        );
         if normalized_approver == normalized_creator {
             return Err(LifecycleError::Validation(
                 "Self-approval is not allowed".to_string(),
@@ -386,13 +422,18 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
         }
 
         // Prevent duplicate approvals by the same approver
+        // SECURITY (FIND-R205-001): Apply full normalization pipeline
+        // (NFKC + Unicode case fold + homoglyph) for duplicate detection parity.
         if pv.approvals.iter().any(|a| {
-            a.approved_by
-                .as_str()
-                .nfkc()
-                .collect::<String>()
-                .to_lowercase()
-                == normalized_approver
+            normalize_homoglyphs(
+                &a.approved_by
+                    .as_str()
+                    .nfkc()
+                    .collect::<String>()
+                    .chars()
+                    .flat_map(char::to_lowercase)
+                    .collect::<String>(),
+            ) == normalized_approver
         }) {
             return Err(LifecycleError::Validation(
                 "Already approved by this approver".to_string(),
@@ -479,11 +520,20 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
                 // when policies can be promoted immediately.
                 if self.config.staging_period_secs > 0 {
                     if let Some(ref staged_at) = versions[idx].staged_at {
-                        let staged_secs = vellaveto_types::time_util::parse_iso8601_secs(staged_at)
-                            .unwrap_or(i64::MAX); // fail-closed: unparseable = never staged
-                        let now_secs = chrono::Utc::now().timestamp();
+                        // Parse the staged_at timestamp using chrono for accurate
+                        // epoch seconds. NOTE: We cannot use parse_iso8601_secs()
+                        // here because it uses an approximate formula (365d/year,
+                        // 30d/month) that's only suitable for relative comparisons
+                        // between two timestamps parsed by the same function.
+                        let staged_secs = chrono::NaiveDateTime::parse_from_str(
+                            staged_at.trim_end_matches('Z'),
+                            "%Y-%m-%dT%H:%M:%S",
+                        )
+                        .map(|ndt| ndt.and_utc().timestamp() as u64)
+                        .unwrap_or(u64::MAX); // fail-closed: unparseable = never staged
+                        let now_secs = chrono::Utc::now().timestamp() as u64;
                         let elapsed = now_secs.saturating_sub(staged_secs);
-                        let required = self.config.staging_period_secs as i64;
+                        let required = self.config.staging_period_secs;
                         if elapsed < required {
                             let remaining = required.saturating_sub(elapsed);
                             return Err(LifecycleError::InvalidTransition(format!(
@@ -1246,6 +1296,165 @@ mod tests {
         assert!(
             matches!(result, Err(LifecycleError::InvalidTransition(ref msg)) if msg.contains("already in staging")),
             "expected InvalidTransition about staging, got: {:?}",
+            result
+        );
+    }
+
+    /// SECURITY (FIND-R204-002): Staging period must be enforced.
+    /// Immediate Staging → Active should be rejected when staging_period_secs > 0.
+    #[tokio::test]
+    async fn test_staging_period_enforced() {
+        let store = InMemoryPolicyVersionStore::new(test_config()); // staging_period_secs = 3600
+        store
+            .create_version("pol-1", test_policy("pol-1"), "alice", None)
+            .await
+            .unwrap();
+        store
+            .approve_version("pol-1", 1, "bob", None)
+            .await
+            .unwrap();
+        store.promote_version("pol-1", 1).await.unwrap(); // → Staging (sets staged_at)
+
+        // Immediate Staging → Active should fail
+        let result = store.promote_version("pol-1", 1).await;
+        assert!(
+            matches!(result, Err(LifecycleError::InvalidTransition(ref msg)) if msg.contains("Staging period not yet elapsed")),
+            "expected staging period not elapsed, got: {:?}",
+            result
+        );
+    }
+
+    /// SECURITY (FIND-R204-002): When staging_period_secs = 0, Staging→Active should work
+    /// (staging period enforcement is only active when configured > 0).
+    #[tokio::test]
+    async fn test_staging_period_zero_allows_immediate_promote() {
+        let mut config = test_config();
+        config.staging_period_secs = 0;
+        // With staging_period_secs = 0, Draft→Active directly (no staging)
+        let store = InMemoryPolicyVersionStore::new(config);
+        store
+            .create_version("pol-1", test_policy("pol-1"), "alice", None)
+            .await
+            .unwrap();
+        store
+            .approve_version("pol-1", 1, "bob", None)
+            .await
+            .unwrap();
+        let pv = store.promote_version("pol-1", 1).await.unwrap();
+        assert!(matches!(pv.status, PolicyVersionStatus::Active));
+    }
+
+    /// SECURITY (FIND-R204-002): staged_at field should be set when entering Staging.
+    #[tokio::test]
+    async fn test_staged_at_set_on_staging() {
+        let store = InMemoryPolicyVersionStore::new(test_config());
+        store
+            .create_version("pol-1", test_policy("pol-1"), "alice", None)
+            .await
+            .unwrap();
+        store
+            .approve_version("pol-1", 1, "bob", None)
+            .await
+            .unwrap();
+        store.promote_version("pol-1", 1).await.unwrap(); // → Staging
+
+        let pv = store.get_version("pol-1", 1).await.unwrap();
+        assert!(pv.staged_at.is_some(), "staged_at should be set on Staging");
+        // Verify it's a valid ISO 8601 timestamp
+        let ts = pv.staged_at.unwrap();
+        assert!(ts.ends_with('Z'), "staged_at should end with Z: {}", ts);
+        assert!(ts.len() >= 20, "staged_at should be at least 20 chars: {}", ts);
+    }
+
+    // ── FIND-R205-001: Homoglyph self-approval bypass prevention ──
+
+    /// SECURITY (FIND-R205-001): Self-approval via Cyrillic 'а' (U+0430) homoglyph
+    /// must be detected. NFKC does NOT normalize cross-script confusables.
+    #[tokio::test]
+    async fn test_self_approval_cyrillic_homoglyph_rejected() {
+        let store = InMemoryPolicyVersionStore::new(test_config());
+        store
+            .create_version("pol-1", test_policy("pol-1"), "alice", None)
+            .await
+            .unwrap();
+        // Cyrillic 'а' (U+0430) looks identical to Latin 'a'
+        let result = store
+            .approve_version("pol-1", 1, "\u{0430}lice", None)
+            .await;
+        assert!(
+            matches!(result, Err(LifecycleError::Validation(ref msg)) if msg.contains("Self-approval")),
+            "Cyrillic homoglyph self-approval must be rejected, got: {:?}",
+            result
+        );
+    }
+
+    /// SECURITY (FIND-R205-001): Greek alpha (U+03B1) homoglyph self-approval.
+    #[tokio::test]
+    async fn test_self_approval_greek_homoglyph_rejected() {
+        let store = InMemoryPolicyVersionStore::new(test_config());
+        store
+            .create_version("pol-1", test_policy("pol-1"), "alpha", None)
+            .await
+            .unwrap();
+        // Greek α (U+03B1) looks identical to Latin 'a'
+        let result = store
+            .approve_version("pol-1", 1, "\u{03B1}lpha", None)
+            .await;
+        assert!(
+            matches!(result, Err(LifecycleError::Validation(ref msg)) if msg.contains("Self-approval")),
+            "Greek homoglyph self-approval must be rejected, got: {:?}",
+            result
+        );
+    }
+
+    /// SECURITY (FIND-R205-001): Duplicate approver detection with homoglyphs.
+    /// Two approvers that differ only by Cyrillic confusables should be treated
+    /// as the same person.
+    #[tokio::test]
+    async fn test_duplicate_approval_cyrillic_homoglyph_rejected() {
+        let mut config = test_config();
+        config.required_approvals = 2; // need 2 approvals
+        let store = InMemoryPolicyVersionStore::new(config);
+        store
+            .create_version("pol-1", test_policy("pol-1"), "alice", None)
+            .await
+            .unwrap();
+        // First approval by "bob" succeeds
+        store
+            .approve_version("pol-1", 1, "bob", None)
+            .await
+            .unwrap();
+        // Second approval by "bоb" (Cyrillic 'о' U+043E) should be detected as duplicate
+        let result = store
+            .approve_version("pol-1", 1, "b\u{043E}b", None)
+            .await;
+        assert!(
+            matches!(result, Err(LifecycleError::Validation(ref msg)) if msg.contains("Already approved")),
+            "Homoglyph duplicate approval must be rejected, got: {:?}",
+            result
+        );
+    }
+
+    /// SECURITY (FIND-R205-001): Verify Unicode case folding uses
+    /// chars().flat_map(char::to_lowercase) for consistency with approval store.
+    #[tokio::test]
+    async fn test_self_approval_unicode_case_fold_parity() {
+        let store = InMemoryPolicyVersionStore::new(test_config());
+        // Turkish İ (U+0130) — .to_lowercase() on the full string may differ
+        // from chars().flat_map(char::to_lowercase) for some locales.
+        // Ensure the comparison is consistent.
+        store
+            .create_version("pol-1", test_policy("pol-1"), "\u{0130}d-1", None)
+            .await
+            .unwrap();
+        // Lowercase 'i' should match after proper Unicode case folding
+        let result = store
+            .approve_version("pol-1", 1, "i\u{0307}d-1", None)
+            .await;
+        // This should be detected as self-approval since İ lowercases to i̇ (i + combining dot above)
+        assert!(
+            matches!(result, Err(LifecycleError::Validation(ref msg)) if msg.contains("Self-approval")),
+            "Unicode case fold parity: {:?}",
             result
         );
     }

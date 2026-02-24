@@ -319,8 +319,15 @@ impl DataFlowTracker {
             }
 
             // SECURITY (FIND-R147-001): Truncate oversized pattern names.
+            // SECURITY (FIND-R205-001): Use is_char_boundary() to avoid panic
+            // when MAX_PATTERN_NAME_LEN falls in the middle of a multi-byte
+            // UTF-8 character.
             let pattern_name = if f.finding.pattern_name.len() > MAX_PATTERN_NAME_LEN {
-                f.finding.pattern_name[..MAX_PATTERN_NAME_LEN].to_string()
+                let mut end = MAX_PATTERN_NAME_LEN;
+                while end > 0 && !f.finding.pattern_name.is_char_boundary(end) {
+                    end -= 1;
+                }
+                f.finding.pattern_name[..end].to_string()
             } else {
                 f.finding.pattern_name.clone()
             };
@@ -1042,5 +1049,87 @@ mod tests {
             config.validate(),
             Err(DataFlowError::MaxFingerprintsTooLarge)
         ));
+    }
+
+    // ── FIND-R205-001: UTF-8 char boundary safety ──
+
+    #[test]
+    fn test_pattern_name_truncation_multibyte_utf8_no_panic() {
+        // Build a pattern name that is exactly at a multi-byte char boundary
+        // issue: 'é' is 2 bytes (0xC3 0xA9), so slicing at an odd offset
+        // within such a character would panic without the is_char_boundary fix.
+        // We construct a string of 'é' repeated to exceed MAX_PATTERN_NAME_LEN (256).
+        // Each 'é' is 2 bytes, so 200 'é' = 400 bytes > 256.
+        let long_pattern: String = "é".repeat(200); // 400 bytes, 200 chars
+        assert!(long_pattern.len() > 256);
+
+        let mut tracker = DataFlowTracker::new(DataFlowConfig::default())
+            .expect("valid config");
+
+        // This must NOT panic — the truncation must land on a char boundary.
+        tracker.record_response_findings(
+            "tool",
+            &[enriched(&long_pattern, "text", Some("secret"))],
+        );
+
+        // Verify the pattern was recorded (truncated, not rejected).
+        assert_eq!(tracker.active_pattern_count(), 1);
+
+        // The stored pattern name should be <= MAX_PATTERN_NAME_LEN bytes
+        // and must be valid UTF-8 (it is, since it's a &str in the HashSet).
+        let stored = tracker.active_patterns.iter().next()
+            .expect("one pattern should exist");
+        assert!(stored.len() <= 256);
+        // Verify it is a proper prefix of the original (all 'é' characters).
+        assert!(long_pattern.starts_with(stored.as_str()));
+        // 256 / 2 = 128 full 'é' characters fit, so length should be 256.
+        assert_eq!(stored.len(), 256);
+    }
+
+    #[test]
+    fn test_pattern_name_truncation_3byte_utf8_no_panic() {
+        // Use 3-byte characters: '中' is 3 bytes (0xE4 0xB8 0xAD).
+        // 100 * 3 = 300 bytes > 256. 256 / 3 = 85.33, so we expect
+        // truncation to 85 * 3 = 255 bytes (backs off from 256 to 255).
+        let long_pattern: String = "中".repeat(100); // 300 bytes
+        assert!(long_pattern.len() > 256);
+
+        let mut tracker = DataFlowTracker::new(DataFlowConfig::default())
+            .expect("valid config");
+
+        // Must not panic.
+        tracker.record_response_findings(
+            "tool",
+            &[enriched(&long_pattern, "text", Some("data"))],
+        );
+
+        assert_eq!(tracker.active_pattern_count(), 1);
+        let stored = tracker.active_patterns.iter().next()
+            .expect("one pattern should exist");
+        // 85 chars * 3 bytes = 255 (the largest 3-byte boundary <= 256)
+        assert_eq!(stored.len(), 255);
+        assert!(stored.is_char_boundary(stored.len()));
+    }
+
+    #[test]
+    fn test_pattern_name_truncation_4byte_utf8_no_panic() {
+        // Use 4-byte characters: emoji '😀' is 4 bytes.
+        // 70 * 4 = 280 bytes > 256. 256 / 4 = 64, so 64 * 4 = 256 bytes.
+        let long_pattern: String = "😀".repeat(70); // 280 bytes
+        assert!(long_pattern.len() > 256);
+
+        let mut tracker = DataFlowTracker::new(DataFlowConfig::default())
+            .expect("valid config");
+
+        tracker.record_response_findings(
+            "tool",
+            &[enriched(&long_pattern, "text", Some("data"))],
+        );
+
+        assert_eq!(tracker.active_pattern_count(), 1);
+        let stored = tracker.active_patterns.iter().next()
+            .expect("one pattern should exist");
+        // 64 chars * 4 bytes = 256 (happens to land on a boundary)
+        assert_eq!(stored.len(), 256);
     }
 }

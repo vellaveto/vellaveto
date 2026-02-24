@@ -36,6 +36,19 @@ pub const MAX_STAGING_REPORT_ENTRIES: usize = 10_000;
 /// Maximum number of diff changes.
 pub const MAX_DIFF_CHANGES: usize = 100;
 
+/// Maximum length for tool/function name strings in staging comparison entries.
+/// Matches MAX_NAME_LEN (256) used in core.rs for Action tool/function validation.
+pub const MAX_STAGING_NAME_LEN: usize = 256;
+
+/// Maximum length for verdict strings in staging comparison entries.
+pub const MAX_VERDICT_STRING_LEN: usize = 128;
+
+/// Maximum length for individual diff change description strings.
+pub const MAX_DIFF_CHANGE_LEN: usize = 4_096;
+
+/// Maximum length for policy_id in PolicyVersionDiff.
+pub const MAX_DIFF_POLICY_ID_LEN: usize = 256;
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 /// Status of a policy version in its lifecycle.
@@ -293,6 +306,12 @@ impl PolicyVersionDiff {
         if self.policy_id.is_empty() {
             return Err("policy_id must be non-empty".to_string());
         }
+        if self.policy_id.len() > MAX_DIFF_POLICY_ID_LEN {
+            return Err(format!(
+                "policy_id exceeds {} chars",
+                MAX_DIFF_POLICY_ID_LEN
+            ));
+        }
         if has_dangerous_chars(&self.policy_id) {
             return Err("policy_id contains invalid characters".to_string());
         }
@@ -302,6 +321,22 @@ impl PolicyVersionDiff {
                 self.changes.len(),
                 MAX_DIFF_CHANGES
             ));
+        }
+        // SECURITY (FIND-R205-004): Validate individual change strings
+        // to prevent unbounded allocation and dangerous character injection.
+        for (i, change) in self.changes.iter().enumerate() {
+            if change.len() > MAX_DIFF_CHANGE_LEN {
+                return Err(format!(
+                    "changes[{}] exceeds {} chars",
+                    i, MAX_DIFF_CHANGE_LEN
+                ));
+            }
+            if has_dangerous_chars(change) {
+                return Err(format!(
+                    "changes[{}] contains invalid characters",
+                    i
+                ));
+            }
         }
         Ok(())
     }
@@ -322,6 +357,77 @@ pub struct StagingComparisonEntry {
     pub active_verdict: String,
     /// Verdict from the staging policy set.
     pub staging_verdict: String,
+}
+
+impl StagingComparisonEntry {
+    /// Validate all fields of this staging comparison entry.
+    ///
+    /// SECURITY (FIND-R205-002): Each string field is checked for dangerous
+    /// characters and bounded by length. The timestamp is validated as ISO 8601.
+    pub fn validate(&self) -> Result<(), String> {
+        // timestamp
+        if self.timestamp.is_empty() {
+            return Err("timestamp must be non-empty".to_string());
+        }
+        if has_dangerous_chars(&self.timestamp) {
+            return Err("timestamp contains invalid characters".to_string());
+        }
+        crate::time_util::parse_iso8601_secs(&self.timestamp)
+            .map_err(|e| format!("timestamp: {}", e))?;
+        // tool
+        if self.tool.is_empty() {
+            return Err("tool must be non-empty".to_string());
+        }
+        if self.tool.len() > MAX_STAGING_NAME_LEN {
+            return Err(format!(
+                "tool exceeds {} chars",
+                MAX_STAGING_NAME_LEN
+            ));
+        }
+        if has_dangerous_chars(&self.tool) {
+            return Err("tool contains invalid characters".to_string());
+        }
+        // function
+        if self.function.is_empty() {
+            return Err("function must be non-empty".to_string());
+        }
+        if self.function.len() > MAX_STAGING_NAME_LEN {
+            return Err(format!(
+                "function exceeds {} chars",
+                MAX_STAGING_NAME_LEN
+            ));
+        }
+        if has_dangerous_chars(&self.function) {
+            return Err("function contains invalid characters".to_string());
+        }
+        // active_verdict
+        if self.active_verdict.is_empty() {
+            return Err("active_verdict must be non-empty".to_string());
+        }
+        if self.active_verdict.len() > MAX_VERDICT_STRING_LEN {
+            return Err(format!(
+                "active_verdict exceeds {} chars",
+                MAX_VERDICT_STRING_LEN
+            ));
+        }
+        if has_dangerous_chars(&self.active_verdict) {
+            return Err("active_verdict contains invalid characters".to_string());
+        }
+        // staging_verdict
+        if self.staging_verdict.is_empty() {
+            return Err("staging_verdict must be non-empty".to_string());
+        }
+        if self.staging_verdict.len() > MAX_VERDICT_STRING_LEN {
+            return Err(format!(
+                "staging_verdict exceeds {} chars",
+                MAX_VERDICT_STRING_LEN
+            ));
+        }
+        if has_dangerous_chars(&self.staging_verdict) {
+            return Err("staging_verdict contains invalid characters".to_string());
+        }
+        Ok(())
+    }
 }
 
 /// Report summarizing staging shadow evaluation results.
@@ -358,6 +464,22 @@ impl StagingReport {
                 MAX_STAGING_REPORT_ENTRIES
             ));
         }
+        // SECURITY (FIND-R205-002): Validate each divergence entry.
+        for (i, entry) in self.divergences.iter().enumerate() {
+            entry
+                .validate()
+                .map_err(|e| format!("divergences[{}]: {}", i, e))?;
+        }
+        // IMP-R206-010: Validate staging_started_at timestamp (parity
+        // with PolicyApproval::validate and PolicyVersion::validate).
+        if self.staging_started_at.is_empty() {
+            return Err("staging_started_at must be non-empty".to_string());
+        }
+        if has_dangerous_chars(&self.staging_started_at) {
+            return Err("staging_started_at contains invalid characters".to_string());
+        }
+        crate::time_util::parse_iso8601_secs(&self.staging_started_at)
+            .map_err(|e| format!("staging_started_at: {}", e))?;
         Ok(())
     }
 }

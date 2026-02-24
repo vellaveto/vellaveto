@@ -358,6 +358,16 @@ impl ToolRegistry {
                 raw_line
             };
 
+            // SECURITY (FIND-R205-002): Enforce MAX_REGISTRY_ENTRIES cap on load
+            // to prevent OOM from oversized persistence files.
+            if loaded.len() >= MAX_REGISTRY_ENTRIES {
+                tracing::warn!(
+                    max = MAX_REGISTRY_ENTRIES,
+                    "Registry file exceeds MAX_REGISTRY_ENTRIES, truncating"
+                );
+                break;
+            }
+
             match serde_json::from_str::<ToolEntry>(json_part) {
                 Ok(mut entry) => {
                     entry.compute_trust_score();

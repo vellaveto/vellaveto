@@ -8941,6 +8941,7 @@ fn make_valid_policy_version() -> crate::PolicyVersion {
         approvals: vec![],
         required_approvals: 1,
         previous_version_id: None,
+        staged_at: None,
     }
 }
 
@@ -9125,4 +9126,241 @@ fn test_policy_version_deny_unknown_fields() {
     json.as_object_mut().unwrap().insert("extra".to_string(), serde_json::json!("bad"));
     let result = serde_json::from_value::<crate::PolicyVersion>(json);
     assert!(result.is_err(), "deny_unknown_fields should reject extra field");
+}
+
+// ── FIND-R205-002: StagingComparisonEntry::validate() tests ──
+
+fn make_valid_staging_entry() -> crate::StagingComparisonEntry {
+    crate::StagingComparisonEntry {
+        timestamp: "2026-01-15T10:00:00Z".to_string(),
+        tool: "read_file".to_string(),
+        function: "execute".to_string(),
+        active_verdict: "allow".to_string(),
+        staging_verdict: "deny".to_string(),
+    }
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_ok() {
+    let e = make_valid_staging_entry();
+    assert!(e.validate().is_ok());
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_empty_timestamp() {
+    let mut e = make_valid_staging_entry();
+    e.timestamp = String::new();
+    assert!(e.validate().unwrap_err().contains("timestamp"));
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_dangerous_timestamp() {
+    let mut e = make_valid_staging_entry();
+    e.timestamp = "2026-01-15T10:00:00Z\x00".to_string();
+    assert!(e.validate().unwrap_err().contains("timestamp"));
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_bad_timestamp_format() {
+    let mut e = make_valid_staging_entry();
+    e.timestamp = "not-a-timestamp".to_string();
+    assert!(e.validate().unwrap_err().contains("timestamp"));
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_empty_tool() {
+    let mut e = make_valid_staging_entry();
+    e.tool = String::new();
+    assert!(e.validate().unwrap_err().contains("tool"));
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_tool_too_long() {
+    let mut e = make_valid_staging_entry();
+    e.tool = "x".repeat(crate::MAX_STAGING_NAME_LEN + 1);
+    assert!(e.validate().unwrap_err().contains("tool"));
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_dangerous_tool() {
+    let mut e = make_valid_staging_entry();
+    e.tool = "tool\u{202E}evil".to_string(); // bidi override
+    assert!(e.validate().unwrap_err().contains("tool"));
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_empty_function() {
+    let mut e = make_valid_staging_entry();
+    e.function = String::new();
+    assert!(e.validate().unwrap_err().contains("function"));
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_function_too_long() {
+    let mut e = make_valid_staging_entry();
+    e.function = "x".repeat(crate::MAX_STAGING_NAME_LEN + 1);
+    assert!(e.validate().unwrap_err().contains("function"));
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_dangerous_function() {
+    let mut e = make_valid_staging_entry();
+    e.function = "fn\x07bell".to_string(); // control char
+    assert!(e.validate().unwrap_err().contains("function"));
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_empty_active_verdict() {
+    let mut e = make_valid_staging_entry();
+    e.active_verdict = String::new();
+    assert!(e.validate().unwrap_err().contains("active_verdict"));
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_active_verdict_too_long() {
+    let mut e = make_valid_staging_entry();
+    e.active_verdict = "x".repeat(crate::MAX_VERDICT_STRING_LEN + 1);
+    assert!(e.validate().unwrap_err().contains("active_verdict"));
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_dangerous_active_verdict() {
+    let mut e = make_valid_staging_entry();
+    e.active_verdict = "allow\u{200B}".to_string(); // zero-width space
+    assert!(e.validate().unwrap_err().contains("active_verdict"));
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_empty_staging_verdict() {
+    let mut e = make_valid_staging_entry();
+    e.staging_verdict = String::new();
+    assert!(e.validate().unwrap_err().contains("staging_verdict"));
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_staging_verdict_too_long() {
+    let mut e = make_valid_staging_entry();
+    e.staging_verdict = "x".repeat(crate::MAX_VERDICT_STRING_LEN + 1);
+    assert!(e.validate().unwrap_err().contains("staging_verdict"));
+}
+
+#[test]
+fn test_staging_comparison_entry_validate_dangerous_staging_verdict() {
+    let mut e = make_valid_staging_entry();
+    e.staging_verdict = "deny\x1B[31m".to_string(); // ANSI escape
+    assert!(e.validate().unwrap_err().contains("staging_verdict"));
+}
+
+// ── FIND-R205-002: StagingReport::validate() wires entry validation ──
+
+#[test]
+fn test_staging_report_validate_invalid_divergence_entry() {
+    let r = crate::StagingReport {
+        policy_id: "pol-1".to_string(),
+        staging_version: 2,
+        total_evaluations: 100,
+        divergent_evaluations: 1,
+        divergences: vec![crate::StagingComparisonEntry {
+            timestamp: "bad-ts".to_string(),
+            tool: "t".to_string(),
+            function: "f".to_string(),
+            active_verdict: "allow".to_string(),
+            staging_verdict: "deny".to_string(),
+        }],
+        staging_started_at: "2026-01-15T10:00:00Z".to_string(),
+    };
+    let err = r.validate().unwrap_err();
+    assert!(err.contains("divergences[0]"), "expected indexed error, got: {}", err);
+}
+
+// ── FIND-R205-003: StagingReport staging_started_at timestamp validation ──
+// (Already wired in IMP-R206-010, adding adversarial tests for completeness.)
+
+#[test]
+fn test_staging_report_validate_empty_staging_started_at() {
+    let r = crate::StagingReport {
+        policy_id: "pol-1".to_string(),
+        staging_version: 2,
+        total_evaluations: 100,
+        divergent_evaluations: 0,
+        divergences: vec![],
+        staging_started_at: String::new(),
+    };
+    assert!(r.validate().unwrap_err().contains("staging_started_at"));
+}
+
+#[test]
+fn test_staging_report_validate_dangerous_staging_started_at() {
+    let r = crate::StagingReport {
+        policy_id: "pol-1".to_string(),
+        staging_version: 2,
+        total_evaluations: 100,
+        divergent_evaluations: 0,
+        divergences: vec![],
+        staging_started_at: "2026-01-15T10:00:00Z\x00".to_string(),
+    };
+    assert!(r.validate().unwrap_err().contains("staging_started_at"));
+}
+
+#[test]
+fn test_staging_report_validate_bad_format_staging_started_at() {
+    let r = crate::StagingReport {
+        policy_id: "pol-1".to_string(),
+        staging_version: 2,
+        total_evaluations: 100,
+        divergent_evaluations: 0,
+        divergences: vec![],
+        staging_started_at: "not-a-date".to_string(),
+    };
+    assert!(r.validate().unwrap_err().contains("staging_started_at"));
+}
+
+// ── FIND-R205-004: PolicyVersionDiff per-entry change validation ──
+
+#[test]
+fn test_policy_version_diff_validate_change_too_long() {
+    let d = crate::PolicyVersionDiff {
+        policy_id: "pol-1".to_string(),
+        from_version: 1,
+        to_version: 2,
+        changes: vec!["x".repeat(crate::MAX_DIFF_CHANGE_LEN + 1)],
+    };
+    let err = d.validate().unwrap_err();
+    assert!(err.contains("changes[0]"), "expected indexed error, got: {}", err);
+    assert!(err.contains("exceeds"), "expected length error, got: {}", err);
+}
+
+#[test]
+fn test_policy_version_diff_validate_change_dangerous_chars() {
+    let d = crate::PolicyVersionDiff {
+        policy_id: "pol-1".to_string(),
+        from_version: 1,
+        to_version: 2,
+        changes: vec!["ok change".to_string(), "bad\x00change".to_string()],
+    };
+    let err = d.validate().unwrap_err();
+    assert!(err.contains("changes[1]"), "expected indexed error, got: {}", err);
+    assert!(err.contains("invalid characters"), "expected char error, got: {}", err);
+}
+
+#[test]
+fn test_policy_version_diff_validate_policy_id_too_long() {
+    let d = crate::PolicyVersionDiff {
+        policy_id: "x".repeat(crate::MAX_DIFF_POLICY_ID_LEN + 1),
+        from_version: 1,
+        to_version: 2,
+        changes: vec![],
+    };
+    assert!(d.validate().unwrap_err().contains("policy_id"));
+}
+
+#[test]
+fn test_policy_version_diff_validate_policy_id_dangerous() {
+    let d = crate::PolicyVersionDiff {
+        policy_id: "pol\u{200B}1".to_string(), // zero-width space
+        from_version: 1,
+        to_version: 2,
+        changes: vec![],
+    };
+    assert!(d.validate().unwrap_err().contains("policy_id"));
 }

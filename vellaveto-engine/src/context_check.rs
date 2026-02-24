@@ -315,16 +315,25 @@ impl PolicyEngine {
                             }
 
                             // Check required audience (case-insensitive, R40-ENG-2)
+                            // SECURITY (FIND-R205-004): Sanitize audience values before
+                            // including in denial reason — audience comes from JWT claims
+                            // and is attacker-controlled. Bound displayed entries to 10.
                             if let Some(ref req_aud) = required_audience {
                                 if !identity
                                     .audience
                                     .iter()
                                     .any(|a| a.to_lowercase() == *req_aud)
                                 {
+                                    let safe_audiences: Vec<String> = identity
+                                        .audience
+                                        .iter()
+                                        .take(10)
+                                        .map(|a| sanitize_for_log(a, MAX_CLAIM_DISPLAY_LEN))
+                                        .collect();
                                     return Some(Verdict::Deny {
                                         reason: format!(
                                             "{} (audience mismatch: '{}' not in {:?})",
-                                            deny_reason, req_aud, identity.audience
+                                            deny_reason, req_aud, safe_audiences
                                         ),
                                     });
                                 }

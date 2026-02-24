@@ -466,9 +466,16 @@ impl PolicyEngine {
     /// pattern could match `action.tool`, plus `always_check` (wildcard/prefix/suffix).
     /// Falls back to linear scan when no index has been built.
     fn evaluate_with_compiled(&self, action: &Action) -> Result<Verdict, EngineError> {
+        // SECURITY (FIND-SEM-003): Normalize tool/function names through homoglyph
+        // normalization before policy matching. This prevents fullwidth Unicode
+        // characters (e.g. U+FF52 'ｒ') from bypassing exact-match Deny policies.
+        // Patterns are also normalized at compile time for consistency.
+        let norm_tool = vellaveto_types::unicode::normalize_homoglyphs(&action.tool);
+        let norm_func = vellaveto_types::unicode::normalize_homoglyphs(&action.function);
+
         // If index was built, use it for O(matching) instead of O(all)
         if !self.tool_index.is_empty() || !self.always_check.is_empty() {
-            let tool_specific = self.tool_index.get(&action.tool);
+            let tool_specific = self.tool_index.get(&norm_tool);
             let tool_slice = tool_specific.map_or(&[][..], |v| v.as_slice());
             let always_slice = &self.always_check;
 
@@ -505,7 +512,7 @@ impl PolicyEngine {
                 };
 
                 let cp = &self.compiled_policies[next_idx];
-                if cp.tool_matcher.matches(action) {
+                if cp.tool_matcher.matches_normalized(&norm_tool, &norm_func) {
                     if let Some(verdict) = self.apply_compiled_policy(action, cp)? {
                         return Ok(verdict);
                     }
@@ -515,7 +522,7 @@ impl PolicyEngine {
         } else {
             // No index: linear scan (legacy compiled path)
             for cp in &self.compiled_policies {
-                if cp.tool_matcher.matches(action) {
+                if cp.tool_matcher.matches_normalized(&norm_tool, &norm_func) {
                     if let Some(verdict) = self.apply_compiled_policy(action, cp)? {
                         return Ok(verdict);
                     }
@@ -535,8 +542,13 @@ impl PolicyEngine {
         action: &Action,
         context: Option<&EvaluationContext>,
     ) -> Result<Verdict, EngineError> {
+        // SECURITY (FIND-SEM-003): Normalize tool/function names through homoglyph
+        // normalization before policy matching (same as evaluate_with_compiled).
+        let norm_tool = vellaveto_types::unicode::normalize_homoglyphs(&action.tool);
+        let norm_func = vellaveto_types::unicode::normalize_homoglyphs(&action.function);
+
         if !self.tool_index.is_empty() || !self.always_check.is_empty() {
-            let tool_specific = self.tool_index.get(&action.tool);
+            let tool_specific = self.tool_index.get(&norm_tool);
             let tool_slice = tool_specific.map_or(&[][..], |v| v.as_slice());
             let always_slice = &self.always_check;
 
@@ -570,7 +582,7 @@ impl PolicyEngine {
                 };
 
                 let cp = &self.compiled_policies[next_idx];
-                if cp.tool_matcher.matches(action) {
+                if cp.tool_matcher.matches_normalized(&norm_tool, &norm_func) {
                     if let Some(verdict) = self.apply_compiled_policy_ctx(action, cp, context)? {
                         return Ok(verdict);
                     }
@@ -578,7 +590,7 @@ impl PolicyEngine {
             }
         } else {
             for cp in &self.compiled_policies {
-                if cp.tool_matcher.matches(action) {
+                if cp.tool_matcher.matches_normalized(&norm_tool, &norm_func) {
                     if let Some(verdict) = self.apply_compiled_policy_ctx(action, cp, context)? {
                         return Ok(verdict);
                     }
