@@ -1089,3 +1089,48 @@ func (c *Client) OwaspAsiCoverage(ctx context.Context) (*OwaspAsiCoverageRespons
 	}
 	return &resp, nil
 }
+
+// evidencePackFrameworks is the allowlist of valid framework identifiers.
+var evidencePackFrameworks = map[string]bool{
+	"dora":      true,
+	"nis2":      true,
+	"iso42001":  true,
+	"eu-ai-act": true,
+}
+
+// EvidencePack generates a compliance evidence pack for the specified framework.
+// framework must be one of: "dora", "nis2", "iso42001", "eu-ai-act".
+// format must be "json" or "html" (empty defaults to "json").
+func (c *Client) EvidencePack(ctx context.Context, framework, format string) (*EvidencePack, error) {
+	if framework == "" {
+		return nil, &VellavetoError{Message: "framework must be a non-empty string"}
+	}
+	if !evidencePackFrameworks[framework] {
+		return nil, &VellavetoError{Message: fmt.Sprintf("framework must be one of dora, nis2, iso42001, eu-ai-act, got %q", framework)}
+	}
+	if format != "" && format != "json" && format != "html" {
+		return nil, &VellavetoError{Message: fmt.Sprintf("format must be \"json\" or \"html\", got %q", format)}
+	}
+	params := url.Values{}
+	if format != "" && format != "json" {
+		params.Set("format", format)
+	}
+	path := "/api/compliance/evidence-pack/" + url.PathEscape(framework)
+	if len(params) > 0 {
+		path += "?" + params.Encode()
+	}
+	var resp EvidencePack
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// EvidencePackStatus retrieves which evidence pack frameworks are available.
+func (c *Client) EvidencePackStatus(ctx context.Context) (*EvidencePackStatus, error) {
+	var resp EvidencePackStatus
+	if err := c.doJSON(ctx, http.MethodGet, "/api/compliance/evidence-pack/status", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

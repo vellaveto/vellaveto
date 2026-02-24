@@ -85,6 +85,15 @@ pub fn build_router(state: AppState) -> Router {
             "/api/compliance/owasp-agentic",
             get(super::compliance::owasp_asi_coverage),
         )
+        // Evidence pack endpoints (Phase 48)
+        .route(
+            "/api/compliance/evidence-pack/status",
+            get(super::compliance::evidence_pack_status),
+        )
+        .route(
+            "/api/compliance/evidence-pack/{framework}",
+            get(super::compliance::evidence_pack),
+        )
         .route(
             "/api/audit/checkpoints",
             get(super::audit::list_checkpoints),

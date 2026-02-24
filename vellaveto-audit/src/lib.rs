@@ -40,6 +40,7 @@ pub mod access_review;
 pub mod aivss;
 pub mod atlas;
 pub mod eu_ai_act;
+pub mod evidence_pack;
 pub mod exec_graph;
 pub mod export;
 pub mod iso27090;

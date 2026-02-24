@@ -401,3 +401,49 @@ export interface OwaspAsiCoverageResponse {
   category_coverage: AsiCategoryCoverage[];
   control_matrix: AsiControlMatrixRow[];
 }
+
+/** Evidence pack for a compliance framework (Phase 48). */
+export interface EvidencePack {
+  framework: string;
+  framework_name: string;
+  generated_at: string;
+  organization_name: string;
+  system_id: string;
+  period_start?: string;
+  period_end?: string;
+  sections: EvidenceSection[];
+  overall_coverage_percent: number;
+  total_requirements: number;
+  covered_requirements: number;
+  partial_requirements: number;
+  uncovered_requirements: number;
+  critical_gaps: string[];
+  recommendations: string[];
+}
+
+/** Section within an evidence pack. */
+export interface EvidenceSection {
+  section_id: string;
+  title: string;
+  description: string;
+  items: EvidenceItem[];
+  section_coverage_percent: number;
+}
+
+/** Individual evidence item mapping a requirement to a capability. */
+export interface EvidenceItem {
+  requirement_id: string;
+  requirement_title: string;
+  article_ref: string;
+  vellaveto_capability: string;
+  evidence_description: string;
+  confidence: string;
+  gaps: string[];
+}
+
+/** Evidence pack status — which frameworks are available. */
+export interface EvidencePackStatus {
+  available_frameworks: string[];
+  dora_enabled: boolean;
+  nis2_enabled: boolean;
+}

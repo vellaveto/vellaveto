@@ -18,6 +18,8 @@ import {
   DiscoveryToolsResponse,
   EvaluationContext,
   EvaluationResult,
+  EvidencePack,
+  EvidencePackStatus,
   FederationStatusResponse,
   FederationTrustAnchorsResponse,
   HealthResponse,
@@ -1311,6 +1313,61 @@ export class VellavetoClient {
     return this.request<OwaspAsiCoverageResponse>(
       "GET",
       "/api/compliance/owasp-agentic"
+    );
+  }
+
+  // ────────────────────────────────────────────────────
+  // Evidence Packs (Phase 48)
+  // ────────────────────────────────────────────────────
+
+  /** Allowed evidence pack framework identifiers. */
+  private static readonly EVIDENCE_PACK_FRAMEWORKS = [
+    "dora",
+    "nis2",
+    "iso42001",
+    "eu-ai-act",
+  ] as const;
+
+  /**
+   * Generate a compliance evidence pack for the specified framework.
+   * @param framework - Framework identifier: "dora", "nis2", "iso42001", or "eu-ai-act"
+   * @param format - Export format: "json" (default) or "html"
+   */
+  async evidencePack(
+    framework: string,
+    format?: string
+  ): Promise<EvidencePack> {
+    if (!framework || typeof framework !== "string") {
+      throw new VellavetoError("framework must be a non-empty string");
+    }
+    if (
+      !(VellavetoClient.EVIDENCE_PACK_FRAMEWORKS as readonly string[]).includes(
+        framework
+      )
+    ) {
+      throw new VellavetoError(
+        `framework must be one of ${VellavetoClient.EVIDENCE_PACK_FRAMEWORKS.join(", ")}, got "${framework}"`
+      );
+    }
+    if (format !== undefined && format !== "json" && format !== "html") {
+      throw new VellavetoError(
+        `format must be "json" or "html", got "${format}"`
+      );
+    }
+    const params = new URLSearchParams();
+    if (format && format !== "json") params.set("format", format);
+    const qs = params.toString();
+    const path = qs
+      ? `/api/compliance/evidence-pack/${encodeURIComponent(framework)}?${qs}`
+      : `/api/compliance/evidence-pack/${encodeURIComponent(framework)}`;
+    return this.request<EvidencePack>("GET", path);
+  }
+
+  /** Get evidence pack status — which frameworks are available. */
+  async evidencePackStatus(): Promise<EvidencePackStatus> {
+    return this.request<EvidencePackStatus>(
+      "GET",
+      "/api/compliance/evidence-pack/status"
     );
   }
 }

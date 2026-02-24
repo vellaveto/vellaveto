@@ -501,3 +501,49 @@ type OwaspAsiCoverageResponse struct {
 	CategoryCoverage  []AsiCategoryCoverage  `json:"category_coverage"`
 	ControlMatrix     []AsiControlMatrixRow  `json:"control_matrix"`
 }
+
+// EvidencePack represents a compliance evidence pack for a specific framework.
+type EvidencePack struct {
+	Framework            string            `json:"framework"`
+	FrameworkName        string            `json:"framework_name"`
+	GeneratedAt          string            `json:"generated_at"`
+	OrganizationName     string            `json:"organization_name"`
+	SystemID             string            `json:"system_id"`
+	PeriodStart          string            `json:"period_start,omitempty"`
+	PeriodEnd            string            `json:"period_end,omitempty"`
+	Sections             []EvidenceSection `json:"sections"`
+	OverallCoveragePercent float64         `json:"overall_coverage_percent"`
+	TotalRequirements    int               `json:"total_requirements"`
+	CoveredRequirements  int               `json:"covered_requirements"`
+	PartialRequirements  int               `json:"partial_requirements"`
+	UncoveredRequirements int              `json:"uncovered_requirements"`
+	CriticalGaps         []string          `json:"critical_gaps"`
+	Recommendations      []string          `json:"recommendations"`
+}
+
+// EvidenceSection represents a section within an evidence pack.
+type EvidenceSection struct {
+	SectionID            string         `json:"section_id"`
+	Title                string         `json:"title"`
+	Description          string         `json:"description"`
+	Items                []EvidenceItem `json:"items"`
+	SectionCoveragePercent float64      `json:"section_coverage_percent"`
+}
+
+// EvidenceItem represents an individual requirement-to-capability mapping.
+type EvidenceItem struct {
+	RequirementID       string   `json:"requirement_id"`
+	RequirementTitle    string   `json:"requirement_title"`
+	ArticleRef          string   `json:"article_ref"`
+	VellavetoCapability string   `json:"vellaveto_capability"`
+	EvidenceDescription string   `json:"evidence_description"`
+	Confidence          string   `json:"confidence"`
+	Gaps                []string `json:"gaps"`
+}
+
+// EvidencePackStatus reports which evidence pack frameworks are available.
+type EvidencePackStatus struct {
+	AvailableFrameworks []string `json:"available_frameworks"`
+	DoraEnabled         bool     `json:"dora_enabled"`
+	Nis2Enabled         bool     `json:"nis2_enabled"`
+}

@@ -1,7 +1,8 @@
 //! Cross-Framework Gap Analysis Report Generator.
 //!
 //! Queries all security framework registries (MITRE ATLAS, NIST AI RMF,
-//! ISO 27090, ISO 42001, EU AI Act, SOC 2, CoSAI, Adversa TOP 25, OWASP ASI) and produces a
+//! ISO 27090, ISO 42001, EU AI Act, SOC 2, CoSAI, Adversa TOP 25, OWASP ASI,
+//! DORA, NIS2) and produces a
 //! consolidated gap analysis report with coverage percentages, identified
 //! gaps, and recommendations.
 //!
@@ -260,6 +261,52 @@ pub fn generate_gap_analysis() -> GapAnalysisReport {
         }
     }
 
+    // ── 9. DORA ──────────────────────────────────────────────────────────
+    let dora = crate::dora::DoraRegistry::new();
+    let dora_report = dora.generate_report("Gap Analysis", "gap-analysis-system");
+    frameworks.push(FrameworkSummary {
+        name: "DORA".to_string(),
+        total_items: dora_report.total_articles,
+        covered_items: dora_report.compliant_articles + dora_report.partial_articles,
+        coverage_percent: dora_report.compliance_percentage,
+    });
+    for assessment in &dora_report.assessments {
+        if assessment.status == crate::dora::DoraComplianceStatus::NotImplemented {
+            critical_gaps.push(Gap {
+                framework: "DORA".to_string(),
+                item_id: assessment.article_id.0.clone(),
+                description: format!(
+                    "{} ({}) has no Vellaveto evidence",
+                    assessment.article_id, assessment.title
+                ),
+                severity: "High".to_string(),
+            });
+        }
+    }
+
+    // ── 10. NIS2 ─────────────────────────────────────────────────────────
+    let nis2 = crate::nis2::Nis2Registry::new();
+    let nis2_report = nis2.generate_report("Gap Analysis", "gap-analysis-system");
+    frameworks.push(FrameworkSummary {
+        name: "NIS2".to_string(),
+        total_items: nis2_report.total_articles,
+        covered_items: nis2_report.compliant_articles + nis2_report.partial_articles,
+        coverage_percent: nis2_report.compliance_percentage,
+    });
+    for assessment in &nis2_report.assessments {
+        if assessment.status == crate::nis2::Nis2ComplianceStatus::NotImplemented {
+            critical_gaps.push(Gap {
+                framework: "NIS2".to_string(),
+                item_id: assessment.article_id.0.clone(),
+                description: format!(
+                    "{} ({}) has no Vellaveto evidence",
+                    assessment.article_id, assessment.title
+                ),
+                severity: "High".to_string(),
+            });
+        }
+    }
+
     // ── Overall coverage (weighted average by item count) ────────────────
     let total_all: usize = frameworks.iter().map(|f| f.total_items).sum();
     let covered_all: usize = frameworks.iter().map(|f| f.covered_items).sum();
@@ -319,7 +366,7 @@ mod tests {
     }
 
     #[test]
-    fn test_all_8_frameworks_present() {
+    fn test_all_10_frameworks_present() {
         let report = generate_gap_analysis();
         let names: Vec<&str> = report.frameworks.iter().map(|f| f.name.as_str()).collect();
 
@@ -331,6 +378,8 @@ mod tests {
         assert!(names.contains(&"CoSAI"), "Missing CoSAI");
         assert!(names.contains(&"Adversa TOP 25"), "Missing Adversa TOP 25");
         assert!(names.contains(&"OWASP ASI"), "Missing OWASP ASI");
+        assert!(names.contains(&"DORA"), "Missing DORA");
+        assert!(names.contains(&"NIS2"), "Missing NIS2");
     }
 
     #[test]

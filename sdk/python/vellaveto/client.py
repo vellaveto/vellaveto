@@ -1096,6 +1096,51 @@ class VellavetoClient:
         """
         return self._request("GET", "/api/compliance/owasp-agentic")
 
+    # ── Evidence Packs (Phase 48) ─────────────────────────────────
+
+    # Allowed evidence pack frameworks
+    _EVIDENCE_PACK_FRAMEWORKS = ("dora", "nis2", "iso42001", "eu-ai-act")
+
+    def evidence_pack(
+        self,
+        framework: str,
+        export_format: str = "json",
+    ) -> Dict[str, Any]:
+        """
+        Generate a compliance evidence pack for the specified framework.
+
+        Args:
+            framework: Framework identifier ("dora", "nis2", "iso42001", "eu-ai-act")
+            export_format: Export format ("json" or "html")
+
+        Returns:
+            Evidence pack as dictionary (JSON) or raw HTML string
+        """
+        if not isinstance(framework, str) or len(framework) == 0:
+            raise VellavetoError("framework must be a non-empty string")
+        if framework not in self._EVIDENCE_PACK_FRAMEWORKS:
+            raise VellavetoError(
+                f'framework must be one of {self._EVIDENCE_PACK_FRAMEWORKS}, got {framework!r}'
+            )
+        if export_format not in ("json", "html"):
+            raise VellavetoError(
+                f'export_format must be "json" or "html", got {export_format!r}'
+            )
+        params: Dict[str, Any] = {}
+        if export_format != "json":
+            params["format"] = export_format
+        path = f"/api/compliance/evidence-pack/{quote(framework, safe='')}"
+        return self._request("GET", path, params=params if params else None)
+
+    def evidence_pack_status(self) -> Dict[str, Any]:
+        """
+        Get evidence pack status — which frameworks are available.
+
+        Returns:
+            Dictionary with available_frameworks list, dora_enabled, nis2_enabled.
+        """
+        return self._request("GET", "/api/compliance/evidence-pack/status")
+
     def close(self):
         """Close the client and release resources."""
         if self._use_httpx and hasattr(self, "_client"):
@@ -1666,3 +1711,33 @@ class AsyncVellavetoClient:
     async def owasp_asi_coverage(self) -> Dict[str, Any]:
         """Get OWASP Agentic Security Index (ASI) coverage report (async)."""
         return await self._request("GET", "/api/compliance/owasp-agentic")
+
+    # ── Evidence Packs (Phase 48) ─────────────────────────────────
+
+    _EVIDENCE_PACK_FRAMEWORKS = ("dora", "nis2", "iso42001", "eu-ai-act")
+
+    async def evidence_pack(
+        self,
+        framework: str,
+        export_format: str = "json",
+    ) -> Dict[str, Any]:
+        """Generate a compliance evidence pack (async)."""
+        if not isinstance(framework, str) or len(framework) == 0:
+            raise VellavetoError("framework must be a non-empty string")
+        if framework not in self._EVIDENCE_PACK_FRAMEWORKS:
+            raise VellavetoError(
+                f'framework must be one of {self._EVIDENCE_PACK_FRAMEWORKS}, got {framework!r}'
+            )
+        if export_format not in ("json", "html"):
+            raise VellavetoError(
+                f'export_format must be "json" or "html", got {export_format!r}'
+            )
+        params: Dict[str, Any] = {}
+        if export_format != "json":
+            params["format"] = export_format
+        path = f"/api/compliance/evidence-pack/{quote(framework, safe='')}"
+        return await self._request("GET", path, params=params if params else None)
+
+    async def evidence_pack_status(self) -> Dict[str, Any]:
+        """Get evidence pack status (async)."""
+        return await self._request("GET", "/api/compliance/evidence-pack/status")

@@ -1,7 +1,7 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 + 43 + 44 + 47 complete, 210 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 + 43 + 44 + 47 + 48 complete, 210 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
 > **Tests:** 7,469 Rust tests + 385 Python SDK tests + 127 Go SDK tests + 119 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
@@ -90,6 +90,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | ZK Audit: PedersenCommitment, ZkBatchProof, ZkVerifyResult, ZkSchedulerStatus | `vellaveto-types/src/zk_audit.rs` |
 | Audit Store: AuditStoreBackend, AuditQueryParams, AuditQueryResult, AuditStoreStatus | `vellaveto-types/src/audit_store.rs` |
 | Policy Lifecycle: PolicyVersionStatus, PolicyVersion, PolicyApproval, StagingReport | `vellaveto-types/src/policy_lifecycle.rs` |
+| Evidence Pack: EvidenceFramework, EvidenceConfidence, EvidencePack, EvidencePackStatus | `vellaveto-types/src/evidence_pack.rs` |
 | Time utilities: parse_iso8601_secs | `vellaveto-types/src/time_util.rs` |
 | Tests (~180) | `vellaveto-types/src/tests.rs` |
 | **vellaveto-engine** | |
@@ -99,7 +100,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | **vellaveto-audit** | |
 | Module root + AuditLogger + rotation + verification | `vellaveto-audit/src/lib.rs` |
 | Redaction, checkpoints, Merkle proofs, events | `vellaveto-audit/src/*.rs` |
-| Compliance registries: EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, OWASP ASI, gap analysis | `vellaveto-audit/src/{eu_ai_act,soc2,cosai,adversa_top25,iso42001,owasp_asi,gap_analysis}.rs` |
+| Compliance registries: EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, OWASP ASI, DORA, NIS2, gap analysis | `vellaveto-audit/src/{eu_ai_act,soc2,cosai,adversa_top25,iso42001,owasp_asi,dora,nis2,gap_analysis}.rs` |
+| Evidence pack generator + HTML renderer | `vellaveto-audit/src/evidence_pack.rs` |
 | Data governance registry (Art 10) | `vellaveto-audit/src/data_governance.rs` |
 | ZK audit: Pedersen commitments, witness store, Groth16 circuit, batch prover, scheduler | `vellaveto-audit/src/zk/{mod,pedersen,witness,circuit,prover,scheduler}.rs` |
 | Audit sink trait + PostgreSQL sink (feature-gated) | `vellaveto-audit/src/sink.rs`, `vellaveto-audit/src/sink/postgres.rs` |
@@ -117,6 +119,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Discovery config | `vellaveto-config/src/discovery.rs` |
 | Projector config | `vellaveto-config/src/projector.rs` |
 | ZK Audit config | `vellaveto-config/src/zk_audit.rs` |
+| Evidence pack config (DORA, NIS2) | `vellaveto-config/src/evidence_pack.rs` |
 | Tests (~301) | `vellaveto-config/src/tests.rs` |
 | **vellaveto-mcp** | |
 | MCP handling | `vellaveto-mcp/src/lib.rs` |
@@ -149,7 +152,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Audit store API routes (search, status, entry by ID) | `vellaveto-server/src/routes/audit_store.rs` |
 | Policy lifecycle store trait + InMemory impl | `vellaveto-server/src/policy_lifecycle.rs` |
 | Policy lifecycle API routes (versions, approve, promote, rollback, diff) | `vellaveto-server/src/routes/policy_lifecycle.rs` |
-| SOC 2 Access Review route (JSON/HTML) | `vellaveto-server/src/routes/compliance.rs` |
+| Compliance + evidence pack routes (JSON/HTML) | `vellaveto-server/src/routes/compliance.rs` |
 | Dashboard | `vellaveto-server/src/dashboard.rs` |
 | Setup wizard | `vellaveto-server/src/setup_wizard.rs` |
 | **Other** | |
@@ -179,7 +182,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 + Phase 41 + Phase 43 + Phase 44 + Phase 47 implemented, tested, and hardened through 210 audit rounds. Details in CHANGELOG.md.
+All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 + Phase 41 + Phase 43 + Phase 44 + Phase 47 + Phase 48 implemented, tested, and hardened through 210 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
 - **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention, centralized audit store with PostgreSQL dual-write (Phase 43)
@@ -187,7 +190,7 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - **Auth & Transport:** OAuth 2.1/JWT/JWKS, CSRF, rate limiting, MCP 2025-06-18 compliance, 6 deployment modes (HTTP, stdio, HTTP proxy, WebSocket proxy, gRPC proxy, MCP gateway)
 - **Advanced Authorization (Phase 21):** ABAC with forbid-overrides, capability-based delegation tokens, least-agency tracking, identity federation, continuous authorization
 - **MCP Gateway (Phase 20):** Multi-backend routing, health state machine, session affinity, tool conflict detection
-- **Compliance (Phase 19):** EU AI Act registry + Art 50 transparency marking, SOC 2 evidence, CoSAI 38/38, Adversa TOP 25 25/25, 8-framework gap analysis, OTLP export, Merkle inclusion proofs
+- **Compliance (Phase 19):** EU AI Act registry + Art 50 transparency marking, SOC 2 evidence, CoSAI 38/38, Adversa TOP 25 25/25, 10-framework gap analysis (incl. DORA + NIS2), OTLP export, Merkle inclusion proofs
 - **EU AI Act Final Compliance (Phase 24):** Art 50(2) automated decision explanations (VerdictExplanation at configurable verbosity), Art 10 data governance registry (DataGovernanceRecord with classification/purpose/provenance/retention), decision explanation injection into `_meta`
 - **MCP Ecosystem:** Tool registry with trust scoring, elicitation interception, sampling enforcement, semantic guardrails (LLM-based), A2A protocol security
 - **Transport (Phases 17–18):** WebSocket bidirectional proxy, gRPC reverse proxy (tonic), extension registry, transport discovery/negotiation/fallback
@@ -233,6 +236,7 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - **Centralized Audit Store (Phase 43):** `AuditSink` trait for pluggable external stores, `PostgresAuditSink` with mpsc channel + background batch INSERT (exponential backoff retry, `ON CONFLICT DO NOTHING`), `AuditQueryService` trait with `FileAuditQuery` (in-memory filtering) and `PostgresAuditQuery` (SQL with bind parameters, GIN indexes on metadata). `AuditStoreConfig` with SSRF validation (private/loopback/metadata host rejection), SQL identifier validation for table_name, `deny_unknown_fields`, custom Debug redacting `database_url`. REST API: `GET /api/audit/search` (paginated, time/tool/verdict/agent/text filters), `GET /api/audit/store/status`, `GET /api/audit/entry/{id}`. Feature-gated behind `postgres-store` (sqlx). Dual-write: file log remains source of truth, PostgreSQL sink optional and non-fatal by default. ~55 new tests.
 - **Multi-Tenancy Foundation (Phase 44):** Per-tenant policy filtering in evaluate handler (default tenant sees all, named tenants see own + global + legacy via `policy_matches()`). `PerTenantRateLimiter` with DashMap + governor token-bucket (per-minute quota from `TenantQuotas.max_evaluations_per_minute`, stale entry cleanup, fail-closed on capacity exceeded, quota change detection). `AuditEntry.tenant_id` field with `serde(default, skip_serializing_if)` for backward compatibility. PostgreSQL DDL updated to 14 columns with `tenant_id TEXT` + index. Tenant-scoped audit query: `AuditQueryParams.tenant_id` filter in file + Postgres backends, auto-injected for non-default tenants in route handler. Per-tenant `max_policies` quota enforcement in `add_policy` handler. SDK `tenant` parameter: Python (sync+async), TypeScript, Go — all with validation (1–64 chars, `[a-zA-Z0-9_-]`) and `X-Tenant-ID` header injection. Single-tenant mode (default) is fully backward-compatible — no behavior change when `TenantConfig.enabled = false`.
 - **Policy Lifecycle Management (Phase 47):** Versioned policies with Draft → Staging → Active → Archived lifecycle. `PolicyVersionStore` trait + `InMemoryPolicyVersionStore` (tokio RwLock, bounded). `PolicyLifecycleConfig` (default disabled, fail-closed). 9 REST API endpoints for version CRUD, approval, promotion, archival, rollback, and structural diff. Compile-first promote-to-Active with ArcSwap atomic swap and rollback on failure. Staging shadow evaluation: `StagingSnapshot` engine runs non-blocking comparison after active verdict, logging divergences without affecting hot-path latency. Self-approval prevention (NFKC + case-fold). `staging_period_secs` enforcement. 49 new tests.
+- **Compliance Evidence Packs (Phase 48):** Pre-packaged compliance evidence bundles for DORA, NIS2, ISO 42001, and EU AI Act. `EvidenceFramework` enum (`#[non_exhaustive]`), `EvidenceConfidence` (None→Full with Ord), `EvidenceItem`, `EvidenceSection`, `EvidencePack`, `EvidencePackStatus` — all with `deny_unknown_fields`, `validate()`, and bounded constants. `DoraRegistry` (27 articles, 13 capabilities) and `Nis2Registry` (16 articles, 12 capabilities) following existing registry pattern. Evidence pack generator converts framework-specific reports into unified `EvidencePack` format. HTML renderer with inline CSS, color-coded confidence badges, print-friendly layout. `DoraConfig` and `Nis2Config` with `enabled` (default false), `validate()`. Gap analysis extended from 8 → 10 frameworks. REST API: `GET /api/compliance/evidence-pack/{framework}` (JSON/HTML), `GET /api/compliance/evidence-pack/status`. Per-framework 60s cache. SDK methods: Python (sync+async), TypeScript, Go with framework allowlist validation. ~70 new tests.
 - **Interactive Setup Wizard:** Web-based 7-step configuration wizard at `/setup` (Welcome → Security → Policies → Detection → Audit → Compliance → Review/Apply). Server-side rendered HTML matching dashboard dark theme, POST/redirect/GET forms, CSRF protection, bounded session management (MAX_WIZARD_SESSIONS=100, 1hr TTL), TOML config generation with live apply and hot-reload. Guard middleware locks wizard after initial configuration via `.setup-complete` marker file. 28 unit tests.
 - **Cloudflare Pages Deployment:** Site at [www.vellaveto.online](https://www.vellaveto.online), Astro static build deployed via `deploy-site.yml` workflow, `_redirects` (apex → www 301), `_headers` (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)
 - **Docs:** Quickstart guides, security model, benchmarks, 5 policy presets

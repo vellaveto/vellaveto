@@ -1,9 +1,9 @@
 //! Compliance evidence generation API routes.
 //!
 //! Provides endpoints for EU AI Act, SOC 2, ISO 42001, CoSAI, Adversa TOP 25,
-//! OWASP ASI, and cross-framework gap analysis reporting. These read-only endpoints generate
-//! reports at request time using registry-based classification (read-time,
-//! not write-time).
+//! OWASP ASI, DORA, NIS2, evidence packs, and cross-framework gap analysis
+//! reporting. These read-only endpoints generate reports at request time using
+//! registry-based classification (read-time, not write-time).
 //!
 //! SECURITY (FIND-R46-010): Compliance reports are computationally expensive to
 //! generate. A simple time-based cache (60s TTL) is used for the stateless
@@ -89,6 +89,9 @@ static OWASP_ASI_CACHE: ReportCache = ReportCache::new();
 /// on every request. Keyed by (include_nist, include_iso) but simplified to
 /// a single cache entry since the query param combinations are limited.
 static COMPLIANCE_STATUS_CACHE: ReportCache = ReportCache::new();
+/// Cache for evidence pack reports, keyed by framework name.
+/// Uses a HashMap<String, CachedReport> for per-framework caching.
+static EVIDENCE_PACK_CACHE: Mutex<Option<HashMap<String, CachedReport>>> = Mutex::new(None);
 
 // ── Query Parameters ─────────────────────────────────────────────────────────
 
@@ -439,8 +442,8 @@ pub async fn threat_coverage() -> Result<Json<serde_json::Value>, (StatusCode, J
 
 /// `GET /api/compliance/gap-analysis` — Cross-framework gap analysis.
 ///
-/// Generates a consolidated gap analysis across all 8 security frameworks
-/// (ATLAS, NIST RMF, ISO 27090, ISO 42001, EU AI Act, CoSAI, Adversa TOP 25, OWASP ASI).
+/// Generates a consolidated gap analysis across all 10 security frameworks
+/// (ATLAS, NIST RMF, ISO 27090, ISO 42001, EU AI Act, CoSAI, Adversa TOP 25, OWASP ASI, DORA, NIS2).
 #[tracing::instrument(name = "vellaveto.gap_analysis")]
 pub async fn gap_analysis() -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     // SECURITY (FIND-R46-010): Serve from cache if within TTL.
@@ -752,6 +755,233 @@ pub async fn soc2_access_review(
                     }),
                 )
             })?;
+            Ok(Json(value).into_response())
+        }
+    }
+}
+
+// ── Phase 48: Compliance Evidence Packs ──────────────────────────────────────
+
+/// Allowed evidence pack framework path parameter values.
+const EVIDENCE_PACK_FRAMEWORKS: &[&str] = &["dora", "nis2", "iso42001", "eu-ai-act"];
+
+/// Query parameters for the evidence pack endpoint.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvidencePackQuery {
+    /// Export format: "json" (default) or "html".
+    #[serde(default)]
+    pub format: Option<String>,
+}
+
+/// `GET /api/compliance/evidence-pack/status` — List available evidence pack frameworks.
+///
+/// Returns which evidence pack frameworks are available and their enabled status.
+#[tracing::instrument(name = "vellaveto.evidence_pack_status", skip(state))]
+pub async fn evidence_pack_status(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let snapshot = state.policy_state.load();
+    let config = &snapshot.compliance_config;
+
+    let mut available = Vec::new();
+    if config.dora.enabled {
+        available.push("dora");
+    }
+    if config.nis2.enabled {
+        available.push("nis2");
+    }
+    // ISO 42001 and EU AI Act use existing config flags
+    if config.eu_ai_act.enabled {
+        available.push("eu-ai-act");
+    }
+    // ISO 42001 is always available (no separate enabled flag for evidence pack)
+    available.push("iso42001");
+
+    let response = serde_json::json!({
+        "available_frameworks": available,
+        "dora_enabled": config.dora.enabled,
+        "nis2_enabled": config.nis2.enabled,
+    });
+    Ok(Json(response))
+}
+
+/// `GET /api/compliance/evidence-pack/{framework}` — Generate evidence pack.
+///
+/// Generates a compliance evidence pack for the specified framework (DORA, NIS2,
+/// ISO 42001, or EU AI Act). Supports JSON and HTML output formats.
+#[tracing::instrument(name = "vellaveto.evidence_pack", skip(state))]
+pub async fn evidence_pack(
+    State(state): State<AppState>,
+    axum::extract::Path(framework): axum::extract::Path<String>,
+    Query(params): Query<EvidencePackQuery>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY: Validate path parameter
+    super::validate_path_param(&framework, "framework")?;
+
+    // SECURITY: Allowlist check — only known frameworks accepted
+    if !EVIDENCE_PACK_FRAMEWORKS.contains(&framework.as_str()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "Unknown framework. Valid values: {}",
+                    EVIDENCE_PACK_FRAMEWORKS.join(", ")
+                ),
+            }),
+        ));
+    }
+
+    let snapshot = state.policy_state.load();
+    let config = &snapshot.compliance_config;
+
+    // Parse framework enum
+    let evidence_framework = match framework.as_str() {
+        "dora" => {
+            if !config.dora.enabled {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse {
+                        error: "DORA evidence pack is not enabled in configuration".to_string(),
+                    }),
+                ));
+            }
+            vellaveto_types::EvidenceFramework::Dora
+        }
+        "nis2" => {
+            if !config.nis2.enabled {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse {
+                        error: "NIS2 evidence pack is not enabled in configuration".to_string(),
+                    }),
+                ));
+            }
+            vellaveto_types::EvidenceFramework::Nis2
+        }
+        "iso42001" => vellaveto_types::EvidenceFramework::Iso42001,
+        "eu-ai-act" => {
+            if !config.eu_ai_act.enabled {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse {
+                        error: "EU AI Act evidence pack is not enabled in configuration"
+                            .to_string(),
+                    }),
+                ));
+            }
+            vellaveto_types::EvidenceFramework::EuAiAct
+        }
+        // Unreachable due to allowlist above, but fail-closed
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Unknown framework".to_string(),
+                }),
+            ));
+        }
+    };
+
+    // SECURITY (FIND-R138-001): Validate and allowlist `format` before use.
+    let format = match params.format.as_deref() {
+        Some("html") => "html",
+        Some("json") | None => "json",
+        Some(other) => {
+            tracing::warn!(
+                format_len = other.len(),
+                "evidence_pack: invalid format parameter rejected"
+            );
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "format must be 'json' or 'html'".to_string(),
+                }),
+            ));
+        }
+    };
+
+    // Check per-framework cache
+    if format == "json" {
+        let cache_guard = match EVIDENCE_PACK_CACHE.lock() {
+            Ok(g) => g,
+            Err(poisoned) => {
+                tracing::warn!("EVIDENCE_PACK_CACHE mutex poisoned — recovering");
+                poisoned.into_inner()
+            }
+        };
+        if let Some(ref map) = *cache_guard {
+            if let Some(cached) = map.get(&framework) {
+                if cached.generated_at.elapsed().as_secs() < COMPLIANCE_CACHE_TTL_SECS {
+                    return Ok(Json(cached.value.clone()).into_response());
+                }
+            }
+        }
+    }
+
+    // Determine org name and system_id from config
+    let (org_name, sys_id) = match framework.as_str() {
+        "dora" => (
+            config.dora.organization_name.as_str(),
+            config.dora.system_id.as_str(),
+        ),
+        "nis2" => (
+            config.nis2.organization_name.as_str(),
+            config.nis2.system_id.as_str(),
+        ),
+        "iso42001" => ("Vellaveto", "vellaveto-runtime"),
+        "eu-ai-act" => (
+            config.eu_ai_act.deployer_name.as_str(),
+            config.eu_ai_act.system_id.as_str(),
+        ),
+        _ => ("", ""),
+    };
+
+    // Generate the evidence pack
+    let pack = vellaveto_audit::evidence_pack::generate_evidence_pack(
+        evidence_framework,
+        org_name,
+        sys_id,
+    );
+
+    match format {
+        "html" => {
+            let html = vellaveto_audit::evidence_pack::render_evidence_pack_html(&pack);
+            Ok((
+                StatusCode::OK,
+                [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                html,
+            )
+                .into_response())
+        }
+        _ => {
+            let value = serde_json::to_value(&pack).map_err(|e| {
+                tracing::error!("Failed to serialize evidence pack: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "Failed to generate evidence pack".to_string(),
+                    }),
+                )
+            })?;
+
+            // Store in per-framework cache
+            let mut cache_guard = match EVIDENCE_PACK_CACHE.lock() {
+                Ok(g) => g,
+                Err(poisoned) => {
+                    tracing::warn!("EVIDENCE_PACK_CACHE mutex poisoned — recovering for write");
+                    poisoned.into_inner()
+                }
+            };
+            let map = cache_guard.get_or_insert_with(HashMap::new);
+            map.insert(
+                framework.clone(),
+                CachedReport {
+                    generated_at: Instant::now(),
+                    value: value.clone(),
+                },
+            );
+
             Ok(Json(value).into_response())
         }
     }

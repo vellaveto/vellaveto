@@ -30,6 +30,7 @@ pub mod compliance;
 pub mod config_validate;
 pub mod deployment;
 pub mod discovery;
+pub mod evidence_pack;
 pub mod fips;
 pub mod governance;
 pub mod grpc_transport;
@@ -121,6 +122,7 @@ pub use deployment::{
     ServiceDiscoveryMode,
 };
 pub use discovery::DiscoveryConfig;
+pub use evidence_pack::{DoraConfig, Nis2Config};
 pub use extension::ExtensionConfig;
 pub use fips::FipsConfig;
 pub use gateway::{BackendConfig, GatewayConfig};
