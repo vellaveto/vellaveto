@@ -487,12 +487,30 @@ impl SessionGuard {
                 if let Some(key) = evictable {
                     sessions.remove(&key);
                 } else {
-                    // All sessions are Locked/Ended — cannot evict safely.
-                    // Fail-closed: refuse to create new session.
-                    return Err(SessionGuardError::SessionNotFound(format!(
-                        "Session limit reached ({}) and no evictable sessions",
-                        self.config.max_sessions
-                    )));
+                    // SECURITY (FIND-R212-009): Fallback — evict oldest Suspicious
+                    // session to prevent saturation DoS where an attacker fills all
+                    // slots with Suspicious sessions (each needing only
+                    // suspicious_threshold anomaly events).  Locked and Ended
+                    // sessions are never evicted.
+                    let suspicious_evictable = sessions
+                        .iter()
+                        .filter(|(_, ctx)| ctx.state == SessionState::Suspicious)
+                        .min_by_key(|(_, ctx)| ctx.last_action_at)
+                        .map(|(k, _)| k.clone());
+                    if let Some(key) = suspicious_evictable {
+                        tracing::warn!(
+                            "Evicting oldest Suspicious session '{}' due to capacity pressure",
+                            key
+                        );
+                        sessions.remove(&key);
+                    } else {
+                        // All sessions are Locked/Ended — cannot evict safely.
+                        // Fail-closed: refuse to create new session.
+                        return Err(SessionGuardError::SessionNotFound(format!(
+                            "Session limit reached ({}) and no evictable sessions",
+                            self.config.max_sessions
+                        )));
+                    }
                 }
             }
             sessions.insert(session_id.to_string(), SessionContext::new(now));
