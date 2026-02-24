@@ -205,9 +205,23 @@ impl LlmEvalInput {
         if self.tool.len() > 256 {
             return Err(LlmEvalError::InvalidInput("tool name too long".to_string()));
         }
+        // SECURITY (FIND-R213-002): Reject control/format chars in tool name.
+        // These fields are passed to the LLM backend and could enable prompt
+        // injection via zero-width or bidi override characters.
+        if vellaveto_types::has_dangerous_chars(&self.tool) {
+            return Err(LlmEvalError::InvalidInput(
+                "tool contains control or format characters".to_string(),
+            ));
+        }
         if self.function.len() > 256 {
             return Err(LlmEvalError::InvalidInput(
                 "function name too long".to_string(),
+            ));
+        }
+        // SECURITY (FIND-R213-002): Reject control/format chars in function name.
+        if vellaveto_types::has_dangerous_chars(&self.function) {
+            return Err(LlmEvalError::InvalidInput(
+                "function contains control or format characters".to_string(),
             ));
         }
         if self.nl_policies.len() > 50 {
@@ -216,12 +230,19 @@ impl LlmEvalInput {
             ));
         }
         // SECURITY (FIND-R172-002): Bound individual NL policy string lengths.
+        // SECURITY (FIND-R213-002): Also reject control/format chars in policy text.
         for (i, policy) in self.nl_policies.iter().enumerate() {
             if policy.len() > Self::MAX_NL_POLICY_LEN {
                 return Err(LlmEvalError::InvalidInput(format!(
                     "nl_policies[{}] exceeds max length {}",
                     i,
                     Self::MAX_NL_POLICY_LEN
+                )));
+            }
+            if vellaveto_types::has_dangerous_chars(policy) {
+                return Err(LlmEvalError::InvalidInput(format!(
+                    "nl_policies[{}] contains control or format characters",
+                    i
                 )));
             }
         }
@@ -251,6 +272,13 @@ impl LlmEvalInput {
                 if vellaveto_types::has_dangerous_chars(&msg.role) {
                     return Err(LlmEvalError::InvalidInput(format!(
                         "context[{}].role contains control or format characters",
+                        i
+                    )));
+                }
+                // SECURITY (FIND-R213-002): Reject control/format chars in content.
+                if vellaveto_types::has_dangerous_chars(&msg.content) {
+                    return Err(LlmEvalError::InvalidInput(format!(
+                        "context[{}].content contains control or format characters",
                         i
                     )));
                 }
@@ -991,5 +1019,132 @@ mod tests {
             ..Default::default()
         };
         assert!(input.validate().is_ok(), "Metadata within 64KB should be accepted");
+    }
+
+    // ── FIND-R213-002 validation tests ───────────────────────────────
+
+    #[test]
+    fn test_validate_tool_control_chars_rejected() {
+        let input = LlmEvalInput {
+            tool: "tool\x00name".to_string(),
+            ..Default::default()
+        };
+        let err = input.validate().unwrap_err();
+        assert!(
+            format!("{:?}", err).contains("tool contains control or format"),
+            "Control chars in tool must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_tool_bidi_override_rejected() {
+        let input = LlmEvalInput {
+            tool: "tool\u{202E}name".to_string(),
+            ..Default::default()
+        };
+        assert!(
+            input.validate().is_err(),
+            "FIND-R213-002: Bidi override in tool must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_function_control_chars_rejected() {
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            function: "func\x07name".to_string(),
+            ..Default::default()
+        };
+        let err = input.validate().unwrap_err();
+        assert!(
+            format!("{:?}", err).contains("function contains control or format"),
+            "Control chars in function must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_function_zero_width_rejected() {
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            function: "func\u{200B}name".to_string(),
+            ..Default::default()
+        };
+        assert!(
+            input.validate().is_err(),
+            "FIND-R213-002: Zero-width space in function must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_nl_policy_control_chars_rejected() {
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            nl_policies: vec!["no deletion\x00".to_string()],
+            ..Default::default()
+        };
+        let err = input.validate().unwrap_err();
+        assert!(
+            format!("{:?}", err).contains("nl_policies[0] contains control or format"),
+            "Control chars in nl_policies must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_nl_policy_bidi_rejected() {
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            nl_policies: vec![
+                "safe policy".to_string(),
+                "evil\u{202A}policy".to_string(),
+            ],
+            ..Default::default()
+        };
+        let err = input.validate().unwrap_err();
+        assert!(
+            format!("{:?}", err).contains("nl_policies[1]"),
+            "FIND-R213-002: Bidi char in second nl_policy must be rejected with correct index"
+        );
+    }
+
+    #[test]
+    fn test_validate_context_content_control_chars_rejected() {
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            context: Some(vec![ContextMessage::new("user", "hello\x1Bworld")]),
+            ..Default::default()
+        };
+        let err = input.validate().unwrap_err();
+        assert!(
+            format!("{:?}", err).contains("context[0].content contains control or format"),
+            "FIND-R213-002: Control chars in context content must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_context_content_zero_width_rejected() {
+        let input = LlmEvalInput {
+            tool: "test".to_string(),
+            context: Some(vec![ContextMessage::new("user", "hello\u{200B}world")]),
+            ..Default::default()
+        };
+        assert!(
+            input.validate().is_err(),
+            "FIND-R213-002: Zero-width space in context content must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_clean_fields_ok() {
+        let input = LlmEvalInput {
+            tool: "filesystem".to_string(),
+            function: "read_file".to_string(),
+            nl_policies: vec!["no deletion allowed".to_string()],
+            context: Some(vec![ContextMessage::new("user", "Read /tmp/test.txt")]),
+            ..Default::default()
+        };
+        assert!(
+            input.validate().is_ok(),
+            "Clean ASCII fields should pass validation"
+        );
     }
 }

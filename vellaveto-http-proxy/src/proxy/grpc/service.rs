@@ -1373,6 +1373,10 @@ impl McpGrpcService {
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC deny: {}", e);
+                    // SECURITY (FIND-R213-003): Strict audit mode — fail-closed on verdict audit failure.
+                    if let Some(deny) = self.audit_strict_deny(proto_req, "tool deny") {
+                        return deny;
+                    }
                 }
                 // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
                 let _ = reason;
@@ -1397,6 +1401,10 @@ impl McpGrpcService {
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC approval request: {}", e);
+                    // SECURITY (FIND-R213-003): Strict audit mode — fail-closed on verdict audit failure.
+                    if let Some(deny) = self.audit_strict_deny(proto_req, "tool require_approval") {
+                        return deny;
+                    }
                 }
                 // SECURITY (FIND-R211-002): Create pending approval in store — parity
                 // with HTTP handler (handlers.rs:1384) and WS (create_ws_approval).
@@ -1735,6 +1743,10 @@ impl McpGrpcService {
                     }),
                 ).await {
                     tracing::warn!("Failed to audit gRPC resource deny: {}", e);
+                    // SECURITY (FIND-R213-003): Strict audit mode — fail-closed on verdict audit failure.
+                    if let Some(deny) = self.audit_strict_deny(proto_req, "resource deny") {
+                        return deny;
+                    }
                 }
                 // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
                 let _ = reason;
@@ -1749,6 +1761,10 @@ impl McpGrpcService {
                     }),
                 ).await {
                     tracing::warn!("Failed to audit gRPC resource approval request: {}", e);
+                    // SECURITY (FIND-R213-003): Strict audit mode — fail-closed on verdict audit failure.
+                    if let Some(deny) = self.audit_strict_deny(proto_req, "resource require_approval") {
+                        return deny;
+                    }
                 }
                 // SECURITY (FIND-R211-002): Create pending approval in store — parity
                 // with HTTP handler (handlers.rs:1927) and WS (create_ws_approval).
@@ -2398,6 +2414,10 @@ impl McpGrpcService {
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC task deny: {}", e);
+                    // SECURITY (FIND-R213-003): Strict audit mode — fail-closed on verdict audit failure.
+                    if let Some(deny) = self.audit_strict_deny(proto_req, "task deny") {
+                        return deny;
+                    }
                 }
                 // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
                 let _ = reason;
@@ -2423,6 +2443,10 @@ impl McpGrpcService {
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC task approval request: {}", e);
+                    // SECURITY (FIND-R213-003): Strict audit mode — fail-closed on verdict audit failure.
+                    if let Some(deny) = self.audit_strict_deny(proto_req, "task require_approval") {
+                        return deny;
+                    }
                 }
                 // SECURITY (FIND-R211-002): Create pending approval in store — parity
                 // with HTTP handler (handlers.rs:2942) and WS (create_ws_approval).
@@ -2694,6 +2718,10 @@ impl McpGrpcService {
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC extension deny: {}", e);
+                    // SECURITY (FIND-R213-003): Strict audit mode — fail-closed on verdict audit failure.
+                    if let Some(deny) = self.audit_strict_deny(proto_req, "extension deny") {
+                        return deny;
+                    }
                 }
                 // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
                 let _ = reason;

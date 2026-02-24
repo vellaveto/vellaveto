@@ -467,7 +467,10 @@ export class VellavetoClient {
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       if (attempt > 0) {
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        // SECURITY (FIND-R213-002): Full jitter prevents thundering herd when
+        // multiple clients retry simultaneously after a transient failure.
+        const jitteredMs = Math.random() * backoffMs;
+        await new Promise((resolve) => setTimeout(resolve, jitteredMs));
         backoffMs *= 2;
       }
 
@@ -997,17 +1000,19 @@ export class VellavetoClient {
   }
 
   /** Approve a pending approval by ID. */
-  async approveApproval(id: string): Promise<void> {
+  async approveApproval(id: string, reason?: string): Promise<void> {
     // SECURITY (FIND-R54-SDK-003): Validate approval ID format.
     validateApprovalId(id);
-    await this.request<unknown>("POST", `/api/approvals/${encodeURIComponent(id)}/approve`);
+    const body = buildResolveBody(reason);
+    await this.request<unknown>("POST", `/api/approvals/${encodeURIComponent(id)}/approve`, body);
   }
 
   /** Deny a pending approval by ID. */
-  async denyApproval(id: string): Promise<void> {
+  async denyApproval(id: string, reason?: string): Promise<void> {
     // SECURITY (FIND-R54-SDK-003): Validate approval ID format.
     validateApprovalId(id);
-    await this.request<unknown>("POST", `/api/approvals/${encodeURIComponent(id)}/deny`);
+    const body = buildResolveBody(reason);
+    await this.request<unknown>("POST", `/api/approvals/${encodeURIComponent(id)}/deny`, body);
   }
 
   // ────────────────────────────────────────────────────
@@ -1333,6 +1338,31 @@ function extractVerdictReason(v: unknown): string | undefined {
  * SECURITY (FIND-R54-SDK-003): Validate approval ID format.
  * Rejects empty, oversized, and control-character-containing IDs.
  */
+/** Build the JSON body for approve/deny requests with optional reason.
+ * SECURITY (IMP-R212-002): Parity with Python SDK resolve_approval().
+ * Validates reason length (max 4096) and rejects control/format characters.
+ */
+function buildResolveBody(reason?: string): Record<string, string> | undefined {
+  if (reason === undefined || reason === null) {
+    return undefined;
+  }
+  if (typeof reason !== "string") {
+    throw new VellavetoError("reason must be a string");
+  }
+  if (reason.length > 4096) {
+    throw new VellavetoError(
+      `reason exceeds maximum length (4096 chars, got ${reason.length})`
+    );
+  }
+  if (/[\x00-\x1f\x7f-\x9f]/.test(reason)) {
+    throw new VellavetoError("reason contains control characters");
+  }
+  if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(reason)) {
+    throw new VellavetoError("reason contains Unicode format characters");
+  }
+  return { reason };
+}
+
 function validateApprovalId(id: string): void {
   if (typeof id !== "string" || id.trim().length === 0) {
     throw new VellavetoError("approval ID must be a non-empty string");

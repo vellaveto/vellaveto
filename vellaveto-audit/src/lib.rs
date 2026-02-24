@@ -53,8 +53,10 @@ pub mod streaming;
 pub mod adversa_top25;
 pub mod cosai;
 pub mod data_governance;
+pub mod dora;
 pub mod gap_analysis;
 pub mod iso42001;
+pub mod nis2;
 
 // ── Phase 41: OWASP Agentic Security Index (ASI) registry ───────────────────
 pub mod owasp_asi;

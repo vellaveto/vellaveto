@@ -472,10 +472,13 @@ impl ApprovalStore {
         drop(pending);
 
         // Persist to disk; rollback on failure
+        // SECURITY (FIND-R212-005): Acquire both locks atomically for rollback
+        // in consistent order (pending → dedup_index) to prevent TOCTOU where a
+        // concurrent reader sees a stale dedup entry pointing to a removed approval.
         if let Err(e) = self.persist_approval(&approval).await {
             let mut pending = self.pending.write().await;
-            pending.remove(&id);
             let mut dedup = self.dedup_index.write().await;
+            pending.remove(&id);
             dedup.remove(&dedup_key);
             return Err(e);
         }

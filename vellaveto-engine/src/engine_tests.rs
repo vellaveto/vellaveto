@@ -10797,6 +10797,95 @@ fn test_context_require_capability_token_none_fail_closed() {
 }
 
 #[test]
+/// FIND-R213-001: RequireCapabilityToken holder comparison uses homoglyph
+/// normalization. A Cyrillic-variant holder name should match the Latin agent_id.
+fn test_require_capability_token_holder_homoglyph_normalization_allows() {
+    // token.holder uses Cyrillic 'а' (U+0430) which looks like Latin 'a'
+    let token = vellaveto_types::CapabilityToken {
+        token_id: "tok-homoglyph".into(),
+        parent_token_id: None,
+        issuer: "authority".into(),
+        holder: "\u{0430}gent-a".into(), // Cyrillic 'а'
+        grants: vec![vellaveto_types::CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-01-01T00:00:00Z".into(),
+        expires_at: "2027-01-01T00:00:00Z".into(),
+        signature: "deadbeef".into(),
+        issuer_public_key: "cafebabe".into(),
+    };
+    // agent_id uses Latin 'a'
+    let ctx = EvaluationContext::builder()
+        .agent_id("agent-a".to_string())
+        .capability_token(token)
+        .build();
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Cap token homoglyph",
+        json!({
+            "context_conditions": [{
+                "type": "require_capability_token"
+            }]
+        }),
+    );
+    let action = make_action("tool", "op", json!({}));
+    let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(verdict, Verdict::Allow),
+        "Homoglyph-normalized holder should match agent_id: {:?}",
+        verdict
+    );
+}
+
+#[test]
+/// FIND-R213-001: Genuinely different holder still denied after normalization.
+fn test_require_capability_token_holder_different_after_normalization_denies() {
+    let token = vellaveto_types::CapabilityToken {
+        token_id: "tok-diff".into(),
+        parent_token_id: None,
+        issuer: "authority".into(),
+        holder: "agent-b".into(),
+        grants: vec![],
+        remaining_depth: 5,
+        issued_at: "2026-01-01T00:00:00Z".into(),
+        expires_at: "2027-01-01T00:00:00Z".into(),
+        signature: "deadbeef".into(),
+        issuer_public_key: "cafebabe".into(),
+    };
+    let ctx = EvaluationContext::builder()
+        .agent_id("agent-a".to_string())
+        .capability_token(token)
+        .build();
+    let policy = make_conditional_policy(
+        "tool:*",
+        "Cap token diff",
+        json!({
+            "context_conditions": [{
+                "type": "require_capability_token"
+            }]
+        }),
+    );
+    let action = make_action("tool", "op", json!({}));
+    let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+    let verdict = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "Different holder should still deny: {:?}",
+        verdict
+    );
+}
+
+#[test]
 fn test_context_session_state_allowed_allows() {
     let ctx = EvaluationContext::builder()
         .session_state("authenticated".to_string())

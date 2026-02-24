@@ -557,9 +557,9 @@ fn scan_string_for_secrets(
         );
     }
 
-    // FIND-R44-024: Layers 4-5 (double encoding) always run regardless of time budget.
+    // FIND-R44-024: Layers 4-5.5 (double encoding) always run regardless of time budget.
     // Previously, a wall-clock time budget could cause these essential layers to be
-    // skipped in release builds (5ms budget). Only layers 6-8 (triple encoding) are
+    // skipped in release builds (5ms budget). Only layers 6-9 (triple encoding) are
     // time-gated since they are the most expensive combinatorial layers.
 
     // Layer 4: percent(base64(raw)) — base64 decode first, then percent decode the result
@@ -590,7 +590,25 @@ fn scan_string_for_secrets(
         }
     }
 
-    // SECURITY (R33-005): Layers 6-8 add triple-encoding detection.
+    // SECURITY (FIND-R213-003): Layer 5.5 — hex(hex(raw)). Double hex encoding
+    // evasion: attacker hex-encodes a secret, then hex-encodes the result. The
+    // outer hex decode (layer 3.5) produces the inner hex string, and this layer
+    // decodes it to the original secret. Always attempted (essential double-encoding
+    // layer, same priority as layers 4-5).
+    if let Some(ref hex_outer) = hex_decoded {
+        if let Some(ref decoded) = try_hex_decode(hex_outer) {
+            scan_decoded_layer(
+                decoded,
+                path,
+                "(hex+hex)",
+                regexes,
+                &mut matched_patterns,
+                findings,
+            );
+        }
+    }
+
+    // SECURITY (R33-005): Layers 6-9 add triple-encoding detection.
     // Attackers may use triple encoding to evade double-layer detection.
     // FIND-R44-024: Only these triple-encoding layers are time-gated.
 
@@ -644,6 +662,24 @@ fn scan_string_for_secrets(
                     findings,
                 );
             }
+        }
+    }
+
+    // SECURITY (FIND-R213-003): Layer 9 — hex(base64(raw)). Attacker base64-encodes
+    // a secret then hex-encodes the result. Time-gated as a triple-equivalent layer.
+    if let Some(ref b64) = base64_decoded {
+        if start.elapsed() >= DLP_DECODE_BUDGET {
+            return;
+        }
+        if let Some(ref decoded) = try_hex_decode(b64) {
+            scan_decoded_layer(
+                decoded,
+                path,
+                "(base64+hex)",
+                regexes,
+                &mut matched_patterns,
+                findings,
+            );
         }
     }
 }
@@ -2121,6 +2157,29 @@ mod tests {
         assert!(
             findings.is_empty(),
             "Clean hex data should not trigger DLP, got: {:?}",
+            findings
+        );
+    }
+
+    // ── FIND-R213-003: Double-hex encoding evasion ─────────────
+
+    #[test]
+    fn test_dlp_double_hex_encoded_aws_key_detected() {
+        // SECURITY (FIND-R213-003): Attacker hex-encodes a secret, then hex-encodes the result.
+        // Layer 3.5 (hex) decodes the outer layer, layer 5.5 (hex+hex) decodes the inner layer.
+        let raw_key = "AKIAIOSFODNN7EXAMPLE";
+        // First hex encode
+        let hex_once: String = raw_key.bytes().map(|b| format!("{:02x}", b)).collect();
+        // Second hex encode
+        let hex_twice: String = hex_once.bytes().map(|b| format!("{:02x}", b)).collect();
+
+        let params = json!({"data": hex_twice});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern_name == "aws_access_key" && f.location.contains("(hex+hex)")),
+            "FIND-R213-003: Double-hex-encoded AWS key must be detected via (hex+hex) layer, findings: {:?}",
             findings
         );
     }

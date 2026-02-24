@@ -3,10 +3,14 @@ package vellaveto
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -33,6 +37,68 @@ var tenantIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 // retryableStatus returns true for HTTP status codes that should be retried.
 func retryableStatus(code int) bool {
 	return code == 429 || code == 502 || code == 503 || code == 504
+}
+
+// isRetryableError determines whether a network error is transient and safe to retry.
+//
+// SECURITY (FIND-R213-001): Non-retryable errors — TLS certificate failures, DNS
+// resolution errors, and context cancellation — must not be retried, because:
+// - TLS errors indicate an untrusted server and retrying won't fix it.
+// - DNS errors indicate a misconfigured hostname; retrying adds load but no value.
+// - Context cancellation/deadline means the caller has given up.
+// Only connection-level transient errors (timeout, connection refused/reset) are retried.
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Never retry context cancellation or deadline exceeded.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	// Never retry TLS errors — they indicate certificate/handshake issues.
+	var tlsErr *tls.CertificateVerificationError
+	if errors.As(err, &tlsErr) {
+		return false
+	}
+	// Also catch tls.RecordHeaderError and other TLS-related errors by checking
+	// the error chain for any tls-prefixed error message.
+	var tlsRecordErr tls.RecordHeaderError
+	if errors.As(err, &tlsRecordErr) {
+		return false
+	}
+	// Never retry DNS resolution failures.
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return false
+	}
+	// Retry on net.Error with Timeout() == true (connection timeouts, etc.)
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	// Retry on connection-level errors (connection refused, reset, etc.)
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	// For url.Error (wraps transport errors), inspect the inner error.
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return isRetryableError(urlErr.Err)
+	}
+	// Default: do not retry unknown errors (fail-closed).
+	return false
+}
+
+// jitteredBackoff returns a randomized duration between 0 and maxBackoff (full jitter).
+//
+// SECURITY (FIND-R213-002): Full jitter prevents thundering herd when multiple
+// clients retry simultaneously against the same server after a transient failure.
+func jitteredBackoff(maxBackoff time.Duration) time.Duration {
+	if maxBackoff <= 0 {
+		return 0
+	}
+	return time.Duration(rand.Int63n(int64(maxBackoff)))
 }
 
 // Client is the Vellaveto API client.
@@ -241,7 +307,11 @@ const maxErrorBodyDisplay = 256
 // doJSON executes a request with retry for transient HTTP failures.
 //
 // SECURITY (FIND-R58-CFG-008): Retries on 429, 502, 503, 504 with
-// exponential backoff (500ms, 1s, 2s) matching Python SDK parity.
+// exponential backoff matching Python SDK parity.
+// SECURITY (FIND-R213-001): Only retries transient network errors (timeouts,
+// connection refused/reset). Non-retryable errors (TLS, DNS, context
+// cancellation) are returned immediately.
+// SECURITY (FIND-R213-002): Uses full jitter on backoff to prevent thundering herd.
 func (c *Client) doJSON(ctx context.Context, method, path string, body interface{}, dst interface{}) error {
 	backoff := defaultInitialBackoff
 	var lastErr error
@@ -251,13 +321,18 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body interface
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(backoff):
+			case <-time.After(jitteredBackoff(backoff)):
 			}
 			backoff *= 2
 		}
 
 		respBody, status, err := c.do(ctx, method, path, body)
 		if err != nil {
+			// SECURITY (FIND-R213-001): Only retry transient network errors.
+			// TLS, DNS, and context cancellation errors are not retryable.
+			if !isRetryableError(err) {
+				return err
+			}
 			lastErr = err
 			continue
 		}
@@ -378,13 +453,17 @@ func (c *Client) Evaluate(ctx context.Context, action Action, evalCtx *Evaluatio
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(backoff):
+			case <-time.After(jitteredBackoff(backoff)):
 			}
 			backoff *= 2
 		}
 
 		respBody, status, err := c.do(ctx, http.MethodPost, path, reqBody)
 		if err != nil {
+			// SECURITY (FIND-R213-001): Only retry transient network errors.
+			if !isRetryableError(err) {
+				return nil, err
+			}
 			lastErr = err
 			continue
 		}
@@ -636,24 +715,66 @@ func validateApprovalID(id string) error {
 	return nil
 }
 
+// resolveBody is the JSON body for approve/deny requests.
+// SECURITY (IMP-R212-002): SDK parity with Python resolve_approval().
+type resolveBody struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+// validateReason validates the optional reason string for approval resolution.
+// SECURITY (IMP-R212-002): Parity with Python/TS SDK and server-side validation.
+func validateReason(reason string) error {
+	if reason == "" {
+		return nil
+	}
+	if len(reason) > 4096 {
+		return fmt.Errorf("vellaveto: reason exceeds maximum length (4096 chars, got %d)", len(reason))
+	}
+	for _, c := range reason {
+		if c < ' ' || (c >= 0x7F && c <= 0x9F) {
+			return fmt.Errorf("vellaveto: reason contains control characters")
+		}
+		if isUnicodeFormatChar(c) {
+			return fmt.Errorf("vellaveto: reason contains Unicode format characters")
+		}
+	}
+	return nil
+}
+
 // ApproveApproval approves a pending approval by ID.
 // SECURITY (FIND-R46-GO-002): URL-encode the approval ID to prevent path injection.
 // SECURITY (FIND-R54-SDK-003): Validate approval ID format before sending.
-func (c *Client) ApproveApproval(ctx context.Context, id string) error {
+// SECURITY (IMP-R212-002): Optional reason parameter for audit trail.
+func (c *Client) ApproveApproval(ctx context.Context, id string, reason ...string) error {
 	if err := validateApprovalID(id); err != nil {
 		return err
 	}
-	return c.doJSON(ctx, http.MethodPost, "/api/approvals/"+url.PathEscape(id)+"/approve", nil, nil)
+	var body interface{}
+	if len(reason) > 0 && reason[0] != "" {
+		if err := validateReason(reason[0]); err != nil {
+			return err
+		}
+		body = resolveBody{Reason: reason[0]}
+	}
+	return c.doJSON(ctx, http.MethodPost, "/api/approvals/"+url.PathEscape(id)+"/approve", body, nil)
 }
 
 // DenyApproval denies a pending approval by ID.
 // SECURITY (FIND-R46-GO-002): URL-encode the approval ID to prevent path injection.
 // SECURITY (FIND-R54-SDK-003): Validate approval ID format before sending.
-func (c *Client) DenyApproval(ctx context.Context, id string) error {
+// SECURITY (IMP-R212-002): Optional reason parameter for audit trail.
+func (c *Client) DenyApproval(ctx context.Context, id string, reason ...string) error {
 	if err := validateApprovalID(id); err != nil {
 		return err
 	}
-	return c.doJSON(ctx, http.MethodPost, "/api/approvals/"+url.PathEscape(id)+"/deny", nil, nil)
+	var body interface{}
+	if len(reason) > 0 && reason[0] != "" {
+		if err := validateReason(reason[0]); err != nil {
+			return err
+		}
+		body = resolveBody{Reason: reason[0]}
+	}
+	return c.doJSON(ctx, http.MethodPost, "/api/approvals/"+url.PathEscape(id)+"/deny", body, nil)
 }
 
 // maxDiscoverResults is the maximum allowed value for maxResults in Discover().

@@ -70,10 +70,14 @@ impl Default for LeaderElectionConfig {
 
 impl LeaderElectionConfig {
     /// Validate leader election configuration.
+    ///
+    /// SECURITY (FIND-R213-003): Structural validation (numeric bounds) runs
+    /// unconditionally even when `enabled=false`. This prevents persisting
+    /// invalid values that would cause immediate failure on hot-enable.
+    /// Only enabled-specific semantic checks (e.g., renew < lease) are gated
+    /// behind `self.enabled`.
     pub fn validate(&self) -> Result<(), String> {
-        if !self.enabled {
-            return Ok(());
-        }
+        // Structural bounds — always validated regardless of enabled flag.
         if self.lease_duration_secs < 5 || self.lease_duration_secs > 300 {
             return Err(format!(
                 "deployment.leader_election.lease_duration_secs must be in [5, 300], got {}",
@@ -85,16 +89,18 @@ impl LeaderElectionConfig {
         if self.renew_interval_secs == 0 {
             return Err("deployment.leader_election.renew_interval_secs must be > 0".to_string());
         }
-        if self.renew_interval_secs >= self.lease_duration_secs {
-            return Err(format!(
-                "deployment.leader_election.renew_interval_secs ({}) must be < lease_duration_secs ({})",
-                self.renew_interval_secs, self.lease_duration_secs
-            ));
-        }
         if self.retry_period_secs < 1 || self.retry_period_secs > 60 {
             return Err(format!(
                 "deployment.leader_election.retry_period_secs must be in [1, 60], got {}",
                 self.retry_period_secs
+            ));
+        }
+
+        // Semantic checks — only meaningful when leader election is active.
+        if self.enabled && self.renew_interval_secs >= self.lease_duration_secs {
+            return Err(format!(
+                "deployment.leader_election.renew_interval_secs ({}) must be < lease_duration_secs ({})",
+                self.renew_interval_secs, self.lease_duration_secs
             ));
         }
         Ok(())

@@ -7,6 +7,7 @@ Provides synchronous and asynchronous HTTP client for the Vellaveto API.
 import asyncio
 import json
 import logging
+import random
 import time
 import warnings
 from typing import Optional, Dict, Any, List
@@ -508,7 +509,8 @@ class VellavetoClient:
                             f"Transient HTTP {response.status_code}"
                         )
                         if attempt < self.max_retries:
-                            time.sleep(0.5 * (2 ** attempt))
+                            # SECURITY (FIND-R213-002): Full jitter prevents thundering herd.
+                            time.sleep(random.uniform(0, 0.5 * (2 ** attempt)))
                             continue
                         # Last attempt — fall through to "all retries exhausted"
                         break
@@ -548,7 +550,8 @@ class VellavetoClient:
                             f"Transient HTTP {response.status_code}"
                         )
                         if attempt < self.max_retries:
-                            time.sleep(0.5 * (2 ** attempt))
+                            # SECURITY (FIND-R213-002): Full jitter prevents thundering herd.
+                            time.sleep(random.uniform(0, 0.5 * (2 ** attempt)))
                             continue
                         # Last attempt — fall through to "all retries exhausted"
                         break
@@ -586,7 +589,8 @@ class VellavetoClient:
                 is_connection = "Connect" in str(type(e).__name__)
                 # SECURITY (FIND-SDK-014): Retry connection errors
                 if is_connection and attempt < self.max_retries:
-                    time.sleep(0.5 * (2 ** attempt))
+                    # SECURITY (FIND-R213-002): Full jitter prevents thundering herd.
+                    time.sleep(random.uniform(0, 0.5 * (2 ** attempt)))
                     continue
                 error_msg = str(e)
                 if self.api_key and self.api_key in error_msg:
@@ -1244,7 +1248,8 @@ class AsyncVellavetoClient:
                         f"Transient HTTP {response.status_code}"
                     )
                     if attempt < self.max_retries:
-                        await asyncio.sleep(0.5 * (2 ** attempt))
+                        # SECURITY (FIND-R213-002): Full jitter prevents thundering herd.
+                        await asyncio.sleep(random.uniform(0, 0.5 * (2 ** attempt)))
                         continue
                     # Last attempt — fall through to "all retries exhausted"
                     break
@@ -1280,7 +1285,8 @@ class AsyncVellavetoClient:
                 is_connection = "Connect" in str(type(e).__name__)
                 # SECURITY (FIND-R51-003): Retry connection errors
                 if is_connection and attempt < self.max_retries:
-                    await asyncio.sleep(0.5 * (2 ** attempt))
+                    # SECURITY (FIND-R213-002): Full jitter prevents thundering herd.
+                    await asyncio.sleep(random.uniform(0, 0.5 * (2 ** attempt)))
                     continue
                 error_msg = str(e)
                 if self.api_key and self.api_key in error_msg:

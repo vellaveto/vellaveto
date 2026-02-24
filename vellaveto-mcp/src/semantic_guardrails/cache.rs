@@ -238,6 +238,11 @@ impl EvaluationCache {
     /// - Function name
     /// - Parameters (canonicalized JSON)
     /// - NL policies
+    ///
+    /// SECURITY (FIND-R213-001): Each field is length-prefixed with u64 LE bytes
+    /// before the content to prevent delimiter-based collision attacks. Without
+    /// length prefixing, tool="a:b" + function="c" would hash identically to
+    /// tool="a" + function="b:c" because the concatenated byte stream is the same.
     pub fn compute_key(
         &self,
         tool: &str,
@@ -246,26 +251,34 @@ impl EvaluationCache {
         nl_policies: &[String],
     ) -> String {
         let mut hasher = Sha256::new();
-        hasher.update(tool.as_bytes());
-        hasher.update(b":");
-        hasher.update(function.as_bytes());
-        hasher.update(b":");
+        Self::hash_field(&mut hasher, tool.as_bytes());
+        Self::hash_field(&mut hasher, function.as_bytes());
 
         // Canonicalize parameters for consistent hashing
         if let Ok(canonical) = serde_json_canonicalizer::to_string(parameters) {
-            hasher.update(canonical.as_bytes());
+            Self::hash_field(&mut hasher, canonical.as_bytes());
         } else {
-            hasher.update(parameters.to_string().as_bytes());
+            Self::hash_field(&mut hasher, parameters.to_string().as_bytes());
         }
 
-        hasher.update(b":");
+        // Length-prefix the policy count so [] and [""] produce different keys
+        hasher.update((nl_policies.len() as u64).to_le_bytes());
         for policy in nl_policies {
-            hasher.update(policy.as_bytes());
-            hasher.update(b"|");
+            Self::hash_field(&mut hasher, policy.as_bytes());
         }
 
         let result = hasher.finalize();
         hex::encode(result)
+    }
+
+    /// Write a length-prefixed field into the hasher.
+    ///
+    /// SECURITY (FIND-R213-001): Writes the field length as u64 LE bytes before
+    /// the field content, preventing boundary-shift collisions. This matches the
+    /// pattern used in `AuditLogger::hash_field()`.
+    fn hash_field(hasher: &mut Sha256, data: &[u8]) {
+        hasher.update((data.len() as u64).to_le_bytes());
+        hasher.update(data);
     }
 
     /// Retrieves a cached evaluation if present and not expired.
@@ -655,6 +668,56 @@ mod tests {
         assert_ne!(key1, key2);
         assert_ne!(key1, key3);
         assert_ne!(key2, key3);
+    }
+
+    /// SECURITY (FIND-R213-001): Verify that delimiter-ambiguous field values
+    /// produce different cache keys (length-prefixing prevents collisions).
+    #[test]
+    fn test_cache_key_no_delimiter_collision() {
+        let cache = test_cache();
+        let params = serde_json::json!({});
+
+        // tool="a:b", function="c" vs tool="a", function="b:c"
+        let key1 = cache.compute_key("a:b", "c", &params, &[]);
+        let key2 = cache.compute_key("a", "b:c", &params, &[]);
+        assert_ne!(
+            key1, key2,
+            "FIND-R213-001: delimiter in field values must not cause key collision"
+        );
+
+        // tool="a|b", function="c" vs tool="a", function="b|c"
+        let key3 = cache.compute_key("a|b", "c", &params, &[]);
+        let key4 = cache.compute_key("a", "b|c", &params, &[]);
+        assert_ne!(
+            key3, key4,
+            "FIND-R213-001: pipe in field values must not cause key collision"
+        );
+
+        // nl_policies boundary: ["ab", "cd"] vs ["a", "bcd"]
+        let key5 = cache.compute_key(
+            "t",
+            "f",
+            &params,
+            &["ab".to_string(), "cd".to_string()],
+        );
+        let key6 = cache.compute_key(
+            "t",
+            "f",
+            &params,
+            &["a".to_string(), "bcd".to_string()],
+        );
+        assert_ne!(
+            key5, key6,
+            "FIND-R213-001: policy boundary shift must produce different keys"
+        );
+
+        // nl_policies count: [] vs [""]
+        let key7 = cache.compute_key("t", "f", &params, &[]);
+        let key8 = cache.compute_key("t", "f", &params, &["".to_string()]);
+        assert_ne!(
+            key7, key8,
+            "FIND-R213-001: empty vs one-empty-string policy list must differ"
+        );
     }
 
     #[test]

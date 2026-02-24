@@ -302,9 +302,15 @@ impl DeputyValidator {
         }
 
         // Create new context
+        // SECURITY (FIND-R213-002): Normalize homoglyphs on `from` and `to` before
+        // storing in PrincipalContext. This ensures identity consistency between the
+        // deputy subsystem (which compares stored delegated_to against claimed_principal)
+        // and AgentId context conditions (which already normalize). Without this,
+        // Cyrillic/Greek/fullwidth variants of principal names would store differently
+        // than they compare, creating an inconsistency that bypasses principal binding.
         let ctx = PrincipalContext {
-            original_principal: from.to_string(),
-            delegated_to: Some(to.to_string()),
+            original_principal: normalize_homoglyphs(&from.to_ascii_lowercase()),
+            delegated_to: Some(normalize_homoglyphs(&to.to_ascii_lowercase())),
             delegation_depth: new_depth,
             allowed_tools: effective_tools,
             delegation_expires: None, // Could be set from rule
@@ -368,8 +374,14 @@ impl DeputyValidator {
         }
 
         // Verify the claimed principal matches the delegate
+        // SECURITY (FIND-R213-002): Normalize homoglyphs on `claimed_principal` before
+        // comparing with stored `delegated_to` (which is already normalized at registration
+        // time). Without this, Cyrillic/Greek/fullwidth variants of a principal name would
+        // bypass principal binding checks — e.g., "wоrker" (Cyrillic 'о') would not match
+        // stored "worker" (Latin 'o'), allowing a different agent to impersonate the delegate.
         if let Some(ref delegate) = ctx.delegated_to {
-            if delegate != claimed_principal {
+            let claimed_norm = normalize_homoglyphs(&claimed_principal.to_ascii_lowercase());
+            if *delegate != claimed_norm {
                 return Err(DeputyError::PrincipalMismatch {
                     expected: delegate.clone(),
                     actual: claimed_principal.to_string(),
@@ -656,5 +668,73 @@ mod tests {
             .unwrap();
 
         assert_eq!(validator.active_count(), 2);
+    }
+
+    /// FIND-R213-002: Registration normalizes homoglyphs in `from` and `to`.
+    #[test]
+    fn test_register_delegation_normalizes_homoglyphs() {
+        let validator = DeputyValidator::new(3);
+
+        // Register with Cyrillic 'а' (U+0430) in "admin" and 'о' (U+043E) in "worker"
+        validator
+            .register_delegation(
+                "s1",
+                "\u{0430}dmin",  // Cyrillic 'а' looks like Latin 'a'
+                "w\u{043E}rker", // Cyrillic 'о' looks like Latin 'o'
+                &["read_file".to_string()],
+            )
+            .unwrap();
+
+        let ctx = validator.get_context("s1").unwrap();
+        // Stored values should be normalized to Latin equivalents
+        assert_eq!(ctx.original_principal, "admin");
+        assert_eq!(ctx.delegated_to, Some("worker".to_string()));
+    }
+
+    /// FIND-R213-002: validate_action normalizes claimed_principal homoglyphs.
+    #[test]
+    fn test_validate_action_normalizes_claimed_principal_homoglyphs() {
+        let validator = DeputyValidator::new(3);
+
+        validator
+            .register_delegation("s1", "admin", "worker", &["read_file".to_string()])
+            .unwrap();
+
+        // Claimed principal uses Cyrillic 'о' (U+043E) — should still match "worker"
+        let result = validator.validate_action("s1", "read_file", "w\u{043E}rker");
+        assert!(result.is_ok(), "Homoglyph-variant principal should match after normalization");
+    }
+
+    /// FIND-R213-002: validate_action rejects genuinely different principals
+    /// even after normalization.
+    #[test]
+    fn test_validate_action_rejects_different_principal_after_normalization() {
+        let validator = DeputyValidator::new(3);
+
+        validator
+            .register_delegation("s1", "admin", "worker", &["read_file".to_string()])
+            .unwrap();
+
+        // "attacker" is genuinely different from "worker" — must be denied
+        let result = validator.validate_action("s1", "read_file", "attacker");
+        assert!(
+            matches!(result, Err(DeputyError::PrincipalMismatch { .. })),
+            "Different principal should still be denied: {:?}",
+            result
+        );
+    }
+
+    /// FIND-R213-002: Case normalization on registration and validation.
+    #[test]
+    fn test_validate_action_case_insensitive_principal() {
+        let validator = DeputyValidator::new(3);
+
+        validator
+            .register_delegation("s1", "Admin", "Worker", &["read_file".to_string()])
+            .unwrap();
+
+        // Mixed case should match due to to_ascii_lowercase normalization
+        let result = validator.validate_action("s1", "read_file", "WORKER");
+        assert!(result.is_ok(), "Case-insensitive principal match should succeed");
     }
 }

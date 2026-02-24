@@ -2569,7 +2569,21 @@ async fn relay_client_to_upstream(
                                     )
                                     .await
                                 {
-                                    tracing::warn!("Failed to audit WS task deny: {}", e);
+                                    tracing::error!(
+                                        "AUDIT FAILURE in WS proxy: security decision not recorded: {}",
+                                        e
+                                    );
+                                    // SECURITY (FIND-R213-002): Strict audit mode — fail-closed.
+                                    if state.audit_strict_mode {
+                                        let error = make_ws_error_response(
+                                            Some(id),
+                                            -32000,
+                                            "Audit logging failed — request denied (strict audit mode)",
+                                        );
+                                        let mut sink = client_sink.lock().await;
+                                        let _ = sink.send(Message::Text(error.into())).await;
+                                        continue;
+                                    }
                                 }
                                 // SECURITY (FIND-R55-WS-005): Generic denial message to prevent
                                 // leaking policy names/details. Detailed reason is in audit log.
@@ -2596,10 +2610,21 @@ async fn relay_client_to_upstream(
                                     )
                                     .await
                                 {
-                                    tracing::warn!(
-                                        "Failed to audit WS task approval request: {}",
+                                    tracing::error!(
+                                        "AUDIT FAILURE in WS proxy: security decision not recorded: {}",
                                         e
                                     );
+                                    // SECURITY (FIND-R213-002): Strict audit mode — fail-closed.
+                                    if state.audit_strict_mode {
+                                        let error = make_ws_error_response(
+                                            Some(id),
+                                            -32000,
+                                            "Audit logging failed — request denied (strict audit mode)",
+                                        );
+                                        let mut sink = client_sink.lock().await;
+                                        let _ = sink.send(Message::Text(error.into())).await;
+                                        continue;
+                                    }
                                 }
                                 let approval_reason = "Approval required";
                                 let approval_id =
@@ -2956,13 +2981,29 @@ async fn relay_client_to_upstream(
                                     )
                                     .await
                                 {
-                                    tracing::warn!("Failed to audit WS extension deny: {}", e);
+                                    tracing::error!(
+                                        "AUDIT FAILURE in WS proxy: security decision not recorded: {}",
+                                        e
+                                    );
+                                    // SECURITY (FIND-R213-002): Strict audit mode — fail-closed.
+                                    if state.audit_strict_mode {
+                                        let error = make_ws_error_response(
+                                            Some(id),
+                                            -32000,
+                                            "Audit logging failed — request denied (strict audit mode)",
+                                        );
+                                        let mut sink = client_sink.lock().await;
+                                        let _ = sink.send(Message::Text(error.into())).await;
+                                        continue;
+                                    }
                                 }
-                                let denial = extractor::make_denial_response(id, reason.as_str());
-                                let denial_text = serde_json::to_string(&denial)
-                                    .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Denied"}}"#.to_string());
+                                // SECURITY (FIND-R213-001): Generic denial message — do not leak
+                                // detailed policy reason to client. Reason is in the audit log.
+                                let _ = reason;
+                                let denial =
+                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
                                 let mut sink = client_sink.lock().await;
-                                let _ = sink.send(Message::Text(denial_text.into())).await;
+                                let _ = sink.send(Message::Text(denial.into())).await;
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
                                 let deny_reason = format!("Requires approval: {}", reason);
@@ -2982,10 +3023,21 @@ async fn relay_client_to_upstream(
                                     )
                                     .await
                                 {
-                                    tracing::warn!(
-                                        "Failed to audit WS extension approval request: {}",
+                                    tracing::error!(
+                                        "AUDIT FAILURE in WS proxy: security decision not recorded: {}",
                                         e
                                     );
+                                    // SECURITY (FIND-R213-002): Strict audit mode — fail-closed.
+                                    if state.audit_strict_mode {
+                                        let error = make_ws_error_response(
+                                            Some(id),
+                                            -32000,
+                                            "Audit logging failed — request denied (strict audit mode)",
+                                        );
+                                        let mut sink = client_sink.lock().await;
+                                        let _ = sink.send(Message::Text(error.into())).await;
+                                        continue;
+                                    }
                                 }
                                 let approval_reason = "Approval required";
                                 let approval_id =

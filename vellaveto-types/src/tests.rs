@@ -9384,3 +9384,195 @@ fn test_policy_version_diff_validate_policy_id_dangerous() {
     };
     assert!(d.validate().unwrap_err().contains("policy_id"));
 }
+
+// ── Phase 48: Evidence Pack Types Tests ─────────────────────────────────────
+
+#[test]
+fn test_evidence_framework_display() {
+    assert_eq!(EvidenceFramework::Dora.to_string(), "DORA");
+    assert_eq!(EvidenceFramework::Nis2.to_string(), "NIS2");
+    assert_eq!(EvidenceFramework::Iso42001.to_string(), "ISO 42001");
+    assert_eq!(EvidenceFramework::EuAiAct.to_string(), "EU AI Act");
+}
+
+#[test]
+fn test_evidence_framework_serde_roundtrip() {
+    let fw = EvidenceFramework::Dora;
+    let json = serde_json::to_string(&fw).unwrap();
+    assert_eq!(json, "\"dora\"");
+    let deserialized: EvidenceFramework = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized, fw);
+}
+
+#[test]
+fn test_evidence_confidence_ordering() {
+    assert!(EvidenceConfidence::None < EvidenceConfidence::Low);
+    assert!(EvidenceConfidence::Low < EvidenceConfidence::Medium);
+    assert!(EvidenceConfidence::Medium < EvidenceConfidence::High);
+    assert!(EvidenceConfidence::High < EvidenceConfidence::Full);
+}
+
+#[test]
+fn test_evidence_confidence_display() {
+    assert_eq!(EvidenceConfidence::None.to_string(), "None");
+    assert_eq!(EvidenceConfidence::Full.to_string(), "Full");
+    assert_eq!(EvidenceConfidence::Medium.to_string(), "Medium");
+}
+
+#[test]
+fn test_evidence_confidence_serde() {
+    let c = EvidenceConfidence::High;
+    let json = serde_json::to_string(&c).unwrap();
+    assert_eq!(json, "\"high\"");
+    let deserialized: EvidenceConfidence = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized, c);
+}
+
+#[test]
+fn test_evidence_item_validate_ok() {
+    let item = EvidenceItem {
+        requirement_id: "Art 5".to_string(),
+        requirement_title: "ICT Risk Management".to_string(),
+        article_ref: "DORA Art 5-6".to_string(),
+        vellaveto_capability: "PolicyEngine".to_string(),
+        evidence_description: "Policy engine provides risk management".to_string(),
+        confidence: EvidenceConfidence::High,
+        gaps: vec![],
+    };
+    assert!(item.validate().is_ok());
+}
+
+#[test]
+fn test_evidence_item_validate_dangerous_chars() {
+    let item = EvidenceItem {
+        requirement_id: "Art\x005".to_string(),
+        requirement_title: "Test".to_string(),
+        article_ref: "ref".to_string(),
+        vellaveto_capability: "cap".to_string(),
+        evidence_description: "desc".to_string(),
+        confidence: EvidenceConfidence::High,
+        gaps: vec![],
+    };
+    let err = item.validate().unwrap_err();
+    assert!(err.contains("requirement_id"));
+    assert!(err.contains("control"));
+}
+
+#[test]
+fn test_evidence_item_validate_string_too_long() {
+    let item = EvidenceItem {
+        requirement_id: "a".repeat(MAX_EVIDENCE_STRING_LEN + 1),
+        requirement_title: "Test".to_string(),
+        article_ref: "ref".to_string(),
+        vellaveto_capability: "cap".to_string(),
+        evidence_description: "desc".to_string(),
+        confidence: EvidenceConfidence::High,
+        gaps: vec![],
+    };
+    let err = item.validate().unwrap_err();
+    assert!(err.contains("requirement_id"));
+    assert!(err.contains("exceeds max"));
+}
+
+#[test]
+fn test_evidence_section_validate_coverage_nan() {
+    let section = EvidenceSection {
+        section_id: "test".to_string(),
+        title: "Test".to_string(),
+        description: "Test section".to_string(),
+        items: vec![],
+        section_coverage_percent: f32::NAN,
+    };
+    let err = section.validate().unwrap_err();
+    assert!(err.contains("section_coverage_percent"));
+}
+
+#[test]
+fn test_evidence_section_validate_coverage_negative() {
+    let section = EvidenceSection {
+        section_id: "test".to_string(),
+        title: "Test".to_string(),
+        description: "Test section".to_string(),
+        items: vec![],
+        section_coverage_percent: -1.0,
+    };
+    let err = section.validate().unwrap_err();
+    assert!(err.contains("section_coverage_percent"));
+}
+
+#[test]
+fn test_evidence_pack_serde_roundtrip() {
+    let pack = EvidencePack {
+        framework: EvidenceFramework::Dora,
+        framework_name: "DORA".to_string(),
+        generated_at: "2026-02-24T00:00:00Z".to_string(),
+        organization_name: "Test Corp".to_string(),
+        system_id: "test-001".to_string(),
+        period_start: None,
+        period_end: None,
+        sections: vec![EvidenceSection {
+            section_id: "s1".to_string(),
+            title: "Section 1".to_string(),
+            description: "Test".to_string(),
+            items: vec![],
+            section_coverage_percent: 80.0,
+        }],
+        overall_coverage_percent: 80.0,
+        total_requirements: 10,
+        covered_requirements: 8,
+        partial_requirements: 1,
+        uncovered_requirements: 1,
+        critical_gaps: vec!["Gap 1".to_string()],
+        recommendations: vec!["Rec 1".to_string()],
+    };
+    assert!(pack.validate().is_ok());
+    let json = serde_json::to_string(&pack).unwrap();
+    let deserialized: EvidencePack = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.framework, EvidenceFramework::Dora);
+    assert_eq!(deserialized.total_requirements, 10);
+    assert_eq!(deserialized.sections.len(), 1);
+}
+
+#[test]
+fn test_evidence_pack_validate_too_many_gaps() {
+    let pack = EvidencePack {
+        framework: EvidenceFramework::Nis2,
+        framework_name: "NIS2".to_string(),
+        generated_at: "2026-01-01T00:00:00Z".to_string(),
+        organization_name: "Test".to_string(),
+        system_id: "test".to_string(),
+        period_start: None,
+        period_end: None,
+        sections: vec![],
+        overall_coverage_percent: 50.0,
+        total_requirements: 1,
+        covered_requirements: 0,
+        partial_requirements: 0,
+        uncovered_requirements: 1,
+        critical_gaps: (0..501).map(|i| format!("gap_{}", i)).collect(),
+        recommendations: vec![],
+    };
+    let err = pack.validate().unwrap_err();
+    assert!(err.contains("critical_gaps"));
+}
+
+#[test]
+fn test_evidence_pack_status_serde() {
+    let status = EvidencePackStatus {
+        available_frameworks: vec![EvidenceFramework::Dora, EvidenceFramework::Nis2],
+        dora_enabled: true,
+        nis2_enabled: false,
+    };
+    let json = serde_json::to_string(&status).unwrap();
+    let deserialized: EvidencePackStatus = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.available_frameworks.len(), 2);
+    assert!(deserialized.dora_enabled);
+    assert!(!deserialized.nis2_enabled);
+}
+
+#[test]
+fn test_evidence_pack_deny_unknown_fields() {
+    let json = r#"{"framework":"dora","framework_name":"DORA","generated_at":"","organization_name":"","system_id":"","sections":[],"overall_coverage_percent":0.0,"total_requirements":0,"covered_requirements":0,"partial_requirements":0,"uncovered_requirements":0,"critical_gaps":[],"recommendations":[],"unknown":"bad"}"#;
+    let result: Result<EvidencePack, _> = serde_json::from_str(json);
+    assert!(result.is_err(), "should reject unknown fields");
+}

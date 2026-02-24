@@ -3721,6 +3721,46 @@ fn test_deployment_leader_election_retry_out_of_range() {
     assert!(err.contains("retry_period_secs"));
 }
 
+/// SECURITY (FIND-R213-003): Structural bounds must be validated even when
+/// leader election is disabled. Invalid values persisted while disabled would
+/// cause immediate failure on hot-enable.
+#[test]
+fn test_deployment_leader_election_disabled_still_validates_bounds() {
+    let mut config = crate::DeploymentConfig::default();
+    config.leader_election.enabled = false;
+    config.leader_election.lease_duration_secs = 2; // below [5, 300]
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("lease_duration_secs"));
+}
+
+#[test]
+fn test_deployment_leader_election_disabled_rejects_zero_renew() {
+    let mut config = crate::DeploymentConfig::default();
+    config.leader_election.enabled = false;
+    config.leader_election.renew_interval_secs = 0;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("renew_interval_secs"));
+}
+
+#[test]
+fn test_deployment_leader_election_disabled_rejects_retry_out_of_range() {
+    let mut config = crate::DeploymentConfig::default();
+    config.leader_election.enabled = false;
+    config.leader_election.retry_period_secs = 0;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("retry_period_secs"));
+}
+
+/// When disabled, renew >= lease is not a semantic error (only checked when enabled).
+#[test]
+fn test_deployment_leader_election_disabled_allows_renew_ge_lease() {
+    let mut config = crate::DeploymentConfig::default();
+    config.leader_election.enabled = false;
+    config.leader_election.lease_duration_secs = 10;
+    config.leader_election.renew_interval_secs = 10; // equal — only invalid when enabled
+    assert!(config.validate().is_ok());
+}
+
 #[test]
 fn test_deployment_service_discovery_dns_requires_name() {
     let mut config = crate::DeploymentConfig::default();

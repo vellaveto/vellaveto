@@ -767,7 +767,15 @@ impl PolicyEngine {
                             // the agent_id field, which would otherwise bypass holder binding.
                             match &context.agent_id {
                                 Some(ref agent_id) => {
-                                    if !token.holder.eq_ignore_ascii_case(agent_id) {
+                                    // SECURITY (FIND-R213-001): Normalize homoglyphs on both
+                                    // token.holder and agent_id before comparison. The previous
+                                    // eq_ignore_ascii_case was insufficient — Cyrillic/Greek/
+                                    // fullwidth characters that visually resemble Latin chars
+                                    // would bypass holder binding, allowing token theft by an
+                                    // agent with a homoglyph-variant name.
+                                    let holder_norm = normalize_homoglyphs(&token.holder.to_ascii_lowercase());
+                                    let agent_norm = normalize_homoglyphs(&agent_id.to_ascii_lowercase());
+                                    if holder_norm != agent_norm {
                                         return Some(Verdict::Deny {
                                             reason: format!(
                                                 "{} (token holder '{}' does not match agent_id '{}')",
