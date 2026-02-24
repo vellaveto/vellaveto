@@ -317,10 +317,14 @@ impl PolicyEngine {
                                             .as_deref()
                                             .map(|s| sanitize_for_log(s, MAX_CLAIM_DISPLAY_LEN))
                                             .unwrap_or_else(|| "<none>".to_string());
+                                        // SECURITY (FIND-R216-009): Truncate expected value in
+                                        // denial reason to prevent oversized responses.
+                                        let safe_expected =
+                                            sanitize_for_log(req_iss, MAX_CLAIM_DISPLAY_LEN);
                                         return Some(Verdict::Deny {
                                             reason: format!(
                                                 "{} (issuer mismatch: expected '{}', got '{}')",
-                                                deny_reason, req_iss, safe_got
+                                                deny_reason, safe_expected, safe_got
                                             ),
                                         });
                                     }
@@ -338,10 +342,12 @@ impl PolicyEngine {
                                             .as_deref()
                                             .map(|s| sanitize_for_log(s, MAX_CLAIM_DISPLAY_LEN))
                                             .unwrap_or_else(|| "<none>".to_string());
+                                        let safe_expected =
+                                            sanitize_for_log(req_sub, MAX_CLAIM_DISPLAY_LEN);
                                         return Some(Verdict::Deny {
                                             reason: format!(
                                                 "{} (subject mismatch: expected '{}', got '{}')",
-                                                deny_reason, req_sub, safe_got
+                                                deny_reason, safe_expected, safe_got
                                             ),
                                         });
                                     }
@@ -365,10 +371,12 @@ impl PolicyEngine {
                                         .take(10)
                                         .map(|a| sanitize_for_log(a, MAX_CLAIM_DISPLAY_LEN))
                                         .collect();
+                                    let safe_expected =
+                                        sanitize_for_log(req_aud, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
                                         reason: format!(
                                             "{} (audience mismatch: '{}' not in {:?})",
-                                            deny_reason, req_aud, safe_audiences
+                                            deny_reason, safe_expected, safe_audiences
                                         ),
                                     });
                                 }
