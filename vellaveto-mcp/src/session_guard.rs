@@ -910,6 +910,16 @@ impl SessionGuard {
     ///
     /// Fail-closed: if the lock is poisoned, returns a deny reason.
     pub fn should_deny(&self, session_id: &str) -> Option<String> {
+        // SECURITY (FIND-R216-005): Validate session_id before embedding in
+        // denial strings or tracing fields. Prevents log injection and
+        // reflected control characters in HTTP responses.
+        if session_id.is_empty()
+            || session_id.len() > MAX_SESSION_ID_LEN
+            || vellaveto_types::has_dangerous_chars(session_id)
+        {
+            return Some("Session ID invalid — fail-closed deny".to_string());
+        }
+
         // Phase 1: read-only check for terminal states and expiry detection.
         let expired = match self.sessions.read() {
             Ok(sessions) => {

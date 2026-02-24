@@ -281,6 +281,14 @@ pub struct ComplianceConfig {
     /// OWASP Agentic Security Index (ASI) configuration.
     #[serde(default)]
     pub owasp_asi: OwaspAsiConfig,
+
+    /// DORA evidence pack configuration (Phase 48).
+    #[serde(default)]
+    pub dora: super::evidence_pack::DoraConfig,
+
+    /// NIS2 evidence pack configuration (Phase 48).
+    #[serde(default)]
+    pub nis2: super::evidence_pack::Nis2Config,
 }
 
 impl ComplianceConfig {
@@ -439,6 +447,9 @@ impl ComplianceConfig {
         }
         // Phase 41: OWASP ASI config validation
         self.owasp_asi.validate()?;
+        // Phase 48: DORA and NIS2 config validation
+        self.dora.validate()?;
+        self.nis2.validate()?;
         Ok(())
     }
 
@@ -558,6 +569,8 @@ mod tests {
             },
             data_governance: DataGovernanceConfig::default(),
             owasp_asi: OwaspAsiConfig::default(),
+            dora: Default::default(),
+            nis2: Default::default(),
         };
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: ComplianceConfig = serde_json::from_str(&json).unwrap();
@@ -952,5 +965,119 @@ enabled = false
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: OwaspAsiConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(config, deserialized);
+    }
+}
+
+// ── Phase 48: DORA and NIS2 config tests ────────────────────────────────────
+
+#[cfg(test)]
+mod dora_nis2_tests {
+    use super::*;
+
+    #[test]
+    fn test_dora_config_defaults() {
+        let config = super::super::evidence_pack::DoraConfig::default();
+        assert!(!config.enabled);
+        assert!(config.organization_name.is_empty());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_nis2_config_defaults() {
+        let config = super::super::evidence_pack::Nis2Config::default();
+        assert!(!config.enabled);
+        assert!(config.organization_name.is_empty());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_dora_config_serde_roundtrip() {
+        let config = super::super::evidence_pack::DoraConfig {
+            enabled: true,
+            organization_name: "Bank AG".to_string(),
+            system_id: "bank-001".to_string(),
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let back: super::super::evidence_pack::DoraConfig =
+            serde_json::from_str(&json).unwrap();
+        assert!(back.enabled);
+        assert_eq!(back.organization_name, "Bank AG");
+    }
+
+    #[test]
+    fn test_nis2_config_serde_roundtrip() {
+        let config = super::super::evidence_pack::Nis2Config {
+            enabled: true,
+            organization_name: "Energy Corp".to_string(),
+            system_id: "energy-001".to_string(),
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let back: super::super::evidence_pack::Nis2Config =
+            serde_json::from_str(&json).unwrap();
+        assert!(back.enabled);
+        assert_eq!(back.system_id, "energy-001");
+    }
+
+    #[test]
+    fn test_dora_config_dangerous_chars_rejected() {
+        let config = super::super::evidence_pack::DoraConfig {
+            enabled: true,
+            organization_name: "Bank\x00AG".to_string(),
+            system_id: "ok".to_string(),
+        };
+        assert!(config.validate().unwrap_err().contains("organization_name"));
+    }
+
+    #[test]
+    fn test_nis2_config_string_too_long_rejected() {
+        let config = super::super::evidence_pack::Nis2Config {
+            enabled: true,
+            organization_name: "a".repeat(513),
+            system_id: "ok".to_string(),
+        };
+        assert!(config.validate().unwrap_err().contains("organization_name"));
+    }
+
+    #[test]
+    fn test_dora_deny_unknown_fields() {
+        let json = r#"{"enabled": true, "unknown": "bad"}"#;
+        let result: Result<super::super::evidence_pack::DoraConfig, _> =
+            serde_json::from_str(json);
+        assert!(result.is_err(), "should reject unknown fields");
+    }
+
+    #[test]
+    fn test_compliance_config_includes_dora_nis2() {
+        let config = ComplianceConfig::default();
+        assert!(!config.dora.enabled);
+        assert!(!config.nis2.enabled);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_compliance_config_toml_with_dora_nis2() {
+        let toml_str = r#"
+[eu_ai_act]
+enabled = true
+
+[soc2]
+enabled = false
+
+[dora]
+enabled = true
+organization_name = "Bank"
+system_id = "bank-001"
+
+[nis2]
+enabled = true
+organization_name = "Corp"
+system_id = "corp-001"
+"#;
+        let config: ComplianceConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.dora.enabled);
+        assert_eq!(config.dora.organization_name, "Bank");
+        assert!(config.nis2.enabled);
+        assert_eq!(config.nis2.system_id, "corp-001");
+        assert!(config.validate().is_ok());
     }
 }

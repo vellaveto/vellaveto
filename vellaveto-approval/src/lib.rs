@@ -755,16 +755,16 @@ impl ApprovalStore {
 
     /// List all pending (not yet resolved) approvals.
     ///
-    /// SECURITY (FIND-R212-010): Caps the returned collection at `DEFAULT_MAX_PENDING`
-    /// to bound memory from the clone. Callers (route handler) may apply a tighter
-    /// cap for serialization; this ensures the store itself never allocates beyond
-    /// the configured maximum.
+    /// SECURITY (FIND-R212-010, FIND-R216-004): Caps the returned collection at
+    /// `self.max_pending` to bound clone allocation. Primary capacity enforcement
+    /// is in `create()`, but this defends against HashMap growth via persistence
+    /// replay or config changes after construction.
     pub async fn list_pending(&self) -> Vec<PendingApproval> {
         let pending = self.pending.read().await;
         pending
             .values()
             .filter(|a| a.status == ApprovalStatus::Pending)
-            .take(DEFAULT_MAX_PENDING)
+            .take(self.max_pending)
             .cloned()
             .collect()
     }

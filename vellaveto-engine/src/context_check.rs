@@ -379,10 +379,14 @@ impl PolicyEngine {
                             // matching issuer/subject/audience behavior.
                             // SECURITY (FIND-R203-001): Sanitize attacker-controlled
                             // actual claim values before including in denial reasons.
+                            // SECURITY (IMP-R216-006): Apply homoglyph normalization
+                            // to claim values for parity with issuer/subject checks.
                             for (claim_key, expected_value) in required_claims {
                                 match identity.claim_str(claim_key) {
                                     Some(actual)
-                                        if actual.to_ascii_lowercase() == *expected_value => {}
+                                        if normalize_homoglyphs(
+                                            &actual.to_ascii_lowercase(),
+                                        ) == *expected_value => {}
                                     actual => {
                                         let safe_actual = actual
                                             .map(|s| sanitize_for_log(s, MAX_CLAIM_DISPLAY_LEN))
@@ -795,8 +799,11 @@ impl PolicyEngine {
                             }
 
                             // Check issuer allowlist
+                            // SECURITY (IMP-R216-005): Apply homoglyph normalization
+                            // for parity with agent_identity issuer checks.
                             if !required_issuers.is_empty() {
-                                let issuer_lower = token.issuer.to_ascii_lowercase();
+                                let issuer_lower =
+                                    normalize_homoglyphs(&token.issuer.to_ascii_lowercase());
                                 if !required_issuers.contains(&issuer_lower) {
                                     return Some(Verdict::Deny {
                                         reason: format!(

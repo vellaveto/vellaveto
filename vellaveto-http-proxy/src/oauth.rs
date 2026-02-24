@@ -708,6 +708,15 @@ impl OAuthValidator {
             )));
         }
 
+        // SECURITY (IMP-R216-002): Reject non-ASCII htu values. RFC 3986 URIs are
+        // ASCII-only; non-ASCII bytes would corrupt decode_unreserved_percent output
+        // (byte-by-byte iteration splits multi-byte UTF-8 sequences).
+        if !claims.htu.is_ascii() {
+            return Err(OAuthError::InvalidDpopProof(
+                "htu contains non-ASCII characters".to_string(),
+            ));
+        }
+
         // SECURITY (FIND-R164-006): Normalize htu comparison — lowercase scheme+host
         // prevents case-based bypass (e.g. HTTP://... vs http://...).
         // SECURITY (FIND-R212-011): Decode unreserved percent-encoded chars per
@@ -2099,5 +2108,76 @@ TfzccotDw2uXy3Xbwy/kdpfK
         // Additional format char ranges now covered via has_dangerous_chars():
         assert!(contains_control_chars("x\u{00AD}y")); // soft hyphen
         assert!(contains_control_chars("x\u{FFF9}y")); // interlinear annotation
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // IMP-R216-001: Tests for decode_unreserved_percent (FIND-R212-011)
+    // ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_decode_unreserved_percent_decodes_unreserved_chars() {
+        assert_eq!(decode_unreserved_percent("%2D"), "-");
+        assert_eq!(decode_unreserved_percent("%2E"), ".");
+        assert_eq!(decode_unreserved_percent("%5F"), "_");
+        assert_eq!(decode_unreserved_percent("%7E"), "~");
+        assert_eq!(decode_unreserved_percent("%41"), "A");
+        assert_eq!(decode_unreserved_percent("%61"), "a");
+        assert_eq!(decode_unreserved_percent("%30"), "0");
+    }
+
+    #[test]
+    fn test_decode_unreserved_percent_keeps_reserved_encoded() {
+        assert_eq!(decode_unreserved_percent("%2F"), "%2F"); // /
+        assert_eq!(decode_unreserved_percent("%40"), "%40"); // @
+        assert_eq!(decode_unreserved_percent("%3A"), "%3A"); // :
+        assert_eq!(decode_unreserved_percent("%00"), "%00"); // NUL
+        assert_eq!(decode_unreserved_percent("%20"), "%20"); // space
+        assert_eq!(decode_unreserved_percent("%3F"), "%3F"); // ?
+        assert_eq!(decode_unreserved_percent("%23"), "%23"); // #
+    }
+
+    #[test]
+    fn test_decode_unreserved_percent_normalizes_hex_case() {
+        // Lowercase hex input for unreserved → decoded
+        assert_eq!(decode_unreserved_percent("%2d"), "-");
+        assert_eq!(decode_unreserved_percent("%7e"), "~");
+        // Lowercase hex input for reserved → uppercased
+        assert_eq!(decode_unreserved_percent("%2f"), "%2F");
+        assert_eq!(decode_unreserved_percent("%3a"), "%3A");
+    }
+
+    #[test]
+    fn test_decode_unreserved_percent_incomplete_sequences() {
+        assert_eq!(decode_unreserved_percent("foo%"), "foo%");
+        assert_eq!(decode_unreserved_percent("foo%2"), "foo%2");
+        assert_eq!(decode_unreserved_percent("%"), "%");
+        assert_eq!(decode_unreserved_percent("%G0"), "%G0"); // invalid hex digit
+    }
+
+    #[test]
+    fn test_decode_unreserved_percent_mixed_content() {
+        assert_eq!(
+            decode_unreserved_percent("foo%2Dbar%2Fbaz"),
+            "foo-bar%2Fbaz"
+        );
+        assert_eq!(decode_unreserved_percent(""), "");
+        assert_eq!(decode_unreserved_percent("no-encoding"), "no-encoding");
+        assert_eq!(
+            decode_unreserved_percent("a%2Db%2Ec%5Fd%7Ee"),
+            "a-b.c_d~e"
+        );
+    }
+
+    #[test]
+    fn test_hex_digit_parser() {
+        assert_eq!(hex_digit(b'0'), Some(0));
+        assert_eq!(hex_digit(b'9'), Some(9));
+        assert_eq!(hex_digit(b'a'), Some(10));
+        assert_eq!(hex_digit(b'f'), Some(15));
+        assert_eq!(hex_digit(b'A'), Some(10));
+        assert_eq!(hex_digit(b'F'), Some(15));
+        assert_eq!(hex_digit(b'g'), None);
+        assert_eq!(hex_digit(b'G'), None);
+        assert_eq!(hex_digit(b' '), None);
     }
 }

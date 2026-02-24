@@ -13,7 +13,7 @@ use crate::matcher::{CompiledToolMatcher, PatternMatcher};
 use crate::PolicyEngine;
 use globset::Glob;
 use ipnet::IpNet;
-use vellaveto_types::{Policy, PolicyType, MAX_CONDITIONS_SIZE};
+use vellaveto_types::{unicode::normalize_homoglyphs, Policy, PolicyType, MAX_CONDITIONS_SIZE};
 
 impl PolicyEngine {
     /// Compile a set of policies, validating all patterns at load time.
@@ -1176,7 +1176,10 @@ impl PolicyEngine {
                                     ),
                                 });
                             }
-                            map.insert(k.clone(), s.to_ascii_lowercase());
+                            map.insert(
+                                k.clone(),
+                                normalize_homoglyphs(&s.to_ascii_lowercase()),
+                            );
                         }
                     }
                     map
@@ -1634,9 +1637,14 @@ impl PolicyEngine {
                         ),
                     });
                 }
+                // SECURITY (IMP-R216-005): Apply homoglyph normalization for parity
+                // with agent_identity issuer/subject/audience checks.
                 let required_issuers: Vec<String> = required_issuers_raw
                     .iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_ascii_lowercase()))
+                    .filter_map(|v| {
+                        v.as_str()
+                            .map(|s| normalize_homoglyphs(&s.to_ascii_lowercase()))
+                    })
                     .collect();
 
                 // Parse min_remaining_depth (optional, default 0)
