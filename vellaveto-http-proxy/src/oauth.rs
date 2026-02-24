@@ -20,7 +20,7 @@ use jsonwebtoken::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::VecDeque,
+    collections::HashMap,
     time::{Duration, Instant},
 };
 use tokio::sync::RwLock;
@@ -444,7 +444,9 @@ pub struct OAuthValidator {
     /// How long to cache JWKS keys before re-fetching.
     cache_ttl: Duration,
     /// Recently seen DPoP JTIs for replay detection.
-    dpop_jti_cache: RwLock<VecDeque<(String, u64)>>,
+    /// SECURITY (FIND-R212-001): HashMap for O(1) replay detection instead of
+    /// linear VecDeque scan.  Time-based eviction with fail-closed on capacity.
+    dpop_jti_cache: RwLock<HashMap<String, u64>>,
 }
 
 impl OAuthValidator {
@@ -457,7 +459,7 @@ impl OAuthValidator {
             http_client,
             jwks_cache: RwLock::new(None),
             cache_ttl: Duration::from_secs(300), // 5 minute JWKS cache TTL
-            dpop_jti_cache: RwLock::new(VecDeque::new()),
+            dpop_jti_cache: RwLock::new(HashMap::new()),
         }
     }
 
@@ -752,15 +754,6 @@ impl OAuthValidator {
         let replay_window = std::cmp::max((skew.max(0) as u64) * 2, 600);
         let oldest_allowed = now_u64.saturating_sub(replay_window);
 
-        let mut cache = self.dpop_jti_cache.write().await;
-        while let Some((_, ts)) = cache.front() {
-            if *ts < oldest_allowed {
-                cache.pop_front();
-            } else {
-                break;
-            }
-        }
-
         // Replay key is token-bound when `ath` is present to avoid false
         // positives across distinct tokens that reuse the same JTI value.
         let replay_key = match claims.ath.as_deref() {
@@ -773,14 +766,31 @@ impl OAuthValidator {
             ));
         }
 
-        if cache.iter().any(|(cached, _)| cached == &replay_key) {
+        // SECURITY (FIND-R212-001): HashMap with time-based eviction replaces
+        // VecDeque with linear scan.  Benefits:
+        //   1. O(1) replay detection instead of O(n) linear scan
+        //   2. Time-based eviction purges expired entries before capacity check
+        //   3. Fail-closed at capacity after purge (no silent eviction of live entries)
+        const MAX_JTI_CACHE_SIZE: usize = 8192;
+
+        let mut cache = self.dpop_jti_cache.write().await;
+
+        // Purge expired entries before any lookup or insert
+        cache.retain(|_, ts| *ts >= oldest_allowed);
+
+        // O(1) replay check
+        if cache.contains_key(&replay_key) {
             return Err(OAuthError::DpopReplayDetected);
         }
 
-        cache.push_back((replay_key, now_u64));
-        if cache.len() > 8192 {
-            cache.pop_front();
+        // Capacity check — fail-closed instead of silently evicting live entries
+        if cache.len() >= MAX_JTI_CACHE_SIZE {
+            return Err(OAuthError::InvalidDpopProof(
+                "DPoP replay cache at capacity — try again later".to_string(),
+            ));
         }
+
+        cache.insert(replay_key, now_u64);
 
         Ok(())
     }
