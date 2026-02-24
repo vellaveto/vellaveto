@@ -1011,13 +1011,12 @@ mod tests {
         let at_max = "x".repeat(1_048_576);
         let result = extract_json_from_code_block(&at_max);
         // Should be a parse error, not a size error
-        match result {
-            Err(e) => assert!(
+        if let Err(e) = result {
+            assert!(
                 !e.to_string().contains("input too large"),
                 "1MiB input should not be size-rejected: {}",
                 e
-            ),
-            Ok(_) => {} // unlikely but fine
+            );
         }
     }
 }

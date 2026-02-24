@@ -3858,13 +3858,13 @@ fn test_schema_record_validate_finite_rejects_nan() {
     let sr = SchemaRecord::new("tool", "hash", 100);
     let mut sr_nan = sr;
     sr_nan.trust_score = f32::NAN;
-    assert!(sr_nan.validate_finite().is_err());
+    assert!(sr_nan.validate().is_err());
 }
 
 #[test]
 fn test_schema_record_validate_finite_accepts_normal() {
     let sr = SchemaRecord::new("tool", "hash", 100);
-    assert!(sr.validate_finite().is_ok());
+    assert!(sr.validate().is_ok());
 }
 
 #[test]
@@ -3906,8 +3906,10 @@ fn test_nhi_behavioral_baseline_validate_finite_rejects_nan() {
 #[test]
 #[allow(deprecated)]
 fn test_nhi_behavioral_baseline_validate_finite_rejects_infinity_in_map() {
-    let mut baseline = NhiBehavioralBaseline::default();
-    baseline.agent_id = "test-agent".to_string();
+    let mut baseline = NhiBehavioralBaseline {
+        agent_id: "test-agent".to_string(),
+        ..Default::default()
+    };
     baseline
         .tool_call_patterns
         .insert("tool".to_string(), f64::INFINITY);
@@ -5384,7 +5386,7 @@ fn test_risk_score_range_accepts_mid() {
 fn test_schema_record_trust_score_range_rejects_negative() {
     let mut sr = SchemaRecord::new("test_tool", "abc123", 100);
     sr.trust_score = -0.5;
-    let err = sr.validate_finite().unwrap_err();
+    let err = sr.validate().unwrap_err();
     assert!(err.contains("must be in [0.0, 1.0]"));
 }
 
@@ -5392,7 +5394,7 @@ fn test_schema_record_trust_score_range_rejects_negative() {
 fn test_schema_record_trust_score_range_rejects_above_one() {
     let mut sr = SchemaRecord::new("test_tool", "abc123", 100);
     sr.trust_score = 1.5;
-    let err = sr.validate_finite().unwrap_err();
+    let err = sr.validate().unwrap_err();
     assert!(err.contains("must be in [0.0, 1.0]"));
 }
 
@@ -5400,7 +5402,7 @@ fn test_schema_record_trust_score_range_rejects_above_one() {
 fn test_schema_record_trust_score_range_accepts_valid() {
     let sr = SchemaRecord::new("test_tool", "abc123", 100);
     // trust_score starts at 0.0 which is valid
-    assert!(sr.validate_finite().is_ok());
+    assert!(sr.validate().is_ok());
 }
 
 #[test]
@@ -6786,7 +6788,7 @@ fn test_r196_002_canonical_tool_schema_rejects_control_in_description() {
 fn test_r196_002_canonical_tool_schema_rejects_bidi_in_description() {
     let schema = crate::projector::CanonicalToolSchema {
         name: "tool_name".to_string(),
-        description: format!("A tool with \u{200B}zero-width space"),
+        description: "A tool with \u{200B}zero-width space".to_string(),
         input_schema: json!({}),
         output_schema: None,
     };
@@ -7740,7 +7742,7 @@ fn test_r141_agent_identity_subject_oversized() {
 #[test]
 fn test_r141_agent_identity_subject_format_char() {
     let identity = AgentIdentity {
-        subject: Some(format!("agent\u{200D}user")),
+        subject: Some("agent\u{200D}user".to_string()),
         ..Default::default()
     };
     let result = identity.validate();
@@ -7803,7 +7805,7 @@ fn test_r141_tool_signature_format_char_in_spiffe_id() {
         signed_at: "2026-01-01T00:00:00Z".to_string(),
         expires_at: None,
         key_fingerprint: None,
-        signer_spiffe_id: Some(format!("spiffe://trust\u{200D}domain/workload")),
+        signer_spiffe_id: Some("spiffe://trust\u{200D}domain/workload".to_string()),
         rekor_entry: None,
     };
     let result = sig.validate();
@@ -7923,7 +7925,7 @@ fn test_r141_tool_attestation_format_char_in_tool_hash() {
         attestation_type: "automated".to_string(),
         attester: "attester".to_string(),
         timestamp: "2026-01-01T00:00:00Z".to_string(),
-        tool_hash: format!("abcdef\u{200B}1234"),
+        tool_hash: "abcdef\u{200B}1234".to_string(),
         previous_attestation: None,
         transparency_log_entry: None,
         signature: sig,
@@ -7987,7 +7989,7 @@ fn test_r146_version_drift_alert_validate_tool_too_long() {
 fn test_r146_version_drift_alert_validate_format_chars() {
     let alert = crate::etdi::VersionDriftAlert {
         tool: "my_tool".to_string(),
-        expected_version: format!("1.0\u{200B}"),
+        expected_version: "1.0\u{200B}".to_string(),
         actual_version: "2.0".to_string(),
         drift_type: "version_mismatch".to_string(),
         blocking: false,
@@ -8069,7 +8071,7 @@ fn test_r146_signature_verification_validate_message_format_chars() {
         valid: true,
         signer_trusted: true,
         expired: false,
-        message: format!("ok\u{200B}"),
+        message: "ok\u{200B}".to_string(),
     };
     let err = sv.validate().unwrap_err();
     assert!(
@@ -8130,8 +8132,10 @@ fn test_r146_nhi_behavioral_baseline_validate_empty_agent_id() {
 
 #[test]
 fn test_r146_nhi_behavioral_baseline_validate_agent_id_too_long() {
-    let mut baseline = NhiBehavioralBaseline::default();
-    baseline.agent_id = "x".repeat(257);
+    let baseline = NhiBehavioralBaseline {
+        agent_id: "x".repeat(257),
+        ..Default::default()
+    };
     let err = baseline.validate().unwrap_err();
     assert!(
         err.contains("agent_id") && err.contains("exceeds maximum"),
@@ -8141,8 +8145,10 @@ fn test_r146_nhi_behavioral_baseline_validate_agent_id_too_long() {
 
 #[test]
 fn test_r146_nhi_behavioral_baseline_validate_agent_id_dangerous_chars() {
-    let mut baseline = NhiBehavioralBaseline::default();
-    baseline.agent_id = format!("agent\u{200B}");
+    let baseline = NhiBehavioralBaseline {
+        agent_id: "agent\u{200B}".to_string(),
+        ..Default::default()
+    };
     let err = baseline.validate().unwrap_err();
     assert!(
         err.contains("agent_id") && err.contains("dangerous characters"),
@@ -8152,8 +8158,10 @@ fn test_r146_nhi_behavioral_baseline_validate_agent_id_dangerous_chars() {
 
 #[test]
 fn test_r146_nhi_behavioral_baseline_validate_agent_id_control_chars() {
-    let mut baseline = NhiBehavioralBaseline::default();
-    baseline.agent_id = "agent\n123".to_string();
+    let baseline = NhiBehavioralBaseline {
+        agent_id: "agent\n123".to_string(),
+        ..Default::default()
+    };
     let err = baseline.validate().unwrap_err();
     assert!(
         err.contains("agent_id") && err.contains("dangerous characters"),
@@ -8899,4 +8907,222 @@ fn test_r203_004_shadow_ai_report_validate_ok_with_valid_agents() {
         total_risk_score: 0.5,
     };
     assert!(report.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 47: Policy Lifecycle Type Tests
+// ═══════════════════════════════════════════════════════════════════
+
+fn make_valid_policy_approval() -> crate::PolicyApproval {
+    crate::PolicyApproval {
+        approved_by: "reviewer-1".to_string(),
+        approved_at: "2026-01-15T10:00:00Z".to_string(),
+        comment: Some("Looks good".to_string()),
+    }
+}
+
+fn make_valid_policy_version() -> crate::PolicyVersion {
+    crate::PolicyVersion {
+        version_id: "v-001".to_string(),
+        policy_id: "pol-1".to_string(),
+        version: 1,
+        policy: crate::Policy {
+            id: "pol-1".to_string(),
+            name: "test".to_string(),
+            policy_type: crate::PolicyType::Allow,
+            priority: 50,
+            path_rules: None,
+            network_rules: None,
+        },
+        created_by: "admin".to_string(),
+        created_at: "2026-01-15T10:00:00Z".to_string(),
+        status: crate::PolicyVersionStatus::Draft,
+        comment: None,
+        approvals: vec![],
+        required_approvals: 1,
+        previous_version_id: None,
+    }
+}
+
+#[test]
+fn test_policy_version_status_serde_roundtrip() {
+    let statuses = vec![
+        crate::PolicyVersionStatus::Draft,
+        crate::PolicyVersionStatus::Staging,
+        crate::PolicyVersionStatus::Active,
+        crate::PolicyVersionStatus::Archived,
+    ];
+    for status in statuses {
+        let json = serde_json::to_string(&status).unwrap();
+        let back: crate::PolicyVersionStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(format!("{:?}", status), format!("{:?}", back));
+    }
+}
+
+#[test]
+fn test_policy_approval_serde_roundtrip() {
+    let approval = make_valid_policy_approval();
+    let json = serde_json::to_string(&approval).unwrap();
+    let back: crate::PolicyApproval = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.approved_by, "reviewer-1");
+    assert_eq!(back.comment.as_deref(), Some("Looks good"));
+}
+
+#[test]
+fn test_policy_version_serde_roundtrip() {
+    let version = make_valid_policy_version();
+    let json = serde_json::to_string(&version).unwrap();
+    let back: crate::PolicyVersion = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.version_id, "v-001");
+    assert_eq!(back.version, 1);
+}
+
+#[test]
+fn test_policy_version_validate_ok() {
+    let version = make_valid_policy_version();
+    assert!(version.validate().is_ok());
+}
+
+#[test]
+fn test_policy_version_validate_empty_version_id() {
+    let mut v = make_valid_policy_version();
+    v.version_id = "".to_string();
+    assert!(v.validate().unwrap_err().contains("version_id"));
+}
+
+#[test]
+fn test_policy_version_validate_version_id_too_long() {
+    let mut v = make_valid_policy_version();
+    v.version_id = "x".repeat(257);
+    assert!(v.validate().unwrap_err().contains("version_id"));
+}
+
+#[test]
+fn test_policy_version_validate_dangerous_chars_in_created_by() {
+    let mut v = make_valid_policy_version();
+    v.created_by = "admin\x00evil".to_string();
+    assert!(v.validate().unwrap_err().contains("created_by"));
+}
+
+#[test]
+fn test_policy_version_validate_unicode_format_chars_in_policy_id() {
+    let mut v = make_valid_policy_version();
+    v.policy_id = "pol\u{200B}1".to_string(); // zero-width space
+    assert!(v.validate().unwrap_err().contains("policy_id"));
+}
+
+#[test]
+fn test_policy_version_validate_too_many_approvals() {
+    let mut v = make_valid_policy_version();
+    v.approvals = (0..51).map(|i| crate::PolicyApproval {
+        approved_by: format!("reviewer-{}", i),
+        approved_at: "2026-01-15T10:00:00Z".to_string(),
+        comment: None,
+    }).collect();
+    assert!(v.validate().unwrap_err().contains("approvals"));
+}
+
+#[test]
+fn test_policy_version_validate_comment_too_long() {
+    let mut v = make_valid_policy_version();
+    v.comment = Some("x".repeat(4097));
+    assert!(v.validate().unwrap_err().contains("comment"));
+}
+
+#[test]
+fn test_policy_version_validate_excessive_required_approvals() {
+    let mut v = make_valid_policy_version();
+    v.required_approvals = 21;
+    assert!(v.validate().unwrap_err().contains("required_approvals"));
+}
+
+#[test]
+fn test_policy_approval_validate_ok() {
+    let a = make_valid_policy_approval();
+    assert!(a.validate().is_ok());
+}
+
+#[test]
+fn test_policy_approval_validate_empty_approved_by() {
+    let mut a = make_valid_policy_approval();
+    a.approved_by = "".to_string();
+    assert!(a.validate().unwrap_err().contains("approved_by"));
+}
+
+#[test]
+fn test_policy_approval_validate_dangerous_chars() {
+    let mut a = make_valid_policy_approval();
+    a.approved_by = "user\u{202E}evil".to_string(); // bidi override
+    assert!(a.validate().unwrap_err().contains("approved_by"));
+}
+
+#[test]
+fn test_staging_report_validate_ok() {
+    let r = crate::StagingReport {
+        policy_id: "pol-1".to_string(),
+        staging_version: 2,
+        total_evaluations: 100,
+        divergent_evaluations: 5,
+        divergences: vec![],
+        staging_started_at: "2026-01-15T10:00:00Z".to_string(),
+    };
+    assert!(r.validate().is_ok());
+}
+
+#[test]
+fn test_staging_report_validate_too_many_divergences() {
+    let r = crate::StagingReport {
+        policy_id: "pol-1".to_string(),
+        staging_version: 2,
+        total_evaluations: 100,
+        divergent_evaluations: 5,
+        divergences: (0..10001).map(|i| crate::StagingComparisonEntry {
+            timestamp: "2026-01-15T10:00:00Z".to_string(),
+            tool: format!("t{}", i),
+            function: "f".to_string(),
+            active_verdict: "allow".to_string(),
+            staging_verdict: "deny".to_string(),
+        }).collect(),
+        staging_started_at: "2026-01-15T10:00:00Z".to_string(),
+    };
+    assert!(r.validate().unwrap_err().contains("divergences"));
+}
+
+#[test]
+fn test_policy_version_diff_validate_ok() {
+    let d = crate::PolicyVersionDiff {
+        policy_id: "pol-1".to_string(),
+        from_version: 1,
+        to_version: 2,
+        changes: vec!["Added path rule".to_string()],
+    };
+    assert!(d.validate().is_ok());
+}
+
+#[test]
+fn test_policy_version_diff_validate_too_many_changes() {
+    let d = crate::PolicyVersionDiff {
+        policy_id: "pol-1".to_string(),
+        from_version: 1,
+        to_version: 2,
+        changes: (0..101).map(|i| format!("change {}", i)).collect(),
+    };
+    assert!(d.validate().unwrap_err().contains("changes"));
+}
+
+#[test]
+fn test_policy_approval_deny_unknown_fields() {
+    let json = r#"{"approved_by":"a","approved_at":"t","comment":null,"extra":"bad"}"#;
+    let result = serde_json::from_str::<crate::PolicyApproval>(json);
+    assert!(result.is_err(), "deny_unknown_fields should reject extra field");
+}
+
+#[test]
+fn test_policy_version_deny_unknown_fields() {
+    let mut v = make_valid_policy_version();
+    v.version_id = "v-test".to_string();
+    let mut json: serde_json::Value = serde_json::to_value(&v).unwrap();
+    json.as_object_mut().unwrap().insert("extra".to_string(), serde_json::json!("bad"));
+    let result = serde_json::from_value::<crate::PolicyVersion>(json);
+    assert!(result.is_err(), "deny_unknown_fields should reject extra field");
 }

@@ -500,6 +500,7 @@ async fn handle_ws_connection(
 
 /// Relay messages from client to upstream with policy enforcement.
 #[allow(clippy::too_many_arguments)]
+#[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
 async fn relay_client_to_upstream(
     mut client_stream: futures_util::stream::SplitStream<WebSocket>,
     client_sink: Arc<Mutex<futures_util::stream::SplitSink<WebSocket, Message>>>,
@@ -1348,7 +1349,22 @@ async fn relay_client_to_upstream(
                                     )
                                     .await
                                 {
-                                    tracing::warn!("Failed to audit WS allow: {}", e);
+                                    tracing::error!(
+                                        "AUDIT FAILURE in WS proxy: security decision not recorded: {}",
+                                        e
+                                    );
+                                    // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
+                                    // No unaudited security decisions can occur.
+                                    if state.audit_strict_mode {
+                                        let error = make_ws_error_response(
+                                            Some(id),
+                                            -32000,
+                                            "Audit logging failed — request denied (strict audit mode)",
+                                        );
+                                        let mut sink = client_sink.lock().await;
+                                        let _ = sink.send(Message::Text(error.into())).await;
+                                        continue;
+                                    }
                                 }
 
                                 // Canonicalize and forward
@@ -1414,7 +1430,21 @@ async fn relay_client_to_upstream(
                                     )
                                     .await
                                 {
-                                    tracing::warn!("Failed to audit WS deny: {}", e);
+                                    tracing::error!(
+                                        "AUDIT FAILURE in WS proxy: security decision not recorded: {}",
+                                        e
+                                    );
+                                    // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
+                                    if state.audit_strict_mode {
+                                        let error = make_ws_error_response(
+                                            Some(id),
+                                            -32000,
+                                            "Audit logging failed — request denied (strict audit mode)",
+                                        );
+                                        let mut sink = client_sink.lock().await;
+                                        let _ = sink.send(Message::Text(error.into())).await;
+                                        continue;
+                                    }
                                 }
 
                                 // SECURITY (FIND-R46-012): Generic message to client.
@@ -1443,7 +1473,21 @@ async fn relay_client_to_upstream(
                                     )
                                     .await
                                 {
-                                    tracing::warn!("Failed to audit WS approval request: {}", e);
+                                    tracing::error!(
+                                        "AUDIT FAILURE in WS proxy: security decision not recorded: {}",
+                                        e
+                                    );
+                                    // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
+                                    if state.audit_strict_mode {
+                                        let error = make_ws_error_response(
+                                            Some(id),
+                                            -32000,
+                                            "Audit logging failed — request denied (strict audit mode)",
+                                        );
+                                        let mut sink = client_sink.lock().await;
+                                        let _ = sink.send(Message::Text(error.into())).await;
+                                        continue;
+                                    }
                                 }
                                 let approval_reason = "Approval required";
                                 let approval_id =
@@ -1875,7 +1919,21 @@ async fn relay_client_to_upstream(
                                     )
                                     .await
                                 {
-                                    tracing::warn!("Failed to audit WS resource read allow: {}", e);
+                                    tracing::error!(
+                                        "AUDIT FAILURE in WS proxy: security decision not recorded: {}",
+                                        e
+                                    );
+                                    // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
+                                    if state.audit_strict_mode {
+                                        let error = make_ws_error_response(
+                                            Some(id),
+                                            -32000,
+                                            "Audit logging failed — request denied (strict audit mode)",
+                                        );
+                                        let mut sink = client_sink.lock().await;
+                                        let _ = sink.send(Message::Text(error.into())).await;
+                                        continue;
+                                    }
                                 }
 
                                 // SECURITY (FIND-R46-011): Fail-closed on canonicalization
@@ -1932,10 +1990,21 @@ async fn relay_client_to_upstream(
                                     )
                                     .await
                                 {
-                                    tracing::warn!(
-                                        "Failed to audit WS resource read deny: {}",
+                                    tracing::error!(
+                                        "AUDIT FAILURE in WS proxy: security decision not recorded: {}",
                                         e
                                     );
+                                    // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
+                                    if state.audit_strict_mode {
+                                        let error = make_ws_error_response(
+                                            Some(id),
+                                            -32000,
+                                            "Audit logging failed — request denied (strict audit mode)",
+                                        );
+                                        let mut sink = client_sink.lock().await;
+                                        let _ = sink.send(Message::Text(error.into())).await;
+                                        continue;
+                                    }
                                 }
                                 let error =
                                     make_ws_error_response(Some(id), -32001, "Denied by policy");
@@ -1962,10 +2031,21 @@ async fn relay_client_to_upstream(
                                     )
                                     .await
                                 {
-                                    tracing::warn!(
-                                        "Failed to audit WS resource read approval: {}",
+                                    tracing::error!(
+                                        "AUDIT FAILURE in WS proxy: security decision not recorded: {}",
                                         e
                                     );
+                                    // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
+                                    if state.audit_strict_mode {
+                                        let error = make_ws_error_response(
+                                            Some(id),
+                                            -32000,
+                                            "Audit logging failed — request denied (strict audit mode)",
+                                        );
+                                        let mut sink = client_sink.lock().await;
+                                        let _ = sink.send(Message::Text(error.into())).await;
+                                        continue;
+                                    }
                                 }
                                 let error =
                                     make_ws_error_response(Some(id), -32001, "Denied by policy");

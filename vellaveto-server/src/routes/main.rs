@@ -1767,6 +1767,7 @@ async fn apply_opa_runtime_verdict(
         tenant_id = %tenant_ctx.tenant_id,
     )
 )]
+#[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
 async fn evaluate(
     State(state): State<AppState>,
     Extension(tenant_ctx): Extension<TenantContext>,
@@ -2226,7 +2227,7 @@ async fn evaluate(
         Verdict::Allow => "allow",
         Verdict::Deny { .. } => "deny",
         Verdict::RequireApproval { .. } => "require_approval",
-        // Handle future variants
+        // Handle future variants — Verdict is #[non_exhaustive]
         _ => "unknown",
     };
     crate::metrics::record_evaluation_verdict(verdict_label);
@@ -2276,6 +2277,43 @@ async fn evaluate(
         crate::metrics::increment_audit_entries();
     }
 
+
+    // Phase 47: Staging shadow evaluation (non-blocking, non-verdict-affecting).
+    // When a policy version is in Staging state, the staging engine evaluates
+    // the same action and logs divergences for comparison. This runs AFTER the
+    // active verdict is finalized and audit-logged, so it never affects latency
+    // or correctness of the active evaluation path.
+    if let Some(ref staging) = **state.staging_snapshot.load() {
+        let staging_verdict = staging
+            .engine
+            .evaluate_action_with_context(&action, &staging.policies, context.as_ref())
+            .unwrap_or(Verdict::Deny {
+                reason: "staging evaluation error".to_string(),
+            });
+        let active_label = match &verdict {
+            Verdict::Allow => "allow",
+            Verdict::Deny { .. } => "deny",
+            Verdict::RequireApproval { .. } => "require_approval",
+            // Verdict is #[non_exhaustive] — fail-closed for unknown variants
+            _ => "unknown",
+        };
+        let staging_label = match &staging_verdict {
+            Verdict::Allow => "allow",
+            Verdict::Deny { .. } => "deny",
+            Verdict::RequireApproval { .. } => "require_approval",
+            // Verdict is #[non_exhaustive] — fail-closed for unknown variants
+            _ => "unknown",
+        };
+        if active_label != staging_label {
+            tracing::info!(
+                "Policy lifecycle staging divergence: tool={} function={} active={} staging={}",
+                action.tool,
+                action.function,
+                active_label,
+                staging_label
+            );
+        }
+    }
     // Phase 15: Submit observability span if enabled
     #[cfg(feature = "observability-exporters")]
     if let Some(ref obs) = state.observability {

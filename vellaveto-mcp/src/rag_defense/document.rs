@@ -597,7 +597,7 @@ mod tests {
 
         // Fill cache to capacity
         for i in 0..100 {
-            let doc = DocumentMetadata::new(&format!("doc-{}", i), "hash", "source");
+            let doc = DocumentMetadata::new(format!("doc-{}", i), "hash", "source");
             let _ = verifier.verify(&doc);
         }
 

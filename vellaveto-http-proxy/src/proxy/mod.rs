@@ -111,6 +111,11 @@ pub struct ProxyState {
     /// When true, block responses that contain detected secrets instead of just logging.
     /// SECURITY (R18-DLP-BLOCK): Without this, DLP is log-only and secrets still reach the client.
     pub response_dlp_blocking: bool,
+    /// Strict audit mode (FIND-CREATIVE-003): When true, audit logging failures
+    /// cause requests to be denied instead of proceeding without an audit trail.
+    /// This enforces non-repudiation guarantees — no unaudited security decisions
+    /// can occur. Default: false (backward compatible).
+    pub audit_strict_mode: bool,
     /// Known legitimate tool names for squatting detection.
     /// Built from DEFAULT_KNOWN_TOOLS + any config overrides.
     pub known_tools: std::collections::HashSet<String>,

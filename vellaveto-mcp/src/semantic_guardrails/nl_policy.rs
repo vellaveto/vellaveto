@@ -171,7 +171,7 @@ impl NlPolicy {
         if self
             .statement
             .chars()
-            .any(|c| vellaveto_types::is_unicode_format_char(c))
+            .any(vellaveto_types::is_unicode_format_char)
         {
             return Err(
                 "NlPolicy.statement contains Unicode format characters".to_string(),

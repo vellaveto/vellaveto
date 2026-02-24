@@ -190,55 +190,13 @@ impl InMemoryPolicyVersionStore {
     }
 
     /// Get current timestamp as ISO 8601 string.
+    ///
+    /// IMP-R204-007: Uses chrono (already a dependency) instead of
+    /// hand-rolled date calculation that was fragile and approximate.
     fn now_iso8601() -> String {
-        // Use a simple UTC timestamp
-        let now = std::time::SystemTime::now();
-        let secs = now
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        // Format as YYYY-MM-DDTHH:MM:SSZ (approximate but valid ISO 8601)
-        let days = secs / 86400;
-        let time_of_day = secs % 86400;
-        let hours = time_of_day / 3600;
-        let minutes = (time_of_day % 3600) / 60;
-        let seconds = time_of_day % 60;
-
-        // Approximate year/month/day calculation
-        let mut year = 1970u64;
-        let mut remaining_days = days;
-        loop {
-            let days_in_year = if year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)) {
-                366
-            } else {
-                365
-            };
-            if remaining_days < days_in_year {
-                break;
-            }
-            remaining_days -= days_in_year;
-            year += 1;
-        }
-        let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
-        let month_days: [u64; 12] = if leap {
-            [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        } else {
-            [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        };
-        let mut month = 1u64;
-        for &md in &month_days {
-            if remaining_days < md {
-                break;
-            }
-            remaining_days -= md;
-            month += 1;
-        }
-        let day = remaining_days + 1;
-
-        format!(
-            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-            year, month, day, hours, minutes, seconds
-        )
+        chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string()
     }
 }
 
@@ -322,6 +280,7 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
             approvals: Vec::new(),
             required_approvals: self.config.required_approvals,
             previous_version_id,
+            staged_at: None,
         };
 
         versions.push(pv.clone());
@@ -508,9 +467,38 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
                         ));
                     }
                     versions[idx].status = PolicyVersionStatus::Staging;
+                    // SECURITY (FIND-R204-002): Record when the version entered
+                    // Staging so we can enforce staging_period_secs later.
+                    versions[idx].staged_at = Some(Self::now_iso8601());
                 }
             }
             PolicyVersionStatus::Staging => {
+                // SECURITY (FIND-R204-002): Enforce staging_period_secs before
+                // allowing Staging → Active promotion. Without this check, an
+                // operator who configures a staging period would be surprised
+                // when policies can be promoted immediately.
+                if self.config.staging_period_secs > 0 {
+                    if let Some(ref staged_at) = versions[idx].staged_at {
+                        let staged_secs = vellaveto_types::time_util::parse_iso8601_secs(staged_at)
+                            .unwrap_or(i64::MAX); // fail-closed: unparseable = never staged
+                        let now_secs = chrono::Utc::now().timestamp();
+                        let elapsed = now_secs.saturating_sub(staged_secs);
+                        let required = self.config.staging_period_secs as i64;
+                        if elapsed < required {
+                            let remaining = required.saturating_sub(elapsed);
+                            return Err(LifecycleError::InvalidTransition(format!(
+                                "Staging period not yet elapsed: {} seconds remaining (required: {}s)",
+                                remaining, self.config.staging_period_secs
+                            )));
+                        }
+                    } else {
+                        // No staged_at timestamp — fail-closed: cannot determine
+                        // when staging started, so reject promotion.
+                        return Err(LifecycleError::InvalidTransition(
+                            "Cannot promote: staged_at timestamp missing (staging period not tracked)".to_string(),
+                        ));
+                    }
+                }
                 // Staging → Active: archive current active
                 for v in versions.iter_mut() {
                     if matches!(v.status, PolicyVersionStatus::Active) {
@@ -657,6 +645,7 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
             approvals: Vec::new(),
             required_approvals: self.config.required_approvals,
             previous_version_id: Some(source_version_id),
+            staged_at: None,
         };
 
         versions.push(pv.clone());
@@ -938,7 +927,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_promote_staging_to_active() {
-        let store = InMemoryPolicyVersionStore::new(test_config());
+        // Use staging_period_secs = 0 so Staging→Active is immediate
+        let mut config = test_config();
+        config.staging_period_secs = 0;
+        let store = InMemoryPolicyVersionStore::new(config);
         store
             .create_version("pol-1", test_policy("pol-1"), "alice", None)
             .await
@@ -947,8 +939,8 @@ mod tests {
             .approve_version("pol-1", 1, "bob", None)
             .await
             .unwrap();
-        store.promote_version("pol-1", 1).await.unwrap(); // → staging
-        let pv = store.promote_version("pol-1", 1).await.unwrap(); // → active
+        // With staging_period_secs = 0, Draft→Active directly
+        let pv = store.promote_version("pol-1", 1).await.unwrap();
         assert!(matches!(pv.status, PolicyVersionStatus::Active));
     }
 

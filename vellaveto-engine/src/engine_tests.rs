@@ -13625,3 +13625,165 @@ fn test_r203_001_claim_mismatch_long_value_truncated() {
         other => panic!("Expected Deny, got: {other:?}"),
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FIND-CREATIVE-004: ForbiddenActionSequence with truncated history
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_forbidden_action_sequence_at_max_capacity_still_evaluates() {
+    // When previous_actions is at MAX_PREVIOUS_ACTIONS, the check should still
+    // work correctly for sequences that ARE present in the retained history.
+    // The warning is emitted but does not change Allow/Deny logic.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["read_secret", "http_request"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+
+    // Build a history at capacity with the forbidden sequence at the end.
+    let max = EvaluationContext::MAX_PREVIOUS_ACTIONS;
+    let mut actions = vec!["benign_tool".to_string(); max - 2];
+    actions.push("read_secret".to_string());
+    actions.push("http_request".to_string());
+    assert_eq!(actions.len(), max);
+
+    let ctx = EvaluationContext {
+        previous_actions: actions,
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Forbidden sequence present at capacity should still Deny, got {v:?}"
+    );
+}
+
+#[test]
+fn test_forbidden_action_sequence_evicted_prefix_allows() {
+    // Simulate the scenario where the forbidden prefix has been evicted:
+    // the attacker called "read_secret" long ago, it aged out, and now
+    // only "http_request" remains. The check should Allow (false negative).
+    // This is the known limitation documented in FIND-CREATIVE-004.
+    let policy = make_wildcard_context_policy(json!([{
+        "type": "forbidden_action_sequence",
+        "sequence": ["read_secret", "http_request"],
+        "ordered": true
+    }]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("write_result", "execute", json!({}));
+
+    // History only has "http_request" (the second step), no "read_secret".
+    let ctx = EvaluationContext {
+        previous_actions: vec![
+            "benign_tool".to_string(),
+            "http_request".to_string(),
+        ],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Evicted prefix → Allow (known limitation), got {v:?}"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FIND-CREATIVE-006: on_no_match="continue" + on_missing="skip" interaction
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_on_no_match_continue_all_skip_bypass_demonstrated() {
+    // Demonstrate the bypass: a Conditional policy with on_no_match="continue"
+    // and all constraints using on_missing="skip". When the attacker omits the
+    // required parameter, all constraints skip, on_no_match="continue" fires,
+    // and the policy is bypassed entirely — falling through to the next policy.
+    let bypass_policy = Policy {
+        id: "bypass:*".to_string(),
+        name: "bypassable-policy".to_string(),
+        policy_type: PolicyType::Conditional {
+            conditions: json!({
+                "on_no_match": "continue",
+                "parameter_constraints": [
+                    {
+                        "param": "command",
+                        "op": "glob",
+                        "pattern": "/etc/**",
+                        "on_match": "deny",
+                        "on_missing": "skip"
+                    }
+                ]
+            }),
+        },
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    };
+    let allow_all = Policy {
+        id: "*:*".to_string(),
+        name: "allow-all-fallback".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 1,
+        path_rules: None,
+        network_rules: None,
+    };
+
+    let engine = PolicyEngine::with_policies(false, &[bypass_policy, allow_all]).unwrap();
+    let action = Action::new("bypass", "execute", json!({}));
+    // No "command" parameter → constraint skipped → on_no_match=continue → Allow (bypass!)
+    let v = engine.evaluate_action(&action, &[]).unwrap();
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Missing param + on_no_match=continue + on_missing=skip → bypass to Allow: {v:?}"
+    );
+}
+
+#[test]
+fn test_on_no_match_continue_mixed_on_missing_no_bypass() {
+    // When at least one constraint has on_missing="deny", the attacker cannot
+    // bypass by omitting parameters — they get denied instead of skipped.
+    let secure_policy = Policy {
+        id: "secure:*".to_string(),
+        name: "secure-policy".to_string(),
+        policy_type: PolicyType::Conditional {
+            conditions: json!({
+                "on_no_match": "continue",
+                "parameter_constraints": [
+                    {
+                        "param": "command",
+                        "op": "glob",
+                        "pattern": "/etc/**",
+                        "on_match": "deny",
+                        "on_missing": "deny"
+                    }
+                ]
+            }),
+        },
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    };
+    let allow_all = Policy {
+        id: "*:*".to_string(),
+        name: "allow-all-fallback".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 1,
+        path_rules: None,
+        network_rules: None,
+    };
+
+    let engine = PolicyEngine::with_policies(false, &[secure_policy, allow_all]).unwrap();
+    let action = Action::new("secure", "execute", json!({}));
+    // No "command" parameter → on_missing="deny" fires → Deny (not bypassed)
+    let v = engine.evaluate_action(&action, &[]).unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "on_missing=deny should prevent bypass: {v:?}"
+    );
+}

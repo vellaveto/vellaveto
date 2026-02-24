@@ -414,6 +414,7 @@ pub struct PrivilegeEscalationCheck {
 ///
 /// Returns a `PrivilegeEscalationCheck` indicating whether escalation was detected
 /// and which agent triggered it.
+#[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
 pub fn check_privilege_escalation(
     engine: &PolicyEngine,
     policies: &[Policy],

@@ -1,4 +1,5 @@
 //! Integration tests for conditional policy evaluation.
+#![allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
 
 use serde_json::json;
 use vellaveto_engine::PolicyEngine;

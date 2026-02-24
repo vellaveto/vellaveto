@@ -378,13 +378,12 @@ mod tests {
         let at_max = "x".repeat(1_048_576);
         let result = extract_json_from_response(&at_max);
         // Should fail to parse, not be size-rejected
-        match result {
-            Err(e) => assert!(
+        if let Err(e) = result {
+            assert!(
                 !e.to_string().contains("input too large"),
                 "1MiB input should not be size-rejected: {}",
                 e
-            ),
-            Ok(_) => {}
+            );
         }
     }
 }

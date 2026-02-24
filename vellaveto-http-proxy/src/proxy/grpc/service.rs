@@ -792,6 +792,7 @@ impl McpGrpcService {
     }
 
     /// Handle a tool call: extract action, evaluate policy, audit, forward or deny.
+    #[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
     async fn handle_tool_call(
         &self,
         proto_req: &JsonRpcRequest,
@@ -1347,6 +1348,7 @@ impl McpGrpcService {
     }
 
     /// Handle a resource read: extract action, evaluate, forward or deny.
+    #[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
     async fn handle_resource_read(
         &self,
         proto_req: &JsonRpcRequest,
@@ -2034,6 +2036,7 @@ impl McpGrpcService {
     }
 
     /// Handle a task request: extract action, evaluate policy, audit, forward or deny.
+    #[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
     async fn handle_task_request(
         &self,
         proto_req: &JsonRpcRequest,
@@ -2339,6 +2342,7 @@ impl McpGrpcService {
     }
 
     /// Handle an extension method: extract action, evaluate policy, audit, forward or deny.
+    #[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
     async fn handle_extension_method(
         &self,
         proto_req: &JsonRpcRequest,

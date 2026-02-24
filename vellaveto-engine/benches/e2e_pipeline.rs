@@ -3,6 +3,7 @@
 //! Measures the full compile-then-evaluate pipeline that production deployments
 //! execute: policy compilation (regex, glob, tool matchers) followed by action
 //! evaluation with varying policy counts and evaluation contexts.
+#![allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
 //!
 //! Run with: `cargo bench -p vellaveto-engine --bench e2e_pipeline`
 #![allow(clippy::unwrap_used, clippy::expect_used)]

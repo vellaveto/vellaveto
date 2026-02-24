@@ -423,6 +423,6 @@ mod tests {
         // is used by CanonicalToolSchema::validate() to bound input_schema
         // and output_schema sizes, confirming the type-level validation path.
         use vellaveto_types::projector::MAX_PROJECTOR_VALUE_SIZE;
-        assert!(MAX_PROJECTOR_VALUE_SIZE > 0);
+        const { assert!(MAX_PROJECTOR_VALUE_SIZE > 0) };
     }
 }

@@ -2,6 +2,7 @@
 //!
 //! Validates that evaluation latency stays under 5ms for realistic workloads.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
 
 use std::hint::black_box;
 

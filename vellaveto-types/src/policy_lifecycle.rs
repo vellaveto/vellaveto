@@ -148,6 +148,12 @@ pub struct PolicyVersion {
     /// Link to the previous version (for rollback chain).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous_version_id: Option<String>,
+
+    /// ISO 8601 timestamp of when this version entered Staging status.
+    /// Set automatically when promoting Draft → Staging.
+    /// Used to enforce `staging_period_secs` before allowing Staging → Active.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staged_at: Option<String>,
 }
 
 impl PolicyVersion {
@@ -237,6 +243,17 @@ impl PolicyVersion {
                 "required_approvals {} exceeds max {}",
                 self.required_approvals, MAX_REQUIRED_APPROVERS
             ));
+        }
+        // staged_at
+        if let Some(ref ts) = self.staged_at {
+            if ts.is_empty() {
+                return Err("staged_at must be non-empty when present".to_string());
+            }
+            if has_dangerous_chars(ts) {
+                return Err("staged_at contains invalid characters".to_string());
+            }
+            crate::time_util::parse_iso8601_secs(ts)
+                .map_err(|e| format!("staged_at: {}", e))?;
         }
         // previous_version_id
         if let Some(ref prev) = self.previous_version_id {

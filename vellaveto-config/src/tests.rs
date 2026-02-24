@@ -6543,81 +6543,70 @@ fn test_nhi_config_default_validates() {
 
 #[test]
 fn test_nhi_config_anomaly_threshold_nan() {
-    let mut cfg = crate::memory_nhi::NhiConfig::default();
-    cfg.anomaly_threshold = f64::NAN;
+    let cfg = crate::memory_nhi::NhiConfig { anomaly_threshold: f64::NAN, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("anomaly_threshold"));
 }
 
 #[test]
 fn test_nhi_config_anomaly_threshold_negative() {
-    let mut cfg = crate::memory_nhi::NhiConfig::default();
-    cfg.anomaly_threshold = -0.1;
+    let cfg = crate::memory_nhi::NhiConfig { anomaly_threshold: -0.1, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("anomaly_threshold"));
 }
 
 #[test]
 fn test_nhi_config_anomaly_threshold_above_one() {
-    let mut cfg = crate::memory_nhi::NhiConfig::default();
-    cfg.anomaly_threshold = 1.1;
+    let cfg = crate::memory_nhi::NhiConfig { anomaly_threshold: 1.1, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("anomaly_threshold"));
 }
 
 #[test]
 fn test_nhi_config_ttl_consistency() {
-    let mut cfg = crate::memory_nhi::NhiConfig::default();
-    cfg.credential_ttl_secs = 100_000;
-    cfg.max_credential_ttl_secs = 50_000;
+    let cfg = crate::memory_nhi::NhiConfig { credential_ttl_secs: 100_000, max_credential_ttl_secs: 50_000, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("credential_ttl_secs"));
 }
 
 #[test]
 fn test_nhi_config_max_credential_ttl_exceeds_cap() {
-    let mut cfg = crate::memory_nhi::NhiConfig::default();
-    cfg.max_credential_ttl_secs = 700_000; // > 7 * 86400
+    let cfg = crate::memory_nhi::NhiConfig { max_credential_ttl_secs: 700_000, ..Default::default() }; // > 7 * 86400
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("max_credential_ttl_secs"));
 }
 
 #[test]
 fn test_nhi_config_delegation_chain_depth_exceeds_cap() {
-    let mut cfg = crate::memory_nhi::NhiConfig::default();
-    cfg.max_delegation_chain_depth = 100; // > 50
+    let cfg = crate::memory_nhi::NhiConfig { max_delegation_chain_depth: 100, ..Default::default() }; // > 50
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("max_delegation_chain_depth"));
 }
 
 #[test]
 fn test_nhi_config_attestation_types_control_chars() {
-    let mut cfg = crate::memory_nhi::NhiConfig::default();
-    cfg.attestation_types = vec!["jwt\x00".to_string()];
+    let cfg = crate::memory_nhi::NhiConfig { attestation_types: vec!["jwt\x00".to_string()], ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("control or format characters"));
 }
 
 #[test]
 fn test_nhi_config_attestation_types_empty_entry() {
-    let mut cfg = crate::memory_nhi::NhiConfig::default();
-    cfg.attestation_types = vec!["".to_string()];
+    let cfg = crate::memory_nhi::NhiConfig { attestation_types: vec!["".to_string()], ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("must not be empty"));
 }
 
 #[test]
 fn test_nhi_config_privileged_tags_too_many() {
-    let mut cfg = crate::memory_nhi::NhiConfig::default();
-    cfg.privileged_tags = (0..51).map(|i| format!("tag-{}", i)).collect();
+    let cfg = crate::memory_nhi::NhiConfig { privileged_tags: (0..51).map(|i| format!("tag-{}", i)).collect(), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("privileged_tags"));
 }
 
 #[test]
 fn test_nhi_config_additional_trust_domains_control_chars() {
-    let mut cfg = crate::memory_nhi::NhiConfig::default();
-    cfg.additional_trust_domains = vec!["domain\n.local".to_string()];
+    let cfg = crate::memory_nhi::NhiConfig { additional_trust_domains: vec!["domain\n.local".to_string()], ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("control or format characters"));
 }
@@ -6634,8 +6623,7 @@ fn test_extension_config_default_validates() {
 
 #[test]
 fn test_extension_config_allowed_ext_empty_string() {
-    let mut cfg = crate::extension::ExtensionConfig::default();
-    cfg.allowed_extensions = vec!["".to_string()];
+    let cfg = crate::extension::ExtensionConfig { allowed_extensions: vec!["".to_string()], ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("allowed_extensions"));
     assert!(err.contains("must not be empty"));
@@ -6643,41 +6631,38 @@ fn test_extension_config_allowed_ext_empty_string() {
 
 #[test]
 fn test_extension_config_allowed_ext_control_chars() {
-    let mut cfg = crate::extension::ExtensionConfig::default();
-    cfg.allowed_extensions = vec!["ext\x07id".to_string()];
+    let cfg = crate::extension::ExtensionConfig { allowed_extensions: vec!["ext\x07id".to_string()], ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("control or format characters"));
 }
 
 #[test]
 fn test_extension_config_blocked_ext_too_long() {
-    let mut cfg = crate::extension::ExtensionConfig::default();
-    cfg.blocked_extensions = vec!["x".repeat(300)];
+    let cfg = crate::extension::ExtensionConfig { blocked_extensions: vec!["x".repeat(300)], ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("exceeds maximum"));
 }
 
 #[test]
 fn test_extension_config_trusted_key_non_hex() {
-    let mut cfg = crate::extension::ExtensionConfig::default();
-    cfg.trusted_public_keys = vec!["not-hex-data!".to_string()];
+    let cfg = crate::extension::ExtensionConfig { trusted_public_keys: vec!["not-hex-data!".to_string()], ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("hex-encoded"));
 }
 
 #[test]
 fn test_extension_config_trusted_key_empty() {
-    let mut cfg = crate::extension::ExtensionConfig::default();
-    cfg.trusted_public_keys = vec!["".to_string()];
+    let cfg = crate::extension::ExtensionConfig { trusted_public_keys: vec!["".to_string()], ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("must not be empty"));
 }
 
 #[test]
 fn test_extension_config_valid_hex_key_passes() {
-    let mut cfg = crate::extension::ExtensionConfig::default();
-    cfg.trusted_public_keys =
-        vec!["abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string()];
+    let cfg = crate::extension::ExtensionConfig {
+        trusted_public_keys: vec!["abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string()],
+        ..Default::default()
+    };
     assert!(cfg.validate().is_ok());
 }
 
@@ -6693,40 +6678,35 @@ fn test_manifest_config_validate_default_ok() {
 
 #[test]
 fn test_manifest_config_validate_empty_path() {
-    let mut cfg = crate::manifest::ManifestConfig::default();
-    cfg.manifest_path = Some(String::new());
+    let cfg = crate::manifest::ManifestConfig { manifest_path: Some(String::new()), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("must not be empty"));
 }
 
 #[test]
 fn test_manifest_config_validate_path_too_long() {
-    let mut cfg = crate::manifest::ManifestConfig::default();
-    cfg.manifest_path = Some("x".repeat(5000));
+    let cfg = crate::manifest::ManifestConfig { manifest_path: Some("x".repeat(5000)), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("exceeds maximum"));
 }
 
 #[test]
 fn test_manifest_config_validate_path_control_chars() {
-    let mut cfg = crate::manifest::ManifestConfig::default();
-    cfg.manifest_path = Some("/etc/\x00evil".to_string());
+    let cfg = crate::manifest::ManifestConfig { manifest_path: Some("/etc/\x00evil".to_string()), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("control"));
 }
 
 #[test]
 fn test_manifest_config_validate_path_traversal() {
-    let mut cfg = crate::manifest::ManifestConfig::default();
-    cfg.manifest_path = Some("/etc/../../../shadow".to_string());
+    let cfg = crate::manifest::ManifestConfig { manifest_path: Some("/etc/../../../shadow".to_string()), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains(".."));
 }
 
 #[test]
 fn test_manifest_config_validate_valid_path() {
-    let mut cfg = crate::manifest::ManifestConfig::default();
-    cfg.manifest_path = Some("/etc/vellaveto/manifest.json".to_string());
+    let cfg = crate::manifest::ManifestConfig { manifest_path: Some("/etc/vellaveto/manifest.json".to_string()), ..Default::default() };
     assert!(cfg.validate().is_ok());
 }
 
@@ -6911,69 +6891,56 @@ fn test_verification_config_default_validates() {
 
 #[test]
 fn test_verification_config_invalid_default_tier() {
-    let mut cfg = crate::memory_nhi::VerificationConfig::default();
-    cfg.default_tier = "admin".to_string();
+    let cfg = crate::memory_nhi::VerificationConfig { default_tier: "admin".to_string(), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("default_tier"));
 }
 
 #[test]
 fn test_verification_config_invalid_global_minimum_tier() {
-    let mut cfg = crate::memory_nhi::VerificationConfig::default();
-    cfg.global_minimum_tier = "superuser".to_string();
+    let cfg = crate::memory_nhi::VerificationConfig { global_minimum_tier: "superuser".to_string(), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("global_minimum_tier"));
 }
 
 #[test]
 fn test_verification_config_attestation_cap_exceeded() {
-    let mut cfg = crate::memory_nhi::VerificationConfig::default();
-    cfg.max_attestations_per_identity = 20_000;
+    let cfg = crate::memory_nhi::VerificationConfig { max_attestations_per_identity: 20_000, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("max_attestations_per_identity"));
 }
 
 #[test]
 fn test_verification_config_zero_attestations_when_enabled() {
-    let mut cfg = crate::memory_nhi::VerificationConfig::default();
-    cfg.enabled = true;
-    cfg.max_attestations_per_identity = 0;
+    let cfg = crate::memory_nhi::VerificationConfig { enabled: true, max_attestations_per_identity: 0, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("max_attestations_per_identity must be > 0"));
 }
 
 #[test]
 fn test_verification_config_zero_ttl_when_enabled() {
-    let mut cfg = crate::memory_nhi::VerificationConfig::default();
-    cfg.enabled = true;
-    cfg.attestation_ttl_secs = 0;
+    let cfg = crate::memory_nhi::VerificationConfig { enabled: true, attestation_ttl_secs: 0, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("attestation_ttl_secs must be > 0"));
 }
 
 #[test]
 fn test_verification_config_plc_url_empty_when_did_enabled() {
-    let mut cfg = crate::memory_nhi::VerificationConfig::default();
-    cfg.did_plc_enabled = true;
-    cfg.plc_directory_url = String::new();
+    let cfg = crate::memory_nhi::VerificationConfig { did_plc_enabled: true, plc_directory_url: String::new(), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("plc_directory_url must not be empty"));
 }
 
 #[test]
 fn test_verification_config_plc_url_not_https() {
-    let mut cfg = crate::memory_nhi::VerificationConfig::default();
-    cfg.did_plc_enabled = true;
-    cfg.plc_directory_url = "http://plc.directory".to_string();
+    let cfg = crate::memory_nhi::VerificationConfig { did_plc_enabled: true, plc_directory_url: "http://plc.directory".to_string(), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("https://"));
 }
 
 #[test]
 fn test_verification_config_plc_url_control_chars() {
-    let mut cfg = crate::memory_nhi::VerificationConfig::default();
-    cfg.did_plc_enabled = true;
-    cfg.plc_directory_url = "https://plc.directory\x00".to_string();
+    let cfg = crate::memory_nhi::VerificationConfig { did_plc_enabled: true, plc_directory_url: "https://plc.directory\x00".to_string(), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("control or format characters"));
 }
@@ -6990,64 +6957,56 @@ fn test_dpop_config_default_validates() {
 
 #[test]
 fn test_dpop_config_clock_skew_exceeds_cap() {
-    let mut cfg = crate::memory_nhi::DpopConfig::default();
-    cfg.max_clock_skew_secs = 5_000;
+    let cfg = crate::memory_nhi::DpopConfig { max_clock_skew_secs: 5_000, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("max_clock_skew_secs"));
 }
 
 #[test]
 fn test_dpop_config_nonce_ttl_exceeds_cap() {
-    let mut cfg = crate::memory_nhi::DpopConfig::default();
-    cfg.nonce_ttl_secs = 5_000;
+    let cfg = crate::memory_nhi::DpopConfig { nonce_ttl_secs: 5_000, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("nonce_ttl_secs"));
 }
 
 #[test]
 fn test_dpop_config_proof_lifetime_zero() {
-    let mut cfg = crate::memory_nhi::DpopConfig::default();
-    cfg.max_proof_lifetime_secs = 0;
+    let cfg = crate::memory_nhi::DpopConfig { max_proof_lifetime_secs: 0, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("max_proof_lifetime_secs must be > 0"));
 }
 
 #[test]
 fn test_dpop_config_proof_lifetime_exceeds_cap() {
-    let mut cfg = crate::memory_nhi::DpopConfig::default();
-    cfg.max_proof_lifetime_secs = 1_000;
+    let cfg = crate::memory_nhi::DpopConfig { max_proof_lifetime_secs: 1_000, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("max_proof_lifetime_secs"));
 }
 
 #[test]
 fn test_dpop_config_algorithms_empty_entry() {
-    let mut cfg = crate::memory_nhi::DpopConfig::default();
-    cfg.allowed_algorithms = vec!["".to_string()];
+    let cfg = crate::memory_nhi::DpopConfig { allowed_algorithms: vec!["".to_string()], ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("must not be empty"));
 }
 
 #[test]
 fn test_dpop_config_algorithms_control_chars() {
-    let mut cfg = crate::memory_nhi::DpopConfig::default();
-    cfg.allowed_algorithms = vec!["ES256\n".to_string()];
+    let cfg = crate::memory_nhi::DpopConfig { allowed_algorithms: vec!["ES256\n".to_string()], ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("control or format characters"));
 }
 
 #[test]
 fn test_dpop_config_too_many_algorithms() {
-    let mut cfg = crate::memory_nhi::DpopConfig::default();
-    cfg.allowed_algorithms = (0..25).map(|i| format!("ALG{}", i)).collect();
+    let cfg = crate::memory_nhi::DpopConfig { allowed_algorithms: (0..25).map(|i| format!("ALG{}", i)).collect(), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("allowed_algorithms"));
 }
 
 #[test]
 fn test_dpop_config_max_nonces_exceeds_cap() {
-    let mut cfg = crate::memory_nhi::DpopConfig::default();
-    cfg.max_nonces = 2_000_000;
+    let cfg = crate::memory_nhi::DpopConfig { max_nonces: 2_000_000, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("max_nonces"));
 }
@@ -7112,33 +7071,28 @@ fn test_policy_rule_validate_tool_pattern_unicode_format_char() {
 
 #[test]
 fn test_extension_config_allowed_ext_unicode_format_char() {
-    let mut cfg = crate::extension::ExtensionConfig::default();
-    cfg.allowed_extensions = vec!["ext\u{200B}id".to_string()];
+    let cfg = crate::extension::ExtensionConfig { allowed_extensions: vec!["ext\u{200B}id".to_string()], ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("format characters"), "got: {}", err);
 }
 
 #[test]
 fn test_nhi_config_attestation_types_unicode_format_char() {
-    let mut cfg = crate::memory_nhi::NhiConfig::default();
-    cfg.attestation_types = vec!["jwt\u{200B}".to_string()];
+    let cfg = crate::memory_nhi::NhiConfig { attestation_types: vec!["jwt\u{200B}".to_string()], ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("format characters"), "got: {}", err);
 }
 
 #[test]
 fn test_dpop_config_algorithms_unicode_format_char() {
-    let mut cfg = crate::memory_nhi::DpopConfig::default();
-    cfg.allowed_algorithms = vec!["ES\u{200B}256".to_string()];
+    let cfg = crate::memory_nhi::DpopConfig { allowed_algorithms: vec!["ES\u{200B}256".to_string()], ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("format characters"), "got: {}", err);
 }
 
 #[test]
 fn test_verification_config_plc_url_unicode_format_char() {
-    let mut cfg = crate::memory_nhi::VerificationConfig::default();
-    cfg.did_plc_enabled = true;
-    cfg.plc_directory_url = "https://plc\u{200B}.directory".to_string();
+    let cfg = crate::memory_nhi::VerificationConfig { did_plc_enabled: true, plc_directory_url: "https://plc\u{200B}.directory".to_string(), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("format characters"), "got: {}", err);
 }
@@ -7152,24 +7106,21 @@ fn test_namespace_config_default_validates() {
 
 #[test]
 fn test_namespace_config_invalid_isolation() {
-    let mut cfg = crate::memory_nhi::NamespaceConfig::default();
-    cfg.default_isolation = "invalid".to_string();
+    let cfg = crate::memory_nhi::NamespaceConfig { default_isolation: "invalid".to_string(), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("default_isolation"), "got: {}", err);
 }
 
 #[test]
 fn test_namespace_config_max_namespaces_exceeds_cap() {
-    let mut cfg = crate::memory_nhi::NamespaceConfig::default();
-    cfg.max_namespaces = 200_000;
+    let cfg = crate::memory_nhi::NamespaceConfig { max_namespaces: 200_000, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("max_namespaces"), "got: {}", err);
 }
 
 #[test]
 fn test_namespace_config_isolation_unicode_format_char() {
-    let mut cfg = crate::memory_nhi::NamespaceConfig::default();
-    cfg.default_isolation = "session\u{200B}".to_string();
+    let cfg = crate::memory_nhi::NamespaceConfig { default_isolation: "session\u{200B}".to_string(), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     // Will fail on the known-values check since "session\u{200B}" != "session"
     assert!(err.contains("default_isolation"), "got: {}", err);
@@ -7178,32 +7129,28 @@ fn test_namespace_config_isolation_unicode_format_char() {
 // MemorySecurityConfig::validate() bounds tests
 #[test]
 fn test_memory_security_config_max_memory_age_exceeds_cap() {
-    let mut cfg = crate::memory_nhi::MemorySecurityConfig::default();
-    cfg.max_memory_age_hours = 365 * 24 + 1;
+    let cfg = crate::memory_nhi::MemorySecurityConfig { max_memory_age_hours: 365 * 24 + 1, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("max_memory_age_hours"), "got: {}", err);
 }
 
 #[test]
 fn test_memory_security_config_max_entries_exceeds_cap() {
-    let mut cfg = crate::memory_nhi::MemorySecurityConfig::default();
-    cfg.max_entries_per_session = 2_000_000;
+    let cfg = crate::memory_nhi::MemorySecurityConfig { max_entries_per_session: 2_000_000, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("max_entries_per_session"), "got: {}", err);
 }
 
 #[test]
 fn test_memory_security_config_max_provenance_exceeds_cap() {
-    let mut cfg = crate::memory_nhi::MemorySecurityConfig::default();
-    cfg.max_provenance_nodes = 2_000_000;
+    let cfg = crate::memory_nhi::MemorySecurityConfig { max_provenance_nodes: 2_000_000, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("max_provenance_nodes"), "got: {}", err);
 }
 
 #[test]
 fn test_memory_security_config_max_fingerprints_exceeds_cap() {
-    let mut cfg = crate::memory_nhi::MemorySecurityConfig::default();
-    cfg.max_fingerprints = 200_000;
+    let cfg = crate::memory_nhi::MemorySecurityConfig { max_fingerprints: 200_000, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("max_fingerprints"), "got: {}", err);
 }
@@ -7223,16 +7170,14 @@ fn test_memory_security_config_propagates_namespace_error() {
 // ManifestConfig::validate() trusted_keys tests
 #[test]
 fn test_manifest_config_trusted_keys_too_many() {
-    let mut cfg = crate::manifest::ManifestConfig::default();
-    cfg.trusted_keys = (0..65).map(|i| format!("{:064x}", i)).collect();
+    let cfg = crate::manifest::ManifestConfig { trusted_keys: (0..65).map(|i| format!("{:064x}", i)).collect(), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("trusted_keys"), "got: {}", err);
 }
 
 #[test]
 fn test_manifest_config_trusted_keys_empty_entry() {
-    let mut cfg = crate::manifest::ManifestConfig::default();
-    cfg.trusted_keys = vec!["".to_string()];
+    let cfg = crate::manifest::ManifestConfig { trusted_keys: vec!["".to_string()], ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("trusted_keys") && err.contains("must not be empty"),
@@ -7243,16 +7188,14 @@ fn test_manifest_config_trusted_keys_empty_entry() {
 
 #[test]
 fn test_manifest_config_trusted_keys_non_hex() {
-    let mut cfg = crate::manifest::ManifestConfig::default();
-    cfg.trusted_keys = vec!["not-hex!".to_string()];
+    let cfg = crate::manifest::ManifestConfig { trusted_keys: vec!["not-hex!".to_string()], ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("hex-encoded"), "got: {}", err);
 }
 
 #[test]
 fn test_manifest_config_trusted_keys_valid_hex() {
-    let mut cfg = crate::manifest::ManifestConfig::default();
-    cfg.trusted_keys = vec!["abcdef0123456789".to_string()];
+    let cfg = crate::manifest::ManifestConfig { trusted_keys: vec!["abcdef0123456789".to_string()], ..Default::default() };
     assert!(cfg.validate().is_ok());
 }
 
@@ -7402,8 +7345,7 @@ fn test_tool_manifest_load_pinned_rejects_too_many_tools() {
 
 #[test]
 fn test_rag_defense_config_validate_cache_ttl_too_large() {
-    let mut cfg = crate::rag_defense_config::RagDefenseConfig::default();
-    cfg.cache_ttl_secs = u64::MAX;
+    let cfg = crate::rag_defense_config::RagDefenseConfig { cache_ttl_secs: u64::MAX, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("cache_ttl_secs"), "Error should mention field: {}", err);
     assert!(err.contains("exceeds maximum"), "Error should mention limit: {}", err);
@@ -7411,8 +7353,7 @@ fn test_rag_defense_config_validate_cache_ttl_too_large() {
 
 #[test]
 fn test_rag_defense_config_validate_cache_max_size_too_large() {
-    let mut cfg = crate::rag_defense_config::RagDefenseConfig::default();
-    cfg.cache_max_size = usize::MAX;
+    let cfg = crate::rag_defense_config::RagDefenseConfig { cache_max_size: usize::MAX, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("cache_max_size"), "Error should mention field: {}", err);
 }
@@ -7463,8 +7404,7 @@ fn test_rag_defense_config_validate_default_passes() {
 
 #[test]
 fn test_rag_defense_config_validate_cache_ttl_zero() {
-    let mut cfg = crate::rag_defense_config::RagDefenseConfig::default();
-    cfg.cache_ttl_secs = 0;
+    let cfg = crate::rag_defense_config::RagDefenseConfig { cache_ttl_secs: 0, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("cache_ttl_secs"), "Error should mention field: {}", err);
     assert!(err.contains("must be > 0"), "Error should mention > 0: {}", err);
@@ -7472,8 +7412,7 @@ fn test_rag_defense_config_validate_cache_ttl_zero() {
 
 #[test]
 fn test_nhi_config_credential_ttl_zero() {
-    let mut cfg = crate::memory_nhi::NhiConfig::default();
-    cfg.credential_ttl_secs = 0;
+    let cfg = crate::memory_nhi::NhiConfig { credential_ttl_secs: 0, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("credential_ttl_secs"), "Error should mention field: {}", err);
     assert!(err.contains("must be > 0"), "Error should mention > 0: {}", err);
@@ -7481,8 +7420,7 @@ fn test_nhi_config_credential_ttl_zero() {
 
 #[test]
 fn test_nhi_config_max_credential_ttl_zero() {
-    let mut cfg = crate::memory_nhi::NhiConfig::default();
-    cfg.max_credential_ttl_secs = 0;
+    let cfg = crate::memory_nhi::NhiConfig { max_credential_ttl_secs: 0, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("max_credential_ttl_secs"), "Error should mention field: {}", err);
     assert!(err.contains("must be > 0"), "Error should mention > 0: {}", err);
@@ -7596,8 +7534,7 @@ fn test_validate_webhook_url_ftp_rejected() {
 
 #[test]
 fn test_cluster_redis_url_invalid_scheme_rejected() {
-    let mut cfg = crate::cluster::ClusterConfig::default();
-    cfg.redis_url = "http://localhost:6379".to_string();
+    let cfg = crate::cluster::ClusterConfig { redis_url: "http://localhost:6379".to_string(), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("redis://") || err.contains("rediss://"),
@@ -7608,8 +7545,7 @@ fn test_cluster_redis_url_invalid_scheme_rejected() {
 
 #[test]
 fn test_cluster_redis_url_file_scheme_rejected() {
-    let mut cfg = crate::cluster::ClusterConfig::default();
-    cfg.redis_url = "file:///etc/passwd".to_string();
+    let cfg = crate::cluster::ClusterConfig { redis_url: "file:///etc/passwd".to_string(), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("redis://") || err.contains("rediss://"),
@@ -7620,22 +7556,19 @@ fn test_cluster_redis_url_file_scheme_rejected() {
 
 #[test]
 fn test_cluster_redis_url_redis_scheme_accepted() {
-    let mut cfg = crate::cluster::ClusterConfig::default();
-    cfg.redis_url = "redis://my-redis:6379".to_string();
+    let cfg = crate::cluster::ClusterConfig { redis_url: "redis://my-redis:6379".to_string(), ..Default::default() };
     assert!(cfg.validate().is_ok(), "redis:// should be accepted");
 }
 
 #[test]
 fn test_cluster_redis_url_rediss_scheme_accepted() {
-    let mut cfg = crate::cluster::ClusterConfig::default();
-    cfg.redis_url = "rediss://my-redis-tls:6380".to_string();
+    let cfg = crate::cluster::ClusterConfig { redis_url: "rediss://my-redis-tls:6380".to_string(), ..Default::default() };
     assert!(cfg.validate().is_ok(), "rediss:// should be accepted");
 }
 
 #[test]
 fn test_cluster_pool_size_zero_rejected() {
-    let mut cfg = crate::cluster::ClusterConfig::default();
-    cfg.redis_pool_size = 0;
+    let cfg = crate::cluster::ClusterConfig { redis_pool_size: 0, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("redis_pool_size") && err.contains(">= 1"),
@@ -7646,8 +7579,7 @@ fn test_cluster_pool_size_zero_rejected() {
 
 #[test]
 fn test_cluster_pool_size_too_large_rejected() {
-    let mut cfg = crate::cluster::ClusterConfig::default();
-    cfg.redis_pool_size = 1000;
+    let cfg = crate::cluster::ClusterConfig { redis_pool_size: 1000, ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("redis_pool_size") && err.contains("exceeds maximum"),
@@ -7658,8 +7590,7 @@ fn test_cluster_pool_size_too_large_rejected() {
 
 #[test]
 fn test_cluster_pool_size_valid_accepted() {
-    let mut cfg = crate::cluster::ClusterConfig::default();
-    cfg.redis_pool_size = 16;
+    let cfg = crate::cluster::ClusterConfig { redis_pool_size: 16, ..Default::default() };
     assert!(cfg.validate().is_ok(), "valid pool size should be accepted");
 }
 
@@ -7669,8 +7600,7 @@ fn test_cluster_pool_size_valid_accepted() {
 
 #[test]
 fn test_cluster_key_prefix_with_open_brace_rejected() {
-    let mut cfg = crate::cluster::ClusterConfig::default();
-    cfg.key_prefix = "vellaveto{slot}:".to_string();
+    let cfg = crate::cluster::ClusterConfig { key_prefix: "vellaveto{slot}:".to_string(), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("hash tag"),
@@ -7681,8 +7611,7 @@ fn test_cluster_key_prefix_with_open_brace_rejected() {
 
 #[test]
 fn test_cluster_key_prefix_with_close_brace_rejected() {
-    let mut cfg = crate::cluster::ClusterConfig::default();
-    cfg.key_prefix = "vellaveto}:".to_string();
+    let cfg = crate::cluster::ClusterConfig { key_prefix: "vellaveto}:".to_string(), ..Default::default() };
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("hash tag"),
@@ -7693,8 +7622,7 @@ fn test_cluster_key_prefix_with_close_brace_rejected() {
 
 #[test]
 fn test_cluster_key_prefix_without_braces_accepted() {
-    let mut cfg = crate::cluster::ClusterConfig::default();
-    cfg.key_prefix = "vellaveto:".to_string();
+    let cfg = crate::cluster::ClusterConfig { key_prefix: "vellaveto:".to_string(), ..Default::default() };
     assert!(
         cfg.validate().is_ok(),
         "key_prefix without braces should be accepted"
@@ -8703,4 +8631,91 @@ fn test_audit_store_config_disabled_sink_buffer_over_max_fails() {
     };
     let err = cfg.validate().unwrap_err();
     assert!(err.contains("sink_buffer_size"), "got: {err}");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 47: Policy Lifecycle Config Tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_policy_lifecycle_config_default_validates() {
+    let cfg = crate::PolicyLifecycleConfig::default();
+    assert!(cfg.validate().is_ok());
+    assert!(!cfg.enabled);
+}
+
+#[test]
+fn test_policy_lifecycle_config_serde_roundtrip() {
+    let cfg = crate::PolicyLifecycleConfig {
+        enabled: true,
+        required_approvals: 2,
+        auto_approve_roles: vec!["admin".to_string()],
+        staging_period_secs: 7200,
+        notification_webhook_url: None,
+        max_versions_per_policy: 25,
+    };
+    let json = serde_json::to_string(&cfg).unwrap();
+    let back: crate::PolicyLifecycleConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.required_approvals, 2);
+    assert_eq!(back.staging_period_secs, 7200);
+}
+
+#[test]
+fn test_policy_lifecycle_config_excessive_required_approvals() {
+    let cfg = crate::PolicyLifecycleConfig {
+        required_approvals: 21,
+        ..Default::default()
+    };
+    assert!(cfg.validate().unwrap_err().contains("required_approvals"));
+}
+
+#[test]
+fn test_policy_lifecycle_config_ssrf_localhost_rejected() {
+    let cfg = crate::PolicyLifecycleConfig {
+        notification_webhook_url: Some("https://localhost:8080/hook".to_string()),
+        ..Default::default()
+    };
+    assert!(cfg.validate().is_err());
+}
+
+#[test]
+fn test_policy_lifecycle_config_zero_max_versions_rejected() {
+    let cfg = crate::PolicyLifecycleConfig {
+        max_versions_per_policy: 0,
+        ..Default::default()
+    };
+    assert!(cfg.validate().unwrap_err().contains("max_versions_per_policy"));
+}
+
+#[test]
+fn test_policy_lifecycle_config_excessive_max_versions_rejected() {
+    let cfg = crate::PolicyLifecycleConfig {
+        max_versions_per_policy: 101,
+        ..Default::default()
+    };
+    assert!(cfg.validate().unwrap_err().contains("max_versions_per_policy"));
+}
+
+#[test]
+fn test_policy_lifecycle_config_dangerous_chars_in_role() {
+    let cfg = crate::PolicyLifecycleConfig {
+        auto_approve_roles: vec!["admin\x00evil".to_string()],
+        ..Default::default()
+    };
+    assert!(cfg.validate().unwrap_err().contains("auto_approve_roles"));
+}
+
+#[test]
+fn test_policy_lifecycle_config_in_policy_config_toml() {
+    let toml_str = r#"
+[policy_lifecycle]
+enabled = true
+required_approvals = 2
+max_versions_per_policy = 30
+"#;
+    let config: crate::PolicyConfig = toml::from_str(toml_str).unwrap();
+    assert!(config.policy_lifecycle.enabled);
+    assert_eq!(config.policy_lifecycle.required_approvals, 2);
+    assert_eq!(config.policy_lifecycle.max_versions_per_policy, 30);
+    assert!(config.validate().is_ok());
 }

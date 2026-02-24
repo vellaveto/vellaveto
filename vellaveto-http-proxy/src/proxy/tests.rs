@@ -835,6 +835,7 @@ fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
         output_schema_registry: Arc::new(OutputSchemaRegistry::new()),
         response_dlp_enabled: false,
         response_dlp_blocking: false,
+        audit_strict_mode: false,
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),

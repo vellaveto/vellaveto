@@ -28,6 +28,7 @@ impl ProxyBridge {
     ///
     /// When `context` is provided, uses context-aware evaluation for time windows,
     /// call limits, agent identity, and action history.
+    #[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
     pub(super) fn evaluate_action_inner(
         &self,
         action: &vellaveto_types::Action,

@@ -343,6 +343,37 @@ impl PolicyEngine {
     /// When `context` is `Some`, context conditions (time windows, call limits,
     /// agent identity, action history) are evaluated. When `None`, behaves
     /// identically to `evaluate_action`.
+    ///
+    /// # WARNING: `policies` parameter ignored when compiled policies exist
+    ///
+    /// When the engine was constructed with [`Self::with_policies`] (or any
+    /// builder that populates `compiled_policies`), the `policies` parameter
+    /// is **completely ignored**. The engine uses its pre-compiled policy set
+    /// instead. This is a known API contract violation that cannot be fixed
+    /// without a breaking change.
+    ///
+    /// This behavior led to a P0 tenant isolation bypass where callers passed
+    /// tenant-specific policies in the `policies` parameter, but the engine
+    /// silently used its global compiled set instead.
+    ///
+    /// # Migration guidance
+    ///
+    /// - **For compiled engines** (the common case): Use [`Self::evaluate_action`]
+    ///   which does not accept a `policies` parameter and makes the contract
+    ///   explicit. Context-aware evaluation with compiled policies works via
+    ///   [`Self::evaluate_action_traced_with_context`].
+    /// - **For dynamic policy sets**: Construct a new engine with
+    ///   [`Self::with_policies`] for each policy set, then call
+    ///   [`Self::evaluate_action`].
+    /// - **Do not** pass tenant-specific or request-scoped policies via the
+    ///   `policies` parameter on an engine that has compiled policies — they
+    ///   will be silently discarded.
+    #[deprecated(
+        since = "4.0.1",
+        note = "policies parameter is silently ignored when compiled policies exist. \
+                Use evaluate_action() for compiled engines or build a new engine \
+                with with_policies() for dynamic policy sets."
+    )]
     #[must_use = "security verdicts must not be discarded"]
     pub fn evaluate_action_with_context(
         &self,
@@ -1086,5 +1117,6 @@ impl PolicyEngine {
 }
 
 #[cfg(test)]
+#[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
 #[path = "engine_tests.rs"]
 mod tests;

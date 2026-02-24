@@ -518,6 +518,7 @@ fn test_ws_query_params_default() {
 // ==========================================================================
 
 #[test]
+#[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
 fn test_task_request_policy_deny_ws() {
     // With no policies, task requests should be denied (fail-closed)
     let state = make_test_state();
@@ -538,6 +539,7 @@ fn test_task_request_policy_deny_ws() {
 }
 
 #[test]
+#[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
 fn test_task_request_policy_allow_ws() {
     // With a wildcard allow policy, task requests should be allowed
     let state = make_test_state_with_allow_all();
@@ -558,6 +560,7 @@ fn test_task_request_policy_allow_ws() {
 }
 
 #[test]
+#[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
 fn test_extension_method_policy_deny_ws() {
     // With no policies, extension method calls should be denied (fail-closed)
     let state = make_test_state();
@@ -638,6 +641,7 @@ fn make_test_state() -> ProxyState {
         output_schema_registry: Arc::new(OutputSchemaRegistry::new()),
         response_dlp_enabled: true,
         response_dlp_blocking: false,
+        audit_strict_mode: false,
         known_tools: std::collections::HashSet::new(),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),

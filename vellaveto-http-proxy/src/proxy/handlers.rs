@@ -53,6 +53,7 @@ const MAX_SESSION_ID_LENGTH: usize = 128;
 /// 3. Manage session via Mcp-Session-Id header
 /// 4. Classify and evaluate the message
 /// 5. Forward allowed requests to upstream, return denials directly
+#[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
 pub async fn handle_mcp_post(
     State(state): State<ProxyState>,
     OriginalUri(original_uri): OriginalUri,
@@ -1340,7 +1341,19 @@ pub async fn handle_mcp_post(
                         )
                         .await
                     {
-                        tracing::warn!("Audit log failed: {}", e);
+                        tracing::error!("AUDIT FAILURE in HTTP proxy: security decision not recorded: {}", e);
+                        // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed
+                        // if audit fails. No unaudited security decisions can occur.
+                        if state.audit_strict_mode {
+                            return attach_session_header(
+                                make_jsonrpc_error(
+                                    msg.get("id"),
+                                    -32000,
+                                    "Audit logging failed — request denied (strict audit mode)",
+                                ),
+                                &session_id,
+                            );
+                        }
                     }
 
                     let mut response = json!({
@@ -1405,7 +1418,18 @@ pub async fn handle_mcp_post(
                         )
                         .await
                     {
-                        tracing::warn!("Audit log failed: {}", e);
+                        tracing::error!("AUDIT FAILURE in HTTP proxy: security decision not recorded: {}", e);
+                        // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
+                        if state.audit_strict_mode {
+                            return attach_session_header(
+                                make_jsonrpc_error(
+                                    msg.get("id"),
+                                    -32000,
+                                    "Audit logging failed — request denied (strict audit mode)",
+                                ),
+                                &session_id,
+                            );
+                        }
                     }
 
                     let mut response = json!({
@@ -1942,7 +1966,18 @@ pub async fn handle_mcp_post(
                         )
                         .await
                     {
-                        tracing::warn!("Audit log failed: {}", e);
+                        tracing::error!("AUDIT FAILURE in HTTP proxy: security decision not recorded: {}", e);
+                        // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
+                        if state.audit_strict_mode {
+                            return attach_session_header(
+                                make_jsonrpc_error(
+                                    msg.get("id"),
+                                    -32000,
+                                    "Audit logging failed — request denied (strict audit mode)",
+                                ),
+                                &session_id,
+                            );
+                        }
                     }
 
                     // SECURITY (R38-PROXY-4): Use generic message in client-facing
@@ -2811,7 +2846,18 @@ pub async fn handle_mcp_post(
                         )
                         .await
                     {
-                        tracing::warn!("Audit log failed: {}", e);
+                        tracing::error!("AUDIT FAILURE in HTTP proxy: security decision not recorded: {}", e);
+                        // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
+                        if state.audit_strict_mode {
+                            return attach_session_header(
+                                make_jsonrpc_error(
+                                    msg.get("id"),
+                                    -32000,
+                                    "Audit logging failed — request denied (strict audit mode)",
+                                ),
+                                &session_id,
+                            );
+                        }
                     }
 
                     let forward_body = match canonicalize_body(&state, &msg, body) {
@@ -2858,7 +2904,18 @@ pub async fn handle_mcp_post(
                         )
                         .await
                     {
-                        tracing::warn!("Audit log failed: {}", e);
+                        tracing::error!("AUDIT FAILURE in HTTP proxy: security decision not recorded: {}", e);
+                        // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
+                        if state.audit_strict_mode {
+                            return attach_session_header(
+                                make_jsonrpc_error(
+                                    msg.get("id"),
+                                    -32000,
+                                    "Audit logging failed — request denied (strict audit mode)",
+                                ),
+                                &session_id,
+                            );
+                        }
                     }
                     // SECURITY (R38-PROXY-4): Use generic message in client-facing
                     // response to avoid leaking policy names, blocked domains, CIDR
@@ -2903,7 +2960,18 @@ pub async fn handle_mcp_post(
                         )
                         .await
                     {
-                        tracing::warn!("Audit log failed: {}", e);
+                        tracing::error!("AUDIT FAILURE in HTTP proxy: security decision not recorded: {}", e);
+                        // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
+                        if state.audit_strict_mode {
+                            return attach_session_header(
+                                make_jsonrpc_error(
+                                    msg.get("id"),
+                                    -32000,
+                                    "Audit logging failed — request denied (strict audit mode)",
+                                ),
+                                &session_id,
+                            );
+                        }
                     }
                     // SECURITY (R38-PROXY-4): Use generic message in client-facing
                     // response. Detailed reason is preserved in the audit log above.
