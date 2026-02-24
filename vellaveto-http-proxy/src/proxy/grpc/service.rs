@@ -93,6 +93,28 @@ impl McpGrpcService {
         }
     }
 
+    /// SECURITY (FIND-R206-001): Check audit_strict_mode after an audit
+    /// logging failure. Returns `Some(denial)` if strict mode demands we
+    /// fail-closed; `None` if we can continue (non-strict).
+    fn audit_strict_deny(
+        &self,
+        proto_req: &JsonRpcRequest,
+        context: &str,
+    ) -> Option<JsonRpcResponse> {
+        if self.state.audit_strict_mode {
+            tracing::error!(
+                "gRPC audit strict mode: denying request after audit failure ({})",
+                context
+            );
+            Some(make_proto_denial_response(
+                proto_req,
+                "Audit logging failed — request denied (strict audit mode)",
+            ))
+        } else {
+            None
+        }
+    }
+
     /// Evaluate a single JSON-RPC request through the policy pipeline.
     ///
     /// Returns the response proto. Policy denials and transport errors are
@@ -376,6 +398,9 @@ impl McpGrpcService {
                                     "Failed to audit gRPC ProgressNotification injection: {}",
                                     e
                                 );
+                                if let Some(deny) = self.audit_strict_deny(proto_req, "notification injection") {
+                                    return deny;
+                                }
                             }
 
                             if self.state.injection_blocking {
@@ -482,6 +507,9 @@ impl McpGrpcService {
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC progress notification: {}", e);
+                    if let Some(deny) = self.audit_strict_deny(proto_req, "progress notification") {
+                        return deny;
+                    }
                 }
                 self.forward_and_scan(proto_req, &json_req, session_id)
                     .await
@@ -673,6 +701,9 @@ impl McpGrpcService {
                                     "Failed to audit gRPC passthrough injection: {}",
                                     e
                                 );
+                                if let Some(deny) = self.audit_strict_deny(proto_req, "passthrough injection") {
+                                    return deny;
+                                }
                             }
 
                             if self.state.injection_blocking {
@@ -784,6 +815,9 @@ impl McpGrpcService {
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC pass-through: {}", e);
+                    if let Some(deny) = self.audit_strict_deny(proto_req, "pass-through") {
+                        return deny;
+                    }
                 }
                 self.forward_and_scan(proto_req, &json_req, session_id)
                     .await
@@ -1293,6 +1327,9 @@ impl McpGrpcService {
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC allow: {}", e);
+                    if let Some(deny) = self.audit_strict_deny(proto_req, "allow verdict") {
+                        return deny;
+                    }
                 }
 
                 // Forward and scan response
@@ -1653,6 +1690,9 @@ impl McpGrpcService {
                     }),
                 ).await {
                     tracing::warn!("Failed to audit gRPC resource allow: {}", e);
+                    if let Some(deny) = self.audit_strict_deny(proto_req, "resource allow") {
+                        return deny;
+                    }
                 }
 
                 self.forward_and_scan(proto_req, json_req, session_id).await
@@ -1928,6 +1968,12 @@ impl McpGrpcService {
                             "Failed to audit gRPC tool description injection: {}",
                             e
                         );
+                        // SECURITY (FIND-R206-001): strict audit mode parity
+                        if self.state.audit_strict_mode {
+                            return Err(tonic::Status::internal(
+                                "Audit logging failed — request denied (strict audit mode)",
+                            ));
+                        }
                     }
                 }
                 if !desc_findings.is_empty() && self.state.injection_blocking {
@@ -2001,6 +2047,12 @@ impl McpGrpcService {
                                     "Failed to audit gRPC output schema violation: {}",
                                     e
                                 );
+                                // SECURITY (FIND-R206-001): strict audit mode parity
+                                if self.state.audit_strict_mode {
+                                    return Err(tonic::Status::internal(
+                                        "Audit logging failed — request denied (strict audit mode)",
+                                    ));
+                                }
                             }
                         }
                         ValidationResult::Valid => {
@@ -2287,6 +2339,9 @@ impl McpGrpcService {
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC task allow: {}", e);
+                    if let Some(deny) = self.audit_strict_deny(proto_req, "task allow") {
+                        return deny;
+                    }
                 }
                 self.forward_and_scan(proto_req, json_req, session_id).await
             }
@@ -2573,6 +2628,9 @@ impl McpGrpcService {
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC extension allow: {}", e);
+                    if let Some(deny) = self.audit_strict_deny(proto_req, "extension allow") {
+                        return deny;
+                    }
                 }
                 self.forward_and_scan(proto_req, json_req, session_id).await
             }
@@ -3121,6 +3179,77 @@ impl McpService for McpGrpcService {
         let session_id = extract_session_id(&metadata)
             .unwrap_or_else(|| self.state.sessions.get_or_create(None));
         let subscribe_req = request.into_inner();
+
+        // SECURITY (FIND-R208-001): Token expiry check — parity with call()/stream_call().
+        {
+            let token_expired = self
+                .state
+                .sessions
+                .get_mut(&session_id)
+                .and_then(|s| {
+                    s.token_expires_at.map(|exp| {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        now >= exp
+                    })
+                })
+                .unwrap_or(false);
+            if token_expired {
+                tracing::warn!(
+                    session_id = %session_id,
+                    "SECURITY: OAuth token expired during gRPC subscribe"
+                );
+                return Err(Status::unauthenticated("Token expired"));
+            }
+        }
+
+        // SECURITY (FIND-R208-001): Session ownership check — parity with call().
+        if let Some(authorization) = metadata.get("authorization") {
+            if let Some(ref oauth_validator) = self.state.oauth {
+                let auth_header = authorization.to_str().unwrap_or("").to_string();
+                match oauth_validator.validate_token(&auth_header).await {
+                    Ok(claims) => {
+                        if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
+                            match &session.oauth_subject {
+                                Some(owner) if owner != &claims.sub => {
+                                    tracing::warn!(
+                                        "SECURITY: gRPC subscribe session fixation blocked \
+                                         — session {} owned by '{}', request from '{}'",
+                                        session_id, owner, claims.sub
+                                    );
+                                    return Err(Status::permission_denied(
+                                        "Session owned by another user",
+                                    ));
+                                }
+                                None => {
+                                    session.oauth_subject = Some(claims.sub.clone());
+                                    if claims.exp > 0 {
+                                        session.token_expires_at = Some(claims.exp);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("gRPC subscribe OAuth validation failed: {}", e);
+                        return Err(Status::unauthenticated("Invalid authorization token"));
+                    }
+                }
+            }
+        }
+
+        // SECURITY (FIND-R208-003): Validate subscribe methods for control/format characters
+        // before logging to prevent log injection.
+        for method in &subscribe_req.methods {
+            if contains_dangerous_chars(method) {
+                return Err(Status::invalid_argument(
+                    "Subscribe method contains invalid characters",
+                ));
+            }
+        }
 
         let (tx, rx) = mpsc::channel(32);
 

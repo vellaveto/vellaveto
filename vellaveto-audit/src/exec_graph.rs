@@ -527,13 +527,15 @@ impl ExecutionGraph {
         let mut completed_count = 0u32;
 
         for node in self.nodes.values() {
-            *tool_counts.entry(node.tool.clone()).or_insert(0) += 1;
+            let tc = tool_counts.entry(node.tool.clone()).or_insert(0);
+            *tc = tc.saturating_add(1);
             if let Some(ref agent) = node.agent_id {
-                *agent_counts.entry(agent.clone()).or_insert(0) += 1;
+                let ac = agent_counts.entry(agent.clone()).or_insert(0);
+                *ac = ac.saturating_add(1);
             }
             if let Some(duration) = node.duration_ms {
-                total_duration += duration;
-                completed_count += 1;
+                total_duration = total_duration.saturating_add(duration);
+                completed_count = completed_count.saturating_add(1);
             }
         }
 

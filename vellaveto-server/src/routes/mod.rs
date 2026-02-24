@@ -22,6 +22,7 @@
 //! - `nhi` - Non-Human Identity (NHI) lifecycle handlers
 //! - `observability` - AI observability platform handlers (Phase 15)
 //! - `policy` - Policy CRUD and hot-reload handlers
+//! - `policy_lifecycle` - Policy versioning, approval, staging, and rollback handlers (Phase 47)
 //! - `projector` - Model projector API handlers (Phase 35)
 //! - `registry` - Tool registry management handlers
 //! - `sampling` - Sampling detection handlers

@@ -3962,6 +3962,17 @@ pub async fn handle_mcp_get(
             .await
         {
             tracing::warn!("Failed to audit invalid call-chain header on GET: {}", e);
+            // SECURITY (FIND-R206-004): Strict audit mode parity with HTTP POST.
+            if state.audit_strict_mode {
+                return attach_session_header(
+                    make_jsonrpc_error(
+                        None,
+                        -32000,
+                        "Audit logging failed — request denied (strict audit mode)",
+                    ),
+                    &session_id,
+                );
+            }
         }
         tracing::warn!(reason = %reason, "GET /mcp: Call chain validation failed");
         return attach_session_header(
@@ -4060,6 +4071,17 @@ pub async fn handle_mcp_get(
         .await
     {
         tracing::warn!("Failed to audit SSE GET request: {}", e);
+        // SECURITY (FIND-R206-004): Strict audit mode parity with HTTP POST.
+        if state.audit_strict_mode {
+            return attach_session_header(
+                make_jsonrpc_error(
+                    None,
+                    -32000,
+                    "Audit logging failed — request denied (strict audit mode)",
+                ),
+                &session_id,
+            );
+        }
     }
 
     // Forward GET to upstream

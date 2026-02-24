@@ -4,7 +4,7 @@
 > **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 + 43 + 44 complete, 194 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 7,266 Rust tests + 385 Python SDK tests + 127 Go SDK tests + 119 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 7,469 Rust tests + 385 Python SDK tests + 127 Go SDK tests + 119 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
 > **CI workflows:** 12 (16 jobs)
 > **Domain:** [www.vellaveto.online](https://www.vellaveto.online) (Cloudflare Pages)
@@ -89,6 +89,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Projector: CanonicalToolSchema, CanonicalToolCall, ModelFamily | `vellaveto-types/src/projector.rs` |
 | ZK Audit: PedersenCommitment, ZkBatchProof, ZkVerifyResult, ZkSchedulerStatus | `vellaveto-types/src/zk_audit.rs` |
 | Audit Store: AuditStoreBackend, AuditQueryParams, AuditQueryResult, AuditStoreStatus | `vellaveto-types/src/audit_store.rs` |
+| Policy Lifecycle: PolicyVersionStatus, PolicyVersion, PolicyApproval, StagingReport | `vellaveto-types/src/policy_lifecycle.rs` |
 | Time utilities: parse_iso8601_secs | `vellaveto-types/src/time_util.rs` |
 | Tests (~180) | `vellaveto-types/src/tests.rs` |
 | **vellaveto-engine** | |
@@ -112,6 +113,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Advanced: ABAC, compliance, extension, FIPS, gateway, gRPC, transport | `vellaveto-config/src/*.rs` |
 | Governance config | `vellaveto-config/src/governance.rs` |
 | Audit store config (PostgreSQL dual-write) | `vellaveto-config/src/audit_store.rs` |
+| Policy lifecycle config | `vellaveto-config/src/policy_lifecycle.rs` |
 | Discovery config | `vellaveto-config/src/discovery.rs` |
 | Projector config | `vellaveto-config/src/projector.rs` |
 | ZK Audit config | `vellaveto-config/src/zk_audit.rs` |
@@ -145,6 +147,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Projector API routes | `vellaveto-server/src/routes/projector.rs` |
 | ZK Audit API routes (status, proofs, verify, commitments) | `vellaveto-server/src/routes/zk_audit.rs` |
 | Audit store API routes (search, status, entry by ID) | `vellaveto-server/src/routes/audit_store.rs` |
+| Policy lifecycle store trait + InMemory impl | `vellaveto-server/src/policy_lifecycle.rs` |
+| Policy lifecycle API routes (versions, approve, promote, rollback, diff) | `vellaveto-server/src/routes/policy_lifecycle.rs` |
 | SOC 2 Access Review route (JSON/HTML) | `vellaveto-server/src/routes/compliance.rs` |
 | Dashboard | `vellaveto-server/src/dashboard.rs` |
 | Setup wizard | `vellaveto-server/src/setup_wizard.rs` |
@@ -175,7 +179,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 + Phase 41 + Phase 43 + Phase 44 implemented, tested, and hardened through 194 audit rounds. Details in CHANGELOG.md.
+All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 + Phase 41 + Phase 43 + Phase 44 + Phase 47 implemented, tested, and hardened through 194 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
 - **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention, centralized audit store with PostgreSQL dual-write (Phase 43)
@@ -227,6 +231,7 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - **OWASP Agentic Security Index (Phase 41):** `OwaspAsiRegistry` with 10 categories (ASI01–ASI10), 33 controls, 100% coverage via `VellavetoDetection` mappings. `AsiCoverageReport` with per-category breakdown and control matrix. Wired as 8th framework in gap analysis. `OwaspAsiConfig` with `enabled` flag, `deny_unknown_fields`, `validate()`. `GET /api/compliance/owasp-agentic` endpoint with cache. SDK methods: Python (sync+async), TypeScript, Go with input validation. Dashboard compliance table includes OWASP ASI. ~30 new tests (Rust + SDKs).
 - **Centralized Audit Store (Phase 43):** `AuditSink` trait for pluggable external stores, `PostgresAuditSink` with mpsc channel + background batch INSERT (exponential backoff retry, `ON CONFLICT DO NOTHING`), `AuditQueryService` trait with `FileAuditQuery` (in-memory filtering) and `PostgresAuditQuery` (SQL with bind parameters, GIN indexes on metadata). `AuditStoreConfig` with SSRF validation (private/loopback/metadata host rejection), SQL identifier validation for table_name, `deny_unknown_fields`, custom Debug redacting `database_url`. REST API: `GET /api/audit/search` (paginated, time/tool/verdict/agent/text filters), `GET /api/audit/store/status`, `GET /api/audit/entry/{id}`. Feature-gated behind `postgres-store` (sqlx). Dual-write: file log remains source of truth, PostgreSQL sink optional and non-fatal by default. ~55 new tests.
 - **Multi-Tenancy Foundation (Phase 44):** Per-tenant policy filtering in evaluate handler (default tenant sees all, named tenants see own + global + legacy via `policy_matches()`). `PerTenantRateLimiter` with DashMap + governor token-bucket (per-minute quota from `TenantQuotas.max_evaluations_per_minute`, stale entry cleanup, fail-closed on capacity exceeded, quota change detection). `AuditEntry.tenant_id` field with `serde(default, skip_serializing_if)` for backward compatibility. PostgreSQL DDL updated to 14 columns with `tenant_id TEXT` + index. Tenant-scoped audit query: `AuditQueryParams.tenant_id` filter in file + Postgres backends, auto-injected for non-default tenants in route handler. Per-tenant `max_policies` quota enforcement in `add_policy` handler. SDK `tenant` parameter: Python (sync+async), TypeScript, Go — all with validation (1–64 chars, `[a-zA-Z0-9_-]`) and `X-Tenant-ID` header injection. Single-tenant mode (default) is fully backward-compatible — no behavior change when `TenantConfig.enabled = false`.
+- **Policy Lifecycle Management (Phase 47):** Versioned policies with Draft → Staging → Active → Archived lifecycle. `PolicyVersionStore` trait + `InMemoryPolicyVersionStore` (tokio RwLock, bounded). `PolicyLifecycleConfig` (default disabled, fail-closed). 9 REST API endpoints for version CRUD, approval, promotion, archival, rollback, and structural diff. Compile-first promote-to-Active with ArcSwap atomic swap and rollback on failure. Staging shadow evaluation: `StagingSnapshot` engine runs non-blocking comparison after active verdict, logging divergences without affecting hot-path latency. Self-approval prevention (NFKC + case-fold). `staging_period_secs` enforcement. 49 new tests.
 - **Interactive Setup Wizard:** Web-based 7-step configuration wizard at `/setup` (Welcome → Security → Policies → Detection → Audit → Compliance → Review/Apply). Server-side rendered HTML matching dashboard dark theme, POST/redirect/GET forms, CSRF protection, bounded session management (MAX_WIZARD_SESSIONS=100, 1hr TTL), TOML config generation with live apply and hot-reload. Guard middleware locks wizard after initial configuration via `.setup-complete` marker file. 28 unit tests.
 - **Cloudflare Pages Deployment:** Site at [www.vellaveto.online](https://www.vellaveto.online), Astro static build deployed via `deploy-site.yml` workflow, `_redirects` (apex → www 301), `_headers` (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)
 - **Docs:** Quickstart guides, security model, benchmarks, 5 policy presets

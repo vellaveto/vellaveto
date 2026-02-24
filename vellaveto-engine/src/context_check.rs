@@ -12,7 +12,7 @@ use crate::compiled::{CompiledContextCondition, CompiledPolicy};
 use crate::matcher::PatternMatcher;
 use crate::PolicyEngine;
 use chrono::{Datelike, Timelike};
-use vellaveto_types::{sanitize_for_log, EvaluationContext, Verdict};
+use vellaveto_types::{sanitize_for_log, unicode::normalize_homoglyphs, EvaluationContext, Verdict};
 
 impl PolicyEngine {
     // VERIFIED [S6]: Context fail-closed — missing context data produces Deny (MCPPolicyEngine.tla S6)
@@ -157,10 +157,15 @@ impl PolicyEngine {
                 } => {
                     // SECURITY (R31-ENG-7): Case-insensitive comparison to prevent
                     // bypass via tool name casing variations (e.g., "Read_File" vs "read_file").
+                    // SECURITY (FIND-R206-008): Homoglyph normalization on history entries
+                    // to prevent Cyrillic/Greek/fullwidth characters from causing false denials.
                     if !context
                         .previous_actions
                         .iter()
-                        .any(|a| a.eq_ignore_ascii_case(required_tool))
+                        .any(|a| {
+                            let norm = normalize_homoglyphs(&a.to_ascii_lowercase());
+                            norm == *required_tool
+                        })
                     {
                         return Some(Verdict::Deny {
                             reason: deny_reason.clone(),
@@ -172,10 +177,15 @@ impl PolicyEngine {
                     deny_reason,
                 } => {
                     // SECURITY (R31-ENG-7): Case-insensitive comparison.
+                    // SECURITY (FIND-R206-007): Homoglyph normalization on history entries
+                    // to prevent Cyrillic/Greek/fullwidth bypasses of forbidden action checks.
                     if context
                         .previous_actions
                         .iter()
-                        .any(|a| a.eq_ignore_ascii_case(forbidden_tool))
+                        .any(|a| {
+                            let norm = normalize_homoglyphs(&a.to_ascii_lowercase());
+                            norm == *forbidden_tool
+                        })
                     {
                         return Some(Verdict::Deny {
                             reason: deny_reason.clone(),
@@ -203,9 +213,14 @@ impl PolicyEngine {
                     // SECURITY (R26-ENG-3): Fail-closed on count overflow.
                     // SECURITY (R34-ENG-5): Case-insensitive matching for consistency
                     // with ForbiddenPreviousAction/RequirePreviousAction (R31-ENG-7).
+                    // SECURITY (FIND-R206-004): Homoglyph normalization on history entries
+                    // to prevent rate limit bypass via Cyrillic/fullwidth variants.
                     let count_usize = history
                         .iter()
-                        .filter(|a| tool_pattern.matches(&a.to_ascii_lowercase()))
+                        .filter(|a| {
+                            let norm = normalize_homoglyphs(&a.to_ascii_lowercase());
+                            tool_pattern.matches_normalized(&norm)
+                        })
                         .count();
                     let count = u64::try_from(count_usize).unwrap_or(u64::MAX);
                     if count >= *max {
@@ -839,12 +854,15 @@ impl PolicyEngine {
                     if *ordered {
                         // Ordered subsequence match: greedy left-to-right scan.
                         // Advance sequence pointer each time a history entry matches.
+                        // SECURITY (FIND-R206-005): Homoglyph normalization on history
+                        // entries to prevent bypass via Cyrillic/fullwidth variants.
                         let mut seq_idx = 0;
                         for h in history {
-                            if seq_idx < sequence.len()
-                                && h.eq_ignore_ascii_case(&sequence[seq_idx])
-                            {
-                                seq_idx += 1;
+                            if seq_idx < sequence.len() {
+                                let norm = normalize_homoglyphs(&h.to_ascii_lowercase());
+                                if norm == sequence[seq_idx] {
+                                    seq_idx += 1;
+                                }
                             }
                         }
                         if seq_idx < sequence.len() {
@@ -857,12 +875,19 @@ impl PolicyEngine {
                         // SECURITY (FIND-R50-011): Track matched indices to handle
                         // duplicate tools correctly. Without this, sequence ["a", "a"]
                         // would be satisfied by a single "a" in history.
+                        // SECURITY (FIND-R206-005): Homoglyph normalization.
                         let mut used = vec![false; history.len()];
                         for required in sequence {
                             let found = history
                                 .iter()
                                 .enumerate()
-                                .position(|(i, h)| !used[i] && h.eq_ignore_ascii_case(required));
+                                .position(|(i, h)| {
+                                    if used[i] {
+                                        return false;
+                                    }
+                                    let norm = normalize_homoglyphs(&h.to_ascii_lowercase());
+                                    norm == *required
+                                });
                             match found {
                                 Some(i) => used[i] = true,
                                 None => {
@@ -902,19 +927,19 @@ impl PolicyEngine {
                     // history for forbidden sequence matching. Without this, a two-step
                     // exfiltration like [read_secret, http_request] is only detected
                     // AFTER http_request has been forwarded (one step too late).
-                    let current_lower = current_tool.to_ascii_lowercase();
+                    // SECURITY (FIND-R206-005): Homoglyph normalization on current_tool
+                    // and history entries to prevent bypass via Cyrillic/fullwidth variants.
+                    let current_norm = normalize_homoglyphs(&current_tool.to_ascii_lowercase());
 
                     if *ordered {
                         // Ordered subsequence match over history + current_tool.
                         let mut seq_idx = 0;
                         for h in history
                             .iter()
-                            .map(|s| s.as_str())
-                            .chain(std::iter::once(current_lower.as_str()))
+                            .map(|s| normalize_homoglyphs(&s.to_ascii_lowercase()))
+                            .chain(std::iter::once(current_norm.clone()))
                         {
-                            if seq_idx < sequence.len()
-                                && h.eq_ignore_ascii_case(&sequence[seq_idx])
-                            {
+                            if seq_idx < sequence.len() && h == sequence[seq_idx] {
                                 seq_idx += 1;
                             }
                         }
@@ -927,15 +952,16 @@ impl PolicyEngine {
                         // Unordered: if all tools present in history + current_tool → Deny.
                         // SECURITY (FIND-R50-012): Track matched indices to handle
                         // duplicate tools correctly (don't double-count same entry).
-                        let effective: Vec<&str> = history
+                        // SECURITY (FIND-R206-005): Homoglyph normalization.
+                        let effective: Vec<String> = history
                             .iter()
-                            .map(|s| s.as_str())
-                            .chain(std::iter::once(current_lower.as_str()))
+                            .map(|s| normalize_homoglyphs(&s.to_ascii_lowercase()))
+                            .chain(std::iter::once(current_norm.clone()))
                             .collect();
                         let mut used = vec![false; effective.len()];
                         let all_present = sequence.iter().all(|required| {
                             effective.iter().enumerate().any(|(i, h)| {
-                                if !used[i] && h.eq_ignore_ascii_case(required) {
+                                if !used[i] && h == required {
                                     used[i] = true;
                                     true
                                 } else {
@@ -958,34 +984,37 @@ impl PolicyEngine {
                     strict,
                     deny_reason,
                 } => {
-                    let tool_lower = current_tool.to_ascii_lowercase();
+                    // SECURITY (FIND-R206-005): Homoglyph normalization on workflow tools.
+                    let tool_norm = normalize_homoglyphs(&current_tool.to_ascii_lowercase());
 
                     // Non-governed tools pass through — no restriction.
-                    if !governed_tools.contains(&tool_lower) {
+                    if !governed_tools.contains(&tool_norm) {
                         // Continue to next condition.
                     } else {
                         let history = &context.previous_actions;
 
                         // Find the most recent governed tool in history (reverse scan).
-                        // SECURITY (FIND-R50-019): Use eq_ignore_ascii_case to avoid
-                        // per-entry String allocation. Only allocate for the single
-                        // matched entry. governed_tools contains lowercase strings.
+                        // SECURITY (FIND-R50-019): governed_tools contains lowercase strings.
+                        // SECURITY (FIND-R206-005): Homoglyph normalization on history entries.
                         let last_governed = history
                             .iter()
                             .rev()
-                            .find(|h| governed_tools.iter().any(|g| h.eq_ignore_ascii_case(g)))
-                            .map(|h| h.to_ascii_lowercase());
+                            .find(|h| {
+                                let norm = normalize_homoglyphs(&h.to_ascii_lowercase());
+                                governed_tools.contains(&norm)
+                            })
+                            .map(|h| normalize_homoglyphs(&h.to_ascii_lowercase()));
 
                         let violation = match last_governed {
                             None => {
                                 // No previous governed tool: current must be an entry point.
-                                !entry_points.iter().any(|ep| ep == &tool_lower)
+                                !entry_points.iter().any(|ep| ep == &tool_norm)
                             }
                             Some(ref prev) => {
                                 // Current must be a valid successor of the previous governed tool.
                                 match adjacency.get(prev.as_str()) {
                                     Some(successors) => {
-                                        !successors.iter().any(|s| s == &tool_lower)
+                                        !successors.iter().any(|s| s == &tool_norm)
                                     }
                                     None => {
                                         // Previous tool is a terminal node (no successors).

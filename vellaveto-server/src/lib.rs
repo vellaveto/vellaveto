@@ -1293,6 +1293,30 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
         if policy_config.manifest != default_cfg.manifest {
             changed_sections.push("manifest");
         }
+        // SECURITY (FIND-R208-002): Extend changed-section detection to security-critical
+        // configs that require restart. Previously only 5 sections were checked; operators
+        // modifying other sections had no warning that changes were silently ignored.
+        if policy_config.abac != default_cfg.abac {
+            changed_sections.push("abac");
+        }
+        if policy_config.fips != default_cfg.fips {
+            changed_sections.push("fips");
+        }
+        if policy_config.governance != default_cfg.governance {
+            changed_sections.push("governance");
+        }
+        if policy_config.compliance != default_cfg.compliance {
+            changed_sections.push("compliance");
+        }
+        if policy_config.deployment != default_cfg.deployment {
+            changed_sections.push("deployment");
+        }
+        if policy_config.a2a != default_cfg.a2a {
+            changed_sections.push("a2a");
+        }
+        if policy_config.cluster != default_cfg.cluster {
+            changed_sections.push("cluster");
+        }
         if !changed_sections.is_empty() {
             tracing::warn!(
                 "Config reload only applies policies and OPA runtime settings. The following sections \

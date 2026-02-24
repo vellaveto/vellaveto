@@ -10,8 +10,8 @@ use crate::error::EngineError;
 use crate::PolicyEngine;
 use std::time::Instant;
 use vellaveto_types::{
-    Action, ActionSummary, ConstraintResult, EvaluationContext, EvaluationTrace, Policy,
-    PolicyMatch, PolicyType, Verdict,
+    unicode::normalize_homoglyphs, Action, ActionSummary, ConstraintResult, EvaluationContext,
+    EvaluationTrace, Policy, PolicyMatch, PolicyType, Verdict,
 };
 
 impl PolicyEngine {
@@ -55,15 +55,23 @@ impl PolicyEngine {
             return Ok((verdict, trace));
         }
 
+        // SECURITY (FIND-R206-001): Normalize tool/function names through homoglyph
+        // normalization before policy matching. This prevents fullwidth/Cyrillic/Greek
+        // characters from bypassing exact-match Deny policies. Patterns are normalized
+        // at compile time; input must be normalized at evaluation time for consistency.
+        // Matches the normalization in evaluate_with_compiled().
+        let norm_tool = normalize_homoglyphs(&action.tool);
+        let norm_func = normalize_homoglyphs(&action.function);
+
         // Walk compiled policies using the tool index (same order as evaluate_with_compiled)
-        let indices = self.collect_candidate_indices(action);
+        let indices = self.collect_candidate_indices_normalized(&norm_tool);
         let mut policy_matches: Vec<PolicyMatch> = Vec::with_capacity(indices.len());
 
         for idx in &indices {
             let cp = &self.compiled_policies[*idx];
             policies_checked += 1;
 
-            let tool_matched = cp.tool_matcher.matches(action);
+            let tool_matched = cp.tool_matcher.matches_normalized(&norm_tool, &norm_func);
             if !tool_matched {
                 policy_matches.push(PolicyMatch {
                     policy_id: cp.policy.id.clone(),
@@ -155,14 +163,18 @@ impl PolicyEngine {
             return Ok((verdict, trace));
         }
 
-        let indices = self.collect_candidate_indices(action);
+        // SECURITY (FIND-R206-001): Normalize for homoglyph-safe matching.
+        let norm_tool = normalize_homoglyphs(&action.tool);
+        let norm_func = normalize_homoglyphs(&action.function);
+
+        let indices = self.collect_candidate_indices_normalized(&norm_tool);
         let mut policy_matches: Vec<PolicyMatch> = Vec::with_capacity(indices.len());
 
         for idx in &indices {
             let cp = &self.compiled_policies[*idx];
             policies_checked += 1;
 
-            let tool_matched = cp.tool_matcher.matches(action);
+            let tool_matched = cp.tool_matcher.matches_normalized(&norm_tool, &norm_func);
             if !tool_matched {
                 policy_matches.push(PolicyMatch {
                     policy_id: cp.policy.id.clone(),
@@ -216,14 +228,17 @@ impl PolicyEngine {
         Ok((verdict, trace))
     }
 
-    /// Collect candidate policy indices in priority order using the tool index.
-    fn collect_candidate_indices(&self, action: &Action) -> Vec<usize> {
+    /// Collect candidate policy indices using a pre-normalized tool name.
+    ///
+    /// SECURITY (FIND-R206-001): Uses the normalized tool name for index lookup,
+    /// ensuring homoglyph-normalized tool names match the normalized index keys.
+    fn collect_candidate_indices_normalized(&self, norm_tool: &str) -> Vec<usize> {
         if self.tool_index.is_empty() && self.always_check.is_empty() {
             // No index: return all indices in order
             return (0..self.compiled_policies.len()).collect();
         }
 
-        let tool_specific = self.tool_index.get(&action.tool);
+        let tool_specific = self.tool_index.get(norm_tool);
         let tool_slice = tool_specific.map(|v| v.as_slice()).unwrap_or(&[]);
         let always_slice = &self.always_check;
 

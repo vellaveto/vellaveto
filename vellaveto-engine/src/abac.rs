@@ -603,10 +603,18 @@ fn matches_action(action_constraint: &CompiledAction, action: &Action) -> bool {
     if action_constraint.matchers.is_empty() {
         return true;
     }
+    // SECURITY (FIND-R206-002): Normalize tool/function names through homoglyph
+    // normalization before ABAC matching. Patterns are normalized at compile time;
+    // input must also be normalized to prevent Cyrillic/Greek/fullwidth characters
+    // from bypassing Forbid policies.
+    let norm_tool = vellaveto_types::unicode::normalize_homoglyphs(&action.tool);
+    let norm_func = vellaveto_types::unicode::normalize_homoglyphs(&action.function);
     action_constraint
         .matchers
         .iter()
-        .any(|(tool_m, func_m)| tool_m.matches(&action.tool) && func_m.matches(&action.function))
+        .any(|(tool_m, func_m)| {
+            tool_m.matches_normalized(&norm_tool) && func_m.matches_normalized(&norm_func)
+        })
 }
 
 fn matches_resource(resource: &CompiledResource, action: &Action) -> bool {

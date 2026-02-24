@@ -49,13 +49,20 @@ impl PolicyEngine {
     /// which delegates to [`PatternMatcher::compile`] and treats unsupported infix
     /// wildcards as match-all (fail-closed).
     fn match_pattern(&self, pattern: &str, value: &str) -> bool {
-        if pattern == "*" {
+        // SECURITY (FIND-R206-003): Normalize both pattern and value through
+        // homoglyph normalization to prevent Cyrillic/Greek/fullwidth characters
+        // from bypassing legacy Deny policies. This matches the normalization
+        // applied in PatternMatcher::compile() for the compiled path.
+        let norm_pattern = vellaveto_types::unicode::normalize_homoglyphs(pattern);
+        let norm_value = vellaveto_types::unicode::normalize_homoglyphs(value);
+
+        if norm_pattern == "*" {
             return true;
         }
-        if let Some(suffix) = pattern.strip_prefix('*') {
-            return value.ends_with(suffix);
+        if let Some(suffix) = norm_pattern.strip_prefix('*') {
+            return norm_value.ends_with(suffix);
         }
-        if let Some(prefix) = pattern.strip_suffix('*') {
+        if let Some(prefix) = norm_pattern.strip_suffix('*') {
             // SECURITY (FIND-P2-006): Detect infix wildcards (e.g., "foo*bar") which
             // are not supported by the legacy matcher. After stripping the trailing `*`,
             // if the remaining prefix still contains `*`, this is an infix wildcard.
@@ -72,9 +79,9 @@ impl PolicyEngine {
                 );
                 return true;
             }
-            return value.starts_with(prefix);
+            return norm_value.starts_with(prefix);
         }
-        pattern == value
+        norm_pattern == norm_value
     }
 
     /// Apply a matched policy to produce a verdict.
