@@ -125,6 +125,23 @@ impl DnsServiceDiscovery {
                 "dns_name contains control or format characters".to_string(),
             );
         }
+        // SECURITY (IMP-R224-001): Validate refresh_interval to prevent busy-loop DoS.
+        // Zero or sub-second intervals cause the watch() loop to spin, saturating CPU
+        // and flooding the DNS resolver.
+        const MIN_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+        const MAX_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(86_400);
+        if refresh_interval < MIN_REFRESH_INTERVAL {
+            return Err(format!(
+                "refresh_interval {:?} is below minimum {:?}",
+                refresh_interval, MIN_REFRESH_INTERVAL,
+            ));
+        }
+        if refresh_interval > MAX_REFRESH_INTERVAL {
+            return Err(format!(
+                "refresh_interval {:?} exceeds maximum {:?}",
+                refresh_interval, MAX_REFRESH_INTERVAL,
+            ));
+        }
         Ok(Self {
             dns_name,
             refresh_interval,
@@ -514,5 +531,45 @@ mod tests {
             std::time::Duration::from_secs(5),
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dns_discovery_rejects_zero_refresh_interval() {
+        // SECURITY (IMP-R224-001): Zero interval causes busy-loop DoS.
+        let result = DnsServiceDiscovery::new(
+            "localhost:80".to_string(),
+            std::time::Duration::ZERO,
+        );
+        let err = result.err().expect("should fail");
+        assert!(err.contains("below minimum"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_dns_discovery_rejects_sub_second_refresh_interval() {
+        let result = DnsServiceDiscovery::new(
+            "localhost:80".to_string(),
+            std::time::Duration::from_millis(500),
+        );
+        let err = result.err().expect("should fail");
+        assert!(err.contains("below minimum"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_dns_discovery_rejects_excessive_refresh_interval() {
+        let result = DnsServiceDiscovery::new(
+            "localhost:80".to_string(),
+            std::time::Duration::from_secs(100_000),
+        );
+        let err = result.err().expect("should fail");
+        assert!(err.contains("exceeds maximum"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_dns_discovery_accepts_valid_refresh_interval() {
+        let result = DnsServiceDiscovery::new(
+            "localhost:80".to_string(),
+            std::time::Duration::from_secs(30),
+        );
+        assert!(result.is_ok());
     }
 }

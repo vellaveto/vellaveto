@@ -611,7 +611,16 @@ impl ApprovalStore {
             let mut dedup = self.dedup_index.write().await;
             dedup.remove(&dedup_key);
             drop(dedup);
-            self.persist_approval(&result).await?;
+            // SECURITY (FIND-R224-001): Rollback in-memory state on persist failure.
+            // Without this, the approval is Expired in memory but Pending on disk.
+            // On restart, it reloads as Pending, and the removed dedup key allows
+            // a duplicate approval to be created.
+            if let Err(e) = self.persist_approval(&result).await {
+                approval.status = ApprovalStatus::Pending;
+                let mut dedup = self.dedup_index.write().await;
+                dedup.insert(dedup_key, id.to_string());
+                return Err(e);
+            }
             return Err(ApprovalError::Expired(id.to_string()));
         }
 
@@ -748,7 +757,14 @@ impl ApprovalStore {
             let mut dedup = self.dedup_index.write().await;
             dedup.remove(&dedup_key);
             drop(dedup);
-            self.persist_approval(&result).await?;
+            // SECURITY (FIND-R224-001): Rollback in-memory state on persist failure.
+            // Parity with approve() expiry path rollback.
+            if let Err(e) = self.persist_approval(&result).await {
+                approval.status = ApprovalStatus::Pending;
+                let mut dedup = self.dedup_index.write().await;
+                dedup.insert(dedup_key, id.to_string());
+                return Err(e);
+            }
             return Err(ApprovalError::Expired(id.to_string()));
         }
 

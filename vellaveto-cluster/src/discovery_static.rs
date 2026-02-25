@@ -33,6 +33,14 @@ impl StaticServiceDiscovery {
                 MAX_STATIC_ENDPOINTS
             )));
         }
+        // SECURITY (IMP-R224-006): Validate each endpoint at construction time.
+        // Without this, endpoints with control chars in id/url or excessively
+        // long labels are accepted and propagated unvalidated.
+        for (i, ep) in endpoints.iter().enumerate() {
+            ep.validate().map_err(|e| {
+                ClusterError::Validation(format!("endpoint[{}]: {}", i, e))
+            })?;
+        }
         Ok(Self { endpoints })
     }
 }
@@ -143,5 +151,22 @@ mod tests {
         let first = sd.discover().await.unwrap();
         let second = sd.discover().await.unwrap();
         assert_eq!(first, second);
+    }
+
+    #[tokio::test]
+    async fn test_static_discovery_rejects_endpoint_with_control_chars() {
+        // SECURITY (IMP-R224-006): Endpoint validation at construction time.
+        let endpoints = vec![ServiceEndpoint {
+            id: "bad\nid".to_string(),
+            url: "http://backend:3000".to_string(),
+            labels: HashMap::new(),
+            healthy: true,
+        }];
+        let err = StaticServiceDiscovery::new(endpoints).unwrap_err();
+        assert!(
+            err.to_string().contains("control"),
+            "Expected control char error, got: {}",
+            err
+        );
     }
 }
