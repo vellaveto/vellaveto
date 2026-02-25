@@ -624,7 +624,19 @@ impl ApprovalStore {
         let mut dedup = self.dedup_index.write().await;
         dedup.remove(&dedup_key);
         drop(dedup);
-        self.persist_approval(&result).await?;
+
+        // SECURITY (FIND-R222-002): Rollback in-memory state on persist failure.
+        // Without this, a failed disk write leaves the approval as Approved in memory
+        // but Pending on disk. On restart, the approval reverts to Pending — allowing
+        // a second resolution by a different principal.
+        if let Err(e) = self.persist_approval(&result).await {
+            approval.status = ApprovalStatus::Pending;
+            approval.resolved_by = None;
+            approval.resolved_at = None;
+            let mut dedup = self.dedup_index.write().await;
+            dedup.insert(dedup_key, id.to_string());
+            return Err(e);
+        }
         Ok(result)
     }
 
@@ -749,7 +761,18 @@ impl ApprovalStore {
         let mut dedup = self.dedup_index.write().await;
         dedup.remove(&dedup_key);
         drop(dedup);
-        self.persist_approval(&result).await?;
+
+        // SECURITY (FIND-R222-002): Rollback in-memory state on persist failure.
+        // Parity with approve() rollback. Without this, a failed disk write
+        // leaves the denial as Denied in memory but Pending on disk.
+        if let Err(e) = self.persist_approval(&result).await {
+            approval.status = ApprovalStatus::Pending;
+            approval.resolved_by = None;
+            approval.resolved_at = None;
+            let mut dedup = self.dedup_index.write().await;
+            dedup.insert(dedup_key, id.to_string());
+            return Err(e);
+        }
         Ok(result)
     }
 

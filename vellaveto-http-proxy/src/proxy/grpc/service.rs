@@ -2193,6 +2193,85 @@ impl McpGrpcService {
                     .or_else(|| s.oauth_subject.clone())
             });
 
+        // SECURITY (FIND-R222-001): Injection scanning on task parameters.
+        // Parity with PassThrough handler (service.rs:639) and WS handler
+        // (websocket/mod.rs pre-classify scan). Task methods (tasks/send,
+        // tasks/sendSubscribe) carry a `message` parameter vulnerable to
+        // prompt injection attacks.
+        if !self.state.injection_disabled {
+            let scannable = extract_passthrough_text_for_injection(json_req);
+            if !scannable.is_empty() {
+                let injection_matches: Vec<String> =
+                    if let Some(ref scanner) = self.state.injection_scanner {
+                        scanner
+                            .inspect(&scannable)
+                            .into_iter()
+                            .map(|s| s.to_string())
+                            .collect()
+                    } else {
+                        inspect_for_injection(&scannable)
+                            .into_iter()
+                            .map(|s| s.to_string())
+                            .collect()
+                    };
+
+                if !injection_matches.is_empty() {
+                    tracing::warn!(
+                        "SECURITY: Injection in gRPC task params! \
+                         Session: {}, Method: {}, Patterns: {:?}",
+                        session_id,
+                        task_method,
+                        injection_matches,
+                    );
+
+                    let verdict = if self.state.injection_blocking {
+                        Verdict::Deny {
+                            reason: format!(
+                                "Task injection blocked: {:?}",
+                                injection_matches
+                            ),
+                        }
+                    } else {
+                        Verdict::Allow
+                    };
+
+                    let inj_action = extractor::extract_task_action(task_method, task_id);
+                    if let Err(e) = self
+                        .state
+                        .audit
+                        .log_entry(
+                            &inj_action,
+                            &verdict,
+                            json!({
+                                "source": "grpc_proxy",
+                                "event": "task_injection_detected",
+                                "blocking": self.state.injection_blocking,
+                                "session": session_id,
+                                "transport": "grpc",
+                                "task_method": task_method,
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            "Failed to audit gRPC task injection: {}",
+                            e
+                        );
+                        if let Some(deny) = self.audit_strict_deny(proto_req, "task injection") {
+                            return deny;
+                        }
+                    }
+
+                    if self.state.injection_blocking {
+                        return make_proto_denial_response(
+                            proto_req,
+                            "Request blocked: injection detected",
+                        );
+                    }
+                }
+            }
+        }
+
         // SECURITY (FIND-R60-002): DLP scan task parameters for secret exfiltration.
         // Parity with tools/call handler (service.rs:354) and WS (websocket/mod.rs:700).
         // Task methods (tasks/send, tasks/sendSubscribe) carry a `message` parameter that
@@ -2517,6 +2596,85 @@ impl McpGrpcService {
         extension_id: &str,
         method: &str,
     ) -> JsonRpcResponse {
+        // SECURITY (FIND-R222-001): Injection scanning on extension method parameters.
+        // Parity with PassThrough handler and handle_task_request.
+        if !self.state.injection_disabled {
+            let scannable = extract_passthrough_text_for_injection(json_req);
+            if !scannable.is_empty() {
+                let injection_matches: Vec<String> =
+                    if let Some(ref scanner) = self.state.injection_scanner {
+                        scanner
+                            .inspect(&scannable)
+                            .into_iter()
+                            .map(|s| s.to_string())
+                            .collect()
+                    } else {
+                        inspect_for_injection(&scannable)
+                            .into_iter()
+                            .map(|s| s.to_string())
+                            .collect()
+                    };
+
+                if !injection_matches.is_empty() {
+                    tracing::warn!(
+                        "SECURITY: Injection in gRPC extension params! \
+                         Session: {}, Extension: {}:{}, Patterns: {:?}",
+                        session_id,
+                        extension_id,
+                        method,
+                        injection_matches,
+                    );
+
+                    let verdict = if self.state.injection_blocking {
+                        Verdict::Deny {
+                            reason: format!(
+                                "Extension injection blocked: {:?}",
+                                injection_matches
+                            ),
+                        }
+                    } else {
+                        Verdict::Allow
+                    };
+
+                    let inj_action =
+                        extractor::extract_extension_action(extension_id, method, &json!({}));
+                    if let Err(e) = self
+                        .state
+                        .audit
+                        .log_entry(
+                            &inj_action,
+                            &verdict,
+                            json!({
+                                "source": "grpc_proxy",
+                                "event": "extension_injection_detected",
+                                "blocking": self.state.injection_blocking,
+                                "session": session_id,
+                                "transport": "grpc",
+                                "extension_id": extension_id,
+                                "method": method,
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            "Failed to audit gRPC extension injection: {}",
+                            e
+                        );
+                        if let Some(deny) = self.audit_strict_deny(proto_req, "extension injection") {
+                            return deny;
+                        }
+                    }
+
+                    if self.state.injection_blocking {
+                        return make_proto_denial_response(
+                            proto_req,
+                            "Request blocked: injection detected",
+                        );
+                    }
+                }
+            }
+        }
+
         let params = json_req.get("params").cloned().unwrap_or(json!({}));
 
         // SECURITY (FIND-R114-003): DLP scan extension method parameters.

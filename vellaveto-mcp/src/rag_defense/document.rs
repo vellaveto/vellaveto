@@ -380,21 +380,35 @@ impl DocumentVerifier {
 
     /// Gets the cached trust score for a document.
     pub fn get_cached_score(&self, doc_id: &str) -> Option<DocumentTrustScore> {
-        self.trust_cache
-            .read()
-            .ok()
-            .and_then(|cache| cache.get(doc_id).cloned())
+        // SECURITY (IMP-R222-004): Log lock poisoning instead of silently returning None.
+        match self.trust_cache.read() {
+            Ok(cache) => cache.get(doc_id).cloned(),
+            Err(_) => {
+                tracing::error!("DocumentVerifier trust_cache lock poisoned in get_cached_score");
+                None
+            }
+        }
     }
 
     /// Returns the number of registered documents.
     pub fn document_count(&self) -> usize {
-        self.documents.read().map(|d| d.len()).unwrap_or(0)
+        // SECURITY (IMP-R222-004): Log lock poisoning instead of silently returning 0.
+        self.documents.read().map(|d| d.len()).unwrap_or_else(|_| {
+            tracing::error!("DocumentVerifier documents lock poisoned in document_count");
+            0
+        })
     }
 
     /// Clears session document counts.
     pub fn reset_session(&self, session_id: &str) {
-        if let Ok(mut counts) = self.session_doc_counts.write() {
-            counts.remove(session_id);
+        // SECURITY (IMP-R222-004): Log lock poisoning instead of silently skipping reset.
+        match self.session_doc_counts.write() {
+            Ok(mut counts) => {
+                counts.remove(session_id);
+            }
+            Err(_) => {
+                tracing::error!("DocumentVerifier session_doc_counts lock poisoned in reset_session");
+            }
         }
     }
 }

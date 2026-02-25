@@ -202,6 +202,17 @@ impl EvidenceSection {
                 "EvidenceSection.title contains control or format characters".to_string(),
             );
         }
+        if self.description.len() > MAX_EVIDENCE_STRING_LEN {
+            return Err(format!(
+                "EvidenceSection.description length {} exceeds max {MAX_EVIDENCE_STRING_LEN}",
+                self.description.len(),
+            ));
+        }
+        if crate::has_dangerous_chars(&self.description) {
+            return Err(
+                "EvidenceSection.description contains control or format characters".to_string(),
+            );
+        }
         if self.items.len() > MAX_EVIDENCE_ITEMS_PER_SECTION {
             return Err(format!(
                 "EvidenceSection.items has {} entries, max is {}",
@@ -268,6 +279,27 @@ pub struct EvidencePack {
 impl EvidencePack {
     /// Validate evidence pack bounds.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (IMP-R222-EP-001): Validate generated_at and period timestamps.
+        // These ISO 8601 strings were missing length + dangerous char checks.
+        for (name, val) in [
+            ("generated_at", Some(&self.generated_at)),
+            ("period_start", self.period_start.as_ref()),
+            ("period_end", self.period_end.as_ref()),
+        ] {
+            if let Some(v) = val {
+                if v.len() > MAX_EVIDENCE_STRING_LEN {
+                    return Err(format!(
+                        "EvidencePack.{name} length {} exceeds max {MAX_EVIDENCE_STRING_LEN}",
+                        v.len(),
+                    ));
+                }
+                if crate::has_dangerous_chars(v) {
+                    return Err(format!(
+                        "EvidencePack.{name} contains control or format characters",
+                    ));
+                }
+            }
+        }
         if self.framework_name.len() > MAX_EVIDENCE_STRING_LEN {
             return Err(format!(
                 "EvidencePack.framework_name length {} exceeds max {}",
@@ -327,11 +359,52 @@ impl EvidencePack {
                 MAX_EVIDENCE_PACK_GAPS,
             ));
         }
+        for (i, gap) in self.critical_gaps.iter().enumerate() {
+            if gap.len() > MAX_EVIDENCE_STRING_LEN {
+                return Err(format!(
+                    "EvidencePack.critical_gaps[{i}] length {} exceeds max {MAX_EVIDENCE_STRING_LEN}",
+                    gap.len(),
+                ));
+            }
+            if crate::has_dangerous_chars(gap) {
+                return Err(format!(
+                    "EvidencePack.critical_gaps[{i}] contains control or format characters",
+                ));
+            }
+        }
         if self.recommendations.len() > MAX_EVIDENCE_RECOMMENDATIONS {
             return Err(format!(
                 "EvidencePack.recommendations has {} entries, max is {}",
                 self.recommendations.len(),
                 MAX_EVIDENCE_RECOMMENDATIONS,
+            ));
+        }
+        for (i, rec) in self.recommendations.iter().enumerate() {
+            if rec.len() > MAX_EVIDENCE_STRING_LEN {
+                return Err(format!(
+                    "EvidencePack.recommendations[{i}] length {} exceeds max {MAX_EVIDENCE_STRING_LEN}",
+                    rec.len(),
+                ));
+            }
+            if crate::has_dangerous_chars(rec) {
+                return Err(format!(
+                    "EvidencePack.recommendations[{i}] contains control or format characters",
+                ));
+            }
+        }
+        // SECURITY (IMP-R222-009): Requirement count consistency check.
+        let sum = self
+            .covered_requirements
+            .saturating_add(self.partial_requirements)
+            .saturating_add(self.uncovered_requirements);
+        if sum > self.total_requirements {
+            return Err(format!(
+                "EvidencePack: covered({}) + partial({}) + uncovered({}) = {} exceeds total_requirements({})",
+                self.covered_requirements,
+                self.partial_requirements,
+                self.uncovered_requirements,
+                sum,
+                self.total_requirements,
             ));
         }
         for section in &self.sections {

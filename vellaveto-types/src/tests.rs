@@ -9576,3 +9576,108 @@ fn test_evidence_pack_deny_unknown_fields() {
     let result: Result<EvidencePack, _> = serde_json::from_str(json);
     assert!(result.is_err(), "should reject unknown fields");
 }
+
+#[test]
+fn test_evidence_pack_validate_generated_at_control_chars() {
+    let pack = EvidencePack {
+        framework: EvidenceFramework::Dora,
+        framework_name: "DORA".to_string(),
+        generated_at: "2026-01-01\x00T00:00:00Z".to_string(),
+        organization_name: "Test".to_string(),
+        system_id: "test".to_string(),
+        period_start: None,
+        period_end: None,
+        sections: vec![],
+        overall_coverage_percent: 50.0,
+        total_requirements: 1,
+        covered_requirements: 1,
+        partial_requirements: 0,
+        uncovered_requirements: 0,
+        critical_gaps: vec![],
+        recommendations: vec![],
+    };
+    let err = pack.validate().unwrap_err();
+    assert!(err.contains("generated_at"), "should reject control chars in generated_at: {err}");
+}
+
+#[test]
+fn test_evidence_pack_validate_period_start_control_chars() {
+    let pack = EvidencePack {
+        framework: EvidenceFramework::Dora,
+        framework_name: "DORA".to_string(),
+        generated_at: "2026-01-01T00:00:00Z".to_string(),
+        organization_name: "Test".to_string(),
+        system_id: "test".to_string(),
+        period_start: Some("2026\x01-01-01".to_string()),
+        period_end: None,
+        sections: vec![],
+        overall_coverage_percent: 50.0,
+        total_requirements: 1,
+        covered_requirements: 1,
+        partial_requirements: 0,
+        uncovered_requirements: 0,
+        critical_gaps: vec![],
+        recommendations: vec![],
+    };
+    let err = pack.validate().unwrap_err();
+    assert!(err.contains("period_start"), "should reject control chars in period_start: {err}");
+}
+
+#[test]
+fn test_evidence_section_validate_description_control_chars() {
+    let section = EvidenceSection {
+        section_id: "test".to_string(),
+        title: "Test".to_string(),
+        description: "Bad\x07desc".to_string(),
+        items: vec![],
+        section_coverage_percent: 50.0,
+    };
+    let err = section.validate().unwrap_err();
+    assert!(err.contains("description"), "should reject control chars in description: {err}");
+}
+
+#[test]
+fn test_evidence_pack_validate_recommendation_control_chars() {
+    let pack = EvidencePack {
+        framework: EvidenceFramework::Nis2,
+        framework_name: "NIS2".to_string(),
+        generated_at: "2026-01-01T00:00:00Z".to_string(),
+        organization_name: "Test".to_string(),
+        system_id: "test".to_string(),
+        period_start: None,
+        period_end: None,
+        sections: vec![],
+        overall_coverage_percent: 50.0,
+        total_requirements: 1,
+        covered_requirements: 0,
+        partial_requirements: 0,
+        uncovered_requirements: 1,
+        critical_gaps: vec![],
+        recommendations: vec!["Do \x08this".to_string()],
+    };
+    let err = pack.validate().unwrap_err();
+    assert!(err.contains("recommendations"), "should reject control chars in recommendations: {err}");
+}
+
+#[test]
+fn test_evidence_pack_validate_critical_gap_control_chars() {
+    let pack = EvidencePack {
+        framework: EvidenceFramework::Nis2,
+        framework_name: "NIS2".to_string(),
+        generated_at: "2026-01-01T00:00:00Z".to_string(),
+        organization_name: "Test".to_string(),
+        system_id: "test".to_string(),
+        period_start: None,
+        period_end: None,
+        sections: vec![],
+        overall_coverage_percent: 50.0,
+        total_requirements: 1,
+        covered_requirements: 0,
+        partial_requirements: 0,
+        uncovered_requirements: 1,
+        critical_gaps: vec!["Gap\x1binjection".to_string()],
+        recommendations: vec![],
+    };
+    let err = pack.validate().unwrap_err();
+    assert!(err.contains("critical_gaps"), "should reject control chars in critical_gaps: {err}");
+}

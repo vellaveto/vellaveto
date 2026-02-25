@@ -148,7 +148,10 @@ impl ContextBudgetTracker {
 
         // Check total session budget
         let current_usage = self.get_current_usage(session_id);
-        let new_total = current_usage + tokens;
+        // SECURITY (IMP-R222-002): Use saturating_add to prevent overflow wrapping.
+        // If lock is poisoned, get_current_usage() returns max_total_context_tokens
+        // (fail-closed). Adding tokens could wrap to a small value, bypassing the budget.
+        let new_total = current_usage.saturating_add(tokens);
 
         if new_total > self.config.max_total_context_tokens {
             return self.handle_over_session_limit(session_id, tokens, current_usage);
@@ -345,7 +348,14 @@ impl ContextBudgetTracker {
 
     /// Returns budget statistics.
     pub fn stats(&self) -> BudgetStats {
-        let usage_map = self.usage.read().ok();
+        // SECURITY (IMP-R222-003): Log lock poisoning instead of silently returning zeros.
+        let usage_map = match self.usage.read() {
+            Ok(guard) => Some(guard),
+            Err(_) => {
+                tracing::error!("Context budget lock poisoned in stats()");
+                None
+            }
+        };
 
         let (sessions, total_tokens, avg_tokens) = match usage_map {
             Some(map) => {
