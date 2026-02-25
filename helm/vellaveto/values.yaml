@@ -202,6 +202,32 @@ metrics:
     interval: 30s
     labels: {}
 
+# Kubernetes Operator (Phase 49)
+# Manages VellavetoCluster, VellavetoPolicy, and VellavetoTenant CRDs.
+operator:
+  # Enable the operator deployment (default: disabled)
+  enabled: false
+  # Number of operator replicas (1 recommended — uses leader election)
+  replicas: 1
+  image:
+    repository: ""  # defaults to image.repository + "-operator"
+    tag: ""         # defaults to Chart.AppVersion
+    pullPolicy: IfNotPresent
+  # Log level for the operator
+  logLevel: info
+  # Resource limits
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  # Node selector (defaults to global nodeSelector)
+  nodeSelector: {}
+  # Tolerations (defaults to global tolerations)
+  tolerations: []
+
 # Health check probes
 probes:
   liveness:

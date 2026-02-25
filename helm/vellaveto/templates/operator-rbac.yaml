@@ -1,0 +1,75 @@
+{{- if .Values.operator.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "vellaveto.fullname" . }}-operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vellaveto.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "vellaveto.fullname" . }}-operator
+  labels:
+    {{- include "vellaveto.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+rules:
+  # CRD management — watch and update status
+  - apiGroups: ["vellaveto.io"]
+    resources:
+      - vellavetoclusters
+      - vellavetopolicies
+      - vellavetotenants
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["vellaveto.io"]
+    resources:
+      - vellavetoclusters/status
+      - vellavetopolicies/status
+      - vellavetotenants/status
+    verbs: ["get", "patch", "update"]
+  # Finalizer management
+  - apiGroups: ["vellaveto.io"]
+    resources:
+      - vellavetoclusters/finalizers
+      - vellavetopolicies/finalizers
+      - vellavetotenants/finalizers
+    verbs: ["update"]
+  # Child resource management (cluster reconciler)
+  - apiGroups: ["apps"]
+    resources: ["statefulsets", "deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Pod status monitoring
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  # Leader election via Lease
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Events for status reporting
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "vellaveto.fullname" . }}-operator
+  labels:
+    {{- include "vellaveto.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "vellaveto.fullname" . }}-operator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "vellaveto.fullname" . }}-operator
+    namespace: {{ .Release.Namespace }}
+{{- end }}

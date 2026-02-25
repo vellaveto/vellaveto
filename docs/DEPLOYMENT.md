@@ -13,6 +13,7 @@ This guide covers deploying Vellaveto in production environments using Docker, K
   - [Using Helm](#using-helm)
   - [Custom Values](#custom-values)
   - [High Availability](#high-availability)
+  - [Kubernetes Operator (CRDs)](#kubernetes-operator-crds)
 - [Bare Metal Deployment](#bare-metal-deployment)
   - [Building from Source](#building-from-source)
   - [Systemd Service](#systemd-service)
@@ -321,6 +322,97 @@ helm install redis bitnami/redis \
   --set auth.enabled=false \
   --set architecture=standalone
 ```
+
+### Kubernetes Operator (CRDs)
+
+Phase 49 adds an optional Kubernetes operator that enables declarative management of Vellaveto via Custom Resource Definitions. The operator watches three CRDs and reconciles them against the Vellaveto server REST API.
+
+#### Install CRDs and Operator
+
+```bash
+# Install CRDs (always required first)
+kubectl apply -f helm/vellaveto/crds/
+
+# Deploy with operator enabled
+helm upgrade --install vellaveto ./helm/vellaveto \
+  --namespace vellaveto \
+  --create-namespace \
+  --set operator.enabled=true
+```
+
+#### Declare a Cluster
+
+```yaml
+apiVersion: vellaveto.io/v1alpha1
+kind: VellavetoCluster
+metadata:
+  name: production
+  namespace: vellaveto
+spec:
+  replicas: 3
+  image: ghcr.io/paolovella/vellaveto:4.0.0
+  config:
+    security_mode: strict
+    audit_enabled: true
+    dora_enabled: true
+  resources:
+    cpu_request: "250m"
+    memory_request: "256Mi"
+    cpu_limit: "1"
+    memory_limit: "512Mi"
+```
+
+#### Declare a Policy
+
+```yaml
+apiVersion: vellaveto.io/v1alpha1
+kind: VellavetoPolicy
+metadata:
+  name: deny-bash
+  namespace: vellaveto
+spec:
+  clusterRef: production
+  policy:
+    id: deny-bash
+    name: "Deny all bash commands"
+    policyType: Deny
+    priority: 100
+    pathRules:
+      blocked:
+        - "/bin/bash"
+        - "/bin/sh"
+```
+
+#### Declare a Tenant
+
+```yaml
+apiVersion: vellaveto.io/v1alpha1
+kind: VellavetoTenant
+metadata:
+  name: acme-corp
+  namespace: vellaveto
+spec:
+  clusterRef: production
+  tenantId: acme-corp
+  name: "ACME Corporation"
+  enabled: true
+  quotas:
+    maxEvaluationsPerMinute: 5000
+    maxPolicies: 100
+  metadata:
+    env: production
+    team: platform
+```
+
+#### Monitor Resources
+
+```bash
+kubectl get vellavetoclusters -n vellaveto
+kubectl get vellavetopolicies -n vellaveto
+kubectl get vellavetotenants -n vellaveto
+```
+
+The operator is optional — existing Helm chart deployments are unaffected when `operator.enabled` is `false` (default).
 
 ---
 

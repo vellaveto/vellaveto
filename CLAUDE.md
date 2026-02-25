@@ -1,14 +1,14 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 + 43 + 44 + 47 + 48 complete, 215 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 + 43 + 44 + 47 + 48 + 49 complete, 215 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 7,469 Rust tests + 385 Python SDK tests + 127 Go SDK tests + 119 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 7,510 Rust tests + 385 Python SDK tests + 127 Go SDK tests + 119 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
 > **CI workflows:** 12 (16 jobs)
 > **Domain:** [www.vellaveto.online](https://www.vellaveto.online) (Cloudflare Pages)
-> **Updated:** 2026-02-25
+> **Updated:** 2026-02-26
 
 ---
 
@@ -60,9 +60,11 @@ vellaveto-server         (all above)
 vellaveto-http-proxy     (all above)
 vellaveto-proxy          (all above, stdio mode)
 vellaveto-integration    (all above, test only)
+vellaveto-operator       (standalone — kube-rs, no internal deps)
 ```
 
 Lower crates MUST NOT depend on higher crates.
+`vellaveto-operator` is a standalone binary crate with no internal deps — it talks to `vellaveto-server` via REST API.
 
 ### Key Types
 
@@ -155,6 +157,16 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Compliance + evidence pack routes (JSON/HTML) | `vellaveto-server/src/routes/compliance.rs` |
 | Dashboard | `vellaveto-server/src/dashboard.rs` |
 | Setup wizard | `vellaveto-server/src/setup_wizard.rs` |
+| **vellaveto-operator** (Kubernetes operator) | |
+| CRD types (VellavetoCluster, VellavetoPolicy, VellavetoTenant) | `vellaveto-operator/src/crd.rs` |
+| Vellaveto API client (reqwest-based) | `vellaveto-operator/src/client.rs` |
+| Cluster reconciler (StatefulSet, Service, ConfigMap) | `vellaveto-operator/src/reconciler/cluster.rs` |
+| Policy reconciler (sync + finalizer) | `vellaveto-operator/src/reconciler/policy.rs` |
+| Tenant reconciler (sync + finalizer) | `vellaveto-operator/src/reconciler/tenant.rs` |
+| Error types | `vellaveto-operator/src/error.rs` |
+| Operator binary (3 controllers) | `vellaveto-operator/src/main.rs` |
+| Helm CRD manifests | `helm/vellaveto/crds/*.yaml` |
+| Helm operator templates | `helm/vellaveto/templates/operator-{deployment,rbac}.yaml` |
 | **Other** | |
 | Stdio proxy | `vellaveto-proxy/src/main.rs` |
 | Cluster backend | `vellaveto-cluster/src/lib.rs` |
@@ -182,7 +194,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 + Phase 41 + Phase 43 + Phase 44 + Phase 47 + Phase 48 implemented, tested, and hardened through 210 audit rounds. Details in CHANGELOG.md.
+All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 + Phase 38 + Phase 40 + Phase 41 + Phase 43 + Phase 44 + Phase 47 + Phase 48 + Phase 49 implemented, tested, and hardened through 215 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
 - **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention, centralized audit store with PostgreSQL dual-write (Phase 43)
@@ -238,6 +250,7 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - **Multi-Tenancy Foundation (Phase 44):** Per-tenant policy filtering in evaluate handler (default tenant sees all, named tenants see own + global + legacy via `policy_matches()`). `PerTenantRateLimiter` with DashMap + governor token-bucket (per-minute quota from `TenantQuotas.max_evaluations_per_minute`, stale entry cleanup, fail-closed on capacity exceeded, quota change detection). `AuditEntry.tenant_id` field with `serde(default, skip_serializing_if)` for backward compatibility. PostgreSQL DDL updated to 14 columns with `tenant_id TEXT` + index. Tenant-scoped audit query: `AuditQueryParams.tenant_id` filter in file + Postgres backends, auto-injected for non-default tenants in route handler. Per-tenant `max_policies` quota enforcement in `add_policy` handler. SDK `tenant` parameter: Python (sync+async), TypeScript, Go — all with validation (1–64 chars, `[a-zA-Z0-9_-]`) and `X-Tenant-ID` header injection. Single-tenant mode (default) is fully backward-compatible — no behavior change when `TenantConfig.enabled = false`.
 - **Policy Lifecycle Management (Phase 47):** Versioned policies with Draft → Staging → Active → Archived lifecycle. `PolicyVersionStore` trait + `InMemoryPolicyVersionStore` (tokio RwLock, bounded). `PolicyLifecycleConfig` (default disabled, fail-closed). 9 REST API endpoints for version CRUD, approval, promotion, archival, rollback, and structural diff. Compile-first promote-to-Active with ArcSwap atomic swap and rollback on failure. Staging shadow evaluation: `StagingSnapshot` engine runs non-blocking comparison after active verdict, logging divergences without affecting hot-path latency. Self-approval prevention (NFKC + case-fold). `staging_period_secs` enforcement. 49 new tests.
 - **Compliance Evidence Packs (Phase 48):** Pre-packaged compliance evidence bundles for DORA, NIS2, ISO 42001, and EU AI Act. `EvidenceFramework` enum (`#[non_exhaustive]`), `EvidenceConfidence` (None→Full with Ord), `EvidenceItem`, `EvidenceSection`, `EvidencePack`, `EvidencePackStatus` — all with `deny_unknown_fields`, `validate()`, and bounded constants. `DoraRegistry` (27 articles, 13 capabilities) and `Nis2Registry` (16 articles, 12 capabilities) following existing registry pattern. Evidence pack generator converts framework-specific reports into unified `EvidencePack` format. HTML renderer with inline CSS, color-coded confidence badges, print-friendly layout. `DoraConfig` and `Nis2Config` with `enabled` (default false), `validate()`. Gap analysis extended from 8 → 10 frameworks. REST API: `GET /api/compliance/evidence-pack/{framework}` (JSON/HTML), `GET /api/compliance/evidence-pack/status`. Per-framework 60s cache. SDK methods: Python (sync+async), TypeScript, Go with framework allowlist validation. ~70 new tests.
+- **Kubernetes Operator (Phase 49):** Standalone `vellaveto-operator` binary crate using `kube-rs 0.98` with three CRDs: `VellavetoCluster` (manages StatefulSet/Service/ConfigMap via server-side apply with owner references), `VellavetoPolicy` (syncs policies to Vellaveto server REST API with drift detection and finalizer cleanup), `VellavetoTenant` (create/update/delete tenants with finalizer pattern). Typed `VellavetoApiClient` wrapping `reqwest` for all server endpoints with SSRF validation, bounded response bodies, path parameter validation. `OperatorError` enum (8 variants). Shared `Context` with in-cluster DNS URL builder. Three concurrent `kube::runtime::Controller` instances with `tokio::select!` and graceful shutdown. Helm chart extended: 3 CRD YAML manifests (`vellavetoclusters`, `vellavetopolicies`, `vellavetotenants`) with OpenAPI v3 schema validation, operator Deployment + ClusterRole/ClusterRoleBinding templates (gated on `operator.enabled: false`). All CRD specs have `validate()` methods enforcing bounds (replicas 1-10, tenant ID `[a-zA-Z0-9_-]`, policy type allowlist, `MAX_*` constants). 41 new tests.
 - **Interactive Setup Wizard:** Web-based 7-step configuration wizard at `/setup` (Welcome → Security → Policies → Detection → Audit → Compliance → Review/Apply). Server-side rendered HTML matching dashboard dark theme, POST/redirect/GET forms, CSRF protection, bounded session management (MAX_WIZARD_SESSIONS=100, 1hr TTL), TOML config generation with live apply and hot-reload. Guard middleware locks wizard after initial configuration via `.setup-complete` marker file. 28 unit tests.
 - **Cloudflare Pages Deployment:** Site at [www.vellaveto.online](https://www.vellaveto.online), Astro static build deployed via `deploy-site.yml` workflow, `_redirects` (apex → www 301), `_headers` (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)
 - **Docs:** Quickstart guides, security model, benchmarks, 5 policy presets

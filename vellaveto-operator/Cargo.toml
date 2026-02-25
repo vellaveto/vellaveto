@@ -1,0 +1,26 @@
+[package]
+name = "vellaveto-operator"
+version = "4.0.0"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+description = "Kubernetes operator for Vellaveto — manages VellavetoCluster, VellavetoPolicy, and VellavetoTenant CRDs"
+
+[[bin]]
+name = "vellaveto-operator"
+path = "src/main.rs"
+
+[dependencies]
+kube = { version = "0.98", features = ["runtime", "derive", "client"] }
+k8s-openapi = { version = "0.24", features = ["v1_32"] }
+schemars = "0.8"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+thiserror = { workspace = true }
+reqwest = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+futures = "0.3"

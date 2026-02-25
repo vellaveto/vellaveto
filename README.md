@@ -11,7 +11,7 @@
     <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-7%2C469_passing-brightgreen.svg" alt="Tests: 7,469 passing">
+    <img src="https://img.shields.io/badge/tests-7%2C510_passing-brightgreen.svg" alt="Tests: 7,510 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-210_rounds%2C_1500%2B_findings-informational.svg" alt="Adversarial Testing: 210 rounds, 1500+ findings"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
@@ -42,15 +42,16 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>4.0.0-dev</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>7,469 Rust + 385 Python + 127 Go + 119 TypeScript tests (+ 24 fuzz targets), 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>7,510 Rust + 385 Python + 127 Go + 119 TypeScript tests (+ 24 fuzz targets), 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
 <tr><td>📄 <strong>License</strong></td><td>AGPL-3.0 (dual license available)</td></tr>
 </table>
 
-## Recent Updates (2026-02-24)
+## Recent Updates (2026-02-25)
 
+- **Phase 49: Kubernetes Operator (CRDs)** — Standalone `vellaveto-operator` binary using `kube-rs` with three CRDs (`VellavetoCluster`, `VellavetoPolicy`, `VellavetoTenant`) for declarative, GitOps-friendly management. Cluster reconciler manages StatefulSet/Service/ConfigMap with owner references. Policy and tenant reconcilers sync to the Vellaveto server REST API with finalizer-based cleanup. Typed API client with SSRF validation. Helm chart extended with CRD manifests, operator Deployment, and RBAC templates (optional, `operator.enabled: false` default). 41 new tests. 7,510 Rust tests passing.
 - **Phase 47: Policy Lifecycle Management** — Versioned policies with Draft → Staging → Active → Archived lifecycle. Multi-approver workflows with self-approval prevention (NFKC + homoglyph normalization), staging shadow evaluation (non-blocking verdict comparison), structural diffs, and rollback. 9 new REST API endpoints. Compile-first promote-to-Active with ArcSwap atomic swap. `PolicyLifecycleConfig` (default disabled). Round 206 hardening: auth-bound audit identity, archive TOCTOU lock, stale staging snapshot invalidation, version overflow guard. 49 new tests. 7,469 Rust tests passing.
 - **Phase 43: Centralized Audit Store** — Optional dual-write to PostgreSQL alongside the existing JSONL file log with structured query support. `AuditSink` trait for pluggable external stores, `PostgresAuditSink` with mpsc channel + background batch INSERT, `AuditQueryService` trait with `FileAuditQuery` (in-memory) and `PostgresAuditQuery` (SQL with parameterized queries, GIN indexes). `AuditStoreConfig` with SSRF validation, SQL identifier validation, secret redaction. REST API: `GET /api/audit/search`, `GET /api/audit/store/status`, `GET /api/audit/entry/{id}`. Feature-gated behind `postgres-store` (sqlx). File log remains source of truth. ~55 new tests.
 - **Feb 20 Security Hardening (Rounds 104–106)** — Simulator endpoints (`/api/simulator/evaluate`, `/validate`, `/diff`) now call `PolicyConfig::validate()` after TOML parse, closing a bypass where semantically invalid configs were accepted. Tenant route handler enforces `Tenant::validate()` before store write (defense-in-depth against future store implementations). `RagDefenseConfig::validate()` adds upper bounds on 11 integer fields (`cache_max_size`, `max_retrieval_results`, `max_tokens_per_retrieval`, `max_total_context_tokens`, `max_claims`, etc.) plus >0 checks. `DocumentVerifier::trust_cache` bounded at 100K entries. `ContextBudgetTracker::stats()` uses u64 accumulation to prevent u32 overflow. `is_unsafe_char` deduplicated from 6 copies to 1 canonical function in `routes/mod.rs`. 3 custom `Debug` impls added (NhiAgentIdentity, NhiDpopProof, ToolManifest) redacting cryptographic material. TS SDK gains `validateContext()` parity with Go SDK (field length, control chars, Unicode format chars, call_chain bounds). Zero-TTL config rejection added for SPIFFE SVID, NHI credentials, threat intel cache/refresh, and RAG defense cache. 6,758 Rust + 349 Python + 106 Go + 111 TypeScript tests passing.

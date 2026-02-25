@@ -1,0 +1,124 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vellavetotenants.vellaveto.io
+spec:
+  group: vellaveto.io
+  names:
+    kind: VellavetoTenant
+    listKind: VellavetoTenantList
+    plural: vellavetotenants
+    singular: vellavetotenant
+    shortNames:
+      - vt
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Cluster
+          type: string
+          jsonPath: .spec.clusterRef
+        - name: TenantID
+          type: string
+          jsonPath: .spec.tenantId
+        - name: Enabled
+          type: boolean
+          jsonPath: .spec.enabled
+        - name: Synced
+          type: boolean
+          jsonPath: .status.synced
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - clusterRef
+                - tenantId
+                - name
+              properties:
+                clusterRef:
+                  type: string
+                  maxLength: 253
+                  description: Name of the target VellavetoCluster in the same namespace.
+                tenantId:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                  pattern: "^[a-zA-Z0-9_-]+$"
+                  description: "Unique tenant identifier (1-64 chars, [a-zA-Z0-9_-])."
+                name:
+                  type: string
+                  maxLength: 256
+                  description: Human-readable tenant name.
+                enabled:
+                  type: boolean
+                  default: true
+                  description: Whether the tenant is active.
+                quotas:
+                  type: object
+                  description: Tenant-specific quota overrides.
+                  properties:
+                    maxEvaluationsPerMinute:
+                      type: integer
+                      minimum: 1
+                      description: Maximum policy evaluations per minute.
+                    maxPolicies:
+                      type: integer
+                      minimum: 1
+                      description: Maximum number of policies.
+                    maxPendingApprovals:
+                      type: integer
+                      minimum: 1
+                      description: Maximum pending approvals at any time.
+                    maxAuditRetentionDays:
+                      type: integer
+                      minimum: 1
+                      description: Maximum audit log retention in days.
+                metadata:
+                  type: object
+                  additionalProperties:
+                    type: string
+                    maxLength: 1024
+                  description: Custom key-value metadata (max 100 entries).
+            status:
+              type: object
+              properties:
+                synced:
+                  type: boolean
+                lastSyncTime:
+                  type: string
+                  format: date-time
+                lastError:
+                  type: string
+                observedGeneration:
+                  type: integer
+                  format: int64
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                    required:
+                      - type
+                      - status
