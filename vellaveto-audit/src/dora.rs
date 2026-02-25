@@ -98,7 +98,9 @@ impl std::fmt::Display for DoraComplianceStatus {
 // ── Assessment ───────────────────────────────────────────────────────────────
 
 /// Assessment of a single DORA article.
+/// SECURITY (FIND-R215-002): deny_unknown_fields prevents attacker-injected fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DoraAssessment {
     /// Article identifier.
     pub article_id: DoraArticleId,
@@ -117,7 +119,9 @@ pub struct DoraAssessment {
 // ── Report ───────────────────────────────────────────────────────────────────
 
 /// DORA compliance evidence report.
+/// SECURITY (FIND-R215-002): deny_unknown_fields prevents attacker-injected fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DoraReport {
     /// ISO 8601 timestamp of generation.
     pub generated_at: String,

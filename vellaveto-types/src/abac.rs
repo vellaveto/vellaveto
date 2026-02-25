@@ -70,8 +70,29 @@ pub struct AbacCondition {
 impl AbacCondition {
     /// Maximum serialized size of `value` in bytes.
     pub const MAX_VALUE_SIZE: usize = 8192;
+    /// Maximum length for the `field` path string.
+    const MAX_FIELD_LEN: usize = 256;
 
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (FIND-R215-010): Validate field path is non-empty, bounded,
+        // and free of control/format characters to prevent log injection and
+        // oversized condition fields in deserialized policies.
+        if self.field.is_empty() {
+            return Err("AbacCondition field must not be empty".to_string());
+        }
+        if self.field.len() > Self::MAX_FIELD_LEN {
+            return Err(format!(
+                "AbacCondition field length {} exceeds max {}",
+                self.field.len(),
+                Self::MAX_FIELD_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.field) {
+            return Err(format!(
+                "AbacCondition field '{}' contains control or format characters",
+                self.field.escape_debug()
+            ));
+        }
         let size = serde_json::to_string(&self.value)
             .map_err(|e| format!("AbacCondition value serialization failed: {e}"))?
             .len();

@@ -18,6 +18,22 @@ const MAX_NODES_PER_GRAPH: usize = 50_000;
 /// Prevents unbounded memory growth in long sessions (FIND-041-010).
 const MAX_EDGES_PER_GRAPH: usize = 50_000;
 
+/// Maximum length of a session ID in bytes.
+/// SECURITY (FIND-R215-003): Prevents unbounded session_id from consuming excessive memory.
+const MAX_SESSION_ID_LEN: usize = 256;
+
+/// Maximum number of metadata entries per execution node.
+/// SECURITY (FIND-R215-004): Prevents unbounded metadata HashMap growth.
+const MAX_METADATA_ENTRIES: usize = 50;
+
+/// Maximum length of a metadata key in bytes.
+/// SECURITY (FIND-R215-004): Prevents oversized metadata keys.
+const MAX_METADATA_KEY_LEN: usize = 256;
+
+/// Maximum length of a metadata value in bytes.
+/// SECURITY (FIND-R215-004): Prevents oversized metadata values.
+const MAX_METADATA_VALUE_LEN: usize = 4096;
+
 /// Unique identifier for a graph node.
 pub type NodeId = String;
 
@@ -25,7 +41,9 @@ pub type NodeId = String;
 pub type SessionId = String;
 
 /// A node in the execution graph representing a single tool call.
+/// SECURITY (FIND-R215-005): deny_unknown_fields prevents attacker-injected fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExecutionNode {
     /// Unique identifier for this node.
     pub id: NodeId,
@@ -134,7 +152,9 @@ impl ExecutionNode {
 }
 
 /// An edge in the execution graph.
+/// SECURITY (FIND-R215-005): deny_unknown_fields prevents attacker-injected fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExecutionEdge {
     /// Source node ID.
     pub from: NodeId,
@@ -159,7 +179,9 @@ pub enum EdgeType {
 }
 
 /// A complete execution graph for a session.
+/// SECURITY (FIND-R215-005): deny_unknown_fields prevents attacker-injected fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExecutionGraph {
     /// Session ID.
     pub session_id: SessionId,
@@ -174,7 +196,9 @@ pub struct ExecutionGraph {
 }
 
 /// Metadata about the execution graph.
+/// SECURITY (FIND-R215-005): deny_unknown_fields prevents attacker-injected fields.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GraphMetadata {
     /// When the session started.
     pub started_at: Option<u64>,
@@ -207,7 +231,44 @@ impl ExecutionGraph {
     }
 
     /// Add a node to the graph.
-    pub fn add_node(&mut self, node: ExecutionNode) {
+    pub fn add_node(&mut self, mut node: ExecutionNode) {
+        // SECURITY (FIND-R215-004): Validate metadata bounds before insertion.
+        if node.metadata.len() > MAX_METADATA_ENTRIES {
+            tracing::warn!(
+                target: "vellaveto::observability",
+                session_id = %self.session_id,
+                node_id = %node.id,
+                count = node.metadata.len(),
+                limit = MAX_METADATA_ENTRIES,
+                "Node metadata exceeds limit — truncating"
+            );
+            let keys: Vec<String> = node.metadata.keys().skip(MAX_METADATA_ENTRIES).cloned().collect();
+            for key in keys {
+                node.metadata.remove(&key);
+            }
+        }
+        node.metadata.retain(|k, v| {
+            if k.len() > MAX_METADATA_KEY_LEN {
+                tracing::warn!(
+                    target: "vellaveto::observability",
+                    key_len = k.len(),
+                    limit = MAX_METADATA_KEY_LEN,
+                    "Metadata key exceeds max length — dropping entry"
+                );
+                return false;
+            }
+            if v.len() > MAX_METADATA_VALUE_LEN {
+                tracing::warn!(
+                    target: "vellaveto::observability",
+                    value_len = v.len(),
+                    limit = MAX_METADATA_VALUE_LEN,
+                    "Metadata value exceeds max length — dropping entry"
+                );
+                return false;
+            }
+            true
+        });
+
         // SECURITY (FIND-R42-006): Check bounds BEFORE updating metadata or parent
         // children lists. Previously, metadata (total_calls, unique_tools, unique_agents,
         // edges, parent.children) were updated even when the node was rejected.
@@ -561,7 +622,9 @@ impl ExecutionGraph {
 }
 
 /// Statistics about an execution graph.
+/// SECURITY (FIND-R215-005): deny_unknown_fields prevents attacker-injected fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GraphStatistics {
     /// Total number of nodes.
     pub total_nodes: u32,
@@ -601,8 +664,31 @@ impl ExecutionGraphStore {
         }
     }
 
+    /// Validate session_id length.
+    ///
+    /// SECURITY (FIND-R215-003): Rejects session IDs exceeding MAX_SESSION_ID_LEN
+    /// to prevent excessive memory allocation from attacker-controlled input.
+    fn validate_session_id(session_id: &str) -> Result<(), &'static str> {
+        if session_id.len() > MAX_SESSION_ID_LEN {
+            tracing::warn!(
+                target: "vellaveto::observability",
+                session_id_len = session_id.len(),
+                limit = MAX_SESSION_ID_LEN,
+                "Session ID exceeds maximum length — rejecting"
+            );
+            return Err("session_id exceeds MAX_SESSION_ID_LEN");
+        }
+        Ok(())
+    }
+
     /// Get or create a graph for a session.
     pub async fn get_or_create(&self, session_id: &str) -> ExecutionGraph {
+        if Self::validate_session_id(session_id).is_err() {
+            // Return a fresh graph with truncated session_id rather than
+            // storing an unbounded key. The caller gets a valid graph but
+            // it won't be persisted under the oversized key.
+            return ExecutionGraph::new(String::new());
+        }
         let mut graphs = self.graphs.write().await;
         graphs
             .entry(session_id.to_string())
@@ -612,6 +698,10 @@ impl ExecutionGraphStore {
 
     /// Update a graph.
     pub async fn update(&self, graph: ExecutionGraph) {
+        // SECURITY (FIND-R215-003): Validate session_id length before storing.
+        if Self::validate_session_id(&graph.session_id).is_err() {
+            return;
+        }
         let mut graphs = self.graphs.write().await;
         graphs.insert(graph.session_id.clone(), graph);
 
@@ -641,6 +731,10 @@ impl ExecutionGraphStore {
 
     /// Add a node to a session's graph.
     pub async fn add_node(&self, session_id: &str, node: ExecutionNode) {
+        // SECURITY (FIND-R215-003): Validate session_id length before storing.
+        if Self::validate_session_id(session_id).is_err() {
+            return;
+        }
         let mut graphs = self.graphs.write().await;
         let graph = graphs
             .entry(session_id.to_string())
@@ -650,6 +744,10 @@ impl ExecutionGraphStore {
 
     /// Complete a node in a session's graph.
     pub async fn complete_node(&self, session_id: &str, node_id: &str, verdict: NodeVerdict) {
+        // SECURITY (FIND-R215-003): Validate session_id length.
+        if Self::validate_session_id(session_id).is_err() {
+            return;
+        }
         let mut graphs = self.graphs.write().await;
         if let Some(graph) = graphs.get_mut(session_id) {
             graph.complete_node(node_id, verdict);

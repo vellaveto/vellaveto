@@ -11,11 +11,13 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Json,
 };
 use serde_json::json;
+use vellaveto_types::{Action, Verdict};
 
+use crate::routes::approval::derive_resolver_identity;
 use crate::routes::ErrorResponse;
 use crate::AppState;
 
@@ -121,9 +123,13 @@ pub async fn get_circuit_state(
 pub async fn reset_circuit(
     State(state): State<AppState>,
     Path(tool): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     // SECURITY (FIND-R51-005): Validate path parameter.
     crate::routes::validate_path_param(&tool, "tool")?;
+
+    // SECURITY (FIND-R215-001): Record the authenticated principal in audit trail.
+    let reset_by = derive_resolver_identity(&headers, "anonymous");
 
     let cb = state.circuit_breaker.as_ref().ok_or_else(|| {
         (
@@ -139,6 +145,26 @@ pub async fn reset_circuit(
             StatusCode::TOO_MANY_REQUESTS,
             Json(ErrorResponse { error: reason }),
         ));
+    }
+
+    // SECURITY (FIND-R215-001): Audit trail for circuit breaker reset.
+    let action = Action::new(
+        "vellaveto",
+        "circuit_breaker_reset",
+        json!({ "tool": &tool }),
+    );
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &action,
+            &Verdict::Allow,
+            json!({"source": "api", "event": "circuit_breaker.reset", "tool": &tool, "reset_by": &reset_by}),
+        )
+        .await
+    {
+        tracing::warn!("Failed to audit circuit breaker reset for {}: {}", tool, e);
+    } else {
+        crate::metrics::increment_audit_entries();
     }
 
     Ok(Json(json!({

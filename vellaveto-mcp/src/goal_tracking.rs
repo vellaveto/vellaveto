@@ -241,15 +241,53 @@ impl GoalTracker {
 
     /// Create with custom configuration.
     ///
-    /// Logs a warning if validation fails but still constructs the tracker
-    /// with the given config, since GoalTracker is observational (not enforcement).
-    pub fn with_config(config: GoalTrackerConfig) -> Self {
+    /// SECURITY (FIND-R215-007): If validation fails, logs an error and applies
+    /// fail-safe defaults for invalid fields rather than using them as-is. This
+    /// prevents misconfiguration from disabling drift detection (e.g., inverted
+    /// thresholds, zero TTL).
+    pub fn with_config(mut config: GoalTrackerConfig) -> Self {
         if let Err(e) = config.validate() {
-            tracing::warn!(
+            tracing::error!(
                 target: "vellaveto::security",
                 error = %e,
-                "GoalTrackerConfig validation failed — using config as-is"
+                "GoalTrackerConfig validation failed — applying fail-safe defaults for invalid fields"
             );
+
+            let defaults = GoalTrackerConfig::default();
+
+            // Clamp thresholds to valid ranges
+            if !config.drift_threshold.is_finite()
+                || config.drift_threshold < 0.0
+                || config.drift_threshold > 1.0
+            {
+                config.drift_threshold = defaults.drift_threshold;
+            }
+            if !config.diverge_threshold.is_finite()
+                || config.diverge_threshold < 0.0
+                || config.diverge_threshold > 1.0
+            {
+                config.diverge_threshold = defaults.diverge_threshold;
+            }
+            // Ensure diverge_threshold <= drift_threshold
+            if config.diverge_threshold > config.drift_threshold {
+                config.diverge_threshold = config.drift_threshold;
+            }
+            // Ensure max_sessions > 0
+            if config.max_sessions == 0 {
+                config.max_sessions = defaults.max_sessions;
+            }
+            // Ensure max_actions_per_session is in valid range
+            if config.max_actions_per_session == 0 || config.max_actions_per_session > 100_000 {
+                config.max_actions_per_session = defaults.max_actions_per_session;
+            }
+            // Ensure session_ttl > 0
+            if config.session_ttl == Duration::ZERO {
+                config.session_ttl = defaults.session_ttl;
+            }
+            // Truncate manipulation_keywords if too many
+            if config.manipulation_keywords.len() > MAX_MANIPULATION_KEYWORDS {
+                config.manipulation_keywords.truncate(MAX_MANIPULATION_KEYWORDS);
+            }
         }
         Self {
             sessions: RwLock::new(HashMap::new()),

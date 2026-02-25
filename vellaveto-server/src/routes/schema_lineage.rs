@@ -11,12 +11,14 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Json,
 };
 use serde::Deserialize;
 use serde_json::json;
+use vellaveto_types::{Action, Verdict};
 
+use crate::routes::approval::derive_resolver_identity;
 use crate::routes::ErrorResponse;
 use crate::AppState;
 
@@ -96,6 +98,7 @@ pub struct ResetTrustRequest {
 pub async fn reset_schema_trust(
     State(state): State<AppState>,
     Path(tool): Path<String>,
+    headers: HeaderMap,
     Json(req): Json<ResetTrustRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     // SECURITY (FIND-R51-005): Validate path parameter.
@@ -123,6 +126,33 @@ pub async fn reset_schema_trust(
 
     tracker.reset_trust(&tool, req.trust_score);
 
+    // SECURITY (FIND-R215-003): Audit trail for schema trust reset.
+    let reset_by = derive_resolver_identity(&headers, "anonymous");
+    let action = Action::new(
+        "vellaveto",
+        "schema_trust_reset",
+        json!({ "tool": &tool, "trust_score": req.trust_score }),
+    );
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &action,
+            &Verdict::Allow,
+            json!({
+                "source": "api",
+                "event": "schema_lineage.trust_reset",
+                "tool": &tool,
+                "trust_score": req.trust_score,
+                "reset_by": &reset_by,
+            }),
+        )
+        .await
+    {
+        tracing::warn!("Failed to audit schema trust reset for {}: {}", tool, e);
+    } else {
+        crate::metrics::increment_audit_entries();
+    }
+
     Ok(Json(json!({
         "tool": tool,
         "trust_score": req.trust_score,
@@ -136,6 +166,7 @@ pub async fn reset_schema_trust(
 pub async fn remove_schema_lineage(
     State(state): State<AppState>,
     Path(tool): Path<String>,
+    headers: HeaderMap,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     // SECURITY (FIND-R51-005): Validate path parameter.
     crate::routes::validate_path_param(&tool, "tool")?;
@@ -150,6 +181,32 @@ pub async fn remove_schema_lineage(
     })?;
 
     tracker.remove(&tool);
+
+    // SECURITY (FIND-R215-003): Audit trail for schema lineage removal.
+    let removed_by = derive_resolver_identity(&headers, "anonymous");
+    let action = Action::new(
+        "vellaveto",
+        "schema_lineage_removed",
+        json!({ "tool": &tool }),
+    );
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &action,
+            &Verdict::Allow,
+            json!({
+                "source": "api",
+                "event": "schema_lineage.removed",
+                "tool": &tool,
+                "removed_by": &removed_by,
+            }),
+        )
+        .await
+    {
+        tracing::warn!("Failed to audit schema lineage removal for {}: {}", tool, e);
+    } else {
+        crate::metrics::increment_audit_entries();
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

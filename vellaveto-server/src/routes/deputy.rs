@@ -10,12 +10,14 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Json,
 };
 use serde::Deserialize;
 use serde_json::json;
+use vellaveto_types::{Action, Verdict};
 
+use crate::routes::approval::derive_resolver_identity;
 use crate::routes::ErrorResponse;
 use crate::AppState;
 
@@ -97,6 +99,7 @@ pub struct RegisterDelegationRequest {
 /// POST /api/deputy/delegations
 pub async fn register_delegation(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<RegisterDelegationRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let deputy = state.deputy.as_ref().ok_or_else(|| {
@@ -175,6 +178,38 @@ pub async fn register_delegation(
             )
         })?;
 
+    // SECURITY (FIND-R215-004): Audit trail for delegation registration.
+    let registered_by = derive_resolver_identity(&headers, "anonymous");
+    let action = Action::new(
+        "vellaveto",
+        "delegation_registered",
+        json!({
+            "session_id": &req.session_id,
+            "from": &req.from_principal,
+            "to": &req.to_principal,
+        }),
+    );
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &action,
+            &Verdict::Allow,
+            json!({
+                "source": "api",
+                "event": "delegation.registered",
+                "session_id": &req.session_id,
+                "from": &req.from_principal,
+                "to": &req.to_principal,
+                "registered_by": &registered_by,
+            }),
+        )
+        .await
+    {
+        tracing::warn!("Failed to audit delegation registration for {}: {}", req.session_id, e);
+    } else {
+        crate::metrics::increment_audit_entries();
+    }
+
     Ok(Json(json!({
         "session_id": req.session_id,
         "from": req.from_principal,
@@ -190,6 +225,7 @@ pub async fn register_delegation(
 pub async fn remove_delegation(
     State(state): State<AppState>,
     Path(session): Path<String>,
+    headers: HeaderMap,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     let deputy = state.deputy.as_ref().ok_or_else(|| {
         (
@@ -204,6 +240,32 @@ pub async fn remove_delegation(
     validate_field(&session, "session", MAX_SESSION_ID_LEN)?;
 
     deputy.remove_context(&session);
+
+    // SECURITY (FIND-R215-004): Audit trail for delegation removal.
+    let removed_by = derive_resolver_identity(&headers, "anonymous");
+    let action = Action::new(
+        "vellaveto",
+        "delegation_removed",
+        json!({ "session_id": &session }),
+    );
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &action,
+            &Verdict::Allow,
+            json!({
+                "source": "api",
+                "event": "delegation.removed",
+                "session_id": &session,
+                "removed_by": &removed_by,
+            }),
+        )
+        .await
+    {
+        tracing::warn!("Failed to audit delegation removal for {}: {}", session, e);
+    } else {
+        crate::metrics::increment_audit_entries();
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

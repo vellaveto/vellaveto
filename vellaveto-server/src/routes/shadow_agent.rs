@@ -11,12 +11,14 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Json,
 };
 use serde::Deserialize;
 use serde_json::json;
+use vellaveto_types::{Action, Verdict};
 
+use crate::routes::approval::derive_resolver_identity;
 use crate::routes::ErrorResponse;
 use crate::AppState;
 
@@ -91,6 +93,7 @@ pub struct RegisterAgentRequest {
 /// POST /api/shadow-agents
 pub async fn register_shadow_agent(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<RegisterAgentRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     if let Err(msg) = validate_agent_id(&req.agent_id) {
@@ -112,6 +115,32 @@ pub async fn register_shadow_agent(
     })?;
 
     detector.register_agent(req.fingerprint.clone(), &req.agent_id);
+
+    // SECURITY (FIND-R215-005): Audit trail for shadow agent registration.
+    let registered_by = derive_resolver_identity(&headers, "anonymous");
+    let action = Action::new(
+        "vellaveto",
+        "shadow_agent_registered",
+        json!({ "agent_id": &req.agent_id }),
+    );
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &action,
+            &Verdict::Allow,
+            json!({
+                "source": "api",
+                "event": "shadow_agent.registered",
+                "agent_id": &req.agent_id,
+                "registered_by": &registered_by,
+            }),
+        )
+        .await
+    {
+        tracing::warn!("Failed to audit shadow agent registration for {}: {}", req.agent_id, e);
+    } else {
+        crate::metrics::increment_audit_entries();
+    }
 
     Ok(Json(json!({
         "agent_id": req.agent_id,
@@ -147,13 +176,15 @@ pub async fn remove_shadow_agent(
         ));
     }
 
-    // Note: ShadowAgentDetector doesn't have a remove method.
-    // Agents are managed via trust level updates instead.
-    // This endpoint exists for API completeness but returns a message.
-    Ok(Json(json!({
-        "agent_id": id,
-        "message": "Agent removal is handled via trust level (set to 0 to distrust)",
-    })))
+    // SECURITY (FIND-R215-008): ShadowAgentDetector doesn't have a remove method.
+    // Return 501 Not Implemented rather than misleading 200 OK.
+    // Agents are managed via trust level updates (PUT /api/shadow-agents/{id}/trust).
+    Err((
+        StatusCode::NOT_IMPLEMENTED,
+        Json(ErrorResponse {
+            error: "Agent removal is not implemented. Use PUT /api/shadow-agents/{id}/trust with trust_level 0 to distrust an agent.".to_string(),
+        }),
+    ))
 }
 
 /// Request body for updating agent trust level.
@@ -169,6 +200,7 @@ pub struct UpdateTrustRequest {
 pub async fn update_agent_trust(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    headers: HeaderMap,
     Json(req): Json<UpdateTrustRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     if let Err(msg) = validate_agent_id(&id) {
@@ -197,6 +229,33 @@ pub async fn update_agent_trust(
             }),
         )
     })?;
+
+    // SECURITY (FIND-R215-005): Audit trail for agent trust update.
+    let updated_by = derive_resolver_identity(&headers, "anonymous");
+    let action = Action::new(
+        "vellaveto",
+        "shadow_agent_trust_update",
+        json!({ "agent_id": &id, "trust_level": format!("{:?}", trust) }),
+    );
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &action,
+            &Verdict::Allow,
+            json!({
+                "source": "api",
+                "event": "shadow_agent.trust_update",
+                "agent_id": &id,
+                "trust_level": format!("{:?}", trust),
+                "updated_by": &updated_by,
+            }),
+        )
+        .await
+    {
+        tracing::warn!("Failed to audit shadow agent trust update for {}: {}", id, e);
+    } else {
+        crate::metrics::increment_audit_entries();
+    }
 
     // Note: Trust updates require the fingerprint, not just the ID.
     // This endpoint exists for API completeness. In practice, trust is

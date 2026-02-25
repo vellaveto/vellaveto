@@ -247,6 +247,17 @@ fn default_splunk_sourcetype() -> String {
     "vellaveto:audit".to_string()
 }
 
+impl SplunkConfig {
+    /// Validate Splunk configuration bounds.
+    ///
+    /// SECURITY (FIND-R215-001): Delegates to `ExporterConfig::validate()` to ensure
+    /// common exporter bounds (batch_size, flush_interval, retries, timeouts) are enforced.
+    pub fn validate(&self) -> Result<(), ExportError> {
+        self.common.validate()?;
+        Ok(())
+    }
+}
+
 impl Default for SplunkConfig {
     fn default() -> Self {
         Self {
@@ -293,6 +304,9 @@ impl SplunkExporter {
     /// The token is loaded from the configured environment variable or
     /// the direct `token` field in the configuration.
     pub fn new(config: SplunkConfig) -> Result<Self, ExportError> {
+        // SECURITY (FIND-R215-001): Validate common exporter config bounds.
+        config.validate()?;
+
         // Load token
         let token = if let Some(ref t) = config.token {
             t.clone()
@@ -1136,6 +1150,17 @@ fn default_es_index() -> String {
     "vellaveto-audit".to_string()
 }
 
+impl ElasticsearchConfig {
+    /// Validate Elasticsearch configuration bounds.
+    ///
+    /// SECURITY (FIND-R215-001): Delegates to `ExporterConfig::validate()` to ensure
+    /// common exporter bounds (batch_size, flush_interval, retries, timeouts) are enforced.
+    pub fn validate(&self) -> Result<(), ExportError> {
+        self.common.validate()?;
+        Ok(())
+    }
+}
+
 impl Default for ElasticsearchConfig {
     fn default() -> Self {
         Self {
@@ -1162,6 +1187,9 @@ pub struct ElasticsearchExporter {
 impl ElasticsearchExporter {
     /// Create a new Elasticsearch exporter.
     pub fn new(config: ElasticsearchConfig) -> Result<Self, ExportError> {
+        // SECURITY (FIND-R215-001): Validate common exporter config bounds.
+        config.validate()?;
+
         if config.endpoint.is_empty() {
             return Err(ExportError::Configuration(
                 "Elasticsearch endpoint not configured".to_string(),

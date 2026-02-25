@@ -154,6 +154,13 @@ impl AccountabilityAttestation {
     const MAX_ALGORITHM_LEN: usize = 64;
     /// Maximum length for timestamp fields (`created_at`, `expires_at`).
     const MAX_TIMESTAMP_LEN: usize = 64;
+    /// Maximum length for optional `did` field (DID:PLC identifier).
+    const MAX_DID_LEN: usize = 256;
+
+    /// Check if a string is valid hex-encoded data (non-empty, even length, all hex chars).
+    fn is_valid_hex(s: &str) -> bool {
+        !s.is_empty() && s.len().is_multiple_of(2) && s.chars().all(|c| c.is_ascii_hexdigit())
+    }
 
     /// Validate structural bounds on string fields.
     ///
@@ -173,6 +180,23 @@ impl AccountabilityAttestation {
                 Self::MAX_ID_LEN,
             ));
         }
+        // SECURITY (FIND-R215-008): Validate optional `did` field length and
+        // control/format characters to prevent oversized or injection-prone DIDs.
+        if let Some(ref did) = self.did {
+            if did.len() > Self::MAX_DID_LEN {
+                return Err(format!(
+                    "AccountabilityAttestation did length {} exceeds max {}",
+                    did.len(),
+                    Self::MAX_DID_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(did) {
+                return Err(
+                    "AccountabilityAttestation did contains control or format characters"
+                        .to_string(),
+                );
+            }
+        }
         if self.statement.len() > Self::MAX_STATEMENT_LEN {
             return Err(format!(
                 "AccountabilityAttestation statement length {} exceeds max {}",
@@ -187,12 +211,27 @@ impl AccountabilityAttestation {
                 Self::MAX_POLICY_HASH_LEN,
             ));
         }
+        // SECURITY (FIND-R215-009): Validate hex encoding on crypto fields.
+        // policy_hash is documented as hex-encoded SHA-256.
+        if !Self::is_valid_hex(&self.policy_hash) {
+            return Err(
+                "AccountabilityAttestation policy_hash must be valid hex-encoded data (non-empty, even length, hex chars only)"
+                    .to_string(),
+            );
+        }
         if self.signature.len() > Self::MAX_SIGNATURE_LEN {
             return Err(format!(
                 "AccountabilityAttestation signature length {} exceeds max {}",
                 self.signature.len(),
                 Self::MAX_SIGNATURE_LEN,
             ));
+        }
+        // SECURITY (FIND-R215-009): signature is documented as hex-encoded Ed25519.
+        if !Self::is_valid_hex(&self.signature) {
+            return Err(
+                "AccountabilityAttestation signature must be valid hex-encoded data (non-empty, even length, hex chars only)"
+                    .to_string(),
+            );
         }
         if self.algorithm.len() > Self::MAX_ALGORITHM_LEN {
             return Err(format!(
@@ -207,6 +246,13 @@ impl AccountabilityAttestation {
                 self.public_key.len(),
                 Self::MAX_PUBLIC_KEY_LEN,
             ));
+        }
+        // SECURITY (FIND-R215-009): public_key is documented as hex-encoded.
+        if !Self::is_valid_hex(&self.public_key) {
+            return Err(
+                "AccountabilityAttestation public_key must be valid hex-encoded data (non-empty, even length, hex chars only)"
+                    .to_string(),
+            );
         }
         if self.created_at.len() > Self::MAX_TIMESTAMP_LEN {
             return Err(format!(
@@ -468,5 +514,119 @@ mod tests {
             message: "Key mismatch".to_string(),
         };
         assert!(!wrong_key.is_valid());
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R215-008: AccountabilityAttestation did validation
+    // ════════════════════════════════════════════════════════
+
+    fn make_valid_attestation() -> AccountabilityAttestation {
+        AccountabilityAttestation {
+            attestation_id: "att-001".to_string(),
+            agent_id: "agent-1".to_string(),
+            did: None,
+            statement: "I agree to the policy".to_string(),
+            policy_hash: "abcdef1234567890".to_string(),
+            signature: "deadbeef".to_string(),
+            algorithm: "Ed25519".to_string(),
+            public_key: "cafebabe".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            expires_at: "2026-12-31T23:59:59Z".to_string(),
+            verified: false,
+        }
+    }
+
+    #[test]
+    fn test_r215_008_did_validation_too_long() {
+        let mut att = make_valid_attestation();
+        att.did = Some("x".repeat(257));
+        let err = att.validate().unwrap_err();
+        assert!(
+            err.contains("did length"),
+            "Expected did length error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r215_008_did_validation_dangerous_chars() {
+        let mut att = make_valid_attestation();
+        att.did = Some("did:plc:\x00evil".to_string());
+        let err = att.validate().unwrap_err();
+        assert!(
+            err.contains("did contains control"),
+            "Expected control char error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r215_008_did_validation_valid() {
+        let mut att = make_valid_attestation();
+        att.did = Some("did:plc:ewvi7nxsareczkwkx5pz6q6e".to_string());
+        assert!(att.validate().is_ok());
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R215-009: Hex validation on crypto fields
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_r215_009_policy_hash_not_hex() {
+        let mut att = make_valid_attestation();
+        att.policy_hash = "not_hex_value!".to_string();
+        let err = att.validate().unwrap_err();
+        assert!(
+            err.contains("policy_hash must be valid hex"),
+            "Expected hex error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r215_009_policy_hash_odd_length() {
+        let mut att = make_valid_attestation();
+        att.policy_hash = "abc".to_string(); // odd length
+        let err = att.validate().unwrap_err();
+        assert!(
+            err.contains("policy_hash must be valid hex"),
+            "Expected hex error for odd length, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r215_009_policy_hash_empty() {
+        let mut att = make_valid_attestation();
+        att.policy_hash = "".to_string();
+        let err = att.validate().unwrap_err();
+        assert!(
+            err.contains("policy_hash must be valid hex"),
+            "Expected hex error for empty, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r215_009_signature_not_hex() {
+        let mut att = make_valid_attestation();
+        att.signature = "not-hex".to_string();
+        let err = att.validate().unwrap_err();
+        assert!(
+            err.contains("signature must be valid hex"),
+            "Expected hex error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r215_009_public_key_not_hex() {
+        let mut att = make_valid_attestation();
+        att.public_key = "key!@#".to_string();
+        let err = att.validate().unwrap_err();
+        assert!(
+            err.contains("public_key must be valid hex"),
+            "Expected hex error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r215_009_valid_hex_fields() {
+        let att = make_valid_attestation();
+        assert!(att.validate().is_ok(), "Valid hex fields should pass");
     }
 }

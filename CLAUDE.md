@@ -1,14 +1,14 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 + 43 + 44 + 47 + 48 complete, 210 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 + 38 + 39 + 40 + 41 + 43 + 44 + 47 + 48 complete, 215 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
 > **Tests:** 7,469 Rust tests + 385 Python SDK tests + 127 Go SDK tests + 119 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
 > **CI workflows:** 12 (16 jobs)
 > **Domain:** [www.vellaveto.online](https://www.vellaveto.online) (Cloudflare Pages)
-> **Updated:** 2026-02-24
+> **Updated:** 2026-02-25
 
 ---
 
@@ -216,6 +216,7 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - Rounds 154–162 (injection key scanning parity: WS/HTTP/gRPC/A2A all scan JSON object keys, MAX_DEPTH 10→32 across all transports, combining mark ranges extended, NHI Debug redaction, embedding lock fail-closed, task security SeqCst parity, gRPC TOCTOU atomic session+eval+update, sanitize_for_log dedup, resolve_domains cap)
 - Rounds 164–178 (OAuth/DPoP control char validation, A2A DLP text extraction, WS non-JSON DLP/injection scanning, gRPC error.data scanning, Redis approval UTF-8 truncation, DLP response content bounds, semantic guardrail input validation, NaN drift fail-closed, session_id validation, extension rollback, agent card chars, FIPS config validation, red team coverage bounds, session_guard has_dangerous_chars, Rekor validate, WitnessStore cap)
 - Round 206 Phase 47 Hardening (4 findings — 1 P1 + 2 P2 + 1 P3: FIND-R206-001 audit events logged spoofable client-asserted identity instead of auth-bound identity — create_version/approve_version/rollback now log `bound_created_by`/`bound_approved_by` from `derive_resolver_identity()`, FIND-R206-002 archive_version TOCTOU — status read and staging snapshot clearance not synchronized — added `policy_write_lock` acquisition, FIND-R206-003 stale staging snapshot — legacy add/remove/reload policy handlers didn't invalidate `staging_snapshot` when mutating active policy set — added `staging_snapshot.store(Arc::new(None))` to all three, FIND-R206-004 version number u64::MAX overflow — `saturating_add(1)` would create duplicate version numbers — added capacity guard rejecting creation at `u64::MAX`). Round 209 linter hardening: promote_version `would_be_active` heuristic replaced with strict Draft|Staging match making compilation failure always fatal (fail-safe). Round 210: setup wizard CSRF token rotation per step, TOML escape Unicode format chars, Python SDK module-level constants, archive OsString path handling.
+- Round 215 (25 findings — 11 P2 + 14 P3: ABAC principal ID/claims/type homoglyph normalization parity with context_check.rs — `normalize_homoglyphs()` added to `matches_principal()` for id_matchers/claims/principal_type, CapabilityRequired/SessionStateRequired homoglyph normalization added at compile+eval time, ResourceIndicator denial reason sanitized via `sanitize_for_log()`, ABAC `compare_numbers()` NaN/Infinity guard via `.is_finite()`, AccountabilityAttestation `did` field validation (MAX_DID_LEN=256 + dangerous chars) + hex-only validation on `policy_hash`/`signature`/`public_key`, AbacCondition `field` validation (MAX_FIELD_LEN=256 + empty + dangerous chars), missing audit trails added to 5 admin endpoints — circuit_breaker/reset + auth_level/upgrade+clear + schema_lineage/trust+remove + deputy/register+remove + shadow_agent/register+trust, WS extension method Allow path strict audit mode enforcement, `remove_shadow_agent` returns 501 Not Implemented, SplunkConfig/ElasticsearchConfig `validate()` wired to `ExporterConfig::validate()`, `deny_unknown_fields` on DORA/NIS2 assessment/report + 5 exec_graph structs, ExecutionGraphStore session_id bounded at 256 + ExecutionNode.metadata bounded (50 entries/256 key/4096 value), DataFlowTracker Vec→VecDeque O(1) eviction, GoalTracker fail-safe defaults on invalid config)
 - **Canonical `has_dangerous_chars()` dedup campaign:** ~100 inline char validation patterns replaced with `vellaveto_types::has_dangerous_chars()` across ~35 files (types 82, config 71, mcp 7), removing 4 local helper functions and upgrading control-only checks to also reject Unicode format chars
 - **CI/CD:** 11 workflows, Docker/GHCR, release automation, SBOM, provenance attestation
 - **SDKs:** Python (sync+async, LangChain/LangGraph/Composio, 361 tests), TypeScript (fetch-based, 111 tests), Go (stdlib-only, 106 tests)

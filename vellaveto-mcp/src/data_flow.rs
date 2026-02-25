@@ -24,7 +24,7 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::inspection::DlpFinding;
 
@@ -280,7 +280,8 @@ struct ResponseRecord {
 pub struct DataFlowTracker {
     config: DataFlowConfig,
     /// Recorded response findings in insertion order.
-    records: Vec<ResponseRecord>,
+    /// SECURITY (FIND-R215-006): VecDeque for O(1) eviction from front.
+    records: VecDeque<ResponseRecord>,
     /// Pattern name → set of fingerprints (for exact match mode).
     fingerprints: HashMap<String, Vec<[u8; 32]>>,
     /// Set of active pattern names for fast O(1) lookup.
@@ -293,7 +294,7 @@ impl DataFlowTracker {
         config.validate()?;
         Ok(Self {
             config,
-            records: Vec::new(),
+            records: VecDeque::new(),
             fingerprints: HashMap::new(),
             active_patterns: HashSet::new(),
         })
@@ -363,7 +364,7 @@ impl DataFlowTracker {
                 fps.push(fp);
             }
 
-            self.records.push(ResponseRecord {
+            self.records.push_back(ResponseRecord {
                 pattern_name,
                 source_tool: source_tool.to_string(),
             });
@@ -492,12 +493,13 @@ impl DataFlowTracker {
     }
 
     /// Evict the oldest record and clean up associated state.
+    /// SECURITY (FIND-R215-006): Uses VecDeque::pop_front() for O(1) eviction
+    /// instead of Vec::remove(0) which is O(n).
     fn evict_oldest(&mut self) {
-        if self.records.is_empty() {
-            return;
-        }
-
-        let removed = self.records.remove(0);
+        let removed = match self.records.pop_front() {
+            Some(r) => r,
+            None => return,
+        };
 
         // Check if this pattern still has other records
         let pattern_still_active = self

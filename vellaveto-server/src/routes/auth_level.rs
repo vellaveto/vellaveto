@@ -10,12 +10,14 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Json,
 };
 use serde::Deserialize;
 use serde_json::json;
+use vellaveto_types::{Action, Verdict};
 
+use crate::routes::approval::derive_resolver_identity;
 use crate::routes::ErrorResponse;
 use crate::AppState;
 
@@ -71,6 +73,7 @@ pub struct UpgradeAuthRequest {
 pub async fn upgrade_auth_level(
     State(state): State<AppState>,
     Path(session): Path<String>,
+    headers: HeaderMap,
     Json(req): Json<UpgradeAuthRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     // SECURITY (FIND-R51-005): Validate path parameter.
@@ -120,6 +123,33 @@ pub async fn upgrade_auth_level(
     let expires = req.expires_secs.map(std::time::Duration::from_secs);
     tracker.upgrade(&session, level, expires).await;
 
+    // SECURITY (FIND-R215-002): Audit trail for auth level upgrade.
+    let upgraded_by = derive_resolver_identity(&headers, "anonymous");
+    let action = Action::new(
+        "vellaveto",
+        "auth_level_upgrade",
+        json!({ "session": &session, "level": format!("{:?}", level) }),
+    );
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &action,
+            &Verdict::Allow,
+            json!({
+                "source": "api",
+                "event": "auth_level.upgrade",
+                "session": &session,
+                "level": format!("{:?}", level),
+                "upgraded_by": &upgraded_by,
+            }),
+        )
+        .await
+    {
+        tracing::warn!("Failed to audit auth level upgrade for {}: {}", session, e);
+    } else {
+        crate::metrics::increment_audit_entries();
+    }
+
     Ok(Json(json!({
         "session": session,
         "level": format!("{:?}", level),
@@ -133,6 +163,7 @@ pub async fn upgrade_auth_level(
 pub async fn clear_auth_level(
     State(state): State<AppState>,
     Path(session): Path<String>,
+    headers: HeaderMap,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     // SECURITY (FIND-R51-005): Validate path parameter.
     crate::routes::validate_path_param(&session, "session")?;
@@ -147,6 +178,32 @@ pub async fn clear_auth_level(
     })?;
 
     tracker.remove(&session).await;
+
+    // SECURITY (FIND-R215-002): Audit trail for auth level clear.
+    let cleared_by = derive_resolver_identity(&headers, "anonymous");
+    let action = Action::new(
+        "vellaveto",
+        "auth_level_clear",
+        json!({ "session": &session }),
+    );
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &action,
+            &Verdict::Allow,
+            json!({
+                "source": "api",
+                "event": "auth_level.clear",
+                "session": &session,
+                "cleared_by": &cleared_by,
+            }),
+        )
+        .await
+    {
+        tracing::warn!("Failed to audit auth level clear for {}: {}", session, e);
+    } else {
+        crate::metrics::increment_audit_entries();
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

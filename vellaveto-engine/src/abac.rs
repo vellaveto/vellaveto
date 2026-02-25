@@ -6,8 +6,8 @@
 use crate::matcher::PatternMatcher;
 use std::collections::{HashMap, HashSet};
 use vellaveto_types::{
-    is_unicode_format_char, AbacEffect, AbacEntity, AbacOp, AbacPolicy, Action, EvaluationContext,
-    RiskScore,
+    is_unicode_format_char, unicode::normalize_homoglyphs, AbacEffect, AbacEntity, AbacOp,
+    AbacPolicy, Action, EvaluationContext, RiskScore,
 };
 
 /// A compiled path matcher that uses `globset::Glob` for patterns containing
@@ -554,9 +554,14 @@ fn matches_principal(
     ctx: &AbacEvalContext<'_>,
     entity_store: &EntityStore,
 ) -> bool {
+    // SECURITY (FIND-R215-007): Normalize both required_type and ctx.principal_type
+    // through lowercase + normalize_homoglyphs() to prevent Cyrillic/fullwidth
+    // characters from bypassing principal type matching in ABAC policies.
     // Type check
     if let Some(ref required_type) = principal.principal_type {
-        if required_type != ctx.principal_type {
+        let norm_required = normalize_homoglyphs(&required_type.to_lowercase());
+        let norm_ctx_type = normalize_homoglyphs(&ctx.principal_type.to_lowercase());
+        if norm_required != norm_ctx_type {
             // Check group membership: maybe this principal is a member of the required type
             let entity_key = format!("{}::{}", ctx.principal_type, ctx.principal_id);
             let group_key = format!("{}::{}", required_type, ctx.principal_id);
@@ -566,14 +571,16 @@ fn matches_principal(
         }
     }
 
+    // SECURITY (FIND-R215-004): Normalize principal_id through normalize_homoglyphs()
+    // before matching against compiled id_matchers. Patterns are normalized at compile
+    // time; runtime input must also be normalized to prevent Cyrillic/fullwidth
+    // characters from bypassing Forbid policies.
     // ID pattern check
-    if !principal.id_matchers.is_empty()
-        && !principal
-            .id_matchers
-            .iter()
-            .any(|m| m.matches(ctx.principal_id))
-    {
-        return false;
+    if !principal.id_matchers.is_empty() {
+        let norm_id = normalize_homoglyphs(ctx.principal_id);
+        if !principal.id_matchers.iter().any(|m| m.matches(&norm_id)) {
+            return false;
+        }
     }
 
     // Claims check
@@ -590,7 +597,11 @@ fn matches_principal(
             Some(v) => v.as_str().unwrap_or(""),
             None => return false,
         };
-        if !pattern.matches(claim_value) {
+        // SECURITY (FIND-R215-005): Normalize claim values through normalize_homoglyphs()
+        // before matching against compiled patterns. Without this, Cyrillic/fullwidth
+        // characters in JWT claim values bypass ABAC principal claim checks.
+        let norm_claim = normalize_homoglyphs(claim_value);
+        if !pattern.matches(&norm_claim) {
             return false;
         }
     }
@@ -777,7 +788,10 @@ fn compare_numbers(
     cmp: fn(f64, f64) -> bool,
 ) -> bool {
     match (a.as_f64(), b.as_f64()) {
-        (Some(av), Some(bv)) => cmp(av, bv),
+        // SECURITY (FIND-R215-006): Guard against NaN/Infinity values that could
+        // cause unpredictable comparison results (NaN < x is always false, etc.).
+        // Non-finite values in either operand cause the comparison to fail-closed.
+        (Some(av), Some(bv)) if av.is_finite() && bv.is_finite() => cmp(av, bv),
         _ => false,
     }
 }
@@ -2079,5 +2093,210 @@ mod tests {
 
         let action = make_action_with_paths("fs", "read", vec!["/data/fileA.csv"]);
         assert_eq!(engine.evaluate(&action, &ctx), AbacDecision::NoMatch);
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R215-004: ABAC principal ID homoglyph normalization
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_r215_004_principal_id_homoglyph_normalization() {
+        // Principal ID pattern "admin*" should match a Cyrillic-homoglyph variant
+        // because normalize_homoglyphs maps Cyrillic 'а' (U+0430) to Latin 'a'.
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "admin agents".to_string(),
+            effect: AbacEffect::Forbid,
+            priority: 0,
+            principal: PrincipalConstraint {
+                principal_type: None,
+                id_patterns: vec!["admin*".to_string()],
+                claims: HashMap::new(),
+            },
+            action: ActionConstraint {
+                patterns: vec!["*:*".to_string()],
+            },
+            resource: Default::default(),
+            conditions: vec![],
+        };
+        let engine = make_engine(vec![policy]);
+        let eval_ctx = EvaluationContext::default();
+
+        // Cyrillic 'а' (U+0430) visually identical to Latin 'a'
+        let ctx = make_ctx(&eval_ctx, "Agent", "\u{0430}dmin-user");
+        match engine.evaluate(&make_action("any", "any"), &ctx) {
+            AbacDecision::Deny { policy_id, .. } => assert_eq!(policy_id, "p1"),
+            other => panic!("Expected Deny from homoglyph principal ID, got {:?}", other),
+        }
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R215-005: ABAC principal claims homoglyph normalization
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_r215_005_principal_claims_homoglyph_normalization() {
+        // Claim pattern "security*" should match Cyrillic-homoglyph variant
+        let mut claims = HashMap::new();
+        claims.insert("team".to_string(), "security*".to_string());
+
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "security team".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: PrincipalConstraint {
+                principal_type: None,
+                id_patterns: vec![],
+                claims,
+            },
+            action: Default::default(),
+            resource: Default::default(),
+            conditions: vec![],
+        };
+        let engine = make_engine(vec![policy]);
+
+        // Cyrillic 'ѕ' (U+0455) looks like Latin 's', 'е' (U+0435) looks like 'e'
+        let mut identity_claims = HashMap::new();
+        identity_claims.insert(
+            "team".to_string(),
+            serde_json::json!("\u{0455}\u{0435}curity-ops"),
+        );
+        let eval_ctx = EvaluationContext {
+            agent_identity: Some(AgentIdentity {
+                claims: identity_claims,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let ctx = make_ctx(&eval_ctx, "Agent", "test");
+        assert!(
+            matches!(
+                engine.evaluate(&make_action("any", "any"), &ctx),
+                AbacDecision::Allow { .. }
+            ),
+            "Homoglyph claim value should match after normalization"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R215-006: compare_numbers NaN guard
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_r215_006_compare_numbers_nan_guard() {
+        // NaN in risk.score should cause Permit condition to not match (fail-closed)
+        let policy = AbacPolicy {
+            id: "permit-low-risk".to_string(),
+            description: "low risk only".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: Default::default(),
+            conditions: vec![AbacCondition {
+                field: "risk.score".to_string(),
+                op: AbacOp::Lt,
+                value: serde_json::json!(0.5),
+            }],
+        };
+        let engine = make_engine(vec![policy]);
+        let eval_ctx = EvaluationContext::default();
+
+        // NaN risk score — resolve_field treats non-finite as 1.0 (max risk),
+        // and compare_numbers guards against non-finite operands. Either way,
+        // the permit condition should NOT match.
+        let risk = RiskScore {
+            score: f64::NAN,
+            factors: vec![],
+            updated_at: "2026-02-14T00:00:00Z".to_string(),
+        };
+        let ctx = AbacEvalContext {
+            eval_ctx: &eval_ctx,
+            principal_type: "Agent",
+            principal_id: "test",
+            risk_score: Some(&risk),
+        };
+        assert_eq!(
+            engine.evaluate(&make_action("any", "any"), &ctx),
+            AbacDecision::NoMatch,
+            "NaN risk score should not match Lt condition"
+        );
+    }
+
+    #[test]
+    fn test_r215_006_compare_numbers_infinity_guard() {
+        // Infinity should also fail-closed
+        let policy = AbacPolicy {
+            id: "permit-low-risk".to_string(),
+            description: "low risk only".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: Default::default(),
+            conditions: vec![AbacCondition {
+                field: "risk.score".to_string(),
+                op: AbacOp::Lte,
+                value: serde_json::json!(0.5),
+            }],
+        };
+        let engine = make_engine(vec![policy]);
+        let eval_ctx = EvaluationContext::default();
+
+        let risk = RiskScore {
+            score: f64::INFINITY,
+            factors: vec![],
+            updated_at: "2026-02-14T00:00:00Z".to_string(),
+        };
+        let ctx = AbacEvalContext {
+            eval_ctx: &eval_ctx,
+            principal_type: "Agent",
+            principal_id: "test",
+            risk_score: Some(&risk),
+        };
+        assert_eq!(
+            engine.evaluate(&make_action("any", "any"), &ctx),
+            AbacDecision::NoMatch,
+            "Infinity risk score should not match Lte condition"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R215-007: ABAC principal_type homoglyph normalization
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_r215_007_principal_type_homoglyph_normalization() {
+        // Required type "Agent" should match Cyrillic-homoglyph "Аgent"
+        // (Cyrillic 'А' U+0410 looks like Latin 'A')
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "Agents only".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: PrincipalConstraint {
+                principal_type: Some("Agent".to_string()),
+                id_patterns: vec![],
+                claims: HashMap::new(),
+            },
+            action: ActionConstraint {
+                patterns: vec!["*:*".to_string()],
+            },
+            resource: Default::default(),
+            conditions: vec![],
+        };
+        let engine = make_engine(vec![policy]);
+        let eval_ctx = EvaluationContext::default();
+
+        // Cyrillic 'А' (U+0410) visually identical to Latin 'A'
+        let ctx = make_ctx(&eval_ctx, "\u{0410}gent", "test-agent");
+        assert!(
+            matches!(
+                engine.evaluate(&make_action("any", "any"), &ctx),
+                AbacDecision::Allow { .. }
+            ),
+            "Homoglyph principal_type should match after normalization"
+        );
     }
 }

@@ -96,7 +96,9 @@ impl std::fmt::Display for Nis2ComplianceStatus {
 // ── Assessment ───────────────────────────────────────────────────────────────
 
 /// Assessment of a single NIS2 article.
+/// SECURITY (FIND-R215-002): deny_unknown_fields prevents attacker-injected fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Nis2Assessment {
     /// Article identifier.
     pub article_id: Nis2ArticleId,
@@ -115,7 +117,9 @@ pub struct Nis2Assessment {
 // ── Report ───────────────────────────────────────────────────────────────────
 
 /// NIS2 compliance evidence report.
+/// SECURITY (FIND-R215-002): deny_unknown_fields prevents attacker-injected fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Nis2Report {
     /// ISO 8601 timestamp of generation.
     pub generated_at: String,

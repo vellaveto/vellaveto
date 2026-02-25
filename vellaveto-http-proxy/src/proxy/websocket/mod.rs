@@ -2931,7 +2931,22 @@ async fn relay_client_to_upstream(
                                     )
                                     .await
                                 {
-                                    tracing::warn!("Failed to audit WS extension allow: {}", e);
+                                    tracing::error!(
+                                        "AUDIT FAILURE in WS proxy: security decision not recorded: {}",
+                                        e
+                                    );
+                                    // SECURITY (FIND-R215-007): Strict audit mode — fail-closed.
+                                    // Parity with Deny and RequireApproval paths.
+                                    if state.audit_strict_mode {
+                                        let error = make_ws_error_response(
+                                            Some(id),
+                                            -32000,
+                                            "Audit logging failed — request denied (strict audit mode)",
+                                        );
+                                        let mut sink = client_sink.lock().await;
+                                        let _ = sink.send(Message::Text(error.into())).await;
+                                        continue;
+                                    }
                                 }
                                 // SECURITY (FIND-R48-001): Fail-closed on canonicalization failure.
                                 let forward_text = if state.canonicalize {
