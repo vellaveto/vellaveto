@@ -941,6 +941,7 @@ pub fn validate_mcp_tool_name(name: &str) -> Result<(), String> {
 /// Returned by `PolicyEngine::evaluate_action_traced()` when callers need
 /// OPA-style decision explanations (e.g. `?trace=true` on the HTTP proxy).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EvaluationTrace {
     pub action_summary: ActionSummary,
     pub policies_checked: usize,
@@ -952,6 +953,7 @@ pub struct EvaluationTrace {
 
 /// Summary of the action being evaluated (no raw parameter values for security).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ActionSummary {
     pub tool: String,
     pub function: String,
@@ -961,6 +963,7 @@ pub struct ActionSummary {
 
 /// Per-policy evaluation result within a trace.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PolicyMatch {
     pub policy_id: String,
     pub policy_name: String,
@@ -973,6 +976,7 @@ pub struct PolicyMatch {
 
 /// Individual constraint evaluation result within a policy match.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConstraintResult {
     pub constraint_type: String,
     pub param: String,
@@ -990,6 +994,7 @@ pub struct ConstraintResult {
 /// Transforms an `EvaluationTrace` into a consumer-facing explanation
 /// at configurable verbosity levels.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VerdictExplanation {
     /// Final verdict string ("Allow", "Deny", "RequireApproval").
     pub verdict: String,
@@ -1009,6 +1014,7 @@ pub struct VerdictExplanation {
 
 /// Per-policy match detail within a verdict explanation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PolicyMatchDetail {
     /// Policy identifier.
     pub policy_id: String,

@@ -221,6 +221,10 @@ impl RateLimitConfig {
     /// SECURITY: Prevents unbounded memory usage from excessively large
     /// per_ip_max_capacity values that would allocate tracking entries for
     /// millions of unique IPs.
+    /// SECURITY (FIND-R216-003): Reject zero RPS/burst values. Zero RPS creates
+    /// a governor that never replenishes tokens, silently blocking all requests.
+    /// Zero burst creates a bucket with no capacity, also blocking all requests.
+    /// Both are almost certainly operator errors, not intentional rate limiting.
     pub fn validate(&self) -> Result<(), String> {
         if let Some(cap) = self.per_ip_max_capacity {
             if cap > MAX_IP_CAPACITY {
@@ -229,6 +233,36 @@ impl RateLimitConfig {
                     MAX_IP_CAPACITY, cap
                 ));
             }
+        }
+        if let Some(0) = self.evaluate_rps {
+            return Err("rate_limit.evaluate_rps must be > 0 when set".to_string());
+        }
+        if let Some(0) = self.evaluate_burst {
+            return Err("rate_limit.evaluate_burst must be > 0 when set".to_string());
+        }
+        if let Some(0) = self.admin_rps {
+            return Err("rate_limit.admin_rps must be > 0 when set".to_string());
+        }
+        if let Some(0) = self.admin_burst {
+            return Err("rate_limit.admin_burst must be > 0 when set".to_string());
+        }
+        if let Some(0) = self.readonly_rps {
+            return Err("rate_limit.readonly_rps must be > 0 when set".to_string());
+        }
+        if let Some(0) = self.readonly_burst {
+            return Err("rate_limit.readonly_burst must be > 0 when set".to_string());
+        }
+        if let Some(0) = self.per_ip_rps {
+            return Err("rate_limit.per_ip_rps must be > 0 when set".to_string());
+        }
+        if let Some(0) = self.per_ip_burst {
+            return Err("rate_limit.per_ip_burst must be > 0 when set".to_string());
+        }
+        if let Some(0) = self.per_principal_rps {
+            return Err("rate_limit.per_principal_rps must be > 0 when set".to_string());
+        }
+        if let Some(0) = self.per_principal_burst {
+            return Err("rate_limit.per_principal_burst must be > 0 when set".to_string());
         }
         Ok(())
     }
@@ -286,6 +320,30 @@ pub struct AuditConfig {
     /// Default: false (backward compatible, fail-open for audit).
     #[serde(default)]
     pub strict_mode: bool,
+}
+
+impl AuditConfig {
+    /// Validate audit configuration fields.
+    ///
+    /// SECURITY (FIND-R216-002): Validates redaction_level against known values and
+    /// rejects control/format characters to prevent log injection and config bypass.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(ref level) = self.redaction_level {
+            let valid_levels = ["Off", "KeysOnly", "KeysAndPatterns"];
+            if !valid_levels.contains(&level.as_str()) {
+                return Err(format!(
+                    "audit.redaction_level must be one of {:?}, got '{}'",
+                    valid_levels, level
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(level) {
+                return Err(
+                    "audit.redaction_level contains control or format characters".to_string()
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Memory poisoning defense configuration (OWASP ASI06).
@@ -504,12 +562,33 @@ impl MultimodalPolicyConfig {
                 MAX_CONTENT_TYPES
             ));
         }
+        // SECURITY (FIND-R216-008): Per-entry control/format char validation on
+        // content_types — zero-width chars could bypass content-type matching.
+        for (i, ct) in self.content_types.iter().enumerate() {
+            if vellaveto_types::has_dangerous_chars(ct) {
+                return Err(format!(
+                    "multimodal.content_types[{}] contains control or format characters",
+                    i
+                ));
+            }
+        }
         if self.blocked_content_types.len() > MAX_CONTENT_TYPES {
             return Err(format!(
                 "multimodal.blocked_content_types has {} entries, max is {}",
                 self.blocked_content_types.len(),
                 MAX_CONTENT_TYPES
             ));
+        }
+        // SECURITY (FIND-R216-008): Per-entry control/format char validation on
+        // blocked_content_types — zero-width chars could cause blocked types to
+        // silently pass through the blocklist comparison.
+        for (i, ct) in self.blocked_content_types.iter().enumerate() {
+            if vellaveto_types::has_dangerous_chars(ct) {
+                return Err(format!(
+                    "multimodal.blocked_content_types[{}] contains control or format characters",
+                    i
+                ));
+            }
         }
         Ok(())
     }

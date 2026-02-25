@@ -427,3 +427,23 @@ pub struct EvidencePackStatus {
     /// Whether NIS2 evidence generation is enabled.
     pub nis2_enabled: bool,
 }
+
+impl EvidencePackStatus {
+    /// Maximum number of available frameworks.
+    const MAX_FRAMEWORKS: usize = 50;
+
+    /// Validate structural bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R216-016): Prevents unbounded framework lists from
+    /// untrusted deserialized payloads.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.available_frameworks.len() > Self::MAX_FRAMEWORKS {
+            return Err(format!(
+                "EvidencePackStatus available_frameworks count {} exceeds max {}",
+                self.available_frameworks.len(),
+                Self::MAX_FRAMEWORKS,
+            ));
+        }
+        Ok(())
+    }
+}

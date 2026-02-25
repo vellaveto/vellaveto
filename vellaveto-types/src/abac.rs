@@ -188,15 +188,48 @@ impl PrincipalConstraint {
     pub const MAX_ID_PATTERNS: usize = 64;
     /// Maximum number of required claims per principal constraint.
     pub const MAX_CLAIMS: usize = 64;
+    /// Maximum length for a single ID pattern entry.
+    const MAX_PATTERN_LEN: usize = 1024;
+    /// Maximum length for a claim key.
+    const MAX_CLAIM_KEY_LEN: usize = 256;
+    /// Maximum length for a claim value.
+    const MAX_CLAIM_VALUE_LEN: usize = 1024;
 
     /// SECURITY (FIND-R49-005): Validate PrincipalConstraint bounds.
+    /// SECURITY (FIND-R216-002): Per-entry validation on id_patterns and claims.
     pub fn validate(&self) -> Result<(), String> {
+        // Validate principal_type if present.
+        if let Some(ref pt) = self.principal_type {
+            if crate::core::has_dangerous_chars(pt) {
+                return Err(
+                    "PrincipalConstraint principal_type contains control or format characters"
+                        .to_string(),
+                );
+            }
+        }
         if self.id_patterns.len() > Self::MAX_ID_PATTERNS {
             return Err(format!(
                 "PrincipalConstraint id_patterns count {} exceeds max {}",
                 self.id_patterns.len(),
                 Self::MAX_ID_PATTERNS
             ));
+        }
+        // SECURITY (FIND-R216-002): Per-entry length and dangerous char checks.
+        for (i, pat) in self.id_patterns.iter().enumerate() {
+            if pat.len() > Self::MAX_PATTERN_LEN {
+                return Err(format!(
+                    "PrincipalConstraint id_patterns[{}] length {} exceeds max {}",
+                    i,
+                    pat.len(),
+                    Self::MAX_PATTERN_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(pat) {
+                return Err(format!(
+                    "PrincipalConstraint id_patterns[{}] contains control or format characters",
+                    i,
+                ));
+            }
         }
         if self.claims.len() > Self::MAX_CLAIMS {
             return Err(format!(
@@ -205,6 +238,35 @@ impl PrincipalConstraint {
                 Self::MAX_CLAIMS
             ));
         }
+        // SECURITY (FIND-R216-002): Per-key/value length and dangerous char checks.
+        for (key, value) in &self.claims {
+            if key.len() > Self::MAX_CLAIM_KEY_LEN {
+                return Err(format!(
+                    "PrincipalConstraint claims key length {} exceeds max {}",
+                    key.len(),
+                    Self::MAX_CLAIM_KEY_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(key) {
+                return Err(
+                    "PrincipalConstraint claims key contains control or format characters"
+                        .to_string(),
+                );
+            }
+            if value.len() > Self::MAX_CLAIM_VALUE_LEN {
+                return Err(format!(
+                    "PrincipalConstraint claims value length {} exceeds max {}",
+                    value.len(),
+                    Self::MAX_CLAIM_VALUE_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(value) {
+                return Err(
+                    "PrincipalConstraint claims value contains control or format characters"
+                        .to_string(),
+                );
+            }
+        }
         Ok(())
     }
 }
@@ -212,8 +274,11 @@ impl PrincipalConstraint {
 impl ActionConstraint {
     /// Maximum number of patterns per action constraint.
     pub const MAX_PATTERNS: usize = 256;
+    /// Maximum length for a single pattern entry.
+    const MAX_PATTERN_LEN: usize = 1024;
 
     /// SECURITY (FIND-R49-005): Validate ActionConstraint bounds.
+    /// SECURITY (FIND-R216-003): Per-entry validation on patterns.
     pub fn validate(&self) -> Result<(), String> {
         if self.patterns.len() > Self::MAX_PATTERNS {
             return Err(format!(
@@ -221,6 +286,23 @@ impl ActionConstraint {
                 self.patterns.len(),
                 Self::MAX_PATTERNS
             ));
+        }
+        // SECURITY (FIND-R216-003): Per-entry length and dangerous char checks.
+        for (i, pat) in self.patterns.iter().enumerate() {
+            if pat.len() > Self::MAX_PATTERN_LEN {
+                return Err(format!(
+                    "ActionConstraint patterns[{}] length {} exceeds max {}",
+                    i,
+                    pat.len(),
+                    Self::MAX_PATTERN_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(pat) {
+                return Err(format!(
+                    "ActionConstraint patterns[{}] contains control or format characters",
+                    i,
+                ));
+            }
         }
         Ok(())
     }
@@ -233,8 +315,15 @@ impl ResourceConstraint {
     pub const MAX_DOMAIN_PATTERNS: usize = 256;
     /// Maximum number of tags per resource constraint.
     pub const MAX_TAGS: usize = 64;
+    /// Maximum length for a single path pattern entry.
+    const MAX_PATH_PATTERN_LEN: usize = 2048;
+    /// Maximum length for a single domain pattern entry.
+    const MAX_DOMAIN_PATTERN_LEN: usize = 1024;
+    /// Maximum length for a single tag entry.
+    const MAX_TAG_LEN: usize = 256;
 
     /// SECURITY (FIND-R49-005): Validate ResourceConstraint bounds.
+    /// SECURITY (FIND-R216-004): Per-entry validation on path_patterns, domain_patterns, tags.
     pub fn validate(&self) -> Result<(), String> {
         if self.path_patterns.len() > Self::MAX_PATH_PATTERNS {
             return Err(format!(
@@ -243,6 +332,23 @@ impl ResourceConstraint {
                 Self::MAX_PATH_PATTERNS
             ));
         }
+        // SECURITY (FIND-R216-004): Per-entry length and dangerous char checks.
+        for (i, pat) in self.path_patterns.iter().enumerate() {
+            if pat.len() > Self::MAX_PATH_PATTERN_LEN {
+                return Err(format!(
+                    "ResourceConstraint path_patterns[{}] length {} exceeds max {}",
+                    i,
+                    pat.len(),
+                    Self::MAX_PATH_PATTERN_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(pat) {
+                return Err(format!(
+                    "ResourceConstraint path_patterns[{}] contains control or format characters",
+                    i,
+                ));
+            }
+        }
         if self.domain_patterns.len() > Self::MAX_DOMAIN_PATTERNS {
             return Err(format!(
                 "ResourceConstraint domain_patterns count {} exceeds max {}",
@@ -250,12 +356,44 @@ impl ResourceConstraint {
                 Self::MAX_DOMAIN_PATTERNS
             ));
         }
+        for (i, pat) in self.domain_patterns.iter().enumerate() {
+            if pat.len() > Self::MAX_DOMAIN_PATTERN_LEN {
+                return Err(format!(
+                    "ResourceConstraint domain_patterns[{}] length {} exceeds max {}",
+                    i,
+                    pat.len(),
+                    Self::MAX_DOMAIN_PATTERN_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(pat) {
+                return Err(format!(
+                    "ResourceConstraint domain_patterns[{}] contains control or format characters",
+                    i,
+                ));
+            }
+        }
         if self.tags.len() > Self::MAX_TAGS {
             return Err(format!(
                 "ResourceConstraint tags count {} exceeds max {}",
                 self.tags.len(),
                 Self::MAX_TAGS
             ));
+        }
+        for (i, tag) in self.tags.iter().enumerate() {
+            if tag.len() > Self::MAX_TAG_LEN {
+                return Err(format!(
+                    "ResourceConstraint tags[{}] length {} exceeds max {}",
+                    i,
+                    tag.len(),
+                    Self::MAX_TAG_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(tag) {
+                return Err(format!(
+                    "ResourceConstraint tags[{}] contains control or format characters",
+                    i,
+                ));
+            }
         }
         Ok(())
     }
@@ -286,11 +424,14 @@ impl AbacEntity {
     pub const MAX_PARENTS: usize = 256;
     /// Maximum attributes per entity.
     pub const MAX_ATTRIBUTES: usize = 256;
+    /// Maximum length for a single parent ID entry.
+    const MAX_PARENT_ID_LEN: usize = 256;
 
     /// Validate bounds on deserialized data.
     ///
     /// SECURITY (FIND-R48-004): Unbounded parents and attributes from deserialization.
     /// SECURITY (FIND-R115-006): Validate control/format chars on entity_type and id.
+    /// SECURITY (FIND-R216-005): Per-entry validation on parents.
     pub fn validate(&self) -> Result<(), String> {
         // SECURITY (FIND-R115-006): Reject control/format chars in identity fields.
         if crate::core::has_dangerous_chars(&self.entity_type)
@@ -315,6 +456,25 @@ impl AbacEntity {
                 self.parents.len(),
                 Self::MAX_PARENTS
             ));
+        }
+        // SECURITY (FIND-R216-005): Per-entry length and dangerous char checks.
+        for (i, parent) in self.parents.iter().enumerate() {
+            if parent.len() > Self::MAX_PARENT_ID_LEN {
+                return Err(format!(
+                    "AbacEntity '{}::{}' parents[{}] length {} exceeds max {}",
+                    self.entity_type,
+                    self.id,
+                    i,
+                    parent.len(),
+                    Self::MAX_PARENT_ID_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(parent) {
+                return Err(format!(
+                    "AbacEntity '{}::{}' parents[{}] contains control or format characters",
+                    self.entity_type, self.id, i,
+                ));
+            }
         }
         if self.attributes.len() > Self::MAX_ATTRIBUTES {
             return Err(format!(
@@ -720,6 +880,60 @@ pub struct PermissionUsage {
     /// ISO 8601 timestamp of last usage.
     #[serde(default)]
     pub last_used: Option<String>,
+}
+
+impl PermissionUsage {
+    /// Maximum length for pattern fields.
+    const MAX_PATTERN_LEN: usize = 1024;
+    /// Maximum length for ISO 8601 timestamp.
+    const MAX_TIMESTAMP_LEN: usize = 64;
+
+    /// Validate structural bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R216-008): Prevents oversized or injection-prone pattern
+    /// and timestamp strings from untrusted deserialized payloads.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.tool_pattern.len() > Self::MAX_PATTERN_LEN {
+            return Err(format!(
+                "PermissionUsage tool_pattern length {} exceeds max {}",
+                self.tool_pattern.len(),
+                Self::MAX_PATTERN_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.tool_pattern) {
+            return Err(
+                "PermissionUsage tool_pattern contains control or format characters".to_string(),
+            );
+        }
+        if self.function_pattern.len() > Self::MAX_PATTERN_LEN {
+            return Err(format!(
+                "PermissionUsage function_pattern length {} exceeds max {}",
+                self.function_pattern.len(),
+                Self::MAX_PATTERN_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.function_pattern) {
+            return Err(
+                "PermissionUsage function_pattern contains control or format characters"
+                    .to_string(),
+            );
+        }
+        if let Some(ref lu) = self.last_used {
+            if lu.len() > Self::MAX_TIMESTAMP_LEN {
+                return Err(format!(
+                    "PermissionUsage last_used length {} exceeds max {}",
+                    lu.len(),
+                    Self::MAX_TIMESTAMP_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(lu) {
+                return Err(
+                    "PermissionUsage last_used contains control or format characters".to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Least-agency compliance report.

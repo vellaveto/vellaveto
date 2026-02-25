@@ -217,26 +217,26 @@ async fn update_tenant_status(
     let api: Api<VellavetoTenant> = Api::namespaced(client.clone(), namespace);
 
     let now = chrono::Utc::now().to_rfc3339();
-    let mut conditions = vec![Condition {
-        condition_type: "Synced".into(),
-        status: if synced { "True".into() } else { "False".into() },
-        last_transition_time: Some(now.clone()),
-        reason: if synced {
+    let mut conditions = vec![Condition::new(
+        "Synced",
+        if synced { "True" } else { "False" },
+        Some(now.clone()),
+        if synced {
             Some("SyncSuccessful".into())
         } else {
             Some("SyncFailed".into())
         },
-        message: error_msg.map(String::from),
-    }];
+        error_msg.map(String::from),
+    )];
 
     if let Some(msg) = error_msg {
-        conditions.push(Condition {
-            condition_type: "Error".into(),
-            status: "True".into(),
-            last_transition_time: Some(now.clone()),
-            reason: Some("ReconcileError".into()),
-            message: Some(msg.to_string()),
-        });
+        conditions.push(Condition::new(
+            "Error",
+            "True",
+            Some(now.clone()),
+            Some("ReconcileError".into()),
+            Some(msg.to_string()),
+        ));
     }
 
     let status = VellavetoTenantStatus {

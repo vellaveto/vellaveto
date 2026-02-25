@@ -144,6 +144,28 @@ impl TlsConfig {
                 return Err("tls.cipher_suites contains control or format characters".to_string());
             }
         }
+        // SECURITY (FIND-R216-010): Validate TLS path fields for control/format characters.
+        // Zero-width chars in paths could cause filesystem confusion or bypass path matching.
+        if let Some(ref p) = self.cert_path {
+            if vellaveto_types::has_dangerous_chars(p) {
+                return Err("tls.cert_path contains control or format characters".to_string());
+            }
+        }
+        if let Some(ref p) = self.key_path {
+            if vellaveto_types::has_dangerous_chars(p) {
+                return Err("tls.key_path contains control or format characters".to_string());
+            }
+        }
+        if let Some(ref p) = self.client_ca_path {
+            if vellaveto_types::has_dangerous_chars(p) {
+                return Err("tls.client_ca_path contains control or format characters".to_string());
+            }
+        }
+        if let Some(ref p) = self.crl_path {
+            if vellaveto_types::has_dangerous_chars(p) {
+                return Err("tls.crl_path contains control or format characters".to_string());
+            }
+        }
         Ok(())
     }
 }
@@ -247,9 +269,15 @@ impl SpiffeConfig {
             // SECURITY (FIND-R112-020): Reject Unicode format characters (zero-width,
         }
         // SECURITY (FIND-R112-020): Also validate id_to_role keys for Unicode format chars.
-        for key in self.id_to_role.keys() {
+        for (key, value) in &self.id_to_role {
             if vellaveto_types::has_dangerous_chars(key) {
                 return Err("spiffe.id_to_role key contains control or format characters".to_string());
+            }
+            // SECURITY (FIND-R216-011): Validate id_to_role VALUES for control/format
+            // characters — zero-width chars in role names could bypass role matching
+            // or cause log injection when roles are logged.
+            if vellaveto_types::has_dangerous_chars(value) {
+                return Err("spiffe.id_to_role value contains control or format characters".to_string());
             }
         }
         if let Some(ref domain) = self.trust_domain {
@@ -450,6 +478,13 @@ impl OpaConfig {
         }
         if vellaveto_types::has_dangerous_chars(&self.decision_path) {
             return Err("opa.decision_path contains control or format characters".to_string());
+        }
+        // SECURITY (FIND-R216-015): Validate bundle_path for control/format characters.
+        // Zero-width chars in file paths could cause filesystem confusion.
+        if let Some(ref bp) = self.bundle_path {
+            if vellaveto_types::has_dangerous_chars(bp) {
+                return Err("opa.bundle_path contains control or format characters".to_string());
+            }
         }
         if self.fail_open && !self.fail_open_acknowledged {
             tracing::warn!("SECURITY: opa.fail_open=true without fail_open_acknowledged — fail_open will be ignored");

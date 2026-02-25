@@ -66,7 +66,9 @@ impl fmt::Debug for CapabilityToken {
             .field("issued_at", &self.issued_at)
             .field("expires_at", &self.expires_at)
             .field("signature", &"[REDACTED]")
-            .field("issuer_public_key", &self.issuer_public_key)
+            // SECURITY (FIND-R216-001): Redact issuer_public_key — cryptographic
+            // material must not leak into logs or debug output.
+            .field("issuer_public_key", &"[REDACTED]")
             .finish()
     }
 }
@@ -187,11 +189,40 @@ impl CapabilityGrant {
 
 /// Result of verifying a capability token.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CapabilityVerification {
     /// Whether the token is valid.
     pub valid: bool,
     /// Reason for failure, if any.
     pub failure_reason: Option<String>,
+}
+
+impl CapabilityVerification {
+    /// Maximum length for `failure_reason` field.
+    const MAX_FAILURE_REASON_LEN: usize = 4096;
+
+    /// Validate structural bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R216-011): Prevents oversized or injection-prone failure
+    /// reason strings from untrusted deserialized payloads.
+    pub fn validate(&self) -> Result<(), CapabilityError> {
+        if let Some(ref reason) = self.failure_reason {
+            if reason.len() > Self::MAX_FAILURE_REASON_LEN {
+                return Err(CapabilityError::ValidationFailed(format!(
+                    "CapabilityVerification failure_reason length {} exceeds max {}",
+                    reason.len(),
+                    Self::MAX_FAILURE_REASON_LEN,
+                )));
+            }
+            if crate::core::has_dangerous_chars(reason) {
+                return Err(CapabilityError::ValidationFailed(
+                    "CapabilityVerification failure_reason contains control or format characters"
+                        .to_string(),
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Errors from capability token operations.

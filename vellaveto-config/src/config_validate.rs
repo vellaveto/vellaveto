@@ -116,7 +116,30 @@ impl PolicyConfig {
             if pattern.is_empty() {
                 return Err(format!("injection.extra_patterns[{}] must not be empty", i));
             }
+            // SECURITY (FIND-R216-001): Reject control/format characters in injection
+            // extra_patterns — zero-width chars could bypass pattern matching or inject
+            // invisible text into audit logs.
+            if contains_control_chars(pattern) {
+                return Err(format!(
+                    "injection.extra_patterns[{}] contains control or format characters",
+                    i
+                ));
+            }
         }
+        // SECURITY (FIND-R216-001): Reject control/format characters in injection
+        // disabled_patterns — zero-width chars could cause pattern-name comparison
+        // to silently fail, leaving dangerous patterns enabled.
+        for (i, pattern) in self.injection.disabled_patterns.iter().enumerate() {
+            if contains_control_chars(pattern) {
+                return Err(format!(
+                    "injection.disabled_patterns[{}] contains control or format characters",
+                    i
+                ));
+            }
+        }
+        // SECURITY (FIND-R216-002): Validate audit config fields (redaction_level).
+        self.audit.validate()?;
+
         // SECURITY: Validate DLP numeric field bounds (max_depth, time_budget_ms, max_string_size).
         self.dlp.validate()?;
 
@@ -182,6 +205,14 @@ impl PolicyConfig {
                     i
                 ));
             }
+            // SECURITY (FIND-R216-014): Validate DLP pattern string for control/format
+            // characters — zero-width chars in regex could alter matching behavior.
+            if contains_control_chars(pattern) {
+                return Err(format!(
+                    "dlp.extra_patterns[{}] pattern contains control or format characters",
+                    i
+                ));
+            }
             if pattern.len() > MAX_PATTERN_LEN {
                 return Err(format!(
                     "dlp.extra_patterns[{}] '{}' exceeds max pattern length ({} > {})",
@@ -224,6 +255,15 @@ impl PolicyConfig {
             if contains_control_chars(&pattern.name) {
                 return Err(format!(
                     "audit.custom_pii_patterns[{}].name contains control or format characters",
+                    i
+                ));
+            }
+            // SECURITY (FIND-R216-013): Validate pattern.pattern for control/format chars.
+            // Zero-width chars in regex patterns could alter matching behavior or inject
+            // invisible content into compiled patterns.
+            if contains_control_chars(&pattern.pattern) {
+                return Err(format!(
+                    "audit.custom_pii_patterns[{}].pattern contains control or format characters",
                     i
                 ));
             }
@@ -653,6 +693,21 @@ impl PolicyConfig {
                 MAX_DATA_FLOW_FINGERPRINTS, self.data_flow.max_fingerprints_per_pattern
             ));
         }
+        // SECURITY (FIND-R216-009): Reject zero max_findings / max_fingerprints_per_pattern
+        // when data_flow tracking is enabled. Zero values would disable tracking entirely,
+        // silently defeating the exfiltration detection purpose.
+        if self.data_flow.enabled {
+            if self.data_flow.max_findings == 0 {
+                return Err(
+                    "data_flow.max_findings must be > 0 when enabled".to_string()
+                );
+            }
+            if self.data_flow.max_fingerprints_per_pattern == 0 {
+                return Err(
+                    "data_flow.max_fingerprints_per_pattern must be > 0 when enabled".to_string()
+                );
+            }
+        }
 
         // Validate semantic detection config
         if self.semantic_detection.enabled
@@ -750,8 +805,11 @@ impl PolicyConfig {
                 MAX_KNOWN_AGENTS, self.shadow_agent.max_known_agents
             ));
         }
-        if self.shadow_agent.enabled {
-            // Validate fingerprint components
+        // SECURITY (FIND-R216-006): Per-entry validation of fingerprint_components
+        // runs unconditionally — structural checks (known-set, control chars) must
+        // run even on disabled configs to prevent malicious values from activating
+        // without validation when later enabled via hot-reload.
+        {
             let valid_components = ["jwt_sub", "jwt_iss", "client_id", "ip_hash"];
             for comp in &self.shadow_agent.fingerprint_components {
                 if !valid_components.contains(&comp.as_str()) {
@@ -760,12 +818,20 @@ impl PolicyConfig {
                         comp, valid_components
                     ));
                 }
+                if contains_control_chars(comp) {
+                    return Err(format!(
+                        "shadow_agent.fingerprint_components contains control or format characters in '{}'",
+                        comp
+                    ));
+                }
             }
-            if self.shadow_agent.fingerprint_components.is_empty() {
-                return Err(
-                    "shadow_agent.fingerprint_components must have at least one component when enabled".to_string()
-                );
-            }
+        }
+        if self.shadow_agent.enabled
+            && self.shadow_agent.fingerprint_components.is_empty()
+        {
+            return Err(
+                "shadow_agent.fingerprint_components must have at least one component when enabled".to_string()
+            );
         }
         // SECURITY (FIND-R146-CS-002): Validate min_trust_level range (documented as 0-4)
         // and trust_decay_hours bounds to prevent unchecked values.

@@ -100,16 +100,8 @@ async fn apply_policy(
     // Convert CRD spec to API policy
     let api_policy = spec_to_api_policy(&policy.spec.policy);
 
-    // Upsert: delete existing (if any) then add
-    // Delete returns Ok(()) even on 404, so this is safe
-    if let Err(e) = client.delete_policy(&api_policy.id).await {
-        warn!(
-            policy = %name,
-            error = %e,
-            "failed to delete existing policy (may not exist)"
-        );
-    }
-
+    // Upsert via add_policy (server handles upsert semantics).
+    // Avoid delete-then-add to prevent availability gaps.
     client.add_policy(&api_policy).await.map_err(|e| {
         OperatorError::Api(format!("failed to sync policy {}: {e}", api_policy.id))
     })?;
@@ -205,26 +197,26 @@ async fn update_policy_status(
     let api: Api<VellavetoPolicy> = Api::namespaced(client.clone(), namespace);
 
     let now = chrono::Utc::now().to_rfc3339();
-    let mut conditions = vec![Condition {
-        condition_type: "Synced".into(),
-        status: if synced { "True".into() } else { "False".into() },
-        last_transition_time: Some(now.clone()),
-        reason: if synced {
+    let mut conditions = vec![Condition::new(
+        "Synced",
+        if synced { "True" } else { "False" },
+        Some(now.clone()),
+        if synced {
             Some("SyncSuccessful".into())
         } else {
             Some("SyncFailed".into())
         },
-        message: error_msg.map(String::from),
-    }];
+        error_msg.map(String::from),
+    )];
 
     if let Some(msg) = error_msg {
-        conditions.push(Condition {
-            condition_type: "Error".into(),
-            status: "True".into(),
-            last_transition_time: Some(now.clone()),
-            reason: Some("ReconcileError".into()),
-            message: Some(msg.to_string()),
-        });
+        conditions.push(Condition::new(
+            "Error",
+            "True",
+            Some(now.clone()),
+            Some("ReconcileError".into()),
+            Some(msg.to_string()),
+        ));
     }
 
     let status = VellavetoPolicyStatus {

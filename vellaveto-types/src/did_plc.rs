@@ -163,6 +163,12 @@ impl DidPlcGenesisOperation {
     pub const MAX_ENTRY_LEN: usize = 4096;
 
     pub fn validate(&self) -> Result<(), DidPlcError> {
+        // SECURITY (FIND-R216-014): Reject control/format chars in op_type.
+        if crate::core::has_dangerous_chars(&self.op_type) {
+            return Err(DidPlcError::InvalidFormat(
+                "op_type contains control or format characters".to_string(),
+            ));
+        }
         let fields: &[(&str, &[String])] = &[
             ("verification_methods", &self.verification_methods),
             ("also_known_as", &self.also_known_as),
@@ -187,6 +193,13 @@ impl DidPlcGenesisOperation {
                         Self::MAX_ENTRY_LEN
                     )));
                 }
+                // SECURITY (FIND-R216-014): Reject control/format chars in entries.
+                if crate::core::has_dangerous_chars(entry) {
+                    return Err(DidPlcError::InvalidFormat(format!(
+                        "{}[{}] contains control or format characters",
+                        name, i,
+                    )));
+                }
             }
         }
         if self.services.len() > Self::MAX_ENTRIES {
@@ -205,12 +218,25 @@ impl DidPlcGenesisOperation {
                     Self::MAX_ENTRY_LEN
                 )));
             }
+            // SECURITY (FIND-R216-014): Reject control/format chars in service fields.
+            if crate::core::has_dangerous_chars(&svc.id) {
+                return Err(DidPlcError::InvalidFormat(format!(
+                    "services[{}].id contains control or format characters",
+                    i,
+                )));
+            }
             if svc.service_type.len() > Self::MAX_ENTRY_LEN {
                 return Err(DidPlcError::InvalidFormat(format!(
                     "services[{}].service_type length {} exceeds max {}",
                     i,
                     svc.service_type.len(),
                     Self::MAX_ENTRY_LEN
+                )));
+            }
+            if crate::core::has_dangerous_chars(&svc.service_type) {
+                return Err(DidPlcError::InvalidFormat(format!(
+                    "services[{}].service_type contains control or format characters",
+                    i,
                 )));
             }
             if svc.endpoint.len() > Self::MAX_ENTRY_LEN {
@@ -220,6 +246,41 @@ impl DidPlcGenesisOperation {
                     svc.endpoint.len(),
                     Self::MAX_ENTRY_LEN
                 )));
+            }
+            if crate::core::has_dangerous_chars(&svc.endpoint) {
+                return Err(DidPlcError::InvalidFormat(format!(
+                    "services[{}].endpoint contains control or format characters",
+                    i,
+                )));
+            }
+        }
+        // SECURITY (FIND-R216-014): Validate optional sig and prev fields.
+        if let Some(ref sig) = self.sig {
+            if sig.len() > Self::MAX_ENTRY_LEN {
+                return Err(DidPlcError::InvalidFormat(format!(
+                    "sig length {} exceeds max {}",
+                    sig.len(),
+                    Self::MAX_ENTRY_LEN,
+                )));
+            }
+            if crate::core::has_dangerous_chars(sig) {
+                return Err(DidPlcError::InvalidFormat(
+                    "sig contains control or format characters".to_string(),
+                ));
+            }
+        }
+        if let Some(ref prev) = self.prev {
+            if prev.len() > Self::MAX_ENTRY_LEN {
+                return Err(DidPlcError::InvalidFormat(format!(
+                    "prev length {} exceeds max {}",
+                    prev.len(),
+                    Self::MAX_ENTRY_LEN,
+                )));
+            }
+            if crate::core::has_dangerous_chars(prev) {
+                return Err(DidPlcError::InvalidFormat(
+                    "prev contains control or format characters".to_string(),
+                ));
             }
         }
         Ok(())

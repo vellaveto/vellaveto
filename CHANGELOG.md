@@ -54,6 +54,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - WS extension method Allow path strict audit mode enforcement parity
 - `remove_shadow_agent` returns 501 Not Implemented instead of misleading 200
 
+#### Round 216 Adversarial Audit (52 findings — 27 P2 + 25 P3)
+
+**P2 — High (27):**
+- **ABAC per-entry validation gaps** (`vellaveto-types/src/abac.rs`): PrincipalConstraint `id_patterns`/`claims`, ActionConstraint `patterns`, ResourceConstraint `path_patterns`/`domain_patterns`/`tags`, AbacEntity `parents` lacked per-element length bounds and `has_dangerous_chars()` checks. Added `MAX_PATTERN_LEN=1024`, `MAX_CLAIM_KEY_LEN=256`, `MAX_TAG_LEN=256`, `MAX_PARENT_ID_LEN=256` with per-entry validation.
+- **PermissionUsage missing validate()** (`vellaveto-types/src/abac.rs`): No bounds on `permission_id`/`entity_id`/`resource` fields.
+- **CapabilityVerification missing deny_unknown_fields** (`vellaveto-types/src/capability.rs`): External deserialization accepted extra fields. Also added `issuer_public_key` Debug redaction.
+- **NhiDelegationLink per-entry validation** (`vellaveto-types/src/nhi.rs`): `permissions` and `scope_constraints` vectors lacked per-element length and dangerous char checks.
+- **NhiBehavioralBaseline per-entry validation** (`vellaveto-types/src/nhi.rs`): `tool_call_patterns` HashMap keys and `typical_source_ips` lacked per-entry validation.
+- **DidPlcGenesisOperation per-entry validation** (`vellaveto-types/src/did_plc.rs`): String entries in `rotation_keys`, `verification_methods`, `also_known_as`, `services` lacked `has_dangerous_chars()`.
+- **SyslogConfig missing validate()** (`vellaveto-audit/src/streaming.rs`): No validation on `app_name`, `facility`, `hostname`; missing RFC 5424 SD-ID grammar enforcement.
+- **WebhookExporter/DatadogExporter missing config.validate()** (`vellaveto-audit/src/streaming.rs`): Constructor accepted unvalidated config with dangerous chars in string fields.
+- **DORA/NIS2 fail-open on empty** (`vellaveto-audit/src/dora.rs`, `nis2.rs`): `calculate_coverage()` returned 100.0% for empty assessment vectors (should fail-closed to 0.0%).
+- **DoraReport/Nis2Report/GapAnalysisReport missing validate()** (`vellaveto-audit/src/*.rs`): No bounds on report struct fields.
+- **Config injection extra/disabled patterns** (`vellaveto-config/src/config_validate.rs`): `has_dangerous_chars()` missing on `extra_patterns`, `disabled_patterns`, sampling `allowed_models`, custom PII patterns, DLP `extra_patterns`.
+- **Shadow agent fingerprint validation** (`vellaveto-config/src/config_validate.rs`): Fingerprint component validation was inside `enabled` guard — bypassed when detection disabled.
+- **AuditConfig/RateLimitConfig missing validate()** (`vellaveto-config/src/detection.rs`): Zero-RPS rejection missing; `MultimodalPolicyConfig` lacked per-entry validation.
+- **TlsConfig/SpiffeConfig/OpaConfig dangerous chars** (`vellaveto-config/src/enterprise.rs`): TLS path fields, SPIFFE `id_to_role` values, OPA `bundle_path` missing `has_dangerous_chars()`.
+- **CrossAgentConfig trusted_agents** (`vellaveto-config/src/threat_detection.rs`): Per-entry validation missing on `trusted_agents` strings.
+- **Operator CRD missing DNS label validation** (`vellaveto-operator/src/crd.rs`): `validate_k8s_name()` accepted non-DNS-label characters.
+- **Operator CRD missing deny_unknown_fields** (`vellaveto-operator/src/crd.rs`): 8 spec structs accepted unknown fields.
+- **Operator ResourceRequirements/TenantQuotasSpec missing validate()** (`vellaveto-operator/src/crd.rs`).
+- **Operator delete-then-add race** (`vellaveto-operator/src/reconciler/policy.rs`): Policy reconciler deleted then re-added instead of direct upsert.
+- **Operator client redirect following** (`vellaveto-operator/src/client.rs`): Reqwest followed redirects by default, enabling SSRF.
+
+**P3 — Low (25):**
+- `deny_unknown_fields` on 6 trace/explanation structs in `core.rs`
+- `DiscoveryResult::validate()` added (MAX_TOOLS=10000, query bounds)
+- `EvidencePackStatus::validate()` added
+- `TaskResumeResult`/`TaskIntegrityResult`/`SecureTaskStats` validate() added
+- `AttestationVerificationResult::validate()` added
+- `NhiBehavioralDeviation::validate()` added
+- `GapAnalysisReport` deny_unknown_fields on 3 structs
+- Streaming exporter string fields `has_dangerous_chars()` parity
+- Data flow zero-value rejection for tracking configuration
+- Operator `Condition::new()` truncation for Kubernetes status conditions
+- Operator per-element path/network rule validation in CRD specs
+- Operator conditions serialization fail-closed
+- Operator image whitespace validation
+- Operator `validate_path_param` Unicode format char check
+
 #### Round 130 WS+gRPC Injection Scanning Parity (4 findings — 1 P1 + 3 P2)
 
 - **FIND-R130-001 (P1):** WS PassThrough arm missing injection scanning — injection payloads in `prompts/get`, `completion/complete` passed undetected while HTTP and gRPC both had the check. Added `extract_strings_recursive` + `inspect_for_injection` scanning.

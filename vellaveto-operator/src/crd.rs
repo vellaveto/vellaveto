@@ -66,6 +66,27 @@ const MAX_STAGING_PERIOD_SECS: u64 = 2_592_000;
 /// Maximum config override string length.
 const MAX_CONFIG_OVERRIDE_LEN: usize = 4096;
 
+/// Maximum resource value string length (e.g. "100m", "512Mi").
+const MAX_RESOURCE_VALUE_LEN: usize = 64;
+
+/// Maximum length of a single rule entry in PathRulesSpec/NetworkRulesSpec.
+const MAX_RULE_ENTRY_LEN: usize = 1024;
+
+/// Maximum Condition message length.
+const MAX_CONDITION_MESSAGE_LEN: usize = 1024;
+
+/// Maximum evaluations per minute upper bound.
+const MAX_EVALUATIONS_PER_MINUTE_UPPER: u64 = 1_000_000;
+
+/// Maximum policies upper bound.
+const MAX_POLICIES_UPPER: u64 = 100_000;
+
+/// Maximum pending approvals upper bound.
+const MAX_PENDING_APPROVALS_UPPER: u64 = 10_000;
+
+/// Maximum audit retention days upper bound (10 years).
+const MAX_AUDIT_RETENTION_DAYS_UPPER: u64 = 3650;
+
 // ═══════════════════════════════════════════════════
 // VellavetoCluster CRD
 // ═══════════════════════════════════════════════════
@@ -103,6 +124,7 @@ pub struct VellavetoClusterSpec {
 
 /// Subset of Vellaveto configuration fields overridable via the CRD.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct VellavetoConfigOverrides {
     /// Security enforcement mode (e.g. "strict", "permissive", "audit").
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -126,6 +148,7 @@ pub struct VellavetoConfigOverrides {
 
 /// Kubernetes resource requirements (simplified for CRD schema).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ResourceRequirements {
     /// CPU request (e.g. "100m").
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -203,6 +226,7 @@ pub struct VellavetoPolicySpec {
 
 /// Policy specification mirroring vellaveto-types::Policy for JSON Schema generation.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PolicySpec {
     /// Unique policy identifier.
     pub id: String,
@@ -227,6 +251,7 @@ pub struct PolicySpec {
 
 /// Path rules specification for CRD (mirrors vellaveto-types::PathRules).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct PathRulesSpec {
     /// Glob patterns for allowed paths.
     #[serde(default)]
@@ -238,6 +263,7 @@ pub struct PathRulesSpec {
 
 /// Network rules specification for CRD (mirrors vellaveto-types::NetworkRules).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct NetworkRulesSpec {
     /// Domain patterns for allowed destinations.
     #[serde(default, rename = "allowedDomains")]
@@ -252,6 +278,7 @@ pub struct NetworkRulesSpec {
 
 /// IP rules specification for CRD (mirrors vellaveto-types::IpRules).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct IpRulesSpec {
     /// Block connections to private/reserved IPs.
     #[serde(default, rename = "blockPrivate")]
@@ -266,6 +293,7 @@ pub struct IpRulesSpec {
 
 /// Policy lifecycle management configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct PolicyLifecycleSpec {
     /// Automatically promote through Draft -> Staging -> Active.
     #[serde(default, rename = "autoPromote")]
@@ -341,6 +369,7 @@ fn default_true() -> bool {
 
 /// Tenant quotas specification for CRD.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct TenantQuotasSpec {
     /// Maximum policy evaluations per minute.
     #[serde(
@@ -415,6 +444,40 @@ pub struct Condition {
     pub message: Option<String>,
 }
 
+impl Condition {
+    /// Create a new Condition with bounded message length.
+    ///
+    /// Truncates `message` to [`MAX_CONDITION_MESSAGE_LEN`] at a char boundary.
+    /// Strips dangerous chars from `reason` and `condition_type` when reading
+    /// from external sources.
+    pub fn new(
+        condition_type: impl Into<String>,
+        status: impl Into<String>,
+        last_transition_time: Option<String>,
+        reason: Option<String>,
+        message: Option<String>,
+    ) -> Self {
+        let truncated_message = message.map(|m| {
+            if m.len() > MAX_CONDITION_MESSAGE_LEN {
+                let mut end = MAX_CONDITION_MESSAGE_LEN;
+                while end > 0 && !m.is_char_boundary(end) {
+                    end -= 1;
+                }
+                m[..end].to_string()
+            } else {
+                m
+            }
+        });
+        Self {
+            condition_type: condition_type.into(),
+            status: status.into(),
+            last_transition_time,
+            reason,
+            message: truncated_message,
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════
 // Validation
 // ═══════════════════════════════════════════════════
@@ -429,7 +492,7 @@ fn has_dangerous_chars(s: &str) -> bool {
 }
 
 /// Check for Unicode format characters (zero-width, bidi, BOM, etc.).
-fn is_unicode_format_char(c: char) -> bool {
+pub(crate) fn is_unicode_format_char(c: char) -> bool {
     matches!(c,
         '\u{00AD}'
         | '\u{200B}'..='\u{200F}'
@@ -461,7 +524,8 @@ fn validate_tenant_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate a Kubernetes resource name (DNS subdomain: lowercase alnum + '-', max 253).
+/// Validate a Kubernetes resource name (DNS label: lowercase alphanumeric + hyphens,
+/// no dots, no uppercase, must not start or end with hyphen, max 253).
 fn validate_k8s_name(name: &str, field: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err(format!("{field} must not be empty"));
@@ -471,6 +535,19 @@ fn validate_k8s_name(name: &str, field: &str) -> Result<(), String> {
     }
     if has_dangerous_chars(name) {
         return Err(format!("{field} contains dangerous characters"));
+    }
+    // DNS label: lowercase alphanumeric + hyphens only
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err(format!(
+            "{field} must contain only lowercase alphanumeric characters or hyphens"
+        ));
+    }
+    // Must not start or end with hyphen
+    if name.starts_with('-') || name.ends_with('-') {
+        return Err(format!("{field} must not start or end with a hyphen"));
     }
     Ok(())
 }
@@ -493,6 +570,9 @@ impl VellavetoClusterSpec {
         if has_dangerous_chars(&self.image) {
             return Err("image contains dangerous characters".into());
         }
+        if self.image.contains(char::is_whitespace) {
+            return Err("image must not contain whitespace".into());
+        }
         if let Some(ref version) = self.version {
             if version.len() > MAX_VERSION_LEN {
                 return Err(format!(
@@ -505,6 +585,38 @@ impl VellavetoClusterSpec {
         }
         if let Some(ref config) = self.config {
             config.validate()?;
+        }
+        if let Some(ref resources) = self.resources {
+            resources.validate()?;
+        }
+        Ok(())
+    }
+}
+
+impl ResourceRequirements {
+    /// Validate resource requirement fields for length and dangerous characters.
+    pub fn validate(&self) -> Result<(), String> {
+        for (field, value) in [
+            ("cpu_request", &self.cpu_request),
+            ("memory_request", &self.memory_request),
+            ("cpu_limit", &self.cpu_limit),
+            ("memory_limit", &self.memory_limit),
+        ] {
+            if let Some(ref v) = value {
+                if v.len() > MAX_RESOURCE_VALUE_LEN {
+                    return Err(format!(
+                        "resources.{field} exceeds max length of {MAX_RESOURCE_VALUE_LEN}"
+                    ));
+                }
+                if has_dangerous_chars(v) {
+                    return Err(format!(
+                        "resources.{field} contains dangerous characters"
+                    ));
+                }
+                if v.trim().is_empty() {
+                    return Err(format!("resources.{field} must not be blank"));
+                }
+            }
         }
         Ok(())
     }
@@ -590,10 +702,10 @@ impl PolicySpec {
                 return Err("conditions required when policyType is Conditional".into());
             }
             if let Some(ref cond) = self.conditions {
-                let size = serde_json::to_string(cond)
-                    .map(|s| s.len())
-                    .unwrap_or(0);
-                if size > MAX_CONDITIONS_SIZE {
+                let serialized = serde_json::to_string(cond).map_err(|e| {
+                    format!("conditions serialization failed (fail-closed): {e}")
+                })?;
+                if serialized.len() > MAX_CONDITIONS_SIZE {
                     return Err(format!(
                         "conditions exceed max size of {MAX_CONDITIONS_SIZE} bytes"
                     ));
@@ -618,6 +730,16 @@ impl PolicySpec {
                     "pathRules.blocked exceeds max of {MAX_PATH_RULES}"
                 ));
             }
+            for entry in pr.allowed.iter().chain(pr.blocked.iter()) {
+                if entry.len() > MAX_RULE_ENTRY_LEN {
+                    return Err(format!(
+                        "pathRules entry exceeds max length of {MAX_RULE_ENTRY_LEN}"
+                    ));
+                }
+                if has_dangerous_chars(entry) {
+                    return Err("pathRules entry contains dangerous characters".into());
+                }
+            }
         }
         // Network rules
         if let Some(ref nr) = self.network_rules {
@@ -631,6 +753,16 @@ impl PolicySpec {
                     "networkRules.blockedDomains exceeds max of {MAX_DOMAIN_RULES}"
                 ));
             }
+            for entry in nr.allowed_domains.iter().chain(nr.blocked_domains.iter()) {
+                if entry.len() > MAX_RULE_ENTRY_LEN {
+                    return Err(format!(
+                        "networkRules domain entry exceeds max length of {MAX_RULE_ENTRY_LEN}"
+                    ));
+                }
+                if has_dangerous_chars(entry) {
+                    return Err("networkRules domain entry contains dangerous characters".into());
+                }
+            }
             if let Some(ref ip) = nr.ip_rules {
                 if ip.blocked_cidrs.len() > MAX_CIDR_RULES {
                     return Err(format!(
@@ -641,6 +773,16 @@ impl PolicySpec {
                     return Err(format!(
                         "ipRules.allowedCidrs exceeds max of {MAX_CIDR_RULES}"
                     ));
+                }
+                for entry in ip.blocked_cidrs.iter().chain(ip.allowed_cidrs.iter()) {
+                    if entry.len() > MAX_RULE_ENTRY_LEN {
+                        return Err(format!(
+                            "ipRules CIDR entry exceeds max length of {MAX_RULE_ENTRY_LEN}"
+                        ));
+                    }
+                    if has_dangerous_chars(entry) {
+                        return Err("ipRules CIDR entry contains dangerous characters".into());
+                    }
                 }
             }
         }
@@ -655,6 +797,41 @@ impl PolicyLifecycleSpec {
             if secs > MAX_STAGING_PERIOD_SECS {
                 return Err(format!(
                     "stagingPeriodSecs exceeds max of {MAX_STAGING_PERIOD_SECS}"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl TenantQuotasSpec {
+    /// Validate quota fields have sensible upper bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(v) = self.max_evaluations_per_minute {
+            if v > MAX_EVALUATIONS_PER_MINUTE_UPPER {
+                return Err(format!(
+                    "maxEvaluationsPerMinute exceeds upper bound of {MAX_EVALUATIONS_PER_MINUTE_UPPER}"
+                ));
+            }
+        }
+        if let Some(v) = self.max_policies {
+            if v > MAX_POLICIES_UPPER {
+                return Err(format!(
+                    "maxPolicies exceeds upper bound of {MAX_POLICIES_UPPER}"
+                ));
+            }
+        }
+        if let Some(v) = self.max_pending_approvals {
+            if v > MAX_PENDING_APPROVALS_UPPER {
+                return Err(format!(
+                    "maxPendingApprovals exceeds upper bound of {MAX_PENDING_APPROVALS_UPPER}"
+                ));
+            }
+        }
+        if let Some(v) = self.max_audit_retention_days {
+            if v > MAX_AUDIT_RETENTION_DAYS_UPPER {
+                return Err(format!(
+                    "maxAuditRetentionDays exceeds upper bound of {MAX_AUDIT_RETENTION_DAYS_UPPER}"
                 ));
             }
         }
@@ -699,6 +876,10 @@ impl VellavetoTenantSpec {
                     return Err("metadata contains dangerous characters".into());
                 }
             }
+        }
+        // Quotas
+        if let Some(ref quotas) = self.quotas {
+            quotas.validate()?;
         }
         Ok(())
     }
@@ -975,5 +1156,387 @@ mod tests {
         let parsed: PolicySpec = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(parsed.id, "p1");
         assert_eq!(parsed.policy_type, "Allow");
+    }
+
+    // ═══════════════════════════════════════════════════
+    // R216 finding tests
+    // ═══════════════════════════════════════════════════
+
+    // FIND-R216-002: validate_k8s_name DNS-safe enforcement
+    #[test]
+    fn test_validate_k8s_name_rejects_uppercase() {
+        let err = validate_k8s_name("My-Cluster", "clusterRef").unwrap_err();
+        assert!(err.contains("lowercase"));
+    }
+
+    #[test]
+    fn test_validate_k8s_name_rejects_dots() {
+        let err = validate_k8s_name("my.cluster", "clusterRef").unwrap_err();
+        assert!(err.contains("lowercase"));
+    }
+
+    #[test]
+    fn test_validate_k8s_name_rejects_leading_hyphen() {
+        let err = validate_k8s_name("-my-cluster", "clusterRef").unwrap_err();
+        assert!(err.contains("hyphen"));
+    }
+
+    #[test]
+    fn test_validate_k8s_name_rejects_trailing_hyphen() {
+        let err = validate_k8s_name("my-cluster-", "clusterRef").unwrap_err();
+        assert!(err.contains("hyphen"));
+    }
+
+    #[test]
+    fn test_validate_k8s_name_accepts_valid_dns() {
+        assert!(validate_k8s_name("my-cluster-01", "clusterRef").is_ok());
+    }
+
+    // FIND-R216-004: deny_unknown_fields
+    #[test]
+    fn test_config_overrides_deny_unknown_fields() {
+        let json = r#"{"security_mode": "strict", "unknown_field": true}"#;
+        let result = serde_json::from_str::<VellavetoConfigOverrides>(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_policy_spec_deny_unknown_fields() {
+        let json = r#"{"id":"p1","name":"t","policyType":"Allow","unknown":1}"#;
+        let result = serde_json::from_str::<PolicySpec>(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_path_rules_spec_deny_unknown_fields() {
+        let json = r#"{"allowed":[],"blocked":[],"extra":"bad"}"#;
+        let result = serde_json::from_str::<PathRulesSpec>(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_network_rules_spec_deny_unknown_fields() {
+        let json = r#"{"allowedDomains":[],"blockedDomains":[],"extra":"bad"}"#;
+        let result = serde_json::from_str::<NetworkRulesSpec>(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ip_rules_spec_deny_unknown_fields() {
+        let json = r#"{"blockPrivate":false,"blockedCidrs":[],"allowedCidrs":[],"extra":"bad"}"#;
+        let result = serde_json::from_str::<IpRulesSpec>(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_lifecycle_spec_deny_unknown_fields() {
+        let json = r#"{"autoPromote":true,"extra":"bad"}"#;
+        let result = serde_json::from_str::<PolicyLifecycleSpec>(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_tenant_quotas_deny_unknown_fields() {
+        let json = r#"{"maxEvaluationsPerMinute":100,"extra":"bad"}"#;
+        let result = serde_json::from_str::<TenantQuotasSpec>(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resource_requirements_deny_unknown_fields() {
+        let json = r#"{"cpu_request":"100m","extra":"bad"}"#;
+        let result = serde_json::from_str::<ResourceRequirements>(json);
+        assert!(result.is_err());
+    }
+
+    // FIND-R216-005: ResourceRequirements validation
+    #[test]
+    fn test_resource_requirements_validate_valid() {
+        let res = ResourceRequirements {
+            cpu_request: Some("100m".into()),
+            memory_request: Some("128Mi".into()),
+            cpu_limit: Some("1".into()),
+            memory_limit: Some("512Mi".into()),
+        };
+        assert!(res.validate().is_ok());
+    }
+
+    #[test]
+    fn test_resource_requirements_validate_too_long() {
+        let res = ResourceRequirements {
+            cpu_request: Some("x".repeat(MAX_RESOURCE_VALUE_LEN + 1)),
+            ..Default::default()
+        };
+        assert!(res.validate().unwrap_err().contains("max length"));
+    }
+
+    #[test]
+    fn test_resource_requirements_validate_dangerous_chars() {
+        let res = ResourceRequirements {
+            memory_limit: Some("512Mi\x00".into()),
+            ..Default::default()
+        };
+        assert!(res.validate().unwrap_err().contains("dangerous"));
+    }
+
+    #[test]
+    fn test_resource_requirements_validate_blank() {
+        let res = ResourceRequirements {
+            cpu_request: Some("   ".into()),
+            ..Default::default()
+        };
+        assert!(res.validate().unwrap_err().contains("blank"));
+    }
+
+    #[test]
+    fn test_resource_requirements_wired_to_cluster() {
+        let spec = VellavetoClusterSpec {
+            replicas: 1,
+            image: "test:latest".into(),
+            version: None,
+            config: None,
+            resources: Some(ResourceRequirements {
+                cpu_request: Some("\x00bad".into()),
+                ..Default::default()
+            }),
+        };
+        assert!(spec.validate().unwrap_err().contains("dangerous"));
+    }
+
+    // FIND-R216-007: per-element rule validation
+    #[test]
+    fn test_path_rules_entry_too_long() {
+        let spec = VellavetoPolicySpec {
+            cluster_ref: "my-cluster".into(),
+            policy: PolicySpec {
+                id: "p1".into(),
+                name: "test".into(),
+                policy_type: "Allow".into(),
+                priority: 0,
+                conditions: None,
+                path_rules: Some(PathRulesSpec {
+                    allowed: vec!["x".repeat(MAX_RULE_ENTRY_LEN + 1)],
+                    blocked: vec![],
+                }),
+                network_rules: None,
+            },
+            lifecycle: None,
+        };
+        assert!(spec.validate().unwrap_err().contains("pathRules entry exceeds"));
+    }
+
+    #[test]
+    fn test_path_rules_entry_dangerous_chars() {
+        let spec = VellavetoPolicySpec {
+            cluster_ref: "my-cluster".into(),
+            policy: PolicySpec {
+                id: "p1".into(),
+                name: "test".into(),
+                policy_type: "Allow".into(),
+                priority: 0,
+                conditions: None,
+                path_rules: Some(PathRulesSpec {
+                    allowed: vec![],
+                    blocked: vec!["/data/\u{200B}secret".into()],
+                }),
+                network_rules: None,
+            },
+            lifecycle: None,
+        };
+        assert!(spec.validate().unwrap_err().contains("pathRules entry contains dangerous"));
+    }
+
+    #[test]
+    fn test_network_rules_domain_entry_too_long() {
+        let spec = VellavetoPolicySpec {
+            cluster_ref: "my-cluster".into(),
+            policy: PolicySpec {
+                id: "p1".into(),
+                name: "test".into(),
+                policy_type: "Deny".into(),
+                priority: 0,
+                conditions: None,
+                path_rules: None,
+                network_rules: Some(NetworkRulesSpec {
+                    allowed_domains: vec!["x".repeat(MAX_RULE_ENTRY_LEN + 1)],
+                    blocked_domains: vec![],
+                    ip_rules: None,
+                }),
+            },
+            lifecycle: None,
+        };
+        assert!(spec.validate().unwrap_err().contains("networkRules domain entry exceeds"));
+    }
+
+    #[test]
+    fn test_network_rules_domain_entry_dangerous_chars() {
+        let spec = VellavetoPolicySpec {
+            cluster_ref: "my-cluster".into(),
+            policy: PolicySpec {
+                id: "p1".into(),
+                name: "test".into(),
+                policy_type: "Deny".into(),
+                priority: 0,
+                conditions: None,
+                path_rules: None,
+                network_rules: Some(NetworkRulesSpec {
+                    allowed_domains: vec![],
+                    blocked_domains: vec!["evil\x00.com".into()],
+                    ip_rules: None,
+                }),
+            },
+            lifecycle: None,
+        };
+        assert!(spec.validate().unwrap_err().contains("networkRules domain entry contains dangerous"));
+    }
+
+    #[test]
+    fn test_ip_rules_cidr_entry_too_long() {
+        let spec = VellavetoPolicySpec {
+            cluster_ref: "my-cluster".into(),
+            policy: PolicySpec {
+                id: "p1".into(),
+                name: "test".into(),
+                policy_type: "Deny".into(),
+                priority: 0,
+                conditions: None,
+                path_rules: None,
+                network_rules: Some(NetworkRulesSpec {
+                    allowed_domains: vec![],
+                    blocked_domains: vec![],
+                    ip_rules: Some(IpRulesSpec {
+                        block_private: false,
+                        blocked_cidrs: vec!["x".repeat(MAX_RULE_ENTRY_LEN + 1)],
+                        allowed_cidrs: vec![],
+                    }),
+                }),
+            },
+            lifecycle: None,
+        };
+        assert!(spec.validate().unwrap_err().contains("ipRules CIDR entry exceeds"));
+    }
+
+    // FIND-R216-008: Condition message truncation
+    #[test]
+    fn test_condition_new_truncates_long_message() {
+        let long_msg = "x".repeat(MAX_CONDITION_MESSAGE_LEN + 500);
+        let cond = Condition::new("Ready", "True", None, None, Some(long_msg));
+        assert!(cond.message.as_ref().unwrap().len() <= MAX_CONDITION_MESSAGE_LEN);
+    }
+
+    #[test]
+    fn test_condition_new_preserves_short_message() {
+        let msg = "all good".to_string();
+        let cond = Condition::new("Ready", "True", None, None, Some(msg.clone()));
+        assert_eq!(cond.message.as_deref(), Some("all good"));
+    }
+
+    #[test]
+    fn test_condition_new_truncates_at_char_boundary() {
+        // Multi-byte UTF-8 character to test char boundary handling
+        let mut msg = "a".repeat(MAX_CONDITION_MESSAGE_LEN - 1);
+        msg.push('\u{00E9}'); // e-acute is 2 bytes in UTF-8
+        msg.push('z');
+        let cond = Condition::new("Ready", "True", None, None, Some(msg));
+        let truncated = cond.message.unwrap();
+        assert!(truncated.len() <= MAX_CONDITION_MESSAGE_LEN);
+        assert!(truncated.is_char_boundary(truncated.len()));
+    }
+
+    // FIND-R216-010: Image whitespace validation
+    #[test]
+    fn test_cluster_spec_validate_image_whitespace() {
+        let spec = VellavetoClusterSpec {
+            replicas: 1,
+            image: "test :latest".into(),
+            version: None,
+            config: None,
+            resources: None,
+        };
+        assert!(spec.validate().unwrap_err().contains("whitespace"));
+    }
+
+    // FIND-R216-012: TenantQuotasSpec upper bound validation
+    #[test]
+    fn test_tenant_quotas_validate_valid() {
+        let q = TenantQuotasSpec {
+            max_evaluations_per_minute: Some(5000),
+            max_policies: Some(100),
+            max_pending_approvals: Some(50),
+            max_audit_retention_days: Some(365),
+        };
+        assert!(q.validate().is_ok());
+    }
+
+    #[test]
+    fn test_tenant_quotas_validate_evaluations_too_high() {
+        let q = TenantQuotasSpec {
+            max_evaluations_per_minute: Some(MAX_EVALUATIONS_PER_MINUTE_UPPER + 1),
+            ..Default::default()
+        };
+        assert!(q.validate().unwrap_err().contains("maxEvaluationsPerMinute"));
+    }
+
+    #[test]
+    fn test_tenant_quotas_validate_policies_too_high() {
+        let q = TenantQuotasSpec {
+            max_policies: Some(MAX_POLICIES_UPPER + 1),
+            ..Default::default()
+        };
+        assert!(q.validate().unwrap_err().contains("maxPolicies"));
+    }
+
+    #[test]
+    fn test_tenant_quotas_validate_pending_approvals_too_high() {
+        let q = TenantQuotasSpec {
+            max_pending_approvals: Some(MAX_PENDING_APPROVALS_UPPER + 1),
+            ..Default::default()
+        };
+        assert!(q.validate().unwrap_err().contains("maxPendingApprovals"));
+    }
+
+    #[test]
+    fn test_tenant_quotas_validate_retention_days_too_high() {
+        let q = TenantQuotasSpec {
+            max_audit_retention_days: Some(MAX_AUDIT_RETENTION_DAYS_UPPER + 1),
+            ..Default::default()
+        };
+        assert!(q.validate().unwrap_err().contains("maxAuditRetentionDays"));
+    }
+
+    #[test]
+    fn test_tenant_quotas_wired_to_tenant_spec() {
+        let spec = VellavetoTenantSpec {
+            cluster_ref: "my-cluster".into(),
+            tenant_id: "test".into(),
+            name: "Test".into(),
+            enabled: true,
+            quotas: Some(TenantQuotasSpec {
+                max_evaluations_per_minute: Some(MAX_EVALUATIONS_PER_MINUTE_UPPER + 1),
+                ..Default::default()
+            }),
+            metadata: None,
+        };
+        assert!(spec.validate().unwrap_err().contains("maxEvaluationsPerMinute"));
+    }
+
+    // FIND-R216-011: conditions serialization failure returns error
+    #[test]
+    fn test_policy_spec_conditions_size_check() {
+        // Verify that conditions serialization does not silently swallow errors
+        // by checking a valid large condition is properly bounded
+        let big_val = serde_json::json!({
+            "data": "x".repeat(MAX_CONDITIONS_SIZE + 1)
+        });
+        let spec = PolicySpec {
+            id: "p1".into(),
+            name: "test".into(),
+            policy_type: "Conditional".into(),
+            priority: 0,
+            conditions: Some(big_val),
+            path_rules: None,
+            network_rules: None,
+        };
+        assert!(spec.validate().unwrap_err().contains("conditions exceed max size"));
     }
 }

@@ -330,10 +330,34 @@ pub struct AttestationVerificationResult {
 }
 
 impl AttestationVerificationResult {
+    /// Maximum length for `message` field.
+    const MAX_MESSAGE_LEN: usize = 4096;
+
     /// Returns `true` if the attestation is fully valid:
     /// signature is valid, not expired, and key matches the agent.
     pub fn is_valid(&self) -> bool {
         self.signature_valid && !self.expired && self.key_matches_agent
+    }
+
+    /// Validate structural bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R216-015): Prevents oversized or injection-prone message
+    /// strings from untrusted deserialized payloads.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.message.len() > Self::MAX_MESSAGE_LEN {
+            return Err(format!(
+                "AttestationVerificationResult message length {} exceeds max {}",
+                self.message.len(),
+                Self::MAX_MESSAGE_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.message) {
+            return Err(
+                "AttestationVerificationResult message contains control or format characters"
+                    .to_string(),
+            );
+        }
+        Ok(())
     }
 }
 

@@ -377,6 +377,10 @@ impl NhiBehavioralBaseline {
     pub const MAX_ACTIVE_HOURS: usize = 24;
     /// Maximum length for `agent_id` field (bytes).
     const MAX_AGENT_ID_LEN: usize = 256;
+    /// Maximum length for a single tool_call_patterns key (bytes).
+    const MAX_TOOL_PATTERN_KEY_LEN: usize = 512;
+    /// Maximum length for a single typical_source_ips entry (bytes).
+    const MAX_SOURCE_IP_LEN: usize = 128;
 
     /// Validate structural invariants: finite scores, range checks, collection bounds,
     /// and active hour validity.
@@ -416,6 +420,23 @@ impl NhiBehavioralBaseline {
                 Self::MAX_SOURCE_IPS
             ));
         }
+        // SECURITY (FIND-R216-007): Per-entry validation on typical_source_ips.
+        for (i, ip) in self.typical_source_ips.iter().enumerate() {
+            if ip.len() > Self::MAX_SOURCE_IP_LEN {
+                return Err(format!(
+                    "NhiBehavioralBaseline typical_source_ips[{}] length {} exceeds max {}",
+                    i,
+                    ip.len(),
+                    Self::MAX_SOURCE_IP_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(ip) {
+                return Err(format!(
+                    "NhiBehavioralBaseline typical_source_ips[{}] contains control or format characters",
+                    i,
+                ));
+            }
+        }
         if self.active_hours.len() > Self::MAX_ACTIVE_HOURS {
             return Err(format!(
                 "NhiBehavioralBaseline has {} active_hours (max {})",
@@ -432,6 +453,20 @@ impl NhiBehavioralBaseline {
             }
         }
         for (key, val) in &self.tool_call_patterns {
+            // SECURITY (FIND-R216-007): Per-key length and dangerous char checks.
+            if key.len() > Self::MAX_TOOL_PATTERN_KEY_LEN {
+                return Err(format!(
+                    "NhiBehavioralBaseline tool_call_patterns key length {} exceeds max {}",
+                    key.len(),
+                    Self::MAX_TOOL_PATTERN_KEY_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(key) {
+                return Err(format!(
+                    "NhiBehavioralBaseline tool_call_patterns key '{}' contains control or format characters",
+                    key.escape_default(),
+                ));
+            }
             if !val.is_finite() {
                 return Err(format!(
                     "NhiBehavioralBaseline tool_call_patterns['{key}'] is not finite: {val}"
@@ -618,6 +653,62 @@ pub struct NhiBehavioralDeviation {
     pub severity: f64,
 }
 
+impl NhiBehavioralDeviation {
+    /// Maximum length for string fields in a deviation.
+    const MAX_FIELD_LEN: usize = 1024;
+
+    /// Validate structural bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R216-013): Validates deviation_type, observed, and expected
+    /// for length bounds and dangerous characters, and severity for range.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.deviation_type.len() > Self::MAX_FIELD_LEN {
+            return Err(format!(
+                "NhiBehavioralDeviation deviation_type length {} exceeds max {}",
+                self.deviation_type.len(),
+                Self::MAX_FIELD_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.deviation_type) {
+            return Err(
+                "NhiBehavioralDeviation deviation_type contains control or format characters"
+                    .to_string(),
+            );
+        }
+        if self.observed.len() > Self::MAX_FIELD_LEN {
+            return Err(format!(
+                "NhiBehavioralDeviation observed length {} exceeds max {}",
+                self.observed.len(),
+                Self::MAX_FIELD_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.observed) {
+            return Err(
+                "NhiBehavioralDeviation observed contains control or format characters".to_string(),
+            );
+        }
+        if self.expected.len() > Self::MAX_FIELD_LEN {
+            return Err(format!(
+                "NhiBehavioralDeviation expected length {} exceeds max {}",
+                self.expected.len(),
+                Self::MAX_FIELD_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.expected) {
+            return Err(
+                "NhiBehavioralDeviation expected contains control or format characters".to_string(),
+            );
+        }
+        if !self.severity.is_finite() || self.severity < 0.0 || self.severity > 1.0 {
+            return Err(format!(
+                "NhiBehavioralDeviation severity must be in [0.0, 1.0], got {}",
+                self.severity,
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Recommended action based on behavioral analysis.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -676,10 +767,15 @@ impl NhiDelegationLink {
     pub const MAX_PERMISSIONS: usize = 256;
     /// Maximum scope constraints per delegation link.
     pub const MAX_SCOPE_CONSTRAINTS: usize = 256;
+    /// Maximum length for a single permission entry.
+    const MAX_PERMISSION_LEN: usize = 1024;
+    /// Maximum length for a single scope constraint entry.
+    const MAX_SCOPE_CONSTRAINT_LEN: usize = 1024;
 
     /// Validate bounds on deserialized data.
     ///
     /// SECURITY (FIND-R48-006): Unbounded permissions and scope_constraints.
+    /// SECURITY (FIND-R216-006): Per-entry validation on permissions and scope_constraints.
     pub fn validate(&self) -> Result<(), String> {
         // SECURITY (FIND-R114-015): Reject control/format characters in from_agent
         // and to_agent BEFORE self-delegation check, preventing Unicode format char
@@ -725,12 +821,45 @@ impl NhiDelegationLink {
                 Self::MAX_PERMISSIONS
             ));
         }
+        // SECURITY (FIND-R216-006): Per-entry length and dangerous char checks.
+        for (i, perm) in self.permissions.iter().enumerate() {
+            if perm.len() > Self::MAX_PERMISSION_LEN {
+                return Err(format!(
+                    "NhiDelegationLink permissions[{}] length {} exceeds max {}",
+                    i,
+                    perm.len(),
+                    Self::MAX_PERMISSION_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(perm) {
+                return Err(format!(
+                    "NhiDelegationLink permissions[{}] contains control or format characters",
+                    i,
+                ));
+            }
+        }
         if self.scope_constraints.len() > Self::MAX_SCOPE_CONSTRAINTS {
             return Err(format!(
                 "NhiDelegationLink has {} scope_constraints (max {})",
                 self.scope_constraints.len(),
                 Self::MAX_SCOPE_CONSTRAINTS
             ));
+        }
+        for (i, sc) in self.scope_constraints.iter().enumerate() {
+            if sc.len() > Self::MAX_SCOPE_CONSTRAINT_LEN {
+                return Err(format!(
+                    "NhiDelegationLink scope_constraints[{}] length {} exceeds max {}",
+                    i,
+                    sc.len(),
+                    Self::MAX_SCOPE_CONSTRAINT_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(sc) {
+                return Err(format!(
+                    "NhiDelegationLink scope_constraints[{}] contains control or format characters",
+                    i,
+                ));
+            }
         }
         Ok(())
     }

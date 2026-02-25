@@ -141,6 +141,35 @@ pub struct DoraReport {
     pub partial_articles: usize,
 }
 
+/// Maximum number of assessments in a report (bounds deserialized input).
+const MAX_DORA_ASSESSMENTS: usize = 1_000;
+
+impl DoraReport {
+    /// Validate deserialized DoraReport bounds.
+    ///
+    /// SECURITY (FIND-R216-007): Prevents OOM from unbounded assessment vectors
+    /// and ensures compliance_percentage is finite and in [0.0, 100.0].
+    pub fn validate(&self) -> Result<(), String> {
+        if self.assessments.len() > MAX_DORA_ASSESSMENTS {
+            return Err(format!(
+                "assessments count {} exceeds maximum of {}",
+                self.assessments.len(),
+                MAX_DORA_ASSESSMENTS,
+            ));
+        }
+        if !self.compliance_percentage.is_finite()
+            || self.compliance_percentage < 0.0
+            || self.compliance_percentage > 100.0
+        {
+            return Err(format!(
+                "compliance_percentage must be in [0.0, 100.0], got {}",
+                self.compliance_percentage,
+            ));
+        }
+        Ok(())
+    }
+}
+
 // ── Registry ─────────────────────────────────────────────────────────────────
 
 /// DORA compliance registry mapping Vellaveto capabilities to DORA articles.
@@ -172,10 +201,12 @@ impl DoraRegistry {
             .filter(|a| a.status == DoraComplianceStatus::Partial)
             .count();
 
+        // SECURITY (FIND-R216-004): Fail-closed — no evidence means no compliance.
+        // Returning 100% on empty assessments would be fail-open.
         let pct = if total > 0 {
             ((compliant as f32 + partial as f32 * 0.5) / total as f32) * 100.0
         } else {
-            100.0
+            0.0
         };
 
         DoraReport {
@@ -578,5 +609,42 @@ mod tests {
         let registry = DoraRegistry::default();
         let report = registry.generate_report("Test", "test");
         assert!(report.total_articles > 0);
+    }
+
+    /// FIND-R216-004: Empty registry returns 0% compliance (fail-closed).
+    #[test]
+    fn test_r216_004_empty_registry_returns_zero_percent() {
+        let registry = DoraRegistry {
+            assessments: Vec::new(),
+        };
+        let report = registry.generate_report("Test", "test");
+        assert_eq!(
+            report.compliance_percentage, 0.0,
+            "Empty assessments must return 0% (fail-closed), not 100%"
+        );
+    }
+
+    /// FIND-R216-007: DoraReport::validate() accepts valid report.
+    #[test]
+    fn test_r216_007_dora_report_validate_valid() {
+        let registry = DoraRegistry::new();
+        let report = registry.generate_report("Test", "test");
+        assert!(report.validate().is_ok());
+    }
+
+    /// FIND-R216-007: DoraReport::validate() rejects NaN compliance_percentage.
+    #[test]
+    fn test_r216_007_dora_report_validate_nan_percentage() {
+        let mut report = DoraRegistry::new().generate_report("Test", "test");
+        report.compliance_percentage = f32::NAN;
+        assert!(report.validate().is_err());
+    }
+
+    /// FIND-R216-007: DoraReport::validate() rejects out-of-range compliance_percentage.
+    #[test]
+    fn test_r216_007_dora_report_validate_out_of_range_percentage() {
+        let mut report = DoraRegistry::new().generate_report("Test", "test");
+        report.compliance_percentage = 150.0;
+        assert!(report.validate().is_err());
     }
 }

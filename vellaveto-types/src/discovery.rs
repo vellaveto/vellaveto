@@ -247,6 +247,45 @@ pub struct DiscoveryResult {
     pub policy_filtered: usize,
 }
 
+impl DiscoveryResult {
+    /// Maximum number of tools in a discovery result.
+    const MAX_TOOLS: usize = 10_000;
+    /// Maximum length for the query string.
+    const MAX_QUERY_LEN: usize = 4096;
+
+    /// Validate structural bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R216-009): Prevents unbounded tools Vec from causing OOM,
+    /// validates query string length and dangerous chars, and delegates to
+    /// nested DiscoveredTool validation.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.tools.len() > Self::MAX_TOOLS {
+            return Err(format!(
+                "DiscoveryResult tools count {} exceeds max {}",
+                self.tools.len(),
+                Self::MAX_TOOLS,
+            ));
+        }
+        if self.query.len() > Self::MAX_QUERY_LEN {
+            return Err(format!(
+                "DiscoveryResult query length {} exceeds max {}",
+                self.query.len(),
+                Self::MAX_QUERY_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.query) {
+            return Err(
+                "DiscoveryResult query contains control or format characters".to_string(),
+            );
+        }
+        for (i, tool) in self.tools.iter().enumerate() {
+            tool.validate()
+                .map_err(|e| format!("DiscoveryResult tools[{}]: {}", i, e))?;
+        }
+        Ok(())
+    }
+}
+
 /// A single discovered tool with its relevance score and TTL.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

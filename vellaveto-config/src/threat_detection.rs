@@ -826,6 +826,23 @@ impl CrossAgentConfig {
                 MAX_CROSS_AGENT_TRUSTED_AGENTS
             ));
         }
+        // SECURITY (FIND-R216-005): Per-entry validation of trusted_agents —
+        // reject empty entries and entries containing control/format characters
+        // (zero-width, bidi overrides) which could bypass agent ID matching.
+        for (i, agent) in self.trusted_agents.iter().enumerate() {
+            if agent.is_empty() {
+                return Err(format!(
+                    "cross_agent.trusted_agents[{}] must not be empty",
+                    i
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(agent) {
+                return Err(format!(
+                    "cross_agent.trusted_agents[{}] contains control or format characters",
+                    i
+                ));
+            }
+        }
         Ok(())
     }
 }

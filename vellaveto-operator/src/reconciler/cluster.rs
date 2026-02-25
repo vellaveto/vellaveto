@@ -367,26 +367,26 @@ async fn update_cluster_status(
     let api: Api<VellavetoCluster> = Api::namespaced(client.clone(), namespace);
 
     let now = chrono::Utc::now().to_rfc3339();
-    let mut conditions = vec![Condition {
-        condition_type: "Available".into(),
-        status: if phase == ClusterPhase::Running {
-            "True".into()
+    let mut conditions = vec![Condition::new(
+        "Available",
+        if phase == ClusterPhase::Running {
+            "True"
         } else {
-            "False".into()
+            "False"
         },
-        last_transition_time: Some(now.clone()),
-        reason: Some(format!("{:?}", phase)),
-        message: error_msg.map(String::from),
-    }];
+        Some(now.clone()),
+        Some(format!("{:?}", phase)),
+        error_msg.map(String::from),
+    )];
 
     if let Some(msg) = error_msg {
-        conditions.push(Condition {
-            condition_type: "Error".into(),
-            status: "True".into(),
-            last_transition_time: Some(now),
-            reason: Some("ValidationFailed".into()),
-            message: Some(msg.to_string()),
-        });
+        conditions.push(Condition::new(
+            "Error",
+            "True",
+            Some(now),
+            Some("ValidationFailed".into()),
+            Some(msg.to_string()),
+        ));
     }
 
     let status = VellavetoClusterStatus {

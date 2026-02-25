@@ -632,6 +632,38 @@ pub struct TaskResumeResult {
     pub denial_reason: Option<String>,
 }
 
+impl TaskResumeResult {
+    /// Maximum length for `denial_reason` field.
+    const MAX_DENIAL_REASON_LEN: usize = 4096;
+
+    /// Validate structural bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R216-012): Validates nested SecureTask and denial_reason
+    /// to prevent oversized or injection-prone strings.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(ref task) = self.task {
+            task.validate()
+                .map_err(|e| format!("TaskResumeResult task: {}", e))?;
+        }
+        if let Some(ref reason) = self.denial_reason {
+            if reason.len() > Self::MAX_DENIAL_REASON_LEN {
+                return Err(format!(
+                    "TaskResumeResult denial_reason length {} exceeds max {}",
+                    reason.len(),
+                    Self::MAX_DENIAL_REASON_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(reason) {
+                return Err(
+                    "TaskResumeResult denial_reason contains control or format characters"
+                        .to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Result of validating a task's state chain integrity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -646,6 +678,34 @@ pub struct TaskIntegrityResult {
     /// Reason for failure if invalid.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure_reason: Option<String>,
+}
+
+impl TaskIntegrityResult {
+    /// Maximum length for `failure_reason` field.
+    const MAX_FAILURE_REASON_LEN: usize = 4096;
+
+    /// Validate structural bounds on deserialized data.
+    ///
+    /// SECURITY (FIND-R216-012): Validates failure_reason to prevent oversized
+    /// or injection-prone strings.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(ref reason) = self.failure_reason {
+            if reason.len() > Self::MAX_FAILURE_REASON_LEN {
+                return Err(format!(
+                    "TaskIntegrityResult failure_reason length {} exceeds max {}",
+                    reason.len(),
+                    Self::MAX_FAILURE_REASON_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(reason) {
+                return Err(
+                    "TaskIntegrityResult failure_reason contains control or format characters"
+                        .to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Statistics about secure task management.
@@ -668,4 +728,15 @@ pub struct SecureTaskStats {
     pub replay_attacks_blocked: u64,
     /// Integrity violations detected.
     pub integrity_violations: u64,
+}
+
+impl SecureTaskStats {
+    /// Validate structural invariants.
+    ///
+    /// SECURITY (FIND-R216-012): Currently all fields are bounded integer types,
+    /// but provided for forward-compatibility and API consistency.
+    pub fn validate(&self) -> Result<(), String> {
+        // All fields are u64/usize — no string bounds to check.
+        Ok(())
+    }
 }

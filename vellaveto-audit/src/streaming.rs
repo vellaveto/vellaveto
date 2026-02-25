@@ -252,8 +252,24 @@ impl SplunkConfig {
     ///
     /// SECURITY (FIND-R215-001): Delegates to `ExporterConfig::validate()` to ensure
     /// common exporter bounds (batch_size, flush_interval, retries, timeouts) are enforced.
+    /// SECURITY (FIND-R216-005): Validates string fields reject control/format characters.
     pub fn validate(&self) -> Result<(), ExportError> {
         self.common.validate()?;
+        if vellaveto_types::has_dangerous_chars(&self.endpoint) {
+            return Err(ExportError::Configuration(
+                "Splunk endpoint contains control or Unicode format characters".to_string(),
+            ));
+        }
+        if vellaveto_types::has_dangerous_chars(&self.source) {
+            return Err(ExportError::Configuration(
+                "Splunk source contains control or Unicode format characters".to_string(),
+            ));
+        }
+        if vellaveto_types::has_dangerous_chars(&self.sourcetype) {
+            return Err(ExportError::Configuration(
+                "Splunk sourcetype contains control or Unicode format characters".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -578,8 +594,15 @@ impl WebhookConfig {
     ///
     /// SECURITY (FIND-R67-5-002): Enforces bounds on headers map to prevent
     /// OOM via attacker-controlled configuration.
+    /// SECURITY (FIND-R216-005): Validates string fields reject control/format characters.
+    /// SECURITY (FIND-R216-009): Validates header keys/values reject dangerous chars.
     pub fn validate(&self) -> Result<(), ExportError> {
         self.common.validate()?;
+        if vellaveto_types::has_dangerous_chars(&self.endpoint) {
+            return Err(ExportError::Configuration(
+                "Webhook endpoint contains control or Unicode format characters".to_string(),
+            ));
+        }
         if self.headers.len() > MAX_WEBHOOK_HEADERS {
             return Err(ExportError::Configuration(format!(
                 "headers count {} exceeds maximum of {}",
@@ -602,6 +625,17 @@ impl WebhookConfig {
                     MAX_HEADER_VALUE_LEN,
                 )));
             }
+            if vellaveto_types::has_dangerous_chars(key) {
+                return Err(ExportError::Configuration(
+                    "Webhook header key contains control or Unicode format characters".to_string(),
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(value) {
+                return Err(ExportError::Configuration(
+                    "Webhook header value contains control or Unicode format characters"
+                        .to_string(),
+                ));
+            }
         }
         Ok(())
     }
@@ -618,7 +652,12 @@ pub struct WebhookExporter {
 #[cfg(feature = "siem-exporters")]
 impl WebhookExporter {
     /// Create a new webhook exporter.
+    ///
+    /// SECURITY (FIND-R216-002): Validates config at construction time, matching
+    /// SplunkExporter pattern.
     pub fn new(config: WebhookConfig) -> Result<Self, ExportError> {
+        config.validate()?;
+
         let auth_header = if let Some(ref h) = config.auth_header {
             Some(h.clone())
         } else if let Some(ref env_var) = config.auth_header_env {
@@ -869,8 +908,24 @@ impl DatadogConfig {
     ///
     /// SECURITY (FIND-R67-5-002): Enforces bounds on tags Vec to prevent
     /// OOM via attacker-controlled configuration.
+    /// SECURITY (FIND-R216-005): Validates string fields reject control/format characters.
     pub fn validate(&self) -> Result<(), ExportError> {
         self.common.validate()?;
+        if vellaveto_types::has_dangerous_chars(&self.endpoint) {
+            return Err(ExportError::Configuration(
+                "Datadog endpoint contains control or Unicode format characters".to_string(),
+            ));
+        }
+        if vellaveto_types::has_dangerous_chars(&self.service) {
+            return Err(ExportError::Configuration(
+                "Datadog service contains control or Unicode format characters".to_string(),
+            ));
+        }
+        if vellaveto_types::has_dangerous_chars(&self.source) {
+            return Err(ExportError::Configuration(
+                "Datadog source contains control or Unicode format characters".to_string(),
+            ));
+        }
         if self.tags.len() > MAX_TAG_COUNT {
             return Err(ExportError::Configuration(format!(
                 "tags count {} exceeds maximum of {}",
@@ -885,6 +940,11 @@ impl DatadogConfig {
                     tag.len(),
                     MAX_TAG_LEN,
                 )));
+            }
+            if vellaveto_types::has_dangerous_chars(tag) {
+                return Err(ExportError::Configuration(
+                    "Datadog tag contains control or Unicode format characters".to_string(),
+                ));
             }
         }
         Ok(())
@@ -922,7 +982,12 @@ pub struct DatadogExporter {
 #[cfg(feature = "siem-exporters")]
 impl DatadogExporter {
     /// Create a new Datadog exporter.
+    ///
+    /// SECURITY (FIND-R216-003): Validates config at construction time, matching
+    /// SplunkExporter pattern.
     pub fn new(config: DatadogConfig) -> Result<Self, ExportError> {
+        config.validate()?;
+
         let api_key = if let Some(ref k) = config.api_key {
             k.clone()
         } else {
@@ -1155,8 +1220,19 @@ impl ElasticsearchConfig {
     ///
     /// SECURITY (FIND-R215-001): Delegates to `ExporterConfig::validate()` to ensure
     /// common exporter bounds (batch_size, flush_interval, retries, timeouts) are enforced.
+    /// SECURITY (FIND-R216-005): Validates string fields reject control/format characters.
     pub fn validate(&self) -> Result<(), ExportError> {
         self.common.validate()?;
+        if vellaveto_types::has_dangerous_chars(&self.endpoint) {
+            return Err(ExportError::Configuration(
+                "Elasticsearch endpoint contains control or Unicode format characters".to_string(),
+            ));
+        }
+        if vellaveto_types::has_dangerous_chars(&self.index) {
+            return Err(ExportError::Configuration(
+                "Elasticsearch index contains control or Unicode format characters".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -1577,6 +1653,81 @@ fn default_include_json() -> bool {
     true
 }
 
+/// Maximum length of syslog host field.
+const MAX_SYSLOG_HOST_LEN: usize = 255;
+
+/// Maximum length of syslog app_name field (RFC 5424 Section 6.2.5: max 48 chars).
+const MAX_SYSLOG_APP_NAME_LEN: usize = 48;
+
+/// Maximum length of syslog enterprise_id field.
+const MAX_SYSLOG_ENTERPRISE_ID_LEN: usize = 128;
+
+impl SyslogConfig {
+    /// Validate syslog configuration bounds.
+    ///
+    /// SECURITY (FIND-R216-001): Validates host, app_name, enterprise_id length and
+    /// dangerous characters. Enterprise ID is validated against RFC 5424 SD-ID grammar
+    /// (printable ASCII in the range [!-~], i.e., 0x21–0x7E, excluding '=', ']', '"', SP).
+    /// SECURITY (FIND-R216-008): RFC 5424 SD-ID grammar enforcement on enterprise_id.
+    pub fn validate(&self) -> Result<(), ExportError> {
+        self.common.validate()?;
+
+        if self.host.len() > MAX_SYSLOG_HOST_LEN {
+            return Err(ExportError::Configuration(format!(
+                "syslog host length {} exceeds maximum of {}",
+                self.host.len(),
+                MAX_SYSLOG_HOST_LEN,
+            )));
+        }
+        if vellaveto_types::has_dangerous_chars(&self.host) {
+            return Err(ExportError::Configuration(
+                "syslog host contains control or Unicode format characters".to_string(),
+            ));
+        }
+
+        if self.app_name.len() > MAX_SYSLOG_APP_NAME_LEN {
+            return Err(ExportError::Configuration(format!(
+                "syslog app_name length {} exceeds maximum of {}",
+                self.app_name.len(),
+                MAX_SYSLOG_APP_NAME_LEN,
+            )));
+        }
+        if vellaveto_types::has_dangerous_chars(&self.app_name) {
+            return Err(ExportError::Configuration(
+                "syslog app_name contains control or Unicode format characters".to_string(),
+            ));
+        }
+
+        if self.enterprise_id.is_empty() {
+            return Err(ExportError::Configuration(
+                "syslog enterprise_id must not be empty".to_string(),
+            ));
+        }
+        if self.enterprise_id.len() > MAX_SYSLOG_ENTERPRISE_ID_LEN {
+            return Err(ExportError::Configuration(format!(
+                "syslog enterprise_id length {} exceeds maximum of {}",
+                self.enterprise_id.len(),
+                MAX_SYSLOG_ENTERPRISE_ID_LEN,
+            )));
+        }
+        // RFC 5424 Section 6.3.2: SD-ID = SD-NAME
+        // SD-NAME = 1*32PRINTUSASCII (but we only check character validity here,
+        // length is checked above with a generous bound).
+        // PRINTUSASCII = %d33-126 (i.e., '!' through '~'), excluding '=', SP, ']', '"'
+        for ch in self.enterprise_id.chars() {
+            if !(('\x21'..='\x7e').contains(&ch) && ch != '=' && ch != ']' && ch != '"') {
+                return Err(ExportError::Configuration(format!(
+                    "syslog enterprise_id contains invalid character '{}'; \
+                     only printable ASCII [!-~] excluding '=', ']', '\"' are allowed per RFC 5424",
+                    ch,
+                )));
+            }
+        }
+
+        Ok(())
+    }
+}
+
 impl Default for SyslogConfig {
     fn default() -> Self {
         Self {
@@ -1602,7 +1753,11 @@ pub struct SyslogExporter {
 #[cfg(feature = "siem-exporters")]
 impl SyslogExporter {
     /// Create a new syslog exporter.
+    ///
+    /// SECURITY (FIND-R216-001): Validates config at construction time.
     pub fn new(config: SyslogConfig) -> Result<Self, ExportError> {
+        config.validate()?;
+
         if config.host.is_empty() {
             return Err(ExportError::Configuration(
                 "Syslog host is required".to_string(),
@@ -2112,5 +2267,297 @@ mod tests {
         assert_eq!(SyslogFacility::Local0.as_u8(), 16);
         assert_eq!(SyslogFacility::Local7.as_u8(), 23);
         assert_eq!(SyslogFacility::Auth.as_u8(), 4);
+    }
+
+    // ── FIND-R216-001: SyslogConfig::validate() ──────────────────────────
+
+    #[test]
+    fn test_r216_001_syslog_config_validate_valid() {
+        let config = SyslogConfig {
+            host: "syslog.example.com".to_string(),
+            app_name: "vellaveto".to_string(),
+            enterprise_id: "12345".to_string(),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_r216_001_syslog_config_validate_host_dangerous_chars() {
+        let config = SyslogConfig {
+            host: "syslog\x00.example.com".to_string(),
+            enterprise_id: "12345".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("host"));
+        assert!(err.contains("control"));
+    }
+
+    #[test]
+    fn test_r216_001_syslog_config_validate_host_too_long() {
+        let config = SyslogConfig {
+            host: "a".repeat(256),
+            enterprise_id: "12345".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("host length"));
+    }
+
+    #[test]
+    fn test_r216_001_syslog_config_validate_app_name_dangerous_chars() {
+        let config = SyslogConfig {
+            host: "localhost".to_string(),
+            app_name: "app\nname".to_string(),
+            enterprise_id: "12345".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("app_name"));
+    }
+
+    #[test]
+    fn test_r216_001_syslog_config_validate_app_name_too_long() {
+        let config = SyslogConfig {
+            host: "localhost".to_string(),
+            app_name: "a".repeat(49),
+            enterprise_id: "12345".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("app_name length"));
+    }
+
+    #[test]
+    fn test_r216_001_syslog_config_validate_enterprise_id_empty() {
+        let config = SyslogConfig {
+            host: "localhost".to_string(),
+            enterprise_id: String::new(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("enterprise_id must not be empty"));
+    }
+
+    #[test]
+    fn test_r216_001_syslog_config_validate_enterprise_id_too_long() {
+        let config = SyslogConfig {
+            host: "localhost".to_string(),
+            enterprise_id: "a".repeat(129),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("enterprise_id length"));
+    }
+
+    /// FIND-R216-008: RFC 5424 SD-ID grammar rejects spaces in enterprise_id.
+    #[test]
+    fn test_r216_008_syslog_enterprise_id_rejects_space() {
+        let config = SyslogConfig {
+            host: "localhost".to_string(),
+            enterprise_id: "bad id".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("invalid character"));
+    }
+
+    /// FIND-R216-008: RFC 5424 SD-ID grammar rejects '=' in enterprise_id.
+    #[test]
+    fn test_r216_008_syslog_enterprise_id_rejects_equals() {
+        let config = SyslogConfig {
+            host: "localhost".to_string(),
+            enterprise_id: "bad=id".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("invalid character"));
+    }
+
+    /// FIND-R216-008: RFC 5424 SD-ID grammar rejects ']' in enterprise_id.
+    #[test]
+    fn test_r216_008_syslog_enterprise_id_rejects_bracket() {
+        let config = SyslogConfig {
+            host: "localhost".to_string(),
+            enterprise_id: "bad]id".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("invalid character"));
+    }
+
+    /// FIND-R216-008: RFC 5424 SD-ID grammar rejects '"' in enterprise_id.
+    #[test]
+    fn test_r216_008_syslog_enterprise_id_rejects_quote() {
+        let config = SyslogConfig {
+            host: "localhost".to_string(),
+            enterprise_id: "bad\"id".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("invalid character"));
+    }
+
+    /// FIND-R216-008: RFC 5424 SD-ID grammar rejects non-ASCII in enterprise_id.
+    #[test]
+    fn test_r216_008_syslog_enterprise_id_rejects_non_ascii() {
+        let config = SyslogConfig {
+            host: "localhost".to_string(),
+            enterprise_id: "bad\u{00e9}id".to_string(), // e with acute accent
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("invalid character"));
+    }
+
+    /// FIND-R216-008: Valid enterprise_id with digits and dots passes.
+    #[test]
+    fn test_r216_008_syslog_enterprise_id_accepts_valid() {
+        let config = SyslogConfig {
+            host: "localhost".to_string(),
+            enterprise_id: "12345.6789".to_string(),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    // ── FIND-R216-005: has_dangerous_chars on string config fields ────────
+
+    #[test]
+    fn test_r216_005_splunk_endpoint_dangerous_chars() {
+        let config = SplunkConfig {
+            endpoint: "https://splunk\x00:8088".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("Splunk endpoint"));
+    }
+
+    #[test]
+    fn test_r216_005_splunk_source_dangerous_chars() {
+        let config = SplunkConfig {
+            endpoint: "https://splunk:8088".to_string(),
+            source: "bad\nsource".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("Splunk source"));
+    }
+
+    #[test]
+    fn test_r216_005_splunk_sourcetype_dangerous_chars() {
+        let config = SplunkConfig {
+            endpoint: "https://splunk:8088".to_string(),
+            sourcetype: "bad\rsource".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("Splunk sourcetype"));
+    }
+
+    #[test]
+    fn test_r216_005_webhook_endpoint_dangerous_chars() {
+        let config = WebhookConfig {
+            endpoint: "https://hook\x00.example.com".to_string(),
+            auth_header: None,
+            auth_header_env: None,
+            headers: Default::default(),
+            common: ExporterConfig::default(),
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("Webhook endpoint"));
+    }
+
+    /// FIND-R216-009: Webhook header keys reject dangerous chars.
+    #[test]
+    fn test_r216_009_webhook_header_key_dangerous_chars() {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("X-Bad\x00Key".to_string(), "value".to_string());
+        let config = WebhookConfig {
+            endpoint: "https://hook.example.com".to_string(),
+            auth_header: None,
+            auth_header_env: None,
+            headers,
+            common: ExporterConfig::default(),
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("header key"));
+    }
+
+    /// FIND-R216-009: Webhook header values reject dangerous chars.
+    #[test]
+    fn test_r216_009_webhook_header_value_dangerous_chars() {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("X-Custom".to_string(), "bad\nvalue".to_string());
+        let config = WebhookConfig {
+            endpoint: "https://hook.example.com".to_string(),
+            auth_header: None,
+            auth_header_env: None,
+            headers,
+            common: ExporterConfig::default(),
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("header value"));
+    }
+
+    #[test]
+    fn test_r216_005_datadog_endpoint_dangerous_chars() {
+        let config = DatadogConfig {
+            endpoint: "https://intake\x00.datadoghq.com".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("Datadog endpoint"));
+    }
+
+    #[test]
+    fn test_r216_005_datadog_service_dangerous_chars() {
+        let config = DatadogConfig {
+            service: "bad\nservice".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("Datadog service"));
+    }
+
+    #[test]
+    fn test_r216_005_datadog_source_dangerous_chars() {
+        let config = DatadogConfig {
+            source: "bad\rsource".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("Datadog source"));
+    }
+
+    #[test]
+    fn test_r216_005_datadog_tag_dangerous_chars() {
+        let config = DatadogConfig {
+            tags: vec!["bad\x00tag".to_string()],
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("tag contains"));
+    }
+
+    #[test]
+    fn test_r216_005_elasticsearch_endpoint_dangerous_chars() {
+        let config = ElasticsearchConfig {
+            endpoint: "https://es\x00:9200".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("Elasticsearch endpoint"));
+    }
+
+    #[test]
+    fn test_r216_005_elasticsearch_index_dangerous_chars() {
+        let config = ElasticsearchConfig {
+            index: "bad\nindex".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("Elasticsearch index"));
     }
 }

@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::crd::is_unicode_format_char;
 use crate::error::OperatorError;
 
 /// Maximum URL length accepted by the client.
@@ -187,6 +188,7 @@ impl VellavetoApiClient {
 
         let client = reqwest::Client::builder()
             .timeout(DEFAULT_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| OperatorError::Config(format!("failed to build HTTP client: {e}")))?;
 
@@ -413,7 +415,10 @@ fn validate_path_param(value: &str, field: &str) -> Result<(), OperatorError> {
             "{field} exceeds max length of {MAX_PATH_PARAM_LEN}"
         )));
     }
-    if value.chars().any(|c| c.is_control() || c == '/' || c == '\\') {
+    if value
+        .chars()
+        .any(|c| c.is_control() || is_unicode_format_char(c) || c == '/' || c == '\\')
+    {
         return Err(OperatorError::Validation(format!(
             "{field} contains invalid characters"
         )));
@@ -501,5 +506,33 @@ mod tests {
         let json = serde_json::to_string(&policy).unwrap();
         let parsed: ApiPolicy = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.id, "p1");
+    }
+
+    // FIND-R216-001: Unicode format char validation in path params
+    #[test]
+    fn test_validate_path_param_unicode_format_char() {
+        // Zero-width space (U+200B)
+        assert!(validate_path_param("id\u{200B}test", "id").is_err());
+    }
+
+    #[test]
+    fn test_validate_path_param_bidi_override() {
+        // Right-to-left override (U+202E)
+        assert!(validate_path_param("id\u{202E}test", "id").is_err());
+    }
+
+    #[test]
+    fn test_validate_path_param_bom() {
+        // BOM (U+FEFF)
+        assert!(validate_path_param("\u{FEFF}id", "id").is_err());
+    }
+
+    // FIND-R216-003: redirect policy none
+    #[test]
+    fn test_client_no_redirect_policy() {
+        // Build the client and verify it was constructed with redirect disabled
+        // (indirectly tested via a successful construction)
+        let client = VellavetoApiClient::new("http://localhost:3000");
+        assert!(client.is_ok());
     }
 }

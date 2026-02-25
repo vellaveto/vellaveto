@@ -21,7 +21,9 @@
 use serde::{Deserialize, Serialize};
 
 /// Summary of a single framework's coverage.
+/// SECURITY (FIND-R216-006): deny_unknown_fields prevents attacker-injected fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FrameworkSummary {
     /// Framework name.
     pub name: String,
@@ -34,7 +36,9 @@ pub struct FrameworkSummary {
 }
 
 /// A specific gap identified in a framework.
+/// SECURITY (FIND-R216-006): deny_unknown_fields prevents attacker-injected fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Gap {
     /// Framework name.
     pub framework: String,
@@ -47,7 +51,9 @@ pub struct Gap {
 }
 
 /// Consolidated cross-framework gap analysis report.
+/// SECURITY (FIND-R216-006): deny_unknown_fields prevents attacker-injected fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GapAnalysisReport {
     /// Timestamp of report generation.
     pub generated_at: String,
@@ -61,7 +67,65 @@ pub struct GapAnalysisReport {
     pub recommendations: Vec<String>,
 }
 
+/// Maximum number of frameworks in a gap analysis report (bounds deserialized input).
+const MAX_GAP_ANALYSIS_FRAMEWORKS: usize = 100;
+
+/// Maximum number of critical gaps in a gap analysis report (bounds deserialized input).
+const MAX_GAP_ANALYSIS_GAPS: usize = 10_000;
+
+/// Maximum number of recommendations in a gap analysis report (bounds deserialized input).
+const MAX_GAP_ANALYSIS_RECOMMENDATIONS: usize = 1_000;
+
 impl GapAnalysisReport {
+    /// Validate deserialized GapAnalysisReport bounds.
+    ///
+    /// SECURITY (FIND-R216-006): Prevents OOM from unbounded collection sizes
+    /// and ensures coverage percentages are finite and in [0.0, 100.0].
+    pub fn validate(&self) -> Result<(), String> {
+        if self.frameworks.len() > MAX_GAP_ANALYSIS_FRAMEWORKS {
+            return Err(format!(
+                "frameworks count {} exceeds maximum of {}",
+                self.frameworks.len(),
+                MAX_GAP_ANALYSIS_FRAMEWORKS,
+            ));
+        }
+        if self.critical_gaps.len() > MAX_GAP_ANALYSIS_GAPS {
+            return Err(format!(
+                "critical_gaps count {} exceeds maximum of {}",
+                self.critical_gaps.len(),
+                MAX_GAP_ANALYSIS_GAPS,
+            ));
+        }
+        if self.recommendations.len() > MAX_GAP_ANALYSIS_RECOMMENDATIONS {
+            return Err(format!(
+                "recommendations count {} exceeds maximum of {}",
+                self.recommendations.len(),
+                MAX_GAP_ANALYSIS_RECOMMENDATIONS,
+            ));
+        }
+        if !self.overall_coverage_percent.is_finite()
+            || self.overall_coverage_percent < 0.0
+            || self.overall_coverage_percent > 100.0
+        {
+            return Err(format!(
+                "overall_coverage_percent must be in [0.0, 100.0], got {}",
+                self.overall_coverage_percent,
+            ));
+        }
+        for fw in &self.frameworks {
+            if !fw.coverage_percent.is_finite()
+                || fw.coverage_percent < 0.0
+                || fw.coverage_percent > 100.0
+            {
+                return Err(format!(
+                    "framework '{}' coverage_percent must be in [0.0, 100.0], got {}",
+                    fw.name, fw.coverage_percent,
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Generate a human-readable report.
     pub fn to_report_string(&self) -> String {
         let mut report = String::new();
@@ -426,5 +490,44 @@ mod tests {
         let deserialized: GapAnalysisReport =
             serde_json::from_str(&json).expect("deserialize should succeed");
         assert_eq!(deserialized.frameworks.len(), report.frameworks.len());
+    }
+
+    /// FIND-R216-006: GapAnalysisReport::validate() accepts valid report.
+    #[test]
+    fn test_r216_006_gap_analysis_validate_valid() {
+        let report = generate_gap_analysis();
+        assert!(report.validate().is_ok());
+    }
+
+    /// FIND-R216-006: GapAnalysisReport::validate() rejects NaN coverage.
+    #[test]
+    fn test_r216_006_gap_analysis_validate_nan_coverage() {
+        let mut report = generate_gap_analysis();
+        report.overall_coverage_percent = f32::NAN;
+        assert!(report.validate().is_err());
+    }
+
+    /// FIND-R216-006: GapAnalysisReport::validate() rejects out-of-range coverage.
+    #[test]
+    fn test_r216_006_gap_analysis_validate_out_of_range_coverage() {
+        let mut report = generate_gap_analysis();
+        report.overall_coverage_percent = 150.0;
+        assert!(report.validate().is_err());
+    }
+
+    /// FIND-R216-006: deny_unknown_fields rejects extra fields.
+    #[test]
+    fn test_r216_006_deny_unknown_fields_framework_summary() {
+        let json = r#"{"name":"test","total_items":1,"covered_items":1,"coverage_percent":100.0,"extra":true}"#;
+        let result: Result<FrameworkSummary, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "FrameworkSummary should reject unknown fields");
+    }
+
+    /// FIND-R216-006: deny_unknown_fields rejects extra fields on Gap.
+    #[test]
+    fn test_r216_006_deny_unknown_fields_gap() {
+        let json = r#"{"framework":"test","item_id":"1","description":"d","severity":"High","extra":true}"#;
+        let result: Result<Gap, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "Gap should reject unknown fields");
     }
 }
