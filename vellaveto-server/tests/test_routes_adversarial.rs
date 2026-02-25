@@ -119,6 +119,7 @@ fn make_state() -> (AppState, TempDir) {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     (state, tmp)
 }
@@ -211,6 +212,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     (state, tmp)
 }
@@ -687,6 +689,7 @@ priority = 1
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -846,6 +849,7 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     let app = routes::build_router(state);
 
@@ -1126,6 +1130,7 @@ async fn test_find004_metrics_require_auth_true_blocks_unauthenticated() {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     let app = routes::build_router(state);
 
@@ -1229,6 +1234,7 @@ async fn test_find004_metrics_require_auth_false_allows_unauthenticated() {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     let app = routes::build_router(state);
 

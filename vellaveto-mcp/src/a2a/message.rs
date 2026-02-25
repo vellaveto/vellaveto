@@ -306,9 +306,7 @@ pub fn classify_a2a_message(msg: &Value) -> A2aMessageType {
             let message = params.and_then(|p| p.get("message")).cloned();
             match message {
                 Some(m) => {
-                    let task_id = params
-                        .and_then(|p| p.get("id"))
-                        .and_then(|v| v.as_str());
+                    let task_id = params.and_then(|p| p.get("id")).and_then(|v| v.as_str());
                     // SECURITY (FIND-R188-002): Validate task_id when present.
                     if let Some(tid) = task_id {
                         if let Some(reason) = validate_a2a_task_id(tid) {
@@ -334,9 +332,7 @@ pub fn classify_a2a_message(msg: &Value) -> A2aMessageType {
             let message = params.and_then(|p| p.get("message")).cloned();
             match message {
                 Some(m) => {
-                    let task_id = params
-                        .and_then(|p| p.get("id"))
-                        .and_then(|v| v.as_str());
+                    let task_id = params.and_then(|p| p.get("id")).and_then(|v| v.as_str());
                     // SECURITY (FIND-R188-002): Validate task_id when present.
                     if let Some(tid) = task_id {
                         if let Some(reason) = validate_a2a_task_id(tid) {
@@ -832,14 +828,20 @@ mod tests {
     fn test_a2a_message_deny_unknown_fields() {
         let json = r#"{"role":"user","parts":[],"unknown_field":"bad"}"#;
         let result: Result<A2aMessage, _> = serde_json::from_str(json);
-        assert!(result.is_err(), "deny_unknown_fields should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "deny_unknown_fields should reject unknown fields"
+        );
     }
 
     #[test]
     fn test_file_content_deny_unknown_fields() {
         let json = r#"{"name":"test","extra":"bad"}"#;
         let result: Result<FileContent, _> = serde_json::from_str(json);
-        assert!(result.is_err(), "deny_unknown_fields should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "deny_unknown_fields should reject unknown fields"
+        );
     }
 
     #[test]
@@ -871,10 +873,7 @@ mod tests {
         let result = classify_a2a_message(&msg);
         match result {
             A2aMessageType::Invalid { reason, .. } => {
-                assert!(
-                    reason.contains("control or format"),
-                    "reason: {reason}"
-                );
+                assert!(reason.contains("control or format"), "reason: {reason}");
             }
             other => panic!("expected Invalid, got {other:?}"),
         }

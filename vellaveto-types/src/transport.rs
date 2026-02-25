@@ -61,11 +61,8 @@ impl TransportEndpoint {
                 Self::MAX_URL_LEN,
             ));
         }
-        if crate::core::has_dangerous_chars(&self.url)
-        {
-            return Err(
-                "TransportEndpoint url contains control or format characters".to_string(),
-            );
+        if crate::core::has_dangerous_chars(&self.url) {
+            return Err("TransportEndpoint url contains control or format characters".to_string());
         }
         if self.protocol_versions.len() > Self::MAX_PROTOCOL_VERSIONS {
             return Err(format!(
@@ -155,8 +152,7 @@ impl TransportAttempt {
                 Self::MAX_URL_LEN,
             ));
         }
-        if crate::core::has_dangerous_chars(&self.endpoint_url)
-        {
+        if crate::core::has_dangerous_chars(&self.endpoint_url) {
             return Err(
                 "TransportAttempt endpoint_url contains control or format characters".to_string(),
             );
@@ -212,7 +208,9 @@ impl FallbackNegotiationHistory {
             ));
         }
         for (i, attempt) in self.attempts.iter().enumerate() {
-            attempt.validate().map_err(|e| format!("attempts[{}]: {}", i, e))?;
+            attempt
+                .validate()
+                .map_err(|e| format!("attempts[{}]: {}", i, e))?;
         }
         Ok(())
     }

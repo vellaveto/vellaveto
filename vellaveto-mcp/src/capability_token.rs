@@ -1417,14 +1417,8 @@ mod tests {
     #[test]
     fn test_issue_rejects_issuer_zero_width() {
         let key_hex = test_key_hex();
-        let result = issue_capability_token(
-            "issuer\u{200B}",
-            "holder",
-            test_grants(),
-            5,
-            &key_hex,
-            3600,
-        );
+        let result =
+            issue_capability_token("issuer\u{200B}", "holder", test_grants(), 5, &key_hex, 3600);
         assert!(result.is_err());
     }
 
@@ -1509,10 +1503,7 @@ mod tests {
             1800,
         );
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("self-delegation"));
+        assert!(result.unwrap_err().to_string().contains("self-delegation"));
     }
 
     #[test]
@@ -1543,10 +1534,7 @@ mod tests {
             1800,
         );
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("self-delegation"));
+        assert!(result.unwrap_err().to_string().contains("self-delegation"));
     }
 
     // ════════════════════════════════════════════════════════
@@ -1556,15 +1544,8 @@ mod tests {
     #[test]
     fn test_verify_rejects_future_issued_at_beyond_skew() {
         let key_hex = test_key_hex();
-        let mut token = issue_capability_token(
-            "root",
-            "agent-a",
-            test_grants(),
-            5,
-            &key_hex,
-            3600,
-        )
-        .unwrap();
+        let mut token =
+            issue_capability_token("root", "agent-a", test_grants(), 5, &key_hex, 3600).unwrap();
 
         // Set issued_at to 120 seconds in the future (beyond 60s skew tolerance)
         let future_time = chrono::Utc::now() + chrono::Duration::seconds(120);
@@ -1583,15 +1564,8 @@ mod tests {
     #[test]
     fn test_verify_accepts_issued_at_within_skew() {
         let key_hex = test_key_hex();
-        let mut token = issue_capability_token(
-            "root",
-            "agent-a",
-            test_grants(),
-            5,
-            &key_hex,
-            3600,
-        )
-        .unwrap();
+        let mut token =
+            issue_capability_token("root", "agent-a", test_grants(), 5, &key_hex, 3600).unwrap();
 
         // Set issued_at to 30 seconds in the future (within 60s skew tolerance)
         let near_future = chrono::Utc::now() + chrono::Duration::seconds(30);
@@ -1615,7 +1589,11 @@ mod tests {
         let now = chrono::Utc::now();
         let result = verify_capability_token(&token, Some("agent-a"), None, &now).unwrap();
         // Should be valid (within skew tolerance)
-        assert!(result.valid, "token within skew should be accepted: {:?}", result.failure_reason);
+        assert!(
+            result.valid,
+            "token within skew should be accepted: {:?}",
+            result.failure_reason
+        );
     }
 
     #[test]
@@ -1673,27 +1651,13 @@ mod tests {
 
         // Depth 5 (single digit)
         let canonical_5 = build_canonical_content(
-            token_id,
-            None,
-            issuer,
-            holder,
-            &grants,
-            5,
-            issued_at,
-            expires_at,
+            token_id, None, issuer, holder, &grants, 5, issued_at, expires_at,
         )
         .unwrap();
 
         // Depth 15 (two digits)
         let canonical_15 = build_canonical_content(
-            token_id,
-            None,
-            issuer,
-            holder,
-            &grants,
-            15,
-            issued_at,
-            expires_at,
+            token_id, None, issuer, holder, &grants, 15, issued_at, expires_at,
         )
         .unwrap();
 
@@ -1711,7 +1675,14 @@ mod tests {
 
         // Single-digit depth: length prefix should be "1"
         let canonical = build_canonical_content(
-            "tok", None, "iss", "hold", &grants, 5, "2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z",
+            "tok",
+            None,
+            "iss",
+            "hold",
+            &grants,
+            5,
+            "2026-01-01T00:00:00Z",
+            "2027-01-01T00:00:00Z",
         )
         .unwrap();
         // The depth field should appear as "1:5" (length=1, value=5)
@@ -1722,7 +1693,14 @@ mod tests {
 
         // Two-digit depth: length prefix should be "2"
         let canonical = build_canonical_content(
-            "tok", None, "iss", "hold", &grants, 12, "2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z",
+            "tok",
+            None,
+            "iss",
+            "hold",
+            &grants,
+            12,
+            "2026-01-01T00:00:00Z",
+            "2027-01-01T00:00:00Z",
         )
         .unwrap();
         // The depth field should appear as "2:12" (length=2, value=12)
@@ -1786,7 +1764,11 @@ mod tests {
             "FIND-R116-MCP-001: Token with tampered expires_at must fail verification"
         );
         assert!(
-            result.failure_reason.as_ref().unwrap().contains("signature"),
+            result
+                .failure_reason
+                .as_ref()
+                .unwrap()
+                .contains("signature"),
             "FIND-R116-MCP-001: Failure should be signature-related, got: {:?}",
             result.failure_reason
         );
@@ -1799,7 +1781,14 @@ mod tests {
         let grants = test_grants();
         let expires_at = "2027-06-15T12:00:00Z";
         let canonical = build_canonical_content(
-            "tok", None, "iss", "hold", &grants, 5, "2026-01-01T00:00:00Z", expires_at,
+            "tok",
+            None,
+            "iss",
+            "hold",
+            &grants,
+            5,
+            "2026-01-01T00:00:00Z",
+            expires_at,
         )
         .unwrap();
         // expires_at is 20 chars, so the canonical should contain "20:2027-06-15T12:00:00Z"

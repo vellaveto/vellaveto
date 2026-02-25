@@ -249,13 +249,14 @@ impl AttestationConfig {
                 ));
             }
             if vellaveto_types::has_dangerous_chars(url) {
-                return Err("attestation.rekor_url contains control or format characters".to_string());
+                return Err(
+                    "attestation.rekor_url contains control or format characters".to_string(),
+                );
             }
         }
         if self.transparency_log && self.rekor_url.is_none() {
             return Err(
-                "attestation.transparency_log requires attestation.rekor_url to be set"
-                    .to_string(),
+                "attestation.transparency_log requires attestation.rekor_url to be set".to_string(),
             );
         }
         Ok(())
@@ -279,7 +280,9 @@ impl VersionPinningConfig {
         }
         if let Some(ref path) = self.pins_path {
             if vellaveto_types::has_dangerous_chars(path) {
-                return Err("version_pinning.pins_path contains control or format characters".to_string());
+                return Err(
+                    "version_pinning.pins_path contains control or format characters".to_string(),
+                );
             }
         }
         Ok(())

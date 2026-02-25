@@ -250,7 +250,11 @@ pub struct PolicySpec {
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "pathRules")]
     pub path_rules: Option<PathRulesSpec>,
     /// Network-based access control rules.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "networkRules")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "networkRules"
+    )]
     pub network_rules: Option<NetworkRulesSpec>,
 }
 
@@ -304,7 +308,11 @@ pub struct PolicyLifecycleSpec {
     #[serde(default, rename = "autoPromote")]
     pub auto_promote: bool,
     /// Minimum staging period before promotion to Active (seconds).
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "stagingPeriodSecs")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "stagingPeriodSecs"
+    )]
     pub staging_period_secs: Option<u64>,
 }
 
@@ -318,7 +326,11 @@ pub struct VellavetoPolicyStatus {
     #[serde(default)]
     pub synced: bool,
     /// Last successful sync time (RFC 3339).
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "lastSyncTime")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "lastSyncTime"
+    )]
     pub last_sync_time: Option<String>,
     /// Last error message, if any.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "lastError")]
@@ -419,7 +431,11 @@ pub struct VellavetoTenantStatus {
     #[serde(default)]
     pub synced: bool,
     /// Last successful sync time (RFC 3339).
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "lastSyncTime")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "lastSyncTime"
+    )]
     pub last_sync_time: Option<String>,
     /// Last error message, if any.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "lastError")]
@@ -446,7 +462,11 @@ pub struct Condition {
     /// Status: "True", "False", or "Unknown".
     pub status: String,
     /// Last time the condition transitioned.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "lastTransitionTime")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "lastTransitionTime"
+    )]
     pub last_transition_time: Option<String>,
     /// Human-readable reason for the condition's last transition.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -554,7 +574,9 @@ fn validate_k8s_name(name: &str, field: &str) -> Result<(), String> {
         return Err(format!("{field} must not be empty"));
     }
     if name.len() > MAX_CLUSTER_REF_LEN {
-        return Err(format!("{field} exceeds max length of {MAX_CLUSTER_REF_LEN}"));
+        return Err(format!(
+            "{field} exceeds max length of {MAX_CLUSTER_REF_LEN}"
+        ));
     }
     if has_dangerous_chars(name) {
         return Err(format!("{field} contains dangerous characters"));
@@ -598,9 +620,7 @@ impl VellavetoClusterSpec {
         }
         if let Some(ref version) = self.version {
             if version.len() > MAX_VERSION_LEN {
-                return Err(format!(
-                    "version exceeds max length of {MAX_VERSION_LEN}"
-                ));
+                return Err(format!("version exceeds max length of {MAX_VERSION_LEN}"));
             }
             if has_dangerous_chars(version) {
                 return Err("version contains dangerous characters".into());
@@ -632,9 +652,7 @@ impl ResourceRequirements {
                     ));
                 }
                 if has_dangerous_chars(v) {
-                    return Err(format!(
-                        "resources.{field} contains dangerous characters"
-                    ));
+                    return Err(format!("resources.{field} contains dangerous characters"));
                 }
                 if v.trim().is_empty() {
                     return Err(format!("resources.{field} must not be blank"));
@@ -733,9 +751,8 @@ impl PolicySpec {
                 return Err("conditions required when policyType is Conditional".into());
             }
             if let Some(ref cond) = self.conditions {
-                let serialized = serde_json::to_string(cond).map_err(|e| {
-                    format!("conditions serialization failed (fail-closed): {e}")
-                })?;
+                let serialized = serde_json::to_string(cond)
+                    .map_err(|e| format!("conditions serialization failed (fail-closed): {e}"))?;
                 if serialized.len() > MAX_CONDITIONS_SIZE {
                     return Err(format!(
                         "conditions exceed max size of {MAX_CONDITIONS_SIZE} bytes"
@@ -752,14 +769,10 @@ impl PolicySpec {
         // Path rules
         if let Some(ref pr) = self.path_rules {
             if pr.allowed.len() > MAX_PATH_RULES {
-                return Err(format!(
-                    "pathRules.allowed exceeds max of {MAX_PATH_RULES}"
-                ));
+                return Err(format!("pathRules.allowed exceeds max of {MAX_PATH_RULES}"));
             }
             if pr.blocked.len() > MAX_PATH_RULES {
-                return Err(format!(
-                    "pathRules.blocked exceeds max of {MAX_PATH_RULES}"
-                ));
+                return Err(format!("pathRules.blocked exceeds max of {MAX_PATH_RULES}"));
             }
             for entry in pr.allowed.iter().chain(pr.blocked.iter()) {
                 if entry.len() > MAX_RULE_ENTRY_LEN {
@@ -928,19 +941,28 @@ mod tests {
     #[test]
     fn test_cluster_crd_generation() {
         let crd = VellavetoCluster::crd();
-        assert_eq!(crd.metadata.name.as_deref(), Some("vellavetoclusters.vellaveto.io"));
+        assert_eq!(
+            crd.metadata.name.as_deref(),
+            Some("vellavetoclusters.vellaveto.io")
+        );
     }
 
     #[test]
     fn test_policy_crd_generation() {
         let crd = VellavetoPolicy::crd();
-        assert_eq!(crd.metadata.name.as_deref(), Some("vellavetopolicies.vellaveto.io"));
+        assert_eq!(
+            crd.metadata.name.as_deref(),
+            Some("vellavetopolicies.vellaveto.io")
+        );
     }
 
     #[test]
     fn test_tenant_crd_generation() {
         let crd = VellavetoTenant::crd();
-        assert_eq!(crd.metadata.name.as_deref(), Some("vellavetotenants.vellaveto.io"));
+        assert_eq!(
+            crd.metadata.name.as_deref(),
+            Some("vellavetotenants.vellaveto.io")
+        );
     }
 
     #[test]
@@ -1353,7 +1375,10 @@ mod tests {
             },
             lifecycle: None,
         };
-        assert!(spec.validate().unwrap_err().contains("pathRules entry exceeds"));
+        assert!(spec
+            .validate()
+            .unwrap_err()
+            .contains("pathRules entry exceeds"));
     }
 
     #[test]
@@ -1374,7 +1399,10 @@ mod tests {
             },
             lifecycle: None,
         };
-        assert!(spec.validate().unwrap_err().contains("pathRules entry contains dangerous"));
+        assert!(spec
+            .validate()
+            .unwrap_err()
+            .contains("pathRules entry contains dangerous"));
     }
 
     #[test]
@@ -1396,7 +1424,10 @@ mod tests {
             },
             lifecycle: None,
         };
-        assert!(spec.validate().unwrap_err().contains("networkRules domain entry exceeds"));
+        assert!(spec
+            .validate()
+            .unwrap_err()
+            .contains("networkRules domain entry exceeds"));
     }
 
     #[test]
@@ -1418,7 +1449,10 @@ mod tests {
             },
             lifecycle: None,
         };
-        assert!(spec.validate().unwrap_err().contains("networkRules domain entry contains dangerous"));
+        assert!(spec
+            .validate()
+            .unwrap_err()
+            .contains("networkRules domain entry contains dangerous"));
     }
 
     #[test]
@@ -1444,7 +1478,10 @@ mod tests {
             },
             lifecycle: None,
         };
-        assert!(spec.validate().unwrap_err().contains("ipRules CIDR entry exceeds"));
+        assert!(spec
+            .validate()
+            .unwrap_err()
+            .contains("ipRules CIDR entry exceeds"));
     }
 
     // FIND-R216-008: Condition message truncation
@@ -1505,7 +1542,10 @@ mod tests {
             max_evaluations_per_minute: Some(MAX_EVALUATIONS_PER_MINUTE_UPPER + 1),
             ..Default::default()
         };
-        assert!(q.validate().unwrap_err().contains("maxEvaluationsPerMinute"));
+        assert!(q
+            .validate()
+            .unwrap_err()
+            .contains("maxEvaluationsPerMinute"));
     }
 
     #[test]
@@ -1548,7 +1588,10 @@ mod tests {
             }),
             metadata: None,
         };
-        assert!(spec.validate().unwrap_err().contains("maxEvaluationsPerMinute"));
+        assert!(spec
+            .validate()
+            .unwrap_err()
+            .contains("maxEvaluationsPerMinute"));
     }
 
     // FIND-R216-011: conditions serialization failure returns error
@@ -1568,7 +1611,10 @@ mod tests {
             path_rules: None,
             network_rules: None,
         };
-        assert!(spec.validate().unwrap_err().contains("conditions exceed max size"));
+        assert!(spec
+            .validate()
+            .unwrap_err()
+            .contains("conditions exceed max size"));
     }
 
     // ═══════════════════════════════════════════════════
@@ -1588,21 +1634,30 @@ mod tests {
     fn test_cluster_status_deny_unknown_fields() {
         let json = r#"{"phase":"Pending","replicas":0,"readyReplicas":0,"observedGeneration":0,"extra":"bad"}"#;
         let result = serde_json::from_str::<VellavetoClusterStatus>(json);
-        assert!(result.is_err(), "VellavetoClusterStatus should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "VellavetoClusterStatus should reject unknown fields"
+        );
     }
 
     #[test]
     fn test_policy_status_deny_unknown_fields() {
         let json = r#"{"synced":false,"observedGeneration":0,"extra":"bad"}"#;
         let result = serde_json::from_str::<VellavetoPolicyStatus>(json);
-        assert!(result.is_err(), "VellavetoPolicyStatus should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "VellavetoPolicyStatus should reject unknown fields"
+        );
     }
 
     #[test]
     fn test_tenant_status_deny_unknown_fields() {
         let json = r#"{"synced":false,"observedGeneration":0,"extra":"bad"}"#;
         let result = serde_json::from_str::<VellavetoTenantStatus>(json);
-        assert!(result.is_err(), "VellavetoTenantStatus should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "VellavetoTenantStatus should reject unknown fields"
+        );
     }
 
     // Verify status types still deserialize correctly with only known fields
@@ -1663,7 +1718,13 @@ mod tests {
 
     #[test]
     fn test_condition_new_clean_input_unchanged() {
-        let cond = Condition::new("Available", "True", None, Some("all pods ready".to_string()), None);
+        let cond = Condition::new(
+            "Available",
+            "True",
+            None,
+            Some("all pods ready".to_string()),
+            None,
+        );
         assert_eq!(cond.condition_type, "Available");
         assert_eq!(cond.status, "True");
         assert_eq!(cond.reason.as_deref(), Some("all pods ready"));
@@ -1696,6 +1757,9 @@ mod tests {
             rate_limit_rps: Some(0),
             ..Default::default()
         };
-        assert!(config.validate().unwrap_err().contains("rate_limit_rps must be > 0"));
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .contains("rate_limit_rps must be > 0"));
     }
 }

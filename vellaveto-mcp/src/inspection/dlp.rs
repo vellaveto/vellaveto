@@ -2282,7 +2282,11 @@ mod tests {
             "items": ["a", "b"]
         });
         let findings = scan_parameters_for_secrets(&params);
-        assert!(findings.is_empty(), "Clean keys should not trigger DLP: {:?}", findings);
+        assert!(
+            findings.is_empty(),
+            "Clean keys should not trigger DLP: {:?}",
+            findings
+        );
     }
 
     // ── FIND-R44-024: DLP time-budget bypass test ─────────────

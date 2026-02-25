@@ -310,9 +310,7 @@ impl SessionGuardConfig {
             // SECURITY (IMP-R188-006): Reject control/format chars in admin token
             // to prevent comparison issues with invisible characters.
             if vellaveto_types::has_dangerous_chars(token) {
-                return Err(
-                    "admin_unlock_token contains control or format characters".to_string(),
-                );
+                return Err("admin_unlock_token contains control or format characters".to_string());
             }
         }
         Ok(())
@@ -482,9 +480,7 @@ impl SessionGuard {
                     .filter(|(_, ctx)| {
                         !matches!(
                             ctx.state,
-                            SessionState::Locked
-                                | SessionState::Ended
-                                | SessionState::Suspicious
+                            SessionState::Locked | SessionState::Ended | SessionState::Suspicious
                         )
                     })
                     .min_by_key(|(_, ctx)| ctx.last_action_at)
@@ -958,9 +954,7 @@ impl SessionGuard {
             }
             Err(_poisoned) => {
                 // Fail-closed: lock poisoned → deny
-                return Some(
-                    "Session guard lock poisoned — fail-closed deny".to_string(),
-                );
+                return Some("Session guard lock poisoned — fail-closed deny".to_string());
             }
         };
 
@@ -971,8 +965,7 @@ impl SessionGuard {
                 Ok(mut sessions) => {
                     if let Some(ctx) = sessions.get_mut(session_id) {
                         // Double-check: another thread may have transitioned it already.
-                        if ctx.state != SessionState::Ended && ctx.state != SessionState::Locked
-                        {
+                        if ctx.state != SessionState::Ended && ctx.state != SessionState::Locked {
                             let old = ctx.state;
                             let now = Self::now();
                             ctx.state = SessionState::Ended;
@@ -1796,9 +1789,7 @@ mod tests {
     fn test_active_repeated_violation_count_zero_is_noop() {
         let guard = default_guard();
         let sid = "zero-count";
-        guard
-            .process_event(sid, SessionEvent::FirstAction)
-            .unwrap();
+        guard.process_event(sid, SessionEvent::FirstAction).unwrap();
         let result = guard
             .process_event(sid, SessionEvent::RepeatedViolation { count: 0 })
             .unwrap();
@@ -1813,9 +1804,7 @@ mod tests {
             ..Default::default()
         });
         let sid = "zero-count-sus";
-        guard
-            .process_event(sid, SessionEvent::FirstAction)
-            .unwrap();
+        guard.process_event(sid, SessionEvent::FirstAction).unwrap();
         // Push to Suspicious via anomaly
         guard
             .process_event(
@@ -1839,9 +1828,7 @@ mod tests {
     fn test_goal_drift_nan_similarity_maps_to_critical() {
         let guard = default_guard();
         let sid = "nan-drift";
-        guard
-            .process_event(sid, SessionEvent::FirstAction)
-            .unwrap();
+        guard.process_event(sid, SessionEvent::FirstAction).unwrap();
         let drift = crate::goal_tracking::GoalDriftAlert {
             session_id: sid.to_string(),
             similarity: f32::NAN,
@@ -1858,9 +1845,7 @@ mod tests {
     fn test_goal_drift_negative_similarity_maps_to_critical() {
         let guard = default_guard();
         let sid = "neg-drift";
-        guard
-            .process_event(sid, SessionEvent::FirstAction)
-            .unwrap();
+        guard.process_event(sid, SessionEvent::FirstAction).unwrap();
         let drift = crate::goal_tracking::GoalDriftAlert {
             session_id: sid.to_string(),
             similarity: -1.0,
@@ -1903,7 +1888,9 @@ mod tests {
             max_session_duration_secs: 60,
             ..Default::default()
         });
-        guard.process_event_at("s1", SessionEvent::FirstAction, 1000).unwrap();
+        guard
+            .process_event_at("s1", SessionEvent::FirstAction, 1000)
+            .unwrap();
         assert_eq!(guard.get_state("s1"), SessionState::Active);
 
         // Action at 1061 (>60s) should end the session
@@ -1925,7 +1912,9 @@ mod tests {
             max_session_duration_secs: 60,
             ..Default::default()
         });
-        guard.process_event_at("s1", SessionEvent::FirstAction, 1000).unwrap();
+        guard
+            .process_event_at("s1", SessionEvent::FirstAction, 1000)
+            .unwrap();
         // Action at 1059 (<60s) is fine
         let result = guard
             .process_event_at("s1", SessionEvent::NormalAction, 1059)
@@ -1943,9 +1932,15 @@ mod tests {
             ..Default::default()
         });
 
-        guard.process_event("s1", SessionEvent::FirstAction).unwrap();
-        guard.process_event("s1", SessionEvent::RepeatedViolation { count: 2 }).unwrap();
-        guard.process_event("s1", SessionEvent::RepeatedViolation { count: 1 }).unwrap();
+        guard
+            .process_event("s1", SessionEvent::FirstAction)
+            .unwrap();
+        guard
+            .process_event("s1", SessionEvent::RepeatedViolation { count: 2 })
+            .unwrap();
+        guard
+            .process_event("s1", SessionEvent::RepeatedViolation { count: 1 })
+            .unwrap();
         assert_eq!(guard.get_state("s1"), SessionState::Locked);
 
         // Send MAX_FAILED_UNLOCK_ATTEMPTS wrong tokens
@@ -1982,25 +1977,37 @@ mod tests {
             ..Default::default()
         });
 
-        guard.process_event("s1", SessionEvent::FirstAction).unwrap();
-        guard.process_event("s1", SessionEvent::RepeatedViolation { count: 2 }).unwrap();
-        guard.process_event("s1", SessionEvent::RepeatedViolation { count: 1 }).unwrap();
+        guard
+            .process_event("s1", SessionEvent::FirstAction)
+            .unwrap();
+        guard
+            .process_event("s1", SessionEvent::RepeatedViolation { count: 2 })
+            .unwrap();
+        guard
+            .process_event("s1", SessionEvent::RepeatedViolation { count: 1 })
+            .unwrap();
         assert_eq!(guard.get_state("s1"), SessionState::Locked);
 
         // 3 wrong attempts (under limit)
         for _ in 0..3 {
             guard
-                .process_event("s1", SessionEvent::AdminUnlock {
-                    admin_token: "wrong".to_string(),
-                })
+                .process_event(
+                    "s1",
+                    SessionEvent::AdminUnlock {
+                        admin_token: "wrong".to_string(),
+                    },
+                )
                 .unwrap();
         }
 
         // Correct token succeeds
         let result = guard
-            .process_event("s1", SessionEvent::AdminUnlock {
-                admin_token: "correct-token".to_string(),
-            })
+            .process_event(
+                "s1",
+                SessionEvent::AdminUnlock {
+                    admin_token: "correct-token".to_string(),
+                },
+            )
             .unwrap();
         assert_eq!(result.current, SessionState::Active);
     }
@@ -2013,7 +2020,9 @@ mod tests {
             ..Default::default()
         });
         // Start session at t=1000
-        guard.process_event_at("s1", SessionEvent::FirstAction, 1000).unwrap();
+        guard
+            .process_event_at("s1", SessionEvent::FirstAction, 1000)
+            .unwrap();
 
         // Within duration: should_deny returns None
         // Note: should_deny uses Self::now() which uses real wall-clock time,

@@ -27,6 +27,7 @@
 //! 2. Header: `X-Vellaveto-Role` (for development/testing)
 //! 3. Default: `Viewer` (least privilege)
 
+use crate::iam::extract_session_cookie;
 use axum::{
     extract::{Request, State},
     http::StatusCode,
@@ -37,6 +38,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 /// Fine-grained permissions for API operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -227,6 +229,8 @@ pub enum RoleSource {
     Jwt,
     /// From X-Vellaveto-Role header (development/testing)
     Header,
+    /// From IAM session cookie (Phase 46)
+    Session,
     /// Default role (no explicit assignment)
     Default,
 }
@@ -295,6 +299,10 @@ pub struct RoleClaims {
     /// Audience claim supporting both string and string-array forms.
     #[serde(default)]
     pub aud: Option<AudienceClaim>,
+
+    /// Nonce used in OIDC authentication flows.
+    #[serde(default)]
+    pub nonce: Option<String>,
 }
 
 /// JWT `aud` claim representation (string or array of strings).
@@ -439,6 +447,41 @@ pub enum JwtKey {
     EdDsaPublicKeyPem(String),
 }
 
+impl JwtKey {
+    fn key_kind(&self) -> &'static str {
+        match self {
+            JwtKey::Secret(_) => "hmac",
+            JwtKey::RsaPublicKeyPem(_) => "rsa",
+            JwtKey::EcPublicKeyPem(_) => "ecdsa",
+            JwtKey::EdDsaPublicKeyPem(_) => "eddsa",
+        }
+    }
+
+    fn supports_algorithm(&self, algorithm: jsonwebtoken::Algorithm) -> bool {
+        use jsonwebtoken::Algorithm;
+
+        match self {
+            JwtKey::Secret(_) => matches!(
+                algorithm,
+                Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512
+            ),
+            JwtKey::RsaPublicKeyPem(_) => matches!(
+                algorithm,
+                Algorithm::RS256
+                    | Algorithm::RS384
+                    | Algorithm::RS512
+                    | Algorithm::PS256
+                    | Algorithm::PS384
+                    | Algorithm::PS512
+            ),
+            JwtKey::EcPublicKeyPem(_) => {
+                matches!(algorithm, Algorithm::ES256 | Algorithm::ES384)
+            }
+            JwtKey::EdDsaPublicKeyPem(_) => matches!(algorithm, Algorithm::EdDSA),
+        }
+    }
+}
+
 /// JWT validation errors.
 #[derive(Debug, thiserror::Error)]
 pub enum JwtError {
@@ -456,6 +499,12 @@ pub enum JwtError {
 
     #[error("unsupported algorithm: {0:?}")]
     UnsupportedAlgorithm(jsonwebtoken::Algorithm),
+
+    #[error("algorithm/key mismatch: {algorithm:?} is incompatible with {key_type} key")]
+    AlgorithmKeyMismatch {
+        algorithm: jsonwebtoken::Algorithm,
+        key_type: &'static str,
+    },
 }
 
 /// Extract and validate a JWT token from the Authorization header.
@@ -481,6 +530,13 @@ pub fn extract_jwt_claims(auth_header: &str, config: &JwtConfig) -> Result<RoleC
     // Verify algorithm is allowed
     if !config.algorithms.contains(&header.alg) {
         return Err(JwtError::UnsupportedAlgorithm(header.alg));
+    }
+
+    if !config.key.supports_algorithm(header.alg) {
+        return Err(JwtError::AlgorithmKeyMismatch {
+            algorithm: header.alg,
+            key_type: config.key.key_kind(),
+        });
     }
 
     // Build decoding key based on key type
@@ -632,6 +688,17 @@ pub fn endpoint_permission(method: &axum::http::Method, path: &str) -> Option<Pe
         (&Method::GET, "/api/metrics") => Some(Permission::MetricsRead),
         (&Method::GET, "/metrics") => Some(Permission::MetricsRead),
 
+        // Billing and metering
+        (&Method::GET, "/api/billing/license") => Some(Permission::MetricsRead),
+        (&Method::GET, p) if p.starts_with("/api/billing/usage/") && p.ends_with("/history") => {
+            Some(Permission::MetricsRead)
+        }
+        (&Method::GET, p) if p.starts_with("/api/billing/usage/") => Some(Permission::MetricsRead),
+        (&Method::GET, p) if p.starts_with("/api/billing/quotas/") => Some(Permission::MetricsRead),
+        (&Method::POST, p) if p.starts_with("/api/billing/usage/") && p.ends_with("/reset") => {
+            Some(Permission::ConfigReload)
+        }
+
         // Tool registry
         (&Method::GET, "/api/registry/tools") => Some(Permission::ToolRegistryRead),
         (_, p) if p.starts_with("/api/registry/tools/") => Some(Permission::ToolRegistryWrite),
@@ -648,6 +715,7 @@ pub fn endpoint_permission(method: &axum::http::Method, path: &str) -> Option<Pe
 #[derive(Clone)]
 pub struct RbacState {
     pub config: RbacConfig,
+    pub iam_state: Option<Arc<crate::iam::IamState>>,
 }
 
 /// RBAC enforcement middleware.
@@ -688,6 +756,50 @@ pub async fn rbac_middleware(
             return next.run(request).await;
         }
     };
+
+    if let Some(iam_state) = &rbac_state.iam_state {
+        if let Some(session_id) =
+            extract_session_cookie(request.headers(), iam_state.session_cookie_name())
+        {
+            if let Some(session) = iam_state.find_session(&session_id) {
+                let principal = Principal {
+                    subject: session.subject.clone(),
+                    role: session.role,
+                    role_source: RoleSource::Session,
+                };
+                if !principal.has_permission(required_permission) {
+                    return (
+                        StatusCode::FORBIDDEN,
+                        Json(json!({
+                            "error": "Permission denied",
+                        })),
+                    )
+                        .into_response();
+                }
+                request.extensions_mut().insert(principal);
+                return next.run(request).await;
+            }
+        }
+    }
+
+    // SECURITY: In JWT mode, protected endpoints must not silently fall back
+    // to the default role. Require either:
+    // 1) Authorization header (validated JWT), or
+    // 2) X-Vellaveto-Role header when explicit header-role mode is enabled.
+    let has_authz = request
+        .headers()
+        .contains_key(axum::http::header::AUTHORIZATION);
+    let has_valid_role_header = rbac_state.config.allow_header_role
+        && extract_role_from_header(request.headers()).is_some();
+    if rbac_state.config.jwt_config.is_some() && !has_authz && !has_valid_role_header {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "error": "Authentication required",
+            })),
+        )
+            .into_response();
+    }
 
     // Extract principal from JWT, header, or use default.
     // SECURITY: If an Authorization header is present but JWT validation fails,
@@ -946,6 +1058,31 @@ mod tests {
     }
 
     #[test]
+    fn test_endpoint_permission_billing_and_metering() {
+        use axum::http::Method;
+        assert_eq!(
+            endpoint_permission(&Method::GET, "/api/billing/license"),
+            Some(Permission::MetricsRead)
+        );
+        assert_eq!(
+            endpoint_permission(&Method::GET, "/api/billing/usage/acme"),
+            Some(Permission::MetricsRead)
+        );
+        assert_eq!(
+            endpoint_permission(&Method::GET, "/api/billing/usage/acme/history"),
+            Some(Permission::MetricsRead)
+        );
+        assert_eq!(
+            endpoint_permission(&Method::GET, "/api/billing/quotas/acme"),
+            Some(Permission::MetricsRead)
+        );
+        assert_eq!(
+            endpoint_permission(&Method::POST, "/api/billing/usage/acme/reset"),
+            Some(Permission::ConfigReload)
+        );
+    }
+
+    #[test]
     fn test_endpoint_permission_dashboard() {
         use axum::http::Method;
         assert_eq!(
@@ -1018,6 +1155,12 @@ mod tests {
 
         let err = JwtError::UnsupportedAlgorithm(jsonwebtoken::Algorithm::HS256);
         assert!(err.to_string().contains("HS256"));
+
+        let err = JwtError::AlgorithmKeyMismatch {
+            algorithm: jsonwebtoken::Algorithm::RS256,
+            key_type: "hmac",
+        };
+        assert!(err.to_string().contains("incompatible"));
     }
 
     #[test]
@@ -1027,6 +1170,28 @@ mod tests {
         assert!(config.audience.is_none());
         assert_eq!(config.leeway_seconds, 60);
         assert!(config.algorithms.contains(&jsonwebtoken::Algorithm::RS256));
+    }
+
+    #[test]
+    fn test_jwt_key_algorithm_compatibility_matrix() {
+        use jsonwebtoken::Algorithm;
+
+        let hmac = JwtKey::Secret("secret".into());
+        assert!(hmac.supports_algorithm(Algorithm::HS256));
+        assert!(!hmac.supports_algorithm(Algorithm::RS256));
+
+        let rsa = JwtKey::RsaPublicKeyPem("pem".into());
+        assert!(rsa.supports_algorithm(Algorithm::RS256));
+        assert!(rsa.supports_algorithm(Algorithm::PS512));
+        assert!(!rsa.supports_algorithm(Algorithm::HS256));
+
+        let ec = JwtKey::EcPublicKeyPem("pem".into());
+        assert!(ec.supports_algorithm(Algorithm::ES256));
+        assert!(!ec.supports_algorithm(Algorithm::RS256));
+
+        let ed = JwtKey::EdDsaPublicKeyPem("pem".into());
+        assert!(ed.supports_algorithm(Algorithm::EdDSA));
+        assert!(!ed.supports_algorithm(Algorithm::ES384));
     }
 
     #[test]
@@ -1126,6 +1291,47 @@ mod tests {
 
         let result = extract_jwt_claims(&format!("Bearer {}", token), &config);
         assert!(matches!(result, Err(JwtError::UnsupportedAlgorithm(_))));
+    }
+
+    #[test]
+    fn test_extract_jwt_claims_key_algorithm_mismatch_fails_closed() {
+        use jsonwebtoken::{encode, EncodingKey, Header};
+
+        let secret = "test-secret-key-for-hmac";
+        let exp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600;
+
+        let claims = TestClaims {
+            sub: Some("user-1".into()),
+            role: Some("viewer".into()),
+            exp,
+        };
+
+        let token = encode(
+            &Header::new(jsonwebtoken::Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap();
+
+        let config = JwtConfig {
+            // No PEM parsing should be reached because mismatch is rejected first.
+            key: JwtKey::RsaPublicKeyPem("not-a-real-pem".into()),
+            algorithms: vec![jsonwebtoken::Algorithm::HS256],
+            ..Default::default()
+        };
+
+        let result = extract_jwt_claims(&format!("Bearer {}", token), &config);
+        assert!(matches!(
+            result,
+            Err(JwtError::AlgorithmKeyMismatch {
+                algorithm: jsonwebtoken::Algorithm::HS256,
+                ..
+            })
+        ));
     }
 
     #[test]

@@ -121,9 +121,7 @@ impl DnsServiceDiscovery {
             return Err("dns_name exceeds maximum length".to_string());
         }
         if vellaveto_types::has_dangerous_chars(&dns_name) {
-            return Err(
-                "dns_name contains control or format characters".to_string(),
-            );
+            return Err("dns_name contains control or format characters".to_string());
         }
         // SECURITY (IMP-R224-001): Validate refresh_interval to prevent busy-loop DoS.
         // Zero or sub-second intervals cause the watch() loop to spin, saturating CPU
@@ -517,10 +515,7 @@ mod tests {
 
     #[test]
     fn test_dns_discovery_rejects_empty_name() {
-        let result = DnsServiceDiscovery::new(
-            String::new(),
-            std::time::Duration::from_secs(5),
-        );
+        let result = DnsServiceDiscovery::new(String::new(), std::time::Duration::from_secs(5));
         assert!(result.is_err());
     }
 
@@ -536,10 +531,8 @@ mod tests {
     #[test]
     fn test_dns_discovery_rejects_zero_refresh_interval() {
         // SECURITY (IMP-R224-001): Zero interval causes busy-loop DoS.
-        let result = DnsServiceDiscovery::new(
-            "localhost:80".to_string(),
-            std::time::Duration::ZERO,
-        );
+        let result =
+            DnsServiceDiscovery::new("localhost:80".to_string(), std::time::Duration::ZERO);
         let err = result.err().expect("should fail");
         assert!(err.contains("below minimum"), "got: {}", err);
     }

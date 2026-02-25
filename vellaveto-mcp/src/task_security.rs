@@ -1028,7 +1028,10 @@ mod tests {
         let huge_retention = u64::MAX;
         let cleaned = manager.cleanup_old_tasks(huge_retention).await;
         // The clamped retention of 1 year means a recently-created task is NOT cleaned up.
-        assert_eq!(cleaned, 0, "recently created task should not be cleaned with clamped retention");
+        assert_eq!(
+            cleaned, 0,
+            "recently created task should not be cleaned with clamped retention"
+        );
     }
 
     #[tokio::test]
@@ -1046,7 +1049,10 @@ mod tests {
 
         // Retention of 0 seconds means everything terminal is cleaned up immediately.
         let cleaned = manager.cleanup_old_tasks(0).await;
-        assert_eq!(cleaned, 1, "terminal task should be cleaned with zero retention");
+        assert_eq!(
+            cleaned, 1,
+            "terminal task should be cleaned with zero retention"
+        );
     }
 
     // ════════════════════════════════════════════════════════

@@ -240,10 +240,7 @@ impl PolicyConfig {
             // SECURITY (FIND-R137-002): Validate pattern.name for empty, length,
             // and control characters. The name appears in error messages and logs.
             if pattern.name.is_empty() {
-                return Err(format!(
-                    "audit.custom_pii_patterns[{}].name is empty",
-                    i
-                ));
+                return Err(format!("audit.custom_pii_patterns[{}].name is empty", i));
             }
             if pattern.name.len() > 256 {
                 return Err(format!(
@@ -698,13 +695,11 @@ impl PolicyConfig {
         // silently defeating the exfiltration detection purpose.
         if self.data_flow.enabled {
             if self.data_flow.max_findings == 0 {
-                return Err(
-                    "data_flow.max_findings must be > 0 when enabled".to_string()
-                );
+                return Err("data_flow.max_findings must be > 0 when enabled".to_string());
             }
             if self.data_flow.max_fingerprints_per_pattern == 0 {
                 return Err(
-                    "data_flow.max_fingerprints_per_pattern must be > 0 when enabled".to_string()
+                    "data_flow.max_fingerprints_per_pattern must be > 0 when enabled".to_string(),
                 );
             }
         }
@@ -826,11 +821,10 @@ impl PolicyConfig {
                 }
             }
         }
-        if self.shadow_agent.enabled
-            && self.shadow_agent.fingerprint_components.is_empty()
-        {
+        if self.shadow_agent.enabled && self.shadow_agent.fingerprint_components.is_empty() {
             return Err(
-                "shadow_agent.fingerprint_components must have at least one component when enabled".to_string()
+                "shadow_agent.fingerprint_components must have at least one component when enabled"
+                    .to_string(),
             );
         }
         // SECURITY (FIND-R146-CS-002): Validate min_trust_level range (documented as 0-4)
@@ -990,7 +984,12 @@ impl PolicyConfig {
         }
         // SECURITY (FIND-R146-CS-004): Per-string validation of protected_tool_patterns --
         // reject oversized entries and entries containing control/format characters.
-        for (i, pat) in self.advanced_threat.protected_tool_patterns.iter().enumerate() {
+        for (i, pat) in self
+            .advanced_threat
+            .protected_tool_patterns
+            .iter()
+            .enumerate()
+        {
             if pat.len() > 256 {
                 return Err(format!(
                     "advanced_threat.protected_tool_patterns[{}] length {} exceeds maximum 256",
@@ -1323,7 +1322,8 @@ impl PolicyConfig {
             }
             if key.bytes().any(|b| b < 0x20 || b == 0x7F) {
                 return Err(
-                    "opa.headers key contains control or format characters (including CR/LF)".to_string(),
+                    "opa.headers key contains control or format characters (including CR/LF)"
+                        .to_string(),
                 );
             }
             if value.len() > MAX_OPA_HEADER_VALUE_LEN {
@@ -1371,14 +1371,10 @@ impl PolicyConfig {
             // Zero cache_ttl means IOCs expire immediately, bypassing threat detection.
             // Zero refresh_interval means infinite-loop polling against feed endpoint.
             if self.threat_intel.cache_ttl_secs == 0 {
-                return Err(
-                    "threat_intel.cache_ttl_secs must be > 0".to_string(),
-                );
+                return Err("threat_intel.cache_ttl_secs must be > 0".to_string());
             }
             if self.threat_intel.refresh_interval_secs == 0 {
-                return Err(
-                    "threat_intel.refresh_interval_secs must be > 0".to_string(),
-                );
+                return Err("threat_intel.refresh_interval_secs must be > 0".to_string());
             }
         }
 
@@ -1418,9 +1414,8 @@ impl PolicyConfig {
                 // SECURITY (IMP-R128-001): Delegate to canonical SSRF validation.
                 // Previous inline code was missing IPv4-mapped IPv6 detection
                 // (::ffff:10.x.x.x, ::ffff:169.254.x.x, etc.).
-                vellaveto_types::validate_url_no_ssrf(trimmed).map_err(|e| {
-                    format!("jit_access.notification_webhook {}", e)
-                })?;
+                vellaveto_types::validate_url_no_ssrf(trimmed)
+                    .map_err(|e| format!("jit_access.notification_webhook {}", e))?;
             }
         }
 
@@ -1660,9 +1655,7 @@ impl PolicyConfig {
         // validation when later enabled via hot-reload. Each validate() method already
         // guards enabled-specific checks (like "endpoint is required when enabled")
         // internally.
-        self.spiffe
-            .validate()
-            .map_err(|e| format!("spiffe: {e}"))?;
+        self.spiffe.validate().map_err(|e| format!("spiffe: {e}"))?;
         self.opa.validate().map_err(|e| format!("opa: {e}"))?;
         self.threat_intel
             .validate()
@@ -1679,13 +1672,19 @@ impl PolicyConfig {
             .validate()
             .map_err(|e| format!("audit_store: {e}"))?;
 
+        self.iam.validate().map_err(|e| format!("iam: {e}"))?;
+
         // Policy lifecycle configuration bounds (Phase 47)
         self.policy_lifecycle
             .validate()
             .map_err(|e| format!("policy_lifecycle: {e}"))?;
 
-        Ok(())
+        // Metering configuration bounds (Phase 50)
+        self.metering
+            .validate()
+            .map_err(|e| format!("metering: {e}"))?;
 
+        Ok(())
     }
 
     /// Load config from a file path. Selects parser based on extension.

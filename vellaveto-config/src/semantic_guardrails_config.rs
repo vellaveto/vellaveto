@@ -152,7 +152,9 @@ impl SemanticGuardrailsConfig {
                 ));
             }
             if vellaveto_types::has_dangerous_chars(model) {
-                return Err("semantic_guardrails.model contains control or format characters".to_string());
+                return Err(
+                    "semantic_guardrails.model contains control or format characters".to_string(),
+                );
             }
         }
 
@@ -225,7 +227,8 @@ impl SemanticGuardrailsConfig {
         }
         if vellaveto_types::has_dangerous_chars(&self.fallback_on_timeout) {
             return Err(
-                "semantic_guardrails.fallback_on_timeout contains control or format characters".to_string(),
+                "semantic_guardrails.fallback_on_timeout contains control or format characters"
+                    .to_string(),
             );
         }
         if !VALID_FALLBACK_VALUES.contains(&self.fallback_on_timeout.as_str()) {
@@ -527,11 +530,11 @@ fn validate_backend_config(
         // SECURITY (IMP-R126-012): Delegate to canonical SSRF validation from
         // vellaveto-types. The previous inline check was weaker — it missed
         // RFC 1918 private ranges (10.x, 172.16-31.x, 192.168.x) and CGNAT.
-        vellaveto_types::validate_url_no_ssrf(url).map_err(|e| {
-            format!("{}.endpoint {}", backend_name, e)
-        })?;
+        vellaveto_types::validate_url_no_ssrf(url)
+            .map_err(|e| format!("{}.endpoint {}", backend_name, e))?;
         // Reject userinfo (@) in URL — defense-in-depth for API endpoints.
-        let after_scheme = url.strip_prefix("https://")
+        let after_scheme = url
+            .strip_prefix("https://")
             .or_else(|| url.strip_prefix("http://"))
             .unwrap_or("");
         let authority = after_scheme.split('/').next().unwrap_or("");
@@ -547,8 +550,13 @@ fn validate_backend_config(
             .strip_prefix("https://")
             .or_else(|| lower.strip_prefix("http://"))
             .unwrap_or("");
-        let host = host_part.split('/').next().unwrap_or("")
-            .split(':').next().unwrap_or("");
+        let host = host_part
+            .split('/')
+            .next()
+            .unwrap_or("")
+            .split(':')
+            .next()
+            .unwrap_or("");
         if host.ends_with(".internal") || host == "169.254.169.254" {
             return Err(format!(
                 "{}.endpoint must not target metadata endpoints (got '{}')",

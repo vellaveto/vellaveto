@@ -96,20 +96,17 @@ impl UnregisteredAgent {
             ));
         }
         // SECURITY (FIND-R113-014): Control/format char validation.
-        if crate::core::has_dangerous_chars(&self.agent_id)
-        {
+        if crate::core::has_dangerous_chars(&self.agent_id) {
             return Err(
                 "UnregisteredAgent agent_id contains control or format characters".to_string(),
             );
         }
-        if crate::core::has_dangerous_chars(&self.first_seen)
-        {
+        if crate::core::has_dangerous_chars(&self.first_seen) {
             return Err(
                 "UnregisteredAgent first_seen contains control or format characters".to_string(),
             );
         }
-        if crate::core::has_dangerous_chars(&self.last_seen)
-        {
+        if crate::core::has_dangerous_chars(&self.last_seen) {
             return Err(
                 "UnregisteredAgent last_seen contains control or format characters".to_string(),
             );
@@ -210,14 +207,12 @@ impl UnapprovedTool {
             ));
         }
         // SECURITY (FIND-R113-014): Control/format char validation.
-        if crate::core::has_dangerous_chars(&self.tool_name)
-        {
+        if crate::core::has_dangerous_chars(&self.tool_name) {
             return Err(
                 "UnapprovedTool tool_name contains control or format characters".to_string(),
             );
         }
-        if crate::core::has_dangerous_chars(&self.first_seen)
-        {
+        if crate::core::has_dangerous_chars(&self.first_seen) {
             return Err(
                 "UnapprovedTool first_seen contains control or format characters".to_string(),
             );
@@ -299,14 +294,12 @@ impl UnknownMcpServer {
             ));
         }
         // SECURITY (FIND-R113-014): Control/format char validation.
-        if crate::core::has_dangerous_chars(&self.server_id)
-        {
+        if crate::core::has_dangerous_chars(&self.server_id) {
             return Err(
                 "UnknownMcpServer server_id contains control or format characters".to_string(),
             );
         }
-        if crate::core::has_dangerous_chars(&self.first_seen)
-        {
+        if crate::core::has_dangerous_chars(&self.first_seen) {
             return Err(
                 "UnknownMcpServer first_seen contains control or format characters".to_string(),
             );

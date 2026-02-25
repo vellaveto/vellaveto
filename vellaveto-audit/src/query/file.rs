@@ -41,9 +41,7 @@ const MAX_LOADED_ENTRIES: usize = 500_000;
 #[async_trait::async_trait]
 impl AuditQueryService for FileAuditQuery {
     async fn search(&self, params: &AuditQueryParams) -> Result<AuditQueryResult, QueryError> {
-        params
-            .validate()
-            .map_err(QueryError::Validation)?;
+        params.validate().map_err(QueryError::Validation)?;
 
         let entries = self
             .logger
@@ -80,9 +78,7 @@ impl AuditQueryService for FileAuditQuery {
     }
 
     async fn count(&self, params: &AuditQueryParams) -> Result<u64, QueryError> {
-        params
-            .validate()
-            .map_err(QueryError::Validation)?;
+        params.validate().map_err(QueryError::Validation)?;
 
         let entries = self
             .logger
@@ -149,10 +145,7 @@ impl AuditQueryService for FileAuditQuery {
 
 /// Apply all filters from `AuditQueryParams` to a slice of entries.
 /// Returns references to matching entries in order.
-fn filter_entries<'a>(
-    entries: &'a [AuditEntry],
-    params: &AuditQueryParams,
-) -> Vec<&'a AuditEntry> {
+fn filter_entries<'a>(entries: &'a [AuditEntry], params: &AuditQueryParams) -> Vec<&'a AuditEntry> {
     entries
         .iter()
         .filter(|e| {
@@ -256,7 +249,10 @@ mod tests {
     ) -> AuditEntry {
         let mut metadata = serde_json::Map::new();
         if let Some(aid) = agent_id {
-            metadata.insert("agent_id".to_string(), serde_json::Value::String(aid.to_string()));
+            metadata.insert(
+                "agent_id".to_string(),
+                serde_json::Value::String(aid.to_string()),
+            );
         }
         AuditEntry {
             id: format!("entry-{}", sequence),
@@ -281,11 +277,55 @@ mod tests {
 
     fn sample_entries() -> Vec<AuditEntry> {
         vec![
-            make_entry("file_read", "read", Verdict::Allow, 1, "2026-01-01T00:00:00Z", Some("agent-a"), Some("tenant-1")),
-            make_entry("file_write", "write", Verdict::Deny { reason: "blocked".to_string() }, 2, "2026-01-02T00:00:00Z", Some("agent-b"), Some("tenant-1")),
-            make_entry("http_request", "get", Verdict::Allow, 3, "2026-01-03T00:00:00Z", Some("agent-a"), Some("tenant-2")),
-            make_entry("file_read", "read_secret", Verdict::RequireApproval { reason: "sensitive".to_string() }, 4, "2026-01-04T00:00:00Z", None, None),
-            make_entry("db_query", "select", Verdict::Allow, 5, "2026-01-05T00:00:00Z", Some("agent-c"), Some("tenant-1")),
+            make_entry(
+                "file_read",
+                "read",
+                Verdict::Allow,
+                1,
+                "2026-01-01T00:00:00Z",
+                Some("agent-a"),
+                Some("tenant-1"),
+            ),
+            make_entry(
+                "file_write",
+                "write",
+                Verdict::Deny {
+                    reason: "blocked".to_string(),
+                },
+                2,
+                "2026-01-02T00:00:00Z",
+                Some("agent-b"),
+                Some("tenant-1"),
+            ),
+            make_entry(
+                "http_request",
+                "get",
+                Verdict::Allow,
+                3,
+                "2026-01-03T00:00:00Z",
+                Some("agent-a"),
+                Some("tenant-2"),
+            ),
+            make_entry(
+                "file_read",
+                "read_secret",
+                Verdict::RequireApproval {
+                    reason: "sensitive".to_string(),
+                },
+                4,
+                "2026-01-04T00:00:00Z",
+                None,
+                None,
+            ),
+            make_entry(
+                "db_query",
+                "select",
+                Verdict::Allow,
+                5,
+                "2026-01-05T00:00:00Z",
+                Some("agent-c"),
+                Some("tenant-1"),
+            ),
         ]
     }
 

@@ -366,6 +366,9 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
         let _ = write!(html, "</table>");
     }
 
+    // ── Execution graph section (Phase 36) ─────────
+    render_exec_graph_section(&mut html, &state).await;
+
     // ── Governance section (Phase 26) ──────────────
     render_governance_section(&mut html, &state);
 
@@ -688,6 +691,72 @@ fn format_duration(secs: u64) -> String {
     } else {
         format!("{}s", s)
     }
+}
+
+/// Render recent execution graphs with SVG export links (Phase 36).
+async fn render_exec_graph_section(html: &mut String, state: &AppState) {
+    let store = match state.exec_graph_store.as_ref() {
+        Some(s) => s,
+        None => return,
+    };
+
+    let sessions = store.list_sessions().await;
+    if sessions.is_empty() {
+        return;
+    }
+
+    let _ = write!(
+        html,
+        r#"<h2>Recent Execution Graphs ({} sessions)</h2>
+<table>
+<tr><th>Session</th><th>Nodes</th><th>Started</th><th>Export</th></tr>
+"#,
+        sessions.len()
+    );
+
+    // Show last 10 sessions
+    for session_id in sessions.iter().rev().take(10) {
+        if let Some(graph) = store.get(session_id).await {
+            let id = html_escape(&truncate(session_id, 24));
+            let full_id = html_escape(session_id);
+            let nodes = graph.nodes.len();
+            let started = graph
+                .metadata
+                .started_at
+                .map(|t| {
+                    let secs = t / 1000;
+                    let nanos = (t % 1000) * 1_000_000;
+                    chrono::DateTime::from_timestamp(secs as i64, nanos as u32)
+                        .map(|dt| dt.format("%H:%M:%S").to_string())
+                        .unwrap_or_else(|| "—".to_string())
+                })
+                .unwrap_or_else(|| "—".to_string());
+            let started_esc = html_escape(&started);
+
+            let _ = write!(
+                html,
+                r#"<tr>
+  <td title="{full_id}">{id}</td>
+  <td>{nodes}</td>
+  <td class="nowrap">{started_esc}</td>
+  <td class="nowrap">
+    <a href="/api/graphs/{full_id}/svg" class="btn btn-reload" target="_blank">SVG</a>
+    <a href="/api/graphs/{full_id}/dot" class="btn btn-reload" target="_blank">DOT</a>
+  </td>
+</tr>
+"#
+            );
+        }
+    }
+
+    if sessions.len() > 10 {
+        let _ = write!(
+            html,
+            r#"<tr><td colspan="4" class="muted">... and {} more sessions</td></tr>"#,
+            sessions.len() - 10
+        );
+    }
+    let _ = write!(html, "</table>");
 }
 
 /// Render governance visibility section (Phase 26).

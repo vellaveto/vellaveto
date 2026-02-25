@@ -2572,7 +2572,11 @@ mod tests {
         };
         // Should not fail on scheme validation
         let result = config.validate();
-        assert!(result.is_ok(), "HTTPS endpoint should be valid: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "HTTPS endpoint should be valid: {:?}",
+            result
+        );
     }
 
     #[test]

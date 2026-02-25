@@ -64,12 +64,8 @@ pub async fn reconcile_policy(
 
     finalizer(&api, POLICY_FINALIZER, policy, |event| async {
         match event {
-            FinalizerEvent::Apply(policy) => {
-                apply_policy(&ctx_clone, &policy, &ns).await
-            }
-            FinalizerEvent::Cleanup(policy) => {
-                cleanup_policy(&ctx_clone, &policy, &ns).await
-            }
+            FinalizerEvent::Apply(policy) => apply_policy(&ctx_clone, &policy, &ns).await,
+            FinalizerEvent::Cleanup(policy) => cleanup_policy(&ctx_clone, &policy, &ns).await,
         }
     })
     .await
@@ -102,9 +98,10 @@ async fn apply_policy(
 
     // Upsert via add_policy (server handles upsert semantics).
     // Avoid delete-then-add to prevent availability gaps.
-    client.add_policy(&api_policy).await.map_err(|e| {
-        OperatorError::Api(format!("failed to sync policy {}: {e}", api_policy.id))
-    })?;
+    client
+        .add_policy(&api_policy)
+        .await
+        .map_err(|e| OperatorError::Api(format!("failed to sync policy {}: {e}", api_policy.id)))?;
 
     info!(policy = %name, policy_id = %api_policy.id, "policy synced to cluster");
 
@@ -293,7 +290,9 @@ mod tests {
             name: "Conditional".into(),
             policy_type: "Conditional".into(),
             priority: 5,
-            conditions: Some(serde_json::json!({"time_window": {"after": "09:00", "before": "17:00"}})),
+            conditions: Some(
+                serde_json::json!({"time_window": {"after": "09:00", "before": "17:00"}}),
+            ),
             path_rules: None,
             network_rules: None,
         };

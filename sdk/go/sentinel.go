@@ -1135,3 +1135,92 @@ func (c *Client) EvidencePackStatus(ctx context.Context) (*EvidencePackStatus, e
 	}
 	return &resp, nil
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 50: Usage Metering & Billing
+// ═══════════════════════════════════════════════════════════════════════
+
+// UsageMetrics represents per-tenant usage counters for a billing period.
+type UsageMetrics struct {
+	TenantID           string `json:"tenant_id"`
+	PeriodStart        string `json:"period_start"`
+	PeriodEnd          string `json:"period_end"`
+	Evaluations        uint64 `json:"evaluations"`
+	EvaluationsAllowed uint64 `json:"evaluations_allowed"`
+	EvaluationsDenied  uint64 `json:"evaluations_denied"`
+	PoliciesCreated    uint64 `json:"policies_created"`
+	ApprovalsProcessed uint64 `json:"approvals_processed"`
+	AuditEntries       uint64 `json:"audit_entries"`
+}
+
+// QuotaStatus represents usage vs limits for a tenant.
+type QuotaStatus struct {
+	TenantID             string `json:"tenant_id"`
+	EvaluationsUsed      uint64 `json:"evaluations_used"`
+	EvaluationsLimit     uint64 `json:"evaluations_limit"`
+	EvaluationsRemaining uint64 `json:"evaluations_remaining"`
+	PoliciesUsed         uint64 `json:"policies_used"`
+	PoliciesLimit        uint64 `json:"policies_limit"`
+	PeriodStart          string `json:"period_start"`
+	PeriodEnd            string `json:"period_end"`
+	QuotaExceeded        bool   `json:"quota_exceeded"`
+}
+
+// UsageSummary represents historical usage across billing periods.
+type UsageSummary struct {
+	TenantID         string         `json:"tenant_id"`
+	Periods          []UsageMetrics `json:"periods"`
+	TotalEvaluations uint64         `json:"total_evaluations"`
+}
+
+func validateTenantID(tenantID string) error {
+	if len(tenantID) == 0 || len(tenantID) > 64 {
+		return fmt.Errorf("tenantID must be 1-64 characters, got %d", len(tenantID))
+	}
+	if !tenantIDPattern.MatchString(tenantID) {
+		return fmt.Errorf("tenantID %q contains invalid characters", tenantID)
+	}
+	return nil
+}
+
+// Usage retrieves current-period usage metrics for a tenant.
+func (c *Client) Usage(ctx context.Context, tenantID string) (*UsageMetrics, error) {
+	if err := validateTenantID(tenantID); err != nil {
+		return nil, err
+	}
+	var resp UsageMetrics
+	path := "/api/billing/usage/" + url.PathEscape(tenantID)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// QuotaStatus retrieves quota status (usage vs limits) for a tenant.
+func (c *Client) QuotaStatus(ctx context.Context, tenantID string) (*QuotaStatus, error) {
+	if err := validateTenantID(tenantID); err != nil {
+		return nil, err
+	}
+	var resp QuotaStatus
+	path := "/api/billing/quotas/" + url.PathEscape(tenantID)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// UsageHistory retrieves usage history across billing periods for a tenant.
+func (c *Client) UsageHistory(ctx context.Context, tenantID string, periods int) (*UsageSummary, error) {
+	if err := validateTenantID(tenantID); err != nil {
+		return nil, err
+	}
+	if periods < 1 || periods > 120 {
+		return nil, fmt.Errorf("periods must be between 1 and 120, got %d", periods)
+	}
+	var resp UsageSummary
+	path := fmt.Sprintf("/api/billing/usage/%s/history?periods=%d", url.PathEscape(tenantID), periods)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

@@ -386,9 +386,7 @@ mod enabled {
                             count = span_count,
                             "Exported spans successfully"
                         );
-                        stats
-                            .spans_exported
-                            .fetch_add(span_count, Ordering::SeqCst);
+                        stats.spans_exported.fetch_add(span_count, Ordering::SeqCst);
                     }
                     Err(e) => {
                         error!(

@@ -155,9 +155,7 @@ impl AuditQueryParams {
                 ));
             }
             if crate::has_dangerous_chars(agent_id) {
-                return Err(
-                    "agent_id contains control or format characters".to_string(),
-                );
+                return Err("agent_id contains control or format characters".to_string());
             }
         }
 
@@ -174,9 +172,7 @@ impl AuditQueryParams {
                 ));
             }
             if crate::has_dangerous_chars(tool) {
-                return Err(
-                    "tool contains control or format characters".to_string(),
-                );
+                return Err("tool contains control or format characters".to_string());
             }
         }
 
@@ -192,9 +188,7 @@ impl AuditQueryParams {
                 ));
             }
             if crate::has_dangerous_chars(text_search) {
-                return Err(
-                    "text_search contains control or format characters".to_string(),
-                );
+                return Err("text_search contains control or format characters".to_string());
             }
             // SECURITY (FIND-R198-007): Reject text_search consisting solely of
             // SQL LIKE wildcards (% and _). Such patterns match everything and
@@ -220,9 +214,7 @@ impl AuditQueryParams {
                 ));
             }
             if crate::has_dangerous_chars(tenant_id) {
-                return Err(
-                    "tenant_id contains control or format characters".to_string(),
-                );
+                return Err("tenant_id contains control or format characters".to_string());
             }
         }
 

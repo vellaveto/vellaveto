@@ -1370,6 +1370,64 @@ export class VellavetoClient {
       "/api/compliance/evidence-pack/status"
     );
   }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Phase 50: Usage Metering & Billing
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /** Get current-period usage metrics for a tenant. */
+  async usage(tenantId: string): Promise<Record<string, unknown>> {
+    if (!tenantId || tenantId.length > 64) {
+      throw new VellavetoError("tenantId must be 1-64 characters");
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(tenantId)) {
+      throw new VellavetoError(
+        "tenantId must be alphanumeric, hyphens, or underscores"
+      );
+    }
+    return this.request<Record<string, unknown>>(
+      "GET",
+      `/api/billing/usage/${encodeURIComponent(tenantId)}`
+    );
+  }
+
+  /** Get quota status (usage vs limits) for a tenant. */
+  async quotaStatus(tenantId: string): Promise<Record<string, unknown>> {
+    if (!tenantId || tenantId.length > 64) {
+      throw new VellavetoError("tenantId must be 1-64 characters");
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(tenantId)) {
+      throw new VellavetoError(
+        "tenantId must be alphanumeric, hyphens, or underscores"
+      );
+    }
+    return this.request<Record<string, unknown>>(
+      "GET",
+      `/api/billing/quotas/${encodeURIComponent(tenantId)}`
+    );
+  }
+
+  /** Get usage history across billing periods for a tenant. */
+  async usageHistory(
+    tenantId: string,
+    periods: number = 12
+  ): Promise<Record<string, unknown>> {
+    if (!tenantId || tenantId.length > 64) {
+      throw new VellavetoError("tenantId must be 1-64 characters");
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(tenantId)) {
+      throw new VellavetoError(
+        "tenantId must be alphanumeric, hyphens, or underscores"
+      );
+    }
+    if (periods < 1 || periods > 120) {
+      throw new VellavetoError("periods must be between 1 and 120");
+    }
+    return this.request<Record<string, unknown>>(
+      "GET",
+      `/api/billing/usage/${encodeURIComponent(tenantId)}/history?periods=${periods}`
+    );
+  }
 }
 
 /**

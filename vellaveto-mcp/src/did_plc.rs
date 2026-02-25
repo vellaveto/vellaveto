@@ -391,9 +391,7 @@ mod tests {
 
     #[test]
     fn test_generate_did_plc_genesis_exceeds_max_entries() {
-        let many_keys: Vec<String> = (0..101)
-            .map(|i| format!("did:key:zKey{:04}", i))
-            .collect();
+        let many_keys: Vec<String> = (0..101).map(|i| format!("did:key:zKey{:04}", i)).collect();
         let genesis = DidPlcGenesisOperation {
             op_type: "plc_operation".to_string(),
             rotation_keys: many_keys,
@@ -404,7 +402,10 @@ mod tests {
             prev: None,
         };
         let result = generate_did_plc(&genesis);
-        assert!(result.is_err(), "Should reject genesis with 101 rotation keys");
+        assert!(
+            result.is_err(),
+            "Should reject genesis with 101 rotation keys"
+        );
     }
 
     #[test]
@@ -414,7 +415,11 @@ mod tests {
         assert!(result.is_err());
         // Error message should be bounded (truncated to ~60 chars)
         let err_msg = format!("{:?}", result.unwrap_err());
-        assert!(err_msg.len() < 200, "Error message should be bounded: len={}", err_msg.len());
+        assert!(
+            err_msg.len() < 200,
+            "Error message should be bounded: len={}",
+            err_msg.len()
+        );
     }
 
     #[test]

@@ -118,11 +118,8 @@ impl ServiceEndpoint {
             ));
         }
         // SECURITY (FIND-R113-011): Validate control/format chars on id.
-        if crate::core::has_dangerous_chars(&self.id)
-        {
-            return Err(
-                "ServiceEndpoint id contains control or format characters".to_string(),
-            );
+        if crate::core::has_dangerous_chars(&self.id) {
+            return Err("ServiceEndpoint id contains control or format characters".to_string());
         }
         if self.url.len() > Self::MAX_URL_LEN {
             return Err(format!(
@@ -133,11 +130,8 @@ impl ServiceEndpoint {
             ));
         }
         // SECURITY (FIND-R113-011): Validate control/format chars on url.
-        if crate::core::has_dangerous_chars(&self.url)
-        {
-            return Err(
-                "ServiceEndpoint url contains control or format characters".to_string(),
-            );
+        if crate::core::has_dangerous_chars(&self.url) {
+            return Err("ServiceEndpoint url contains control or format characters".to_string());
         }
         if self.labels.len() > Self::MAX_LABELS {
             return Err(format!(
@@ -201,6 +195,38 @@ pub enum DiscoveryEvent {
     },
     /// An existing endpoint was updated (e.g., health status changed).
     Updated(ServiceEndpoint),
+}
+
+impl DiscoveryEvent {
+    /// Maximum length for the `id` in `Removed` events.
+    ///
+    /// SECURITY (IMP-R224-007): Bound the Removed id to prevent OOM and log
+    /// injection from attacker-crafted discovery events.
+    const MAX_REMOVED_ID_LEN: usize = 256;
+
+    /// Validate structural bounds on all variants.
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            DiscoveryEvent::Added(ep) => ep.validate(),
+            DiscoveryEvent::Updated(ep) => ep.validate(),
+            DiscoveryEvent::Removed { id } => {
+                if id.len() > Self::MAX_REMOVED_ID_LEN {
+                    return Err(format!(
+                        "DiscoveryEvent::Removed id length {} exceeds max {}",
+                        id.len(),
+                        Self::MAX_REMOVED_ID_LEN,
+                    ));
+                }
+                if crate::core::has_dangerous_chars(id) {
+                    return Err(
+                        "DiscoveryEvent::Removed id contains control or format characters"
+                            .to_string(),
+                    );
+                }
+                Ok(())
+            }
+        }
+    }
 }
 
 /// Summary of deployment status for the `/api/deployment/info` endpoint.
@@ -268,11 +294,8 @@ impl DeploymentInfo {
             ));
         }
         // SECURITY (FIND-R115-005): Reject control/format chars in mode.
-        if crate::core::has_dangerous_chars(&self.mode)
-        {
-            return Err(
-                "DeploymentInfo mode contains control or format characters".to_string(),
-            );
+        if crate::core::has_dangerous_chars(&self.mode) {
+            return Err("DeploymentInfo mode contains control or format characters".to_string());
         }
         Ok(())
     }

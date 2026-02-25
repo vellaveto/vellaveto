@@ -1,4 +1,5 @@
 pub mod dashboard;
+pub mod iam;
 pub mod idempotency;
 pub mod jit;
 pub mod metrics;
@@ -12,6 +13,7 @@ pub mod telemetry;
 pub mod tenant;
 pub mod threat_intel;
 pub mod tls;
+pub mod usage_tracker;
 
 /// Re-export for fuzz testing — not part of the public API.
 #[doc(hidden)]
@@ -403,7 +405,8 @@ impl PerTenantRateLimiter {
     /// Remove entries that haven't been seen for the given duration.
     pub fn cleanup(&self, max_age: std::time::Duration) {
         let cutoff = Instant::now() - max_age;
-        self.buckets.retain(|_, (_, last_seen, _)| *last_seen > cutoff);
+        self.buckets
+            .retain(|_, (_, last_seen, _)| *last_seen > cutoff);
     }
 
     /// Number of tracked tenants.
@@ -607,33 +610,33 @@ impl Metrics {
             });
         match verdict {
             vellaveto_types::Verdict::Allow => {
-                let _ = self
-                    .evaluations_allow
-                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
-                        Some(v.saturating_add(1))
-                    });
+                let _ =
+                    self.evaluations_allow
+                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                            Some(v.saturating_add(1))
+                        });
             }
             vellaveto_types::Verdict::Deny { .. } => {
-                let _ = self
-                    .evaluations_deny
-                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
-                        Some(v.saturating_add(1))
-                    });
+                let _ =
+                    self.evaluations_deny
+                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                            Some(v.saturating_add(1))
+                        });
             }
             vellaveto_types::Verdict::RequireApproval { .. } => {
-                let _ = self
-                    .evaluations_require_approval
-                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
-                        Some(v.saturating_add(1))
-                    });
+                let _ = self.evaluations_require_approval.fetch_update(
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                    |v| Some(v.saturating_add(1)),
+                );
             }
             // Handle future variants - count as deny (fail-closed)
             _ => {
-                let _ = self
-                    .evaluations_deny
-                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
-                        Some(v.saturating_add(1))
-                    });
+                let _ =
+                    self.evaluations_deny
+                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                            Some(v.saturating_add(1))
+                        });
             }
         }
     }
@@ -854,6 +857,10 @@ pub struct AppState {
     /// None when step-up auth is disabled.
     pub auth_level: Option<Arc<AuthLevelTracker>>,
 
+    /// Enterprise IAM state (Phase 46).
+    /// None when IAM is disabled or misconfigured.
+    pub iam_state: Option<Arc<iam::IamState>>,
+
     /// Circuit breaker manager for cascading failure protection (Phase 2, ASI08).
     /// None when circuit breaker is disabled.
     pub circuit_breaker: Option<Arc<CircuitBreakerManager>>,
@@ -1042,6 +1049,13 @@ pub struct AppState {
     pub policy_lifecycle_store: Option<Arc<dyn policy_lifecycle::PolicyVersionStore>>,
     pub policy_lifecycle_config: vellaveto_config::PolicyLifecycleConfig,
     pub staging_snapshot: Arc<ArcSwap<Option<StagingSnapshot>>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 50: Usage Metering & Billing Foundation
+    // ═══════════════════════════════════════════════════════════════════
+    /// Per-tenant usage tracker for metering evaluations/policies/approvals.
+    /// None when metering is disabled.
+    pub usage_tracker: Option<Arc<usage_tracker::TenantUsageTracker>>,
 }
 
 /// Staging policy engine snapshot for shadow evaluation.
@@ -1272,10 +1286,12 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             discovery: Default::default(),
             projector: Default::default(),
             zk_audit: Default::default(),
+            iam: Default::default(),
             licensing: Default::default(),
             billing: Default::default(),
             audit_store: Default::default(),
             policy_lifecycle: Default::default(),
+            metering: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

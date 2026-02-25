@@ -111,8 +111,7 @@ impl TrackedTask {
                 Self::MAX_TASK_ID_LEN,
             ));
         }
-        if crate::core::has_dangerous_chars(&self.task_id)
-        {
+        if crate::core::has_dangerous_chars(&self.task_id) {
             return Err("TrackedTask task_id contains control or format characters".to_string());
         }
         if self.tool.is_empty() {
@@ -125,8 +124,7 @@ impl TrackedTask {
                 Self::MAX_TOOL_LEN,
             ));
         }
-        if crate::core::has_dangerous_chars(&self.tool)
-        {
+        if crate::core::has_dangerous_chars(&self.tool) {
             return Err("TrackedTask tool contains control or format characters".to_string());
         }
         if self.function.is_empty() {
@@ -139,8 +137,7 @@ impl TrackedTask {
                 Self::MAX_FUNCTION_LEN,
             ));
         }
-        if crate::core::has_dangerous_chars(&self.function)
-        {
+        if crate::core::has_dangerous_chars(&self.function) {
             return Err("TrackedTask function contains control or format characters".to_string());
         }
         if self.created_at.len() > Self::MAX_TIMESTAMP_LEN {
@@ -152,9 +149,7 @@ impl TrackedTask {
         }
         // SECURITY (FIND-R203-002): Reject control/format chars and validate ISO 8601 format.
         if crate::core::has_dangerous_chars(&self.created_at) {
-            return Err(
-                "TrackedTask created_at contains control or format characters".to_string(),
-            );
+            return Err("TrackedTask created_at contains control or format characters".to_string());
         }
         if !self.created_at.is_empty() {
             crate::time_util::parse_iso8601_secs(&self.created_at)
@@ -287,7 +282,8 @@ impl TaskStateTransition {
             // SECURITY (FIND-R112-005): Reject Unicode format characters in addition to control chars.
             if crate::core::has_dangerous_chars(tb) {
                 return Err(
-                    "TaskStateTransition triggered_by contains control or format characters".to_string(),
+                    "TaskStateTransition triggered_by contains control or format characters"
+                        .to_string(),
                 );
             }
         }
@@ -537,8 +533,7 @@ impl TaskCheckpoint {
                 Self::MAX_CHECKPOINT_ID_LEN,
             ));
         }
-        if crate::core::has_dangerous_chars(&self.checkpoint_id)
-        {
+        if crate::core::has_dangerous_chars(&self.checkpoint_id) {
             return Err(
                 "TaskCheckpoint checkpoint_id contains control or format characters".to_string(),
             );
@@ -553,8 +548,7 @@ impl TaskCheckpoint {
                 Self::MAX_TASK_ID_LEN,
             ));
         }
-        if crate::core::has_dangerous_chars(&self.task_id)
-        {
+        if crate::core::has_dangerous_chars(&self.task_id) {
             return Err("TaskCheckpoint task_id contains control or format characters".to_string());
         }
         if self.state_hash.len() > Self::MAX_HASH_LEN {

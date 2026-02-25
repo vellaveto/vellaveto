@@ -1128,10 +1128,7 @@ fn test_grpc_circuit_breaker_blocks_resource_read_on_open_circuit() {
 
     // Now the circuit should be open
     let result = cb.can_proceed("file:///etc/data");
-    assert!(
-        result.is_err(),
-        "Open circuit must block resource reads"
-    );
+    assert!(result.is_err(), "Open circuit must block resource reads");
 
     // Different URI should still be allowed (circuit breaker is per-key)
     assert!(
@@ -1162,10 +1159,7 @@ async fn test_grpc_tool_registry_record_call() {
 
     let entry_after = registry.get("my_grpc_tool").await;
     let calls_after = entry_after.map(|e| e.call_count).unwrap_or(0);
-    assert_eq!(
-        calls_after, 1,
-        "record_call must increment call_count to 1"
-    );
+    assert_eq!(calls_after, 1, "record_call must increment call_count to 1");
 
     // Record another call
     registry.record_call("my_grpc_tool").await;

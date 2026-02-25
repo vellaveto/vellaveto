@@ -37,9 +37,8 @@ impl StaticServiceDiscovery {
         // Without this, endpoints with control chars in id/url or excessively
         // long labels are accepted and propagated unvalidated.
         for (i, ep) in endpoints.iter().enumerate() {
-            ep.validate().map_err(|e| {
-                ClusterError::Validation(format!("endpoint[{}]: {}", i, e))
-            })?;
+            ep.validate()
+                .map_err(|e| ClusterError::Validation(format!("endpoint[{}]: {}", i, e)))?;
         }
         Ok(Self { endpoints })
     }

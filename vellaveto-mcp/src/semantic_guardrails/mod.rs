@@ -362,43 +362,44 @@ impl SemanticGuardrailsService {
                         "Intent chain: rejecting oversized session_id"
                     );
                 } else {
-                let intent = evaluation.intent.unwrap_or(Intent::Unknown);
-                let mut chains = self.intent_chains.write().await;
+                    let intent = evaluation.intent.unwrap_or(Intent::Unknown);
+                    let mut chains = self.intent_chains.write().await;
 
-                // SECURITY (FIND-R52-010): Evict oldest session when at capacity instead
-                // of silently skipping. Previous behavior allowed an attacker to fill
-                // the map with stale sessions, permanently disabling intent tracking.
-                if !chains.contains_key(session_id.as_str()) && chains.len() >= MAX_INTENT_SESSIONS
-                {
-                    // Evict the session with the oldest last activity timestamp.
-                    let oldest_key = chains
-                        .iter()
-                        .min_by_key(|(_, chain)| {
-                            chain.recent(1).first().map(|r| r.timestamp).unwrap_or(0)
-                        })
-                        .map(|(k, _)| k.clone());
-                    if let Some(key) = oldest_key {
-                        chains.remove(&key);
-                        tracing::info!(
-                            evicted_session = %key,
-                            new_session = %session_id,
-                            capacity = MAX_INTENT_SESSIONS,
-                            "Intent chain capacity reached; evicted oldest session"
-                        );
+                    // SECURITY (FIND-R52-010): Evict oldest session when at capacity instead
+                    // of silently skipping. Previous behavior allowed an attacker to fill
+                    // the map with stale sessions, permanently disabling intent tracking.
+                    if !chains.contains_key(session_id.as_str())
+                        && chains.len() >= MAX_INTENT_SESSIONS
+                    {
+                        // Evict the session with the oldest last activity timestamp.
+                        let oldest_key = chains
+                            .iter()
+                            .min_by_key(|(_, chain)| {
+                                chain.recent(1).first().map(|r| r.timestamp).unwrap_or(0)
+                            })
+                            .map(|(k, _)| k.clone());
+                        if let Some(key) = oldest_key {
+                            chains.remove(&key);
+                            tracing::info!(
+                                evicted_session = %key,
+                                new_session = %session_id,
+                                capacity = MAX_INTENT_SESSIONS,
+                                "Intent chain capacity reached; evicted oldest session"
+                            );
+                        }
                     }
-                }
-                {
-                    let chain = chains
-                        .entry(session_id.clone())
-                        .or_insert_with(|| IntentChain::new(self.config.max_chain_size));
+                    {
+                        let chain = chains
+                            .entry(session_id.clone())
+                            .or_insert_with(|| IntentChain::new(self.config.max_chain_size));
 
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0);
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
 
-                    chain.push(intent, input.tool.clone(), now);
-                }
+                        chain.push(intent, input.tool.clone(), now);
+                    }
                 } // end else (session_id within bounds)
             }
         }

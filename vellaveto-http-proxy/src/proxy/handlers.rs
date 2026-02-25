@@ -1042,7 +1042,13 @@ pub async fn handle_mcp_post(
                                 );
                                 if state.transport_config.stdio_fallback_enabled {
                                     if let Some(ref cmd) = state.transport_config.stdio_command {
-                                        chain = chain.with_stdio(cmd.clone());
+                                        match chain.with_stdio(cmd.clone()) {
+                                            Ok(updated) => chain = updated,
+                                            Err(err) => tracing::warn!(
+                                                "Invalid stdio fallback command: {}",
+                                                err
+                                            ),
+                                        }
                                     }
                                 }
 
@@ -1341,7 +1347,10 @@ pub async fn handle_mcp_post(
                         )
                         .await
                     {
-                        tracing::error!("AUDIT FAILURE in HTTP proxy: security decision not recorded: {}", e);
+                        tracing::error!(
+                            "AUDIT FAILURE in HTTP proxy: security decision not recorded: {}",
+                            e
+                        );
                         // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed
                         // if audit fails. No unaudited security decisions can occur.
                         if state.audit_strict_mode {
@@ -1418,7 +1427,10 @@ pub async fn handle_mcp_post(
                         )
                         .await
                     {
-                        tracing::error!("AUDIT FAILURE in HTTP proxy: security decision not recorded: {}", e);
+                        tracing::error!(
+                            "AUDIT FAILURE in HTTP proxy: security decision not recorded: {}",
+                            e
+                        );
                         // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
                         if state.audit_strict_mode {
                             return attach_session_header(
@@ -1773,7 +1785,9 @@ pub async fn handle_mcp_post(
                     if session.action_history.len() >= MAX_ACTION_HISTORY {
                         session.action_history.pop_front();
                     }
-                    session.action_history.push_back("resources/read".to_string());
+                    session
+                        .action_history
+                        .push_back("resources/read".to_string());
                 }
 
                 result
@@ -1799,11 +1813,9 @@ pub async fn handle_mcp_post(
                     // allowed the action, ABAC may still deny it based on principal/action/
                     // resource/condition constraints.
                     if let Some(ref abac) = state.abac_engine {
-                        let abac_eval_ctx =
-                            build_evaluation_context(&state.sessions, &session_id)
-                                .unwrap_or_default();
-                        let principal_id =
-                            abac_eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
+                        let abac_eval_ctx = build_evaluation_context(&state.sessions, &session_id)
+                            .unwrap_or_default();
+                        let principal_id = abac_eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
                         let principal_type = abac_eval_ctx.principal_type();
                         let session_risk = state
                             .sessions
@@ -1966,7 +1978,10 @@ pub async fn handle_mcp_post(
                         )
                         .await
                     {
-                        tracing::error!("AUDIT FAILURE in HTTP proxy: security decision not recorded: {}", e);
+                        tracing::error!(
+                            "AUDIT FAILURE in HTTP proxy: security decision not recorded: {}",
+                            e
+                        );
                         // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
                         if state.audit_strict_mode {
                             return attach_session_header(
@@ -2037,19 +2052,13 @@ pub async fn handle_mcp_post(
             // Atomically read + increment while holding the DashMap lock.
             let sampling_verdict = {
                 let mut session_ref = state.sessions.get_mut(&session_id);
-                let current_count = session_ref
-                    .as_ref()
-                    .map(|s| s.sampling_count)
-                    .unwrap_or(0);
+                let current_count = session_ref.as_ref().map(|s| s.sampling_count).unwrap_or(0);
                 let verdict = vellaveto_mcp::elicitation::inspect_sampling(
                     &params,
                     &state.sampling_config,
                     current_count,
                 );
-                if matches!(
-                    verdict,
-                    vellaveto_mcp::elicitation::SamplingVerdict::Allow
-                ) {
+                if matches!(verdict, vellaveto_mcp::elicitation::SamplingVerdict::Allow) {
                     if let Some(ref mut s) = session_ref {
                         s.sampling_count = s.sampling_count.saturating_add(1);
                     }
@@ -2297,10 +2306,7 @@ pub async fn handle_mcp_post(
                             )
                             .await
                         {
-                            tracing::warn!(
-                                "Failed to audit passthrough injection: {}",
-                                e
-                            );
+                            tracing::warn!("Failed to audit passthrough injection: {}", e);
                         }
 
                         if state.injection_blocking {
@@ -2322,8 +2328,7 @@ pub async fn handle_mcp_post(
                     session.memory_tracker.check_parameters(&params_to_scan);
                 // IMP-R184-010: Also scan `result` field — parity with DLP (FIND-R96-001).
                 if let Some(result_val) = msg.get("result") {
-                    poisoning_matches
-                        .extend(session.memory_tracker.check_parameters(result_val));
+                    poisoning_matches.extend(session.memory_tracker.check_parameters(result_val));
                 }
                 if !poisoning_matches.is_empty() {
                     for m in &poisoning_matches {
@@ -2363,10 +2368,7 @@ pub async fn handle_mcp_post(
                         )
                         .await
                     {
-                        tracing::warn!(
-                            "Failed to audit HTTP passthrough memory poisoning: {}",
-                            e
-                        );
+                        tracing::warn!("Failed to audit HTTP passthrough memory poisoning: {}", e);
                     }
                     return make_jsonrpc_error(
                         msg.get("id"),
@@ -2673,10 +2675,7 @@ pub async fn handle_mcp_post(
                             )
                             .await
                         {
-                            tracing::warn!(
-                                "Failed to audit task injection: {}",
-                                e
-                            );
+                            tracing::warn!("Failed to audit task injection: {}", e);
                         }
 
                         if state.injection_blocking {
@@ -2796,10 +2795,7 @@ pub async fn handle_mcp_post(
                     if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
                         || session.call_counts.contains_key(&task_method)
                     {
-                        let count = session
-                            .call_counts
-                            .entry(task_method.clone())
-                            .or_insert(0);
+                        let count = session.call_counts.entry(task_method.clone()).or_insert(0);
                         *count = count.saturating_add(1);
                     }
                     if session.action_history.len() >= MAX_ACTION_HISTORY {
@@ -2829,11 +2825,9 @@ pub async fn handle_mcp_post(
                     // SECURITY (FIND-R190-001): ABAC refinement for TaskRequest,
                     // matching ToolCall/ResourceRead parity.
                     if let Some(ref abac) = state.abac_engine {
-                        let abac_eval_ctx =
-                            build_evaluation_context(&state.sessions, &session_id)
-                                .unwrap_or_default();
-                        let principal_id =
-                            abac_eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
+                        let abac_eval_ctx = build_evaluation_context(&state.sessions, &session_id)
+                            .unwrap_or_default();
+                        let principal_id = abac_eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
                         let principal_type = abac_eval_ctx.principal_type();
                         let session_risk = state
                             .sessions
@@ -2847,10 +2841,7 @@ pub async fn handle_mcp_post(
                         };
 
                         match abac.evaluate(&action, &abac_ctx) {
-                            vellaveto_engine::abac::AbacDecision::Deny {
-                                policy_id,
-                                reason,
-                            } => {
+                            vellaveto_engine::abac::AbacDecision::Deny { policy_id, reason } => {
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
@@ -2871,17 +2862,10 @@ pub async fn handle_mcp_post(
                                     )
                                     .await
                                 {
-                                    tracing::warn!(
-                                        "Failed to audit task ABAC deny: {}",
-                                        e
-                                    );
+                                    tracing::warn!("Failed to audit task ABAC deny: {}", e);
                                 }
                                 return attach_session_header(
-                                    make_jsonrpc_error(
-                                        msg.get("id"),
-                                        -32001,
-                                        "Denied by policy",
-                                    ),
+                                    make_jsonrpc_error(msg.get("id"), -32001, "Denied by policy"),
                                     &session_id,
                                 );
                             }
@@ -2899,15 +2883,9 @@ pub async fn handle_mcp_post(
                             vellaveto_engine::abac::AbacDecision::NoMatch => {}
                             #[allow(unreachable_patterns)]
                             _ => {
-                                tracing::warn!(
-                                    "Unknown AbacDecision variant — fail-closed"
-                                );
+                                tracing::warn!("Unknown AbacDecision variant — fail-closed");
                                 return attach_session_header(
-                                    make_jsonrpc_error(
-                                        msg.get("id"),
-                                        -32001,
-                                        "Denied by policy",
-                                    ),
+                                    make_jsonrpc_error(msg.get("id"), -32001, "Denied by policy"),
                                     &session_id,
                                 );
                             }
@@ -2931,7 +2909,10 @@ pub async fn handle_mcp_post(
                         )
                         .await
                     {
-                        tracing::error!("AUDIT FAILURE in HTTP proxy: security decision not recorded: {}", e);
+                        tracing::error!(
+                            "AUDIT FAILURE in HTTP proxy: security decision not recorded: {}",
+                            e
+                        );
                         // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
                         if state.audit_strict_mode {
                             return attach_session_header(
@@ -2989,7 +2970,10 @@ pub async fn handle_mcp_post(
                         )
                         .await
                     {
-                        tracing::error!("AUDIT FAILURE in HTTP proxy: security decision not recorded: {}", e);
+                        tracing::error!(
+                            "AUDIT FAILURE in HTTP proxy: security decision not recorded: {}",
+                            e
+                        );
                         // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
                         if state.audit_strict_mode {
                             return attach_session_header(
@@ -3045,7 +3029,10 @@ pub async fn handle_mcp_post(
                         )
                         .await
                     {
-                        tracing::error!("AUDIT FAILURE in HTTP proxy: security decision not recorded: {}", e);
+                        tracing::error!(
+                            "AUDIT FAILURE in HTTP proxy: security decision not recorded: {}",
+                            e
+                        );
                         // SECURITY (FIND-CREATIVE-003): Strict audit mode — fail-closed.
                         if state.audit_strict_mode {
                             return attach_session_header(
@@ -3220,10 +3207,7 @@ pub async fn handle_mcp_post(
                             )
                             .await
                         {
-                            tracing::warn!(
-                                "Failed to audit extension injection: {}",
-                                e
-                            );
+                            tracing::warn!("Failed to audit extension injection: {}", e);
                         }
 
                         if state.injection_blocking {
@@ -3254,7 +3238,10 @@ pub async fn handle_mcp_post(
                 );
                 let action = extractor::extract_extension_action(extension_id, method, &params);
                 let audit_verdict = Verdict::Deny {
-                    reason: format!("DLP blocked: secret detected in extension parameters: {:?}", patterns),
+                    reason: format!(
+                        "DLP blocked: secret detected in extension parameters: {:?}",
+                        patterns
+                    ),
                 };
                 if let Err(e) = state.audit.log_entry(
                     &action, &audit_verdict,
@@ -3277,7 +3264,11 @@ pub async fn handle_mcp_post(
                         tracing::warn!(
                             "SECURITY: Memory poisoning in HTTP extension '{}:{}' (session {}): \
                              param '{}' replayed data (fingerprint: {})",
-                            extension_id, method, session_id, m.param_location, m.fingerprint
+                            extension_id,
+                            method,
+                            session_id,
+                            m.param_location,
+                            m.fingerprint
                         );
                     }
                     let action = extractor::extract_extension_action(extension_id, method, &params);
@@ -3285,15 +3276,25 @@ pub async fn handle_mcp_post(
                         "Memory poisoning detected: {} replayed data fragment(s) in extension '{}:{}'",
                         poisoning_matches.len(), extension_id, method
                     );
-                    if let Err(e) = state.audit.log_entry(
-                        &action,
-                        &Verdict::Deny { reason: deny_reason.clone() },
-                        build_audit_context(&session_id, json!({
-                            "event": "memory_poisoning_detected",
-                            "matches": poisoning_matches.len(),
-                            "extension_id": extension_id, "method": method,
-                        }), &oauth_claims),
-                    ).await {
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Deny {
+                                reason: deny_reason.clone(),
+                            },
+                            build_audit_context(
+                                &session_id,
+                                json!({
+                                    "event": "memory_poisoning_detected",
+                                    "matches": poisoning_matches.len(),
+                                    "extension_id": extension_id, "method": method,
+                                }),
+                                &oauth_claims,
+                            ),
+                        )
+                        .await
+                    {
                         tracing::warn!("Failed to audit extension memory poisoning: {}", e);
                     }
                     return make_jsonrpc_error(Some(id), -32001, "Denied by policy");

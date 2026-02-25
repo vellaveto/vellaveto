@@ -171,14 +171,10 @@ impl PolicyEngine {
                     // bypass via tool name casing variations (e.g., "Read_File" vs "read_file").
                     // SECURITY (FIND-R206-008): Homoglyph normalization on history entries
                     // to prevent Cyrillic/Greek/fullwidth characters from causing false denials.
-                    if !context
-                        .previous_actions
-                        .iter()
-                        .any(|a| {
-                            let norm = normalize_full(a);
-                            norm == *required_tool
-                        })
-                    {
+                    if !context.previous_actions.iter().any(|a| {
+                        let norm = normalize_full(a);
+                        norm == *required_tool
+                    }) {
                         return Some(Verdict::Deny {
                             reason: deny_reason.clone(),
                         });
@@ -191,14 +187,10 @@ impl PolicyEngine {
                     // SECURITY (R31-ENG-7): Case-insensitive comparison.
                     // SECURITY (FIND-R206-007): Homoglyph normalization on history entries
                     // to prevent Cyrillic/Greek/fullwidth bypasses of forbidden action checks.
-                    if context
-                        .previous_actions
-                        .iter()
-                        .any(|a| {
-                            let norm = normalize_full(a);
-                            norm == *forbidden_tool
-                        })
-                    {
+                    if context.previous_actions.iter().any(|a| {
+                        let norm = normalize_full(a);
+                        norm == *forbidden_tool
+                    }) {
                         return Some(Verdict::Deny {
                             reason: deny_reason.clone(),
                         });
@@ -280,8 +272,7 @@ impl PolicyEngine {
                             // Cyrillic/fullwidth characters from bypassing blocked issuer checks.
                             if let Some(ref iss) = identity.issuer {
                                 if blocked_issuers.contains(&normalize_full(iss)) {
-                                    let safe_iss =
-                                        sanitize_for_log(iss, MAX_CLAIM_DISPLAY_LEN);
+                                    let safe_iss = sanitize_for_log(iss, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
                                         reason: format!(
                                             "{deny_reason} (blocked issuer: {safe_iss})"
@@ -295,8 +286,7 @@ impl PolicyEngine {
                             // Cyrillic/fullwidth characters from bypassing blocked subject checks.
                             if let Some(ref sub) = identity.subject {
                                 if blocked_subjects.contains(&normalize_full(sub)) {
-                                    let safe_sub =
-                                        sanitize_for_log(sub, MAX_CLAIM_DISPLAY_LEN);
+                                    let safe_sub = sanitize_for_log(sub, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
                                         reason: format!(
                                             "{deny_reason} (blocked subject: {safe_sub})"
@@ -393,9 +383,7 @@ impl PolicyEngine {
                             // to_lowercase for consistency with issuer/subject/audience.
                             for (claim_key, expected_value) in required_claims {
                                 match identity.claim_str(claim_key) {
-                                    Some(actual)
-                                        if normalize_full(actual)
-                                            == *expected_value => {}
+                                    Some(actual) if normalize_full(actual) == *expected_value => {}
                                     actual => {
                                         let safe_actual = actual
                                             .map(|s| sanitize_for_log(s, MAX_CLAIM_DISPLAY_LEN))
@@ -403,10 +391,7 @@ impl PolicyEngine {
                                         return Some(Verdict::Deny {
                                             reason: format!(
                                                 "{} (claim '{}' mismatch: expected '{}', got '{}')",
-                                                deny_reason,
-                                                claim_key,
-                                                expected_value,
-                                                safe_actual
+                                                deny_reason, claim_key, expected_value, safe_actual
                                             ),
                                         });
                                     }
@@ -498,8 +483,7 @@ impl PolicyEngine {
                                     // before interpolation into denial reason to prevent
                                     // log injection via attacker-controlled resource claims.
                                     const MAX_CLAIM_DISPLAY_LEN: usize = 128;
-                                    let safe_res =
-                                        sanitize_for_log(res, MAX_CLAIM_DISPLAY_LEN);
+                                    let safe_res = sanitize_for_log(res, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
                                         reason: format!(
                                             "{} (resource '{}' not in allowed list)",
@@ -945,16 +929,13 @@ impl PolicyEngine {
                         // SECURITY (FIND-R206-005): Homoglyph normalization.
                         let mut used = vec![false; history.len()];
                         for required in sequence {
-                            let found = history
-                                .iter()
-                                .enumerate()
-                                .position(|(i, h)| {
-                                    if used[i] {
-                                        return false;
-                                    }
-                                    let norm = normalize_full(h);
-                                    norm == *required
-                                });
+                            let found = history.iter().enumerate().position(|(i, h)| {
+                                if used[i] {
+                                    return false;
+                                }
+                                let norm = normalize_full(h);
+                                norm == *required
+                            });
                             match found {
                                 Some(i) => used[i] = true,
                                 None => {
@@ -1080,9 +1061,7 @@ impl PolicyEngine {
                             Some(ref prev) => {
                                 // Current must be a valid successor of the previous governed tool.
                                 match adjacency.get(prev.as_str()) {
-                                    Some(successors) => {
-                                        !successors.iter().any(|s| s == &tool_norm)
-                                    }
+                                    Some(successors) => !successors.iter().any(|s| s == &tool_norm),
                                     None => {
                                         // Previous tool is a terminal node (no successors).
                                         // Current governed tool has no valid predecessor → violation.

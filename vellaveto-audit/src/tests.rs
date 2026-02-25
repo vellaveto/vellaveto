@@ -4419,7 +4419,10 @@ fn test_logger_with_sink_sets_sink_field() {
     let sink = std::sync::Arc::new(NoOpSink { healthy: true });
     let logger = AuditLogger::new(log_path).with_sink(sink, false);
 
-    assert!(logger.sink.is_some(), "sink should be set after with_sink()");
+    assert!(
+        logger.sink.is_some(),
+        "sink should be set after with_sink()"
+    );
     assert!(
         !logger.sink_failure_fatal,
         "sink_failure_fatal should be false"
@@ -4445,7 +4448,7 @@ fn test_logger_with_sink_fatal_flag() {
 
 #[tokio::test]
 async fn test_file_audit_query_search_empty_log_returns_zero_total() {
-    use crate::query::{AuditQueryService, file::FileAuditQuery};
+    use crate::query::{file::FileAuditQuery, AuditQueryService};
     use vellaveto_types::audit_store::AuditQueryParams;
 
     let dir = TempDir::new().unwrap();
@@ -4457,14 +4460,17 @@ async fn test_file_audit_query_search_empty_log_returns_zero_total() {
     let result = query.search(&params).await.unwrap();
 
     assert_eq!(result.total, 0, "empty log should have 0 total entries");
-    assert!(result.entries.is_empty(), "empty log should have no entries");
+    assert!(
+        result.entries.is_empty(),
+        "empty log should have no entries"
+    );
     assert_eq!(result.limit, params.limit);
     assert_eq!(result.offset, params.offset);
 }
 
 #[tokio::test]
 async fn test_file_audit_query_count_empty_log_returns_zero() {
-    use crate::query::{AuditQueryService, file::FileAuditQuery};
+    use crate::query::{file::FileAuditQuery, AuditQueryService};
     use vellaveto_types::audit_store::AuditQueryParams;
 
     let dir = TempDir::new().unwrap();
@@ -4480,7 +4486,7 @@ async fn test_file_audit_query_count_empty_log_returns_zero() {
 
 #[tokio::test]
 async fn test_file_audit_query_get_by_id_nonexistent_returns_none() {
-    use crate::query::{AuditQueryService, file::FileAuditQuery};
+    use crate::query::{file::FileAuditQuery, AuditQueryService};
 
     let dir = TempDir::new().unwrap();
     let log_path = dir.path().join("audit.jsonl");
@@ -4494,7 +4500,7 @@ async fn test_file_audit_query_get_by_id_nonexistent_returns_none() {
 
 #[tokio::test]
 async fn test_file_audit_query_recent_empty_log_returns_empty_vec() {
-    use crate::query::{AuditQueryService, file::FileAuditQuery};
+    use crate::query::{file::FileAuditQuery, AuditQueryService};
 
     let dir = TempDir::new().unwrap();
     let log_path = dir.path().join("audit.jsonl");
@@ -4503,12 +4509,15 @@ async fn test_file_audit_query_recent_empty_log_returns_empty_vec() {
 
     let recent = query.recent(10).await.unwrap();
 
-    assert!(recent.is_empty(), "recent() on empty log should return empty vec");
+    assert!(
+        recent.is_empty(),
+        "recent() on empty log should return empty vec"
+    );
 }
 
 #[tokio::test]
 async fn test_file_audit_query_search_invalid_params_returns_validation_error() {
-    use crate::query::{AuditQueryService, QueryError, file::FileAuditQuery};
+    use crate::query::{file::FileAuditQuery, AuditQueryService, QueryError};
     use vellaveto_types::audit_store::AuditQueryParams;
 
     let dir = TempDir::new().unwrap();
@@ -4531,7 +4540,7 @@ async fn test_file_audit_query_search_invalid_params_returns_validation_error() 
 
 #[tokio::test]
 async fn test_file_audit_query_search_with_entries_returns_correct_total() {
-    use crate::query::{AuditQueryService, file::FileAuditQuery};
+    use crate::query::{file::FileAuditQuery, AuditQueryService};
     use vellaveto_types::audit_store::AuditQueryParams;
 
     let dir = TempDir::new().unwrap();
@@ -4539,12 +4548,20 @@ async fn test_file_audit_query_search_with_entries_returns_correct_total() {
     let logger = std::sync::Arc::new(AuditLogger::new(log_path.clone()));
 
     // Write 3 entries
-    logger.log_entry(&test_action(), &Verdict::Allow, json!({})).await.unwrap();
-    logger.log_entry(&test_action(), &Verdict::Allow, json!({})).await.unwrap();
+    logger
+        .log_entry(&test_action(), &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
+    logger
+        .log_entry(&test_action(), &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
     logger
         .log_entry(
             &test_action(),
-            &Verdict::Deny { reason: "blocked".to_string() },
+            &Verdict::Deny {
+                reason: "blocked".to_string(),
+            },
             json!({}),
         )
         .await
@@ -4560,7 +4577,7 @@ async fn test_file_audit_query_search_with_entries_returns_correct_total() {
 
 #[tokio::test]
 async fn test_file_audit_query_count_invalid_params_returns_validation_error() {
-    use crate::query::{AuditQueryService, QueryError, file::FileAuditQuery};
+    use crate::query::{file::FileAuditQuery, AuditQueryService, QueryError};
     use vellaveto_types::audit_store::AuditQueryParams;
 
     let dir = TempDir::new().unwrap();
@@ -4583,7 +4600,7 @@ async fn test_file_audit_query_count_invalid_params_returns_validation_error() {
 
 #[tokio::test]
 async fn test_file_audit_query_get_by_id_empty_id_returns_validation_error() {
-    use crate::query::{AuditQueryService, QueryError, file::FileAuditQuery};
+    use crate::query::{file::FileAuditQuery, AuditQueryService, QueryError};
 
     let dir = TempDir::new().unwrap();
     let log_path = dir.path().join("audit.jsonl");
@@ -4600,7 +4617,7 @@ async fn test_file_audit_query_get_by_id_empty_id_returns_validation_error() {
 
 #[tokio::test]
 async fn test_file_audit_query_recent_capped_at_max_query_limit() {
-    use crate::query::{AuditQueryService, file::FileAuditQuery};
+    use crate::query::{file::FileAuditQuery, AuditQueryService};
 
     let dir = TempDir::new().unwrap();
     let log_path = dir.path().join("audit.jsonl");

@@ -20,6 +20,7 @@ use vellaveto_server::tenant::{
     InMemoryTenantStore, Tenant, TenantConfig, TenantContext, TenantQuotas, TenantSource,
     TenantStore,
 };
+use vellaveto_server::usage_tracker::TenantUsageTracker;
 use vellaveto_server::{routes, AppState, Metrics, PolicySnapshot, RateLimits};
 use vellaveto_types::{Policy, PolicyType};
 
@@ -151,6 +152,7 @@ fn test_state_with_tenants(
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     (state, tmp)
 }
@@ -721,10 +723,7 @@ async fn list_policies_non_default_tenant_filters_results() {
 
     // Should include acme's own policy, the global policy, and the legacy policy,
     // but NOT globex's policy.
-    let ids: Vec<&str> = policies
-        .iter()
-        .filter_map(|p| p["id"].as_str())
-        .collect();
+    let ids: Vec<&str> = policies.iter().filter_map(|p| p["id"].as_str()).collect();
 
     assert!(
         ids.contains(&"acme:file:allow"),
@@ -778,6 +777,91 @@ async fn list_policies_default_tenant_sees_all() {
         "Default tenant should see all 4 policies, got: {}",
         policies.len()
     );
+}
+
+/// FIND-R203-008: Non-default tenants cannot read metering usage for other tenants.
+#[tokio::test]
+async fn billing_usage_cross_tenant_returns_404() {
+    let config = TenantConfig {
+        enabled: true,
+        require_tenant: false,
+        allow_header_tenant: true,
+        ..Default::default()
+    };
+    let (mut state, _tmp) = test_state_with_tenants(config, None);
+    let tracker = Arc::new(TenantUsageTracker::new(
+        vellaveto_config::MeteringConfig::default(),
+    ));
+    tracker.record_evaluation_outcome("globex", true);
+    state.usage_tracker = Some(tracker);
+    let app = routes::build_router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/api/billing/usage/globex")
+        .header("X-Tenant-ID", "acme")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "Cross-tenant usage reads must be denied with 404"
+    );
+}
+
+/// FIND-R203-008: Tenants can still read their own usage.
+#[tokio::test]
+async fn billing_usage_own_tenant_returns_200() {
+    let config = TenantConfig {
+        enabled: true,
+        require_tenant: false,
+        allow_header_tenant: true,
+        ..Default::default()
+    };
+    let (mut state, _tmp) = test_state_with_tenants(config, None);
+    let tracker = Arc::new(TenantUsageTracker::new(
+        vellaveto_config::MeteringConfig::default(),
+    ));
+    tracker.record_evaluation_outcome("acme", true);
+    state.usage_tracker = Some(tracker);
+    let app = routes::build_router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/api/billing/usage/acme")
+        .header("X-Tenant-ID", "acme")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+/// FIND-R203-008: Default tenant (admin context) may query any tenant usage.
+#[tokio::test]
+async fn billing_usage_default_tenant_can_query_any_tenant() {
+    let config = TenantConfig {
+        enabled: false, // disabled => default tenant context
+        ..Default::default()
+    };
+    let (mut state, _tmp) = test_state_with_tenants(config, None);
+    let tracker = Arc::new(TenantUsageTracker::new(
+        vellaveto_config::MeteringConfig::default(),
+    ));
+    tracker.record_evaluation_outcome("globex", true);
+    state.usage_tracker = Some(tracker);
+    let app = routes::build_router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/api/billing/usage/globex")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 /// FIND-R203-002: Non-default tenant cannot delete another tenant's policy.
@@ -1060,6 +1144,7 @@ async fn evaluate_non_default_tenant_does_not_see_other_tenant_policies() {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
 
     let app = routes::build_router(state);

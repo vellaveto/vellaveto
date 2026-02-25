@@ -42,7 +42,9 @@ fn action_missing_parameters_field_fails_deserialization() {
 }
 
 #[test]
-fn action_with_extra_fields_still_deserializes() {
+fn action_with_extra_fields_rejected_by_deny_unknown_fields() {
+    // SECURITY (FIND-R224-001): Action has #[serde(deny_unknown_fields)] to
+    // prevent attacker-controlled extra fields from being silently accepted.
     let json_with_extra = json!({
         "tool": "bash",
         "function": "exec",
@@ -51,10 +53,9 @@ fn action_with_extra_fields_still_deserializes() {
         "another": 42
     });
     let result: Result<Action, _> = serde_json::from_value(json_with_extra);
-    // serde by default ignores unknown fields (unless deny_unknown_fields)
     assert!(
-        result.is_ok(),
-        "Extra fields should be silently ignored by default"
+        result.is_err(),
+        "Extra fields should be rejected by deny_unknown_fields"
     );
 }
 

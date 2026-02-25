@@ -95,7 +95,11 @@ fn generate_dora_pack(org: &str, sys_id: &str) -> EvidencePack {
         org,
         sys_id,
         sections,
-        &report.assessments.iter().map(|a| dora_status_to_confidence(a.status)).collect::<Vec<_>>(),
+        &report
+            .assessments
+            .iter()
+            .map(|a| dora_status_to_confidence(a.status))
+            .collect::<Vec<_>>(),
     )
 }
 
@@ -104,7 +108,10 @@ fn dora_assessment_to_item(a: &crate::dora::DoraAssessment) -> EvidenceItem {
     let gaps = if a.status == crate::dora::DoraComplianceStatus::NotImplemented {
         vec![format!("{}: No Vellaveto evidence available", a.title)]
     } else if a.status == crate::dora::DoraComplianceStatus::Partial {
-        vec![format!("{}: Partial coverage — additional evidence may be needed", a.title)]
+        vec![format!(
+            "{}: Partial coverage — additional evidence may be needed",
+            a.title
+        )]
     } else {
         vec![]
     };
@@ -112,7 +119,12 @@ fn dora_assessment_to_item(a: &crate::dora::DoraAssessment) -> EvidenceItem {
         requirement_id: a.article_id.0.clone(),
         requirement_title: a.title.clone(),
         article_ref: a.article_id.0.clone(),
-        vellaveto_capability: a.capabilities.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", "),
+        vellaveto_capability: a
+            .capabilities
+            .iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
         evidence_description: a.evidence.clone(),
         confidence,
         gaps,
@@ -149,9 +161,24 @@ fn generate_nis2_pack(org: &str, sys_id: &str) -> EvidencePack {
     }
 
     let sections = vec![
-        make_section("risk-management-measures", "Art 21: Cybersecurity Risk-Management Measures", "Art 21.1-21.2.j — Technical, operational, and organisational measures", risk_measures),
-        make_section("supply-chain-security", "Art 22: Supply Chain Security", "Art 22 — Coordinated security risk assessments of critical supply chains", supply_chain),
-        make_section("incident-notification", "Art 23: Reporting Obligations", "Art 23.1-23.4 — Significant incident notification timeline", notification),
+        make_section(
+            "risk-management-measures",
+            "Art 21: Cybersecurity Risk-Management Measures",
+            "Art 21.1-21.2.j — Technical, operational, and organisational measures",
+            risk_measures,
+        ),
+        make_section(
+            "supply-chain-security",
+            "Art 22: Supply Chain Security",
+            "Art 22 — Coordinated security risk assessments of critical supply chains",
+            supply_chain,
+        ),
+        make_section(
+            "incident-notification",
+            "Art 23: Reporting Obligations",
+            "Art 23.1-23.4 — Significant incident notification timeline",
+            notification,
+        ),
     ];
 
     build_pack(
@@ -160,7 +187,11 @@ fn generate_nis2_pack(org: &str, sys_id: &str) -> EvidencePack {
         org,
         sys_id,
         sections,
-        &report.assessments.iter().map(|a| nis2_status_to_confidence(a.status)).collect::<Vec<_>>(),
+        &report
+            .assessments
+            .iter()
+            .map(|a| nis2_status_to_confidence(a.status))
+            .collect::<Vec<_>>(),
     )
 }
 
@@ -169,7 +200,10 @@ fn nis2_assessment_to_item(a: &crate::nis2::Nis2Assessment) -> EvidenceItem {
     let gaps = if a.status == crate::nis2::Nis2ComplianceStatus::NotImplemented {
         vec![format!("{}: No Vellaveto evidence available", a.title)]
     } else if a.status == crate::nis2::Nis2ComplianceStatus::Partial {
-        vec![format!("{}: Partial coverage — additional evidence may be needed", a.title)]
+        vec![format!(
+            "{}: Partial coverage — additional evidence may be needed",
+            a.title
+        )]
     } else {
         vec![]
     };
@@ -177,7 +211,12 @@ fn nis2_assessment_to_item(a: &crate::nis2::Nis2Assessment) -> EvidenceItem {
         requirement_id: a.article_id.0.clone(),
         requirement_title: a.title.clone(),
         article_ref: a.article_id.0.clone(),
-        vellaveto_capability: a.capabilities.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", "),
+        vellaveto_capability: a
+            .capabilities
+            .iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
         evidence_description: a.evidence.clone(),
         confidence,
         gaps,
@@ -210,7 +249,10 @@ fn generate_iso42001_pack(org: &str, sys_id: &str) -> EvidencePack {
             .unwrap_or(0);
         let confidence = iso42001_status_to_confidence(a.status);
         let gaps = if a.status == crate::iso42001::ComplianceStatus::NotImplemented {
-            vec![format!("Clause {}: No Vellaveto evidence available", a.clause_id)]
+            vec![format!(
+                "Clause {}: No Vellaveto evidence available",
+                a.clause_id
+            )]
         } else if a.status == crate::iso42001::ComplianceStatus::Partial {
             vec![format!("Clause {}: Partial coverage", a.clause_id)]
         } else {
@@ -250,12 +292,7 @@ fn generate_iso42001_pack(org: &str, sys_id: &str) -> EvidencePack {
                 .get(&major)
                 .copied()
                 .unwrap_or(("Other Clauses", "Additional clause requirements"));
-            make_section(
-                &format!("clause-{}", major),
-                title,
-                desc,
-                items,
-            )
+            make_section(&format!("clause-{}", major), title, desc, items)
         })
         .collect();
 
@@ -287,11 +324,8 @@ fn iso42001_status_to_confidence(status: crate::iso42001::ComplianceStatus) -> E
 
 fn generate_eu_ai_act_pack(org: &str, sys_id: &str) -> EvidencePack {
     let registry = crate::eu_ai_act::EuAiActRegistry::new();
-    let report = registry.generate_assessment(
-        vellaveto_types::AiActRiskClass::HighRisk,
-        org,
-        sys_id,
-    );
+    let report =
+        registry.generate_assessment(vellaveto_types::AiActRiskClass::HighRisk, org, sys_id);
 
     // Group by article range
     let mut risk_mgmt = Vec::new(); // Art 9
@@ -337,22 +371,52 @@ fn generate_eu_ai_act_pack(org: &str, sys_id: &str) -> EvidencePack {
 
     let mut sections = Vec::new();
     if !risk_mgmt.is_empty() {
-        sections.push(make_section("risk-management", "Art 9: Risk Management System", "Risk identification, mitigation, and monitoring", risk_mgmt));
+        sections.push(make_section(
+            "risk-management",
+            "Art 9: Risk Management System",
+            "Risk identification, mitigation, and monitoring",
+            risk_mgmt,
+        ));
     }
     if !data_governance.is_empty() {
-        sections.push(make_section("data-governance", "Art 10: Data Governance", "Data quality, training data, and bias mitigation", data_governance));
+        sections.push(make_section(
+            "data-governance",
+            "Art 10: Data Governance",
+            "Data quality, training data, and bias mitigation",
+            data_governance,
+        ));
     }
     if !record_keeping.is_empty() {
-        sections.push(make_section("record-keeping", "Art 12: Record-Keeping", "Automatic logging and audit trail capabilities", record_keeping));
+        sections.push(make_section(
+            "record-keeping",
+            "Art 12: Record-Keeping",
+            "Automatic logging and audit trail capabilities",
+            record_keeping,
+        ));
     }
     if !transparency.is_empty() {
-        sections.push(make_section("transparency", "Art 13 & 50: Transparency", "Transparency obligations and AI content marking", transparency));
+        sections.push(make_section(
+            "transparency",
+            "Art 13 & 50: Transparency",
+            "Transparency obligations and AI content marking",
+            transparency,
+        ));
     }
     if !oversight.is_empty() {
-        sections.push(make_section("human-oversight", "Art 14: Human Oversight", "Human oversight measures and intervention capabilities", oversight));
+        sections.push(make_section(
+            "human-oversight",
+            "Art 14: Human Oversight",
+            "Human oversight measures and intervention capabilities",
+            oversight,
+        ));
     }
     if !other.is_empty() {
-        sections.push(make_section("other-articles", "Other Articles", "Additional EU AI Act requirements", other));
+        sections.push(make_section(
+            "other-articles",
+            "Other Articles",
+            "Additional EU AI Act requirements",
+            other,
+        ));
     }
 
     let confidences: Vec<EvidenceConfidence> = report
@@ -408,7 +472,9 @@ fn make_section(
         .count();
     let partial = items
         .iter()
-        .filter(|i| i.confidence == EvidenceConfidence::Medium || i.confidence == EvidenceConfidence::Low)
+        .filter(|i| {
+            i.confidence == EvidenceConfidence::Medium || i.confidence == EvidenceConfidence::Low
+        })
         .count();
     let pct = if total > 0 {
         ((covered as f32 + partial as f32 * 0.5) / total as f32) * 100.0
@@ -517,7 +583,9 @@ pub fn render_evidence_pack_html(pack: &EvidencePack) -> String {
     html.push_str("th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }\n");
     html.push_str("th { background-color: #f4f4f8; }\n");
     html.push_str("tr:nth-child(even) { background-color: #fafafa; }\n");
-    html.push_str(".summary { background: #f0f4ff; padding: 1em; border-radius: 6px; margin: 1em 0; }\n");
+    html.push_str(
+        ".summary { background: #f0f4ff; padding: 1em; border-radius: 6px; margin: 1em 0; }\n",
+    );
     html.push_str(".badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; font-weight: bold; }\n");
     html.push_str(".badge-full { background: #d4edda; color: #155724; }\n");
     html.push_str(".badge-high { background: #cce5ff; color: #004085; }\n");
@@ -526,7 +594,9 @@ pub fn render_evidence_pack_html(pack: &EvidencePack) -> String {
     html.push_str(".badge-none { background: #f8d7da; color: #721c24; }\n");
     html.push_str(".gaps { margin-top: 2em; } .gaps li { color: #c0392b; }\n");
     html.push_str(".recs { margin-top: 1em; } .recs li { color: #2c3e50; }\n");
-    html.push_str("@media print { body { margin: 1cm; } .page-break { page-break-before: always; } }\n");
+    html.push_str(
+        "@media print { body { margin: 1cm; } .page-break { page-break-before: always; } }\n",
+    );
     html.push_str("</style>\n</head>\n<body>\n");
 
     let esc = crate::access_review::html_escape;

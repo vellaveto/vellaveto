@@ -231,6 +231,11 @@ pub async fn add_policy(
         crate::metrics::increment_audit_entries();
     }
 
+    // Phase 50: Record policy creation in usage tracker.
+    if let Some(ref tracker) = state.usage_tracker {
+        tracker.record_policy_created(&tenant_ctx.tenant_id);
+    }
+
     (StatusCode::CREATED, Json(json!({"added": id})))
 }
 

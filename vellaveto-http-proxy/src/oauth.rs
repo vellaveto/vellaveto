@@ -521,7 +521,10 @@ impl OAuthValidator {
             || contains_control_chars(&claims.iss)
             || contains_control_chars(&claims.scope)
             || claims.aud.iter().any(|a| contains_control_chars(a))
-            || claims.resource.as_deref().is_some_and(contains_control_chars)
+            || claims
+                .resource
+                .as_deref()
+                .is_some_and(contains_control_chars)
             || claims
                 .cnf
                 .as_ref()
@@ -2107,10 +2110,7 @@ TfzccotDw2uXy3Xbwy/kdpfK
         );
         assert_eq!(decode_unreserved_percent(""), "");
         assert_eq!(decode_unreserved_percent("no-encoding"), "no-encoding");
-        assert_eq!(
-            decode_unreserved_percent("a%2Db%2Ec%5Fd%7Ee"),
-            "a-b.c_d~e"
-        );
+        assert_eq!(decode_unreserved_percent("a%2Db%2Ec%5Fd%7Ee"), "a-b.c_d~e");
     }
 
     // hex_digit tests moved to vellaveto-types/src/uri_util.rs (IMP-R218-008).

@@ -16,8 +16,8 @@ use serde_json::json;
 use std::sync::Arc;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{
-    has_dangerous_chars, Action, Policy, PolicyVersionStatus, Verdict,
-    MAX_LIFECYCLE_IDENTITY_LEN, MAX_VERSION_COMMENT_LEN,
+    has_dangerous_chars, Action, Policy, PolicyVersionStatus, Verdict, MAX_LIFECYCLE_IDENTITY_LEN,
+    MAX_VERSION_COMMENT_LEN,
 };
 
 use crate::policy_lifecycle::LifecycleError;
@@ -90,12 +90,8 @@ fn lifecycle_error_response(e: LifecycleError) -> (StatusCode, Json<serde_json::
             (StatusCode::NOT_FOUND, e.to_string())
         }
         LifecycleError::InvalidTransition(_) => (StatusCode::CONFLICT, e.to_string()),
-        LifecycleError::ApprovalRequired(_) => {
-            (StatusCode::PRECONDITION_FAILED, e.to_string())
-        }
-        LifecycleError::CapacityExceeded(_) => {
-            (StatusCode::TOO_MANY_REQUESTS, e.to_string())
-        }
+        LifecycleError::ApprovalRequired(_) => (StatusCode::PRECONDITION_FAILED, e.to_string()),
+        LifecycleError::CapacityExceeded(_) => (StatusCode::TOO_MANY_REQUESTS, e.to_string()),
         LifecycleError::Validation(_) => (StatusCode::BAD_REQUEST, e.to_string()),
         LifecycleError::Internal(_) => {
             tracing::error!("Policy lifecycle internal error: {}", e);
@@ -153,7 +149,10 @@ pub async fn list_versions(
     require_admin_tenant(&tenant_ctx)?;
     let store = get_store(&state)?;
     super::validate_path_param_json(&id, "policy_id")?;
-    let versions = store.list_versions(&id).await.map_err(lifecycle_error_response)?;
+    let versions = store
+        .list_versions(&id)
+        .await
+        .map_err(lifecycle_error_response)?;
     Ok(Json(json!({ "versions": versions })))
 }
 
@@ -173,7 +172,10 @@ pub async fn get_version(
     require_admin_tenant(&tenant_ctx)?;
     let store = get_store(&state)?;
     super::validate_path_param_json(&id, "policy_id")?;
-    let version = store.get_version(&id, v).await.map_err(lifecycle_error_response)?;
+    let version = store
+        .get_version(&id, v)
+        .await
+        .map_err(lifecycle_error_response)?;
     // SECURITY (FIND-R204-003): Propagate serialization errors instead of
     // silently returning empty JSON, which would be a fail-open pattern.
     let val = serde_json::to_value(&version).map_err(|e| {
@@ -335,12 +337,12 @@ pub async fn approve_version(
     }
 
     Ok(Json(serde_json::to_value(&version).map_err(|e| {
-            tracing::error!("Failed to serialize policy version: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Internal serialization error"})),
-            )
-        })?))
+        tracing::error!("Failed to serialize policy version: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Internal serialization error"})),
+        )
+    })?))
 }
 
 /// POST /api/policies/{id}/versions/{v}/promote
@@ -452,16 +454,10 @@ pub async fn promote_version(
                 policies: candidate,
                 compliance_config: snap.compliance_config.clone(),
             }));
-            tracing::info!(
-                "Policy lifecycle: activated policy {} version {}",
-                id,
-                v
-            );
+            tracing::info!("Policy lifecycle: activated policy {} version {}", id, v);
 
             // Clear staging snapshot since we just activated
-            state
-                .staging_snapshot
-                .store(Arc::new(None));
+            state.staging_snapshot.store(Arc::new(None));
         } else {
             // This shouldn't happen: pre-compilation should have blocked the
             // promotion to Active. Log and fail-closed.
@@ -473,12 +469,12 @@ pub async fn promote_version(
     } else if matches!(promoted.status, PolicyVersionStatus::Staging) {
         // Use pre-compiled engine for staging snapshot if available
         if let Some(staging_engine) = pre_compiled {
-            state.staging_snapshot.store(Arc::new(Some(
-                crate::StagingSnapshot {
+            state
+                .staging_snapshot
+                .store(Arc::new(Some(crate::StagingSnapshot {
                     engine: staging_engine,
                     policies: candidate,
-                },
-            )));
+                })));
             tracing::info!(
                 "Policy lifecycle: staging snapshot built for policy {} version {}",
                 id,
@@ -513,12 +509,12 @@ pub async fn promote_version(
     }
 
     Ok(Json(serde_json::to_value(&promoted).map_err(|e| {
-            tracing::error!("Failed to serialize promoted version: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Internal serialization error"})),
-            )
-        })?))
+        tracing::error!("Failed to serialize promoted version: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Internal serialization error"})),
+        )
+    })?))
 }
 
 /// POST /api/policies/{id}/versions/{v}/archive
@@ -584,12 +580,12 @@ pub async fn archive_version(
     }
 
     Ok(Json(serde_json::to_value(&version).map_err(|e| {
-            tracing::error!("Failed to serialize policy version: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Internal serialization error"})),
-            )
-        })?))
+        tracing::error!("Failed to serialize policy version: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Internal serialization error"})),
+        )
+    })?))
 }
 
 /// POST /api/policies/{id}/rollback
@@ -681,12 +677,12 @@ pub async fn diff_versions(
         .await
         .map_err(lifecycle_error_response)?;
     Ok(Json(serde_json::to_value(&diff).map_err(|e| {
-            tracing::error!("Failed to serialize policy diff: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Internal serialization error"})),
-            )
-        })?))
+        tracing::error!("Failed to serialize policy diff: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Internal serialization error"})),
+        )
+    })?))
 }
 
 /// GET /api/policy-lifecycle/status
@@ -701,10 +697,10 @@ pub async fn lifecycle_status(
     let store = get_store(&state)?;
     let status = store.status().await;
     Ok(Json(serde_json::to_value(&status).map_err(|e| {
-            tracing::error!("Failed to serialize lifecycle status: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Internal serialization error"})),
-            )
-        })?))
+        tracing::error!("Failed to serialize lifecycle status: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Internal serialization error"})),
+        )
+    })?))
 }

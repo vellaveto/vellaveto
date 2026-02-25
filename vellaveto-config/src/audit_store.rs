@@ -197,7 +197,10 @@ impl AuditStoreConfig {
                         .map(|i| &host_port[1..i])
                         .unwrap_or(host_port)
                 } else {
-                    host_port.rsplit_once(':').map(|(h, _)| h).unwrap_or(host_port)
+                    host_port
+                        .rsplit_once(':')
+                        .map(|(h, _)| h)
+                        .unwrap_or(host_port)
                 };
                 let host_lower = host.to_ascii_lowercase();
                 if host_lower == "localhost"
@@ -362,8 +365,7 @@ impl AuditStoreConfig {
                     if trimmed.is_empty() {
                         return Err("audit_store.database_url must not be empty".to_string());
                     }
-                    if !trimmed.starts_with("postgres://")
-                        && !trimmed.starts_with("postgresql://")
+                    if !trimmed.starts_with("postgres://") && !trimmed.starts_with("postgresql://")
                     {
                         return Err(
                             "audit_store.database_url must start with postgres:// or postgresql://"
@@ -387,10 +389,7 @@ impl AuditStoreConfig {
             ));
         }
         // SECURITY: Reject table names starting with digits (invalid SQL identifier).
-        if self
-            .table_name
-            .starts_with(|c: char| c.is_ascii_digit())
-        {
+        if self.table_name.starts_with(|c: char| c.is_ascii_digit()) {
             return Err("audit_store.table_name must not start with a digit".to_string());
         }
         // SECURITY (FIND-R202-010): Reject pure-underscore identifiers.

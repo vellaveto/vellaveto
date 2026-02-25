@@ -67,8 +67,7 @@ impl PolicyRule {
                 MAX_POLICY_RULE_NAME_LEN
             ));
         }
-        if vellaveto_types::has_dangerous_chars(&self.name)
-        {
+        if vellaveto_types::has_dangerous_chars(&self.name) {
             return Err("policy_rule.name contains control or format characters".to_string());
         }
         if self.tool_pattern.is_empty() {
@@ -81,8 +80,7 @@ impl PolicyRule {
                 MAX_POLICY_RULE_FIELD_LEN
             ));
         }
-        if vellaveto_types::has_dangerous_chars(&self.tool_pattern)
-        {
+        if vellaveto_types::has_dangerous_chars(&self.tool_pattern) {
             return Err(
                 "policy_rule.tool_pattern contains control or format characters".to_string(),
             );
@@ -97,8 +95,7 @@ impl PolicyRule {
                 MAX_POLICY_RULE_FIELD_LEN
             ));
         }
-        if vellaveto_types::has_dangerous_chars(&self.function_pattern)
-        {
+        if vellaveto_types::has_dangerous_chars(&self.function_pattern) {
             return Err(
                 "policy_rule.function_pattern contains control or format characters".to_string(),
             );
@@ -114,8 +111,7 @@ impl PolicyRule {
                     MAX_POLICY_RULE_FIELD_LEN
                 ));
             }
-            if vellaveto_types::has_dangerous_chars(id)
-            {
+            if vellaveto_types::has_dangerous_chars(id) {
                 return Err("policy_rule.id contains control or format characters".to_string());
             }
         }

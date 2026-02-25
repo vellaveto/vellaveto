@@ -9,6 +9,7 @@ pub mod enterprise;
 pub mod etdi;
 pub mod extension;
 pub mod gateway;
+pub mod iam;
 pub mod manifest;
 pub mod mcp_protocol;
 pub mod memory_nhi;
@@ -36,8 +37,9 @@ pub mod governance;
 pub mod grpc_transport;
 pub mod licensing;
 pub mod limits;
-pub mod policy_rule;
+pub mod metering;
 pub mod policy_lifecycle;
+pub mod policy_rule;
 pub mod projector;
 pub mod tool_registry;
 pub mod zk_audit;
@@ -89,6 +91,8 @@ pub use enterprise::{
     TlsKexPolicy, TlsMode,
 };
 
+pub use iam::IamConfig;
+
 pub use memory_nhi::{
     DpopConfig, MemorySecurityConfig, NamespaceConfig, NhiConfig, VerificationConfig,
 };
@@ -105,8 +109,8 @@ pub use rag_defense_config::{
 
 // Re-exports from Phase 16.6 split submodules
 pub use a2a::A2aConfig;
-pub use audit_store::AuditStoreConfig;
 pub use abac::AbacConfig;
+pub use audit_store::AuditStoreConfig;
 pub use billing::BillingConfig;
 pub use cluster::ClusterConfig;
 pub use compliance::{
@@ -130,8 +134,9 @@ pub use governance::GovernanceConfig;
 pub use grpc_transport::GrpcTransportConfig;
 pub use licensing::{LicenseTier, LicenseValidation, LicensingConfig, TierLimits};
 pub use limits::LimitsConfig;
-pub use policy_rule::PolicyRule;
+pub use metering::MeteringConfig;
 pub use policy_lifecycle::PolicyLifecycleConfig;
+pub use policy_rule::PolicyRule;
 pub use projector::ProjectorConfig;
 pub use tool_registry::ToolRegistryConfig;
 pub use transport::TransportConfig;
@@ -529,6 +534,10 @@ pub struct PolicyConfig {
     #[serde(default)]
     pub licensing: LicensingConfig,
 
+    /// Enterprise IAM configuration (OIDC/SAML/session/SCIM).
+    #[serde(default)]
+    pub iam: IamConfig,
+
     // ═══════════════════════════════════════════════════
     // BILLING WEBHOOK CONFIGURATION
     // ═══════════════════════════════════════════════════
@@ -547,8 +556,16 @@ pub struct PolicyConfig {
     // Phase 47: Policy Lifecycle Management
     #[serde(default)]
     pub policy_lifecycle: PolicyLifecycleConfig,
-}
 
+    // ═══════════════════════════════════════════════════
+    // PHASE 50: USAGE METERING & BILLING FOUNDATION
+    // ═══════════════════════════════════════════════════
+    /// Usage metering configuration for per-tenant billing.
+    /// When enabled, tracks evaluations/policies/approvals per billing period
+    /// and enforces hard evaluation quotas by license tier.
+    #[serde(default)]
+    pub metering: MeteringConfig,
+}
 
 impl PolicyConfig {
     /// Parse config from a JSON string.

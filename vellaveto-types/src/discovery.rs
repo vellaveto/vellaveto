@@ -274,9 +274,7 @@ impl DiscoveryResult {
             ));
         }
         if crate::core::has_dangerous_chars(&self.query) {
-            return Err(
-                "DiscoveryResult query contains control or format characters".to_string(),
-            );
+            return Err("DiscoveryResult query contains control or format characters".to_string());
         }
         for (i, tool) in self.tools.iter().enumerate() {
             tool.validate()

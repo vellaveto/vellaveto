@@ -2,7 +2,7 @@ name: Provenance and SBOM
 
 on:
   push:
-    branches: [main]
+    tags: ["v*"]
   release:
     types: [published]
   workflow_dispatch:

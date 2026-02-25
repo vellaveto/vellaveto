@@ -955,6 +955,7 @@ mod owasp_mcp07_auth {
             policy_lifecycle_store: None,
             policy_lifecycle_config: Default::default(),
             staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+            usage_tracker: None,
         };
         (state, tmp)
     }
@@ -1412,6 +1413,7 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
             policy_lifecycle_store: None,
             policy_lifecycle_config: Default::default(),
             staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+            usage_tracker: None,
         };
 
         let app = routes::build_router(state);
@@ -1721,6 +1723,7 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1981,6 +1984,7 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

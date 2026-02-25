@@ -277,16 +277,10 @@ fn infer_sensitivity(name: &str, description: &str) -> ToolSensitivity {
     // matches "tokenizer", "sign" matches "design", causing false-positive
     // High sensitivity that blocks legitimate tools. Word boundary = adjacent
     // char is non-alphanumeric or start/end of string.
-    if HIGH_KEYWORDS
-        .iter()
-        .any(|kw| contains_word(&text, kw))
-    {
+    if HIGH_KEYWORDS.iter().any(|kw| contains_word(&text, kw)) {
         return ToolSensitivity::High;
     }
-    if MEDIUM_KEYWORDS
-        .iter()
-        .any(|kw| contains_word(&text, kw))
-    {
+    if MEDIUM_KEYWORDS.iter().any(|kw| contains_word(&text, kw)) {
         return ToolSensitivity::Medium;
     }
     ToolSensitivity::Low
@@ -303,8 +297,7 @@ fn contains_word(text: &str, keyword: &str) -> bool {
     let kw_len = keyword.len();
     for (i, _) in text.match_indices(keyword) {
         let left_ok = i == 0 || !text_bytes[i - 1].is_ascii_alphanumeric();
-        let right_ok =
-            i + kw_len >= text.len() || !text_bytes[i + kw_len].is_ascii_alphanumeric();
+        let right_ok = i + kw_len >= text.len() || !text_bytes[i + kw_len].is_ascii_alphanumeric();
         if left_ok && right_ok {
             return true;
         }
@@ -369,10 +362,7 @@ fn infer_domain_tags(name: &str, description: &str) -> Vec<String> {
         .collect();
 
     for (keywords, tag) in DOMAIN_MAP {
-        if keywords
-            .iter()
-            .any(|kw| words.iter().any(|w| w == kw))
-        {
+        if keywords.iter().any(|kw| words.iter().any(|w| w == kw)) {
             tags.push(tag.to_string());
         }
     }

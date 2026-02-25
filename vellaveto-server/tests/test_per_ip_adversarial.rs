@@ -121,6 +121,7 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     (state, tmp)
 }
@@ -525,6 +526,7 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

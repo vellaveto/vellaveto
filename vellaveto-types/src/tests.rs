@@ -636,7 +636,10 @@ fn test_principal_type_default_is_agent() {
 #[test]
 fn test_principal_type_from_identity_claims() {
     let mut claims = serde_json::Map::new();
-    claims.insert("type".to_string(), serde_json::Value::String("Service".to_string()));
+    claims.insert(
+        "type".to_string(),
+        serde_json::Value::String("Service".to_string()),
+    );
     let ctx = EvaluationContext {
         agent_identity: Some(AgentIdentity {
             subject: Some("svc-1".to_string()),
@@ -2019,7 +2022,7 @@ fn test_extension_descriptor_validate_method_unicode_format_char() {
         name: "My Extension".to_string(),
         version: "1.0.0".to_string(),
         capabilities: vec![],
-        methods: vec!["x-my-ext/do\u{200B}thing".to_string()],  // zero-width space
+        methods: vec!["x-my-ext/do\u{200B}thing".to_string()], // zero-width space
         signature: None,
         public_key: None,
     };
@@ -3458,7 +3461,13 @@ fn test_tool_metadata_validate_ok_at_limits() {
         schema_hash: "h".to_string(),
         sensitivity: ToolSensitivity::Low,
         domain_tags: (0..ToolMetadata::MAX_DOMAIN_TAGS)
-            .map(|i| format!("{:0>width$}", i, width = ToolMetadata::MAX_DOMAIN_TAG_LENGTH))
+            .map(|i| {
+                format!(
+                    "{:0>width$}",
+                    i,
+                    width = ToolMetadata::MAX_DOMAIN_TAG_LENGTH
+                )
+            })
             .collect(),
         token_cost: 0,
     };
@@ -3758,17 +3767,17 @@ fn test_pedersen_commitment_validate_blinding_hint_too_long() {
         blinding_hint: "b".repeat(129),
     };
     assert!(pc.validate().is_err());
-    assert!(pc
-        .validate()
-        .unwrap_err()
-        .contains("blinding_hint length"));
+    assert!(pc.validate().unwrap_err().contains("blinding_hint length"));
 }
 
 #[test]
 fn test_pedersen_commitment_deny_unknown_fields() {
     let json = r#"{"commitment":"abc","extra_field":"evil"}"#;
     let result = serde_json::from_str::<PedersenCommitment>(json);
-    assert!(result.is_err(), "deny_unknown_fields should reject extra fields");
+    assert!(
+        result.is_err(),
+        "deny_unknown_fields should reject extra fields"
+    );
 }
 
 // FIND-R46-005: CapabilityToken Debug redacts signature
@@ -5215,7 +5224,7 @@ fn test_nhi_delegation_link_self_delegation_cyrillic_homoglyph() {
     // The self-delegation check must normalize homoglyphs to catch this.
     let link = NhiDelegationLink {
         from_agent: "admin".to_string(),      // Latin 'a'
-        to_agent: "\u{0430}dmin".to_string(),  // Cyrillic 'а'
+        to_agent: "\u{0430}dmin".to_string(), // Cyrillic 'а'
         permissions: vec!["read".to_string()],
         scope_constraints: vec![],
         created_at: "2026-01-01T00:00:00Z".to_string(),
@@ -6439,7 +6448,10 @@ fn test_nhi_agent_identity_debug_none_public_key() {
         ..Default::default()
     };
     let debug = format!("{:?}", identity);
-    assert!(debug.contains("None"), "Debug should show None for missing public_key");
+    assert!(
+        debug.contains("None"),
+        "Debug should show None for missing public_key"
+    );
 }
 
 #[test]
@@ -6616,7 +6628,11 @@ fn test_r115_002_access_review_entry_rejects_control_char_in_agent_id() {
     let mut entry = make_valid_access_review_entry();
     entry.agent_id = "agent\n-1".to_string();
     let err = entry.validate().unwrap_err();
-    assert!(err.contains("agent_id") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("agent_id") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6624,7 +6640,11 @@ fn test_r115_002_access_review_entry_rejects_zwsp_in_agent_id() {
     let mut entry = make_valid_access_review_entry();
     entry.agent_id = "agent\u{200B}-1".to_string();
     let err = entry.validate().unwrap_err();
-    assert!(err.contains("agent_id") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("agent_id") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6632,7 +6652,11 @@ fn test_r115_002_access_review_entry_rejects_control_char_in_recommendation() {
     let mut entry = make_valid_access_review_entry();
     entry.agency_recommendation = "optimal\t".to_string();
     let err = entry.validate().unwrap_err();
-    assert!(err.contains("agency_recommendation") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("agency_recommendation") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6663,7 +6687,11 @@ fn test_r115_003_zk_batch_proof_rejects_control_char_in_batch_id() {
     let mut proof = make_valid_zk_batch_proof();
     proof.batch_id = "batch\x01-1".to_string();
     let err = proof.validate().unwrap_err();
-    assert!(err.contains("batch_id") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("batch_id") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6671,7 +6699,11 @@ fn test_r115_003_zk_batch_proof_rejects_bom_in_batch_id() {
     let mut proof = make_valid_zk_batch_proof();
     proof.batch_id = "\u{FEFF}batch-1".to_string();
     let err = proof.validate().unwrap_err();
-    assert!(err.contains("batch_id") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("batch_id") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6679,7 +6711,11 @@ fn test_r115_003_zk_batch_proof_rejects_control_char_in_created_at() {
     let mut proof = make_valid_zk_batch_proof();
     proof.created_at = "2026-01-01\rT00:00:00Z".to_string();
     let err = proof.validate().unwrap_err();
-    assert!(err.contains("created_at") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("created_at") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6702,7 +6738,11 @@ fn test_r172_001_zk_verify_result_rejects_control_char_in_error() {
         error: Some("error\x07msg".to_string()),
     };
     let err = result.validate().unwrap_err();
-    assert!(err.contains("error") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("error") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6715,7 +6755,11 @@ fn test_r172_002_zk_verify_result_rejects_bidi_in_batch_id() {
         error: None,
     };
     let err = result.validate().unwrap_err();
-    assert!(err.contains("batch_id") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("batch_id") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6728,7 +6772,11 @@ fn test_r172_002_zk_verify_result_rejects_zwsp_in_verified_at() {
         error: None,
     };
     let err = result.validate().unwrap_err();
-    assert!(err.contains("verified_at") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("verified_at") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6741,7 +6789,11 @@ fn test_r172_003_zk_scheduler_status_rejects_control_char_in_last_proof_at() {
         last_proof_at: Some("2026-01-01\x00T00:00:00Z".to_string()),
     };
     let err = status.validate().unwrap_err();
-    assert!(err.contains("last_proof_at") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("last_proof_at") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6769,7 +6821,11 @@ fn test_r115_004_canonical_tool_schema_rejects_control_char_in_name() {
         output_schema: None,
     };
     let err = schema.validate().unwrap_err();
-    assert!(err.contains("name") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("name") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6781,7 +6837,11 @@ fn test_r115_004_canonical_tool_schema_rejects_zwsp_in_name() {
         output_schema: None,
     };
     let err = schema.validate().unwrap_err();
-    assert!(err.contains("name") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("name") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6792,7 +6852,11 @@ fn test_r115_004_canonical_tool_call_rejects_control_char_in_tool_name() {
         call_id: None,
     };
     let err = call.validate().unwrap_err();
-    assert!(err.contains("tool_name") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("tool_name") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6803,7 +6867,11 @@ fn test_r115_004_canonical_tool_call_rejects_bidi_in_tool_name() {
         call_id: None,
     };
     let err = call.validate().unwrap_err();
-    assert!(err.contains("tool_name") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("tool_name") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6869,7 +6937,11 @@ fn test_r172_005_canonical_tool_call_rejects_control_char_in_call_id() {
         call_id: Some("call\x07id".to_string()),
     };
     let err = call.validate().unwrap_err();
-    assert!(err.contains("call_id") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("call_id") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6880,7 +6952,11 @@ fn test_r172_005_canonical_tool_call_rejects_oversized_call_id() {
         call_id: Some("x".repeat(257)),
     };
     let err = call.validate().unwrap_err();
-    assert!(err.contains("call_id") && err.contains("exceeds max"), "got: {}", err);
+    assert!(
+        err.contains("call_id") && err.contains("exceeds max"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6891,7 +6967,11 @@ fn test_r172_005_canonical_tool_response_rejects_control_char_in_call_id() {
         is_error: false,
     };
     let err = resp.validate().unwrap_err();
-    assert!(err.contains("call_id") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("call_id") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -6908,7 +6988,11 @@ fn test_r115_005_deployment_info_rejects_control_char_in_instance_id() {
         mode: "standalone".to_string(),
     };
     let err = info.validate().unwrap_err();
-    assert!(err.contains("instance_id") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("instance_id") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6921,7 +7005,11 @@ fn test_r115_005_deployment_info_rejects_zwsp_in_instance_id() {
         mode: "standalone".to_string(),
     };
     let err = info.validate().unwrap_err();
-    assert!(err.contains("instance_id") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("instance_id") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6934,7 +7022,11 @@ fn test_r115_005_deployment_info_rejects_control_char_in_mode() {
         mode: "stand\talone".to_string(),
     };
     let err = info.validate().unwrap_err();
-    assert!(err.contains("mode") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("mode") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6947,7 +7039,11 @@ fn test_r115_005_deployment_info_rejects_bidi_in_mode() {
         mode: "standalone\u{202E}".to_string(),
     };
     let err = info.validate().unwrap_err();
-    assert!(err.contains("mode") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("mode") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -6991,7 +7087,11 @@ fn test_r115_006_abac_policy_rejects_control_char_in_id() {
         conditions: vec![],
     };
     let err = policy.validate().unwrap_err();
-    assert!(err.contains("id") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("id") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -7007,7 +7107,11 @@ fn test_r115_006_abac_policy_rejects_bidi_in_description() {
         conditions: vec![],
     };
     let err = policy.validate().unwrap_err();
-    assert!(err.contains("description") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("description") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -7034,7 +7138,11 @@ fn test_r115_006_abac_entity_rejects_control_char_in_entity_type() {
         parents: vec![],
     };
     let err = entity.validate().unwrap_err();
-    assert!(err.contains("entity_type") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("entity_type") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -7046,7 +7154,11 @@ fn test_r115_006_abac_entity_rejects_zwsp_in_id() {
         parents: vec![],
     };
     let err = entity.validate().unwrap_err();
-    assert!(err.contains("id") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("id") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -7072,7 +7184,11 @@ fn test_r115_006_least_agency_report_rejects_control_char_in_agent_id() {
         recommendation: AgencyRecommendation::Optimal,
     };
     let err = report.validate().unwrap_err();
-    assert!(err.contains("agent_id") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("agent_id") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -7087,7 +7203,11 @@ fn test_r115_006_least_agency_report_rejects_bom_in_session_id() {
         recommendation: AgencyRecommendation::Optimal,
     };
     let err = report.validate().unwrap_err();
-    assert!(err.contains("session_id") && err.contains("control or format"), "got: {}", err);
+    assert!(
+        err.contains("session_id") && err.contains("control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -7128,7 +7248,10 @@ fn test_r115_007_tool_attestation_rejects_unknown_fields() {
         "extra_field":"attack"
     }"#;
     let result = serde_json::from_str::<crate::etdi::ToolAttestation>(json);
-    assert!(result.is_err(), "ToolAttestation must reject unknown fields");
+    assert!(
+        result.is_err(),
+        "ToolAttestation must reject unknown fields"
+    );
 }
 
 #[test]
@@ -7149,7 +7272,10 @@ fn test_r115_007_version_drift_alert_rejects_unknown_fields() {
         "detected_at":"2026-01-01T00:00:00Z","extra_field":"attack"
     }"#;
     let result = serde_json::from_str::<crate::etdi::VersionDriftAlert>(json);
-    assert!(result.is_err(), "VersionDriftAlert must reject unknown fields");
+    assert!(
+        result.is_err(),
+        "VersionDriftAlert must reject unknown fields"
+    );
 }
 
 #[test]
@@ -7167,7 +7293,10 @@ fn test_r115_007_permission_usage_rejects_unknown_fields() {
         "tool_pattern":"*","function_pattern":"*","used_count":0,"extra_field":"attack"
     }"#;
     let result = serde_json::from_str::<crate::abac::PermissionUsage>(json);
-    assert!(result.is_err(), "PermissionUsage must reject unknown fields");
+    assert!(
+        result.is_err(),
+        "PermissionUsage must reject unknown fields"
+    );
 }
 
 #[test]
@@ -7178,7 +7307,10 @@ fn test_r115_007_least_agency_report_rejects_unknown_fields() {
         "extra_field":"attack"
     }"#;
     let result = serde_json::from_str::<crate::abac::LeastAgencyReport>(json);
-    assert!(result.is_err(), "LeastAgencyReport must reject unknown fields");
+    assert!(
+        result.is_err(),
+        "LeastAgencyReport must reject unknown fields"
+    );
 }
 
 #[test]
@@ -7188,7 +7320,10 @@ fn test_r115_007_memory_namespace_rejects_unknown_fields() {
         "extra_field":"attack"
     }"#;
     let result = serde_json::from_str::<crate::minja::MemoryNamespace>(json);
-    assert!(result.is_err(), "MemoryNamespace must reject unknown fields");
+    assert!(
+        result.is_err(),
+        "MemoryNamespace must reject unknown fields"
+    );
 }
 
 #[test]
@@ -7197,7 +7332,10 @@ fn test_r115_007_extension_descriptor_rejects_unknown_fields() {
         "id":"ext-1","name":"Ext","version":"1.0","extra_field":"attack"
     }"#;
     let result = serde_json::from_str::<crate::extension::ExtensionDescriptor>(json);
-    assert!(result.is_err(), "ExtensionDescriptor must reject unknown fields");
+    assert!(
+        result.is_err(),
+        "ExtensionDescriptor must reject unknown fields"
+    );
 }
 
 // Verify existing roundtrip serde tests still pass with deny_unknown_fields
@@ -7239,9 +7377,13 @@ fn test_r115_007_abac_entity_roundtrip_with_deny_unknown_fields() {
 #[test]
 fn test_has_dangerous_chars_clean_strings() {
     assert!(!crate::core::has_dangerous_chars("normal text"));
-    assert!(!crate::core::has_dangerous_chars("with.punctuation-and_underscores"));
+    assert!(!crate::core::has_dangerous_chars(
+        "with.punctuation-and_underscores"
+    ));
     assert!(!crate::core::has_dangerous_chars(""));
-    assert!(!crate::core::has_dangerous_chars("unicode: café résumé naïve"));
+    assert!(!crate::core::has_dangerous_chars(
+        "unicode: café résumé naïve"
+    ));
 }
 
 #[test]
@@ -7313,7 +7455,11 @@ fn test_tool_metadata_validate_format_char_in_description() {
         token_cost: 10,
     };
     let err = meta.validate().unwrap_err();
-    assert!(err.contains("description contains control or format"), "got: {}", err);
+    assert!(
+        err.contains("description contains control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -7330,7 +7476,11 @@ fn test_tool_metadata_validate_control_char_in_domain_tag() {
         token_cost: 10,
     };
     let err = meta.validate().unwrap_err();
-    assert!(err.contains("domain_tag contains control or format"), "got: {}", err);
+    assert!(
+        err.contains("domain_tag contains control or format"),
+        "got: {}",
+        err
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -7369,7 +7519,11 @@ fn test_nhi_dpop_verification_result_validate_error_format_chars() {
         new_nonce: None,
     };
     let err = r.validate().unwrap_err();
-    assert!(err.contains("error contains control or format"), "got: {}", err);
+    assert!(
+        err.contains("error contains control or format"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -7398,7 +7552,11 @@ fn test_nhi_agent_identity_validate_malformed_issued_at() {
         ..Default::default()
     };
     let err = identity.validate().unwrap_err();
-    assert!(err.contains("issued_at") && err.contains("ISO 8601"), "got: {}", err);
+    assert!(
+        err.contains("issued_at") && err.contains("ISO 8601"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -7411,7 +7569,11 @@ fn test_nhi_agent_identity_validate_malformed_expires_at() {
         ..Default::default()
     };
     let err = identity.validate().unwrap_err();
-    assert!(err.contains("expires_at") && err.contains("ISO 8601"), "got: {}", err);
+    assert!(
+        err.contains("expires_at") && err.contains("ISO 8601"),
+        "got: {}",
+        err
+    );
 }
 
 #[test]
@@ -7439,7 +7601,11 @@ fn test_nhi_agent_identity_validate_malformed_last_rotation() {
         ..Default::default()
     };
     let err = identity.validate().unwrap_err();
-    assert!(err.contains("last_rotation") && err.contains("ISO 8601"), "got: {}", err);
+    assert!(
+        err.contains("last_rotation") && err.contains("ISO 8601"),
+        "got: {}",
+        err
+    );
 }
 
 // FIND-R126-010: Temporal ordering — expires_at must be after issued_at.
@@ -7516,7 +7682,10 @@ fn test_nhi_behavioral_baseline_validate_malformed_last_updated() {
 fn test_ssrf_ipv4_compatible_private() {
     // ::10.0.0.1 = IPv4-compatible with embedded private IPv4
     let result = validate_url_no_ssrf("http://[::10.0.0.1]/path");
-    assert!(result.is_err(), "IPv4-compatible ::10.0.0.1 should be rejected");
+    assert!(
+        result.is_err(),
+        "IPv4-compatible ::10.0.0.1 should be rejected"
+    );
     assert!(
         result.unwrap_err().contains("IPv4-compatible"),
         "error should mention IPv4-compatible"
@@ -7527,21 +7696,30 @@ fn test_ssrf_ipv4_compatible_private() {
 fn test_ssrf_ipv4_compatible_loopback() {
     // ::127.0.0.1 = IPv4-compatible with embedded loopback
     let result = validate_url_no_ssrf("http://[::127.0.0.1]/path");
-    assert!(result.is_err(), "IPv4-compatible ::127.0.0.1 should be rejected");
+    assert!(
+        result.is_err(),
+        "IPv4-compatible ::127.0.0.1 should be rejected"
+    );
 }
 
 #[test]
 fn test_ssrf_ipv4_compatible_public_allowed() {
     // ::8.8.8.8 = IPv4-compatible with embedded public IP — should be allowed
     let result = validate_url_no_ssrf("http://[::8.8.8.8]/path");
-    assert!(result.is_ok(), "IPv4-compatible with public IP should be allowed");
+    assert!(
+        result.is_ok(),
+        "IPv4-compatible with public IP should be allowed"
+    );
 }
 
 #[test]
 fn test_ssrf_6to4_private() {
     // 2002:c0a8:0101:: = 6to4 with embedded 192.168.1.1
     let result = validate_url_no_ssrf("http://[2002:c0a8:0101::1]/path");
-    assert!(result.is_err(), "6to4 with embedded 192.168.1.1 should be rejected");
+    assert!(
+        result.is_err(),
+        "6to4 with embedded 192.168.1.1 should be rejected"
+    );
     assert!(
         result.unwrap_err().contains("6to4"),
         "error should mention 6to4"
@@ -7552,7 +7730,10 @@ fn test_ssrf_6to4_private() {
 fn test_ssrf_6to4_loopback() {
     // 2002:7f00:0001:: = 6to4 with embedded 127.0.0.1
     let result = validate_url_no_ssrf("http://[2002:7f00:0001::1]/path");
-    assert!(result.is_err(), "6to4 with embedded 127.0.0.1 should be rejected");
+    assert!(
+        result.is_err(),
+        "6to4 with embedded 127.0.0.1 should be rejected"
+    );
 }
 
 #[test]
@@ -7567,7 +7748,10 @@ fn test_ssrf_teredo_private() {
     // Teredo with embedded 192.168.1.1: XOR with 0xFFFF
     // 192.168.1.1 = c0.a8.01.01 -> XOR: 3f.57.fe.fe
     let result = validate_url_no_ssrf("http://[2001:0000:4136:e378:8000:63bf:3f57:fefe]/path");
-    assert!(result.is_err(), "Teredo with embedded 192.168.1.1 should be rejected");
+    assert!(
+        result.is_err(),
+        "Teredo with embedded 192.168.1.1 should be rejected"
+    );
     assert!(
         result.unwrap_err().contains("Teredo"),
         "error should mention Teredo"
@@ -7579,7 +7763,10 @@ fn test_ssrf_teredo_loopback() {
     // Teredo with embedded 127.0.0.1: XOR with 0xFFFF
     // 127.0.0.1 = 7f.00.00.01 -> XOR: 80.ff.ff.fe
     let result = validate_url_no_ssrf("http://[2001:0000:4136:e378:8000:63bf:80ff:fffe]/path");
-    assert!(result.is_err(), "Teredo with embedded 127.0.0.1 should be rejected");
+    assert!(
+        result.is_err(),
+        "Teredo with embedded 127.0.0.1 should be rejected"
+    );
 }
 
 #[test]
@@ -7594,7 +7781,10 @@ fn test_ssrf_teredo_public_allowed() {
 fn test_ssrf_nat64_private() {
     // 64:ff9b::192.168.1.1 = NAT64 with embedded private
     let result = validate_url_no_ssrf("http://[64:ff9b::c0a8:0101]/path");
-    assert!(result.is_err(), "NAT64 with embedded 192.168.1.1 should be rejected");
+    assert!(
+        result.is_err(),
+        "NAT64 with embedded 192.168.1.1 should be rejected"
+    );
     assert!(
         result.unwrap_err().contains("NAT64"),
         "error should mention NAT64"
@@ -7605,7 +7795,10 @@ fn test_ssrf_nat64_private() {
 fn test_ssrf_nat64_loopback() {
     // 64:ff9b::127.0.0.1 = NAT64 with embedded loopback
     let result = validate_url_no_ssrf("http://[64:ff9b::7f00:0001]/path");
-    assert!(result.is_err(), "NAT64 with embedded 127.0.0.1 should be rejected");
+    assert!(
+        result.is_err(),
+        "NAT64 with embedded 127.0.0.1 should be rejected"
+    );
 }
 
 #[test]
@@ -7619,7 +7812,10 @@ fn test_ssrf_nat64_public_allowed() {
 fn test_ssrf_nat64_local_use_private() {
     // 64:ff9b:1::c0a8:0101 = NAT64 local-use with embedded 192.168.1.1
     let result = validate_url_no_ssrf("http://[64:ff9b:1::c0a8:0101]/path");
-    assert!(result.is_err(), "NAT64 local-use with embedded 192.168.1.1 should be rejected");
+    assert!(
+        result.is_err(),
+        "NAT64 local-use with embedded 192.168.1.1 should be rejected"
+    );
     assert!(
         result.unwrap_err().contains("NAT64 local-use"),
         "error should mention NAT64 local-use"
@@ -7630,14 +7826,20 @@ fn test_ssrf_nat64_local_use_private() {
 fn test_ssrf_nat64_local_use_public_allowed() {
     // 64:ff9b:1::0808:0808 = NAT64 local-use with embedded 8.8.8.8 — should be allowed
     let result = validate_url_no_ssrf("http://[64:ff9b:1::0808:0808]/path");
-    assert!(result.is_ok(), "NAT64 local-use with public IP should be allowed");
+    assert!(
+        result.is_ok(),
+        "NAT64 local-use with public IP should be allowed"
+    );
 }
 
 #[test]
 fn test_ssrf_ipv4_mapped_still_works() {
     // Ensure existing IPv4-mapped check still works after refactoring
     let result = validate_url_no_ssrf("http://[::ffff:192.168.1.1]/path");
-    assert!(result.is_err(), "IPv4-mapped with private IP should still be rejected");
+    assert!(
+        result.is_err(),
+        "IPv4-mapped with private IP should still be rejected"
+    );
     assert!(
         result.unwrap_err().contains("IPv4-mapped"),
         "error should mention IPv4-mapped"
@@ -7649,14 +7851,20 @@ fn test_ssrf_6to4_cgnat() {
     // 6to4 with embedded CGNAT address (100.64.0.1)
     // 100.64.0.1 = 0x64400001 -> segs 1=0x6440, 2=0x0001
     let result = validate_url_no_ssrf("http://[2002:6440:0001::1]/path");
-    assert!(result.is_err(), "6to4 with embedded CGNAT should be rejected");
+    assert!(
+        result.is_err(),
+        "6to4 with embedded CGNAT should be rejected"
+    );
 }
 
 #[test]
 fn test_ssrf_nat64_cgnat() {
     // NAT64 with embedded CGNAT address (100.64.0.1)
     let result = validate_url_no_ssrf("http://[64:ff9b::6440:0001]/path");
-    assert!(result.is_err(), "NAT64 with embedded CGNAT should be rejected");
+    assert!(
+        result.is_err(),
+        "NAT64 with embedded CGNAT should be rejected"
+    );
 }
 
 // ═══════════════════════════════════════════════════
@@ -8275,7 +8483,10 @@ fn test_audit_query_params_empty_agent_id_fails() {
         ..Default::default()
     };
     let err = params.validate().unwrap_err();
-    assert!(err.contains("agent_id filter must not be empty"), "got: {err}");
+    assert!(
+        err.contains("agent_id filter must not be empty"),
+        "got: {err}"
+    );
 }
 
 #[test]
@@ -8676,7 +8887,9 @@ fn test_r159_001_access_review_entry_rejects_oversized_tools_accessed_entry() {
     entry.tools_accessed = vec!["t".repeat(257)];
     let err = entry.validate().unwrap_err();
     assert!(
-        err.contains("tools_accessed") && err.contains("entry length") && err.contains("exceeds max"),
+        err.contains("tools_accessed")
+            && err.contains("entry length")
+            && err.contains("exceeds max"),
         "got: {}",
         err
     );
@@ -8700,7 +8913,9 @@ fn test_r159_001_access_review_entry_rejects_oversized_functions_called_entry() 
     entry.functions_called = vec!["f".repeat(257)];
     let err = entry.validate().unwrap_err();
     assert!(
-        err.contains("functions_called") && err.contains("entry length") && err.contains("exceeds max"),
+        err.contains("functions_called")
+            && err.contains("entry length")
+            && err.contains("exceeds max"),
         "got: {}",
         err
     );
@@ -8724,7 +8939,9 @@ fn test_r159_001_access_review_entry_rejects_oversized_unused_permissions_entry(
     entry.unused_permissions = vec!["p".repeat(257)];
     let err = entry.validate().unwrap_err();
     assert!(
-        err.contains("unused_permissions") && err.contains("entry length") && err.contains("exceeds max"),
+        err.contains("unused_permissions")
+            && err.contains("entry length")
+            && err.contains("exceeds max"),
         "got: {}",
         err
     );
@@ -9075,11 +9292,13 @@ fn test_policy_version_validate_unicode_format_chars_in_policy_id() {
 #[test]
 fn test_policy_version_validate_too_many_approvals() {
     let mut v = make_valid_policy_version();
-    v.approvals = (0..51).map(|i| crate::PolicyApproval {
-        approved_by: format!("reviewer-{}", i),
-        approved_at: "2026-01-15T10:00:00Z".to_string(),
-        comment: None,
-    }).collect();
+    v.approvals = (0..51)
+        .map(|i| crate::PolicyApproval {
+            approved_by: format!("reviewer-{}", i),
+            approved_at: "2026-01-15T10:00:00Z".to_string(),
+            comment: None,
+        })
+        .collect();
     assert!(v.validate().unwrap_err().contains("approvals"));
 }
 
@@ -9137,13 +9356,15 @@ fn test_staging_report_validate_too_many_divergences() {
         staging_version: 2,
         total_evaluations: 100,
         divergent_evaluations: 5,
-        divergences: (0..10001).map(|i| crate::StagingComparisonEntry {
-            timestamp: "2026-01-15T10:00:00Z".to_string(),
-            tool: format!("t{}", i),
-            function: "f".to_string(),
-            active_verdict: "allow".to_string(),
-            staging_verdict: "deny".to_string(),
-        }).collect(),
+        divergences: (0..10001)
+            .map(|i| crate::StagingComparisonEntry {
+                timestamp: "2026-01-15T10:00:00Z".to_string(),
+                tool: format!("t{}", i),
+                function: "f".to_string(),
+                active_verdict: "allow".to_string(),
+                staging_verdict: "deny".to_string(),
+            })
+            .collect(),
         staging_started_at: "2026-01-15T10:00:00Z".to_string(),
     };
     assert!(r.validate().unwrap_err().contains("divergences"));
@@ -9175,7 +9396,10 @@ fn test_policy_version_diff_validate_too_many_changes() {
 fn test_policy_approval_deny_unknown_fields() {
     let json = r#"{"approved_by":"a","approved_at":"t","comment":null,"extra":"bad"}"#;
     let result = serde_json::from_str::<crate::PolicyApproval>(json);
-    assert!(result.is_err(), "deny_unknown_fields should reject extra field");
+    assert!(
+        result.is_err(),
+        "deny_unknown_fields should reject extra field"
+    );
 }
 
 #[test]
@@ -9183,9 +9407,14 @@ fn test_policy_version_deny_unknown_fields() {
     let mut v = make_valid_policy_version();
     v.version_id = "v-test".to_string();
     let mut json: serde_json::Value = serde_json::to_value(&v).unwrap();
-    json.as_object_mut().unwrap().insert("extra".to_string(), serde_json::json!("bad"));
+    json.as_object_mut()
+        .unwrap()
+        .insert("extra".to_string(), serde_json::json!("bad"));
     let result = serde_json::from_value::<crate::PolicyVersion>(json);
-    assert!(result.is_err(), "deny_unknown_fields should reject extra field");
+    assert!(
+        result.is_err(),
+        "deny_unknown_fields should reject extra field"
+    );
 }
 
 // ── FIND-R205-002: StagingComparisonEntry::validate() tests ──
@@ -9330,7 +9559,11 @@ fn test_staging_report_validate_invalid_divergence_entry() {
         staging_started_at: "2026-01-15T10:00:00Z".to_string(),
     };
     let err = r.validate().unwrap_err();
-    assert!(err.contains("divergences[0]"), "expected indexed error, got: {}", err);
+    assert!(
+        err.contains("divergences[0]"),
+        "expected indexed error, got: {}",
+        err
+    );
 }
 
 // ── FIND-R205-003: StagingReport staging_started_at timestamp validation ──
@@ -9406,8 +9639,16 @@ fn test_policy_version_diff_validate_change_too_long() {
         changes: vec!["x".repeat(crate::MAX_DIFF_CHANGE_LEN + 1)],
     };
     let err = d.validate().unwrap_err();
-    assert!(err.contains("changes[0]"), "expected indexed error, got: {}", err);
-    assert!(err.contains("exceeds"), "expected length error, got: {}", err);
+    assert!(
+        err.contains("changes[0]"),
+        "expected indexed error, got: {}",
+        err
+    );
+    assert!(
+        err.contains("exceeds"),
+        "expected length error, got: {}",
+        err
+    );
 }
 
 #[test]
@@ -9419,8 +9660,16 @@ fn test_policy_version_diff_validate_change_dangerous_chars() {
         changes: vec!["ok change".to_string(), "bad\x00change".to_string()],
     };
     let err = d.validate().unwrap_err();
-    assert!(err.contains("changes[1]"), "expected indexed error, got: {}", err);
-    assert!(err.contains("invalid characters"), "expected char error, got: {}", err);
+    assert!(
+        err.contains("changes[1]"),
+        "expected indexed error, got: {}",
+        err
+    );
+    assert!(
+        err.contains("invalid characters"),
+        "expected char error, got: {}",
+        err
+    );
 }
 
 #[test]
@@ -9657,7 +9906,10 @@ fn test_evidence_pack_validate_generated_at_control_chars() {
         recommendations: vec![],
     };
     let err = pack.validate().unwrap_err();
-    assert!(err.contains("generated_at"), "should reject control chars in generated_at: {err}");
+    assert!(
+        err.contains("generated_at"),
+        "should reject control chars in generated_at: {err}"
+    );
 }
 
 #[test]
@@ -9680,7 +9932,10 @@ fn test_evidence_pack_validate_period_start_control_chars() {
         recommendations: vec![],
     };
     let err = pack.validate().unwrap_err();
-    assert!(err.contains("period_start"), "should reject control chars in period_start: {err}");
+    assert!(
+        err.contains("period_start"),
+        "should reject control chars in period_start: {err}"
+    );
 }
 
 #[test]
@@ -9693,7 +9948,10 @@ fn test_evidence_section_validate_description_control_chars() {
         section_coverage_percent: 50.0,
     };
     let err = section.validate().unwrap_err();
-    assert!(err.contains("description"), "should reject control chars in description: {err}");
+    assert!(
+        err.contains("description"),
+        "should reject control chars in description: {err}"
+    );
 }
 
 #[test]
@@ -9716,7 +9974,10 @@ fn test_evidence_pack_validate_recommendation_control_chars() {
         recommendations: vec!["Do \x08this".to_string()],
     };
     let err = pack.validate().unwrap_err();
-    assert!(err.contains("recommendations"), "should reject control chars in recommendations: {err}");
+    assert!(
+        err.contains("recommendations"),
+        "should reject control chars in recommendations: {err}"
+    );
 }
 
 #[test]
@@ -9739,7 +10000,10 @@ fn test_evidence_pack_validate_critical_gap_control_chars() {
         recommendations: vec![],
     };
     let err = pack.validate().unwrap_err();
-    assert!(err.contains("critical_gaps"), "should reject control chars in critical_gaps: {err}");
+    assert!(
+        err.contains("critical_gaps"),
+        "should reject control chars in critical_gaps: {err}"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -9840,7 +10104,10 @@ fn test_r224_003_task_checkpoint_rejects_dangerous_state_hash() {
         public_key: "key".to_string(),
     };
     let err = cp.validate().unwrap_err();
-    assert!(err.contains("state_hash"), "expected state_hash rejection, got: {err}");
+    assert!(
+        err.contains("state_hash"),
+        "expected state_hash rejection, got: {err}"
+    );
 }
 
 #[test]
@@ -9855,7 +10122,10 @@ fn test_r224_003_task_checkpoint_rejects_dangerous_created_at() {
         public_key: "key".to_string(),
     };
     let err = cp.validate().unwrap_err();
-    assert!(err.contains("created_at"), "expected created_at rejection, got: {err}");
+    assert!(
+        err.contains("created_at"),
+        "expected created_at rejection, got: {err}"
+    );
 }
 
 #[test]
@@ -9870,7 +10140,10 @@ fn test_r224_003_task_checkpoint_rejects_dangerous_signature() {
         public_key: "key".to_string(),
     };
     let err = cp.validate().unwrap_err();
-    assert!(err.contains("signature"), "expected signature rejection, got: {err}");
+    assert!(
+        err.contains("signature"),
+        "expected signature rejection, got: {err}"
+    );
 }
 
 #[test]
@@ -9885,7 +10158,10 @@ fn test_r224_003_task_checkpoint_rejects_dangerous_public_key() {
         public_key: "key\u{202E}evil".to_string(),
     };
     let err = cp.validate().unwrap_err();
-    assert!(err.contains("public_key"), "expected public_key rejection, got: {err}");
+    assert!(
+        err.contains("public_key"),
+        "expected public_key rejection, got: {err}"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════

@@ -836,10 +836,7 @@ fn decode_emoji(text: &str) -> Option<String> {
         // always built directly from `c` (and an optional variation selector
         // already consumed via `chars.next()`), exact equality is sufficient
         // and avoids spurious matches.
-        if let Some((_, command)) = EMOJI_COMMANDS
-            .iter()
-            .find(|(emoji, _)| *emoji == emoji_str)
-        {
+        if let Some((_, command)) = EMOJI_COMMANDS.iter().find(|(emoji, _)| *emoji == emoji_str) {
             if !decoded.is_empty() && !decoded.ends_with(' ') {
                 decoded.push(' ');
             }

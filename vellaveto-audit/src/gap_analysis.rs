@@ -520,7 +520,10 @@ mod tests {
     fn test_r216_006_deny_unknown_fields_framework_summary() {
         let json = r#"{"name":"test","total_items":1,"covered_items":1,"coverage_percent":100.0,"extra":true}"#;
         let result: Result<FrameworkSummary, _> = serde_json::from_str(json);
-        assert!(result.is_err(), "FrameworkSummary should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "FrameworkSummary should reject unknown fields"
+        );
     }
 
     /// FIND-R216-006: deny_unknown_fields rejects extra fields on Gap.

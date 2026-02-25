@@ -522,8 +522,8 @@ mod tests {
 
     #[test]
     fn test_span_builder_attribute_cap() {
-        let mut builder = SecuritySpan::builder("trace-cap-test", SpanKind::Tool)
-            .verdict(VerdictSummary {
+        let mut builder =
+            SecuritySpan::builder("trace-cap-test", SpanKind::Tool).verdict(VerdictSummary {
                 outcome: "allow".to_string(),
                 reason: None,
             });

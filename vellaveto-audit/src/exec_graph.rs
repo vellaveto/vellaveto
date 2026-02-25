@@ -242,7 +242,12 @@ impl ExecutionGraph {
                 limit = MAX_METADATA_ENTRIES,
                 "Node metadata exceeds limit — truncating"
             );
-            let keys: Vec<String> = node.metadata.keys().skip(MAX_METADATA_ENTRIES).cloned().collect();
+            let keys: Vec<String> = node
+                .metadata
+                .keys()
+                .skip(MAX_METADATA_ENTRIES)
+                .cloned()
+                .collect();
             for key in keys {
                 node.metadata.remove(&key);
             }
@@ -575,6 +580,168 @@ impl ExecutionGraph {
         dot
     }
 
+    /// Export to SVG format (no Graphviz dependency).
+    ///
+    /// Renders a hierarchical layout from the tree structure:
+    /// - Nodes colored by verdict (green/red/yellow/orange)
+    /// - Edges showing parent→child call chains
+    /// - Embeddable in dashboards or browsers
+    pub fn to_svg(&self) -> String {
+        // Layout constants
+        const NODE_W: u32 = 180;
+        const NODE_H: u32 = 48;
+        const H_GAP: u32 = 30;
+        const V_GAP: u32 = 60;
+        const PAD: u32 = 20;
+        const MAX_LABEL: usize = 22;
+
+        // Collect nodes ordered by depth (BFS from roots)
+        let mut levels: Vec<Vec<&str>> = Vec::new();
+        let mut visited: HashSet<&str> = HashSet::new();
+        let mut queue: std::collections::VecDeque<(&str, u32)> = std::collections::VecDeque::new();
+
+        for root_id in &self.roots {
+            if visited.insert(root_id.as_str()) {
+                queue.push_back((root_id.as_str(), 0));
+            }
+        }
+        // Also add orphan nodes (no parent, not in roots)
+        for (id, node) in &self.nodes {
+            if node.parent_id.is_none() && visited.insert(id.as_str()) {
+                queue.push_back((id.as_str(), 0));
+            }
+        }
+
+        while let Some((nid, depth)) = queue.pop_front() {
+            let d = depth as usize;
+            while levels.len() <= d {
+                levels.push(Vec::new());
+            }
+            levels[d].push(nid);
+
+            if let Some(node) = self.nodes.get(nid) {
+                for child_id in &node.children {
+                    if visited.insert(child_id.as_str()) {
+                        queue.push_back((child_id.as_str(), depth.saturating_add(1)));
+                    }
+                }
+            }
+        }
+
+        // Compute positions: each node gets (cx, cy)
+        let mut positions: HashMap<&str, (u32, u32)> = HashMap::new();
+        let mut max_x: u32 = 0;
+
+        for (depth, level) in levels.iter().enumerate() {
+            let row_width = if level.is_empty() {
+                0
+            } else {
+                (level.len() as u32)
+                    .saturating_mul(NODE_W)
+                    .saturating_add((level.len().saturating_sub(1) as u32).saturating_mul(H_GAP))
+            };
+            let start_x = PAD;
+            let y = PAD.saturating_add((depth as u32).saturating_mul(NODE_H.saturating_add(V_GAP)));
+
+            for (i, nid) in level.iter().enumerate() {
+                let x =
+                    start_x.saturating_add((i as u32).saturating_mul(NODE_W.saturating_add(H_GAP)));
+                positions.insert(nid, (x, y));
+                let right_edge = x.saturating_add(NODE_W);
+                if right_edge > max_x {
+                    max_x = right_edge;
+                }
+            }
+            let _ = row_width; // used for centering in future
+        }
+
+        let total_w = max_x.saturating_add(PAD);
+        let total_h = if levels.is_empty() {
+            PAD.saturating_mul(2)
+        } else {
+            PAD.saturating_mul(2).saturating_add(
+                (levels.len() as u32)
+                    .saturating_mul(NODE_H.saturating_add(V_GAP))
+                    .saturating_sub(V_GAP),
+            )
+        };
+
+        let mut svg = String::with_capacity(4096);
+        use std::fmt::Write;
+
+        let _ = write!(
+            svg,
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="{total_w}" height="{total_h}" role="img" aria-label="Execution graph">
+<style>
+  .node rect {{ stroke-width: 2; rx: 6; ry: 6; }}
+  .node text {{ font-family: -apple-system, sans-serif; font-size: 11px; fill: #fff; text-anchor: middle; dominant-baseline: central; }}
+  .edge {{ fill: none; stroke-width: 1.5; }}
+  .edge-call {{ stroke: #8b949e; }}
+  .edge-data {{ stroke: #58a6ff; stroke-dasharray: 5,3; }}
+  .edge-deleg {{ stroke: #bc8cff; stroke-dasharray: 2,4; }}
+  .v-allow {{ fill: #238636; stroke: #3fb950; }}
+  .v-deny {{ fill: #da3633; stroke: #f85149; }}
+  .v-pending {{ fill: #9e6a03; stroke: #d29922; }}
+  .v-approval {{ fill: #b35900; stroke: #db6d28; }}
+</style>
+"##
+        );
+
+        // Draw edges first (behind nodes)
+        for edge in &self.edges {
+            let from_pos = positions.get(edge.from.as_str());
+            let to_pos = positions.get(edge.to.as_str());
+            if let (Some(&(fx, fy)), Some(&(tx, ty))) = (from_pos, to_pos) {
+                let x1 = fx.saturating_add(NODE_W / 2);
+                let y1 = fy.saturating_add(NODE_H);
+                let x2 = tx.saturating_add(NODE_W / 2);
+                let y2 = ty;
+                let cls = match edge.edge_type {
+                    EdgeType::Call => "edge-call",
+                    EdgeType::DataFlow => "edge-data",
+                    EdgeType::Delegation => "edge-deleg",
+                };
+                // Curved path for non-straight edges
+                let mid_y = y1.saturating_add(y2) / 2;
+                let _ = writeln!(
+                    svg,
+                    r##"<path class="edge {cls}" d="M {x1} {y1} C {x1} {mid_y}, {x2} {mid_y}, {x2} {y2}" marker-end="url(#arrow)"/>"##
+                );
+            }
+        }
+
+        // Arrow marker definition
+        let _ = writeln!(
+            svg,
+            r##"<defs><marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8b949e"/></marker></defs>"##
+        );
+
+        // Draw nodes
+        for (nid, &(x, y)) in &positions {
+            if let Some(node) = self.nodes.get(*nid) {
+                let verdict_cls = match node.verdict {
+                    NodeVerdict::Allow => "v-allow",
+                    NodeVerdict::Deny => "v-deny",
+                    NodeVerdict::Pending => "v-pending",
+                    NodeVerdict::RequireApproval => "v-approval",
+                };
+                let tool = svg_escape(&svg_truncate(&node.tool, MAX_LABEL));
+                let func = svg_escape(&svg_truncate(&node.function, MAX_LABEL));
+                let cx = x.saturating_add(NODE_W / 2);
+                let ty = y.saturating_add(NODE_H / 2).saturating_sub(7);
+                let by = y.saturating_add(NODE_H / 2).saturating_add(7);
+
+                let _ = writeln!(
+                    svg,
+                    r##"<g class="node"><rect class="{verdict_cls}" x="{x}" y="{y}" width="{NODE_W}" height="{NODE_H}"/><text x="{cx}" y="{ty}">{tool}</text><text x="{cx}" y="{by}" style="font-size:10px;opacity:0.8">{func}</text></g>"##
+                );
+            }
+        }
+
+        svg.push_str("</svg>\n");
+        svg
+    }
+
     /// Export to JSON format.
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
@@ -825,6 +992,40 @@ fn escape_dot(s: &str) -> String {
         }
     }
     result
+}
+
+/// Escape special characters for SVG text content (prevents XSS in SVG).
+///
+/// Strips bidi overrides (same as `escape_dot`) and null bytes.
+fn svg_escape(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '&' => result.push_str("&amp;"),
+            '<' => result.push_str("&lt;"),
+            '>' => result.push_str("&gt;"),
+            '"' => result.push_str("&quot;"),
+            '\'' => result.push_str("&#x27;"),
+            '\0' => {}
+            // Strip bidi overrides (same set as escape_dot)
+            '\u{200E}' | '\u{200F}' | '\u{202A}' | '\u{202B}' | '\u{202C}' | '\u{202D}'
+            | '\u{202E}' | '\u{2066}' | '\u{2067}' | '\u{2068}' | '\u{2069}' => {}
+            other => result.push(other),
+        }
+    }
+    result
+}
+
+/// Truncate a string for SVG labels, respecting char boundaries.
+fn svg_truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        return s.to_string();
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\u{2026}", &s[..end])
 }
 
 /// Get current Unix timestamp in milliseconds.
@@ -1413,6 +1614,177 @@ mod tests {
         assert_eq!(
             graph.metadata.total_calls, 2,
             "Duplicate node should not inflate total_calls"
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // SVG export tests
+    // ═══════════════════════════════════════════════════════
+
+    #[test]
+    fn test_svg_escape_basic() {
+        assert_eq!(svg_escape("hello"), "hello");
+        assert_eq!(svg_escape("<script>"), "&lt;script&gt;");
+        assert_eq!(svg_escape("a&b"), "a&amp;b");
+        assert_eq!(svg_escape("say \"hi\""), "say &quot;hi&quot;");
+        assert_eq!(svg_escape("it's"), "it&#x27;s");
+    }
+
+    #[test]
+    fn test_svg_escape_strips_bidi() {
+        let input = "read_file\u{202E}eteled";
+        let escaped = svg_escape(input);
+        assert!(!escaped.contains('\u{202E}'));
+        assert!(escaped.contains("read_file"));
+        assert!(escaped.contains("eteled"));
+    }
+
+    #[test]
+    fn test_svg_escape_strips_null() {
+        assert_eq!(svg_escape("a\0b"), "ab");
+    }
+
+    #[test]
+    fn test_svg_truncate_short() {
+        assert_eq!(svg_truncate("hello", 10), "hello");
+    }
+
+    #[test]
+    fn test_svg_truncate_long() {
+        let result = svg_truncate("hello world this is long", 10);
+        assert!(result.ends_with('\u{2026}')); // ellipsis
+        assert!(result.len() <= 14); // 10 bytes + ellipsis (3 bytes)
+    }
+
+    #[test]
+    fn test_svg_truncate_unicode_boundary() {
+        // "café" is 5 bytes (c=1, a=1, f=1, é=2)
+        let result = svg_truncate("café", 4);
+        assert!(result.ends_with('\u{2026}'));
+        assert_eq!(result, "caf\u{2026}");
+    }
+
+    #[test]
+    fn test_to_svg_empty_graph() {
+        let graph = ExecutionGraph::new("empty".to_string());
+        let svg = graph.to_svg();
+        assert!(svg.starts_with("<svg"));
+        assert!(svg.contains("</svg>"));
+    }
+
+    #[test]
+    fn test_to_svg_single_node() {
+        let mut graph = ExecutionGraph::new("session1".to_string());
+        let mut node = ExecutionNode::new(
+            "n1".to_string(),
+            "session1".to_string(),
+            "filesystem".to_string(),
+            "read_file".to_string(),
+        );
+        node.complete(NodeVerdict::Allow);
+        graph.add_node(node);
+
+        let svg = graph.to_svg();
+        assert!(svg.contains("<svg"));
+        assert!(svg.contains("v-allow"));
+        assert!(svg.contains("filesystem"));
+        assert!(svg.contains("read_file"));
+        assert!(svg.contains("</svg>"));
+    }
+
+    #[test]
+    fn test_to_svg_verdict_colors() {
+        let mut graph = ExecutionGraph::new("session1".to_string());
+
+        let mut allow_node = ExecutionNode::new(
+            "n1".to_string(),
+            "session1".to_string(),
+            "tool1".to_string(),
+            "fn1".to_string(),
+        );
+        allow_node.complete(NodeVerdict::Allow);
+        graph.add_node(allow_node);
+
+        let mut deny_node = ExecutionNode::new(
+            "n2".to_string(),
+            "session1".to_string(),
+            "tool2".to_string(),
+            "fn2".to_string(),
+        );
+        deny_node.complete(NodeVerdict::Deny);
+        graph.add_node(deny_node);
+
+        let svg = graph.to_svg();
+        assert!(svg.contains("v-allow"), "Should contain allow class");
+        assert!(svg.contains("v-deny"), "Should contain deny class");
+    }
+
+    #[test]
+    fn test_to_svg_parent_child_edges() {
+        let mut graph = ExecutionGraph::new("session1".to_string());
+
+        let parent = ExecutionNode::new(
+            "parent".to_string(),
+            "session1".to_string(),
+            "orchestrator".to_string(),
+            "plan".to_string(),
+        );
+        graph.add_node(parent);
+
+        let child = ExecutionNode::new(
+            "child".to_string(),
+            "session1".to_string(),
+            "filesystem".to_string(),
+            "read".to_string(),
+        )
+        .with_parent("parent".to_string(), 1);
+        graph.add_node(child);
+
+        let svg = graph.to_svg();
+        assert!(svg.contains("<path"), "Should contain edge paths");
+        assert!(svg.contains("edge-call"), "Should contain call edge class");
+    }
+
+    #[test]
+    fn test_to_svg_xss_prevention() {
+        let mut graph = ExecutionGraph::new("session1".to_string());
+        let mut node = ExecutionNode::new(
+            "n1".to_string(),
+            "session1".to_string(),
+            "<script>alert(1)</script>".to_string(),
+            "fn&\"test".to_string(),
+        );
+        node.complete(NodeVerdict::Allow);
+        graph.add_node(node);
+
+        let svg = graph.to_svg();
+        assert!(
+            !svg.contains("<script>"),
+            "SVG must not contain raw script tags"
+        );
+        assert!(
+            svg.contains("&lt;script&gt;"),
+            "Script tag should be escaped"
+        );
+        assert!(svg.contains("&amp;"), "Ampersand should be escaped");
+    }
+
+    #[test]
+    fn test_to_svg_bidi_stripped() {
+        let mut graph = ExecutionGraph::new("session1".to_string());
+        let mut node = ExecutionNode::new(
+            "n1".to_string(),
+            "session1".to_string(),
+            "read_file\u{202E}eteled".to_string(),
+            "exec".to_string(),
+        );
+        node.complete(NodeVerdict::Allow);
+        graph.add_node(node);
+
+        let svg = graph.to_svg();
+        assert!(
+            !svg.contains('\u{202E}'),
+            "SVG must not contain bidi override characters"
         );
     }
 }

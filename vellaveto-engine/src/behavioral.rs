@@ -2034,8 +2034,7 @@ mod tests {
     fn test_record_session_rejects_oversized_agent_id() {
         let mut tracker = BehavioralTracker::new(BehavioralConfig::default()).unwrap();
         let long_id = "a".repeat(513);
-        let counts: HashMap<String, u64> =
-            [("tool1".to_string(), 5u64)].into_iter().collect();
+        let counts: HashMap<String, u64> = [("tool1".to_string(), 5u64)].into_iter().collect();
         tracker.record_session(&long_id, &counts);
         assert!(
             tracker.agents.is_empty(),
@@ -2046,8 +2045,7 @@ mod tests {
     #[test]
     fn test_record_session_rejects_control_char_agent_id() {
         let mut tracker = BehavioralTracker::new(BehavioralConfig::default()).unwrap();
-        let counts: HashMap<String, u64> =
-            [("tool1".to_string(), 5u64)].into_iter().collect();
+        let counts: HashMap<String, u64> = [("tool1".to_string(), 5u64)].into_iter().collect();
         tracker.record_session("agent\x1b[31m", &counts);
         assert!(
             tracker.agents.is_empty(),
@@ -2078,8 +2076,7 @@ mod tests {
         .unwrap();
         let agent_id = "agent-ema-test";
         // First session to establish baseline
-        let counts: HashMap<String, u64> =
-            [("tool1".to_string(), u64::MAX)].into_iter().collect();
+        let counts: HashMap<String, u64> = [("tool1".to_string(), u64::MAX)].into_iter().collect();
         tracker.record_session(agent_id, &counts);
         let agent = tracker.agents.get(agent_id).unwrap();
         let ema = agent.tools.get("tool1").unwrap().ema;

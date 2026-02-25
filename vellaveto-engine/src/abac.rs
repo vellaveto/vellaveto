@@ -289,9 +289,12 @@ impl AbacEngine {
             ));
         }
         for entity in entities {
-            entity
-                .validate()
-                .map_err(|e| format!("ABAC entity '{}::{}' validation failed: {e}", entity.entity_type, entity.id))?;
+            entity.validate().map_err(|e| {
+                format!(
+                    "ABAC entity '{}::{}' validation failed: {e}",
+                    entity.entity_type, entity.id
+                )
+            })?;
         }
 
         let entity_store = EntityStore::from_config(entities);
@@ -620,12 +623,9 @@ fn matches_action(action_constraint: &CompiledAction, action: &Action) -> bool {
     // from bypassing Forbid policies.
     let norm_tool = vellaveto_types::unicode::normalize_homoglyphs(&action.tool);
     let norm_func = vellaveto_types::unicode::normalize_homoglyphs(&action.function);
-    action_constraint
-        .matchers
-        .iter()
-        .any(|(tool_m, func_m)| {
-            tool_m.matches_normalized(&norm_tool) && func_m.matches_normalized(&norm_func)
-        })
+    action_constraint.matchers.iter().any(|(tool_m, func_m)| {
+        tool_m.matches_normalized(&norm_tool) && func_m.matches_normalized(&norm_func)
+    })
 }
 
 fn matches_resource(resource: &CompiledResource, action: &Action) -> bool {

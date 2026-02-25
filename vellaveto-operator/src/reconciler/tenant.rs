@@ -63,12 +63,8 @@ pub async fn reconcile_tenant(
 
     finalizer(&api, TENANT_FINALIZER, tenant, |event| async {
         match event {
-            FinalizerEvent::Apply(tenant) => {
-                apply_tenant(&ctx_clone, &tenant, &ns).await
-            }
-            FinalizerEvent::Cleanup(tenant) => {
-                cleanup_tenant(&ctx_clone, &tenant, &ns).await
-            }
+            FinalizerEvent::Apply(tenant) => apply_tenant(&ctx_clone, &tenant, &ns).await,
+            FinalizerEvent::Cleanup(tenant) => cleanup_tenant(&ctx_clone, &tenant, &ns).await,
         }
     })
     .await

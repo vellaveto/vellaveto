@@ -694,18 +694,8 @@ mod tests {
         );
 
         // nl_policies boundary: ["ab", "cd"] vs ["a", "bcd"]
-        let key5 = cache.compute_key(
-            "t",
-            "f",
-            &params,
-            &["ab".to_string(), "cd".to_string()],
-        );
-        let key6 = cache.compute_key(
-            "t",
-            "f",
-            &params,
-            &["a".to_string(), "bcd".to_string()],
-        );
+        let key5 = cache.compute_key("t", "f", &params, &["ab".to_string(), "cd".to_string()]);
+        let key6 = cache.compute_key("t", "f", &params, &["a".to_string(), "bcd".to_string()]);
         assert_ne!(
             key5, key6,
             "FIND-R213-001: policy boundary shift must produce different keys"

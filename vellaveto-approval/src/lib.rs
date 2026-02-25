@@ -2036,10 +2036,9 @@ mod tests {
                                 .with_timezone(&Utc),
                         );
                         // Also backdate created_at so it's clearly old
-                        entry.created_at =
-                            chrono::DateTime::parse_from_rfc3339(&old_ts)
-                                .unwrap()
-                                .with_timezone(&Utc);
+                        entry.created_at = chrono::DateTime::parse_from_rfc3339(&old_ts)
+                            .unwrap()
+                            .with_timezone(&Utc);
                         new_lines.push(serde_json::to_string(&entry).unwrap());
                         continue;
                     }
@@ -2089,7 +2088,10 @@ mod tests {
                 None,
             )
             .await;
-        assert!(result.is_err(), "Reason with control chars should be rejected");
+        assert!(
+            result.is_err(),
+            "Reason with control chars should be rejected"
+        );
         match result.unwrap_err() {
             ApprovalError::Validation(msg) => {
                 assert!(
@@ -2111,16 +2113,16 @@ mod tests {
         );
 
         let result = store
-            .create(
-                test_action(),
-                "reason with \0 null byte".to_string(),
-                None,
-            )
+            .create(test_action(), "reason with \0 null byte".to_string(), None)
             .await;
         assert!(result.is_err(), "Reason with null byte should be rejected");
         match result.unwrap_err() {
             ApprovalError::Validation(msg) => {
-                assert!(msg.contains("reason contains control characters"), "got: {}", msg);
+                assert!(
+                    msg.contains("reason contains control characters"),
+                    "got: {}",
+                    msg
+                );
             }
             other => panic!("Expected Validation error, got: {:?}", other),
         }
@@ -2259,17 +2261,17 @@ mod tests {
         // Should accept 5 distinct approvals
         for i in 0..5 {
             let action = Action::new(format!("tool_{i}"), "exec".to_string(), json!({}));
-            let result = store
-                .create(action, format!("reason_{i}"), None)
-                .await;
-            assert!(result.is_ok(), "Should accept approval {i}: {:?}", result.err());
+            let result = store.create(action, format!("reason_{i}"), None).await;
+            assert!(
+                result.is_ok(),
+                "Should accept approval {i}: {:?}",
+                result.err()
+            );
         }
 
         // 6th should fail
         let action6 = Action::new("tool_overflow".to_string(), "exec".to_string(), json!({}));
-        let result = store
-            .create(action6, "overflow".to_string(), None)
-            .await;
+        let result = store.create(action6, "overflow".to_string(), None).await;
         assert!(
             matches!(result, Err(ApprovalError::CapacityExceeded(5))),
             "Expected CapacityExceeded(5), got: {:?}",

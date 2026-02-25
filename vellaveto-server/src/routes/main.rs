@@ -17,6 +17,7 @@ use governor::clock::Clock;
 
 use subtle::ConstantTimeEq;
 
+use crate::iam;
 use crate::rbac::{rbac_middleware, RbacState};
 use crate::tenant::{tenant_middleware, TenantContext, TenantState};
 use crate::AppState;
@@ -272,6 +273,10 @@ pub fn build_router(state: AppState) -> Router {
             "/api/graphs/{session}/stats",
             get(super::exec_graph::get_graph_stats),
         )
+        .route(
+            "/api/graphs/{session}/svg",
+            get(super::exec_graph::get_graph_svg),
+        )
         // ═══════════════════════════════════════════════════════════════════
         // Phase 8: ETDI Cryptographic Tool Security
         // ═══════════════════════════════════════════════════════════════════
@@ -512,10 +517,7 @@ pub fn build_router(state: AppState) -> Router {
         // ═══════════════════════════════════════════════════════════════════
         // Phase 43: Centralized Audit Store
         // ═══════════════════════════════════════════════════════════════════
-        .route(
-            "/api/audit/search",
-            get(super::audit_store::audit_search),
-        )
+        .route("/api/audit/search", get(super::audit_store::audit_search))
         .route(
             "/api/audit/store/status",
             get(super::audit_store::audit_store_status),
@@ -575,6 +577,23 @@ pub fn build_router(state: AppState) -> Router {
         // Billing & Licensing
         // ═══════════════════════════════════════════════════════════════════
         .route("/api/billing/license", get(super::billing::license_info))
+        // Phase 50: Usage metering API endpoints
+        .route(
+            "/api/billing/usage/{tenant_id}",
+            get(super::billing::get_usage),
+        )
+        .route(
+            "/api/billing/quotas/{tenant_id}",
+            get(super::billing::get_quota_status),
+        )
+        .route(
+            "/api/billing/usage/{tenant_id}/history",
+            get(super::billing::get_usage_history),
+        )
+        .route(
+            "/api/billing/usage/{tenant_id}/reset",
+            post(super::billing::reset_usage),
+        )
         // SECURITY (R38-SRV-1): /metrics inside auth — exposes policy count
         // and pending approval count, which are security-sensitive (see R26-SRV-6).
         // SECURITY (R38-SRV-2): /metrics inside rate_limit — prevents scraper DoS.
@@ -593,6 +612,7 @@ pub fn build_router(state: AppState) -> Router {
         .route_layer(middleware::from_fn_with_state(
             RbacState {
                 config: state.rbac_config.clone(),
+                iam_state: state.iam_state.clone(),
             },
             rbac_middleware,
         ))
@@ -621,6 +641,15 @@ pub fn build_router(state: AppState) -> Router {
     } else {
         Router::new()
     };
+
+    let iam_routes = Router::new()
+        .route("/iam/login", get(iam::login))
+        .route("/iam/callback", get(iam::callback))
+        .route("/iam/session", get(iam::session_info))
+        .route("/iam/logout", post(iam::logout))
+        .route("/iam/scim/status", get(iam::scim_status))
+        .route("/iam/saml/acs", get(iam::saml_placeholder))
+        .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit));
 
     // Setup wizard routes — unauthenticated (before API key middleware).
     // Protected by the setup_guard middleware which returns 403 after setup is completed.
@@ -658,6 +687,7 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .merge(authenticated)
         .merge(billing)
+        .merge(iam_routes)
         .merge(wizard)
         .layer(middleware::from_fn(request_id))
         .layer(middleware::from_fn_with_state(
@@ -1819,17 +1849,17 @@ async fn evaluate(
                 format!("The '{}' field must not be empty", field)
             }
             vellaveto_types::ValidationError::TooLong { field, max, .. } => {
-                format!("The '{}' field exceeds the maximum length of {} bytes", field, max)
+                format!(
+                    "The '{}' field exceeds the maximum length of {} bytes",
+                    field, max
+                )
             }
             vellaveto_types::ValidationError::NullByte { field }
             | vellaveto_types::ValidationError::ControlCharacter { field } => {
                 format!("The '{}' field contains invalid characters", field)
             }
             vellaveto_types::ValidationError::ParametersTooLarge { max, .. } => {
-                format!(
-                    "The 'parameters' payload is too large (max {} bytes)",
-                    max
-                )
+                format!("The 'parameters' payload is too large (max {} bytes)", max)
             }
             vellaveto_types::ValidationError::TooManyTargets { max, .. } => {
                 format!(
@@ -1888,6 +1918,29 @@ async fn evaluate(
         }
     }
 
+    // Phase 50: Per-tenant evaluation quota reservation (metering).
+    // Reserves one evaluation slot atomically before evaluation to prevent
+    // race conditions under concurrent requests.
+    if let Some(ref tracker) = state.usage_tracker {
+        let tier = &state.billing_config.licensing_validation.tier;
+        let tier_limit = tracker.limit_for_tier(tier);
+        if let Err(reason) = tracker.check_evaluation_quota(&tenant_ctx.tenant_id, tier_limit) {
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(ErrorResponse {
+                    error: format!("Evaluation quota exceeded: {}", reason),
+                }),
+            ));
+        }
+    }
+
+    let record_usage_outcome = |allowed: bool| {
+        if let Some(ref tracker) = state.usage_tracker {
+            tracker.record_evaluation_outcome(&tenant_ctx.tenant_id, allowed);
+        }
+    };
+    let record_usage_deny = || record_usage_outcome(false);
+
     // Tool registry check: if enabled, unknown or untrusted tools require approval.
     // This runs BEFORE engine evaluation so that completely unknown tools are caught
     // even if no policy explicitly covers them (fail-closed).
@@ -1931,6 +1984,7 @@ async fn evaluate(
                             reason: "Unknown tool requires approval but could not be created"
                                 .to_string(),
                         };
+                        record_usage_deny();
                         state.metrics.record_evaluation(&deny);
                         if let Err(e) = state
                             .audit
@@ -1959,6 +2013,7 @@ async fn evaluate(
                 };
 
                 // Record RequireApproval metrics only on success path
+                record_usage_deny();
                 state.metrics.record_evaluation(&verdict);
                 crate::metrics::record_evaluation_verdict("require_approval");
                 crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
@@ -2018,6 +2073,7 @@ async fn evaluate(
                             reason: "Untrusted tool requires approval but could not be created"
                                 .to_string(),
                         };
+                        record_usage_deny();
                         state.metrics.record_evaluation(&deny);
                         if let Err(e) = state
                             .audit
@@ -2046,6 +2102,7 @@ async fn evaluate(
                 };
 
                 // Record RequireApproval metrics only on success path
+                record_usage_deny();
                 state.metrics.record_evaluation(&verdict);
                 crate::metrics::record_evaluation_verdict("require_approval");
                 crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
@@ -2104,7 +2161,11 @@ async fn evaluate(
             &tenant_policies,
         )
         .map_err(|e| {
-            tracing::error!("Failed to compile tenant-filtered policies for trace: {:?}", e);
+            tracing::error!(
+                "Failed to compile tenant-filtered policies for trace: {:?}",
+                e
+            );
+            record_usage_deny();
             state.metrics.record_error();
             crate::metrics::record_evaluation_verdict("error");
             crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
@@ -2120,6 +2181,7 @@ async fn evaluate(
             .map(|(v, t)| (v, Some(t)))
             .map_err(|e| {
                 tracing::error!("Engine evaluation error: {}", e);
+                record_usage_deny();
                 state.metrics.record_error();
                 crate::metrics::record_evaluation_verdict("error");
                 crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
@@ -2143,10 +2205,8 @@ async fn evaluate(
                 &tenant_policies,
             )
             .map_err(|e| {
-                tracing::error!(
-                    "Failed to compile tenant-scoped policies: {:?}",
-                    e
-                );
+                tracing::error!("Failed to compile tenant-scoped policies: {:?}", e);
+                record_usage_deny();
                 state.metrics.record_error();
                 crate::metrics::record_evaluation_verdict("error");
                 crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
@@ -2161,11 +2221,10 @@ async fn evaluate(
                 .evaluate_action_with_context(&action, &tenant_policies, context.as_ref())
                 .map_err(|e| {
                     tracing::error!("Engine evaluation error: {}", e);
+                    record_usage_deny();
                     state.metrics.record_error();
                     crate::metrics::record_evaluation_verdict("error");
-                    crate::metrics::record_evaluation_duration(
-                        eval_start.elapsed().as_secs_f64(),
-                    );
+                    crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(ErrorResponse {
@@ -2178,11 +2237,10 @@ async fn evaluate(
                 .evaluate_action_with_context(&action, &tenant_policies, context.as_ref())
                 .map_err(|e| {
                     tracing::error!("Engine evaluation error: {}", e);
+                    record_usage_deny();
                     state.metrics.record_error();
                     crate::metrics::record_evaluation_verdict("error");
-                    crate::metrics::record_evaluation_duration(
-                        eval_start.elapsed().as_secs_f64(),
-                    );
+                    crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(ErrorResponse {
@@ -2231,6 +2289,9 @@ async fn evaluate(
 
     // Record metrics (both internal AtomicU64 and Prometheus)
     state.metrics.record_evaluation(&verdict);
+
+    // Phase 50: Record evaluation in usage tracker for metering.
+    record_usage_outcome(matches!(verdict, Verdict::Allow));
 
     let verdict_label = match &verdict {
         Verdict::Allow => "allow",
@@ -2285,7 +2346,6 @@ async fn evaluate(
     } else {
         crate::metrics::increment_audit_entries();
     }
-
 
     // Phase 47: Staging shadow evaluation (non-blocking, non-verdict-affecting).
     // When a policy version is in Staging state, the staging engine evaluates
@@ -3486,8 +3546,14 @@ mod tests {
             "https://app.example.com".to_string(),
             "http://localhost:3000".to_string(),
         ];
-        assert!(validate_origin("http://localhost:3000", &origins_with_localhost));
-        assert!(!validate_origin("http://localhost:8080", &origins_with_localhost));
+        assert!(validate_origin(
+            "http://localhost:3000",
+            &origins_with_localhost
+        ));
+        assert!(!validate_origin(
+            "http://localhost:8080",
+            &origins_with_localhost
+        ));
     }
 
     #[test]

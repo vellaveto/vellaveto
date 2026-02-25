@@ -362,8 +362,7 @@ impl ContextBudgetTracker {
                 let sessions = map.len();
                 // SECURITY (FIND-R106-005): Use u64 accumulation to avoid u32
                 // overflow when summing tokens across many sessions.
-                let total_tokens_u64: u64 =
-                    map.values().map(|u| u64::from(u.total_tokens)).sum();
+                let total_tokens_u64: u64 = map.values().map(|u| u64::from(u.total_tokens)).sum();
                 let total_tokens = if total_tokens_u64 > u64::from(u32::MAX) {
                     u32::MAX
                 } else {

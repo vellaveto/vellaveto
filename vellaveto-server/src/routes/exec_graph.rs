@@ -7,6 +7,7 @@
 //! - `GET /api/graphs` - List all execution graph sessions
 //! - `GET /api/graphs/{session}` - Get an execution graph in JSON format
 //! - `GET /api/graphs/{session}/dot` - Get an execution graph in DOT format
+//! - `GET /api/graphs/{session}/svg` - Get an execution graph in SVG format
 //! - `GET /api/graphs/{session}/stats` - Get execution graph statistics
 
 use axum::{
@@ -210,6 +211,51 @@ pub async fn get_graph_dot(
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/vnd.graphviz")],
         dot,
+    )
+        .into_response())
+}
+
+/// Get an execution graph in SVG format (no Graphviz dependency).
+///
+/// GET /api/graphs/{session}/svg
+pub async fn get_graph_svg(
+    State(state): State<AppState>,
+    Path(session): Path<String>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY: Validate session path parameter.
+    if session.len() > 128 || session.chars().any(crate::routes::is_unsafe_char) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Invalid session ID".to_string(),
+            }),
+        ));
+    }
+
+    let store = state.exec_graph_store.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Execution graph tracking is not enabled".to_string(),
+            }),
+        )
+    })?;
+
+    let graph = store.get(&session).await.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Graph not found".to_string(),
+            }),
+        )
+    })?;
+
+    let svg = graph.to_svg();
+
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "image/svg+xml")],
+        svg,
     )
         .into_response())
 }

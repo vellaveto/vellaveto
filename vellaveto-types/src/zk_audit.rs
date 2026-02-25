@@ -63,7 +63,8 @@ impl PedersenCommitment {
         // to prevent invisible character injection in hex-encoded blinding factors.
         if crate::core::has_dangerous_chars(&self.blinding_hint) {
             return Err(
-                "PedersenCommitment blinding_hint contains control or format characters".to_string(),
+                "PedersenCommitment blinding_hint contains control or format characters"
+                    .to_string(),
             );
         }
         Ok(())
@@ -132,9 +133,7 @@ impl ZkBatchProof {
         // SECURITY (FIND-R158-005): Reject control/format chars in proof field
         // to prevent invisible character injection in hex-encoded proof bytes.
         if crate::core::has_dangerous_chars(&self.proof) {
-            return Err(
-                "ZkBatchProof proof contains control or format characters".to_string(),
-            );
+            return Err("ZkBatchProof proof contains control or format characters".to_string());
         }
         if self.batch_id.len() > Self::MAX_BATCH_ID_LEN {
             return Err(format!(
@@ -144,11 +143,8 @@ impl ZkBatchProof {
             ));
         }
         // SECURITY (FIND-R115-003): Reject control/format chars in identity fields.
-        if crate::core::has_dangerous_chars(&self.batch_id)
-        {
-            return Err(
-                "ZkBatchProof batch_id contains control or format characters".to_string(),
-            );
+        if crate::core::has_dangerous_chars(&self.batch_id) {
+            return Err("ZkBatchProof batch_id contains control or format characters".to_string());
         }
         if self.merkle_root.len() > Self::MAX_HASH_LEN {
             return Err(format!(
@@ -200,8 +196,7 @@ impl ZkBatchProof {
             ));
         }
         // SECURITY (FIND-R115-003): Reject control/format chars in timestamp fields.
-        if crate::core::has_dangerous_chars(&self.created_at)
-        {
+        if crate::core::has_dangerous_chars(&self.created_at) {
             return Err(
                 "ZkBatchProof created_at contains control or format characters".to_string(),
             );
@@ -217,12 +212,12 @@ impl ZkBatchProof {
         if self.entry_count > Self::MAX_ENTRY_COUNT {
             return Err(format!(
                 "ZkBatchProof entry_count {} exceeds max {}",
-                self.entry_count, Self::MAX_ENTRY_COUNT,
+                self.entry_count,
+                Self::MAX_ENTRY_COUNT,
             ));
         }
         // SECURITY: Consistency check — entry_count must match the range span.
-        let expected_count = (self.entry_range.1 - self.entry_range.0)
-            .saturating_add(1) as usize;
+        let expected_count = (self.entry_range.1 - self.entry_range.0).saturating_add(1) as usize;
         if self.entry_count != expected_count {
             return Err(format!(
                 "ZkBatchProof entry_count {} does not match entry_range span {} (range {}-{})",
@@ -300,7 +295,7 @@ impl ZkVerifyResult {
             // to prevent log injection via crafted error messages.
             if crate::core::has_dangerous_chars(err) {
                 return Err(
-                    "ZkVerifyResult error contains control or format characters".to_string(),
+                    "ZkVerifyResult error contains control or format characters".to_string()
                 );
             }
         }

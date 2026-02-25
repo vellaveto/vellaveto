@@ -390,10 +390,7 @@ impl VellavetoApiClient {
     }
 
     /// Read the response body with a size bound to prevent OOM.
-    async fn read_bounded_body(
-        &self,
-        resp: reqwest::Response,
-    ) -> Result<String, OperatorError> {
+    async fn read_bounded_body(&self, resp: reqwest::Response) -> Result<String, OperatorError> {
         let content_length = resp.content_length().unwrap_or(0) as usize;
         if content_length > MAX_RESPONSE_BODY {
             return Err(OperatorError::Api(format!(
@@ -407,9 +404,8 @@ impl VellavetoApiClient {
                 bytes.len()
             )));
         }
-        String::from_utf8(bytes.to_vec()).map_err(|e| {
-            OperatorError::Api(format!("response body is not valid UTF-8: {e}"))
-        })
+        String::from_utf8(bytes.to_vec())
+            .map_err(|e| OperatorError::Api(format!("response body is not valid UTF-8: {e}")))
     }
 }
 
@@ -568,7 +564,10 @@ mod tests {
     fn test_api_network_rules_deny_unknown_fields() {
         let json = r#"{"allowed_domains":[],"blocked_domains":[],"extra":"bad"}"#;
         let result = serde_json::from_str::<ApiNetworkRules>(json);
-        assert!(result.is_err(), "ApiNetworkRules should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "ApiNetworkRules should reject unknown fields"
+        );
     }
 
     #[test]
@@ -580,7 +579,8 @@ mod tests {
 
     #[test]
     fn test_api_tenant_deny_unknown_fields() {
-        let json = r#"{"id":"t1","name":"T","enabled":true,"quotas":{},"metadata":{},"extra":"bad"}"#;
+        let json =
+            r#"{"id":"t1","name":"T","enabled":true,"quotas":{},"metadata":{},"extra":"bad"}"#;
         let result = serde_json::from_str::<ApiTenant>(json);
         assert!(result.is_err(), "ApiTenant should reject unknown fields");
     }
@@ -589,34 +589,49 @@ mod tests {
     fn test_api_tenant_quotas_deny_unknown_fields() {
         let json = r#"{"max_policies":10,"extra":"bad"}"#;
         let result = serde_json::from_str::<ApiTenantQuotas>(json);
-        assert!(result.is_err(), "ApiTenantQuotas should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "ApiTenantQuotas should reject unknown fields"
+        );
     }
 
     #[test]
     fn test_tenant_response_deny_unknown_fields() {
         let json = r#"{"tenant":{"id":"t1","name":"T","enabled":true,"quotas":{},"metadata":{}},"extra":"bad"}"#;
         let result = serde_json::from_str::<TenantResponse>(json);
-        assert!(result.is_err(), "TenantResponse should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "TenantResponse should reject unknown fields"
+        );
     }
 
     #[test]
     fn test_tenant_list_response_deny_unknown_fields() {
         let json = r#"{"tenants":[],"extra":"bad"}"#;
         let result = serde_json::from_str::<TenantListResponse>(json);
-        assert!(result.is_err(), "TenantListResponse should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "TenantListResponse should reject unknown fields"
+        );
     }
 
     #[test]
     fn test_policy_list_response_deny_unknown_fields() {
         let json = r#"{"policies":[],"extra":"bad"}"#;
         let result = serde_json::from_str::<PolicyListResponse>(json);
-        assert!(result.is_err(), "PolicyListResponse should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "PolicyListResponse should reject unknown fields"
+        );
     }
 
     #[test]
     fn test_health_response_deny_unknown_fields() {
         let json = r#"{"status":"ok","extra":"bad"}"#;
         let result = serde_json::from_str::<HealthResponse>(json);
-        assert!(result.is_err(), "HealthResponse should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "HealthResponse should reject unknown fields"
+        );
     }
 }

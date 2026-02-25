@@ -1,0 +1,72 @@
+{
+  "name": "vellaveto-policy",
+  "displayName": "Vellaveto Policy",
+  "description": "Policy validation, completions, and simulator for Vellaveto MCP Tool Firewall",
+  "version": "0.1.0",
+  "publisher": "vellaveto",
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paolovella/vellaveto"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Linters", "Snippets", "Other"],
+  "keywords": ["vellaveto", "mcp", "security", "policy", "toml"],
+  "activationEvents": [
+    "workspaceContains:**/*.vellaveto.toml",
+    "workspaceContains:vellaveto.toml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vellaveto.validate",
+        "title": "Vellaveto: Validate Policy"
+      },
+      {
+        "command": "vellaveto.simulate",
+        "title": "Vellaveto: Open Simulator"
+      }
+    ],
+    "configuration": {
+      "title": "Vellaveto",
+      "properties": {
+        "vellaveto.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "Vellaveto server URL for policy validation"
+        },
+        "vellaveto.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for Vellaveto server authentication"
+        },
+        "vellaveto.validateOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically validate policy files on save"
+        }
+      }
+    },
+    "snippets": [
+      {
+        "language": "toml",
+        "path": "./snippets/vellaveto-policy.json"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "node ./out/test/runTests.js",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}

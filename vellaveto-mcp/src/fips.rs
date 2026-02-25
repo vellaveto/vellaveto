@@ -336,10 +336,7 @@ mod tests {
         let fips = FipsMode::new(true);
         let long_name = "a".repeat(100);
         let err = fips.validate_algorithm(&long_name).unwrap_err();
-        assert!(
-            err.to_string().contains("too long"),
-            "error: {err}"
-        );
+        assert!(err.to_string().contains("too long"), "error: {err}");
     }
 
     #[test]

@@ -210,8 +210,7 @@ impl LeastAgencyTracker {
             }
 
             // Cap tracker.used at MAX_GRANTS_PER_SESSION to prevent unbounded growth
-            if tracker.used.len() >= MAX_GRANTS_PER_SESSION
-                && !tracker.used.contains_key(policy_id)
+            if tracker.used.len() >= MAX_GRANTS_PER_SESSION && !tracker.used.contains_key(policy_id)
             {
                 tracing::warn!(
                     max = MAX_GRANTS_PER_SESSION,

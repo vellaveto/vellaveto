@@ -542,7 +542,9 @@ impl RagDefenseConfig {
             ));
         }
         if self.retrieval_security.max_retrieval_results == 0 {
-            return Err("rag_defense.retrieval_security.max_retrieval_results must be > 0".to_string());
+            return Err(
+                "rag_defense.retrieval_security.max_retrieval_results must be > 0".to_string(),
+            );
         }
         if self.retrieval_security.max_retrieval_results > MAX_RETRIEVAL_RESULTS {
             return Err(format!(
@@ -563,7 +565,9 @@ impl RagDefenseConfig {
             ));
         }
         if self.context_budget.max_tokens_per_retrieval == 0 {
-            return Err("rag_defense.context_budget.max_tokens_per_retrieval must be > 0".to_string());
+            return Err(
+                "rag_defense.context_budget.max_tokens_per_retrieval must be > 0".to_string(),
+            );
         }
         if self.context_budget.max_tokens_per_retrieval > MAX_TOKENS_PER_RETRIEVAL {
             return Err(format!(
@@ -572,7 +576,9 @@ impl RagDefenseConfig {
             ));
         }
         if self.context_budget.max_total_context_tokens == 0 {
-            return Err("rag_defense.context_budget.max_total_context_tokens must be > 0".to_string());
+            return Err(
+                "rag_defense.context_budget.max_total_context_tokens must be > 0".to_string(),
+            );
         }
         if self.context_budget.max_total_context_tokens > MAX_TOTAL_CONTEXT_TOKENS {
             return Err(format!(

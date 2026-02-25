@@ -311,9 +311,7 @@ impl LlmEvalInput {
         }
         if let Some(ref p) = self.principal {
             if p.len() > Self::MAX_SESSION_PRINCIPAL_LEN {
-                return Err(LlmEvalError::InvalidInput(
-                    "principal too long".to_string(),
-                ));
+                return Err(LlmEvalError::InvalidInput("principal too long".to_string()));
             }
             if vellaveto_types::has_dangerous_chars(p) {
                 return Err(LlmEvalError::InvalidInput(
@@ -1007,7 +1005,10 @@ mod tests {
             principal: Some("user\u{200B}name".to_string()),
             ..Default::default()
         };
-        assert!(input.validate().is_err(), "Zero-width space must be rejected");
+        assert!(
+            input.validate().is_err(),
+            "Zero-width space must be rejected"
+        );
     }
 
     #[test]
@@ -1018,7 +1019,10 @@ mod tests {
             metadata: serde_json::json!({ "k": val }),
             ..Default::default()
         };
-        assert!(input.validate().is_ok(), "Metadata within 64KB should be accepted");
+        assert!(
+            input.validate().is_ok(),
+            "Metadata within 64KB should be accepted"
+        );
     }
 
     // ── FIND-R213-002 validation tests ───────────────────────────────
@@ -1093,10 +1097,7 @@ mod tests {
     fn test_validate_nl_policy_bidi_rejected() {
         let input = LlmEvalInput {
             tool: "test".to_string(),
-            nl_policies: vec![
-                "safe policy".to_string(),
-                "evil\u{202A}policy".to_string(),
-            ],
+            nl_policies: vec!["safe policy".to_string(), "evil\u{202A}policy".to_string()],
             ..Default::default()
         };
         let err = input.validate().unwrap_err();

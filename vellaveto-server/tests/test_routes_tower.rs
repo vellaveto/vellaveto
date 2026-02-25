@@ -120,6 +120,7 @@ fn make_state() -> (AppState, TempDir) {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     (state, tmp)
 }
@@ -212,6 +213,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     (state, tmp)
 }
@@ -1352,6 +1354,7 @@ priority = 1
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     let app = routes::build_router(state.clone());
 
@@ -1509,6 +1512,7 @@ fn make_approval_state() -> (AppState, TempDir) {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     (state, tmp)
 }
@@ -2027,6 +2031,7 @@ fn make_authed_state() -> (AppState, TempDir) {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     (state, tmp)
 }
@@ -2474,9 +2479,8 @@ async fn request_id_at_128_chars_is_preserved() {
 fn make_checkpoint_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let signing_key = AuditLogger::generate_signing_key();
-    let audit = Arc::new(
-        AuditLogger::new(tmp.path().join("audit.log")).with_signing_key(signing_key),
-    );
+    let audit =
+        Arc::new(AuditLogger::new(tmp.path().join("audit.log")).with_signing_key(signing_key));
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
@@ -2569,6 +2573,7 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     (state, tmp)
 }
@@ -3312,6 +3317,7 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     (state, tmp)
 }

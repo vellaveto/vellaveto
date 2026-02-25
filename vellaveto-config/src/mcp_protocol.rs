@@ -68,10 +68,7 @@ impl ElicitationConfig {
         // SECURITY (FIND-R125-002): Validate individual entry content.
         for (i, entry) in self.blocked_field_types.iter().enumerate() {
             if entry.is_empty() {
-                return Err(format!(
-                    "elicitation.blocked_field_types[{}] is empty",
-                    i
-                ));
+                return Err(format!("elicitation.blocked_field_types[{}] is empty", i));
             }
             if entry.len() > MAX_BLOCKED_FIELD_TYPE_LENGTH {
                 return Err(format!(
@@ -168,10 +165,7 @@ impl SamplingConfig {
         // SECURITY (FIND-R125-003): Validate individual entry content.
         for (i, entry) in self.allowed_models.iter().enumerate() {
             if entry.is_empty() {
-                return Err(format!(
-                    "sampling.allowed_models[{}] is empty",
-                    i
-                ));
+                return Err(format!("sampling.allowed_models[{}] is empty", i));
             }
             if entry.len() > MAX_ALLOWED_MODEL_LENGTH {
                 return Err(format!(
@@ -482,10 +476,7 @@ impl CimdConfig {
         // capability always matches; empty blocked capability blocks all.
         for (i, entry) in self.required_capabilities.iter().enumerate() {
             if entry.is_empty() {
-                return Err(format!(
-                    "cimd.required_capabilities[{}] is empty",
-                    i
-                ));
+                return Err(format!("cimd.required_capabilities[{}] is empty", i));
             }
             if entry.len() > MAX_CAPABILITY_ENTRY_LENGTH {
                 return Err(format!(
@@ -505,10 +496,7 @@ impl CimdConfig {
         }
         for (i, entry) in self.blocked_capabilities.iter().enumerate() {
             if entry.is_empty() {
-                return Err(format!(
-                    "cimd.blocked_capabilities[{}] is empty",
-                    i
-                ));
+                return Err(format!("cimd.blocked_capabilities[{}] is empty", i));
             }
             if entry.len() > MAX_CAPABILITY_ENTRY_LENGTH {
                 return Err(format!(
@@ -691,10 +679,7 @@ impl StepUpAuthConfig {
         // SECURITY (FIND-R137-005): Per-entry validation on trigger_tools.
         for (i, entry) in self.trigger_tools.iter().enumerate() {
             if entry.is_empty() {
-                return Err(format!(
-                    "step_up_auth.trigger_tools[{}] is empty",
-                    i
-                ));
+                return Err(format!("step_up_auth.trigger_tools[{}] is empty", i));
             }
             if entry.len() > MAX_TRIGGER_TOOL_LENGTH {
                 return Err(format!(

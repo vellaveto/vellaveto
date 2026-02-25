@@ -4,12 +4,28 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+    paths:
+      - "Dockerfile"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "vellaveto-server/**"
+      - "vellaveto-proxy/**"
+      - "vellaveto-http-proxy/**"
+      - ".github/workflows/docker-publish.yml"
   pull_request:
     branches: [main]
+    paths:
+      - "Dockerfile"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "vellaveto-server/**"
+      - "vellaveto-proxy/**"
+      - "vellaveto-http-proxy/**"
+      - ".github/workflows/docker-publish.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -24,6 +40,10 @@ jobs:
     name: Build & Push Container Image
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

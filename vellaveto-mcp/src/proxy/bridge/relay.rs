@@ -205,8 +205,7 @@ impl RelayState {
                 );
                 return None;
             }
-            if vellaveto_types::has_dangerous_chars(&trimmed)
-            {
+            if vellaveto_types::has_dangerous_chars(&trimmed) {
                 tracing::warn!(
                     "VELLAVETO_AGENT_ID contains control or Unicode format characters — ignoring"
                 );
@@ -313,10 +312,7 @@ impl RelayState {
         if !id.is_null() {
             let id_key = id.to_string();
             if id_key.len() > MAX_REQUEST_ID_KEY_LEN {
-                tracing::warn!(
-                    "dropping oversized request id key ({} bytes)",
-                    id_key.len()
-                );
+                tracing::warn!("dropping oversized request id key ({} bytes)", id_key.len());
                 return;
             }
             // SECURITY (FIND-R210-001): Reject duplicate in-flight request IDs.
@@ -411,7 +407,8 @@ impl ProxyBridge {
         });
 
         // Timer for periodic timeout sweeps
-        let mut timeout_interval = tokio::time::interval(Duration::from_secs(SWEEP_TIMEOUT_INTERVAL_SECS));
+        let mut timeout_interval =
+            tokio::time::interval(Duration::from_secs(SWEEP_TIMEOUT_INTERVAL_SECS));
         timeout_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         // Main loop: read from agent, evaluate, forward or block
@@ -923,7 +920,10 @@ impl ProxyBridge {
                         match store.create(action, reason.clone(), None).await {
                             Ok(id) => Some(id),
                             Err(e) => {
-                                tracing::error!("APPROVAL CREATION FAILURE (untrusted_tool): {}", e);
+                                tracing::error!(
+                                    "APPROVAL CREATION FAILURE (untrusted_tool): {}",
+                                    e
+                                );
                                 None
                             }
                         }
@@ -1446,7 +1446,11 @@ impl ProxyBridge {
         let safe_task_id: Option<String> = task_id
             .as_ref()
             .map(|id| vellaveto_types::sanitize_for_log(id, 256));
-        tracing::debug!("Task request: {} (task_id: {:?})", safe_task_method, safe_task_id);
+        tracing::debug!(
+            "Task request: {} (task_id: {:?})",
+            safe_task_method,
+            safe_task_id
+        );
 
         // R4-1: DLP scan task request parameters for secret exfiltration.
         let task_params = msg.get("params").cloned().unwrap_or(json!({}));
@@ -1770,7 +1774,11 @@ impl ProxyBridge {
         // before logging to prevent log injection via control/format characters.
         let safe_extension_id = vellaveto_types::sanitize_for_log(&extension_id, 256);
         let safe_ext_method = vellaveto_types::sanitize_for_log(&method, 256);
-        tracing::debug!("Extension method: {} (extension: {})", safe_ext_method, safe_extension_id);
+        tracing::debug!(
+            "Extension method: {} (extension: {})",
+            safe_ext_method,
+            safe_extension_id
+        );
 
         let params = msg.get("params").cloned().unwrap_or(json!({}));
         let action = extract_extension_action(&extension_id, &method, &params);
@@ -1955,10 +1963,8 @@ impl ProxyBridge {
                             "Failed to log audit entry for extension memory poisoning detection"
                         );
                     }
-                    let response = make_denial_response(
-                        &id,
-                        "Request blocked: security policy violation",
-                    );
+                    let response =
+                        make_denial_response(&id, "Request blocked: security policy violation");
                     write_message(agent_writer, &response)
                         .await
                         .map_err(ProxyError::Framing)?;
@@ -2129,11 +2135,8 @@ impl ProxyBridge {
                     } else {
                         // SECURITY (FIND-R136-001): Truncate method name to prevent
                         // unbounded strings stored in PendingRequest.
-                        let method_name: String = method
-                            .unwrap_or("unknown")
-                            .chars()
-                            .take(256)
-                            .collect();
+                        let method_name: String =
+                            method.unwrap_or("unknown").chars().take(256).collect();
                         state.pending_requests.insert(
                             id_key.clone(),
                             PendingRequest {
@@ -2695,7 +2698,8 @@ impl ProxyBridge {
                         // SECURITY (FIND-R136-002): Cap + sanitize protocol version
                         // from child server to prevent unbounded storage and log injection.
                         const MAX_PROTOCOL_VERSION_LEN: usize = 64;
-                        let safe_ver = vellaveto_types::sanitize_for_log(ver, MAX_PROTOCOL_VERSION_LEN);
+                        let safe_ver =
+                            vellaveto_types::sanitize_for_log(ver, MAX_PROTOCOL_VERSION_LEN);
                         tracing::info!(
                             "MCP initialize: server negotiated protocol version {}",
                             safe_ver

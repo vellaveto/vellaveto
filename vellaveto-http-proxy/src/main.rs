@@ -791,7 +791,9 @@ async fn main() -> Result<()> {
     if state.canonicalize {
         tracing::info!("TOCTOU canonicalization enabled — forwarding re-serialized JSON");
     } else {
-        tracing::warn!("SECURITY: TOCTOU canonicalization DISABLED via VELLAVETO_NO_CANONICALIZE env var");
+        tracing::warn!(
+            "SECURITY: TOCTOU canonicalization DISABLED via VELLAVETO_NO_CANONICALIZE env var"
+        );
     }
 
     // Log WebSocket transport configuration

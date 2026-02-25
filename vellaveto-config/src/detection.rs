@@ -338,7 +338,7 @@ impl AuditConfig {
             }
             if vellaveto_types::has_dangerous_chars(level) {
                 return Err(
-                    "audit.redaction_level contains control or format characters".to_string()
+                    "audit.redaction_level contains control or format characters".to_string(),
                 );
             }
         }
@@ -442,14 +442,14 @@ impl AuditExportConfig {
         }
         if let Some(ref url) = self.webhook_url {
             if vellaveto_types::has_dangerous_chars(url) {
-                return Err("audit_export.webhook_url contains control or format characters".to_string());
+                return Err(
+                    "audit_export.webhook_url contains control or format characters".to_string(),
+                );
             }
             // SECURITY (FIND-R110-CFG-001): Only HTTPS is accepted for webhook URLs.
             // HTTP transmits audit events in cleartext, leaking sensitive policy decisions.
             if !url.starts_with("https://") {
-                return Err(
-                    "audit_export.webhook_url must use HTTPS scheme (https://)".to_string(),
-                );
+                return Err("audit_export.webhook_url must use HTTPS scheme (https://)".to_string());
             }
         }
         Ok(())

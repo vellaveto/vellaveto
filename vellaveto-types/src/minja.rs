@@ -139,7 +139,11 @@ impl MemoryEntry {
     /// Helper: validate a string field for control/format characters.
     ///
     /// SECURITY (IMP-R126-011): Delegates to canonical `has_dangerous_chars()`.
-    fn validate_no_control_chars(type_name: &str, field_name: &str, value: &str) -> Result<(), String> {
+    fn validate_no_control_chars(
+        type_name: &str,
+        field_name: &str,
+        value: &str,
+    ) -> Result<(), String> {
         if crate::core::has_dangerous_chars(value) {
             return Err(format!(
                 "{} {} contains control or format characters",
@@ -279,7 +283,9 @@ impl MemoryEntry {
         if self.taint_labels.len() > MAX_TAINT_LABELS {
             return Err(format!(
                 "MemoryEntry '{}' has {} taint_labels, max {}",
-                self.id, self.taint_labels.len(), MAX_TAINT_LABELS
+                self.id,
+                self.taint_labels.len(),
+                MAX_TAINT_LABELS
             ));
         }
 

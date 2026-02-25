@@ -198,9 +198,7 @@ impl EvidenceSection {
             ));
         }
         if crate::has_dangerous_chars(&self.title) {
-            return Err(
-                "EvidenceSection.title contains control or format characters".to_string(),
-            );
+            return Err("EvidenceSection.title contains control or format characters".to_string());
         }
         if self.description.len() > MAX_EVIDENCE_STRING_LEN {
             return Err(format!(
@@ -332,9 +330,7 @@ impl EvidencePack {
             ));
         }
         if crate::has_dangerous_chars(&self.system_id) {
-            return Err(
-                "EvidencePack.system_id contains control or format characters".to_string(),
-            );
+            return Err("EvidencePack.system_id contains control or format characters".to_string());
         }
         if self.sections.len() > MAX_EVIDENCE_SECTIONS {
             return Err(format!(

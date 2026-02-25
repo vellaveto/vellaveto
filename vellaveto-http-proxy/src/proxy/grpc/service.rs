@@ -173,19 +173,13 @@ impl McpGrpcService {
                 let params = json_req.get("params").cloned().unwrap_or(json!({}));
                 let sampling_verdict = {
                     let mut session_ref = self.state.sessions.get_mut(session_id);
-                    let current_count = session_ref
-                        .as_ref()
-                        .map(|s| s.sampling_count)
-                        .unwrap_or(0);
+                    let current_count = session_ref.as_ref().map(|s| s.sampling_count).unwrap_or(0);
                     let verdict = vellaveto_mcp::elicitation::inspect_sampling(
                         &params,
                         &self.state.sampling_config,
                         current_count,
                     );
-                    if matches!(
-                        verdict,
-                        vellaveto_mcp::elicitation::SamplingVerdict::Allow
-                    ) {
+                    if matches!(verdict, vellaveto_mcp::elicitation::SamplingVerdict::Allow) {
                         if let Some(ref mut s) = session_ref {
                             s.sampling_count = s.sampling_count.saturating_add(1);
                         }
@@ -398,7 +392,9 @@ impl McpGrpcService {
                                     "Failed to audit gRPC ProgressNotification injection: {}",
                                     e
                                 );
-                                if let Some(deny) = self.audit_strict_deny(proto_req, "notification injection") {
+                                if let Some(deny) =
+                                    self.audit_strict_deny(proto_req, "notification injection")
+                                {
                                     return deny;
                                 }
                             }
@@ -416,10 +412,7 @@ impl McpGrpcService {
 
                 // Memory poisoning check — parity with PassThrough branch.
                 if let Some(mut session) = self.state.sessions.get_mut(session_id) {
-                    let params_to_scan = json_req
-                        .get("params")
-                        .cloned()
-                        .unwrap_or(json!({}));
+                    let params_to_scan = json_req.get("params").cloned().unwrap_or(json!({}));
                     let mut poisoning_matches =
                         session.memory_tracker.check_parameters(&params_to_scan);
                     if let Some(result_val) = json_req.get("result") {
@@ -697,11 +690,10 @@ impl McpGrpcService {
                                 )
                                 .await
                             {
-                                tracing::warn!(
-                                    "Failed to audit gRPC passthrough injection: {}",
-                                    e
-                                );
-                                if let Some(deny) = self.audit_strict_deny(proto_req, "passthrough injection") {
+                                tracing::warn!("Failed to audit gRPC passthrough injection: {}", e);
+                                if let Some(deny) =
+                                    self.audit_strict_deny(proto_req, "passthrough injection")
+                                {
                                     return deny;
                                 }
                             }
@@ -722,10 +714,7 @@ impl McpGrpcService {
                 // SECURITY (IMP-R184-007): Memory poisoning check — parity with tool calls,
                 // resource reads, extension methods, and HTTP/WS/stdio passthrough.
                 if let Some(mut session) = self.state.sessions.get_mut(session_id) {
-                    let params_to_scan = json_req
-                        .get("params")
-                        .cloned()
-                        .unwrap_or(json!({}));
+                    let params_to_scan = json_req.get("params").cloned().unwrap_or(json!({}));
                     let mut poisoning_matches =
                         session.memory_tracker.check_parameters(&params_to_scan);
                     if let Some(result_val) = json_req.get("result") {
@@ -845,11 +834,7 @@ impl McpGrpcService {
                     tool_name,
                     e
                 );
-                return make_proto_error_response(
-                    proto_req,
-                    -32602,
-                    "Invalid tool name",
-                );
+                return make_proto_error_response(proto_req, -32602, "Invalid tool name");
             }
         }
 
@@ -1008,16 +993,12 @@ impl McpGrpcService {
         // Parity with WS handler (create_ws_approval) which tries agent_identity.subject
         // first, then falls back to oauth_subject. Without this, approval_store.create()
         // receives None as requested_by, bypassing the self-approval check.
-        let requested_by = self
-            .state
-            .sessions
-            .get(session_id)
-            .and_then(|s| {
-                s.agent_identity
-                    .as_ref()
-                    .and_then(|id| id.subject.clone())
-                    .or_else(|| s.oauth_subject.clone())
-            });
+        let requested_by = self.state.sessions.get(session_id).and_then(|s| {
+            s.agent_identity
+                .as_ref()
+                .and_then(|id| id.subject.clone())
+                .or_else(|| s.oauth_subject.clone())
+        });
 
         // SECURITY (FIND-R77-001): DNS resolution for IP-based policy evaluation.
         // Parity with HTTP handler (handlers.rs:717) and WS handler (websocket/mod.rs:710).
@@ -1057,10 +1038,7 @@ impl McpGrpcService {
                 {
                     tracing::warn!("Failed to audit gRPC circuit breaker rejection: {}", e);
                 }
-                return make_proto_denial_response(
-                    proto_req,
-                    "Service temporarily unavailable",
-                );
+                return make_proto_denial_response(proto_req, "Service temporarily unavailable");
             }
         }
 
@@ -1257,10 +1235,7 @@ impl McpGrpcService {
                             }
                             // SECURITY (FIND-R116-003): Generic client-facing message.
                             // The policy_id and reason are preserved in the audit log above.
-                            return make_proto_denial_response(
-                                proto_req,
-                                "Denied by policy",
-                            );
+                            return make_proto_denial_response(proto_req, "Denied by policy");
                         }
                         vellaveto_engine::abac::AbacDecision::Allow { policy_id } => {
                             if let Some(ref la) = self.state.least_agency {
@@ -1332,10 +1307,7 @@ impl McpGrpcService {
                         {
                             tracing::warn!("Failed to audit gRPC privilege escalation: {}", e);
                         }
-                        return make_proto_denial_response(
-                            proto_req,
-                            "Denied by policy",
-                        );
+                        return make_proto_denial_response(proto_req, "Denied by policy");
                     }
                 }
 
@@ -1449,16 +1421,12 @@ impl McpGrpcService {
         // SECURITY (IMP-R218-002): Extract requester identity for self-approval prevention.
         // Parity with WS handler (create_ws_approval) — without this, gRPC approval_store.create()
         // receives None as requested_by, bypassing the self-approval check.
-        let requested_by = self
-            .state
-            .sessions
-            .get(session_id)
-            .and_then(|s| {
-                s.agent_identity
-                    .as_ref()
-                    .and_then(|id| id.subject.clone())
-                    .or_else(|| s.oauth_subject.clone())
-            });
+        let requested_by = self.state.sessions.get(session_id).and_then(|s| {
+            s.agent_identity
+                .as_ref()
+                .and_then(|id| id.subject.clone())
+                .or_else(|| s.oauth_subject.clone())
+        });
 
         // SECURITY (FIND-R110-HTTP-002): Memory poisoning detection for resource URIs.
         // Parity with HTTP handler (handlers.rs:1491-1546, R27-PROXY-2).
@@ -1574,16 +1542,25 @@ impl McpGrpcService {
             let audit_verdict = Verdict::Deny {
                 reason: "DLP blocked: secret detected in resource URI".to_string(),
             };
-            if let Err(e) = self.state.audit.log_entry(
-                &action, &audit_verdict,
-                json!({
-                    "source": "grpc_proxy", "session": session_id,
-                    "transport": "grpc", "event": "resource_uri_dlp_alert",
-                }),
-            ).await {
+            if let Err(e) = self
+                .state
+                .audit
+                .log_entry(
+                    &action,
+                    &audit_verdict,
+                    json!({
+                        "source": "grpc_proxy", "session": session_id,
+                        "transport": "grpc", "event": "resource_uri_dlp_alert",
+                    }),
+                )
+                .await
+            {
                 tracing::warn!("Failed to audit gRPC resource URI DLP: {}", e);
             }
-            return make_proto_denial_response(proto_req, "Response blocked: sensitive content detected");
+            return make_proto_denial_response(
+                proto_req,
+                "Response blocked: sensitive content detected",
+            );
         }
 
         // SECURITY (FIND-R115-042): Circuit breaker check for resource reads.
@@ -1616,78 +1593,84 @@ impl McpGrpcService {
                     )
                     .await
                 {
-                    tracing::warn!("Failed to audit gRPC resource circuit breaker rejection: {}", e);
+                    tracing::warn!(
+                        "Failed to audit gRPC resource circuit breaker rejection: {}",
+                        e
+                    );
                 }
-                return make_proto_denial_response(
-                    proto_req,
-                    "Service temporarily unavailable",
-                );
+                return make_proto_denial_response(proto_req, "Service temporarily unavailable");
             }
         }
 
         // SECURITY (FIND-R160-001): TOCTOU-safe context+eval+update for resource_read.
-        let resource_key = format!("resources/read:{}", uri.chars().take(128).collect::<String>());
-        let (verdict, ctx, session_risk) =
-            if let Some(mut session) = self.state.sessions.get_mut(session_id) {
-                let ctx = EvaluationContext {
-                    timestamp: None,
-                    agent_id: session.oauth_subject.clone(),
-                    agent_identity: session.agent_identity.clone(),
-                    call_counts: session.call_counts.clone(),
-                    previous_actions: session.action_history.iter().cloned().collect(),
-                    call_chain: session.current_call_chain.clone(),
-                    tenant_id: None,
-                    verification_tier: None,
-                    capability_token: None,
-                    session_state: None,
-                };
-                let risk = session.risk_score.clone();
-
-                let verdict = match self.state.engine.evaluate_action_with_context(
-                    &action,
-                    &self.state.policies,
-                    Some(&ctx),
-                ) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::error!(session_id = %session_id, "Resource policy evaluation error: {}", e);
-                        Verdict::Deny {
-                            reason: format!("Policy evaluation failed: {}", e),
-                        }
-                    }
-                };
-
-                if matches!(verdict, Verdict::Allow) {
-                    session.touch();
-                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                        || session.call_counts.contains_key(&resource_key)
-                    {
-                        let count = session.call_counts.entry(resource_key.clone()).or_insert(0);
-                        *count = count.saturating_add(1);
-                    }
-                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                        session.action_history.pop_front();
-                    }
-                    session.action_history.push_back("resources/read".to_string());
-                }
-
-                (verdict, ctx, risk)
-            } else {
-                let verdict = match self.state.engine.evaluate_action_with_context(
-                    &action,
-                    &self.state.policies,
-                    None,
-                ) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::error!(session_id = %session_id, "Resource policy evaluation error: {}", e);
-                        Verdict::Deny {
-                            reason: format!("Policy evaluation failed: {}", e),
-                        }
-                    }
-                };
-                (verdict, EvaluationContext::default(), None)
+        let resource_key = format!(
+            "resources/read:{}",
+            uri.chars().take(128).collect::<String>()
+        );
+        let (verdict, ctx, session_risk) = if let Some(mut session) =
+            self.state.sessions.get_mut(session_id)
+        {
+            let ctx = EvaluationContext {
+                timestamp: None,
+                agent_id: session.oauth_subject.clone(),
+                agent_identity: session.agent_identity.clone(),
+                call_counts: session.call_counts.clone(),
+                previous_actions: session.action_history.iter().cloned().collect(),
+                call_chain: session.current_call_chain.clone(),
+                tenant_id: None,
+                verification_tier: None,
+                capability_token: None,
+                session_state: None,
             };
+            let risk = session.risk_score.clone();
+
+            let verdict = match self.state.engine.evaluate_action_with_context(
+                &action,
+                &self.state.policies,
+                Some(&ctx),
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::error!(session_id = %session_id, "Resource policy evaluation error: {}", e);
+                    Verdict::Deny {
+                        reason: format!("Policy evaluation failed: {}", e),
+                    }
+                }
+            };
+
+            if matches!(verdict, Verdict::Allow) {
+                session.touch();
+                if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                    || session.call_counts.contains_key(&resource_key)
+                {
+                    let count = session.call_counts.entry(resource_key.clone()).or_insert(0);
+                    *count = count.saturating_add(1);
+                }
+                if session.action_history.len() >= MAX_ACTION_HISTORY {
+                    session.action_history.pop_front();
+                }
+                session
+                    .action_history
+                    .push_back("resources/read".to_string());
+            }
+
+            (verdict, ctx, risk)
+        } else {
+            let verdict = match self.state.engine.evaluate_action_with_context(
+                &action,
+                &self.state.policies,
+                None,
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::error!(session_id = %session_id, "Resource policy evaluation error: {}", e);
+                    Verdict::Deny {
+                        reason: format!("Policy evaluation failed: {}", e),
+                    }
+                }
+            };
+            (verdict, EvaluationContext::default(), None)
+        };
 
         match &verdict {
             Verdict::Allow => {
@@ -1707,21 +1690,24 @@ impl McpGrpcService {
                             let deny_verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
-                            if let Err(e) = self.state.audit.log_entry(
-                                &action, &deny_verdict,
-                                json!({
-                                    "source": "grpc_proxy", "session": session_id,
-                                    "transport": "grpc", "event": "abac_deny",
-                                    "abac_policy": policy_id, "uri": uri,
-                                }),
-                            ).await {
+                            if let Err(e) = self
+                                .state
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &deny_verdict,
+                                    json!({
+                                        "source": "grpc_proxy", "session": session_id,
+                                        "transport": "grpc", "event": "abac_deny",
+                                        "abac_policy": policy_id, "uri": uri,
+                                    }),
+                                )
+                                .await
+                            {
                                 tracing::warn!("Failed to audit gRPC resource ABAC deny: {}", e);
                             }
                             // SECURITY (FIND-R116-003): Generic client-facing message.
-                            return make_proto_denial_response(
-                                proto_req,
-                                "Denied by policy",
-                            );
+                            return make_proto_denial_response(proto_req, "Denied by policy");
                         }
                         vellaveto_engine::abac::AbacDecision::Allow { policy_id } => {
                             // SECURITY (FIND-R192-002): record_usage parity.
@@ -1738,7 +1724,9 @@ impl McpGrpcService {
                         vellaveto_engine::abac::AbacDecision::NoMatch => {}
                         #[allow(unreachable_patterns)]
                         _ => {
-                            tracing::warn!("Unknown AbacDecision variant in resource_read — fail-closed");
+                            tracing::warn!(
+                                "Unknown AbacDecision variant in resource_read — fail-closed"
+                            );
                             return make_proto_denial_response(proto_req, "Denied by policy");
                         }
                     }
@@ -1748,13 +1736,19 @@ impl McpGrpcService {
                 // performed inside the TOCTOU-safe block above (FIND-R160-001).
 
                 // SECURITY (FIND-R114-007): Audit Allow verdict for resource reads.
-                if let Err(e) = self.state.audit.log_entry(
-                    &action, &Verdict::Allow,
-                    json!({
-                        "source": "grpc_proxy", "session": session_id,
-                        "transport": "grpc", "uri": uri,
-                    }),
-                ).await {
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Allow,
+                        json!({
+                            "source": "grpc_proxy", "session": session_id,
+                            "transport": "grpc", "uri": uri,
+                        }),
+                    )
+                    .await
+                {
                     tracing::warn!("Failed to audit gRPC resource allow: {}", e);
                     if let Some(deny) = self.audit_strict_deny(proto_req, "resource allow") {
                         return deny;
@@ -1764,13 +1758,19 @@ impl McpGrpcService {
                 self.forward_and_scan(proto_req, json_req, session_id).await
             }
             Verdict::Deny { reason } => {
-                if let Err(e) = self.state.audit.log_entry(
-                    &action, &verdict,
-                    json!({
-                        "source": "grpc_proxy", "session": session_id,
-                        "transport": "grpc", "uri": uri,
-                    }),
-                ).await {
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "grpc_proxy", "session": session_id,
+                            "transport": "grpc", "uri": uri,
+                        }),
+                    )
+                    .await
+                {
                     tracing::warn!("Failed to audit gRPC resource deny: {}", e);
                     // SECURITY (FIND-R213-003): Strict audit mode — fail-closed on verdict audit failure.
                     if let Some(deny) = self.audit_strict_deny(proto_req, "resource deny") {
@@ -1782,16 +1782,24 @@ impl McpGrpcService {
                 make_proto_denial_response(proto_req, "Denied by policy")
             }
             Verdict::RequireApproval { reason, .. } => {
-                if let Err(e) = self.state.audit.log_entry(
-                    &action, &verdict,
-                    json!({
-                        "source": "grpc_proxy", "session": session_id,
-                        "transport": "grpc", "uri": uri,
-                    }),
-                ).await {
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "grpc_proxy", "session": session_id,
+                            "transport": "grpc", "uri": uri,
+                        }),
+                    )
+                    .await
+                {
                     tracing::warn!("Failed to audit gRPC resource approval request: {}", e);
                     // SECURITY (FIND-R213-003): Strict audit mode — fail-closed on verdict audit failure.
-                    if let Some(deny) = self.audit_strict_deny(proto_req, "resource require_approval") {
+                    if let Some(deny) =
+                        self.audit_strict_deny(proto_req, "resource require_approval")
+                    {
                         return deny;
                     }
                 }
@@ -2045,10 +2053,7 @@ impl McpGrpcService {
                         )
                         .await
                     {
-                        tracing::warn!(
-                            "Failed to audit gRPC tool description injection: {}",
-                            e
-                        );
+                        tracing::warn!("Failed to audit gRPC tool description injection: {}", e);
                         // SECURITY (FIND-R206-001): strict audit mode parity
                         if self.state.audit_strict_mode {
                             return Err(tonic::Status::internal(
@@ -2182,16 +2187,12 @@ impl McpGrpcService {
         // SECURITY (IMP-R218-002): Extract requester identity for self-approval prevention.
         // Parity with WS handler (create_ws_approval) — without this, gRPC approval_store.create()
         // receives None as requested_by, bypassing the self-approval check.
-        let requested_by = self
-            .state
-            .sessions
-            .get(session_id)
-            .and_then(|s| {
-                s.agent_identity
-                    .as_ref()
-                    .and_then(|id| id.subject.clone())
-                    .or_else(|| s.oauth_subject.clone())
-            });
+        let requested_by = self.state.sessions.get(session_id).and_then(|s| {
+            s.agent_identity
+                .as_ref()
+                .and_then(|id| id.subject.clone())
+                .or_else(|| s.oauth_subject.clone())
+        });
 
         // SECURITY (FIND-R222-001): Injection scanning on task parameters.
         // Parity with PassThrough handler (service.rs:639) and WS handler
@@ -2226,10 +2227,7 @@ impl McpGrpcService {
 
                     let verdict = if self.state.injection_blocking {
                         Verdict::Deny {
-                            reason: format!(
-                                "Task injection blocked: {:?}",
-                                injection_matches
-                            ),
+                            reason: format!("Task injection blocked: {:?}", injection_matches),
                         }
                     } else {
                         Verdict::Allow
@@ -2253,10 +2251,7 @@ impl McpGrpcService {
                         )
                         .await
                     {
-                        tracing::warn!(
-                            "Failed to audit gRPC task injection: {}",
-                            e
-                        );
+                        tracing::warn!("Failed to audit gRPC task injection: {}", e);
                         if let Some(deny) = self.audit_strict_deny(proto_req, "task injection") {
                             return deny;
                         }
@@ -2386,50 +2381,49 @@ impl McpGrpcService {
         // SECURITY (FIND-R160-001): TOCTOU-safe context+eval for task requests.
         // No session update needed for tasks, but context must be read atomically
         // to prevent stale call_counts from bypassing max_calls_in_window.
-        let (verdict, ctx) =
-            if let Some(session) = self.state.sessions.get_mut(session_id) {
-                let ctx = EvaluationContext {
-                    timestamp: None,
-                    agent_id: session.oauth_subject.clone(),
-                    agent_identity: session.agent_identity.clone(),
-                    call_counts: session.call_counts.clone(),
-                    previous_actions: session.action_history.iter().cloned().collect(),
-                    call_chain: session.current_call_chain.clone(),
-                    tenant_id: None,
-                    verification_tier: None,
-                    capability_token: None,
-                    session_state: None,
-                };
-                let verdict = match self.state.engine.evaluate_action_with_context(
-                    &action,
-                    &self.state.policies,
-                    Some(&ctx),
-                ) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::error!(session_id = %session_id, "Task policy evaluation error: {}", e);
-                        Verdict::Deny {
-                            reason: format!("Policy evaluation failed: {}", e),
-                        }
-                    }
-                };
-                (verdict, ctx)
-            } else {
-                let verdict = match self.state.engine.evaluate_action_with_context(
-                    &action,
-                    &self.state.policies,
-                    None,
-                ) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::error!(session_id = %session_id, "Task policy evaluation error: {}", e);
-                        Verdict::Deny {
-                            reason: format!("Policy evaluation failed: {}", e),
-                        }
-                    }
-                };
-                (verdict, EvaluationContext::default())
+        let (verdict, ctx) = if let Some(session) = self.state.sessions.get_mut(session_id) {
+            let ctx = EvaluationContext {
+                timestamp: None,
+                agent_id: session.oauth_subject.clone(),
+                agent_identity: session.agent_identity.clone(),
+                call_counts: session.call_counts.clone(),
+                previous_actions: session.action_history.iter().cloned().collect(),
+                call_chain: session.current_call_chain.clone(),
+                tenant_id: None,
+                verification_tier: None,
+                capability_token: None,
+                session_state: None,
             };
+            let verdict = match self.state.engine.evaluate_action_with_context(
+                &action,
+                &self.state.policies,
+                Some(&ctx),
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::error!(session_id = %session_id, "Task policy evaluation error: {}", e);
+                    Verdict::Deny {
+                        reason: format!("Policy evaluation failed: {}", e),
+                    }
+                }
+            };
+            (verdict, ctx)
+        } else {
+            let verdict = match self.state.engine.evaluate_action_with_context(
+                &action,
+                &self.state.policies,
+                None,
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::error!(session_id = %session_id, "Task policy evaluation error: {}", e);
+                    Verdict::Deny {
+                        reason: format!("Policy evaluation failed: {}", e),
+                    }
+                }
+            };
+            (verdict, EvaluationContext::default())
+        };
 
         match &verdict {
             Verdict::Allow => {
@@ -2491,7 +2485,9 @@ impl McpGrpcService {
                         }
                         #[allow(unreachable_patterns)]
                         _ => {
-                            tracing::warn!("Unknown AbacDecision variant in task_request — fail-closed");
+                            tracing::warn!(
+                                "Unknown AbacDecision variant in task_request — fail-closed"
+                            );
                             return make_proto_denial_response(proto_req, "Denied by policy");
                         }
                     }
@@ -2627,10 +2623,7 @@ impl McpGrpcService {
 
                     let verdict = if self.state.injection_blocking {
                         Verdict::Deny {
-                            reason: format!(
-                                "Extension injection blocked: {:?}",
-                                injection_matches
-                            ),
+                            reason: format!("Extension injection blocked: {:?}", injection_matches),
                         }
                     } else {
                         Verdict::Allow
@@ -2656,11 +2649,9 @@ impl McpGrpcService {
                         )
                         .await
                     {
-                        tracing::warn!(
-                            "Failed to audit gRPC extension injection: {}",
-                            e
-                        );
-                        if let Some(deny) = self.audit_strict_deny(proto_req, "extension injection") {
+                        tracing::warn!("Failed to audit gRPC extension injection: {}", e);
+                        if let Some(deny) = self.audit_strict_deny(proto_req, "extension injection")
+                        {
                             return deny;
                         }
                     }
@@ -2694,19 +2685,31 @@ impl McpGrpcService {
             );
             let action = extractor::extract_extension_action(extension_id, method, &params);
             let audit_verdict = Verdict::Deny {
-                reason: format!("DLP blocked: secret detected in extension parameters: {:?}", patterns),
+                reason: format!(
+                    "DLP blocked: secret detected in extension parameters: {:?}",
+                    patterns
+                ),
             };
-            if let Err(e) = self.state.audit.log_entry(
-                &action, &audit_verdict,
-                json!({
-                    "source": "grpc_proxy", "session": session_id, "transport": "grpc",
-                    "event": "grpc_extension_parameter_dlp_alert",
-                    "extension_id": extension_id, "method": method, "findings": patterns,
-                }),
-            ).await {
+            if let Err(e) = self
+                .state
+                .audit
+                .log_entry(
+                    &action,
+                    &audit_verdict,
+                    json!({
+                        "source": "grpc_proxy", "session": session_id, "transport": "grpc",
+                        "event": "grpc_extension_parameter_dlp_alert",
+                        "extension_id": extension_id, "method": method, "findings": patterns,
+                    }),
+                )
+                .await
+            {
                 tracing::warn!("Failed to audit gRPC extension parameter DLP: {}", e);
             }
-            return make_proto_denial_response(proto_req, "Response blocked: sensitive content detected");
+            return make_proto_denial_response(
+                proto_req,
+                "Response blocked: sensitive content detected",
+            );
         }
 
         // SECURITY (FIND-R114-003): Memory poisoning detection for extension method params.
@@ -2722,20 +2725,28 @@ impl McpGrpcService {
                     );
                 }
                 let action = extractor::extract_extension_action(extension_id, method, &params);
-                let deny_reason = format!(
+                let deny_reason =
+                    format!(
                     "Memory poisoning detected: {} replayed data fragment(s) in extension '{}:{}'",
                     poisoning_matches.len(), extension_id, method
                 );
-                if let Err(e) = self.state.audit.log_entry(
-                    &action,
-                    &Verdict::Deny { reason: deny_reason.clone() },
-                    json!({
-                        "source": "grpc_proxy", "session": session_id, "transport": "grpc",
-                        "event": "memory_poisoning_detected",
-                        "matches": poisoning_matches.len(),
-                        "extension_id": extension_id, "method": method,
-                    }),
-                ).await {
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Deny {
+                            reason: deny_reason.clone(),
+                        },
+                        json!({
+                            "source": "grpc_proxy", "session": session_id, "transport": "grpc",
+                            "event": "memory_poisoning_detected",
+                            "matches": poisoning_matches.len(),
+                            "extension_id": extension_id, "method": method,
+                        }),
+                    )
+                    .await
+                {
                     tracing::warn!("Failed to audit gRPC extension memory poisoning: {}", e);
                 }
                 // SECURITY (FIND-R118-001): Generic client message.
@@ -2753,67 +2764,68 @@ impl McpGrpcService {
 
         // SECURITY (FIND-R160-001): TOCTOU-safe context+eval+update for extension methods.
         let ext_key = format!("extension:{}:{}", extension_id, method);
-        let (verdict, ctx, session_risk) =
-            if let Some(mut session) = self.state.sessions.get_mut(session_id) {
-                let ctx = EvaluationContext {
-                    timestamp: None,
-                    agent_id: session.oauth_subject.clone(),
-                    agent_identity: session.agent_identity.clone(),
-                    call_counts: session.call_counts.clone(),
-                    previous_actions: session.action_history.iter().cloned().collect(),
-                    call_chain: session.current_call_chain.clone(),
-                    tenant_id: None,
-                    verification_tier: None,
-                    capability_token: None,
-                    session_state: None,
-                };
-                let risk = session.risk_score.clone();
-
-                let verdict = match self.state.engine.evaluate_action_with_context(
-                    &action,
-                    &self.state.policies,
-                    Some(&ctx),
-                ) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::error!(session_id = %session_id, "Extension policy evaluation error: {}", e);
-                        Verdict::Deny {
-                            reason: format!("Policy evaluation failed: {}", e),
-                        }
-                    }
-                };
-
-                if matches!(verdict, Verdict::Allow) {
-                    session.touch();
-                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                        || session.call_counts.contains_key(&ext_key)
-                    {
-                        let count = session.call_counts.entry(ext_key.clone()).or_insert(0);
-                        *count = count.saturating_add(1);
-                    }
-                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                        session.action_history.pop_front();
-                    }
-                    session.action_history.push_back(ext_key.clone());
-                }
-
-                (verdict, ctx, risk)
-            } else {
-                let verdict = match self.state.engine.evaluate_action_with_context(
-                    &action,
-                    &self.state.policies,
-                    None,
-                ) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::error!(session_id = %session_id, "Extension policy evaluation error: {}", e);
-                        Verdict::Deny {
-                            reason: format!("Policy evaluation failed: {}", e),
-                        }
-                    }
-                };
-                (verdict, EvaluationContext::default(), None)
+        let (verdict, ctx, session_risk) = if let Some(mut session) =
+            self.state.sessions.get_mut(session_id)
+        {
+            let ctx = EvaluationContext {
+                timestamp: None,
+                agent_id: session.oauth_subject.clone(),
+                agent_identity: session.agent_identity.clone(),
+                call_counts: session.call_counts.clone(),
+                previous_actions: session.action_history.iter().cloned().collect(),
+                call_chain: session.current_call_chain.clone(),
+                tenant_id: None,
+                verification_tier: None,
+                capability_token: None,
+                session_state: None,
             };
+            let risk = session.risk_score.clone();
+
+            let verdict = match self.state.engine.evaluate_action_with_context(
+                &action,
+                &self.state.policies,
+                Some(&ctx),
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::error!(session_id = %session_id, "Extension policy evaluation error: {}", e);
+                    Verdict::Deny {
+                        reason: format!("Policy evaluation failed: {}", e),
+                    }
+                }
+            };
+
+            if matches!(verdict, Verdict::Allow) {
+                session.touch();
+                if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                    || session.call_counts.contains_key(&ext_key)
+                {
+                    let count = session.call_counts.entry(ext_key.clone()).or_insert(0);
+                    *count = count.saturating_add(1);
+                }
+                if session.action_history.len() >= MAX_ACTION_HISTORY {
+                    session.action_history.pop_front();
+                }
+                session.action_history.push_back(ext_key.clone());
+            }
+
+            (verdict, ctx, risk)
+        } else {
+            let verdict = match self.state.engine.evaluate_action_with_context(
+                &action,
+                &self.state.policies,
+                None,
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::error!(session_id = %session_id, "Extension policy evaluation error: {}", e);
+                    Verdict::Deny {
+                        reason: format!("Policy evaluation failed: {}", e),
+                    }
+                }
+            };
+            (verdict, EvaluationContext::default(), None)
+        };
 
         match &verdict {
             Verdict::Allow => {
@@ -3103,10 +3115,7 @@ impl McpService for McpGrpcService {
         // is active, the session must be owned by the authenticated subject.
         if let Some(authorization) = metadata.get("authorization") {
             if let Some(ref oauth_validator) = self.state.oauth {
-                let auth_header = authorization
-                    .to_str()
-                    .unwrap_or("")
-                    .to_string();
+                let auth_header = authorization.to_str().unwrap_or("").to_string();
                 match oauth_validator.validate_token(&auth_header).await {
                     Ok(claims) => {
                         if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
@@ -3115,7 +3124,9 @@ impl McpService for McpGrpcService {
                                     tracing::warn!(
                                         "SECURITY: gRPC session fixation attempt blocked \
                                          — session {} owned by '{}', request from '{}'",
-                                        session_id, owner, claims.sub
+                                        session_id,
+                                        owner,
+                                        claims.sub
                                     );
                                     return Err(Status::permission_denied(
                                         "Session owned by another user",
@@ -3143,7 +3154,10 @@ impl McpService for McpGrpcService {
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("gRPC unary OAuth validation failed for session ownership check: {}", e);
+                        tracing::warn!(
+                            "gRPC unary OAuth validation failed for session ownership check: {}",
+                            e
+                        );
                         return Err(Status::unauthenticated("Invalid authorization token"));
                     }
                 }
@@ -3221,10 +3235,7 @@ impl McpService for McpGrpcService {
         // session ID in the initial metadata.
         if let Some(authorization) = metadata.get("authorization") {
             if let Some(ref oauth_validator) = self.state.oauth {
-                let auth_header = authorization
-                    .to_str()
-                    .unwrap_or("")
-                    .to_string();
+                let auth_header = authorization.to_str().unwrap_or("").to_string();
                 match oauth_validator.validate_token(&auth_header).await {
                     Ok(claims) => {
                         if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
@@ -3233,7 +3244,9 @@ impl McpService for McpGrpcService {
                                     tracing::warn!(
                                         "SECURITY: gRPC stream session fixation attempt blocked \
                                          — session {} owned by '{}', request from '{}'",
-                                        session_id, owner, claims.sub
+                                        session_id,
+                                        owner,
+                                        claims.sub
                                     );
                                     return Err(Status::permission_denied(
                                         "Session owned by another user",
@@ -3261,7 +3274,10 @@ impl McpService for McpGrpcService {
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("gRPC stream OAuth validation failed for session ownership check: {}", e);
+                        tracing::warn!(
+                            "gRPC stream OAuth validation failed for session ownership check: {}",
+                            e
+                        );
                         return Err(Status::unauthenticated("Invalid authorization token"));
                     }
                 }
@@ -3355,7 +3371,10 @@ impl McpService for McpGrpcService {
                         let mut start = match rate_window_start.lock() {
                             Ok(guard) => guard,
                             Err(e) => {
-                                tracing::error!("gRPC stream rate limiter mutex poisoned — fail-closed: {}", e);
+                                tracing::error!(
+                                    "gRPC stream rate limiter mutex poisoned — fail-closed: {}",
+                                    e
+                                );
                                 let _ = tx
                                     .send(Err(Status::resource_exhausted(
                                         "Rate limiter unavailable",
@@ -3486,7 +3505,9 @@ impl McpService for McpGrpcService {
                                     tracing::warn!(
                                         "SECURITY: gRPC subscribe session fixation blocked \
                                          — session {} owned by '{}', request from '{}'",
-                                        session_id, owner, claims.sub
+                                        session_id,
+                                        owner,
+                                        claims.sub
                                     );
                                     return Err(Status::permission_denied(
                                         "Session owned by another user",
@@ -3507,6 +3528,58 @@ impl McpService for McpGrpcService {
                         return Err(Status::unauthenticated("Invalid authorization token"));
                     }
                 }
+            }
+        }
+
+        // SECURITY (FIND-R224-003): Extract and validate agent identity — parity
+        // with call() (line 3154) and stream_call(). Without this, ABAC policies
+        // referencing agent_identity attributes evaluate against None for subscribe.
+        if let Some(identity_token) = super::interceptors::extract_agent_identity_token(&metadata) {
+            if let Some(ref oauth_validator) = self.state.oauth {
+                match oauth_validator
+                    .validate_token(&format!("Bearer {}", identity_token))
+                    .await
+                {
+                    Ok(claims) => {
+                        let identity = vellaveto_types::AgentIdentity {
+                            issuer: if claims.iss.is_empty() {
+                                None
+                            } else {
+                                Some(claims.iss.clone())
+                            },
+                            subject: if claims.sub.is_empty() {
+                                None
+                            } else {
+                                Some(claims.sub.clone())
+                            },
+                            audience: claims.aud.clone(),
+                            claims: Default::default(),
+                        };
+                        if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
+                            session.agent_identity = Some(identity);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "gRPC subscribe agent identity JWT validation failed: {}",
+                            e
+                        );
+                        return Err(Status::unauthenticated("Invalid agent identity token"));
+                    }
+                }
+            }
+        }
+
+        // SECURITY (FIND-R224-008): Extract call chain from metadata — parity
+        // with call() and stream_call(). Without this, policies that reference
+        // call chain depth/entries are not evaluated for subscribe requests.
+        {
+            let upstream_chain = super::interceptors::extract_call_chain_from_metadata(
+                &metadata,
+                &self.state.limits,
+            );
+            if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
+                session.current_call_chain = upstream_chain;
             }
         }
 

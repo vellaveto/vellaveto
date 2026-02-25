@@ -187,7 +187,8 @@ impl ServiceDiscoveryConfig {
             }
             if vellaveto_types::has_dangerous_chars(name) {
                 return Err(
-                    "deployment.service_discovery.dns_name contains control or format characters".to_string(),
+                    "deployment.service_discovery.dns_name contains control or format characters"
+                        .to_string(),
                 );
             }
             // SECURITY (FIND-P27-005): Reject SSRF-prone DNS names.

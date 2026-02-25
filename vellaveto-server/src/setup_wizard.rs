@@ -1252,7 +1252,14 @@ pub async fn step_review(State(state): State<AppState>, req: Request) -> Respons
         let key = &session.api_key;
         if key.chars().count() > 8 {
             let first4: String = key.chars().take(4).collect();
-            let last4: String = key.chars().rev().take(4).collect::<String>().chars().rev().collect();
+            let last4: String = key
+                .chars()
+                .rev()
+                .take(4)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect();
             format!("{}...{}", first4, last4)
         } else {
             "****".to_string()

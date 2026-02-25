@@ -51,8 +51,7 @@ impl CanonicalToolSchema {
             ));
         }
         // SECURITY (FIND-R115-004): Reject control/format chars in name field.
-        if crate::core::has_dangerous_chars(&self.name)
-        {
+        if crate::core::has_dangerous_chars(&self.name) {
             return Err(
                 "CanonicalToolSchema name contains control or format characters".to_string(),
             );
@@ -131,8 +130,7 @@ impl CanonicalToolCall {
             ));
         }
         // SECURITY (FIND-R115-004): Reject control/format chars in tool_name field.
-        if crate::core::has_dangerous_chars(&self.tool_name)
-        {
+        if crate::core::has_dangerous_chars(&self.tool_name) {
             return Err(
                 "CanonicalToolCall tool_name contains control or format characters".to_string(),
             );

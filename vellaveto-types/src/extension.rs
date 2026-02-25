@@ -114,8 +114,7 @@ impl ExtensionDescriptor {
                 MAX_EXTENSION_NAME_LEN
             )));
         }
-        if crate::core::has_dangerous_chars(&self.name)
-        {
+        if crate::core::has_dangerous_chars(&self.name) {
             return Err(ExtensionError::Validation(
                 "extension name contains control or format characters".to_string(),
             ));
@@ -133,15 +132,13 @@ impl ExtensionDescriptor {
                 MAX_EXTENSION_VERSION_LEN
             )));
         }
-        if crate::core::has_dangerous_chars(&self.version)
-        {
+        if crate::core::has_dangerous_chars(&self.version) {
             return Err(ExtensionError::Validation(
                 "extension version contains control or format characters".to_string(),
             ));
         }
         // SECURITY (FIND-R129-002): Validate id for control/format characters.
-        if crate::core::has_dangerous_chars(&self.id)
-        {
+        if crate::core::has_dangerous_chars(&self.id) {
             return Err(ExtensionError::Validation(
                 "extension id contains control or format characters".to_string(),
             ));
@@ -265,7 +262,8 @@ impl ExtensionResourceLimits {
         if self.max_concurrent_requests > Self::MAX_CONCURRENT {
             return Err(format!(
                 "max_concurrent_requests {} exceeds max {}",
-                self.max_concurrent_requests, Self::MAX_CONCURRENT
+                self.max_concurrent_requests,
+                Self::MAX_CONCURRENT
             ));
         }
         if self.max_requests_per_sec == 0 {
@@ -274,7 +272,8 @@ impl ExtensionResourceLimits {
         if self.max_requests_per_sec > Self::MAX_RPS {
             return Err(format!(
                 "max_requests_per_sec {} exceeds max {}",
-                self.max_requests_per_sec, Self::MAX_RPS
+                self.max_requests_per_sec,
+                Self::MAX_RPS
             ));
         }
         Ok(())

@@ -5,6 +5,11 @@
 # Keep advisory ignores explicit and time-bounded.
 # Empty by default; add entries only when actively justified.
 ignore = [
+  # REVIEW BY 2026-06-30: Advisory is on `rsa` via optional `sqlx-mysql`
+  # metadata path in `sqlx` 0.8.x. Vellaveto enables only Postgres features
+  # (`runtime-tokio-rustls`, `postgres`, `json`, `chrono`, `uuid`), so MySQL
+  # code is not compiled in default or postgres-store builds.
+  "RUSTSEC-2023-0071",
   # REVIEW BY 2026-06-30: Transitive via optional `vellaveto-audit/zk-audit`
   # dependencies (`ark-*`). `zk-audit` is opt-in and excluded from default CI paths.
   # Upstream does not yet expose a compatible fixed release path.

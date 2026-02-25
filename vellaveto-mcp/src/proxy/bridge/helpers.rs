@@ -65,8 +65,7 @@ impl ProxyBridge {
             );
             return None;
         }
-        if vellaveto_types::has_dangerous_chars(raw)
-        {
+        if vellaveto_types::has_dangerous_chars(raw) {
             tracing::warn!(
                 "claimed agent_id in _meta contains control or Unicode format characters — ignoring"
             );

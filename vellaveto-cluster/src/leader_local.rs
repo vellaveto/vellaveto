@@ -23,20 +23,51 @@ use crate::ClusterError;
 /// cheaper than `tokio::sync::Mutex` for these non-async, sub-microsecond
 /// operations and avoids the overhead of the async mutex's waker queue.
 /// Mutex poisoning is explicitly handled in all lock sites (see FIND-P27-003).
+#[derive(Debug)]
 pub struct LocalLeaderElection {
     instance_id: String,
     is_leader: AtomicBool,
     acquired_at: std::sync::Mutex<Option<String>>,
 }
 
+/// Maximum length for instance IDs.
+///
+/// SECURITY (IMP-R224-004): Reject excessively long IDs at construction time.
+const MAX_INSTANCE_ID_LEN: usize = 256;
+
 impl LocalLeaderElection {
     /// Create a new local leader election for the given instance ID.
-    pub fn new(instance_id: String) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the instance ID is empty, exceeds 256 characters,
+    /// or contains control/format characters.
+    pub fn new(instance_id: String) -> Result<Self, ClusterError> {
+        // SECURITY (IMP-R224-004): Validate instance_id at construction time.
+        // Without this, empty strings, control characters, and excessively long
+        // IDs are propagated into LeaderStatus, deployment info, and audit events.
+        if instance_id.is_empty() {
+            return Err(ClusterError::Validation(
+                "instance_id must not be empty".into(),
+            ));
+        }
+        if instance_id.len() > MAX_INSTANCE_ID_LEN {
+            return Err(ClusterError::Validation(format!(
+                "instance_id length {} exceeds maximum {}",
+                instance_id.len(),
+                MAX_INSTANCE_ID_LEN,
+            )));
+        }
+        if vellaveto_types::has_dangerous_chars(&instance_id) {
+            return Err(ClusterError::Validation(
+                "instance_id contains control or format characters".into(),
+            ));
+        }
+        Ok(Self {
             instance_id,
             is_leader: AtomicBool::new(false),
             acquired_at: std::sync::Mutex::new(None),
-        }
+        })
     }
 }
 
@@ -127,7 +158,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_leader_acquire() {
-        let le = LocalLeaderElection::new("test-0".to_string());
+        let le = LocalLeaderElection::new("test-0".to_string()).unwrap();
         assert!(!le.is_leader());
 
         let acquired = le.try_acquire().await.unwrap();
@@ -137,7 +168,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_leader_renew() {
-        let le = LocalLeaderElection::new("test-0".to_string());
+        let le = LocalLeaderElection::new("test-0".to_string()).unwrap();
         le.try_acquire().await.unwrap();
         let renewed = le.renew().await.unwrap();
         assert!(renewed);
@@ -146,7 +177,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_leader_release() {
-        let le = LocalLeaderElection::new("test-0".to_string());
+        let le = LocalLeaderElection::new("test-0".to_string()).unwrap();
         le.try_acquire().await.unwrap();
         assert!(le.is_leader());
 
@@ -156,7 +187,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_leader_status_leader() {
-        let le = LocalLeaderElection::new("test-0".to_string());
+        let le = LocalLeaderElection::new("test-0".to_string()).unwrap();
         le.try_acquire().await.unwrap();
 
         let status = le.current_status();
@@ -170,7 +201,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_leader_status_follower() {
-        let le = LocalLeaderElection::new("test-0".to_string());
+        let le = LocalLeaderElection::new("test-0".to_string()).unwrap();
         let status = le.current_status();
         match status {
             LeaderStatus::Follower { leader_id } => {
@@ -182,20 +213,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_leader_current_leader_id() {
-        let le = LocalLeaderElection::new("node-1".to_string());
+        let le = LocalLeaderElection::new("node-1".to_string()).unwrap();
         assert_eq!(le.current_leader_id(), Some("node-1".to_string()));
     }
 
     #[tokio::test]
     async fn test_local_leader_renew_before_acquire_returns_false() {
-        let le = LocalLeaderElection::new("test-0".to_string());
+        let le = LocalLeaderElection::new("test-0".to_string()).unwrap();
         let renewed = le.renew().await.unwrap();
         assert!(!renewed);
     }
 
     #[tokio::test]
     async fn test_local_leader_acquire_release_acquire() {
-        let le = LocalLeaderElection::new("test-0".to_string());
+        let le = LocalLeaderElection::new("test-0".to_string()).unwrap();
         le.try_acquire().await.unwrap();
         le.release().await.unwrap();
         assert!(!le.is_leader());
@@ -212,7 +243,7 @@ mod tests {
     async fn test_local_leader_acquire_sets_timestamp_before_flag() {
         // After try_acquire(), is_leader should be true AND current_status
         // should return a Leader variant with a non-empty timestamp.
-        let le = LocalLeaderElection::new("test-0".to_string());
+        let le = LocalLeaderElection::new("test-0".to_string()).unwrap();
         le.try_acquire().await.unwrap();
 
         assert!(le.is_leader());
@@ -232,7 +263,7 @@ mod tests {
         // After release(), is_leader should be false. Even if we peek at the
         // timestamp while is_leader is false, we should not see stale data
         // that suggests leadership.
-        let le = LocalLeaderElection::new("test-0".to_string());
+        let le = LocalLeaderElection::new("test-0".to_string()).unwrap();
         le.try_acquire().await.unwrap();
         le.release().await.unwrap();
 
@@ -247,7 +278,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_leader_repeated_acquire_release_consistency() {
-        let le = LocalLeaderElection::new("test-0".to_string());
+        let le = LocalLeaderElection::new("test-0".to_string()).unwrap();
         for _ in 0..10 {
             le.try_acquire().await.unwrap();
             assert!(le.is_leader());
@@ -265,5 +296,47 @@ mod tests {
                 other => panic!("expected Follower, got {:?}", other),
             }
         }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // IMP-R224-004: instance_id validation at construction time
+    // ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_local_leader_rejects_empty_instance_id() {
+        let err = LocalLeaderElection::new(String::new()).unwrap_err();
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "Expected empty instance_id error, got: {}",
+            err,
+        );
+    }
+
+    #[test]
+    fn test_local_leader_rejects_too_long_instance_id() {
+        let long_id = "a".repeat(257);
+        let err = LocalLeaderElection::new(long_id).unwrap_err();
+        assert!(
+            err.to_string().contains("exceeds maximum"),
+            "Expected length error, got: {}",
+            err,
+        );
+    }
+
+    #[test]
+    fn test_local_leader_rejects_control_chars_in_instance_id() {
+        let err = LocalLeaderElection::new("test\n-0".to_string()).unwrap_err();
+        assert!(
+            err.to_string().contains("control"),
+            "Expected control char error, got: {}",
+            err,
+        );
+    }
+
+    #[test]
+    fn test_local_leader_accepts_max_length_instance_id() {
+        let id = "a".repeat(256);
+        let le = LocalLeaderElection::new(id.clone()).unwrap();
+        assert_eq!(le.current_leader_id(), Some(id));
     }
 }

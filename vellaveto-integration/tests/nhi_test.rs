@@ -849,8 +849,14 @@ fn test_dpop_nonce_generation() {
     runtime().block_on(async {
         let manager = NhiManager::new(enabled_config());
 
-        let nonce1 = manager.generate_dpop_nonce().await.expect("nonce generation should succeed");
-        let nonce2 = manager.generate_dpop_nonce().await.expect("nonce generation should succeed");
+        let nonce1 = manager
+            .generate_dpop_nonce()
+            .await
+            .expect("nonce generation should succeed");
+        let nonce2 = manager
+            .generate_dpop_nonce()
+            .await
+            .expect("nonce generation should succeed");
 
         assert!(!nonce1.is_empty());
         assert!(!nonce2.is_empty());

@@ -79,9 +79,7 @@ impl WitnessStore {
     /// store that disables ZK audit without any startup error.
     pub fn with_capacity(max_capacity: usize) -> Self {
         let effective = if max_capacity == 0 {
-            tracing::warn!(
-                "WitnessStore::with_capacity(0) is invalid — clamping to 1"
-            );
+            tracing::warn!("WitnessStore::with_capacity(0) is invalid — clamping to 1");
             1
         } else {
             max_capacity

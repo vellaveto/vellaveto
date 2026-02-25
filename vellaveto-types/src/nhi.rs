@@ -139,7 +139,10 @@ impl std::fmt::Debug for NhiAgentIdentity {
             .field("attestation_type", &self.attestation_type)
             .field("status", &self.status)
             .field("spiffe_id", &self.spiffe_id)
-            .field("public_key", &self.public_key.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "public_key",
+                &self.public_key.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("key_algorithm", &self.key_algorithm)
             .field("issued_at", &self.issued_at)
             .field("expires_at", &self.expires_at)
@@ -390,9 +393,7 @@ impl NhiBehavioralBaseline {
     pub fn validate(&self) -> Result<(), String> {
         // SECURITY (FIND-R146-TE-004): Validate agent_id field.
         if self.agent_id.is_empty() {
-            return Err(
-                "NhiBehavioralBaseline agent_id must not be empty".to_string(),
-            );
+            return Err("NhiBehavioralBaseline agent_id must not be empty".to_string());
         }
         if self.agent_id.len() > Self::MAX_AGENT_ID_LEN {
             return Err(format!(
@@ -402,9 +403,7 @@ impl NhiBehavioralBaseline {
             ));
         }
         if crate::core::has_dangerous_chars(&self.agent_id) {
-            return Err(
-                "NhiBehavioralBaseline agent_id contains dangerous characters".to_string(),
-            );
+            return Err("NhiBehavioralBaseline agent_id contains dangerous characters".to_string());
         }
         if self.tool_call_patterns.len() > Self::MAX_TOOL_CALL_PATTERNS {
             return Err(format!(
@@ -532,9 +531,8 @@ impl NhiBehavioralBaseline {
         }
         // SECURITY (FIND-R126-011): Validate ISO 8601 timestamp fields.
         // Malformed timestamps bypass temporal comparisons.
-        crate::time_util::parse_iso8601_secs(&self.created_at).map_err(|e| {
-            format!("NhiBehavioralBaseline created_at is not valid ISO 8601: {e}")
-        })?;
+        crate::time_util::parse_iso8601_secs(&self.created_at)
+            .map_err(|e| format!("NhiBehavioralBaseline created_at is not valid ISO 8601: {e}"))?;
         crate::time_util::parse_iso8601_secs(&self.last_updated).map_err(|e| {
             format!("NhiBehavioralBaseline last_updated is not valid ISO 8601: {e}")
         })?;
@@ -780,15 +778,13 @@ impl NhiDelegationLink {
         // SECURITY (FIND-R114-015): Reject control/format characters in from_agent
         // and to_agent BEFORE self-delegation check, preventing Unicode format char
         // bypass (e.g., "admin" vs "admin\u{200B}").
-        if crate::core::has_dangerous_chars(&self.from_agent)
-        {
+        if crate::core::has_dangerous_chars(&self.from_agent) {
             return Err(
                 "NhiDelegationLink from_agent contains control or Unicode format characters"
                     .to_string(),
             );
         }
-        if crate::core::has_dangerous_chars(&self.to_agent)
-        {
+        if crate::core::has_dangerous_chars(&self.to_agent) {
             return Err(
                 "NhiDelegationLink to_agent contains control or Unicode format characters"
                     .to_string(),
@@ -984,8 +980,7 @@ impl NhiDpopProof {
         }
         // SECURITY (FIND-R104-005): Reject Unicode format characters in htm/htu/iat/jti
         // to prevent bidi-override and zero-width character injection.
-        if crate::core::has_dangerous_chars(&self.htm)
-        {
+        if crate::core::has_dangerous_chars(&self.htm) {
             return Err("NhiDpopProof htm contains control or format characters".to_string());
         }
         if self.htu.len() > Self::MAX_FIELD_LEN {
@@ -995,8 +990,7 @@ impl NhiDpopProof {
                 Self::MAX_FIELD_LEN,
             ));
         }
-        if crate::core::has_dangerous_chars(&self.htu)
-        {
+        if crate::core::has_dangerous_chars(&self.htu) {
             return Err("NhiDpopProof htu contains control or format characters".to_string());
         }
         if let Some(ref ath) = self.ath {
@@ -1032,8 +1026,7 @@ impl NhiDpopProof {
                 Self::MAX_FIELD_LEN,
             ));
         }
-        if crate::core::has_dangerous_chars(&self.iat)
-        {
+        if crate::core::has_dangerous_chars(&self.iat) {
             return Err("NhiDpopProof iat contains control or format characters".to_string());
         }
         if self.jti.len() > Self::MAX_FIELD_LEN {
@@ -1043,8 +1036,7 @@ impl NhiDpopProof {
                 Self::MAX_FIELD_LEN,
             ));
         }
-        if crate::core::has_dangerous_chars(&self.jti)
-        {
+        if crate::core::has_dangerous_chars(&self.jti) {
             return Err("NhiDpopProof jti contains control or format characters".to_string());
         }
         Ok(())
@@ -1211,7 +1203,9 @@ impl NhiCredentialRotation {
             ));
         }
         if crate::core::has_dangerous_chars(&self.agent_id) {
-            return Err("NhiCredentialRotation agent_id contains control or format characters".to_string());
+            return Err(
+                "NhiCredentialRotation agent_id contains control or format characters".to_string(),
+            );
         }
 
         if let Some(ref pt) = self.previous_thumbprint {
@@ -1235,7 +1229,10 @@ impl NhiCredentialRotation {
             ));
         }
         if crate::core::has_dangerous_chars(&self.new_thumbprint) {
-            return Err("NhiCredentialRotation new_thumbprint contains control or format characters".to_string());
+            return Err(
+                "NhiCredentialRotation new_thumbprint contains control or format characters"
+                    .to_string(),
+            );
         }
 
         if self.rotated_at.len() > Self::MAX_TIMESTAMP_LEN {
@@ -1246,7 +1243,10 @@ impl NhiCredentialRotation {
             ));
         }
         if crate::core::has_dangerous_chars(&self.rotated_at) {
-            return Err("NhiCredentialRotation rotated_at contains control or format characters".to_string());
+            return Err(
+                "NhiCredentialRotation rotated_at contains control or format characters"
+                    .to_string(),
+            );
         }
 
         if self.trigger.len() > Self::MAX_TRIGGER_LEN {
@@ -1257,7 +1257,9 @@ impl NhiCredentialRotation {
             ));
         }
         if crate::core::has_dangerous_chars(&self.trigger) {
-            return Err("NhiCredentialRotation trigger contains control or format characters".to_string());
+            return Err(
+                "NhiCredentialRotation trigger contains control or format characters".to_string(),
+            );
         }
 
         if self.new_expires_at.len() > Self::MAX_TIMESTAMP_LEN {
@@ -1268,7 +1270,10 @@ impl NhiCredentialRotation {
             ));
         }
         if crate::core::has_dangerous_chars(&self.new_expires_at) {
-            return Err("NhiCredentialRotation new_expires_at contains control or format characters".to_string());
+            return Err(
+                "NhiCredentialRotation new_expires_at contains control or format characters"
+                    .to_string(),
+            );
         }
 
         Ok(())

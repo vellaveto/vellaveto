@@ -193,9 +193,7 @@ impl EmbeddingAnomalyDetector {
         // when the lock was poisoned, violating fail-closed (Trap 5/12).
         let mut recent = self.recent_embeddings.write().map_err(|_| {
             tracing::error!("recent_embeddings lock poisoned in add_to_baseline");
-            RagDefenseError::Internal(
-                "Failed to acquire recent embeddings write lock".to_string(),
-            )
+            RagDefenseError::Internal("Failed to acquire recent embeddings write lock".to_string())
         })?;
         {
             // SECURITY (FIND-R69-005): Cap number of tracked agents.

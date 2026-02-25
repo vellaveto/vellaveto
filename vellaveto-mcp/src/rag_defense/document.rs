@@ -407,7 +407,9 @@ impl DocumentVerifier {
                 counts.remove(session_id);
             }
             Err(_) => {
-                tracing::error!("DocumentVerifier session_doc_counts lock poisoned in reset_session");
+                tracing::error!(
+                    "DocumentVerifier session_doc_counts lock poisoned in reset_session"
+                );
             }
         }
     }

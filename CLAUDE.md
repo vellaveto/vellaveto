@@ -1,10 +1,10 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26–49 complete, 224 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26–49 + 36 complete, 224 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 7,697 Rust + 385 Python + 127 Go + 119 TypeScript, zero warnings, zero `unwrap()` in library code
+> **Tests:** 7,697 Rust + 385 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
 > **Updated:** 2026-02-25
 
 ---
@@ -116,7 +116,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Stdio proxy | `vellaveto-proxy/src/main.rs` |
 | Cluster (leader election, service discovery) | `vellaveto-cluster/src/*.rs` |
 | Integration tests (~110 files) | `vellaveto-integration/tests/` |
-| SDKs: Python, TypeScript, Go | `sdk/{python,typescript,go}/` |
+| SDKs: Python, TypeScript, Go, Java | `sdk/{python,typescript,go,java}/` |
+| VS Code Extension | `vscode-vellaveto/` |
 | Formal verification (TLA+, Alloy) | `formal/` |
 
 ---
@@ -125,7 +126,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 All phases implemented, tested, and hardened through 224 audit rounds. Details in CHANGELOG.md.
 
-**Core:** Policy evaluation (glob/regex/domain), path traversal protection, DNS rebinding, context-aware policies | **Audit:** Tamper-evident logging (SHA-256, Merkle, Ed25519), export (CEF/JSONL/webhook/syslog), PostgreSQL dual-write, ZK proofs (Pedersen + Groth16) | **Security:** Injection (Aho-Corasick + NFKC), DLP (5-layer decode), tool squatting, memory poisoning, behavioral anomaly, multimodal injection | **Auth:** OAuth 2.1/JWT/JWKS, ABAC forbid-overrides, capability delegation, least-agency | **Transport:** HTTP, stdio, WebSocket, gRPC, MCP gateway, smart fallback | **Compliance:** EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, OWASP ASI, DORA, NIS2, evidence packs | **Infra:** K8s operator (3 CRDs), multi-tenancy, policy lifecycle (Draft→Active), setup wizard | **SDKs:** Python (sync+async, LangChain/LangGraph/Composio), TypeScript, Go | **Formal:** TLA+ (policy engine, ABAC, workflow), Alloy (capability delegation)
+**Core:** Policy evaluation (glob/regex/domain), path traversal protection, DNS rebinding, context-aware policies | **Audit:** Tamper-evident logging (SHA-256, Merkle, Ed25519), export (CEF/JSONL/webhook/syslog), PostgreSQL dual-write, ZK proofs (Pedersen + Groth16) | **Security:** Injection (Aho-Corasick + NFKC), DLP (5-layer decode), tool squatting, memory poisoning, behavioral anomaly, multimodal injection | **Auth:** OAuth 2.1/JWT/JWKS, ABAC forbid-overrides, capability delegation, least-agency | **Transport:** HTTP, stdio, WebSocket, gRPC, MCP gateway, smart fallback | **Compliance:** EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, OWASP ASI, DORA, NIS2, evidence packs | **Infra:** K8s operator (3 CRDs), multi-tenancy, policy lifecycle (Draft→Active), setup wizard | **SDKs:** Python (sync+async, LangChain/LangGraph/Composio), TypeScript, Go, Java (120 tests) | **DevEx:** VS Code extension (validation, completions, snippets, simulator), execution graph SVG export | **Formal:** TLA+ (policy engine, ABAC, workflow), Alloy (capability delegation)
 
 **Adversarial hardening:** 224 audit rounds, 1000+ findings fixed. Key patterns enforced: `deny_unknown_fields` on all deserialized structs, `validate()` with bounded collections, `has_dangerous_chars()` on all external strings, custom `Debug` redacting secrets, `saturating_add` on all counters, transport parity across HTTP/WS/gRPC/stdio/SSE.
 

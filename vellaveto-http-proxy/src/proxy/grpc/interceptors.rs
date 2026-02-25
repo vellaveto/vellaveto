@@ -190,17 +190,15 @@ impl Interceptor for RateLimitInterceptor {
         // to prevent overflow wrap-to-zero resetting rate limit counter.
         // Parity with WS check_rate_limit (websocket/mod.rs:4236-4238).
         let limit = self.limit;
-        let result = self.counter.fetch_update(
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-            |v| {
+        let result = self
+            .counter
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
                 if v >= limit {
                     None
                 } else {
                     Some(v.saturating_add(1))
                 }
-            },
-        );
+            });
         drop(window);
 
         match result {

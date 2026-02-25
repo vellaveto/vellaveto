@@ -353,10 +353,7 @@ impl DataFlowTracker {
             self.active_patterns.insert(pattern_name.clone());
 
             if let Some(fp) = f.fingerprint {
-                let fps = self
-                    .fingerprints
-                    .entry(pattern_name.clone())
-                    .or_default();
+                let fps = self.fingerprints.entry(pattern_name.clone()).or_default();
                 // Enforce per-pattern fingerprint limit
                 if fps.len() >= self.config.max_fingerprints_per_pattern {
                     fps.remove(0); // Remove oldest
@@ -1065,21 +1062,21 @@ mod tests {
         let long_pattern: String = "é".repeat(200); // 400 bytes, 200 chars
         assert!(long_pattern.len() > 256);
 
-        let mut tracker = DataFlowTracker::new(DataFlowConfig::default())
-            .expect("valid config");
+        let mut tracker = DataFlowTracker::new(DataFlowConfig::default()).expect("valid config");
 
         // This must NOT panic — the truncation must land on a char boundary.
-        tracker.record_response_findings(
-            "tool",
-            &[enriched(&long_pattern, "text", Some("secret"))],
-        );
+        tracker
+            .record_response_findings("tool", &[enriched(&long_pattern, "text", Some("secret"))]);
 
         // Verify the pattern was recorded (truncated, not rejected).
         assert_eq!(tracker.active_pattern_count(), 1);
 
         // The stored pattern name should be <= MAX_PATTERN_NAME_LEN bytes
         // and must be valid UTF-8 (it is, since it's a &str in the HashSet).
-        let stored = tracker.active_patterns.iter().next()
+        let stored = tracker
+            .active_patterns
+            .iter()
+            .next()
             .expect("one pattern should exist");
         assert!(stored.len() <= 256);
         // Verify it is a proper prefix of the original (all 'é' characters).
@@ -1096,17 +1093,16 @@ mod tests {
         let long_pattern: String = "中".repeat(100); // 300 bytes
         assert!(long_pattern.len() > 256);
 
-        let mut tracker = DataFlowTracker::new(DataFlowConfig::default())
-            .expect("valid config");
+        let mut tracker = DataFlowTracker::new(DataFlowConfig::default()).expect("valid config");
 
         // Must not panic.
-        tracker.record_response_findings(
-            "tool",
-            &[enriched(&long_pattern, "text", Some("data"))],
-        );
+        tracker.record_response_findings("tool", &[enriched(&long_pattern, "text", Some("data"))]);
 
         assert_eq!(tracker.active_pattern_count(), 1);
-        let stored = tracker.active_patterns.iter().next()
+        let stored = tracker
+            .active_patterns
+            .iter()
+            .next()
             .expect("one pattern should exist");
         // 85 chars * 3 bytes = 255 (the largest 3-byte boundary <= 256)
         assert_eq!(stored.len(), 255);
@@ -1120,16 +1116,15 @@ mod tests {
         let long_pattern: String = "😀".repeat(70); // 280 bytes
         assert!(long_pattern.len() > 256);
 
-        let mut tracker = DataFlowTracker::new(DataFlowConfig::default())
-            .expect("valid config");
+        let mut tracker = DataFlowTracker::new(DataFlowConfig::default()).expect("valid config");
 
-        tracker.record_response_findings(
-            "tool",
-            &[enriched(&long_pattern, "text", Some("data"))],
-        );
+        tracker.record_response_findings("tool", &[enriched(&long_pattern, "text", Some("data"))]);
 
         assert_eq!(tracker.active_pattern_count(), 1);
-        let stored = tracker.active_patterns.iter().next()
+        let stored = tracker
+            .active_patterns
+            .iter()
+            .next()
             .expect("one pattern should exist");
         // 64 chars * 4 bytes = 256 (happens to land on a boundary)
         assert_eq!(stored.len(), 256);

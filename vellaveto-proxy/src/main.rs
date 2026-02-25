@@ -10,12 +10,15 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
+#[cfg(test)]
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::process::Command;
 use vellaveto_audit::AuditLogger;
 use vellaveto_config::PolicyConfig;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_mcp::proxy::ProxyBridge;
+use vellaveto_types::command::resolve_executable;
 
 #[derive(Parser)]
 #[command(
@@ -86,21 +89,39 @@ async fn main() -> Result<()> {
         .split_first()
         .context("Command list is empty after validation")?;
 
-    if let Err(reason) = policy_config.supply_chain.verify_binary(child_cmd) {
+    let path_env = std::env::var_os("PATH");
+    let resolved_child_cmd = resolve_executable(child_cmd, path_env.as_deref()).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to resolve MCP server command '{}': {}",
+            child_cmd,
+            e
+        )
+    })?;
+
+    let resolved_child_cmd_display = resolved_child_cmd.display().to_string();
+
+    if let Err(reason) = policy_config
+        .supply_chain
+        .verify_binary(&resolved_child_cmd.to_string_lossy())
+    {
         tracing::error!("Supply chain verification FAILED: {}", reason);
         anyhow::bail!(
-            "Refusing to spawn MCP server: supply chain verification failed — {}",
+            "Refusing to spawn MCP server '{}': supply chain verification failed — {}",
+            resolved_child_cmd_display,
             reason
         );
     } else if policy_config.supply_chain.enabled {
-        tracing::info!("Supply chain verification passed for '{}'", child_cmd);
+        tracing::info!(
+            "Supply chain verification passed for '{}'",
+            resolved_child_cmd_display
+        );
     }
 
     // Spawn child MCP server
     // SECURITY (FIND-GAP-011): Clear the environment of the child process to
     // prevent accidental leakage of secrets (e.g., API keys, tokens) from the
     // proxy's environment into the child. Only forward minimal required variables.
-    let mut cmd = Command::new(child_cmd);
+    let mut cmd = Command::new(&resolved_child_cmd);
     cmd.args(child_args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -115,9 +136,10 @@ async fn main() -> Result<()> {
         }
     }
 
-    let mut child = cmd
-        .spawn()
-        .context(format!("Failed to spawn child MCP server: {}", child_cmd))?;
+    let mut child = cmd.spawn().context(format!(
+        "Failed to spawn child MCP server: {}",
+        resolved_child_cmd_display
+    ))?;
 
     // FIND-R56-PROXY-002: Use descriptive string instead of PID 0 when child.id()
     // returns None (possible on some platforms before the child has started).
@@ -128,7 +150,7 @@ async fn main() -> Result<()> {
     tracing::info!(
         "Spawned child MCP server (PID {}): {} {:?}",
         child_pid_display,
-        child_cmd,
+        resolved_child_cmd_display,
         child_args
     );
 
@@ -142,7 +164,7 @@ async fn main() -> Result<()> {
                  Check that '{}' is a valid executable.",
                 child_pid_display,
                 status,
-                child_cmd
+                resolved_child_cmd_display
             );
         }
         Ok(None) => {
@@ -300,6 +322,145 @@ async fn main() -> Result<()> {
         Err(e) => {
             tracing::error!("Proxy error: {}", e);
             Err(anyhow::anyhow!("Proxy error: {}", e))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::ffi::OsString;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let mut dir = std::env::temp_dir();
+        let nanos = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_nanos(),
+            Err(_) => 0,
+        };
+        dir.push(format!("{}_{}_{}", prefix, std::process::id(), nanos));
+        dir
+    }
+
+    #[test]
+    fn resolve_child_command_keeps_explicit_relative_path() {
+        let temp_dir = unique_temp_dir("relative-path");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let candidate = temp_dir.join("mock-server");
+        std::fs::write(&candidate, b"#!/bin/sh\necho ok\n").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mut perms = std::fs::metadata(&candidate)
+                .unwrap_or_else(|e| panic!("metadata failed: {e}"))
+                .permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&candidate, perms)
+                .unwrap_or_else(|e| panic!("set executable bit failed: {e}"));
+        }
+
+        let relative = "./mock-server";
+        let original_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&temp_dir).unwrap();
+        let resolved = resolve_executable(relative, None)
+            .unwrap_or_else(|e| panic!("relative path should not require PATH: {e}"));
+        std::env::set_current_dir(original_cwd).unwrap();
+
+        assert_eq!(resolved, candidate);
+
+        let _ = std::fs::remove_file(&candidate);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn resolve_child_command_resolves_bare_name_from_path() {
+        let temp_dir = unique_temp_dir("vellaveto_proxy_path_resolve");
+        std::fs::create_dir_all(&temp_dir)
+            .unwrap_or_else(|e| panic!("create temp dir failed: {e}"));
+
+        let candidate = temp_dir.join("mock-mcp-server");
+        std::fs::write(&candidate, b"#!/bin/sh\necho ok\n")
+            .unwrap_or_else(|e| panic!("write candidate command failed: {e}"));
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mut perms = std::fs::metadata(&candidate)
+                .unwrap_or_else(|e| panic!("metadata failed: {e}"))
+                .permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&candidate, perms)
+                .unwrap_or_else(|e| panic!("set executable bit failed: {e}"));
+        }
+
+        let path_env = std::env::join_paths([temp_dir.clone()])
+            .unwrap_or_else(|e| panic!("join_paths failed: {e}"));
+        let resolved = resolve_executable("mock-mcp-server", Some(path_env.as_os_str()))
+            .unwrap_or_else(|e| panic!("expected command to resolve from PATH: {e}"));
+
+        assert_eq!(resolved, candidate);
+
+        let _ = std::fs::remove_file(&candidate);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn resolve_child_command_rejects_missing_bare_name() {
+        let temp_dir = unique_temp_dir("vellaveto_proxy_path_missing");
+        std::fs::create_dir_all(&temp_dir)
+            .unwrap_or_else(|e| panic!("create temp dir failed: {e}"));
+
+        let path_env: OsString = std::env::join_paths([temp_dir.clone()])
+            .unwrap_or_else(|e| panic!("join_paths failed: {e}"));
+        let err = resolve_executable("definitely-not-present", Some(path_env.as_os_str()))
+            .expect_err("missing command should fail");
+
+        assert!(
+            err.to_string().contains("not found in PATH"),
+            "unexpected error: {err}"
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn resolve_child_command_rejects_non_executable_candidate_on_unix() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let temp_dir = unique_temp_dir("vellaveto_proxy_path_nonexec");
+            std::fs::create_dir_all(&temp_dir)
+                .unwrap_or_else(|e| panic!("create temp dir failed: {e}"));
+
+            let candidate = temp_dir.join("mock-mcp-server");
+            std::fs::write(&candidate, b"not executable")
+                .unwrap_or_else(|e| panic!("write candidate command failed: {e}"));
+
+            let mut perms = std::fs::metadata(&candidate)
+                .unwrap_or_else(|e| panic!("metadata failed: {e}"))
+                .permissions();
+            perms.set_mode(0o644);
+            std::fs::set_permissions(&candidate, perms)
+                .unwrap_or_else(|e| panic!("set permissions failed: {e}"));
+
+            let path_env = std::env::join_paths([temp_dir.clone()])
+                .unwrap_or_else(|e| panic!("join_paths failed: {e}"));
+
+            let err = resolve_executable("mock-mcp-server", Some(path_env.as_os_str()))
+                .expect_err("non-executable command should not resolve");
+            assert!(
+                err.to_string().contains("not found in PATH"),
+                "unexpected error: {err}"
+            );
+
+            let _ = std::fs::remove_file(&candidate);
+            let _ = std::fs::remove_dir_all(&temp_dir);
         }
     }
 }

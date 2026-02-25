@@ -435,9 +435,7 @@ async fn handle_ws_connection(
         let last_activity = last_activity.clone();
         async move {
             // Check every 10% of idle timeout (min 1s) for responsive detection.
-            let check_interval = Duration::from_secs(
-                (ws_config.idle_timeout_secs / 10).max(1)
-            );
+            let check_interval = Duration::from_secs((ws_config.idle_timeout_secs / 10).max(1));
             let mut interval = tokio::time::interval(check_interval);
             interval.tick().await; // first tick is immediate, skip it
             loop {
@@ -445,9 +443,8 @@ async fn handle_ws_connection(
                 let last_ms = last_activity.load(Ordering::Relaxed);
                 // SECURITY (FIND-R190-002): Use saturating_sub to prevent underflow
                 // if Relaxed ordering causes a stale last_ms value.
-                let elapsed_since_activity = (connection_epoch.elapsed()
-                    .as_millis() as u64)
-                    .saturating_sub(last_ms);
+                let elapsed_since_activity =
+                    (connection_epoch.elapsed().as_millis() as u64).saturating_sub(last_ms);
                 if elapsed_since_activity >= idle_timeout.as_millis() as u64 {
                     tracing::info!(
                         session_id = %session_id,
@@ -1149,87 +1146,84 @@ async fn relay_client_to_upstream(
                         // clone the same stale call_counts, both pass evaluation, both
                         // increment. Matches HTTP handler R19-TOCTOU pattern
                         // (handlers.rs:725-789).
-                        let (verdict, ctx) =
-                            if let Some(mut session) = state.sessions.get_mut(&session_id) {
-                                let ctx = EvaluationContext {
-                                    timestamp: None,
-                                    agent_id: session.oauth_subject.clone(),
-                                    agent_identity: session.agent_identity.clone(),
-                                    call_counts: session.call_counts.clone(),
-                                    previous_actions: session
-                                        .action_history
-                                        .iter()
-                                        .cloned()
-                                        .collect(),
-                                    call_chain: session.current_call_chain.clone(),
-                                    tenant_id: None,
-                                    verification_tier: None,
-                                    capability_token: None,
-                                    session_state: None,
-                                };
-
-                                let verdict = match state.engine.evaluate_action_with_context(
-                                    &action,
-                                    &state.policies,
-                                    Some(&ctx),
-                                ) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!(
-                                            session_id = %session_id,
-                                            "Policy evaluation error: {}",
-                                            e
-                                        );
-                                        Verdict::Deny {
-                                            reason: format!("Policy evaluation failed: {}", e),
-                                        }
-                                    }
-                                };
-
-                                // Atomically update session on Allow while still holding
-                                // the shard lock — prevents TOCTOU bypass of call limits.
-                                if matches!(verdict, Verdict::Allow) {
-                                    session.touch();
-                                    use crate::proxy::call_chain::{
-                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
-                                    };
-                                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                                        || session.call_counts.contains_key(tool_name)
-                                    {
-                                        let count = session
-                                            .call_counts
-                                            .entry(tool_name.to_string())
-                                            .or_insert(0);
-                                        *count = count.saturating_add(1);
-                                    }
-                                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                                        session.action_history.pop_front();
-                                    }
-                                    session.action_history.push_back(tool_name.to_string());
-                                }
-
-                                (verdict, ctx)
-                            } else {
-                                // No session — evaluate without context (fail-closed)
-                                let verdict = match state.engine.evaluate_action_with_context(
-                                    &action,
-                                    &state.policies,
-                                    None,
-                                ) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!(
-                                            session_id = %session_id,
-                                            "Policy evaluation error: {}",
-                                            e
-                                        );
-                                        Verdict::Deny {
-                                            reason: format!("Policy evaluation failed: {}", e),
-                                        }
-                                    }
-                                };
-                                (verdict, EvaluationContext::default())
+                        let (verdict, ctx) = if let Some(mut session) =
+                            state.sessions.get_mut(&session_id)
+                        {
+                            let ctx = EvaluationContext {
+                                timestamp: None,
+                                agent_id: session.oauth_subject.clone(),
+                                agent_identity: session.agent_identity.clone(),
+                                call_counts: session.call_counts.clone(),
+                                previous_actions: session.action_history.iter().cloned().collect(),
+                                call_chain: session.current_call_chain.clone(),
+                                tenant_id: None,
+                                verification_tier: None,
+                                capability_token: None,
+                                session_state: None,
                             };
+
+                            let verdict = match state.engine.evaluate_action_with_context(
+                                &action,
+                                &state.policies,
+                                Some(&ctx),
+                            ) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    tracing::error!(
+                                        session_id = %session_id,
+                                        "Policy evaluation error: {}",
+                                        e
+                                    );
+                                    Verdict::Deny {
+                                        reason: format!("Policy evaluation failed: {}", e),
+                                    }
+                                }
+                            };
+
+                            // Atomically update session on Allow while still holding
+                            // the shard lock — prevents TOCTOU bypass of call limits.
+                            if matches!(verdict, Verdict::Allow) {
+                                session.touch();
+                                use crate::proxy::call_chain::{
+                                    MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+                                };
+                                if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                                    || session.call_counts.contains_key(tool_name)
+                                {
+                                    let count = session
+                                        .call_counts
+                                        .entry(tool_name.to_string())
+                                        .or_insert(0);
+                                    *count = count.saturating_add(1);
+                                }
+                                if session.action_history.len() >= MAX_ACTION_HISTORY {
+                                    session.action_history.pop_front();
+                                }
+                                session.action_history.push_back(tool_name.to_string());
+                            }
+
+                            (verdict, ctx)
+                        } else {
+                            // No session — evaluate without context (fail-closed)
+                            let verdict = match state.engine.evaluate_action_with_context(
+                                &action,
+                                &state.policies,
+                                None,
+                            ) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    tracing::error!(
+                                        session_id = %session_id,
+                                        "Policy evaluation error: {}",
+                                        e
+                                    );
+                                    Verdict::Deny {
+                                        reason: format!("Policy evaluation failed: {}", e),
+                                    }
+                                }
+                            };
+                            (verdict, EvaluationContext::default())
+                        };
 
                         match verdict {
                             Verdict::Allow => {
@@ -1620,11 +1614,8 @@ async fn relay_client_to_upstream(
                                         e
                                     );
                                 }
-                                let error = make_ws_error_response(
-                                    Some(id),
-                                    -32001,
-                                    "Denied by policy",
-                                );
+                                let error =
+                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(error.into())).await;
                                 continue;
@@ -1654,7 +1645,8 @@ async fn relay_client_to_upstream(
                                     session_id,
                                 );
                                 let audit_verdict = Verdict::Deny {
-                                    reason: "DLP blocked: secret detected in resource URI".to_string(),
+                                    reason: "DLP blocked: secret detected in resource URI"
+                                        .to_string(),
                                 };
                                 if let Err(e) = state.audit.log_entry(
                                     &action, &audit_verdict,
@@ -1666,7 +1658,9 @@ async fn relay_client_to_upstream(
                                     tracing::warn!("Failed to audit WS resource URI DLP: {}", e);
                                 }
                                 let error = make_ws_error_response(
-                                    Some(id), -32001, "Request blocked: security policy violation",
+                                    Some(id),
+                                    -32001,
+                                    "Request blocked: security policy violation",
                                 );
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(error.into())).await;
@@ -1722,91 +1716,86 @@ async fn relay_client_to_upstream(
                         // SECURITY (FIND-R130-002): TOCTOU-safe context+eval+update
                         // for resource reads. Matches ToolCall fix above and HTTP
                         // handler FIND-R112-002 pattern (handlers.rs:1711-1774).
-                        let (verdict, ctx) =
-                            if let Some(mut session) = state.sessions.get_mut(&session_id) {
-                                let ctx = EvaluationContext {
-                                    timestamp: None,
-                                    agent_id: session.oauth_subject.clone(),
-                                    agent_identity: session.agent_identity.clone(),
-                                    call_counts: session.call_counts.clone(),
-                                    previous_actions: session
-                                        .action_history
-                                        .iter()
-                                        .cloned()
-                                        .collect(),
-                                    call_chain: session.current_call_chain.clone(),
-                                    tenant_id: None,
-                                    verification_tier: None,
-                                    capability_token: None,
-                                    session_state: None,
-                                };
-
-                                let verdict = match state.engine.evaluate_action_with_context(
-                                    &action,
-                                    &state.policies,
-                                    Some(&ctx),
-                                ) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!(
-                                            session_id = %session_id,
-                                            "Resource policy evaluation error: {}",
-                                            e
-                                        );
-                                        Verdict::Deny {
-                                            reason: format!("Policy evaluation failed: {}", e),
-                                        }
-                                    }
-                                };
-
-                                // Atomically update session on Allow
-                                if matches!(verdict, Verdict::Allow) {
-                                    session.touch();
-                                    use crate::proxy::call_chain::{
-                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
-                                    };
-                                    let resource_key = format!(
-                                        "resources/read:{}",
-                                        uri.chars().take(128).collect::<String>()
-                                    );
-                                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                                        || session.call_counts.contains_key(&resource_key)
-                                    {
-                                        let count = session
-                                            .call_counts
-                                            .entry(resource_key)
-                                            .or_insert(0);
-                                        *count = count.saturating_add(1);
-                                    }
-                                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                                        session.action_history.pop_front();
-                                    }
-                                    session
-                                        .action_history
-                                        .push_back("resources/read".to_string());
-                                }
-
-                                (verdict, ctx)
-                            } else {
-                                let verdict = match state.engine.evaluate_action_with_context(
-                                    &action,
-                                    &state.policies,
-                                    None,
-                                ) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!(
-                                            session_id = %session_id,
-                                            "Resource policy evaluation error: {}",
-                                            e
-                                        );
-                                        Verdict::Deny {
-                                            reason: format!("Policy evaluation failed: {}", e),
-                                        }
-                                    }
-                                };
-                                (verdict, EvaluationContext::default())
+                        let (verdict, ctx) = if let Some(mut session) =
+                            state.sessions.get_mut(&session_id)
+                        {
+                            let ctx = EvaluationContext {
+                                timestamp: None,
+                                agent_id: session.oauth_subject.clone(),
+                                agent_identity: session.agent_identity.clone(),
+                                call_counts: session.call_counts.clone(),
+                                previous_actions: session.action_history.iter().cloned().collect(),
+                                call_chain: session.current_call_chain.clone(),
+                                tenant_id: None,
+                                verification_tier: None,
+                                capability_token: None,
+                                session_state: None,
                             };
+
+                            let verdict = match state.engine.evaluate_action_with_context(
+                                &action,
+                                &state.policies,
+                                Some(&ctx),
+                            ) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    tracing::error!(
+                                        session_id = %session_id,
+                                        "Resource policy evaluation error: {}",
+                                        e
+                                    );
+                                    Verdict::Deny {
+                                        reason: format!("Policy evaluation failed: {}", e),
+                                    }
+                                }
+                            };
+
+                            // Atomically update session on Allow
+                            if matches!(verdict, Verdict::Allow) {
+                                session.touch();
+                                use crate::proxy::call_chain::{
+                                    MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+                                };
+                                let resource_key = format!(
+                                    "resources/read:{}",
+                                    uri.chars().take(128).collect::<String>()
+                                );
+                                if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                                    || session.call_counts.contains_key(&resource_key)
+                                {
+                                    let count =
+                                        session.call_counts.entry(resource_key).or_insert(0);
+                                    *count = count.saturating_add(1);
+                                }
+                                if session.action_history.len() >= MAX_ACTION_HISTORY {
+                                    session.action_history.pop_front();
+                                }
+                                session
+                                    .action_history
+                                    .push_back("resources/read".to_string());
+                            }
+
+                            (verdict, ctx)
+                        } else {
+                            let verdict = match state.engine.evaluate_action_with_context(
+                                &action,
+                                &state.policies,
+                                None,
+                            ) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    tracing::error!(
+                                        session_id = %session_id,
+                                        "Resource policy evaluation error: {}",
+                                        e
+                                    );
+                                    Verdict::Deny {
+                                        reason: format!("Policy evaluation failed: {}", e),
+                                    }
+                                }
+                            };
+                            (verdict, EvaluationContext::default())
+                        };
 
                         match verdict {
                             Verdict::Allow => {
@@ -2012,8 +2001,7 @@ async fn relay_client_to_upstream(
                                 let _ = sink.send(Message::Text(error.into())).await;
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
-                                let deny_reason =
-                                    format!("Requires approval: {}", reason);
+                                let deny_reason = format!("Requires approval: {}", reason);
                                 if let Err(e) = state
                                     .audit
                                     .log_entry(
@@ -2081,8 +2069,12 @@ async fn relay_client_to_upstream(
                         let _ = sink.send(Message::Text(error_text.into())).await;
                     }
                     MessageType::Invalid { ref id, ref reason } => {
-                        tracing::warn!("Invalid JSON-RPC request in WebSocket transport: {}", reason);
-                        let error = make_ws_error_response(Some(id), -32600, "Invalid JSON-RPC request");
+                        tracing::warn!(
+                            "Invalid JSON-RPC request in WebSocket transport: {}",
+                            reason
+                        );
+                        let error =
+                            make_ws_error_response(Some(id), -32600, "Invalid JSON-RPC request");
                         let mut sink = client_sink.lock().await;
                         let _ = sink.send(Message::Text(error.into())).await;
                     }
@@ -2095,19 +2087,15 @@ async fn relay_client_to_upstream(
                         // parity with elicitation. Atomically read + increment.
                         let sampling_verdict = {
                             let mut session_ref = state.sessions.get_mut(&session_id);
-                            let current_count = session_ref
-                                .as_ref()
-                                .map(|s| s.sampling_count)
-                                .unwrap_or(0);
+                            let current_count =
+                                session_ref.as_ref().map(|s| s.sampling_count).unwrap_or(0);
                             let verdict = vellaveto_mcp::elicitation::inspect_sampling(
                                 &params,
                                 &state.sampling_config,
                                 current_count,
                             );
-                            if matches!(
-                                verdict,
-                                vellaveto_mcp::elicitation::SamplingVerdict::Allow
-                            ) {
+                            if matches!(verdict, vellaveto_mcp::elicitation::SamplingVerdict::Allow)
+                            {
                                 if let Some(ref mut s) = session_ref {
                                     s.sampling_count = s.sampling_count.saturating_add(1);
                                 }
@@ -2334,82 +2322,79 @@ async fn relay_client_to_upstream(
                         // SECURITY (FIND-R190-006): Update session state on Allow
                         // (touch + call_counts + action_history) while still holding
                         // the shard lock, matching ToolCall/ResourceRead parity.
-                        let (verdict, task_eval_ctx) =
-                            if let Some(mut session) = state.sessions.get_mut(&session_id) {
-                                let ctx = EvaluationContext {
-                                    timestamp: None,
-                                    agent_id: session.oauth_subject.clone(),
-                                    agent_identity: session.agent_identity.clone(),
-                                    call_counts: session.call_counts.clone(),
-                                    previous_actions: session
-                                        .action_history
-                                        .iter()
-                                        .cloned()
-                                        .collect(),
-                                    call_chain: session.current_call_chain.clone(),
-                                    tenant_id: None,
-                                    verification_tier: None,
-                                    capability_token: None,
-                                    session_state: None,
-                                };
-                                let verdict = match state.engine.evaluate_action_with_context(
-                                    &action,
-                                    &state.policies,
-                                    Some(&ctx),
-                                ) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!(
-                                            session_id = %session_id,
-                                            "Task policy evaluation error: {}", e
-                                        );
-                                        Verdict::Deny {
-                                            reason: format!("Policy evaluation failed: {}", e),
-                                        }
-                                    }
-                                };
-
-                                // Update session atomically on Allow
-                                if matches!(verdict, Verdict::Allow) {
-                                    session.touch();
-                                    use crate::proxy::call_chain::{
-                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
-                                    };
-                                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                                        || session.call_counts.contains_key(task_method)
-                                    {
-                                        let count = session
-                                            .call_counts
-                                            .entry(task_method.to_string())
-                                            .or_insert(0);
-                                        *count = count.saturating_add(1);
-                                    }
-                                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                                        session.action_history.pop_front();
-                                    }
-                                    session.action_history.push_back(task_method.to_string());
-                                }
-
-                                (verdict, ctx)
-                            } else {
-                                let verdict = match state.engine.evaluate_action_with_context(
-                                    &action,
-                                    &state.policies,
-                                    None,
-                                ) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!(
-                                            session_id = %session_id,
-                                            "Task policy evaluation error: {}", e
-                                        );
-                                        Verdict::Deny {
-                                            reason: format!("Policy evaluation failed: {}", e),
-                                        }
-                                    }
-                                };
-                                (verdict, EvaluationContext::default())
+                        let (verdict, task_eval_ctx) = if let Some(mut session) =
+                            state.sessions.get_mut(&session_id)
+                        {
+                            let ctx = EvaluationContext {
+                                timestamp: None,
+                                agent_id: session.oauth_subject.clone(),
+                                agent_identity: session.agent_identity.clone(),
+                                call_counts: session.call_counts.clone(),
+                                previous_actions: session.action_history.iter().cloned().collect(),
+                                call_chain: session.current_call_chain.clone(),
+                                tenant_id: None,
+                                verification_tier: None,
+                                capability_token: None,
+                                session_state: None,
                             };
+                            let verdict = match state.engine.evaluate_action_with_context(
+                                &action,
+                                &state.policies,
+                                Some(&ctx),
+                            ) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    tracing::error!(
+                                        session_id = %session_id,
+                                        "Task policy evaluation error: {}", e
+                                    );
+                                    Verdict::Deny {
+                                        reason: format!("Policy evaluation failed: {}", e),
+                                    }
+                                }
+                            };
+
+                            // Update session atomically on Allow
+                            if matches!(verdict, Verdict::Allow) {
+                                session.touch();
+                                use crate::proxy::call_chain::{
+                                    MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+                                };
+                                if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                                    || session.call_counts.contains_key(task_method)
+                                {
+                                    let count = session
+                                        .call_counts
+                                        .entry(task_method.to_string())
+                                        .or_insert(0);
+                                    *count = count.saturating_add(1);
+                                }
+                                if session.action_history.len() >= MAX_ACTION_HISTORY {
+                                    session.action_history.pop_front();
+                                }
+                                session.action_history.push_back(task_method.to_string());
+                            }
+
+                            (verdict, ctx)
+                        } else {
+                            let verdict = match state.engine.evaluate_action_with_context(
+                                &action,
+                                &state.policies,
+                                None,
+                            ) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    tracing::error!(
+                                        session_id = %session_id,
+                                        "Task policy evaluation error: {}", e
+                                    );
+                                    Verdict::Deny {
+                                        reason: format!("Policy evaluation failed: {}", e),
+                                    }
+                                }
+                            };
+                            (verdict, EvaluationContext::default())
+                        };
 
                         match verdict {
                             Verdict::Allow => {
@@ -2673,9 +2658,13 @@ async fn relay_client_to_upstream(
                                 "SECURITY: Secrets in WS extension method parameters! Session: {}, Extension: {}:{}, Findings: {:?}",
                                 session_id, extension_id, method, patterns,
                             );
-                            let action = extractor::extract_extension_action(extension_id, method, &params);
+                            let action =
+                                extractor::extract_extension_action(extension_id, method, &params);
                             let audit_verdict = Verdict::Deny {
-                                reason: format!("DLP blocked: secret detected in extension parameters: {:?}", patterns),
+                                reason: format!(
+                                    "DLP blocked: secret detected in extension parameters: {:?}",
+                                    patterns
+                                ),
                             };
                             if let Err(e) = state.audit.log_entry(
                                 &action, &audit_verdict,
@@ -2687,7 +2676,8 @@ async fn relay_client_to_upstream(
                             ).await {
                                 tracing::warn!("Failed to audit WS extension parameter DLP: {}", e);
                             }
-                            let denial = make_ws_error_response(Some(id), -32001, "Denied by policy");
+                            let denial =
+                                make_ws_error_response(Some(id), -32001, "Denied by policy");
                             let mut sink = client_sink.lock().await;
                             let _ = sink.send(Message::Text(denial.into())).await;
                             continue;
@@ -2696,7 +2686,8 @@ async fn relay_client_to_upstream(
                         // SECURITY (FIND-R116-001): Memory poisoning detection for extension params.
                         // Parity with gRPC handle_extension_method (service.rs:1574).
                         if let Some(session) = state.sessions.get_mut(&session_id) {
-                            let poisoning_matches = session.memory_tracker.check_parameters(&params);
+                            let poisoning_matches =
+                                session.memory_tracker.check_parameters(&params);
                             if !poisoning_matches.is_empty() {
                                 for m in &poisoning_matches {
                                     tracing::warn!(
@@ -2705,7 +2696,11 @@ async fn relay_client_to_upstream(
                                         extension_id, method, session_id, m.param_location, m.fingerprint
                                     );
                                 }
-                                let action = extractor::extract_extension_action(extension_id, method, &params);
+                                let action = extractor::extract_extension_action(
+                                    extension_id,
+                                    method,
+                                    &params,
+                                );
                                 let deny_reason = format!(
                                     "Memory poisoning detected: {} replayed data fragment(s) in extension '{}:{}'",
                                     poisoning_matches.len(), extension_id, method
@@ -2722,7 +2717,8 @@ async fn relay_client_to_upstream(
                                 ).await {
                                     tracing::warn!("Failed to audit WS extension memory poisoning: {}", e);
                                 }
-                                let denial = make_ws_error_response(Some(id), -32001, "Denied by policy");
+                                let denial =
+                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(denial.into())).await;
                                 continue;
@@ -2742,83 +2738,78 @@ async fn relay_client_to_upstream(
 
                         // SECURITY (FIND-R130-002): TOCTOU-safe context+eval+update
                         // for extension methods. Matches ToolCall/ResourceRead fixes.
-                        let (verdict, ctx) =
-                            if let Some(mut session) = state.sessions.get_mut(&session_id) {
-                                let ctx = EvaluationContext {
-                                    timestamp: None,
-                                    agent_id: session.oauth_subject.clone(),
-                                    agent_identity: session.agent_identity.clone(),
-                                    call_counts: session.call_counts.clone(),
-                                    previous_actions: session
-                                        .action_history
-                                        .iter()
-                                        .cloned()
-                                        .collect(),
-                                    call_chain: session.current_call_chain.clone(),
-                                    tenant_id: None,
-                                    verification_tier: None,
-                                    capability_token: None,
-                                    session_state: None,
-                                };
-
-                                let verdict = match state.engine.evaluate_action_with_context(
-                                    &action,
-                                    &state.policies,
-                                    Some(&ctx),
-                                ) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!(
-                                            session_id = %session_id,
-                                            "Extension policy evaluation error: {}", e
-                                        );
-                                        Verdict::Deny {
-                                            reason: format!("Policy evaluation failed: {}", e),
-                                        }
-                                    }
-                                };
-
-                                // Atomically update session on Allow
-                                if matches!(verdict, Verdict::Allow) {
-                                    session.touch();
-                                    use crate::proxy::call_chain::{
-                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
-                                    };
-                                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                                        || session.call_counts.contains_key(&ext_key)
-                                    {
-                                        let count = session
-                                            .call_counts
-                                            .entry(ext_key.clone())
-                                            .or_insert(0);
-                                        *count = count.saturating_add(1);
-                                    }
-                                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                                        session.action_history.pop_front();
-                                    }
-                                    session.action_history.push_back(ext_key.clone());
-                                }
-
-                                (verdict, ctx)
-                            } else {
-                                let verdict = match state.engine.evaluate_action_with_context(
-                                    &action,
-                                    &state.policies,
-                                    None,
-                                ) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!(
-                                            session_id = %session_id,
-                                            "Extension policy evaluation error: {}", e
-                                        );
-                                        Verdict::Deny {
-                                            reason: format!("Policy evaluation failed: {}", e),
-                                        }
-                                    }
-                                };
-                                (verdict, EvaluationContext::default())
+                        let (verdict, ctx) = if let Some(mut session) =
+                            state.sessions.get_mut(&session_id)
+                        {
+                            let ctx = EvaluationContext {
+                                timestamp: None,
+                                agent_id: session.oauth_subject.clone(),
+                                agent_identity: session.agent_identity.clone(),
+                                call_counts: session.call_counts.clone(),
+                                previous_actions: session.action_history.iter().cloned().collect(),
+                                call_chain: session.current_call_chain.clone(),
+                                tenant_id: None,
+                                verification_tier: None,
+                                capability_token: None,
+                                session_state: None,
                             };
+
+                            let verdict = match state.engine.evaluate_action_with_context(
+                                &action,
+                                &state.policies,
+                                Some(&ctx),
+                            ) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    tracing::error!(
+                                        session_id = %session_id,
+                                        "Extension policy evaluation error: {}", e
+                                    );
+                                    Verdict::Deny {
+                                        reason: format!("Policy evaluation failed: {}", e),
+                                    }
+                                }
+                            };
+
+                            // Atomically update session on Allow
+                            if matches!(verdict, Verdict::Allow) {
+                                session.touch();
+                                use crate::proxy::call_chain::{
+                                    MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+                                };
+                                if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                                    || session.call_counts.contains_key(&ext_key)
+                                {
+                                    let count =
+                                        session.call_counts.entry(ext_key.clone()).or_insert(0);
+                                    *count = count.saturating_add(1);
+                                }
+                                if session.action_history.len() >= MAX_ACTION_HISTORY {
+                                    session.action_history.pop_front();
+                                }
+                                session.action_history.push_back(ext_key.clone());
+                            }
+
+                            (verdict, ctx)
+                        } else {
+                            let verdict = match state.engine.evaluate_action_with_context(
+                                &action,
+                                &state.policies,
+                                None,
+                            ) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    tracing::error!(
+                                        session_id = %session_id,
+                                        "Extension policy evaluation error: {}", e
+                                    );
+                                    Verdict::Deny {
+                                        reason: format!("Policy evaluation failed: {}", e),
+                                    }
+                                }
+                            };
+                            (verdict, EvaluationContext::default())
+                        };
 
                         match verdict {
                             Verdict::Allow => {
@@ -3369,18 +3360,14 @@ async fn relay_client_to_upstream(
                         // SECURITY (IMP-R182-009): Memory poisoning check — parity with
                         // tool calls, resource reads, tasks, and extension methods.
                         if let Some(mut session) = state.sessions.get_mut(&session_id) {
-                            let params_to_scan = parsed
-                                .get("params")
-                                .cloned()
-                                .unwrap_or(json!({}));
+                            let params_to_scan = parsed.get("params").cloned().unwrap_or(json!({}));
                             // SECURITY (IMP-R184-010): Also scan `result` field — parity
                             // with DLP scan which scans both params and result.
                             let mut poisoning_matches =
                                 session.memory_tracker.check_parameters(&params_to_scan);
                             if let Some(result_val) = parsed.get("result") {
-                                poisoning_matches.extend(
-                                    session.memory_tracker.check_parameters(result_val),
-                                );
+                                poisoning_matches
+                                    .extend(session.memory_tracker.check_parameters(result_val));
                             }
                             if !poisoning_matches.is_empty() {
                                 let method_name = parsed
@@ -3432,13 +3419,9 @@ async fn relay_client_to_upstream(
                                 continue; // Drop the message
                             }
                             // Fingerprint for future poisoning detection.
-                            session
-                                .memory_tracker
-                                .extract_from_value(&params_to_scan);
+                            session.memory_tracker.extract_from_value(&params_to_scan);
                             if let Some(result_val) = parsed.get("result") {
-                                session
-                                    .memory_tracker
-                                    .extract_from_value(result_val);
+                                session.memory_tracker.extract_from_value(result_val);
                             }
                         } else {
                             // IMP-R186-005: Log when session is missing so the skip is observable.
@@ -3997,9 +3980,7 @@ async fn relay_upstream_to_client(
                     let text_str: &str = &text;
                     // SECURITY (FIND-R168-001): DLP scan with audit logging parity.
                     if state.response_dlp_enabled {
-                        let findings = scan_text_for_secrets(
-                            text_str, "ws.upstream.non_json_text",
-                        );
+                        let findings = scan_text_for_secrets(text_str, "ws.upstream.non_json_text");
                         if !findings.is_empty() {
                             let patterns: Vec<String> = findings
                                 .iter()
@@ -4011,12 +3992,15 @@ async fn relay_upstream_to_client(
                                 findings.len(),
                             );
                             let verdict = if state.response_dlp_blocking {
-                                Verdict::Deny { reason: format!("WS non-JSON DLP: {:?}", patterns) }
+                                Verdict::Deny {
+                                    reason: format!("WS non-JSON DLP: {:?}", patterns),
+                                }
                             } else {
                                 Verdict::Allow
                             };
                             let action = Action::new(
-                                "vellaveto", "ws_nonjson_dlp_scan",
+                                "vellaveto",
+                                "ws_nonjson_dlp_scan",
                                 json!({ "findings": patterns, "session": session_id, "transport": "websocket" }),
                             );
                             // SECURITY (SE-004): Log audit failures instead of silently discarding.
@@ -4038,12 +4022,19 @@ async fn relay_upstream_to_client(
                     // SECURITY (FIND-R168-002): Injection scan with log-only mode
                     // parity. Always log detections; only block when injection_blocking.
                     {
-                        let alerts: Vec<String> =
-                            if let Some(ref scanner) = state.injection_scanner {
-                                scanner.inspect(text_str).into_iter().map(|s| s.to_string()).collect()
-                            } else {
-                                inspect_for_injection(text_str).into_iter().map(|s| s.to_string()).collect()
-                            };
+                        let alerts: Vec<String> = if let Some(ref scanner) = state.injection_scanner
+                        {
+                            scanner
+                                .inspect(text_str)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        } else {
+                            inspect_for_injection(text_str)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        };
                         if !alerts.is_empty() {
                             tracing::warn!(
                                 session_id = %session_id,
@@ -4051,12 +4042,18 @@ async fn relay_upstream_to_client(
                                 alerts.len(), state.injection_blocking,
                             );
                             let verdict = if state.injection_blocking {
-                                Verdict::Deny { reason: format!("WS non-JSON injection: {} alerts", alerts.len()) }
+                                Verdict::Deny {
+                                    reason: format!(
+                                        "WS non-JSON injection: {} alerts",
+                                        alerts.len()
+                                    ),
+                                }
                             } else {
                                 Verdict::Allow
                             };
                             let action = Action::new(
-                                "vellaveto", "ws_nonjson_injection_scan",
+                                "vellaveto",
+                                "ws_nonjson_injection_scan",
                                 json!({ "alerts": alerts.len(), "session": session_id, "transport": "websocket" }),
                             );
                             // SECURITY (SE-004): Log audit failures instead of silently discarding.
@@ -4373,8 +4370,8 @@ fn check_rate_limit(
                 Some(v.saturating_add(1))
             }
         }) {
-            Ok(_prev) => true,  // Within limit, counter was incremented
-            Err(_) => false,    // Limit exceeded, counter unchanged
+            Ok(_prev) => true, // Within limit, counter was incremented
+            Err(_) => false,   // Limit exceeded, counter unchanged
         }
     }
 }
@@ -4387,30 +4384,22 @@ fn check_rate_limit(
 fn extract_scannable_text_from_request(json_val: &Value) -> String {
     let mut text_parts = Vec::new();
 
-    // Scan tool call arguments
+    // SECURITY (FIND-R224-002): Recursively scan the entire `params` subtree,
+    // not just specific fields. Previous narrow extraction missed injection
+    // payloads in TaskRequest (params.message), ExtensionMethod, and other
+    // message types with non-standard parameter structures. This gives parity
+    // with the HTTP handler's `extract_passthrough_text_for_injection` which
+    // scans all of params recursively.
     if let Some(params) = json_val.get("params") {
-        if let Some(arguments) = params.get("arguments") {
-            // Recursively extract string values from arguments
-            extract_strings_recursive(arguments, &mut text_parts, 0);
-        }
-        // Scan resource URI
-        if let Some(uri) = params.get("uri").and_then(|u| u.as_str()) {
-            text_parts.push(uri.to_string());
-        }
-        // Scan sampling content
-        if let Some(messages) = params.get("messages").and_then(|m| m.as_array()) {
-            for msg in messages {
-                if let Some(content) = msg.get("content") {
-                    if let Some(text) = content.get("text").and_then(|t| t.as_str()) {
-                        text_parts.push(text.to_string());
-                    }
-                }
-            }
-        }
-        // Scan tool name (for injection in tool names)
-        if let Some(name) = params.get("name").and_then(|n| n.as_str()) {
-            text_parts.push(name.to_string());
-        }
+        extract_strings_recursive(params, &mut text_parts, 0);
+    }
+
+    // SECURITY (FIND-R224-006): Also scan `result` field for injection payloads.
+    // JSON-RPC response messages (sampling/elicitation replies) carry data in
+    // `result` rather than `params`. Without this, upstream injection payloads
+    // in response results bypass WS scanning while being caught by HTTP/gRPC.
+    if let Some(result) = json_val.get("result") {
+        extract_strings_recursive(result, &mut text_parts, 0);
     }
 
     text_parts.join("\n")

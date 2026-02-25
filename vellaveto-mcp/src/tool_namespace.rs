@@ -311,7 +311,8 @@ impl ToolNamespaceRegistry {
                     existing_source: source.clone(),
                     conflicting_source: source.clone(),
                     collision_type: CollisionType::ExactMatch,
-                    description: "Tool namespace registry lock poisoned — fail-closed collision".to_string(),
+                    description: "Tool namespace registry lock poisoned — fail-closed collision"
+                        .to_string(),
                 });
             }
         };

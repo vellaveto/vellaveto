@@ -138,12 +138,18 @@ pub fn extract_a2a_trace_context(msg: &Value) -> Option<String> {
     // Validate W3C format: version-trace_id-parent_id-trace_flags
     // where version=2hex, trace_id=32hex, parent_id=16hex, trace_flags=2hex
     if raw.len() >= 55
-        && raw.as_bytes().iter().all(|&b| b.is_ascii_hexdigit() || b == b'-')
+        && raw
+            .as_bytes()
+            .iter()
+            .all(|&b| b.is_ascii_hexdigit() || b == b'-')
         && raw.chars().filter(|&c| c == '-').count() == 3
     {
         Some(raw.to_string())
     } else {
-        tracing::debug!("traceparent '{}' does not match W3C format, ignoring", vellaveto_types::sanitize_for_log(raw, 55));
+        tracing::debug!(
+            "traceparent '{}' does not match W3C format, ignoring",
+            vellaveto_types::sanitize_for_log(raw, 55)
+        );
         None
     }
 }
@@ -1187,7 +1193,9 @@ mod tests {
 
         let texts = extract_response_text_content(&response);
         assert!(
-            texts.iter().any(|t| t.contains("Task completed with sensitive info")),
+            texts
+                .iter()
+                .any(|t| t.contains("Task completed with sensitive info")),
             "FIND-R116-MCP-004: status.message should be extracted, got: {:?}",
             texts
         );

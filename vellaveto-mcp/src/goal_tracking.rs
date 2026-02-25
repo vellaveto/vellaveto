@@ -286,7 +286,9 @@ impl GoalTracker {
             }
             // Truncate manipulation_keywords if too many
             if config.manipulation_keywords.len() > MAX_MANIPULATION_KEYWORDS {
-                config.manipulation_keywords.truncate(MAX_MANIPULATION_KEYWORDS);
+                config
+                    .manipulation_keywords
+                    .truncate(MAX_MANIPULATION_KEYWORDS);
             }
         }
         Self {

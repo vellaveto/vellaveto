@@ -252,12 +252,16 @@ impl FederationResolver {
         };
 
         // 3. Get decoding key from JWKS
-        let decoding_key = self
-            .get_decoding_key(&anchor, &kid, &alg)
-            .await
-            .inspect_err(|_| {
-                let _ = anchor.failure_count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_add(1)));
-            })?;
+        let decoding_key =
+            self.get_decoding_key(&anchor, &kid, &alg)
+                .await
+                .inspect_err(|_| {
+                    let _ = anchor.failure_count.fetch_update(
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                        |v| Some(v.saturating_add(1)),
+                    );
+                })?;
 
         // 4. Validate JWT
         let mut validation = Validation::new(alg);
@@ -279,7 +283,12 @@ impl FederationResolver {
 
         let token_data = jsonwebtoken::decode::<FederatedClaims>(token, &decoding_key, &validation)
             .map_err(|e| {
-                let _ = anchor.failure_count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_add(1)));
+                let _ =
+                    anchor
+                        .failure_count
+                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                            Some(v.saturating_add(1))
+                        });
                 FederationError::JwtValidationFailed {
                     org_id: anchor.config.org_id.clone(),
                     source: e.to_string(),
@@ -288,7 +297,11 @@ impl FederationResolver {
 
         // FIND-R50-013: Validate extra claims are within bounds
         if let Err(reason) = token_data.claims.validate_extra_claims() {
-            let _ = anchor.failure_count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_add(1)));
+            let _ = anchor
+                .failure_count
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                    Some(v.saturating_add(1))
+                });
             return Err(FederationError::JwtValidationFailed {
                 org_id: anchor.config.org_id.clone(),
                 source: reason,
@@ -302,7 +315,12 @@ impl FederationResolver {
         // different issuer B.
         if let Some(ref verified_iss) = token_data.claims.iss {
             if !issuer_pattern_matches(&anchor.config.issuer_pattern, verified_iss) {
-                let _ = anchor.failure_count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_add(1)));
+                let _ =
+                    anchor
+                        .failure_count
+                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                            Some(v.saturating_add(1))
+                        });
                 return Err(FederationError::JwtValidationFailed {
                     org_id: anchor.config.org_id.clone(),
                     source: format!(
@@ -316,7 +334,11 @@ impl FederationResolver {
         // 5. Apply identity mappings
         let identity = self.apply_identity_mappings(&anchor, &token_data.claims);
 
-        let _ = anchor.success_count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_add(1)));
+        let _ = anchor
+            .success_count
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                Some(v.saturating_add(1))
+            });
 
         Ok(Some(FederatedIdentity {
             identity,
@@ -405,12 +427,7 @@ impl FederationResolver {
                 Ok(cache_guard) => {
                     if let Some(ref cached) = *cache_guard {
                         if cached.fetched_at.elapsed() < self.cache_ttl {
-                            return find_key_in_jwks(
-                                &cached.keys,
-                                kid,
-                                alg,
-                                &anchor.config.org_id,
-                            );
+                            return find_key_in_jwks(&cached.keys, kid, alg, &anchor.config.org_id);
                         }
                     }
                 }
@@ -598,7 +615,12 @@ fn sanitize_claim_for_template(value: &str) -> String {
     let sanitized: String = value
         .chars()
         // SECURITY (IMP-R154-003): Also strip Unicode format chars
-        .filter(|c| !c.is_control() && !vellaveto_types::is_unicode_format_char(*c) && *c != '{' && *c != '}')
+        .filter(|c| {
+            !c.is_control()
+                && !vellaveto_types::is_unicode_format_char(*c)
+                && *c != '{'
+                && *c != '}'
+        })
         .collect();
     if sanitized.len() > MAX_TEMPLATE_CLAIM_VALUE_LEN {
         // Truncate at a char boundary

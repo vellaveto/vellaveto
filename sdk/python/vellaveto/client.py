@@ -1144,6 +1144,68 @@ class VellavetoClient:
         """
         return self._request("GET", "/api/compliance/evidence-pack/status")
 
+    # ═══════════════════════════════════════════════════════════════════════
+    # Phase 50: Usage Metering & Billing
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def usage(self, tenant_id: str) -> Dict[str, Any]:
+        """
+        Get current-period usage metrics for a tenant.
+
+        Args:
+            tenant_id: Tenant identifier (1-64 chars, alphanumeric/hyphens/underscores).
+
+        Returns:
+            Dictionary with evaluations, policies_created, approvals_processed,
+            audit_entries, period_start, period_end.
+        """
+        if not tenant_id or len(tenant_id) > _MAX_TENANT_LENGTH:
+            raise ValueError("tenant_id must be 1-64 characters")
+        if not _TENANT_RE.match(tenant_id):
+            raise ValueError("tenant_id must be alphanumeric, hyphens, or underscores")
+        return self._request("GET", f"/api/billing/usage/{quote(tenant_id, safe='')}")
+
+    def quota_status(self, tenant_id: str) -> Dict[str, Any]:
+        """
+        Get quota status (usage vs limits) for a tenant.
+
+        Args:
+            tenant_id: Tenant identifier (1-64 chars, alphanumeric/hyphens/underscores).
+
+        Returns:
+            Dictionary with evaluations_used, evaluations_limit, evaluations_remaining,
+            policies_used, policies_limit, quota_exceeded, period_start, period_end.
+        """
+        if not tenant_id or len(tenant_id) > _MAX_TENANT_LENGTH:
+            raise ValueError("tenant_id must be 1-64 characters")
+        if not _TENANT_RE.match(tenant_id):
+            raise ValueError("tenant_id must be alphanumeric, hyphens, or underscores")
+        return self._request("GET", f"/api/billing/quotas/{quote(tenant_id, safe='')}")
+
+    def usage_history(self, tenant_id: str, periods: int = 12) -> Dict[str, Any]:
+        """
+        Get usage history across billing periods for a tenant.
+
+        Args:
+            tenant_id: Tenant identifier (1-64 chars, alphanumeric/hyphens/underscores).
+            periods: Number of periods to return (max 120, default 12).
+
+        Returns:
+            Dictionary with tenant_id, periods list, total_evaluations.
+        """
+        if not tenant_id or len(tenant_id) > _MAX_TENANT_LENGTH:
+            raise ValueError("tenant_id must be 1-64 characters")
+        if not _TENANT_RE.match(tenant_id):
+            raise ValueError("tenant_id must be alphanumeric, hyphens, or underscores")
+        if periods < 1 or periods > 120:
+            raise ValueError("periods must be between 1 and 120")
+        params: Dict[str, Any] = {"periods": periods}
+        return self._request(
+            "GET",
+            f"/api/billing/usage/{quote(tenant_id, safe='')}/history",
+            params=params,
+        )
+
     def close(self):
         """Close the client and release resources."""
         if self._use_httpx and hasattr(self, "_client"):
@@ -1746,3 +1808,38 @@ class AsyncVellavetoClient:
     async def evidence_pack_status(self) -> Dict[str, Any]:
         """Get evidence pack status (async)."""
         return await self._request("GET", "/api/compliance/evidence-pack/status")
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # Phase 50: Usage Metering & Billing
+    # ═══════════════════════════════════════════════════════════════════════
+
+    async def usage(self, tenant_id: str) -> Dict[str, Any]:
+        """Get current-period usage metrics for a tenant (async)."""
+        if not tenant_id or len(tenant_id) > _MAX_TENANT_LENGTH:
+            raise ValueError("tenant_id must be 1-64 characters")
+        if not _TENANT_RE.match(tenant_id):
+            raise ValueError("tenant_id must be alphanumeric, hyphens, or underscores")
+        return await self._request("GET", f"/api/billing/usage/{quote(tenant_id, safe='')}")
+
+    async def quota_status(self, tenant_id: str) -> Dict[str, Any]:
+        """Get quota status (usage vs limits) for a tenant (async)."""
+        if not tenant_id or len(tenant_id) > _MAX_TENANT_LENGTH:
+            raise ValueError("tenant_id must be 1-64 characters")
+        if not _TENANT_RE.match(tenant_id):
+            raise ValueError("tenant_id must be alphanumeric, hyphens, or underscores")
+        return await self._request("GET", f"/api/billing/quotas/{quote(tenant_id, safe='')}")
+
+    async def usage_history(self, tenant_id: str, periods: int = 12) -> Dict[str, Any]:
+        """Get usage history across billing periods for a tenant (async)."""
+        if not tenant_id or len(tenant_id) > _MAX_TENANT_LENGTH:
+            raise ValueError("tenant_id must be 1-64 characters")
+        if not _TENANT_RE.match(tenant_id):
+            raise ValueError("tenant_id must be alphanumeric, hyphens, or underscores")
+        if periods < 1 or periods > 120:
+            raise ValueError("periods must be between 1 and 120")
+        params: Dict[str, Any] = {"periods": periods}
+        return await self._request(
+            "GET",
+            f"/api/billing/usage/{quote(tenant_id, safe='')}/history",
+            params=params,
+        )

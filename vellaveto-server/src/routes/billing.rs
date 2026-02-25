@@ -14,14 +14,17 @@
 
 use axum::{
     body::Bytes,
-    extract::State,
+    extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
     Json,
 };
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
+use vellaveto_types::{Action, Verdict};
 
+use crate::routes::ErrorResponse;
+use crate::tenant::TenantContext;
 use crate::AppState;
 
 /// Maximum webhook payload size (256 KB — well under the server's 1MB limit).
@@ -168,43 +171,53 @@ fn verify_paddle_signature(signature_header: &str, body: &[u8], secret: &str) ->
     }
 
     // Parse "ts=<ts>;h1=<hmac>"
-    let mut ts_value = "";
-    let mut h1_value = "";
+    let mut ts_value: Option<&str> = None;
+    let mut h1_value: Option<&str> = None;
 
     for part in signature_header.split(';') {
         let part = part.trim();
         if let Some(ts) = part.strip_prefix("ts=") {
-            ts_value = ts;
+            if ts_value.replace(ts).is_some() {
+                tracing::warn!("Paddle signature contains duplicate timestamp field");
+                return false;
+            }
         } else if let Some(h1) = part.strip_prefix("h1=") {
-            h1_value = h1;
+            if h1_value.replace(h1).is_some() {
+                tracing::warn!("Paddle signature contains duplicate h1 field");
+                return false;
+            }
         }
     }
 
-    if ts_value.is_empty() || h1_value.is_empty() {
-        return false;
-    }
+    let (ts_value, h1_value) = match (ts_value, h1_value) {
+        (Some(ts), Some(h1)) if !ts.is_empty() && !h1.is_empty() => (ts, h1),
+        _ => return false,
+    };
 
     // SECURITY (FIND-R63-001): Validate HMAC hex length — SHA-256 produces exactly 64 hex chars.
     // Reject early to prevent large allocations from oversized h1 values.
-    if h1_value.len() != HMAC_SHA256_HEX_LENGTH {
+    if !is_valid_sha256_hex(h1_value) {
         return false;
     }
 
     // SECURITY (P1-4): Reject stale timestamps to prevent replay attacks.
-    if let Ok(ts) = ts_value.parse::<u64>() {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(u64::MAX);
-        if now.abs_diff(ts) > MAX_WEBHOOK_TIMESTAMP_AGE_SECS {
-            tracing::warn!(
-                ts,
-                now,
-                "Paddle webhook timestamp too old or too far in the future"
-            );
-            return false;
-        }
-    } else {
+    if !ts_value.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let ts = match ts_value.parse::<u64>() {
+        Ok(ts) => ts,
+        Err(_) => return false,
+    };
+    let now = match current_unix_timestamp_secs() {
+        Some(now) => now,
+        None => return false,
+    };
+    if now.abs_diff(ts) > MAX_WEBHOOK_TIMESTAMP_AGE_SECS {
+        tracing::warn!(
+            ts,
+            now,
+            "Paddle webhook timestamp too old or too far in the future"
+        );
         return false;
     }
 
@@ -332,42 +345,52 @@ fn verify_stripe_signature(signature_header: &str, body: &[u8], secret: &str) ->
         return false;
     }
 
-    let mut t_value = "";
-    let mut v1_value = "";
+    let mut t_value: Option<&str> = None;
+    let mut v1_value: Option<&str> = None;
 
     for part in signature_header.split(',') {
         let part = part.trim();
         if let Some(t) = part.strip_prefix("t=") {
-            t_value = t;
+            if t_value.replace(t).is_some() {
+                tracing::warn!("Stripe signature contains duplicate timestamp field");
+                return false;
+            }
         } else if let Some(v1) = part.strip_prefix("v1=") {
-            v1_value = v1;
+            if v1_value.replace(v1).is_some() {
+                tracing::warn!("Stripe signature contains duplicate v1 field");
+                return false;
+            }
         }
     }
 
-    if t_value.is_empty() || v1_value.is_empty() {
-        return false;
-    }
+    let (t_value, v1_value) = match (t_value, v1_value) {
+        (Some(t), Some(v1)) if !t.is_empty() && !v1.is_empty() => (t, v1),
+        _ => return false,
+    };
 
     // SECURITY (FIND-R63-001): Validate HMAC hex length — SHA-256 produces exactly 64 hex chars.
-    if v1_value.len() != HMAC_SHA256_HEX_LENGTH {
+    if !is_valid_sha256_hex(v1_value) {
         return false;
     }
 
     // SECURITY (P1-4): Reject stale timestamps to prevent replay attacks.
-    if let Ok(ts) = t_value.parse::<u64>() {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(u64::MAX);
-        if now.abs_diff(ts) > MAX_WEBHOOK_TIMESTAMP_AGE_SECS {
-            tracing::warn!(
-                ts,
-                now,
-                "Stripe webhook timestamp too old or too far in the future"
-            );
-            return false;
-        }
-    } else {
+    if !t_value.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let ts = match t_value.parse::<u64>() {
+        Ok(ts) => ts,
+        Err(_) => return false,
+    };
+    let now = match current_unix_timestamp_secs() {
+        Some(now) => now,
+        None => return false,
+    };
+    if now.abs_diff(ts) > MAX_WEBHOOK_TIMESTAMP_AGE_SECS {
+        tracing::warn!(
+            ts,
+            now,
+            "Stripe webhook timestamp too old or too far in the future"
+        );
         return false;
     }
 
@@ -441,6 +464,20 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     bool::from(a.ct_eq(b))
 }
 
+fn is_valid_sha256_hex(value: &str) -> bool {
+    value.len() == HMAC_SHA256_HEX_LENGTH && value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn current_unix_timestamp_secs() -> Option<u64> {
+    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        Ok(d) => Some(d.as_secs()),
+        Err(e) => {
+            tracing::warn!(error = %e, "System clock before UNIX epoch during webhook validation");
+            None
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // LICENSE INFO ENDPOINT
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -464,6 +501,253 @@ pub async fn license_info(State(state): State<AppState>) -> Json<LicenseInfoResp
         limits: validation.limits,
         reason: validation.reason,
     })
+}
+
+// =============================================================================
+// PHASE 50: USAGE METERING API ENDPOINTS
+// =============================================================================
+
+/// Maximum tenant ID length for path parameters.
+const MAX_USAGE_TENANT_ID_LEN: usize = 64;
+
+/// Validate a tenant_id path parameter for usage endpoints.
+fn validate_usage_tenant_id(tenant_id: &str) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if tenant_id.is_empty() || tenant_id.len() > MAX_USAGE_TENANT_ID_LEN {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Invalid tenant_id: must be 1-64 characters".to_string(),
+            }),
+        ));
+    }
+    if !tenant_id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Invalid tenant_id: only alphanumeric, hyphens, and underscores allowed"
+                    .to_string(),
+            }),
+        ));
+    }
+    Ok(())
+}
+
+/// SECURITY (FIND-R203-008): Enforce tenant isolation on metering routes.
+///
+/// Non-default tenants may only read/mutate usage for their own tenant ID.
+/// Return 404 (not 403) for cross-tenant access to avoid tenant enumeration.
+fn enforce_usage_tenant_scope(
+    tenant_ctx: &TenantContext,
+    tenant_id: &str,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if !tenant_ctx.is_default() && tenant_ctx.tenant_id != tenant_id {
+        tracing::warn!(
+            requester_tenant = %tenant_ctx.tenant_id,
+            requested_tenant = %tenant_id,
+            "Cross-tenant billing usage access denied"
+        );
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Usage data not found".to_string(),
+            }),
+        ));
+    }
+    Ok(())
+}
+
+/// `GET /api/billing/usage/{tenant_id}`
+///
+/// Returns current-period usage metrics for a tenant.
+/// Requires API key authentication. Returns 404 when metering is disabled.
+pub async fn get_usage(
+    State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+    Path(tenant_id): Path<String>,
+) -> Result<Json<vellaveto_types::metering::UsageMetrics>, (StatusCode, Json<ErrorResponse>)> {
+    validate_usage_tenant_id(&tenant_id)?;
+    enforce_usage_tenant_scope(&tenant_ctx, &tenant_id)?;
+
+    let tracker = state.usage_tracker.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Usage metering is not enabled".to_string(),
+            }),
+        )
+    })?;
+
+    match tracker.get_usage(&tenant_id) {
+        Some(usage) => Ok(Json(usage)),
+        None => {
+            // Return zeroed metrics for unknown tenants (not an error)
+            let period = tracker.current_billing_period();
+            Ok(Json(vellaveto_types::metering::UsageMetrics {
+                tenant_id,
+                period_start: period.start,
+                period_end: period.end,
+                evaluations: 0,
+                evaluations_allowed: 0,
+                evaluations_denied: 0,
+                policies_created: 0,
+                approvals_processed: 0,
+                audit_entries: 0,
+            }))
+        }
+    }
+}
+
+/// `GET /api/billing/quotas/{tenant_id}`
+///
+/// Returns quota status (usage vs limits) for a tenant.
+/// Requires API key authentication. Returns 404 when metering is disabled.
+pub async fn get_quota_status(
+    State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+    Path(tenant_id): Path<String>,
+) -> Result<Json<vellaveto_types::metering::QuotaStatus>, (StatusCode, Json<ErrorResponse>)> {
+    validate_usage_tenant_id(&tenant_id)?;
+    enforce_usage_tenant_scope(&tenant_ctx, &tenant_id)?;
+
+    let tracker = state.usage_tracker.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Usage metering is not enabled".to_string(),
+            }),
+        )
+    })?;
+
+    let tier = &state.billing_config.licensing_validation.tier;
+    let tier_limit = tracker.limit_for_tier(tier);
+
+    // Use the tenant's max_policies quota if available, else default
+    let policies_limit = state
+        .tenant_store
+        .as_ref()
+        .and_then(|store| store.get_tenant(&tenant_id))
+        .map(|t| t.quotas.max_policies)
+        .unwrap_or(1000);
+
+    let status = tracker.get_quota_status(&tenant_id, tier_limit, policies_limit);
+    Ok(Json(status))
+}
+
+/// Query parameters for usage history endpoint.
+#[derive(Debug, Deserialize)]
+pub struct UsageHistoryQuery {
+    /// Number of periods to return (max 120, default 12).
+    #[serde(default = "default_history_periods")]
+    pub periods: u32,
+}
+
+fn default_history_periods() -> u32 {
+    12
+}
+
+/// `GET /api/billing/usage/{tenant_id}/history`
+///
+/// Returns a usage summary for the tenant. Currently returns only the
+/// current period (historical storage deferred to Phase 50b with persistence).
+/// Requires API key authentication.
+pub async fn get_usage_history(
+    State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+    Path(tenant_id): Path<String>,
+    Query(query): Query<UsageHistoryQuery>,
+) -> Result<Json<vellaveto_types::metering::UsageSummary>, (StatusCode, Json<ErrorResponse>)> {
+    validate_usage_tenant_id(&tenant_id)?;
+    enforce_usage_tenant_scope(&tenant_ctx, &tenant_id)?;
+
+    let tracker = state.usage_tracker.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Usage metering is not enabled".to_string(),
+            }),
+        )
+    })?;
+
+    // Cap periods at MAX_USAGE_PERIODS
+    let _max_periods = query
+        .periods
+        .min(vellaveto_types::metering::MAX_USAGE_PERIODS as u32);
+
+    // Currently only the current period is available (in-memory).
+    // Historical periods will be available when persistence is added (Phase 50b).
+    let periods = match tracker.get_usage(&tenant_id) {
+        Some(usage) => vec![usage],
+        None => vec![],
+    };
+    let total_evaluations = periods.iter().map(|p| p.evaluations).sum();
+
+    Ok(Json(vellaveto_types::metering::UsageSummary {
+        tenant_id,
+        periods,
+        total_evaluations,
+    }))
+}
+
+/// `POST /api/billing/usage/{tenant_id}/reset`
+///
+/// Force-reset usage counters for a tenant (admin operation).
+/// Requires API key authentication.
+pub async fn reset_usage(
+    State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+    Path(tenant_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    validate_usage_tenant_id(&tenant_id)?;
+    enforce_usage_tenant_scope(&tenant_ctx, &tenant_id)?;
+
+    let tracker = state.usage_tracker.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Usage metering is not enabled".to_string(),
+            }),
+        )
+    })?;
+
+    tracker.reset_period(&tenant_id);
+
+    // SECURITY: Audit administrative usage reset operations.
+    let audit_action = Action::new(
+        "vellaveto",
+        "billing_usage_reset",
+        serde_json::json!({ "tenant_id": &tenant_id }),
+    );
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &audit_action,
+            &Verdict::Allow,
+            serde_json::json!({
+                "event": "billing.usage_reset",
+                "tenant_id": &tenant_id,
+                "source": "api",
+            }),
+        )
+        .await
+    {
+        tracing::warn!(
+            tenant_id = %tenant_id,
+            error = %e,
+            "Failed to audit usage reset operation"
+        );
+    } else {
+        crate::metrics::increment_audit_entries();
+    }
+
+    tracing::info!(tenant_id = %tenant_id, "Usage counters reset (admin)");
+
+    Ok(Json(serde_json::json!({
+        "reset": true,
+        "tenant_id": tenant_id
+    })))
 }
 
 #[cfg(test)]
@@ -669,6 +953,42 @@ mod tests {
         let header = format!("t={},v1={}", ts, "a".repeat(63));
         assert!(!verify_stripe_signature(&header, b"body", "secret"));
         let header = format!("t={},v1={}", ts, "a".repeat(65));
+        assert!(!verify_stripe_signature(&header, b"body", "secret"));
+    }
+
+    #[test]
+    fn test_paddle_signature_non_hex_digest_rejected() {
+        let ts = current_ts();
+        let header = format!("ts={};h1={}", ts, "z".repeat(HMAC_SHA256_HEX_LENGTH));
+        assert!(!verify_paddle_signature(&header, b"body", "secret"));
+    }
+
+    #[test]
+    fn test_stripe_signature_non_hex_digest_rejected() {
+        let ts = current_ts();
+        let header = format!("t={},v1={}", ts, "z".repeat(HMAC_SHA256_HEX_LENGTH));
+        assert!(!verify_stripe_signature(&header, b"body", "secret"));
+    }
+
+    #[test]
+    fn test_paddle_signature_duplicate_fields_rejected() {
+        let ts = current_ts();
+        let header = format!(
+            "ts={0};h1={1};ts={0}",
+            ts,
+            "a".repeat(HMAC_SHA256_HEX_LENGTH)
+        );
+        assert!(!verify_paddle_signature(&header, b"body", "secret"));
+    }
+
+    #[test]
+    fn test_stripe_signature_duplicate_fields_rejected() {
+        let ts = current_ts();
+        let header = format!(
+            "t={0},v1={1},v1={1}",
+            ts,
+            "a".repeat(HMAC_SHA256_HEX_LENGTH)
+        );
         assert!(!verify_stripe_signature(&header, b"body", "secret"));
     }
 

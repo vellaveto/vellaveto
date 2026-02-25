@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::default_true;
+use serde::{Deserialize, Serialize};
 
 // =============================================================================
 // PHASE 5: ENTERPRISE HARDENING CONFIGURATION TYPES
@@ -129,9 +129,7 @@ impl TlsConfig {
             ));
         }
         if self.mode == TlsMode::Mtls && self.client_ca_path.is_none() {
-            return Err(
-                "tls.mode = mtls requires tls.client_ca_path to be set".to_string(),
-            );
+            return Err("tls.mode = mtls requires tls.client_ca_path to be set".to_string());
         }
         if self.mode != TlsMode::None && self.cert_path.is_none() {
             return Err("tls.cert_path required when TLS is enabled".to_string());
@@ -264,20 +262,26 @@ impl SpiffeConfig {
         }
         for sid in &self.allowed_spiffe_ids {
             if vellaveto_types::has_dangerous_chars(sid) {
-                return Err("spiffe.allowed_spiffe_ids contains control or format characters".to_string());
+                return Err(
+                    "spiffe.allowed_spiffe_ids contains control or format characters".to_string(),
+                );
             }
             // SECURITY (FIND-R112-020): Reject Unicode format characters (zero-width,
         }
         // SECURITY (FIND-R112-020): Also validate id_to_role keys for Unicode format chars.
         for (key, value) in &self.id_to_role {
             if vellaveto_types::has_dangerous_chars(key) {
-                return Err("spiffe.id_to_role key contains control or format characters".to_string());
+                return Err(
+                    "spiffe.id_to_role key contains control or format characters".to_string(),
+                );
             }
             // SECURITY (FIND-R216-011): Validate id_to_role VALUES for control/format
             // characters — zero-width chars in role names could bypass role matching
             // or cause log injection when roles are logged.
             if vellaveto_types::has_dangerous_chars(value) {
-                return Err("spiffe.id_to_role value contains control or format characters".to_string());
+                return Err(
+                    "spiffe.id_to_role value contains control or format characters".to_string(),
+                );
             }
         }
         if let Some(ref domain) = self.trust_domain {
@@ -295,9 +299,7 @@ impl SpiffeConfig {
         }
         // SECURITY (BUG-R110-003): Fail-closed when enabled without trust_domain
         if self.enabled && self.trust_domain.is_none() {
-            return Err(
-                "spiffe.trust_domain is required when spiffe.enabled is true".to_string(),
-            );
+            return Err("spiffe.trust_domain is required when spiffe.enabled is true".to_string());
         }
         Ok(())
     }
@@ -436,14 +438,10 @@ impl OpaConfig {
                 ));
             }
             if vellaveto_types::has_dangerous_chars(key) {
-                return Err(
-                    "opa.headers key contains control or format characters".to_string(),
-                );
+                return Err("opa.headers key contains control or format characters".to_string());
             }
             if vellaveto_types::has_dangerous_chars(value) {
-                return Err(
-                    "opa.headers value contains control or format characters".to_string(),
-                );
+                return Err("opa.headers value contains control or format characters".to_string());
             }
         }
         // SECURITY (FIND-R211-004): Upper bound on OPA cache TTL.
@@ -804,7 +802,9 @@ impl JitAccessConfig {
         if let Some(ref webhook) = self.notification_webhook {
             // SECURITY (BUG-R110-006, FIND-R114-005): Use proper URL parsing for localhost check.
             // is_http_localhost_url rejects non-HTTP schemes like ftp://localhost.
-            if !webhook.starts_with("https://") && !crate::validation::is_http_localhost_url(webhook) {
+            if !webhook.starts_with("https://")
+                && !crate::validation::is_http_localhost_url(webhook)
+            {
                 return Err(format!(
                     "jit_access.notification_webhook must use https:// (got: {})",
                     webhook.chars().take(64).collect::<String>()
@@ -812,7 +812,8 @@ impl JitAccessConfig {
             }
             if vellaveto_types::has_dangerous_chars(webhook) {
                 return Err(
-                    "jit_access.notification_webhook contains control or format characters".to_string(),
+                    "jit_access.notification_webhook contains control or format characters"
+                        .to_string(),
                 );
             }
         }

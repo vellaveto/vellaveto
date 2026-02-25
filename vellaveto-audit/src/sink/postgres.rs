@@ -81,14 +81,10 @@ impl PostgresSinkConfig {
     /// Caps `batch_size` at [`MAX_BATCH_SIZE`] to stay within PostgreSQL's 65535 param limit.
     pub fn validate(&self) -> Result<(), SinkError> {
         if self.buffer_size == 0 {
-            return Err(SinkError::Connection(
-                "buffer_size must be > 0".to_string(),
-            ));
+            return Err(SinkError::Connection("buffer_size must be > 0".to_string()));
         }
         if self.batch_size == 0 {
-            return Err(SinkError::Connection(
-                "batch_size must be > 0".to_string(),
-            ));
+            return Err(SinkError::Connection("batch_size must be > 0".to_string()));
         }
         if self.batch_size > MAX_BATCH_SIZE {
             return Err(SinkError::Connection(format!(
@@ -329,11 +325,11 @@ impl BackgroundWriter {
         for attempt in 0..MAX_RETRY_ATTEMPTS {
             match self.insert_batch(batch).await {
                 Ok(()) => {
-                    let _ = self.pending.fetch_update(
-                        Ordering::SeqCst,
-                        Ordering::SeqCst,
-                        |v| Some(v.saturating_sub(count)),
-                    );
+                    let _ = self
+                        .pending
+                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                            Some(v.saturating_sub(count))
+                        });
                     self.healthy.store(true, Ordering::SeqCst);
                     batch.clear();
                     return;
@@ -359,11 +355,11 @@ impl BackgroundWriter {
             "Audit sink batch insert failed after {} retries, dropping entries",
             MAX_RETRY_ATTEMPTS
         );
-        let _ = self.pending.fetch_update(
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-            |v| Some(v.saturating_sub(count)),
-        );
+        let _ = self
+            .pending
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                Some(v.saturating_sub(count))
+            });
         batch.clear();
     }
 
@@ -376,10 +372,7 @@ impl BackgroundWriter {
         // INSERT INTO table (columns) VALUES ($1,$2,...), ($N+1,$N+2,...), ...
         let cols = "(id, sequence, timestamp_raw, tool, function_name, verdict_type, verdict_reason, action_json, verdict_json, metadata, entry_hash, prev_hash, commitment, tenant_id)";
         let params_per_row = 14;
-        let mut sql = format!(
-            "INSERT INTO {} {} VALUES ",
-            self.table_name, cols
-        );
+        let mut sql = format!("INSERT INTO {} {} VALUES ", self.table_name, cols);
 
         let mut param_idx = 1u32;
         for (i, _) in batch.iter().enumerate() {
@@ -401,8 +394,13 @@ impl BackgroundWriter {
 
         // Pre-compute derived values so they live long enough for the query borrow.
         // Each tuple: (sequence_i64, verdict_type, verdict_reason, action_json, verdict_json)
-        let mut derived: Vec<(i64, &'static str, Option<String>, serde_json::Value, serde_json::Value)> =
-            Vec::with_capacity(batch.len());
+        let mut derived: Vec<(
+            i64,
+            &'static str,
+            Option<String>,
+            serde_json::Value,
+            serde_json::Value,
+        )> = Vec::with_capacity(batch.len());
 
         for entry in batch {
             // SECURITY (R158-001): Use try_from to prevent wrapping when sequence > i64::MAX.
@@ -443,7 +441,13 @@ impl BackgroundWriter {
                 serde_json::Value::Null
             });
 
-            derived.push((sequence_i64, verdict_type, verdict_reason, action_json, verdict_json));
+            derived.push((
+                sequence_i64,
+                verdict_type,
+                verdict_reason,
+                action_json,
+                verdict_json,
+            ));
         }
 
         let mut query = sqlx::query(&sql);
@@ -492,7 +496,7 @@ mod tests {
         assert!(CREATE_TABLE_DDL.contains("idx_audit_sequence"));
         assert!(CREATE_TABLE_DDL.contains("idx_audit_metadata"));
         assert!(CREATE_TABLE_DDL.contains("GIN"));
-        assert!(CREATE_TABLE_DDL.contains("ON CONFLICT") == false); // DDL doesn't have ON CONFLICT
+        assert!(!CREATE_TABLE_DDL.contains("ON CONFLICT")); // DDL doesn't have ON CONFLICT
     }
 
     #[test]
@@ -541,7 +545,10 @@ mod tests {
         };
         let err = config.validate().unwrap_err().to_string();
         assert!(err.contains("batch_size"), "got: {err}");
-        assert!(err.contains("65535"), "should mention PG param limit: {err}");
+        assert!(
+            err.contains("65535"),
+            "should mention PG param limit: {err}"
+        );
     }
 
     #[test]
@@ -590,10 +597,7 @@ mod tests {
             ..Default::default()
         };
         let err = config.validate().unwrap_err().to_string();
-        assert!(
-            err.contains("alphanumeric"),
-            "got: {err}"
-        );
+        assert!(err.contains("alphanumeric"), "got: {err}");
     }
 
     #[test]

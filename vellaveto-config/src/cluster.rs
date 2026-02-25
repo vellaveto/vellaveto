@@ -119,9 +119,7 @@ impl ClusterConfig {
         // An empty redis_url with a redis backend would silently use no connection,
         // causing all cluster operations to fail at runtime instead of at startup.
         if self.backend == "redis" && self.redis_url.is_empty() {
-            return Err(
-                "cluster.redis_url must not be empty when backend is 'redis'".to_string(),
-            );
+            return Err("cluster.redis_url must not be empty when backend is 'redis'".to_string());
         }
         // SECURITY (FIND-R110-CFG-002): Reject non-Redis URL schemes to prevent
         // SSRF via arbitrary protocol URLs (e.g., file://, http://).
@@ -129,9 +127,7 @@ impl ClusterConfig {
             && !self.redis_url.starts_with("redis://")
             && !self.redis_url.starts_with("rediss://")
         {
-            return Err(
-                "cluster.redis_url must use redis:// or rediss:// scheme".to_string(),
-            );
+            return Err("cluster.redis_url must use redis:// or rediss:// scheme".to_string());
         }
 
         // Validate redis_pool_size

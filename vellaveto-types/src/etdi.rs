@@ -188,25 +188,11 @@ impl ToolSignature {
         // only hex characters. These fields are documented as "Hex-encoded" — accepting
         // non-hex content could cause downstream parsing failures or be used for
         // injection if the values are logged or interpolated without sanitization.
-        if !self.signature.is_empty()
-            && !self
-                .signature
-                .bytes()
-                .all(|b| b.is_ascii_hexdigit())
-        {
-            return Err(
-                "ToolSignature signature contains non-hex characters".to_string(),
-            );
+        if !self.signature.is_empty() && !self.signature.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("ToolSignature signature contains non-hex characters".to_string());
         }
-        if !self.public_key.is_empty()
-            && !self
-                .public_key
-                .bytes()
-                .all(|b| b.is_ascii_hexdigit())
-        {
-            return Err(
-                "ToolSignature public_key contains non-hex characters".to_string(),
-            );
+        if !self.public_key.is_empty() && !self.public_key.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("ToolSignature public_key contains non-hex characters".to_string());
         }
         if self.signed_at.len() > Self::MAX_TIMESTAMP_LEN {
             return Err(format!(
@@ -586,8 +572,7 @@ impl ToolVersionPin {
                 Self::MAX_TOOL_NAME_LEN,
             ));
         }
-        if crate::core::has_dangerous_chars(&self.tool_name)
-        {
+        if crate::core::has_dangerous_chars(&self.tool_name) {
             return Err(
                 "ToolVersionPin tool_name contains control or format characters".to_string(),
             );
@@ -664,8 +649,7 @@ impl ToolVersionPin {
                 Self::MAX_PINNED_BY_LEN,
             ));
         }
-        if crate::core::has_dangerous_chars(&self.pinned_by)
-        {
+        if crate::core::has_dangerous_chars(&self.pinned_by) {
             return Err(
                 "ToolVersionPin pinned_by contains control or format characters".to_string(),
             );

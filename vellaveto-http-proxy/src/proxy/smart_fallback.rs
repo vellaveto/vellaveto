@@ -4,7 +4,9 @@
 //! `FallbackNegotiationHistory` for audit purposes. Uses `TransportHealthTracker`
 //! to skip transports whose circuits are open.
 
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use vellaveto_types::command::resolve_executable;
 use vellaveto_types::{FallbackNegotiationHistory, TransportAttempt, TransportProtocol};
 
 use super::transport_health::TransportHealthTracker;
@@ -79,6 +81,7 @@ pub struct SmartFallbackChain<'a> {
     total_timeout: Duration,
     stdio_enabled: bool,
     stdio_command: Option<String>,
+    stdio_command_resolved: Option<PathBuf>,
 }
 
 impl<'a> SmartFallbackChain<'a> {
@@ -96,14 +99,22 @@ impl<'a> SmartFallbackChain<'a> {
             total_timeout,
             stdio_enabled: false,
             stdio_command: None,
+            stdio_command_resolved: None,
         }
     }
 
     /// Enable stdio fallback with the given command.
-    pub fn with_stdio(mut self, command: String) -> Self {
-        self.stdio_enabled = true;
-        self.stdio_command = Some(command);
-        self
+    pub fn with_stdio(&self, command: String) -> Result<Self, String> {
+        let resolved = resolve_executable(&command, std::env::var_os("PATH").as_deref())?;
+        Ok(Self {
+            client: self.client,
+            health_tracker: self.health_tracker,
+            per_attempt_timeout: self.per_attempt_timeout,
+            total_timeout: self.total_timeout,
+            stdio_enabled: true,
+            stdio_command: Some(command),
+            stdio_command_resolved: Some(resolved),
+        })
     }
 
     /// Execute the fallback chain, trying each target in order.
@@ -184,8 +195,11 @@ impl<'a> SmartFallbackChain<'a> {
                         .await
                 }
                 TransportProtocol::Stdio => {
-                    if let Some(ref cmd) = self.stdio_command {
-                        self.dispatch_stdio(cmd, body.clone(), attempt_timeout)
+                    if let (Some(cmd), Some(resolved)) = (
+                        self.stdio_command.as_ref(),
+                        self.stdio_command_resolved.as_ref(),
+                    ) {
+                        self.dispatch_stdio(cmd, resolved, body.clone(), attempt_timeout)
                             .await
                     } else {
                         Err("stdio command not configured".to_string())
@@ -449,7 +463,8 @@ impl<'a> SmartFallbackChain<'a> {
     /// discarding it.
     async fn dispatch_stdio(
         &self,
-        command: &str,
+        _command: &str,
+        resolved_command: &Path,
         body: bytes::Bytes,
         timeout: Duration,
     ) -> Result<(bytes::Bytes, u16), String> {
@@ -461,7 +476,7 @@ impl<'a> SmartFallbackChain<'a> {
         // secrets (API keys, tokens, credentials) to the subprocess.
         // SECURITY (FIND-R43-008): kill_on_drop ensures the child is killed if
         // the async task is cancelled, preventing orphaned subprocesses.
-        let mut child = Command::new(command)
+        let mut child = Command::new(resolved_command)
             .env_clear()
             .env("PATH", "/usr/local/bin:/usr/bin:/bin")
             .env("HOME", "/tmp")
@@ -824,7 +839,8 @@ mod tests {
             Duration::from_secs(5),
             Duration::from_secs(10),
         )
-        .with_stdio("/bin/cat".to_string());
+        .with_stdio("/bin/cat".to_string())
+        .expect("stdio fallback command should resolve");
 
         let body = bytes::Bytes::from(r#"{"test": true}"#);
         let result = chain

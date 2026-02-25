@@ -100,8 +100,7 @@ pub fn inject_decision_explanation(
                             max = MAX_EXPLANATION_SIZE,
                             "Decision explanation too large, falling back to summary"
                         );
-                        let summary =
-                            vellaveto_types::VerdictExplanation::summary(trace);
+                        let summary = vellaveto_types::VerdictExplanation::summary(trace);
                         if let Ok(summary_value) = serde_json::to_value(&summary) {
                             // SECURITY (IMP-R182-007): Also bound the Summary fallback.
                             let summary_size = serde_json::to_string(&summary_value)

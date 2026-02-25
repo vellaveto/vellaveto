@@ -192,9 +192,10 @@ impl InMemoryPolicyVersionStore {
     fn prune_archived(versions: &mut Vec<PolicyVersion>, max: usize) {
         while versions.len() > max {
             // Find the oldest Archived version and remove it
-            if let Some(pos) = versions.iter().position(|v| {
-                matches!(v.status, PolicyVersionStatus::Archived)
-            }) {
+            if let Some(pos) = versions
+                .iter()
+                .position(|v| matches!(v.status, PolicyVersionStatus::Archived))
+            {
                 versions.remove(pos);
             } else {
                 // No archived versions to prune — can't reduce further
@@ -213,9 +214,7 @@ impl InMemoryPolicyVersionStore {
     /// IMP-R204-007: Uses chrono (already a dependency) instead of
     /// hand-rolled date calculation that was fragile and approximate.
     fn now_iso8601() -> String {
-        chrono::Utc::now()
-            .format("%Y-%m-%dT%H:%M:%SZ")
-            .to_string()
+        chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
     }
 }
 
@@ -230,20 +229,14 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
     ) -> Result<PolicyVersion, LifecycleError> {
         // Validate inputs
         if policy_id.is_empty() || has_dangerous_chars(policy_id) {
-            return Err(LifecycleError::Validation(
-                "Invalid policy_id".to_string(),
-            ));
+            return Err(LifecycleError::Validation("Invalid policy_id".to_string()));
         }
         if created_by.is_empty() || has_dangerous_chars(created_by) {
-            return Err(LifecycleError::Validation(
-                "Invalid created_by".to_string(),
-            ));
+            return Err(LifecycleError::Validation("Invalid created_by".to_string()));
         }
         if let Some(c) = comment {
             if c.len() > vellaveto_types::MAX_VERSION_COMMENT_LEN {
-                return Err(LifecycleError::Validation(
-                    "Comment too long".to_string(),
-                ));
+                return Err(LifecycleError::Validation("Comment too long".to_string()));
             }
             if has_dangerous_chars(c) {
                 return Err(LifecycleError::Validation(
@@ -370,9 +363,7 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
         }
         if let Some(c) = comment {
             if c.len() > vellaveto_types::MAX_VERSION_COMMENT_LEN || has_dangerous_chars(c) {
-                return Err(LifecycleError::Validation(
-                    "Invalid comment".to_string(),
-                ));
+                return Err(LifecycleError::Validation("Invalid comment".to_string()));
             }
         }
 
@@ -652,9 +643,7 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
         created_by: &str,
     ) -> Result<PolicyVersion, LifecycleError> {
         if created_by.is_empty() || has_dangerous_chars(created_by) {
-            return Err(LifecycleError::Validation(
-                "Invalid created_by".to_string(),
-            ));
+            return Err(LifecycleError::Validation("Invalid created_by".to_string()));
         }
 
         let mut map = self.versions.write().await;
@@ -931,10 +920,10 @@ mod tests {
             .create_version("pol-1", test_policy("pol-1"), "alice", None)
             .await
             .unwrap();
-        let result = store
-            .approve_version("pol-1", 1, "alice", None)
-            .await;
-        assert!(matches!(result, Err(LifecycleError::Validation(ref msg)) if msg.contains("Self-approval")));
+        let result = store.approve_version("pol-1", 1, "alice", None).await;
+        assert!(
+            matches!(result, Err(LifecycleError::Validation(ref msg)) if msg.contains("Self-approval"))
+        );
     }
 
     #[tokio::test]
@@ -944,10 +933,10 @@ mod tests {
             .create_version("pol-1", test_policy("pol-1"), "Alice", None)
             .await
             .unwrap();
-        let result = store
-            .approve_version("pol-1", 1, "ALICE", None)
-            .await;
-        assert!(matches!(result, Err(LifecycleError::Validation(ref msg)) if msg.contains("Self-approval")));
+        let result = store.approve_version("pol-1", 1, "ALICE", None).await;
+        assert!(
+            matches!(result, Err(LifecycleError::Validation(ref msg)) if msg.contains("Self-approval"))
+        );
     }
 
     #[tokio::test]
@@ -961,10 +950,10 @@ mod tests {
             .approve_version("pol-1", 1, "bob", None)
             .await
             .unwrap();
-        let result = store
-            .approve_version("pol-1", 1, "bob", None)
-            .await;
-        assert!(matches!(result, Err(LifecycleError::Validation(ref msg)) if msg.contains("Already approved")));
+        let result = store.approve_version("pol-1", 1, "bob", None).await;
+        assert!(
+            matches!(result, Err(LifecycleError::Validation(ref msg)) if msg.contains("Already approved"))
+        );
     }
 
     #[tokio::test]
@@ -1370,7 +1359,11 @@ mod tests {
         // Verify it's a valid ISO 8601 timestamp
         let ts = pv.staged_at.unwrap();
         assert!(ts.ends_with('Z'), "staged_at should end with Z: {}", ts);
-        assert!(ts.len() >= 20, "staged_at should be at least 20 chars: {}", ts);
+        assert!(
+            ts.len() >= 20,
+            "staged_at should be at least 20 chars: {}",
+            ts
+        );
     }
 
     // ── FIND-R205-001: Homoglyph self-approval bypass prevention ──
@@ -1432,9 +1425,7 @@ mod tests {
             .await
             .unwrap();
         // Second approval by "bоb" (Cyrillic 'о' U+043E) should be detected as duplicate
-        let result = store
-            .approve_version("pol-1", 1, "b\u{043E}b", None)
-            .await;
+        let result = store.approve_version("pol-1", 1, "b\u{043E}b", None).await;
         assert!(
             matches!(result, Err(LifecycleError::Validation(ref msg)) if msg.contains("Already approved")),
             "Homoglyph duplicate approval must be rejected, got: {:?}",

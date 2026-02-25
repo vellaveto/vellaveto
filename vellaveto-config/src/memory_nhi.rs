@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::default_true;
+use serde::{Deserialize, Serialize};
 
 // ═══════════════════════════════════════════════════
 // PHASE 9: MEMORY INJECTION DEFENSE (MINJA) CONFIGURATION
@@ -283,8 +283,7 @@ impl NamespaceConfig {
                 MAX_NAMESPACE_ISOLATION_LEN
             ));
         }
-        if vellaveto_types::has_dangerous_chars(&self.default_isolation)
-        {
+        if vellaveto_types::has_dangerous_chars(&self.default_isolation) {
             return Err(
                 "namespaces.default_isolation contains control or format characters".to_string(),
             );
@@ -594,8 +593,7 @@ impl NhiConfig {
                     MAX_NHI_STRING_FIELD_LEN
                 ));
             }
-            if vellaveto_types::has_dangerous_chars(at)
-            {
+            if vellaveto_types::has_dangerous_chars(at) {
                 return Err(format!(
                     "nhi.attestation_types[{}] contains control or format characters",
                     i
@@ -617,8 +615,7 @@ impl NhiConfig {
                     MAX_NHI_STRING_FIELD_LEN
                 ));
             }
-            if vellaveto_types::has_dangerous_chars(td)
-            {
+            if vellaveto_types::has_dangerous_chars(td) {
                 return Err(format!(
                     "nhi.additional_trust_domains[{}] contains control or format characters",
                     i
@@ -637,8 +634,7 @@ impl NhiConfig {
                     MAX_NHI_STRING_FIELD_LEN
                 ));
             }
-            if vellaveto_types::has_dangerous_chars(tag)
-            {
+            if vellaveto_types::has_dangerous_chars(tag) {
                 return Err(format!(
                     "nhi.privileged_tags[{}] contains control or format characters",
                     i
@@ -828,8 +824,7 @@ impl VerificationConfig {
                     "nhi.verification.plc_directory_url must use https:// scheme".to_string(),
                 );
             }
-            if vellaveto_types::has_dangerous_chars(&self.plc_directory_url)
-            {
+            if vellaveto_types::has_dangerous_chars(&self.plc_directory_url) {
                 return Err(
                     "nhi.verification.plc_directory_url contains control or format characters"
                         .to_string(),
@@ -977,8 +972,7 @@ impl DpopConfig {
                     MAX_DPOP_ALGORITHM_LEN
                 ));
             }
-            if vellaveto_types::has_dangerous_chars(alg)
-            {
+            if vellaveto_types::has_dangerous_chars(alg) {
                 return Err(format!(
                     "nhi.dpop.allowed_algorithms[{}] contains control or format characters",
                     i

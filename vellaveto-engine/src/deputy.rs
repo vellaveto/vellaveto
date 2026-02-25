@@ -702,7 +702,10 @@ mod tests {
 
         // Claimed principal uses Cyrillic 'о' (U+043E) — should still match "worker"
         let result = validator.validate_action("s1", "read_file", "w\u{043E}rker");
-        assert!(result.is_ok(), "Homoglyph-variant principal should match after normalization");
+        assert!(
+            result.is_ok(),
+            "Homoglyph-variant principal should match after normalization"
+        );
     }
 
     /// FIND-R213-002: validate_action rejects genuinely different principals
@@ -735,6 +738,9 @@ mod tests {
 
         // Mixed case should match due to to_ascii_lowercase normalization
         let result = validator.validate_action("s1", "read_file", "WORKER");
-        assert!(result.is_ok(), "Case-insensitive principal match should succeed");
+        assert!(
+            result.is_ok(),
+            "Case-insensitive principal match should succeed"
+        );
     }
 }

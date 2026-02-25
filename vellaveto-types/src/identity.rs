@@ -142,7 +142,7 @@ impl AgentIdentity {
                 .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
             {
                 return Err(
-                    "AgentIdentity issuer contains control or format characters".to_string(),
+                    "AgentIdentity issuer contains control or format characters".to_string()
                 );
             }
         }
@@ -182,7 +182,10 @@ impl AgentIdentity {
             }
             // Measure the serialized value length to cover all JSON value types.
             let serialized_value = serde_json::to_string(value).map_err(|e| {
-                format!("AgentIdentity claim value for key '{}' failed to serialize: {e}", key)
+                format!(
+                    "AgentIdentity claim value for key '{}' failed to serialize: {e}",
+                    key
+                )
             })?;
             if serialized_value.len() > Self::MAX_CLAIM_VALUE_LEN {
                 return Err(format!(
@@ -890,8 +893,7 @@ impl StatelessContextBlob {
         }
         // SECURITY (FIND-R112-001): Reject control/format chars in agent_id to
         // prevent log injection and ForbiddenActionSequence bypass.
-        if crate::core::has_dangerous_chars(&self.agent_id)
-        {
+        if crate::core::has_dangerous_chars(&self.agent_id) {
             return Err(
                 "StatelessContextBlob agent_id contains control or format characters".to_string(),
             );

@@ -490,7 +490,10 @@ impl ComplianceConfig {
         }
         // SECURITY: Reject control and Unicode format characters.
         if vellaveto_types::has_dangerous_chars(value) {
-            return Err(format!("{} contains control or format characters", field_name));
+            return Err(format!(
+                "{} contains control or format characters",
+                field_name
+            ));
         }
         Ok(())
     }
@@ -1107,8 +1110,7 @@ mod dora_nis2_tests {
             system_id: "bank-001".to_string(),
         };
         let json = serde_json::to_string(&config).unwrap();
-        let back: super::super::evidence_pack::DoraConfig =
-            serde_json::from_str(&json).unwrap();
+        let back: super::super::evidence_pack::DoraConfig = serde_json::from_str(&json).unwrap();
         assert!(back.enabled);
         assert_eq!(back.organization_name, "Bank AG");
     }
@@ -1121,8 +1123,7 @@ mod dora_nis2_tests {
             system_id: "energy-001".to_string(),
         };
         let json = serde_json::to_string(&config).unwrap();
-        let back: super::super::evidence_pack::Nis2Config =
-            serde_json::from_str(&json).unwrap();
+        let back: super::super::evidence_pack::Nis2Config = serde_json::from_str(&json).unwrap();
         assert!(back.enabled);
         assert_eq!(back.system_id, "energy-001");
     }
@@ -1150,8 +1151,7 @@ mod dora_nis2_tests {
     #[test]
     fn test_dora_deny_unknown_fields() {
         let json = r#"{"enabled": true, "unknown": "bad"}"#;
-        let result: Result<super::super::evidence_pack::DoraConfig, _> =
-            serde_json::from_str(json);
+        let result: Result<super::super::evidence_pack::DoraConfig, _> = serde_json::from_str(json);
         assert!(result.is_err(), "should reject unknown fields");
     }
 

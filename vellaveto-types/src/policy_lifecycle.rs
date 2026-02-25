@@ -229,10 +229,7 @@ impl PolicyVersion {
         // comment
         if let Some(ref c) = self.comment {
             if c.len() > MAX_VERSION_COMMENT_LEN {
-                return Err(format!(
-                    "comment exceeds {} chars",
-                    MAX_VERSION_COMMENT_LEN
-                ));
+                return Err(format!("comment exceeds {} chars", MAX_VERSION_COMMENT_LEN));
             }
             if has_dangerous_chars(c) {
                 return Err("comment contains invalid characters".to_string());
@@ -265,8 +262,7 @@ impl PolicyVersion {
             if has_dangerous_chars(ts) {
                 return Err("staged_at contains invalid characters".to_string());
             }
-            crate::time_util::parse_iso8601_secs(ts)
-                .map_err(|e| format!("staged_at: {}", e))?;
+            crate::time_util::parse_iso8601_secs(ts).map_err(|e| format!("staged_at: {}", e))?;
         }
         // previous_version_id
         if let Some(ref prev) = self.previous_version_id {
@@ -277,9 +273,7 @@ impl PolicyVersion {
                 ));
             }
             if has_dangerous_chars(prev) {
-                return Err(
-                    "previous_version_id contains invalid characters".to_string(),
-                );
+                return Err("previous_version_id contains invalid characters".to_string());
             }
         }
         Ok(())
@@ -332,10 +326,7 @@ impl PolicyVersionDiff {
                 ));
             }
             if has_dangerous_chars(change) {
-                return Err(format!(
-                    "changes[{}] contains invalid characters",
-                    i
-                ));
+                return Err(format!("changes[{}] contains invalid characters", i));
             }
         }
         Ok(())
@@ -379,10 +370,7 @@ impl StagingComparisonEntry {
             return Err("tool must be non-empty".to_string());
         }
         if self.tool.len() > MAX_STAGING_NAME_LEN {
-            return Err(format!(
-                "tool exceeds {} chars",
-                MAX_STAGING_NAME_LEN
-            ));
+            return Err(format!("tool exceeds {} chars", MAX_STAGING_NAME_LEN));
         }
         if has_dangerous_chars(&self.tool) {
             return Err("tool contains invalid characters".to_string());
@@ -392,10 +380,7 @@ impl StagingComparisonEntry {
             return Err("function must be non-empty".to_string());
         }
         if self.function.len() > MAX_STAGING_NAME_LEN {
-            return Err(format!(
-                "function exceeds {} chars",
-                MAX_STAGING_NAME_LEN
-            ));
+            return Err(format!("function exceeds {} chars", MAX_STAGING_NAME_LEN));
         }
         if has_dangerous_chars(&self.function) {
             return Err("function contains invalid characters".to_string());

@@ -608,8 +608,14 @@ mod tests {
     #[test]
     fn test_sign_rejects_agent_id_control_chars() {
         let (signing_key_hex, _) = generate_test_keypair();
-        let result =
-            sign_attestation("agent\x00evil", None, "stmt", "hash", &signing_key_hex, 86400);
+        let result = sign_attestation(
+            "agent\x00evil",
+            None,
+            "stmt",
+            "hash",
+            &signing_key_hex,
+            86400,
+        );
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("control"), "error: {}", msg);
@@ -646,8 +652,14 @@ mod tests {
     #[test]
     fn test_sign_rejects_policy_hash_control_chars() {
         let (signing_key_hex, _) = generate_test_keypair();
-        let result =
-            sign_attestation("agent", None, "stmt", "hash\x1B[0m", &signing_key_hex, 86400);
+        let result = sign_attestation(
+            "agent",
+            None,
+            "stmt",
+            "hash\x1B[0m",
+            &signing_key_hex,
+            86400,
+        );
         assert!(result.is_err());
     }
 
@@ -726,13 +738,18 @@ mod tests {
         attestation.expires_at = "not-a-valid-date".to_string();
 
         let now = chrono::Utc::now();
-        let result =
-            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        let result = verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
         // Fail-closed: unparseable expiry should be treated as expired
-        assert!(result.expired, "malformed expires_at must be treated as expired");
+        assert!(
+            result.expired,
+            "malformed expires_at must be treated as expired"
+        );
         // SECURITY (FIND-R146-MA-001): expires_at is now in signed canonical content,
         // so tampering also invalidates the signature (double fail-closed).
-        assert!(!result.signature_valid, "tampered expires_at must invalidate signature");
+        assert!(
+            !result.signature_valid,
+            "tampered expires_at must invalidate signature"
+        );
         assert!(!result.is_valid());
     }
 
@@ -789,13 +806,11 @@ mod tests {
         .expect("sign");
 
         // Tamper with expires_at to extend lifetime — must invalidate signature
-        let far_future =
-            (chrono::Utc::now() + chrono::Duration::days(365)).to_rfc3339();
+        let far_future = (chrono::Utc::now() + chrono::Duration::days(365)).to_rfc3339();
         attestation.expires_at = far_future;
 
         let now = chrono::Utc::now();
-        let result =
-            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        let result = verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
         assert!(
             !result.signature_valid,
             "tampered expires_at must invalidate signature"
@@ -825,8 +840,7 @@ mod tests {
         attestation.did = Some("did:plc:attacker".to_string());
 
         let now = chrono::Utc::now();
-        let result =
-            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        let result = verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
         assert!(
             !result.signature_valid,
             "tampered did must invalidate signature"
@@ -853,8 +867,7 @@ mod tests {
         attestation.did = Some("did:plc:injected".to_string());
 
         let now = chrono::Utc::now();
-        let result =
-            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        let result = verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
         assert!(
             !result.signature_valid,
             "injected did must invalidate signature"
@@ -881,8 +894,7 @@ mod tests {
         attestation.did = None;
 
         let now = chrono::Utc::now();
-        let result =
-            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        let result = verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
         assert!(
             !result.signature_valid,
             "removed did must invalidate signature"
@@ -899,13 +911,28 @@ mod tests {
         // Verify that changing any field's value produces different canonical content,
         // even when concatenated strings would otherwise collide.
         let c1 = build_canonical_content(
-            "id1", "agent", None, "stmt", "hash", "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z",
+            "id1",
+            "agent",
+            None,
+            "stmt",
+            "hash",
+            "2026-01-01T00:00:00Z",
+            "2026-01-02T00:00:00Z",
         );
         let c2 = build_canonical_content(
-            "id1", "agent", None, "stmt", "hash", "2026-01-01T00:00:00", "Z2026-01-02T00:00:00Z",
+            "id1",
+            "agent",
+            None,
+            "stmt",
+            "hash",
+            "2026-01-01T00:00:00",
+            "Z2026-01-02T00:00:00Z",
         );
         // With length prefixes, these must differ even though concatenation is similar
-        assert_ne!(c1, c2, "length prefixes must prevent created_at/expires_at boundary collision");
+        assert_ne!(
+            c1, c2,
+            "length prefixes must prevent created_at/expires_at boundary collision"
+        );
     }
 
     // ════════════════════════════════════════════════════════
@@ -930,8 +957,7 @@ mod tests {
         attestation.attestation_id = Uuid::new_v4().to_string();
 
         let now = chrono::Utc::now();
-        let result =
-            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        let result = verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
         assert!(
             !result.signature_valid,
             "tampered attestation_id must invalidate signature"
@@ -993,10 +1019,12 @@ mod tests {
         attestation.signature = hex::encode(sig.to_bytes());
 
         let now = chrono::Utc::now();
-        let result =
-            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        let result = verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
         assert!(result.signature_valid, "signature should be valid");
-        assert!(result.expired, "future-dated attestation should be treated as expired");
+        assert!(
+            result.expired,
+            "future-dated attestation should be treated as expired"
+        );
         assert!(
             !result.is_valid(),
             "future-dated attestation must not pass is_valid()"
@@ -1065,8 +1093,7 @@ mod tests {
         attestation.signature = hex::encode(sig.to_bytes());
 
         let now = chrono::Utc::now();
-        let result =
-            verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
+        let result = verify_attestation(&attestation, Some(&public_key_hex), &now).expect("verify");
         assert!(
             result.signature_valid,
             "re-signed attestation should have valid signature"

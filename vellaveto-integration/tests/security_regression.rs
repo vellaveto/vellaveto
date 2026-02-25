@@ -380,7 +380,7 @@ mod server_auth {
             rbac_config: vellaveto_server::rbac::RbacConfig::default(),
             tenant_config: vellaveto_server::tenant::TenantConfig::default(),
             tenant_store: None,
-        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
+            tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
             idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
                 vellaveto_server::idempotency::IdempotencyConfig::default(),
             ),
@@ -441,6 +441,7 @@ mod server_auth {
             policy_lifecycle_store: None,
             policy_lifecycle_config: Default::default(),
             staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+            usage_tracker: None,
         };
         (state, tmp)
     }
@@ -566,7 +567,7 @@ mod server_auth {
             rbac_config: vellaveto_server::rbac::RbacConfig::default(),
             tenant_config: vellaveto_server::tenant::TenantConfig::default(),
             tenant_store: None,
-        tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
+            tenant_rate_limiter: Arc::new(vellaveto_server::PerTenantRateLimiter::new()),
             idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
                 vellaveto_server::idempotency::IdempotencyConfig::default(),
             ),
@@ -627,6 +628,7 @@ mod server_auth {
             policy_lifecycle_store: None,
             policy_lifecycle_config: Default::default(),
             staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+            usage_tracker: None,
         };
         let app = routes::build_router(state);
 
@@ -1279,6 +1281,7 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
 
     let app = routes::build_router(state);
@@ -1431,6 +1434,7 @@ async fn finding_12_approval_creation_failure_denies_request() {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
 
     let app = routes::build_router(state);
@@ -1926,6 +1930,7 @@ async fn find_r46_it003_malformed_json_request_body_rejected() {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
 
     // Test 1: Completely invalid JSON

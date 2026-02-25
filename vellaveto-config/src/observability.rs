@@ -592,7 +592,8 @@ impl ObservabilityConfig {
             }
             if vellaveto_types::has_dangerous_chars(key) {
                 return Err(
-                    "observability.langfuse.metadata key contains control or format characters".to_string(),
+                    "observability.langfuse.metadata key contains control or format characters"
+                        .to_string(),
                 );
             }
         }
@@ -736,10 +737,7 @@ impl ObservabilityConfig {
             Self::validate_url(&self.langfuse.endpoint, "observability.langfuse.endpoint")?;
             // SECURITY (FIND-R112-014): Langfuse is an external cloud service —
             // reject private/loopback URLs to prevent SSRF.
-            Self::validate_not_private(
-                &self.langfuse.endpoint,
-                "observability.langfuse.endpoint",
-            )?;
+            Self::validate_not_private(&self.langfuse.endpoint, "observability.langfuse.endpoint")?;
 
             if self.langfuse.batch_size == 0 || self.langfuse.batch_size > 10_000 {
                 return Err(format!(
@@ -765,10 +763,7 @@ impl ObservabilityConfig {
             Self::validate_url(&self.arize.endpoint, "observability.arize.endpoint")?;
             // SECURITY (FIND-R112-014): Arize is an external cloud service —
             // reject private/loopback URLs to prevent SSRF.
-            Self::validate_not_private(
-                &self.arize.endpoint,
-                "observability.arize.endpoint",
-            )?;
+            Self::validate_not_private(&self.arize.endpoint, "observability.arize.endpoint")?;
 
             if self.arize.batch_size == 0 || self.arize.batch_size > 10_000 {
                 return Err(format!(
@@ -794,10 +789,7 @@ impl ObservabilityConfig {
             Self::validate_url(&self.helicone.endpoint, "observability.helicone.endpoint")?;
             // SECURITY (FIND-R112-014): Helicone is an external cloud service —
             // reject private/loopback URLs to prevent SSRF.
-            Self::validate_not_private(
-                &self.helicone.endpoint,
-                "observability.helicone.endpoint",
-            )?;
+            Self::validate_not_private(&self.helicone.endpoint, "observability.helicone.endpoint")?;
 
             if self.helicone.batch_size == 0 || self.helicone.batch_size > 10_000 {
                 return Err(format!(
@@ -886,8 +878,7 @@ impl ObservabilityConfig {
     /// SECURITY (IMP-R126-012): Delegates to canonical `validate_url_no_ssrf()`
     /// from vellaveto-types, eliminating ~60 lines of duplicated SSRF logic.
     fn validate_not_private(url: &str, field: &str) -> Result<(), String> {
-        vellaveto_types::validate_url_no_ssrf(url)
-            .map_err(|e| format!("{} {}", field, e))
+        vellaveto_types::validate_url_no_ssrf(url).map_err(|e| format!("{} {}", field, e))
     }
 }
 
@@ -1237,8 +1228,7 @@ mod tests {
         config.webhook.enabled = true;
 
         // ::ffff:169.254.169.254 is cloud metadata endpoint via IPv4-mapped IPv6
-        config.webhook.endpoint =
-            "https://[::ffff:169.254.169.254]/latest/meta-data".to_string();
+        config.webhook.endpoint = "https://[::ffff:169.254.169.254]/latest/meta-data".to_string();
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("IPv4-mapped private"),
@@ -1540,7 +1530,10 @@ mod tests {
     #[test]
     fn test_validate_webhook_headers_key_control_chars() {
         let mut config = ObservabilityConfig::default();
-        config.webhook.headers.insert("X-Bad\nKey".to_string(), "value".to_string());
+        config
+            .webhook
+            .headers
+            .insert("X-Bad\nKey".to_string(), "value".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("webhook.headers key contains control or format characters"),
@@ -1553,7 +1546,10 @@ mod tests {
     fn test_validate_webhook_headers_key_zero_width() {
         let mut config = ObservabilityConfig::default();
         // U+200B ZERO WIDTH SPACE
-        config.webhook.headers.insert("X-Bad\u{200B}Key".to_string(), "value".to_string());
+        config
+            .webhook
+            .headers
+            .insert("X-Bad\u{200B}Key".to_string(), "value".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("webhook.headers key contains control or format characters"),
@@ -1565,7 +1561,10 @@ mod tests {
     #[test]
     fn test_validate_webhook_headers_value_control_chars() {
         let mut config = ObservabilityConfig::default();
-        config.webhook.headers.insert("X-Good-Key".to_string(), "bad\r\nvalue".to_string());
+        config
+            .webhook
+            .headers
+            .insert("X-Good-Key".to_string(), "bad\r\nvalue".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("webhook.headers value contains control or format characters"),
@@ -1578,7 +1577,10 @@ mod tests {
     fn test_validate_webhook_headers_value_bidi_override() {
         let mut config = ObservabilityConfig::default();
         // U+202E RIGHT-TO-LEFT OVERRIDE
-        config.webhook.headers.insert("X-Key".to_string(), "val\u{202E}ue".to_string());
+        config
+            .webhook
+            .headers
+            .insert("X-Key".to_string(), "val\u{202E}ue".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("webhook.headers value contains control or format characters"),
@@ -1604,7 +1606,10 @@ mod tests {
     fn test_validate_webhook_headers_value_too_long() {
         let mut config = ObservabilityConfig::default();
         let long_value = "v".repeat(4097);
-        config.webhook.headers.insert("X-Key".to_string(), long_value);
+        config
+            .webhook
+            .headers
+            .insert("X-Key".to_string(), long_value);
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("webhook.headers value exceeds max length"),
@@ -1616,15 +1621,24 @@ mod tests {
     #[test]
     fn test_validate_webhook_headers_valid() {
         let mut config = ObservabilityConfig::default();
-        config.webhook.headers.insert("X-Custom-Header".to_string(), "some-value".to_string());
-        config.webhook.headers.insert("Authorization".to_string(), "Bearer token123".to_string());
+        config
+            .webhook
+            .headers
+            .insert("X-Custom-Header".to_string(), "some-value".to_string());
+        config
+            .webhook
+            .headers
+            .insert("Authorization".to_string(), "Bearer token123".to_string());
         assert!(config.validate().is_ok());
     }
 
     #[test]
     fn test_validate_otlp_headers_key_control_chars() {
         let mut config = ObservabilityConfig::default();
-        config.otlp.headers.insert("X-Bad\x00Key".to_string(), "value".to_string());
+        config
+            .otlp
+            .headers
+            .insert("X-Bad\x00Key".to_string(), "value".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("otlp.headers key contains control or format characters"),
@@ -1637,7 +1651,10 @@ mod tests {
     fn test_validate_otlp_headers_key_zero_width() {
         let mut config = ObservabilityConfig::default();
         // U+FEFF BOM
-        config.otlp.headers.insert("X-Bad\u{FEFF}Key".to_string(), "value".to_string());
+        config
+            .otlp
+            .headers
+            .insert("X-Bad\u{FEFF}Key".to_string(), "value".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("otlp.headers key contains control or format characters"),
@@ -1649,7 +1666,10 @@ mod tests {
     #[test]
     fn test_validate_otlp_headers_value_control_chars() {
         let mut config = ObservabilityConfig::default();
-        config.otlp.headers.insert("X-Key".to_string(), "bad\x1Fvalue".to_string());
+        config
+            .otlp
+            .headers
+            .insert("X-Key".to_string(), "bad\x1Fvalue".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("otlp.headers value contains control or format characters"),
@@ -1662,7 +1682,10 @@ mod tests {
     fn test_validate_otlp_headers_value_zero_width_joiner() {
         let mut config = ObservabilityConfig::default();
         // U+200D ZERO WIDTH JOINER
-        config.otlp.headers.insert("X-Key".to_string(), "val\u{200D}ue".to_string());
+        config
+            .otlp
+            .headers
+            .insert("X-Key".to_string(), "val\u{200D}ue".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("otlp.headers value contains control or format characters"),
@@ -1700,8 +1723,14 @@ mod tests {
     #[test]
     fn test_validate_otlp_headers_valid() {
         let mut config = ObservabilityConfig::default();
-        config.otlp.headers.insert("api-key".to_string(), "secret123".to_string());
-        config.otlp.headers.insert("X-Tenant".to_string(), "my-tenant".to_string());
+        config
+            .otlp
+            .headers
+            .insert("api-key".to_string(), "secret123".to_string());
+        config
+            .otlp
+            .headers
+            .insert("X-Tenant".to_string(), "my-tenant".to_string());
         assert!(config.validate().is_ok());
     }
 

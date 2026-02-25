@@ -85,9 +85,7 @@ impl GrpcTransportConfig {
         if let Some(ref url) = self.upstream_grpc_url {
             let trimmed = url.trim();
             if trimmed.is_empty() {
-                return Err(
-                    "grpc.upstream_grpc_url must not be empty when provided".to_string(),
-                );
+                return Err("grpc.upstream_grpc_url must not be empty when provided".to_string());
             }
             const MAX_UPSTREAM_GRPC_URL_LEN: usize = 2048;
             if trimmed.len() > MAX_UPSTREAM_GRPC_URL_LEN {
@@ -106,7 +104,7 @@ impl GrpcTransportConfig {
             let lower = trimmed.to_lowercase();
             if !lower.starts_with("http://") && !lower.starts_with("https://") {
                 return Err(
-                    "grpc.upstream_grpc_url must use http:// or https:// scheme".to_string(),
+                    "grpc.upstream_grpc_url must use http:// or https:// scheme".to_string()
                 );
             }
             // SECURITY: SSRF validation — reject private IPs, cloud metadata endpoints.

@@ -462,7 +462,10 @@ mod tests {
             allowed_servers: allowed,
             validate_paths_on_load: false,
         };
-        assert!(config.validate().is_ok(), "Lowercase hex should be accepted");
+        assert!(
+            config.validate().is_ok(),
+            "Lowercase hex should be accepted"
+        );
     }
 
     #[test]

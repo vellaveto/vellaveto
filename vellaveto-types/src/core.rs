@@ -48,7 +48,8 @@ pub fn is_unicode_format_char(c: char) -> bool {
 /// `validate_no_dangerous_chars()` implementations in `accountability.rs`
 /// and `capability_token.rs`.
 pub fn has_dangerous_chars(s: &str) -> bool {
-    s.chars().any(|c| c.is_control() || is_unicode_format_char(c))
+    s.chars()
+        .any(|c| c.is_control() || is_unicode_format_char(c))
 }
 
 /// Sanitize a string for safe inclusion in log messages by stripping control
@@ -89,14 +90,10 @@ pub fn json_has_dangerous_chars(val: &serde_json::Value, depth: usize) -> bool {
     }
     match val {
         serde_json::Value::String(s) => has_dangerous_chars(s),
-        serde_json::Value::Array(arr) => arr
-            .iter()
-            .any(|v| json_has_dangerous_chars(v, depth + 1)),
+        serde_json::Value::Array(arr) => arr.iter().any(|v| json_has_dangerous_chars(v, depth + 1)),
         serde_json::Value::Object(map) => {
             map.keys().any(|k| has_dangerous_chars(k))
-                || map
-                    .values()
-                    .any(|v| json_has_dangerous_chars(v, depth + 1))
+                || map.values().any(|v| json_has_dangerous_chars(v, depth + 1))
         }
         _ => false,
     }

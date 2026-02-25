@@ -323,17 +323,18 @@ pub async fn approve_approval(
         }
         if let Err(e) = state
             .audit
-            .log_entry(
-                &audit_action,
-                &Verdict::Allow,
-                meta,
-            )
+            .log_entry(&audit_action, &Verdict::Allow, meta)
             .await
         {
             tracing::warn!("Failed to audit approval resolution for {}: {}", id, e);
         } else {
             crate::metrics::increment_audit_entries();
         }
+    }
+
+    // Phase 50: Record approval in usage tracker.
+    if let Some(ref tracker) = state.usage_tracker {
+        tracker.record_approval(crate::tenant::DEFAULT_TENANT_ID);
     }
 
     let mut value = serde_json::to_value(approval).map_err(|e| {

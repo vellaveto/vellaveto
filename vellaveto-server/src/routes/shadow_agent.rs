@@ -137,7 +137,11 @@ pub async fn register_shadow_agent(
         )
         .await
     {
-        tracing::warn!("Failed to audit shadow agent registration for {}: {}", req.agent_id, e);
+        tracing::warn!(
+            "Failed to audit shadow agent registration for {}: {}",
+            req.agent_id,
+            e
+        );
     } else {
         crate::metrics::increment_audit_entries();
     }
@@ -252,7 +256,11 @@ pub async fn update_agent_trust(
         )
         .await
     {
-        tracing::warn!("Failed to audit shadow agent trust update for {}: {}", id, e);
+        tracing::warn!(
+            "Failed to audit shadow agent trust update for {}: {}",
+            id,
+            e
+        );
     } else {
         crate::metrics::increment_audit_entries();
     }

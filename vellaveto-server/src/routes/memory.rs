@@ -125,7 +125,9 @@ pub async fn list_memory_entries(
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."})),
+            Json(
+                json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."}),
+            ),
         ));
     };
 
@@ -162,7 +164,9 @@ pub async fn get_memory_entry(
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."})),
+            Json(
+                json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."}),
+            ),
         ));
     };
 
@@ -199,7 +203,9 @@ pub async fn quarantine_memory_entry(
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."})),
+            Json(
+                json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."}),
+            ),
         ));
     };
 
@@ -229,7 +235,9 @@ pub async fn quarantine_memory_entry(
             tracing::warn!(entry_id = %id, error = %e, "quarantine_memory_entry failed");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "An internal error occurred. Check server logs for details."})),
+                Json(
+                    json!({"error": "An internal error occurred. Check server logs for details."}),
+                ),
             ))
         }
     }
@@ -246,7 +254,9 @@ pub async fn release_memory_entry(
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."})),
+            Json(
+                json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."}),
+            ),
         ));
     };
 
@@ -263,7 +273,9 @@ pub async fn release_memory_entry(
             tracing::warn!(entry_id = %id, error = %e, "release_memory_entry failed");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "An internal error occurred. Check server logs for details."})),
+                Json(
+                    json!({"error": "An internal error occurred. Check server logs for details."}),
+                ),
             ))
         }
     }
@@ -280,7 +292,9 @@ pub async fn verify_memory_integrity(
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."})),
+            Json(
+                json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."}),
+            ),
         ));
     };
 
@@ -299,7 +313,9 @@ pub async fn get_memory_provenance(
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."})),
+            Json(
+                json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."}),
+            ),
         ));
     };
 
@@ -318,7 +334,9 @@ pub async fn list_memory_namespaces(
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."})),
+            Json(
+                json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."}),
+            ),
         ));
     };
 
@@ -360,7 +378,9 @@ pub async fn create_memory_namespace(
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."})),
+            Json(
+                json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."}),
+            ),
         ));
     };
 
@@ -388,7 +408,9 @@ pub async fn create_memory_namespace(
             tracing::warn!(namespace = %body.name, error = %e, "create_namespace failed");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "An internal error occurred. Check server logs for details."})),
+                Json(
+                    json!({"error": "An internal error occurred. Check server logs for details."}),
+                ),
             ))
         }
     }
@@ -463,7 +485,9 @@ pub async fn share_memory_namespace(
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."})),
+            Json(
+                json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."}),
+            ),
         ));
     };
 
@@ -505,7 +529,9 @@ pub async fn share_memory_namespace(
             tracing::warn!(namespace = %id, error = %e, "share_namespace failed");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "An internal error occurred. Check server logs for details."})),
+                Json(
+                    json!({"error": "An internal error occurred. Check server logs for details."}),
+                ),
             ))
         }
     }
@@ -518,7 +544,9 @@ pub async fn memory_security_stats(
     let Some(ref manager) = state.memory_security else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."})),
+            Json(
+                json!({"error": "Memory security (MINJA) is not enabled. Set [memory_security] enabled = true in your config file and restart the server."}),
+            ),
         ));
     };
 

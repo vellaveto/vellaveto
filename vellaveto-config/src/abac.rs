@@ -360,7 +360,8 @@ impl AbacConfig {
             // SECURITY (FIND-R52-008): Reject control and format characters.
             if vellaveto_types::has_dangerous_chars(aud) {
                 return Err(
-                    "abac.federation.expected_audience contains control or format characters".to_string(),
+                    "abac.federation.expected_audience contains control or format characters"
+                        .to_string(),
                 );
             }
         }

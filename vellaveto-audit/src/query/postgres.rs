@@ -6,7 +6,7 @@
 //! This module is feature-gated behind `postgres-store`.
 
 use super::{AuditQueryService, QueryError};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use vellaveto_types::audit_store::{AuditQueryParams, AuditQueryResult, VerdictFilter};
 
 /// PostgreSQL-backed audit query service.
@@ -91,10 +91,6 @@ impl PostgresAuditQuery {
     }
 }
 
-/// Maximum parameter index for a single query to prevent DoS via
-/// extremely complex filter combinations.
-const MAX_BIND_PARAMS: usize = 100;
-
 /// Build a WHERE clause and collect bind values for an `AuditQueryParams`.
 ///
 /// Returns `(where_clause, bind_values)` where bind_values are in order.
@@ -138,9 +134,7 @@ impl WhereBuilder {
 #[async_trait::async_trait]
 impl AuditQueryService for PostgresAuditQuery {
     async fn search(&self, params: &AuditQueryParams) -> Result<AuditQueryResult, QueryError> {
-        params
-            .validate()
-            .map_err(|e| QueryError::Validation(e))?;
+        params.validate().map_err(QueryError::Validation)?;
 
         let mut wb = WhereBuilder::new();
 
@@ -246,9 +240,7 @@ impl AuditQueryService for PostgresAuditQuery {
     }
 
     async fn count(&self, params: &AuditQueryParams) -> Result<u64, QueryError> {
-        params
-            .validate()
-            .map_err(|e| QueryError::Validation(e))?;
+        params.validate().map_err(QueryError::Validation)?;
 
         // Use a simpler approach: build the SQL inline with bind params
         let sql = format!(
@@ -296,10 +288,8 @@ impl AuditQueryService for PostgresAuditQuery {
     async fn recent(&self, limit: u64) -> Result<Vec<serde_json::Value>, QueryError> {
         // SECURITY (R158-001): MAX_QUERY_LIMIT is 1000, well within i64 range,
         // but use try_from for defense in depth.
-        let capped_limit = i64::try_from(
-            limit.min(vellaveto_types::audit_store::MAX_QUERY_LIMIT),
-        )
-        .unwrap_or(i64::MAX);
+        let capped_limit = i64::try_from(limit.min(vellaveto_types::audit_store::MAX_QUERY_LIMIT))
+            .unwrap_or(i64::MAX);
         if capped_limit == 0 {
             return Ok(vec![]);
         }
@@ -326,7 +316,6 @@ impl AuditQueryService for PostgresAuditQuery {
 }
 
 /// Row type for audit entry queries.
-#[derive(sqlx::FromRow)]
 struct AuditRow {
     action_json: serde_json::Value,
     verdict_json: serde_json::Value,
@@ -338,6 +327,23 @@ struct AuditRow {
     prev_hash: String,
     commitment: Option<String>,
     tenant_id: Option<String>,
+}
+
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for AuditRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            action_json: row.try_get("action_json")?,
+            verdict_json: row.try_get("verdict_json")?,
+            id: row.try_get("id")?,
+            sequence: row.try_get("sequence")?,
+            timestamp_raw: row.try_get("timestamp_raw")?,
+            metadata: row.try_get("metadata")?,
+            entry_hash: row.try_get("entry_hash")?,
+            prev_hash: row.try_get("prev_hash")?,
+            commitment: row.try_get("commitment")?,
+            tenant_id: row.try_get("tenant_id")?,
+        })
+    }
 }
 
 impl AuditRow {
@@ -597,13 +603,17 @@ mod tests {
 
     #[test]
     fn test_validate_table_name_sql_injection_semicolon() {
-        let err = validate_table_name("audit; DROP TABLE users--").unwrap_err().to_string();
+        let err = validate_table_name("audit; DROP TABLE users--")
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("alphanumeric"), "got: {err}");
     }
 
     #[test]
     fn test_validate_table_name_sql_injection_quotes() {
-        let err = validate_table_name("audit' OR '1'='1").unwrap_err().to_string();
+        let err = validate_table_name("audit' OR '1'='1")
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("alphanumeric"), "got: {err}");
     }
 
@@ -664,15 +674,42 @@ mod tests {
 
         // Count conditions from WhereBuilder
         let mut wb = WhereBuilder::new();
-        if params.since.is_some() { let p = wb.next_param(); wb.add_condition(format!("timestamp_raw >= {}", p)); }
-        if params.until.is_some() { let p = wb.next_param(); wb.add_condition(format!("timestamp_raw < {}", p)); }
-        if params.tool.is_some() { let p = wb.next_param(); wb.add_condition(format!("tool = {}", p)); }
-        if params.agent_id.is_some() { let p = wb.next_param(); wb.add_condition(format!("metadata @> jsonb_build_object('agent_id', {})", p)); }
-        if params.verdict.is_some() { let p = wb.next_param(); wb.add_condition(format!("verdict_type = {}", p)); }
-        if params.from_sequence.is_some() { let p = wb.next_param(); wb.add_condition(format!("sequence >= {}", p)); }
-        if params.to_sequence.is_some() { let p = wb.next_param(); wb.add_condition(format!("sequence <= {}", p)); }
-        if params.text_search.is_some() { let p = wb.next_param(); wb.add_condition(format!("(ILIKE {})", p)); }
-        if params.tenant_id.is_some() { let p = wb.next_param(); wb.add_condition(format!("tenant_id = {}", p)); }
+        if params.since.is_some() {
+            let p = wb.next_param();
+            wb.add_condition(format!("timestamp_raw >= {}", p));
+        }
+        if params.until.is_some() {
+            let p = wb.next_param();
+            wb.add_condition(format!("timestamp_raw < {}", p));
+        }
+        if params.tool.is_some() {
+            let p = wb.next_param();
+            wb.add_condition(format!("tool = {}", p));
+        }
+        if params.agent_id.is_some() {
+            let p = wb.next_param();
+            wb.add_condition(format!("metadata @> jsonb_build_object('agent_id', {})", p));
+        }
+        if params.verdict.is_some() {
+            let p = wb.next_param();
+            wb.add_condition(format!("verdict_type = {}", p));
+        }
+        if params.from_sequence.is_some() {
+            let p = wb.next_param();
+            wb.add_condition(format!("sequence >= {}", p));
+        }
+        if params.to_sequence.is_some() {
+            let p = wb.next_param();
+            wb.add_condition(format!("sequence <= {}", p));
+        }
+        if params.text_search.is_some() {
+            let p = wb.next_param();
+            wb.add_condition(format!("(ILIKE {})", p));
+        }
+        if params.tenant_id.is_some() {
+            let p = wb.next_param();
+            wb.add_condition(format!("tenant_id = {}", p));
+        }
         let wb_count = wb.conditions.len();
 
         // Count conditions from build_filter_clauses

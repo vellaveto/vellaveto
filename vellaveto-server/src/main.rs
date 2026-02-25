@@ -8,7 +8,7 @@ use vellaveto_audit::AuditLogger;
 use vellaveto_canonical::CanonicalPolicies;
 use vellaveto_config::PolicyConfig;
 use vellaveto_engine::PolicyEngine;
-use vellaveto_server::{routes, AppState, RateLimits};
+use vellaveto_server::{iam, routes, AppState, RateLimits};
 use vellaveto_types::{Action, Policy, Verdict};
 
 #[derive(Parser)]
@@ -259,6 +259,16 @@ async fn cmd_serve(
         );
     }
 
+    let iam_state = if policy_config.iam.enabled {
+        Some(Arc::new(
+            iam::IamState::new(policy_config.iam.clone())
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to initialize IAM: {}", e))?,
+        ))
+    } else {
+        None
+    };
+
     let mut policies = policy_config.to_policies();
     PolicyEngine::sort_policies(&mut policies);
 
@@ -387,13 +397,16 @@ async fn cmd_serve(
     #[cfg(feature = "postgres-store")]
     let pg_sink: Option<std::sync::Arc<dyn vellaveto_audit::sink::AuditSink>> = {
         if policy_config.audit_store.enabled
-            && policy_config.audit_store.backend == vellaveto_types::audit_store::AuditStoreBackend::Postgres
+            && policy_config.audit_store.backend
+                == vellaveto_types::audit_store::AuditStoreBackend::Postgres
         {
             let db_url = policy_config
                 .audit_store
                 .database_url
                 .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("audit_store.database_url required when backend=postgres"))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("audit_store.database_url required when backend=postgres")
+                })?;
             let pool = sqlx::postgres::PgPoolOptions::new()
                 .max_connections(policy_config.audit_store.pool_size)
                 .acquire_timeout(std::time::Duration::from_secs(
@@ -415,7 +428,8 @@ async fn cmd_serve(
             )
             .await
             .map_err(|e| anyhow::anyhow!("Failed to initialize audit sink: {}", e))?;
-            let sink_arc: std::sync::Arc<dyn vellaveto_audit::sink::AuditSink> = std::sync::Arc::new(sink);
+            let sink_arc: std::sync::Arc<dyn vellaveto_audit::sink::AuditSink> =
+                std::sync::Arc::new(sink);
             tracing::info!(
                 table = %policy_config.audit_store.table_name,
                 "PostgreSQL audit sink initialized"
@@ -805,6 +819,7 @@ async fn cmd_serve(
         } else {
             None
         },
+        iam_state: iam_state.clone(),
         circuit_breaker: if policy_config.circuit_breaker.enabled {
             Some(Arc::new(
                 vellaveto_engine::circuit_breaker::CircuitBreakerManager::with_config(
@@ -991,12 +1006,12 @@ async fn cmd_serve(
                 DeploymentMode::Standalone => {
                     if policy_config.deployment.leader_election.enabled {
                         let id = policy_config.deployment.effective_instance_id();
-                        Some(
-                            Arc::new(vellaveto_cluster::leader_local::LocalLeaderElection::new(
-                                id,
-                            ))
-                                as Arc<dyn vellaveto_cluster::leader::LeaderElection>,
+                        Some(Arc::new(
+                            vellaveto_cluster::leader_local::LocalLeaderElection::new(id).map_err(
+                                |e| anyhow::anyhow!("Failed to create leader election: {}", e),
+                            )?,
                         )
+                            as Arc<dyn vellaveto_cluster::leader::LeaderElection>)
                     } else {
                         None
                     }
@@ -1005,12 +1020,12 @@ async fn cmd_serve(
                     // Clustered / Kubernetes modes use local leader election as placeholder
                     // until kube-rs backend is implemented behind a feature gate.
                     let id = policy_config.deployment.effective_instance_id();
-                    Some(
-                        Arc::new(vellaveto_cluster::leader_local::LocalLeaderElection::new(
-                            id,
-                        ))
-                            as Arc<dyn vellaveto_cluster::leader::LeaderElection>,
+                    Some(Arc::new(
+                        vellaveto_cluster::leader_local::LocalLeaderElection::new(id).map_err(
+                            |e| anyhow::anyhow!("Failed to create leader election: {}", e),
+                        )?,
                     )
+                        as Arc<dyn vellaveto_cluster::leader::LeaderElection>)
                 }
             }
         },
@@ -1031,10 +1046,8 @@ async fn cmd_serve(
                             dns_name.clone(),
                             interval,
                         ) {
-                            Ok(disc) => Some(
-                                Arc::new(disc)
-                                    as Arc<dyn vellaveto_cluster::discovery::ServiceDiscovery>,
-                            ),
+                            Ok(disc) => Some(Arc::new(disc)
+                                as Arc<dyn vellaveto_cluster::discovery::ServiceDiscovery>),
                             Err(e) => {
                                 tracing::error!("Invalid DNS discovery config: {}", e);
                                 None
@@ -1186,19 +1199,22 @@ async fn cmd_serve(
                             pool,
                             policy_config.audit_store.table_name.clone(),
                         ) {
-                            Ok(query) => Arc::new(query) as Arc<dyn vellaveto_audit::query::AuditQueryService>,
+                            Ok(query) => Arc::new(query)
+                                as Arc<dyn vellaveto_audit::query::AuditQueryService>,
                             Err(e) => {
                                 tracing::warn!(error = %e, "Invalid audit store table_name, falling back to file query");
                                 Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
                                     Arc::clone(&audit),
-                                )) as Arc<dyn vellaveto_audit::query::AuditQueryService>
+                                ))
+                                    as Arc<dyn vellaveto_audit::query::AuditQueryService>
                             }
                         }
                     } else {
                         tracing::warn!("Failed to create query pool, falling back to file query");
                         Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
                             Arc::clone(&audit),
-                        )) as Arc<dyn vellaveto_audit::query::AuditQueryService>
+                        ))
+                            as Arc<dyn vellaveto_audit::query::AuditQueryService>
                     }
                 } else {
                     Arc::new(vellaveto_audit::query::file::FileAuditQuery::new(
@@ -1231,6 +1247,15 @@ async fn cmd_serve(
         },
         policy_lifecycle_config: policy_config.policy_lifecycle.clone(),
         staging_snapshot: Arc::new(ArcSwap::from_pointee(None)),
+        usage_tracker: if policy_config.metering.enabled {
+            Some(Arc::new(
+                vellaveto_server::usage_tracker::TenantUsageTracker::new(
+                    policy_config.metering.clone(),
+                ),
+            ))
+        } else {
+            None
+        },
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -1865,9 +1890,11 @@ fn cmd_policies(preset: String) -> Result<()> {
         projector: Default::default(),
         zk_audit: Default::default(),
         licensing: Default::default(),
+        iam: Default::default(),
         billing: Default::default(),
         audit_store: Default::default(),
         policy_lifecycle: Default::default(),
+        metering: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

@@ -3,12 +3,17 @@ name: Documentation
 on:
   push:
     branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "vellaveto-*/**"
+      - "docs/**"
+      - "README.md"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -50,6 +55,10 @@ jobs:
     name: Deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     # Requires GitHub Pages to be enabled: Settings > Pages > Source: GitHub Actions
     if: github.repository == 'paolovella/vellaveto'
     environment:

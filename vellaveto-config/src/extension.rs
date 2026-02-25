@@ -89,8 +89,7 @@ impl ExtensionConfig {
                     MAX_EXTENSION_PATTERN_LEN
                 ));
             }
-            if vellaveto_types::has_dangerous_chars(pat)
-            {
+            if vellaveto_types::has_dangerous_chars(pat) {
                 return Err(format!(
                     "extension.allowed_extensions[{}] contains control or format characters",
                     i
@@ -112,8 +111,7 @@ impl ExtensionConfig {
                     MAX_EXTENSION_PATTERN_LEN
                 ));
             }
-            if vellaveto_types::has_dangerous_chars(pat)
-            {
+            if vellaveto_types::has_dangerous_chars(pat) {
                 return Err(format!(
                     "extension.blocked_extensions[{}] contains control or format characters",
                     i

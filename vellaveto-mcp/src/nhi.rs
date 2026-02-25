@@ -211,9 +211,7 @@ impl NhiManager {
         // SECURITY (FIND-R126-005): Validate the constructed identity before
         // inserting. Defense-in-depth: enforces bounds/format on caller-supplied
         // name, tags, metadata even if the server route validation is bypassed.
-        identity
-            .validate()
-            .map_err(NhiError::InputValidation)?;
+        identity.validate().map_err(NhiError::InputValidation)?;
 
         // Acquire write lock for atomic capacity check + insert
         let mut identities = self.identities.write().await;
@@ -1146,9 +1144,7 @@ impl NhiManager {
         };
 
         // SECURITY (FIND-R126-006): Validate rotation before recording.
-        rotation
-            .validate()
-            .map_err(NhiError::InputValidation)?;
+        rotation.validate().map_err(NhiError::InputValidation)?;
 
         // Now safe to mutate the identity
         identity.public_key = Some(new_public_key.to_string());
@@ -1384,7 +1380,9 @@ impl NhiManager {
     ) -> Result<(), NhiError> {
         // Validate name
         if name.is_empty() {
-            return Err(NhiError::InputValidation("name must not be empty".to_string()));
+            return Err(NhiError::InputValidation(
+                "name must not be empty".to_string(),
+            ));
         }
         if name.len() > Self::MAX_NAME_LEN {
             return Err(NhiError::InputValidation(format!(
@@ -2912,10 +2910,7 @@ mod tests {
 
         // Verify baseline is mature (confidence = 1.0)
         let baseline = manager.get_baseline(&id).await.unwrap();
-        assert!(
-            baseline.confidence >= 1.0,
-            "Baseline should be mature"
-        );
+        assert!(baseline.confidence >= 1.0, "Baseline should be mature");
 
         // Check with NaN interval which produces NaN z_score.
         // This must be flagged as anomaly (fail-closed).
@@ -2924,7 +2919,10 @@ mod tests {
             .await;
 
         assert!(
-            result.deviations.iter().any(|d| d.deviation_type == "request_interval"),
+            result
+                .deviations
+                .iter()
+                .any(|d| d.deviation_type == "request_interval"),
             "FIND-R115-024: NaN z_score must produce a request_interval deviation, got: {:?}",
             result.deviations
         );
@@ -2965,7 +2963,10 @@ mod tests {
             .await;
 
         assert!(
-            result.deviations.iter().any(|d| d.deviation_type == "request_interval"),
+            result
+                .deviations
+                .iter()
+                .any(|d| d.deviation_type == "request_interval"),
             "FIND-R115-024: Infinity interval must produce a request_interval deviation, got: {:?}",
             result.deviations
         );
@@ -3215,7 +3216,10 @@ mod tests {
             "Long metadata key must be rejected, got: {:?}",
             result
         );
-        assert!(result.unwrap_err().to_string().contains("metadata key length"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("metadata key length"));
     }
 
     /// FIND-R115-025: Long metadata value must be rejected.
@@ -3244,7 +3248,10 @@ mod tests {
             "Long metadata value must be rejected, got: {:?}",
             result
         );
-        assert!(result.unwrap_err().to_string().contains("metadata value length"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("metadata value length"));
     }
 
     /// FIND-R115-025: Metadata key with control characters must be rejected.
@@ -3346,11 +3353,7 @@ mod tests {
             )
             .await;
 
-        assert!(
-            result.is_ok(),
-            "Valid inputs should succeed: {:?}",
-            result
-        );
+        assert!(result.is_ok(), "Valid inputs should succeed: {:?}", result);
     }
 
     // ═══════════════════════════════════════════════════════
@@ -3643,9 +3646,7 @@ mod tests {
             .unwrap();
 
         // Attempting to revoke should fail with CapacityExceeded.
-        let result = manager
-            .update_status(&id, NhiIdentityStatus::Revoked)
-            .await;
+        let result = manager.update_status(&id, NhiIdentityStatus::Revoked).await;
         assert!(
             matches!(result, Err(NhiError::CapacityExceeded(_))),
             "Expected CapacityExceeded when revocation list is full, got: {:?}",
@@ -3677,9 +3678,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = manager
-            .update_status(&id, NhiIdentityStatus::Revoked)
-            .await;
+        let result = manager.update_status(&id, NhiIdentityStatus::Revoked).await;
         assert!(result.is_ok(), "Expected Ok, got: {:?}", result);
         assert!(manager.is_revoked(&id).await);
     }

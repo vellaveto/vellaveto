@@ -228,7 +228,14 @@ fn traverse_json_strings_impl<F>(
                     callback(&key_path, key);
                 }
                 let child_path = format!("{}.{}", path, key);
-                traverse_json_strings_impl(val, &child_path, callback, depth + 1, include_keys, count);
+                traverse_json_strings_impl(
+                    val,
+                    &child_path,
+                    callback,
+                    depth + 1,
+                    include_keys,
+                    count,
+                );
             }
         }
         serde_json::Value::Array(arr) => {
@@ -237,7 +244,14 @@ fn traverse_json_strings_impl<F>(
                     break;
                 }
                 let child_path = format!("{}[{}]", path, i);
-                traverse_json_strings_impl(val, &child_path, callback, depth + 1, include_keys, count);
+                traverse_json_strings_impl(
+                    val,
+                    &child_path,
+                    callback,
+                    depth + 1,
+                    include_keys,
+                    count,
+                );
             }
         }
         _ => {}
@@ -473,7 +487,10 @@ mod tests {
             count
         );
         // Should have hit the limit (at least 9K processed)
-        assert!(count >= 9_000, "Expected at least 9000 callbacks, got {count}");
+        assert!(
+            count >= 9_000,
+            "Expected at least 9000 callbacks, got {count}"
+        );
     }
 
     #[test]

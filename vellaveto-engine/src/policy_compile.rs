@@ -258,7 +258,10 @@ impl PolicyEngine {
             return Err(PolicyValidationError {
                 policy_id: policy.id.clone(),
                 policy_name: policy.name.clone(),
-                reason: format!("Condition JSON too large: {} bytes (max {})", size, MAX_CONDITIONS_SIZE),
+                reason: format!(
+                    "Condition JSON too large: {} bytes (max {})",
+                    size, MAX_CONDITIONS_SIZE
+                ),
             });
         }
 
@@ -944,11 +947,7 @@ impl PolicyEngine {
                 // blocklists/allowlists.
                 let allowed: Vec<String> = allowed_raw
                     .iter()
-                    .filter_map(|v| {
-                        v.as_str().map(|s| {
-                            normalize_full(s)
-                        })
-                    })
+                    .filter_map(|v| v.as_str().map(normalize_full))
                     .collect();
 
                 let blocked_raw = obj
@@ -970,11 +969,7 @@ impl PolicyEngine {
                 // SECURITY (FIND-R209-002): Normalize homoglyphs at compile time.
                 let blocked: Vec<String> = blocked_raw
                     .iter()
-                    .filter_map(|v| {
-                        v.as_str().map(|s| {
-                            normalize_full(s)
-                        })
-                    })
+                    .filter_map(|v| v.as_str().map(normalize_full))
                     .collect();
 
                 let deny_reason =
@@ -1134,9 +1129,7 @@ impl PolicyEngine {
                 // Parse required_claims as a map of string -> string
                 // SECURITY (FIND-044): Lowercase claim values at compile time for
                 // case-insensitive comparison, matching issuer/subject/audience.
-                let required_claims = if let Some(m) = obj
-                    .get("claims")
-                    .and_then(|v| v.as_object())
+                let required_claims = if let Some(m) = obj.get("claims").and_then(|v| v.as_object())
                 {
                     if m.len() > MAX_REQUIRED_CLAIMS {
                         return Err(PolicyValidationError {
@@ -1175,10 +1168,7 @@ impl PolicyEngine {
                                     ),
                                 });
                             }
-                            map.insert(
-                                k.clone(),
-                                normalize_full(s),
-                            );
+                            map.insert(k.clone(), normalize_full(s));
                         }
                     }
                     map
@@ -1643,10 +1633,7 @@ impl PolicyEngine {
                 // with agent_identity issuer/subject/audience checks.
                 let required_issuers: Vec<String> = required_issuers_raw
                     .iter()
-                    .filter_map(|v| {
-                        v.as_str()
-                            .map(normalize_full)
-                    })
+                    .filter_map(|v| v.as_str().map(normalize_full))
                     .collect();
 
                 // Parse min_remaining_depth (optional, default 0)
@@ -1872,7 +1859,9 @@ impl PolicyEngine {
             }
 
             // SECURITY (FIND-R112-004): Reject control and Unicode format characters in tool names.
-            if s.chars().any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c)) {
+            if s.chars()
+                .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+            {
                 return Err(PolicyValidationError {
                     policy_id: policy.id.clone(),
                     policy_name: policy.name.clone(),
@@ -2014,7 +2003,10 @@ impl PolicyEngine {
             }
 
             // SECURITY (FIND-R112-004): Reject control and Unicode format characters.
-            if tool.chars().any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c)) {
+            if tool
+                .chars()
+                .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+            {
                 return Err(PolicyValidationError {
                     policy_id: policy.id.clone(),
                     policy_name: policy.name.clone(),
@@ -2088,7 +2080,9 @@ impl PolicyEngine {
                 }
 
                 // SECURITY (FIND-R112-004): Reject control and Unicode format characters.
-                if s.chars().any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c)) {
+                if s.chars()
+                    .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+                {
                     return Err(PolicyValidationError {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),

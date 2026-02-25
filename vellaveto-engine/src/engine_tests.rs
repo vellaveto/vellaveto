@@ -13768,10 +13768,7 @@ fn test_forbidden_action_sequence_evicted_prefix_allows() {
 
     // History only has "http_request" (the second step), no "read_secret".
     let ctx = EvaluationContext {
-        previous_actions: vec![
-            "benign_tool".to_string(),
-            "http_request".to_string(),
-        ],
+        previous_actions: vec!["benign_tool".to_string(), "http_request".to_string()],
         ..Default::default()
     };
     let v = engine
@@ -14005,11 +14002,7 @@ fn test_sem003_prefix_policy_catches_fullwidth_prefix() {
     let engine = PolicyEngine::with_policies(false, &[deny_policy, allow_all]).unwrap();
 
     // Fullwidth "ｒｅａｄ" + ASCII "_secret" → normalized to "read_secret" → matches "read_*"
-    let action = Action::new(
-        "\u{FF52}\u{FF45}\u{FF41}\u{FF44}_secret",
-        "exec",
-        json!({}),
-    );
+    let action = Action::new("\u{FF52}\u{FF45}\u{FF41}\u{FF44}_secret", "exec", json!({}));
     let v = engine.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),

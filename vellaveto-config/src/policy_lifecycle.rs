@@ -124,9 +124,7 @@ impl PolicyLifecycleConfig {
         // notification_webhook_url
         if let Some(ref url) = self.notification_webhook_url {
             if url.is_empty() {
-                return Err(
-                    "policy_lifecycle.notification_webhook_url is empty".to_string(),
-                );
+                return Err("policy_lifecycle.notification_webhook_url is empty".to_string());
             }
             if has_dangerous_chars(url) {
                 return Err(
@@ -134,15 +132,12 @@ impl PolicyLifecycleConfig {
                         .to_string(),
                 );
             }
-            validate_url_no_ssrf(url).map_err(|e| {
-                format!("policy_lifecycle.notification_webhook_url: {}", e)
-            })?;
+            validate_url_no_ssrf(url)
+                .map_err(|e| format!("policy_lifecycle.notification_webhook_url: {}", e))?;
         }
         // max_versions_per_policy
         if self.max_versions_per_policy == 0 {
-            return Err(
-                "policy_lifecycle.max_versions_per_policy must be >= 1".to_string(),
-            );
+            return Err("policy_lifecycle.max_versions_per_policy must be >= 1".to_string());
         }
         if self.max_versions_per_policy > MAX_VERSIONS_PER_POLICY {
             return Err(format!(

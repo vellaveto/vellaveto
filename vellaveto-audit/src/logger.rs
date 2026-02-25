@@ -417,9 +417,9 @@ impl AuditLogger {
                                      // SECURITY (FIND-R52-AUDIT-002): Use SeqCst for sequence counter to prevent
                                      // reordering that could cause duplicate sequence numbers under concurrent access.
             self.entry_count.store(0, Ordering::SeqCst); // Reset per-file counter for new file
-            // SECURITY (FIND-R111-007): global_sequence is intentionally NOT reset here.
-            // It must increase monotonically across rotations to prevent duplicate
-            // sequence numbers across log files.
+                                                         // SECURITY (FIND-R111-007): global_sequence is intentionally NOT reset here.
+                                                         // It must increase monotonically across rotations to prevent duplicate
+                                                         // sequence numbers across log files.
         }
 
         // SECURITY (R33-001): Assign monotonic sequence number BEFORE creating entry.
@@ -543,14 +543,18 @@ impl AuditLogger {
         // fetch_add to comply with project coding standard (Trap 9). While u64 overflow
         // is physically impossible at realistic logging rates, saturating arithmetic
         // is the project-wide convention for all counters.
-        let _ = self.entry_count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
-            Some(v.saturating_add(1))
-        });
+        let _ = self
+            .entry_count
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                Some(v.saturating_add(1))
+            });
         // SECURITY (FIND-R111-007): Also increment the global sequence counter that
         // is never reset on rotation, ensuring cross-rotation sequence uniqueness.
-        let _ = self.global_sequence.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
-            Some(v.saturating_add(1))
-        });
+        let _ = self
+            .global_sequence
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                Some(v.saturating_add(1))
+            });
 
         // Phase 43: Dual-write to external sink (if configured).
         // The file write above is the source of truth. Sink failures are

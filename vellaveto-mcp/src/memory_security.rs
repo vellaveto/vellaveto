@@ -1168,7 +1168,10 @@ mod tests {
         let content = "Deterministic fingerprint test string for verification";
         let fp1 = MemorySecurityManager::compute_fingerprint(content);
         let fp2 = MemorySecurityManager::compute_fingerprint(content);
-        assert_eq!(fp1, fp2, "fingerprint must be deterministic for the same input");
+        assert_eq!(
+            fp1, fp2,
+            "fingerprint must be deterministic for the same input"
+        );
     }
 
     #[test]
@@ -1176,7 +1179,10 @@ mod tests {
         let content = "Deterministic content hash test string for verification";
         let h1 = MemorySecurityManager::compute_hash(content);
         let h2 = MemorySecurityManager::compute_hash(content);
-        assert_eq!(h1, h2, "content_hash must be deterministic for the same input");
+        assert_eq!(
+            h1, h2,
+            "content_hash must be deterministic for the same input"
+        );
     }
 
     #[tokio::test]

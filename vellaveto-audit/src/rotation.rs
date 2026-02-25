@@ -55,11 +55,7 @@ impl AuditLogger {
         // after a restart the global sequence continues from where it left off,
         // preventing duplicate sequence numbers across process restarts.
         // If no entries exist or none have a sequence field, start from 0.
-        let max_sequence = entries
-            .iter()
-            .map(|e| e.sequence)
-            .max()
-            .unwrap_or(0);
+        let max_sequence = entries.iter().map(|e| e.sequence).max().unwrap_or(0);
         // Start the next sequence one past the highest observed value.
         self.global_sequence
             .store(max_sequence.saturating_add(1), Ordering::SeqCst);
@@ -271,11 +267,9 @@ impl AuditLogger {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            if let Err(e) = tokio::fs::set_permissions(
-                &manifest_path,
-                std::fs::Permissions::from_mode(0o600),
-            )
-            .await
+            if let Err(e) =
+                tokio::fs::set_permissions(&manifest_path, std::fs::Permissions::from_mode(0o600))
+                    .await
             {
                 tracing::warn!(
                     error = %e,

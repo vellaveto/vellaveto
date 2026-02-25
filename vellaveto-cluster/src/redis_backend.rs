@@ -62,7 +62,9 @@ const MAX_RATE_LIMIT_PARAM_LEN: usize = 512;
 /// - Redis hash tag characters `{` and `}` that can manipulate cluster slot routing
 fn validate_approval_id_for_redis(id: &str) -> Result<(), ClusterError> {
     if id.is_empty() {
-        return Err(ClusterError::Validation("approval ID must not be empty".to_string()));
+        return Err(ClusterError::Validation(
+            "approval ID must not be empty".to_string(),
+        ));
     }
     if id.len() > MAX_APPROVAL_ID_LEN {
         return Err(ClusterError::Validation(format!(
@@ -380,10 +382,7 @@ impl ClusterBackend for RedisBackend {
                 "reason contains control characters".to_string(),
             ));
         }
-        if reason
-            .chars()
-            .any(vellaveto_types::is_unicode_format_char)
-        {
+        if reason.chars().any(vellaveto_types::is_unicode_format_char) {
             return Err(ClusterError::Validation(
                 "reason contains Unicode format characters".to_string(),
             ));

@@ -16,6 +16,12 @@ __pycache__/
 # Node.js / TypeScript
 node_modules/
 sdk/typescript/dist/
+vscode-vellaveto/out/
+
+# Java / Maven / Gradle
+sdk/java/target/
+sdk/java/.gradle/
+sdk/java/build/
 
 # IDE
 .vscode/

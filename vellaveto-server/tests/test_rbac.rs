@@ -145,6 +145,7 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
         policy_lifecycle_store: None,
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        usage_tracker: None,
     };
     (state, tmp)
 }
@@ -609,6 +610,133 @@ async fn jwt_mode_with_api_key_still_requires_auth_header() {
         .unwrap();
 
     // With API key configured, missing Authorization must still be rejected.
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn jwt_mode_without_api_key_still_requires_auth_header() {
+    let config = RbacConfig {
+        enabled: true,
+        allow_header_role: false,
+        default_role: Role::Viewer,
+        jwt_config: Some(JwtConfig {
+            key: JwtKey::Secret(TEST_SECRET.to_string()),
+            algorithms: vec![jsonwebtoken::Algorithm::HS256],
+            issuer: None,
+            audience: None,
+            leeway_seconds: 60,
+        }),
+    };
+    let (state, _tmp) = test_state_with_rbac(config);
+    let app = routes::build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/policies")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // In JWT mode, protected endpoints must not fall back to the default role.
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn jwt_mode_with_header_role_enabled_still_requires_explicit_auth_material() {
+    let config = RbacConfig {
+        enabled: true,
+        allow_header_role: true,
+        default_role: Role::Viewer,
+        jwt_config: Some(JwtConfig {
+            key: JwtKey::Secret(TEST_SECRET.to_string()),
+            algorithms: vec![jsonwebtoken::Algorithm::HS256],
+            issuer: None,
+            audience: None,
+            leeway_seconds: 60,
+        }),
+    };
+    let (state, _tmp) = test_state_with_rbac(config);
+    let app = routes::build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/policies")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn jwt_mode_with_header_role_enabled_accepts_role_header_path() {
+    let config = RbacConfig {
+        enabled: true,
+        allow_header_role: true,
+        default_role: Role::Viewer,
+        jwt_config: Some(JwtConfig {
+            key: JwtKey::Secret(TEST_SECRET.to_string()),
+            algorithms: vec![jsonwebtoken::Algorithm::HS256],
+            issuer: None,
+            audience: None,
+            leeway_seconds: 60,
+        }),
+    };
+    let (state, _tmp) = test_state_with_rbac(config);
+    let app = routes::build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/policies")
+                .header("x-vellaveto-role", "viewer")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn jwt_mode_with_header_role_enabled_rejects_invalid_role_header() {
+    let config = RbacConfig {
+        enabled: true,
+        allow_header_role: true,
+        default_role: Role::Viewer,
+        jwt_config: Some(JwtConfig {
+            key: JwtKey::Secret(TEST_SECRET.to_string()),
+            algorithms: vec![jsonwebtoken::Algorithm::HS256],
+            issuer: None,
+            audience: None,
+            leeway_seconds: 60,
+        }),
+    };
+    let (state, _tmp) = test_state_with_rbac(config);
+    let app = routes::build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/policies")
+                .header("x-vellaveto-role", "not-a-role")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 

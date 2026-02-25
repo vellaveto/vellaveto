@@ -328,9 +328,8 @@ pub fn validate_agent_card_base_url(base_url: &str) -> Result<(), A2aError> {
 
     // Delegate core SSRF validation to the shared canonical implementation
     // (IMP-R120-009). Maps generic SSRF error strings to A2aError.
-    vellaveto_types::validate_url_no_ssrf(trimmed).map_err(|e| {
-        A2aError::AgentCardInvalid(format!("agent card URL {}", e))
-    })?;
+    vellaveto_types::validate_url_no_ssrf(trimmed)
+        .map_err(|e| A2aError::AgentCardInvalid(format!("agent card URL {}", e)))?;
 
     // Reject path traversal in the URL
     let after_scheme = &trimmed["https://".len()..];

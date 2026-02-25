@@ -205,7 +205,11 @@ pub async fn register_delegation(
         )
         .await
     {
-        tracing::warn!("Failed to audit delegation registration for {}: {}", req.session_id, e);
+        tracing::warn!(
+            "Failed to audit delegation registration for {}: {}",
+            req.session_id,
+            e
+        );
     } else {
         crate::metrics::increment_audit_entries();
     }
