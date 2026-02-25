@@ -2612,6 +2612,91 @@ pub async fn handle_mcp_post(
                 }
             }
 
+            // SECURITY (FIND-R222-008): Injection scanning on task request parameters.
+            // Parity with PassThrough (line 2237) and gRPC (FIND-R222-001). An agent
+            // could inject prompt injection payloads via task method parameters.
+            if !state.injection_disabled {
+                let scannable = extract_passthrough_text_for_injection(&msg);
+                if !scannable.is_empty() {
+                    let injection_matches: Vec<String> =
+                        if let Some(ref scanner) = state.injection_scanner {
+                            scanner
+                                .inspect(&scannable)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        } else {
+                            inspect_for_injection(&scannable)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        };
+
+                    if !injection_matches.is_empty() {
+                        tracing::warn!(
+                            "SECURITY: Injection in HTTP task request params! \
+                             Session: {}, Method: {}, Patterns: {:?}",
+                            session_id,
+                            task_method,
+                            injection_matches,
+                        );
+
+                        let inj_action = Action::new(
+                            "vellaveto",
+                            "task_injection_scan",
+                            json!({
+                                "matched_patterns": injection_matches,
+                                "method": task_method,
+                                "session": session_id,
+                            }),
+                        );
+                        let verdict = if state.injection_blocking {
+                            Verdict::Deny {
+                                reason: format!(
+                                    "Task request injection blocked: {:?}",
+                                    injection_matches
+                                ),
+                            }
+                        } else {
+                            Verdict::Allow
+                        };
+                        if let Err(e) = state
+                            .audit
+                            .log_entry(
+                                &inj_action,
+                                &verdict,
+                                json!({
+                                    "source": "http_proxy",
+                                    "event": "task_injection_detected",
+                                    "blocking": state.injection_blocking,
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                "Failed to audit task injection: {}",
+                                e
+                            );
+                        }
+
+                        if state.injection_blocking {
+                            let response = json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "error": {
+                                    "code": -32001,
+                                    "message": "Request blocked: security policy violation"
+                                }
+                            });
+                            return attach_session_header(
+                                (StatusCode::OK, Json(response)).into_response(),
+                                &session_id,
+                            );
+                        }
+                    }
+                }
+            }
+
             // R4-1: DLP scan task request parameters for secret exfiltration.
             // An agent could embed secrets in the task_id field to exfiltrate
             // them via task management operations.
@@ -3072,6 +3157,85 @@ pub async fn handle_mcp_post(
         } => {
             // Policy-evaluate extension method calls
             let params = msg.get("params").cloned().unwrap_or(json!({}));
+
+            // SECURITY (FIND-R222-008): Injection scanning on extension method parameters.
+            // Parity with gRPC (FIND-R222-001), PassThrough (line 2237), and TaskRequest.
+            if !state.injection_disabled {
+                let scannable = extract_passthrough_text_for_injection(&msg);
+                if !scannable.is_empty() {
+                    let injection_matches: Vec<String> =
+                        if let Some(ref scanner) = state.injection_scanner {
+                            scanner
+                                .inspect(&scannable)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        } else {
+                            inspect_for_injection(&scannable)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        };
+
+                    if !injection_matches.is_empty() {
+                        tracing::warn!(
+                            "SECURITY: Injection in HTTP extension method params! \
+                             Session: {}, Extension: {}:{}, Patterns: {:?}",
+                            session_id,
+                            extension_id,
+                            method,
+                            injection_matches,
+                        );
+
+                        let inj_action = Action::new(
+                            "vellaveto",
+                            "extension_injection_scan",
+                            json!({
+                                "matched_patterns": injection_matches,
+                                "extension_id": extension_id,
+                                "method": method,
+                                "session": session_id,
+                            }),
+                        );
+                        let verdict = if state.injection_blocking {
+                            Verdict::Deny {
+                                reason: format!(
+                                    "Extension injection blocked: {:?}",
+                                    injection_matches
+                                ),
+                            }
+                        } else {
+                            Verdict::Allow
+                        };
+                        if let Err(e) = state
+                            .audit
+                            .log_entry(
+                                &inj_action,
+                                &verdict,
+                                json!({
+                                    "source": "http_proxy",
+                                    "event": "extension_injection_detected",
+                                    "blocking": state.injection_blocking,
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                "Failed to audit extension injection: {}",
+                                e
+                            );
+                        }
+
+                        if state.injection_blocking {
+                            return make_jsonrpc_error(
+                                Some(id),
+                                -32001,
+                                "Request blocked: security policy violation",
+                            );
+                        }
+                    }
+                }
+            }
 
             // SECURITY (FIND-R116-001): DLP scan extension method parameters.
             // Parity with gRPC handle_extension_method (service.rs:1542).

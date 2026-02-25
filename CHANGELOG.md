@@ -94,6 +94,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Operator image whitespace validation
 - Operator `validate_path_param` Unicode format char check
 
+#### Round 222 Adversarial Audit (4 findings — 1 P1 + 3 P2)
+
+**P1 — Critical:**
+- **HTTP proxy missing injection scanning on task/extension parameters** (`vellaveto-http-proxy/src/proxy/handlers.rs`): Task request parameters and extension method parameters bypassed injection detection that was present in PassThrough and gRPC handlers. Added full scanning parity.
+
+**P2 — High:**
+- **SessionState.pending_tool_calls pub visibility** (`vellaveto-http-proxy/src/session.rs`): `pub` field allowed direct push bypassing bounded insertion checks. Changed to `pub(crate)`.
+- **SessionState.action_history pub visibility** (`vellaveto-http-proxy/src/session.rs`): Same pattern — direct push bypassed bounded insertion. Changed to `pub(crate)`.
+- **WitnessStore::restore() unbounded growth** (`vellaveto-audit/src/zk/witness.rs`): Persistent prover failure caused restore to accumulate witnesses beyond capacity cap. Now enforces capacity bound on restore.
+
 #### Round 130 WS+gRPC Injection Scanning Parity (4 findings — 1 P1 + 3 P2)
 
 - **FIND-R130-001 (P1):** WS PassThrough arm missing injection scanning — injection payloads in `prompts/get`, `completion/complete` passed undetected while HTTP and gRPC both had the check. Added `extract_strings_recursive` + `inspect_for_injection` scanning.

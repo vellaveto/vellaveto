@@ -353,8 +353,9 @@ fn test_witness_store_restore_preserves_order() {
 }
 
 #[test]
-fn test_witness_store_restore_allows_over_capacity() {
-    // Capacity is intentionally not enforced by restore()
+fn test_witness_store_restore_caps_at_capacity() {
+    // SECURITY (FIND-R222-006): restore() now enforces capacity to prevent
+    // unbounded growth on persistent prover failure.
     let store = WitnessStore::with_capacity(5);
 
     // Fill to capacity
@@ -371,16 +372,18 @@ fn test_witness_store_restore_allows_over_capacity() {
     }
     assert_eq!(store.len().unwrap(), 5);
 
-    // Restore the 3 drained witnesses — pushes over capacity to 8
+    // Restore the 3 drained witnesses — capped at capacity (5).
+    // Restored [0,1,2] are prioritized; 3 newest from [3,4,5,6,7] are dropped.
     store.restore(drained).unwrap();
-    assert_eq!(store.len().unwrap(), 8); // Intentionally over capacity
+    assert_eq!(store.len().unwrap(), 5); // Capped at max_capacity
 
-    // Verify restored are first
+    // Verify restored (older) witnesses are first, then surviving newer ones
     let all = store.drain(100).unwrap();
     assert_eq!(all[0].sequence, 0);
     assert_eq!(all[1].sequence, 1);
     assert_eq!(all[2].sequence, 2);
     assert_eq!(all[3].sequence, 3);
+    assert_eq!(all[4].sequence, 4);
 }
 
 // ═══════════════════════════════════════════════════

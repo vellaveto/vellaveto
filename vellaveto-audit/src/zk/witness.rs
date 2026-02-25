@@ -134,10 +134,11 @@ impl WitnessStore {
     /// (e.g., due to prover failure). The witnesses are prepended in order so
     /// they will be the first to be drained on the next attempt.
     ///
-    /// Capacity is not enforced here because these witnesses were already
-    /// counted against capacity before being drained. If the store has grown
-    /// beyond capacity due to concurrent appends, the excess is tolerated
-    /// to avoid permanent data loss.
+    /// SECURITY (FIND-R222-006): Capacity is enforced after restoration.
+    /// If concurrent appends during the drain+prove cycle caused the store
+    /// to grow, the total is capped at `max_capacity`. Restored (older)
+    /// witnesses are prioritized; excess newer witnesses are dropped with
+    /// a warning. This prevents unbounded growth on persistent prover failure.
     pub fn restore(&self, witnesses: Vec<EntryWitness>) -> Result<(), ZkError> {
         let mut guard = self
             .witnesses
@@ -148,6 +149,18 @@ impl WitnessStore {
         // before the existing ones.
         let mut restored = witnesses;
         restored.append(&mut *guard);
+        // Cap at max_capacity: restored (older) witnesses at the front are
+        // kept; excess newer witnesses at the back are dropped.
+        if restored.len() > self.max_capacity {
+            let dropped = restored.len() - self.max_capacity;
+            tracing::warn!(
+                dropped_count = dropped,
+                max_capacity = self.max_capacity,
+                "WitnessStore::restore() exceeded capacity — dropping {} newest witnesses",
+                dropped,
+            );
+            restored.truncate(self.max_capacity);
+        }
         *guard = restored;
         Ok(())
     }

@@ -51,7 +51,9 @@ pub struct SessionState {
     /// History of tool names called in this session (most recent last).
     /// Capped at 100 entries to bound memory usage. Uses VecDeque for O(1)
     /// pop_front instead of O(n) Vec::remove(0) (FIND-046).
-    pub action_history: VecDeque<String>,
+    /// SECURITY (FIND-R222-005): `pub(crate)` prevents bypassing bounded
+    /// insertion enforced by MAX_ACTION_HISTORY.
+    pub(crate) action_history: VecDeque<String>,
     /// OWASP ASI06: Per-session memory poisoning tracker.
     /// Records fingerprints of notable strings from tool responses and flags
     /// when those strings appear verbatim in subsequent tool call parameters.
@@ -66,7 +68,9 @@ pub struct SessionState {
     /// Pending tool call correlation map: JSON-RPC response id key -> tool name.
     /// Used to recover tool context for `structuredContent` validation when
     /// upstream responses omit `result._meta.tool`.
-    pub pending_tool_calls: HashMap<String, String>,
+    /// SECURITY (FIND-R222-004): `pub(crate)` prevents bypassing bounded
+    /// insertion enforced by MAX_PENDING_TOOL_CALLS.
+    pub(crate) pending_tool_calls: HashMap<String, String>,
     /// SECURITY (R15-OAUTH-4): Token expiry timestamp (Unix seconds).
     pub token_expires_at: Option<u64>,
     /// OWASP ASI08: Call chain for multi-agent communication monitoring.

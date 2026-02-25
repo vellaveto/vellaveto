@@ -911,6 +911,14 @@ impl DatadogConfig {
     /// SECURITY (FIND-R216-005): Validates string fields reject control/format characters.
     pub fn validate(&self) -> Result<(), ExportError> {
         self.common.validate()?;
+        // SECURITY (FIND-R224-004): Validate URL scheme to prevent SSRF via exotic
+        // schemes. Parity with Splunk (line 349), Webhook (line 678), Elasticsearch (line 1278).
+        if !self.endpoint.starts_with("http://") && !self.endpoint.starts_with("https://") {
+            return Err(ExportError::Configuration(format!(
+                "Datadog endpoint URL must use http:// or https:// scheme, got: {}",
+                self.endpoint.split(':').next().unwrap_or("(empty)")
+            )));
+        }
         if vellaveto_types::has_dangerous_chars(&self.endpoint) {
             return Err(ExportError::Configuration(
                 "Datadog endpoint contains control or Unicode format characters".to_string(),
@@ -2539,6 +2547,32 @@ mod tests {
         };
         let err = config.validate().unwrap_err().to_string();
         assert!(err.contains("tag contains"));
+    }
+
+    #[test]
+    fn test_r224_004_datadog_endpoint_rejects_non_http_scheme() {
+        // SECURITY (FIND-R224-004): SSRF prevention via URL scheme validation.
+        let config = DatadogConfig {
+            endpoint: "file:///etc/shadow".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(
+            err.contains("http://") || err.contains("https://"),
+            "Expected scheme validation error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_r224_004_datadog_endpoint_accepts_https() {
+        let config = DatadogConfig {
+            endpoint: "https://logs.datadoghq.com/api/v2/logs".to_string(),
+            ..Default::default()
+        };
+        // Should not fail on scheme validation
+        let result = config.validate();
+        assert!(result.is_ok(), "HTTPS endpoint should be valid: {:?}", result);
     }
 
     #[test]
