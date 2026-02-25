@@ -11,9 +11,9 @@
     <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-7%2C690_passing-brightgreen.svg" alt="Tests: 7,690 passing">
+    <img src="https://img.shields.io/badge/tests-7%2C697_passing-brightgreen.svg" alt="Tests: 7,697 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
-    <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-222_rounds%2C_1500%2B_findings-informational.svg" alt="Adversarial Testing: 222 rounds, 1500+ findings"></a>
+    <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-224_rounds%2C_1500%2B_findings-informational.svg" alt="Adversarial Testing: 224 rounds, 1500+ findings"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
   </p>
@@ -42,7 +42,7 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>4.0.0-dev</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>7,690 Rust + 385 Python + 127 Go + 119 TypeScript tests (+ 24 fuzz targets), 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>7,697 Rust + 385 Python + 127 Go + 119 TypeScript tests (+ 24 fuzz targets), 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
@@ -51,7 +51,7 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 
 ## Recent Updates (2026-02-25)
 
-- **Security Hardening (Rounds 216–222)** — Per-entry validation across ABAC constraints, NHI delegation/behavioral types, DID:PLC genesis operations. DORA/NIS2 registries fail-closed (0% on empty, was 100%). SIEM exporter config validation wired (Syslog/Webhook/Datadog). HTTP proxy injection scanning parity on task/extension parameters. SessionState fields narrowed to `pub(crate)`. WitnessStore capacity enforcement on restore. 180 new tests. 7,690 Rust tests passing.
+- **Security Hardening (Rounds 216–224)** — Per-entry validation across ABAC constraints, NHI delegation/behavioral types, DID:PLC genesis operations. DORA/NIS2 registries fail-closed (0% on empty, was 100%). SIEM exporter config validation wired (Syslog/Webhook/Datadog). HTTP proxy injection scanning parity on task/extension parameters. SessionState fields narrowed to `pub(crate)`. WitnessStore capacity enforcement on restore. Approval expiry persist rollback. DNS discovery refresh interval bounds. Static discovery endpoint validation. 7,697 Rust tests passing.
 - **Phase 49: Kubernetes Operator (CRDs)** — Standalone `vellaveto-operator` binary using `kube-rs` with three CRDs (`VellavetoCluster`, `VellavetoPolicy`, `VellavetoTenant`) for declarative, GitOps-friendly management. Cluster reconciler manages StatefulSet/Service/ConfigMap with owner references. Policy and tenant reconcilers sync to the Vellaveto server REST API with finalizer-based cleanup. Typed API client with SSRF validation. Helm chart extended with CRD manifests, operator Deployment, and RBAC templates (optional, `operator.enabled: false` default). 41 new tests.
 - **Phase 47: Policy Lifecycle Management** — Versioned policies with Draft → Staging → Active → Archived lifecycle. Multi-approver workflows with self-approval prevention (NFKC + homoglyph normalization), staging shadow evaluation (non-blocking verdict comparison), structural diffs, and rollback. 9 new REST API endpoints. Compile-first promote-to-Active with ArcSwap atomic swap. `PolicyLifecycleConfig` (default disabled). Round 206 hardening: auth-bound audit identity, archive TOCTOU lock, stale staging snapshot invalidation, version overflow guard. 49 new tests. 7,469 Rust tests passing.
 - **Phase 43: Centralized Audit Store** — Optional dual-write to PostgreSQL alongside the existing JSONL file log with structured query support. `AuditSink` trait for pluggable external stores, `PostgresAuditSink` with mpsc channel + background batch INSERT, `AuditQueryService` trait with `FileAuditQuery` (in-memory) and `PostgresAuditQuery` (SQL with parameterized queries, GIN indexes). `AuditStoreConfig` with SSRF validation, SQL identifier validation, secret redaction. REST API: `GET /api/audit/search`, `GET /api/audit/store/status`, `GET /api/audit/entry/{id}`. Feature-gated behind `postgres-store` (sqlx). File log remains source of truth. ~55 new tests.

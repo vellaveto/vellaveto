@@ -94,6 +94,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Operator image whitespace validation
 - Operator `validate_path_param` Unicode format char check
 
+#### Round 224 Adversarial Audit (3 findings — 1 P1 + 2 P2)
+
+**P1 — Critical:**
+- **Approval expiry persist rollback** (`vellaveto-approval/src/lib.rs`): When `persist_approval()` failed during expiry handling in `approve()`/`deny()`, in-memory state was set to Expired but the on-disk record remained Pending. On restart, the stale Pending record was reloaded and the removed dedup key allowed a duplicate approval. Added rollback of in-memory state and dedup index restoration on persist failure.
+
+**P2 — High:**
+- **DnsServiceDiscovery refresh_interval busy-loop** (`vellaveto-cluster/src/discovery_dns.rs`): Zero or sub-second `refresh_interval` caused the `watch()` loop to spin, saturating CPU and flooding the DNS resolver. Added `MIN_REFRESH_INTERVAL=1s` and `MAX_REFRESH_INTERVAL=86400s` bounds.
+- **StaticServiceDiscovery endpoint validation** (`vellaveto-cluster/src/discovery_static.rs`): Constructor accepted endpoints with control characters in `id`/`url` or excessively long labels without validation. Added per-endpoint `validate()` at construction time.
+
 #### Round 222 Adversarial Audit (4 findings — 1 P1 + 3 P2)
 
 **P1 — Critical:**
