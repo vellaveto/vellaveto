@@ -19,6 +19,7 @@ idna = "1.0"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 tracing = { workspace = true }
 metrics = { workspace = true }
+unicode-normalization = "0.1"
 
 [dev-dependencies]
 tokio = { workspace = true }

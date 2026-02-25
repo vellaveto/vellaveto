@@ -1391,13 +1391,10 @@ function extractVerdictReason(v: unknown): string | undefined {
   return undefined;
 }
 
-/**
- * SECURITY (FIND-R54-SDK-003): Validate approval ID format.
- * Rejects empty, oversized, and control-character-containing IDs.
- */
 /** Build the JSON body for approve/deny requests with optional reason.
  * SECURITY (IMP-R212-002): Parity with Python SDK resolve_approval().
- * Validates reason length (max 4096) and rejects control/format characters.
+ * Validates reason length (max 4096 bytes) and rejects control/format characters.
+ * SECURITY (FIND-R218-003): Uses byte length (UTF-8) to match server's Rust str::len().
  */
 function buildResolveBody(reason?: string): Record<string, string> | undefined {
   if (reason === undefined || reason === null) {
@@ -1406,9 +1403,10 @@ function buildResolveBody(reason?: string): Record<string, string> | undefined {
   if (typeof reason !== "string") {
     throw new VellavetoError("reason must be a string");
   }
-  if (reason.length > 4096) {
+  const byteLen = new TextEncoder().encode(reason).length;
+  if (byteLen > 4096) {
     throw new VellavetoError(
-      `reason exceeds maximum length (4096 chars, got ${reason.length})`
+      `reason exceeds maximum length (4096 bytes, got ${byteLen})`
     );
   }
   if (/[\x00-\x1f\x7f-\x9f]/.test(reason)) {

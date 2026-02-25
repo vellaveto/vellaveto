@@ -37,49 +37,10 @@ fn contains_control_chars(s: &str) -> bool {
     vellaveto_types::has_dangerous_chars(s)
 }
 
-/// Decode unreserved percent-encoded characters per RFC 3986 §2.3.
-/// Unreserved chars: A-Z a-z 0-9 - . _ ~
-/// E.g. `%2D` → `-`, `%7E` → `~`, but `%2F` (/) stays encoded.
-fn decode_unreserved_percent(input: &str) -> String {
-    let bytes = input.as_bytes();
-    let mut out = String::with_capacity(input.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(hi), Some(lo)) = (
-                hex_digit(bytes[i + 1]),
-                hex_digit(bytes[i + 2]),
-            ) {
-                let ch = (hi << 4) | lo;
-                if ch.is_ascii_alphanumeric() || ch == b'-' || ch == b'.' || ch == b'_' || ch == b'~'
-                {
-                    out.push(ch as char);
-                    i += 3;
-                    continue;
-                }
-                // Reserved/other: keep as uppercase percent-encoding (§6.2.2.1)
-                out.push('%');
-                out.push((bytes[i + 1] as char).to_ascii_uppercase());
-                out.push((bytes[i + 2] as char).to_ascii_uppercase());
-                i += 3;
-                continue;
-            }
-        }
-        out.push(bytes[i] as char);
-        i += 1;
-    }
-    out
-}
-
-/// Parse a single hex digit.
-fn hex_digit(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(10 + b - b'a'),
-        b'A'..=b'F' => Some(10 + b - b'A'),
-        _ => None,
-    }
-}
+// SECURITY (IMP-R218-008): Shared RFC 3986 §2.3 normalization moved to
+// vellaveto-types::uri_util to eliminate divergence risk between oauth.rs
+// and nhi.rs copies. Re-export for local use.
+use vellaveto_types::uri_util::normalize_dpop_htu;
 
 /// DPoP enforcement mode for OAuth requests.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -721,25 +682,8 @@ impl OAuthValidator {
         // prevents case-based bypass (e.g. HTTP://... vs http://...).
         // SECURITY (FIND-R212-011): Decode unreserved percent-encoded chars per
         // RFC 3986 §2.3 so that e.g. `/foo%2Dbar` matches `/foo-bar`.
-        let normalize_htu = |u: &str| -> String {
-            let trimmed = u.trim_end_matches('/');
-            // Step 1: Decode unreserved percent-encoding (RFC 3986 §2.3)
-            let decoded = decode_unreserved_percent(trimmed);
-            // Step 2: Lowercase scheme + authority, preserve path case per RFC 3986 §6.2.2.1
-            if let Some(idx) = decoded.find("://") {
-                if let Some(path_start) = decoded[idx + 3..].find('/') {
-                    let authority_end = idx + 3 + path_start;
-                    let mut normalized = decoded[..authority_end].to_ascii_lowercase();
-                    normalized.push_str(&decoded[authority_end..]);
-                    normalized
-                } else {
-                    decoded.to_ascii_lowercase()
-                }
-            } else {
-                decoded
-            }
-        };
-        if normalize_htu(&claims.htu) != normalize_htu(expected_uri) {
+        // SECURITY (IMP-R218-008): Uses shared normalize_dpop_htu from vellaveto-types.
+        if normalize_dpop_htu(&claims.htu) != normalize_dpop_htu(expected_uri) {
             return Err(OAuthError::InvalidDpopProof(format!(
                 "htu mismatch: expected '{}', got '{}'",
                 expected_uri, claims.htu
@@ -1095,6 +1039,7 @@ pub fn verify_pkce_support(metadata: &serde_json::Value) -> Result<(), OAuthErro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vellaveto_types::uri_util::decode_unreserved_percent;
 
     #[test]
     fn test_oauth_config_effective_jwks_uri_explicit() {
@@ -2168,16 +2113,5 @@ TfzccotDw2uXy3Xbwy/kdpfK
         );
     }
 
-    #[test]
-    fn test_hex_digit_parser() {
-        assert_eq!(hex_digit(b'0'), Some(0));
-        assert_eq!(hex_digit(b'9'), Some(9));
-        assert_eq!(hex_digit(b'a'), Some(10));
-        assert_eq!(hex_digit(b'f'), Some(15));
-        assert_eq!(hex_digit(b'A'), Some(10));
-        assert_eq!(hex_digit(b'F'), Some(15));
-        assert_eq!(hex_digit(b'g'), None);
-        assert_eq!(hex_digit(b'G'), None);
-        assert_eq!(hex_digit(b' '), None);
-    }
+    // hex_digit tests moved to vellaveto-types/src/uri_util.rs (IMP-R218-008).
 }

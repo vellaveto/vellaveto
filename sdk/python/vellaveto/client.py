@@ -740,7 +740,7 @@ class VellavetoClient:
         Args:
             approval_id: ID of the approval request
             approved: Whether to approve or deny
-            reason: Optional reason for the decision (max 4096 chars)
+            reason: Optional reason for the decision (max 4096 bytes)
         """
         # SECURITY (FIND-R56-SDK-001): Validate approval_id — aligned with Go/TS SDKs.
         _validate_approval_id(approval_id)
@@ -748,12 +748,15 @@ class VellavetoClient:
         # Parity with server-side MAX_REASON_LEN (4096 bytes in vellaveto-approval).
         # Without this check, an attacker can pass an unbounded reason string that
         # the server must allocate and store in Redis/disk, enabling OOM attacks.
+        # SECURITY (FIND-R218-003): Use byte length (UTF-8) to match server's
+        # Rust `str::len()` which counts bytes, not characters.
         if reason is not None:
             if not isinstance(reason, str):
                 raise VellavetoError("reason must be a string or None")
-            if len(reason) > 4096:
+            byte_len = len(reason.encode("utf-8"))
+            if byte_len > 4096:
                 raise VellavetoError(
-                    f"reason exceeds maximum length (4096 chars, got {len(reason)})"
+                    f"reason exceeds maximum length (4096 bytes, got {byte_len})"
                 )
             if _CONTROL_CHAR_RE.search(reason):
                 raise VellavetoError("reason contains control characters")
@@ -1449,18 +1452,20 @@ class AsyncVellavetoClient:
         Args:
             approval_id: ID of the approval request
             approved: Whether to approve or deny
-            reason: Optional reason for the decision (max 4096 chars)
+            reason: Optional reason for the decision (max 4096 bytes)
         """
         # SECURITY (FIND-R56-SDK-001): Validate approval_id — aligned with Go/TS SDKs.
         _validate_approval_id(approval_id)
         # SECURITY (FIND-R111-006): Validate reason length and control characters.
         # Parity with server-side MAX_REASON_LEN (4096 bytes in vellaveto-approval).
+        # SECURITY (FIND-R218-003): Use byte length (UTF-8) to match server.
         if reason is not None:
             if not isinstance(reason, str):
                 raise VellavetoError("reason must be a string or None")
-            if len(reason) > 4096:
+            byte_len = len(reason.encode("utf-8"))
+            if byte_len > 4096:
                 raise VellavetoError(
-                    f"reason exceeds maximum length (4096 chars, got {len(reason)})"
+                    f"reason exceeds maximum length (4096 bytes, got {byte_len})"
                 )
             if _CONTROL_CHAR_RE.search(reason):
                 raise VellavetoError("reason contains control characters")

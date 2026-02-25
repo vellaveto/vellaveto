@@ -12,7 +12,18 @@ use crate::compiled::{CompiledContextCondition, CompiledPolicy};
 use crate::matcher::PatternMatcher;
 use crate::PolicyEngine;
 use chrono::{Datelike, Timelike};
+use unicode_normalization::UnicodeNormalization;
 use vellaveto_types::{sanitize_for_log, unicode::normalize_homoglyphs, EvaluationContext, Verdict};
+
+/// Apply full normalization pipeline: NFKC → lowercase → homoglyph mapping.
+///
+/// SECURITY (FIND-R218-001): NFKC normalization catches NFKC-only confusables
+/// (circled letters Ⓐ-ⓩ, mathematical script 𝐀-𝐳, parenthesized ⒜-⒵) that
+/// `normalize_homoglyphs` alone does not map.
+fn normalize_full(s: &str) -> String {
+    let nfkc: String = s.nfkc().collect();
+    normalize_homoglyphs(&nfkc.to_lowercase())
+}
 
 impl PolicyEngine {
     // VERIFIED [S6]: Context fail-closed — missing context data produces Deny (MCPPolicyEngine.tla S6)
@@ -279,7 +290,7 @@ impl PolicyEngine {
                             // SECURITY (FIND-R211-002): Normalize homoglyphs to prevent
                             // Cyrillic/fullwidth characters from bypassing blocked issuer checks.
                             if let Some(ref iss) = identity.issuer {
-                                if blocked_issuers.contains(&normalize_homoglyphs(&iss.to_lowercase())) {
+                                if blocked_issuers.contains(&normalize_full(iss)) {
                                     let safe_iss =
                                         sanitize_for_log(iss, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
@@ -294,7 +305,7 @@ impl PolicyEngine {
                             // SECURITY (FIND-R211-002): Normalize homoglyphs to prevent
                             // Cyrillic/fullwidth characters from bypassing blocked subject checks.
                             if let Some(ref sub) = identity.subject {
-                                if blocked_subjects.contains(&normalize_homoglyphs(&sub.to_lowercase())) {
+                                if blocked_subjects.contains(&normalize_full(sub)) {
                                     let safe_sub =
                                         sanitize_for_log(sub, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
@@ -310,7 +321,7 @@ impl PolicyEngine {
                             // with blocked_issuers/blocked_subjects normalization.
                             if let Some(ref req_iss) = required_issuer {
                                 match &identity.issuer {
-                                    Some(iss) if normalize_homoglyphs(&iss.to_lowercase()) == *req_iss => {}
+                                    Some(iss) if normalize_full(iss) == *req_iss => {}
                                     _ => {
                                         let safe_got = identity
                                             .issuer
@@ -335,7 +346,7 @@ impl PolicyEngine {
                             // SECURITY (FIND-R211-002): Normalize homoglyphs for consistency.
                             if let Some(ref req_sub) = required_subject {
                                 match &identity.subject {
-                                    Some(sub) if normalize_homoglyphs(&sub.to_lowercase()) == *req_sub => {}
+                                    Some(sub) if normalize_full(sub) == *req_sub => {}
                                     _ => {
                                         let safe_got = identity
                                             .subject
@@ -363,7 +374,7 @@ impl PolicyEngine {
                                 if !identity
                                     .audience
                                     .iter()
-                                    .any(|a| normalize_homoglyphs(&a.to_lowercase()) == *req_aud)
+                                    .any(|a| normalize_full(a) == *req_aud)
                                 {
                                     let safe_audiences: Vec<String> = identity
                                         .audience
@@ -389,12 +400,13 @@ impl PolicyEngine {
                             // actual claim values before including in denial reasons.
                             // SECURITY (IMP-R216-006): Apply homoglyph normalization
                             // to claim values for parity with issuer/subject checks.
+                            // SECURITY (FIND-R218-001/005): Apply NFKC + full Unicode
+                            // to_lowercase for consistency with issuer/subject/audience.
                             for (claim_key, expected_value) in required_claims {
                                 match identity.claim_str(claim_key) {
                                     Some(actual)
-                                        if normalize_homoglyphs(
-                                            &actual.to_ascii_lowercase(),
-                                        ) == *expected_value => {}
+                                        if normalize_full(actual)
+                                            == *expected_value => {}
                                     actual => {
                                         let safe_actual = actual
                                             .map(|s| sanitize_for_log(s, MAX_CLAIM_DISPLAY_LEN))
@@ -493,10 +505,16 @@ impl PolicyEngine {
                             if !allowed_resources.is_empty() {
                                 let matches = allowed_resources.iter().any(|p| p.matches(res));
                                 if !matches {
+                                    // SECURITY (FIND-R215-001): Sanitize JWT claim value
+                                    // before interpolation into denial reason to prevent
+                                    // log injection via attacker-controlled resource claims.
+                                    const MAX_CLAIM_DISPLAY_LEN: usize = 128;
+                                    let safe_res =
+                                        sanitize_for_log(res, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
                                         reason: format!(
                                             "{} (resource '{}' not in allowed list)",
-                                            deny_reason, res
+                                            deny_reason, safe_res
                                         ),
                                     });
                                 }
@@ -550,6 +568,10 @@ impl PolicyEngine {
                     // crafted capabilities string with thousands of comma-separated values.
                     const MAX_DECLARED_CAPABILITIES: usize = 256;
 
+                    // SECURITY (FIND-R215-002): Apply normalize_homoglyphs() after
+                    // to_ascii_lowercase() for parity with AgentId, AgentIdentityMatch,
+                    // MaxCalls, RequireCapabilityToken. Without this, Cyrillic/fullwidth
+                    // characters in declared capabilities bypass blocked/required checks.
                     let declared_caps: Vec<String> = context
                         .agent_identity
                         .as_ref()
@@ -559,14 +581,14 @@ impl PolicyEngine {
                                 .map(|arr| {
                                     arr.into_iter()
                                         .take(MAX_DECLARED_CAPABILITIES)
-                                        .map(|s| s.to_ascii_lowercase())
+                                        .map(|s| normalize_homoglyphs(&s.to_ascii_lowercase()))
                                         .collect()
                                 })
                                 .or_else(|| {
                                     id.claim_str("capabilities").map(|s| {
                                         s.split(',')
                                             .take(MAX_DECLARED_CAPABILITIES)
-                                            .map(|p| p.trim().to_ascii_lowercase())
+                                            .map(|p| normalize_homoglyphs(&p.trim().to_ascii_lowercase()))
                                             .collect()
                                     })
                                 })
@@ -771,6 +793,7 @@ impl PolicyEngine {
                 } => {
                     // Capability-based delegation token enforcement.
                     // SECURITY: Fail-closed when capability_token is None.
+                    const MAX_CLAIM_DISPLAY_LEN: usize = 128;
                     match &context.capability_token {
                         Some(token) => {
                             // Check holder matches agent_id (prevents token theft).
@@ -785,13 +808,19 @@ impl PolicyEngine {
                                     // fullwidth characters that visually resemble Latin chars
                                     // would bypass holder binding, allowing token theft by an
                                     // agent with a homoglyph-variant name.
-                                    let holder_norm = normalize_homoglyphs(&token.holder.to_ascii_lowercase());
-                                    let agent_norm = normalize_homoglyphs(&agent_id.to_ascii_lowercase());
+                                    let holder_norm = normalize_full(&token.holder);
+                                    let agent_norm = normalize_full(agent_id);
                                     if holder_norm != agent_norm {
+                                        // SECURITY (IMP-R218-007): Sanitize attacker-controlled
+                                        // holder and agent_id before embedding in denial reason.
+                                        let safe_holder =
+                                            sanitize_for_log(&token.holder, MAX_CLAIM_DISPLAY_LEN);
+                                        let safe_agent =
+                                            sanitize_for_log(agent_id, MAX_CLAIM_DISPLAY_LEN);
                                         return Some(Verdict::Deny {
                                             reason: format!(
                                                 "{} (token holder '{}' does not match agent_id '{}')",
-                                                deny_reason, token.holder, agent_id
+                                                deny_reason, safe_holder, safe_agent
                                             ),
                                         });
                                     }
@@ -809,14 +838,18 @@ impl PolicyEngine {
                             // Check issuer allowlist
                             // SECURITY (IMP-R216-005): Apply homoglyph normalization
                             // for parity with agent_identity issuer checks.
+                            // SECURITY (FIND-R218-001): Apply NFKC for circled/math letter coverage.
                             if !required_issuers.is_empty() {
-                                let issuer_lower =
-                                    normalize_homoglyphs(&token.issuer.to_ascii_lowercase());
+                                let issuer_lower = normalize_full(&token.issuer);
                                 if !required_issuers.contains(&issuer_lower) {
+                                    // SECURITY (IMP-R218-007): Sanitize attacker-controlled
+                                    // issuer before embedding in denial reason.
+                                    let safe_issuer =
+                                        sanitize_for_log(&token.issuer, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
                                         reason: format!(
                                             "{} (issuer '{}' not in allowed list)",
-                                            deny_reason, token.issuer
+                                            deny_reason, safe_issuer
                                         ),
                                     });
                                 }
@@ -852,7 +885,9 @@ impl PolicyEngine {
                     // SECURITY: Fail-closed when session_state is None.
                     match &context.session_state {
                         Some(state) => {
-                            let state_lower = state.to_ascii_lowercase();
+                            // SECURITY (FIND-R215-003): Apply normalize_homoglyphs()
+                            // after to_ascii_lowercase() for parity with other conditions.
+                            let state_lower = normalize_homoglyphs(&state.to_ascii_lowercase());
                             if !allowed_states.contains(&state_lower) {
                                 return Some(Verdict::Deny {
                                     reason: format!(

@@ -13,7 +13,16 @@ use crate::matcher::{CompiledToolMatcher, PatternMatcher};
 use crate::PolicyEngine;
 use globset::Glob;
 use ipnet::IpNet;
+use unicode_normalization::UnicodeNormalization;
 use vellaveto_types::{unicode::normalize_homoglyphs, Policy, PolicyType, MAX_CONDITIONS_SIZE};
+
+/// Apply full normalization pipeline: NFKC → lowercase → homoglyph mapping.
+///
+/// SECURITY (FIND-R218-001): Must match `context_check::normalize_full`.
+fn normalize_full(s: &str) -> String {
+    let nfkc: String = s.nfkc().collect();
+    normalize_homoglyphs(&nfkc.to_lowercase())
+}
 
 impl PolicyEngine {
     /// Compile a set of policies, validating all patterns at load time.
@@ -945,7 +954,7 @@ impl PolicyEngine {
                     .iter()
                     .filter_map(|v| {
                         v.as_str().map(|s| {
-                            vellaveto_types::unicode::normalize_homoglyphs(&s.to_lowercase())
+                            normalize_full(s)
                         })
                     })
                     .collect();
@@ -971,7 +980,7 @@ impl PolicyEngine {
                     .iter()
                     .filter_map(|v| {
                         v.as_str().map(|s| {
-                            vellaveto_types::unicode::normalize_homoglyphs(&s.to_lowercase())
+                            normalize_full(s)
                         })
                     })
                     .collect();
@@ -1117,15 +1126,15 @@ impl PolicyEngine {
                 let required_issuer = obj
                     .get("issuer")
                     .and_then(|v| v.as_str())
-                    .map(|s| vellaveto_types::unicode::normalize_homoglyphs(&s.to_lowercase()));
+                    .map(normalize_full);
                 let required_subject = obj
                     .get("subject")
                     .and_then(|v| v.as_str())
-                    .map(|s| vellaveto_types::unicode::normalize_homoglyphs(&s.to_lowercase()));
+                    .map(normalize_full);
                 let required_audience = obj
                     .get("audience")
                     .and_then(|v| v.as_str())
-                    .map(|s| vellaveto_types::unicode::normalize_homoglyphs(&s.to_lowercase()));
+                    .map(normalize_full);
 
                 // SECURITY (FIND-R111-005): Per-key/value length bounds on required_claims.
                 const MAX_REQUIRED_CLAIMS: usize = 64;
@@ -1178,7 +1187,7 @@ impl PolicyEngine {
                             }
                             map.insert(
                                 k.clone(),
-                                normalize_homoglyphs(&s.to_ascii_lowercase()),
+                                normalize_full(s),
                             );
                         }
                     }
@@ -1212,7 +1221,7 @@ impl PolicyEngine {
                 }
                 let blocked_issuers: Vec<String> = blocked_issuers_raw
                     .iter()
-                    .filter_map(|v| v.as_str().map(|s| vellaveto_types::unicode::normalize_homoglyphs(&s.to_lowercase())))
+                    .filter_map(|v| v.as_str().map(normalize_full))
                     .collect();
 
                 let blocked_subjects_raw = obj
@@ -1233,7 +1242,7 @@ impl PolicyEngine {
                 }
                 let blocked_subjects: Vec<String> = blocked_subjects_raw
                     .iter()
-                    .filter_map(|v| v.as_str().map(|s| vellaveto_types::unicode::normalize_homoglyphs(&s.to_lowercase())))
+                    .filter_map(|v| v.as_str().map(normalize_full))
                     .collect();
 
                 // When true, fail if no agent_identity is present (require JWT attestation)
@@ -1364,12 +1373,15 @@ impl PolicyEngine {
                 const MAX_CAPABILITY_LIST: usize = 256;
                 const MAX_CAPABILITY_NAME_LEN: usize = 256;
 
+                // SECURITY (FIND-R215-002): Apply normalize_homoglyphs() after
+                // to_ascii_lowercase() for parity with AgentId, AgentIdentityMatch,
+                // MaxCalls, RequireCapabilityToken compile-time normalization.
                 let required_capabilities: Vec<String> = obj
                     .get("required_capabilities")
                     .and_then(|v| v.as_array())
                     .map(|arr| {
                         arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_ascii_lowercase()))
+                            .filter_map(|v| v.as_str().map(normalize_full))
                             .collect()
                     })
                     .unwrap_or_default();
@@ -1402,7 +1414,7 @@ impl PolicyEngine {
                     .and_then(|v| v.as_array())
                     .map(|arr| {
                         arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_ascii_lowercase()))
+                            .filter_map(|v| v.as_str().map(normalize_full))
                             .collect()
                     })
                     .unwrap_or_default();
@@ -1643,7 +1655,7 @@ impl PolicyEngine {
                     .iter()
                     .filter_map(|v| {
                         v.as_str()
-                            .map(|s| normalize_homoglyphs(&s.to_ascii_lowercase()))
+                            .map(normalize_full)
                     })
                     .collect();
 
@@ -1763,7 +1775,9 @@ impl PolicyEngine {
                                 ),
                             });
                         }
-                        allowed_states.push(s.to_ascii_lowercase());
+                        // SECURITY (FIND-R215-003): Apply normalize_homoglyphs()
+                        // after to_ascii_lowercase() for parity with other conditions.
+                        allowed_states.push(normalize_full(s));
                     }
                 }
 

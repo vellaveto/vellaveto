@@ -76,70 +76,10 @@ pub struct NhiManager {
     revocation_list: RwLock<HashSet<String>>,
 }
 
-/// Normalize a DPoP `htu` URI for comparison: decode unreserved percent-encoded
-/// chars (RFC 3986 §2.3), lowercase scheme+authority, strip trailing `/`.
-/// Parity with `vellaveto-http-proxy::oauth::normalize_htu`.
-///
-/// SECURITY (FIND-R216-002): This function MUST stay in sync with oauth.rs.
-fn normalize_dpop_htu(u: &str) -> String {
-    let trimmed = u.trim_end_matches('/');
-    let decoded = decode_unreserved_percent_nhi(trimmed);
-    if let Some(idx) = decoded.find("://") {
-        if let Some(path_start) = decoded[idx + 3..].find('/') {
-            let authority_end = idx + 3 + path_start;
-            let mut normalized = decoded[..authority_end].to_ascii_lowercase();
-            normalized.push_str(&decoded[authority_end..]);
-            normalized
-        } else {
-            decoded.to_ascii_lowercase()
-        }
-    } else {
-        decoded
-    }
-}
-
-/// Decode unreserved percent-encoded characters per RFC 3986 §2.3.
-/// Duplicate of `vellaveto-http-proxy::oauth::decode_unreserved_percent` —
-/// duplicated because vellaveto-mcp cannot depend on vellaveto-http-proxy.
-fn decode_unreserved_percent_nhi(input: &str) -> String {
-    let bytes = input.as_bytes();
-    let mut out = String::with_capacity(input.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(hi), Some(lo)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
-                let ch = (hi << 4) | lo;
-                if ch.is_ascii_alphanumeric()
-                    || ch == b'-'
-                    || ch == b'.'
-                    || ch == b'_'
-                    || ch == b'~'
-                {
-                    out.push(ch as char);
-                    i += 3;
-                    continue;
-                }
-                out.push('%');
-                out.push((bytes[i + 1] as char).to_ascii_uppercase());
-                out.push((bytes[i + 2] as char).to_ascii_uppercase());
-                i += 3;
-                continue;
-            }
-        }
-        out.push(bytes[i] as char);
-        i += 1;
-    }
-    out
-}
-
-fn hex_val(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(10 + b - b'a'),
-        b'A'..=b'F' => Some(10 + b - b'A'),
-        _ => None,
-    }
-}
+// SECURITY (IMP-R218-008): Shared RFC 3986 §2.3 normalization moved to
+// vellaveto-types::uri_util to eliminate divergence risk between oauth.rs
+// and nhi.rs copies.
+use vellaveto_types::uri_util::normalize_dpop_htu;
 
 impl NhiManager {
     /// Create a new NHI manager with the given configuration.

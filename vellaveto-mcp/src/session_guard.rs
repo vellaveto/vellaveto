@@ -962,23 +962,36 @@ impl SessionGuard {
         // Phase 2: SECURITY (FIND-R212-003): Transition expired sessions to Ended
         // state so subsequent checks short-circuit without re-computing expiry.
         if expired {
-            if let Ok(mut sessions) = self.sessions.write() {
-                if let Some(ctx) = sessions.get_mut(session_id) {
-                    // Double-check: another thread may have transitioned it already.
-                    if ctx.state != SessionState::Ended && ctx.state != SessionState::Locked {
-                        let old = ctx.state;
-                        let now = Self::now();
-                        ctx.state = SessionState::Ended;
-                        ctx.last_action_at = now;
-                        if ctx.transition_history.len() < MAX_TRANSITION_HISTORY {
-                            ctx.transition_history.push((old, SessionState::Ended, now));
+            match self.sessions.write() {
+                Ok(mut sessions) => {
+                    if let Some(ctx) = sessions.get_mut(session_id) {
+                        // Double-check: another thread may have transitioned it already.
+                        if ctx.state != SessionState::Ended && ctx.state != SessionState::Locked
+                        {
+                            let old = ctx.state;
+                            let now = Self::now();
+                            ctx.state = SessionState::Ended;
+                            ctx.last_action_at = now;
+                            if ctx.transition_history.len() < MAX_TRANSITION_HISTORY {
+                                ctx.transition_history.push((old, SessionState::Ended, now));
+                            }
+                            tracing::info!(
+                                session_id = session_id,
+                                "Session expired — transitioned {} → Ended",
+                                old
+                            );
                         }
-                        tracing::info!(
-                            session_id = session_id,
-                            "Session expired — transitioned {} → Ended",
-                            old
-                        );
                     }
+                }
+                Err(_poisoned) => {
+                    // SECURITY (FIND-R218-004): Log write-lock poisoning so operators
+                    // can detect the condition. The denial is still returned (fail-closed)
+                    // but without persisting the Ended transition, every subsequent call
+                    // will re-compute expiry instead of short-circuiting.
+                    tracing::error!(
+                        session_id = session_id,
+                        "SessionGuard write lock poisoned — unable to persist expiry transition"
+                    );
                 }
             }
             // Fail-closed: even if write lock fails, still deny.

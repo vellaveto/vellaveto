@@ -478,8 +478,17 @@ impl ApprovalStore {
         if let Err(e) = self.persist_approval(&approval).await {
             let mut pending = self.pending.write().await;
             let mut dedup = self.dedup_index.write().await;
-            pending.remove(&id);
-            dedup.remove(&dedup_key);
+            // SECURITY (FIND-R218-002): Only rollback if the entry is still Pending.
+            // A concurrent approve()/deny() may have resolved it between insert and
+            // persist_approval failure — removing an already-resolved entry would
+            // discard a valid resolution.
+            if pending
+                .get(&id)
+                .is_some_and(|a| a.status == ApprovalStatus::Pending)
+            {
+                pending.remove(&id);
+                dedup.remove(&dedup_key);
+            }
             return Err(e);
         }
 

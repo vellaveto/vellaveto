@@ -22,6 +22,7 @@ pub mod threat;
 pub mod time_util;
 pub mod transport;
 pub mod unicode;
+pub mod uri_util;
 pub mod verification;
 pub mod zk_audit;
 

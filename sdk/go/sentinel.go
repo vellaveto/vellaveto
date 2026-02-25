@@ -727,8 +727,9 @@ func validateReason(reason string) error {
 	if reason == "" {
 		return nil
 	}
+	// SECURITY (FIND-R218-008): Go len() measures bytes, matching server's Rust str::len().
 	if len(reason) > 4096 {
-		return fmt.Errorf("vellaveto: reason exceeds maximum length (4096 chars, got %d)", len(reason))
+		return fmt.Errorf("vellaveto: reason exceeds maximum length (4096 bytes, got %d)", len(reason))
 	}
 	for _, c := range reason {
 		if c < ' ' || (c >= 0x7F && c <= 0x9F) {
