@@ -11,6 +11,7 @@ mod ip;
 pub mod least_agency;
 mod legacy;
 mod matcher;
+mod normalize;
 mod path;
 mod policy_compile;
 mod rule_check;

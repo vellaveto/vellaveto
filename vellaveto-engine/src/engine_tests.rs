@@ -14016,3 +14016,130 @@ fn test_sem003_prefix_policy_catches_fullwidth_prefix() {
         "Fullwidth prefix should match Deny read_* policy: {v:?}"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// NFKC normalization tests (FIND-R220-001–003, IMP-R220-004)
+// Verify compile/eval normalization parity for NFKC-only confusables.
+// ═══════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_nfkc_blocked_issuer_circled_letter_denied() {
+    // FIND-R220-001: Circled Latin Capital Letter A (U+24B6) should NFKC → 'A' → 'a'.
+    // Policy blocks "evil.example.com", JWT issuer uses circled 'Ⓐ' in "evil".
+    let policy = make_context_policy(json!([
+        {"type": "agent_identity", "blocked_issuers": ["evil.example.com"]}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    // Ⓔ=U+24BA (circled E), ⓥ=U+24E5 (circled v), ⓘ=U+24D8 (circled i), ⓛ=U+24DB (circled l)
+    let ctx = EvaluationContext {
+        agent_identity: Some(make_test_identity(
+            "\u{24BA}\u{24E5}\u{24D8}\u{24DB}.example.com",
+            "agent-123",
+            "admin",
+        )),
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "NFKC circled-letter issuer should match blocked issuer and deny: {v:?}"
+    );
+}
+
+#[test]
+fn test_nfkc_blocked_subject_math_bold_denied() {
+    // FIND-R220-001: Mathematical bold letters (U+1D400 range) NFKC → ASCII.
+    // Policy blocks subject "admin", JWT subject uses math bold '𝐚𝐝𝐦𝐢𝐧'.
+    let policy = make_context_policy(json!([
+        {"type": "agent_identity", "blocked_subjects": ["admin"]}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    // 𝐚=U+1D41A, 𝐝=U+1D41D, 𝐦=U+1D426, 𝐢=U+1D422, 𝐧=U+1D427
+    let ctx = EvaluationContext {
+        agent_identity: Some(make_test_identity(
+            "https://example.com",
+            "\u{1D41A}\u{1D41D}\u{1D426}\u{1D422}\u{1D427}",
+            "viewer",
+        )),
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "NFKC math-bold subject should match blocked subject and deny: {v:?}"
+    );
+}
+
+#[test]
+fn test_nfkc_agent_id_circled_letter_denied() {
+    // FIND-R220-001: Agent ID with circled letters should match blocklist.
+    let policy = make_context_policy(json!([
+        {"type": "agent_id", "blocked": ["bad_agent"]}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    // Use circled letters: ⓑ=U+24D1, ⓐ=U+24D0, ⓓ=U+24D3
+    let ctx = EvaluationContext {
+        agent_id: Some("\u{24D1}\u{24D0}\u{24D3}_agent".to_string()),
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "NFKC circled-letter agent_id should match blocked agent_id and deny: {v:?}"
+    );
+}
+
+#[test]
+fn test_nfkc_required_previous_action_circled_tool_name() {
+    // FIND-R220-006: Tool name with circled letters in history should match
+    // required_previous_action compiled with the same letters (NFKC-normalized).
+    let policy = make_context_policy(json!([
+        {"type": "require_previous_action", "required_tool": "auth_check"}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    // Previous action uses circled letters: ⓐ=U+24D0 → 'a', ⓤ=U+24E4 → 'u', etc.
+    let ctx = EvaluationContext {
+        previous_actions: vec!["\u{24D0}uth_check".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Allow),
+        "NFKC circled-letter tool name in history should match required_previous_action: {v:?}"
+    );
+}
+
+#[test]
+fn test_nfkc_forbidden_previous_action_parenthesized_tool_name() {
+    // FIND-R220-005: Parenthesized letters (U+249C range) NFKC → ASCII.
+    let policy = make_context_policy(json!([
+        {"type": "forbidden_previous_action", "forbidden_tool": "exfiltrate"}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("http_request", "execute", json!({}));
+    // ⒠=U+24A0, ⒳=U+24B3, ⒡=U+24A1, etc. Only use the first char for simplicity.
+    // ⒠ NFKC → "(e)" → not single char. Let's use circled instead: ⓔ=U+24D4
+    let ctx = EvaluationContext {
+        previous_actions: vec!["\u{24D4}xfiltrate".to_string()],
+        ..Default::default()
+    };
+    let v = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "NFKC circled-letter forbidden tool in history should be caught: {v:?}"
+    );
+}

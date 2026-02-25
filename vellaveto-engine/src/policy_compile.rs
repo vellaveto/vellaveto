@@ -10,19 +10,11 @@ use crate::compiled::{
 };
 use crate::error::PolicyValidationError;
 use crate::matcher::{CompiledToolMatcher, PatternMatcher};
+use crate::normalize::normalize_full;
 use crate::PolicyEngine;
 use globset::Glob;
 use ipnet::IpNet;
-use unicode_normalization::UnicodeNormalization;
-use vellaveto_types::{unicode::normalize_homoglyphs, Policy, PolicyType, MAX_CONDITIONS_SIZE};
-
-/// Apply full normalization pipeline: NFKC → lowercase → homoglyph mapping.
-///
-/// SECURITY (FIND-R218-001): Must match `context_check::normalize_full`.
-fn normalize_full(s: &str) -> String {
-    let nfkc: String = s.nfkc().collect();
-    normalize_homoglyphs(&nfkc.to_lowercase())
-}
+use vellaveto_types::{Policy, PolicyType, MAX_CONDITIONS_SIZE};
 
 impl PolicyEngine {
     /// Compile a set of policies, validating all patterns at load time.
@@ -997,16 +989,15 @@ impl PolicyEngine {
                 // SECURITY (FIND-R46-003): Lowercase at compile time to match the
                 // case-insensitive comparison in context_check.rs (R31-ENG-7).
                 // SECURITY (FIND-R206-008): Also normalize homoglyphs at compile time.
-                let required_tool = vellaveto_types::unicode::normalize_homoglyphs(
-                    &obj.get("required_tool")
+                let required_tool = normalize_full(
+                    obj.get("required_tool")
                         .and_then(|v| v.as_str())
                         .ok_or_else(|| PolicyValidationError {
                             policy_id: policy.id.clone(),
                             policy_name: policy.name.clone(),
                             reason: "require_previous_action missing 'required_tool' string"
                                 .to_string(),
-                        })?
-                        .to_lowercase(),
+                        })?,
                 );
                 let deny_reason = format!(
                     "Required previous action '{}' not found in session history (policy '{}')",
@@ -1021,16 +1012,15 @@ impl PolicyEngine {
                 // SECURITY (FIND-R46-003): Lowercase at compile time to match the
                 // case-insensitive comparison in context_check.rs (R31-ENG-7).
                 // SECURITY (FIND-R206-007): Also normalize homoglyphs at compile time.
-                let forbidden_tool = vellaveto_types::unicode::normalize_homoglyphs(
-                    &obj.get("forbidden_tool")
+                let forbidden_tool = normalize_full(
+                    obj.get("forbidden_tool")
                         .and_then(|v| v.as_str())
                         .ok_or_else(|| PolicyValidationError {
                             policy_id: policy.id.clone(),
                             policy_name: policy.name.clone(),
                             reason: "forbidden_previous_action missing 'forbidden_tool' string"
                                 .to_string(),
-                        })?
-                        .to_lowercase(),
+                        })?,
                 );
                 let deny_reason = format!(
                     "Forbidden previous action '{}' detected in session history (policy '{}')",
@@ -1902,11 +1892,9 @@ impl PolicyEngine {
                 });
             }
 
-            // SECURITY (FIND-R206-005): Normalize homoglyphs at compile time
+            // SECURITY (FIND-R206-005, FIND-R220-006): normalize_full at compile time
             // so evaluation-time normalization on history entries will match.
-            sequence.push(vellaveto_types::unicode::normalize_homoglyphs(
-                &s.to_ascii_lowercase(),
-            ));
+            sequence.push(normalize_full(s));
         }
 
         let ordered = obj.get("ordered").and_then(|v| v.as_bool()).unwrap_or(true);
@@ -2048,10 +2036,8 @@ impl PolicyEngine {
                 });
             }
 
-            // SECURITY (FIND-R206-005): Normalize homoglyphs at compile time.
-            let tool_lower = vellaveto_types::unicode::normalize_homoglyphs(
-                &tool.to_ascii_lowercase(),
-            );
+            // SECURITY (FIND-R206-005, FIND-R220-006): normalize_full at compile time.
+            let tool_lower = normalize_full(tool);
 
             if !seen_tools.insert(tool_lower.clone()) {
                 return Err(PolicyValidationError {
@@ -2125,9 +2111,7 @@ impl PolicyEngine {
                 }
 
                 // SECURITY (FIND-R206-005): Normalize homoglyphs at compile time.
-                let lowered = vellaveto_types::unicode::normalize_homoglyphs(
-                    &s.to_ascii_lowercase(),
-                );
+                let lowered = normalize_full(s);
                 // SECURITY (FIND-R50-068): Silently deduplicate successors to prevent
                 // duplicate entries from inflating Kahn's algorithm in-degree counts.
                 if seen_successors.insert(lowered.clone()) {

@@ -458,10 +458,15 @@ impl SessionGuard {
             ));
         }
 
-        let mut sessions = self
-            .sessions
-            .write()
-            .map_err(|_| SessionGuardError::LockPoisoned)?;
+        let mut sessions = self.sessions.write().map_err(|_| {
+            // SECURITY (FIND-R220-009): Log write-lock poisoning at error level for operator
+            // visibility, matching the parity established in should_deny (FIND-R218-004).
+            tracing::error!(
+                session_id = session_id,
+                "SessionGuard write lock poisoned in process_event_at"
+            );
+            SessionGuardError::LockPoisoned
+        })?;
 
         // Create session if it doesn't exist
         if !sessions.contains_key(session_id) {
@@ -2024,6 +2029,41 @@ mod tests {
             result.as_ref().unwrap().contains("exceeded max duration"),
             "got: {:?}",
             result
+        );
+    }
+
+    // SECURITY (IMP-R218-003): should_deny() transitions expired sessions to Ended
+    // so subsequent checks short-circuit without re-computing expiry every call.
+    #[test]
+    fn test_should_deny_transitions_expired_to_ended() {
+        let guard = SessionGuard::new(SessionGuardConfig {
+            max_session_duration_secs: 60,
+            ..Default::default()
+        });
+        // Start session at t=1000 (far in the past — always expired)
+        guard
+            .process_event_at("s1", SessionEvent::FirstAction, 1000)
+            .unwrap();
+
+        // State should be Active before should_deny
+        assert_eq!(guard.get_state("s1"), SessionState::Active);
+
+        // First should_deny detects expiry and transitions to Ended
+        let result = guard.should_deny("s1");
+        assert!(result.is_some(), "should deny expired session");
+        assert_eq!(
+            guard.get_state("s1"),
+            SessionState::Ended,
+            "should_deny must transition expired Active → Ended"
+        );
+
+        // Second should_deny short-circuits on Ended state (different reason string)
+        let result2 = guard.should_deny("s1");
+        assert!(result2.is_some(), "should still deny ended session");
+        assert!(
+            result2.as_ref().unwrap().contains("has ended"),
+            "subsequent deny should be 'has ended' (short-circuit), got: {:?}",
+            result2
         );
     }
 

@@ -10,20 +10,10 @@
 
 use crate::compiled::{CompiledContextCondition, CompiledPolicy};
 use crate::matcher::PatternMatcher;
+use crate::normalize::normalize_full;
 use crate::PolicyEngine;
 use chrono::{Datelike, Timelike};
-use unicode_normalization::UnicodeNormalization;
-use vellaveto_types::{sanitize_for_log, unicode::normalize_homoglyphs, EvaluationContext, Verdict};
-
-/// Apply full normalization pipeline: NFKC → lowercase → homoglyph mapping.
-///
-/// SECURITY (FIND-R218-001): NFKC normalization catches NFKC-only confusables
-/// (circled letters Ⓐ-ⓩ, mathematical script 𝐀-𝐳, parenthesized ⒜-⒵) that
-/// `normalize_homoglyphs` alone does not map.
-fn normalize_full(s: &str) -> String {
-    let nfkc: String = s.nfkc().collect();
-    normalize_homoglyphs(&nfkc.to_lowercase())
-}
+use vellaveto_types::{sanitize_for_log, EvaluationContext, Verdict};
 
 impl PolicyEngine {
     // VERIFIED [S6]: Context fail-closed — missing context data produces Deny (MCPPolicyEngine.tla S6)
@@ -124,8 +114,7 @@ impl PolicyEngine {
                             .call_counts
                             .iter()
                             .filter(|(name, _)| {
-                                let norm =
-                                    normalize_homoglyphs(&name.to_ascii_lowercase());
+                                let norm = normalize_full(name);
                                 tool_pattern.matches_normalized(&norm)
                             })
                             .map(|(_, count)| count)
@@ -150,7 +139,7 @@ impl PolicyEngine {
                             // SECURITY (FIND-R209-002): Normalize homoglyphs to prevent
                             // Cyrillic/Greek/fullwidth characters from bypassing
                             // agent_id blocklists/allowlists.
-                            let id_lower = normalize_homoglyphs(&id.to_lowercase());
+                            let id_lower = normalize_full(id);
                             // Check blocked list first
                             if blocked.contains(&id_lower) {
                                 return Some(Verdict::Deny {
@@ -186,7 +175,7 @@ impl PolicyEngine {
                         .previous_actions
                         .iter()
                         .any(|a| {
-                            let norm = normalize_homoglyphs(&a.to_ascii_lowercase());
+                            let norm = normalize_full(a);
                             norm == *required_tool
                         })
                     {
@@ -206,7 +195,7 @@ impl PolicyEngine {
                         .previous_actions
                         .iter()
                         .any(|a| {
-                            let norm = normalize_homoglyphs(&a.to_ascii_lowercase());
+                            let norm = normalize_full(a);
                             norm == *forbidden_tool
                         })
                     {
@@ -241,7 +230,7 @@ impl PolicyEngine {
                     let count_usize = history
                         .iter()
                         .filter(|a| {
-                            let norm = normalize_homoglyphs(&a.to_ascii_lowercase());
+                            let norm = normalize_full(a);
                             tool_pattern.matches_normalized(&norm)
                         })
                         .count();
@@ -581,14 +570,14 @@ impl PolicyEngine {
                                 .map(|arr| {
                                     arr.into_iter()
                                         .take(MAX_DECLARED_CAPABILITIES)
-                                        .map(|s| normalize_homoglyphs(&s.to_ascii_lowercase()))
+                                        .map(normalize_full)
                                         .collect()
                                 })
                                 .or_else(|| {
                                     id.claim_str("capabilities").map(|s| {
                                         s.split(',')
                                             .take(MAX_DECLARED_CAPABILITIES)
-                                            .map(|p| normalize_homoglyphs(&p.trim().to_ascii_lowercase()))
+                                            .map(|p| normalize_full(p.trim()))
                                             .collect()
                                     })
                                 })
@@ -887,7 +876,7 @@ impl PolicyEngine {
                         Some(state) => {
                             // SECURITY (FIND-R215-003): Apply normalize_homoglyphs()
                             // after to_ascii_lowercase() for parity with other conditions.
-                            let state_lower = normalize_homoglyphs(&state.to_ascii_lowercase());
+                            let state_lower = normalize_full(state);
                             if !allowed_states.contains(&state_lower) {
                                 return Some(Verdict::Deny {
                                     reason: format!(
@@ -937,7 +926,7 @@ impl PolicyEngine {
                         let mut seq_idx = 0;
                         for h in history {
                             if seq_idx < sequence.len() {
-                                let norm = normalize_homoglyphs(&h.to_ascii_lowercase());
+                                let norm = normalize_full(h);
                                 if norm == sequence[seq_idx] {
                                     seq_idx += 1;
                                 }
@@ -963,7 +952,7 @@ impl PolicyEngine {
                                     if used[i] {
                                         return false;
                                     }
-                                    let norm = normalize_homoglyphs(&h.to_ascii_lowercase());
+                                    let norm = normalize_full(h);
                                     norm == *required
                                 });
                             match found {
@@ -1007,14 +996,14 @@ impl PolicyEngine {
                     // AFTER http_request has been forwarded (one step too late).
                     // SECURITY (FIND-R206-005): Homoglyph normalization on current_tool
                     // and history entries to prevent bypass via Cyrillic/fullwidth variants.
-                    let current_norm = normalize_homoglyphs(&current_tool.to_ascii_lowercase());
+                    let current_norm = normalize_full(current_tool);
 
                     if *ordered {
                         // Ordered subsequence match over history + current_tool.
                         let mut seq_idx = 0;
                         for h in history
                             .iter()
-                            .map(|s| normalize_homoglyphs(&s.to_ascii_lowercase()))
+                            .map(|s| normalize_full(s))
                             .chain(std::iter::once(current_norm.clone()))
                         {
                             if seq_idx < sequence.len() && h == sequence[seq_idx] {
@@ -1033,7 +1022,7 @@ impl PolicyEngine {
                         // SECURITY (FIND-R206-005): Homoglyph normalization.
                         let effective: Vec<String> = history
                             .iter()
-                            .map(|s| normalize_homoglyphs(&s.to_ascii_lowercase()))
+                            .map(|s| normalize_full(s))
                             .chain(std::iter::once(current_norm.clone()))
                             .collect();
                         let mut used = vec![false; effective.len()];
@@ -1063,7 +1052,7 @@ impl PolicyEngine {
                     deny_reason,
                 } => {
                     // SECURITY (FIND-R206-005): Homoglyph normalization on workflow tools.
-                    let tool_norm = normalize_homoglyphs(&current_tool.to_ascii_lowercase());
+                    let tool_norm = normalize_full(current_tool);
 
                     // Non-governed tools pass through — no restriction.
                     if !governed_tools.contains(&tool_norm) {
@@ -1078,10 +1067,10 @@ impl PolicyEngine {
                             .iter()
                             .rev()
                             .find(|h| {
-                                let norm = normalize_homoglyphs(&h.to_ascii_lowercase());
+                                let norm = normalize_full(h);
                                 governed_tools.contains(&norm)
                             })
-                            .map(|h| normalize_homoglyphs(&h.to_ascii_lowercase()));
+                            .map(|h| normalize_full(h));
 
                         let violation = match last_governed {
                             None => {

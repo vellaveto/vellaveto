@@ -1004,6 +1004,21 @@ impl McpGrpcService {
 
         let mut action = extractor::extract_action(tool_name, arguments);
 
+        // SECURITY (IMP-R218-002): Extract requester identity for self-approval prevention.
+        // Parity with WS handler (create_ws_approval) which tries agent_identity.subject
+        // first, then falls back to oauth_subject. Without this, approval_store.create()
+        // receives None as requested_by, bypassing the self-approval check.
+        let requested_by = self
+            .state
+            .sessions
+            .get(session_id)
+            .and_then(|s| {
+                s.agent_identity
+                    .as_ref()
+                    .and_then(|id| id.subject.clone())
+                    .or_else(|| s.oauth_subject.clone())
+            });
+
         // SECURITY (FIND-R77-001): DNS resolution for IP-based policy evaluation.
         // Parity with HTTP handler (handlers.rs:717) and WS handler (websocket/mod.rs:710).
         // Without this, policies using ip_rules are bypassed on the gRPC transport.
@@ -1084,7 +1099,7 @@ impl McpGrpcService {
                             .create(
                                 action.clone(),
                                 "Unknown tool requires approval".to_string(),
-                                None,
+                                requested_by.clone(),
                             )
                             .await;
                     }
@@ -1119,7 +1134,7 @@ impl McpGrpcService {
                             .create(
                                 action.clone(),
                                 "Untrusted tool requires approval".to_string(),
-                                None,
+                                requested_by.clone(),
                             )
                             .await;
                     }
@@ -1410,7 +1425,7 @@ impl McpGrpcService {
                 // with HTTP handler (handlers.rs:1384) and WS (create_ws_approval).
                 if let Some(ref approval_store) = self.state.approval_store {
                     let _ = approval_store
-                        .create(action.clone(), reason.clone(), None)
+                        .create(action.clone(), reason.clone(), requested_by.clone())
                         .await;
                 }
                 // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
@@ -1431,6 +1446,20 @@ impl McpGrpcService {
         _id: &Value,
         uri: &str,
     ) -> JsonRpcResponse {
+        // SECURITY (IMP-R218-002): Extract requester identity for self-approval prevention.
+        // Parity with WS handler (create_ws_approval) — without this, gRPC approval_store.create()
+        // receives None as requested_by, bypassing the self-approval check.
+        let requested_by = self
+            .state
+            .sessions
+            .get(session_id)
+            .and_then(|s| {
+                s.agent_identity
+                    .as_ref()
+                    .and_then(|id| id.subject.clone())
+                    .or_else(|| s.oauth_subject.clone())
+            });
+
         // SECURITY (FIND-R110-HTTP-002): Memory poisoning detection for resource URIs.
         // Parity with HTTP handler (handlers.rs:1491-1546, R27-PROXY-2).
         // ResourceRead is a likely exfiltration vector: a poisoned tool response says
@@ -1770,7 +1799,7 @@ impl McpGrpcService {
                 // with HTTP handler (handlers.rs:1927) and WS (create_ws_approval).
                 if let Some(ref approval_store) = self.state.approval_store {
                     let _ = approval_store
-                        .create(action.clone(), reason.clone(), None)
+                        .create(action.clone(), reason.clone(), requested_by.clone())
                         .await;
                 }
                 // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
@@ -2150,6 +2179,20 @@ impl McpGrpcService {
         task_method: &str,
         task_id: Option<&str>,
     ) -> JsonRpcResponse {
+        // SECURITY (IMP-R218-002): Extract requester identity for self-approval prevention.
+        // Parity with WS handler (create_ws_approval) — without this, gRPC approval_store.create()
+        // receives None as requested_by, bypassing the self-approval check.
+        let requested_by = self
+            .state
+            .sessions
+            .get(session_id)
+            .and_then(|s| {
+                s.agent_identity
+                    .as_ref()
+                    .and_then(|id| id.subject.clone())
+                    .or_else(|| s.oauth_subject.clone())
+            });
+
         // SECURITY (FIND-R60-002): DLP scan task parameters for secret exfiltration.
         // Parity with tools/call handler (service.rs:354) and WS (websocket/mod.rs:700).
         // Task methods (tasks/send, tasks/sendSubscribe) carry a `message` parameter that
@@ -2452,7 +2495,7 @@ impl McpGrpcService {
                 // with HTTP handler (handlers.rs:2942) and WS (create_ws_approval).
                 if let Some(ref approval_store) = self.state.approval_store {
                     let _ = approval_store
-                        .create(action.clone(), reason.clone(), None)
+                        .create(action.clone(), reason.clone(), requested_by.clone())
                         .await;
                 }
                 // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
