@@ -342,6 +342,14 @@ impl ComplianceConfig {
         // SECURITY: Per-entry validation of ToolDataMapping fields.
         // Prevents log injection, memory abuse, and unexpected control characters.
         for (i, mapping) in self.data_governance.tool_mappings.iter().enumerate() {
+            // SECURITY (FIND-R224-005): Empty tool_pattern would match nothing or
+            // silently skip governance — reject it explicitly.
+            if mapping.tool_pattern.is_empty() {
+                return Err(format!(
+                    "data_governance.tool_mappings[{}].tool_pattern must not be empty",
+                    i,
+                ));
+            }
             if mapping.tool_pattern.len() > MAX_TOOL_MAPPING_STRING_LEN {
                 return Err(format!(
                     "data_governance.tool_mappings[{}].tool_pattern length {} exceeds max {}",
@@ -379,6 +387,23 @@ impl ComplianceConfig {
                     mapping.classifications.len(),
                     MAX_DATA_CLASSIFICATIONS_PER_TOOL,
                 ));
+            }
+            // SECURITY (FIND-R224-004): Validate per-tool retention_days override
+            // against the same bounds as the global default to prevent unreasonable
+            // values causing integer overflow in date arithmetic.
+            if let Some(days) = mapping.retention_days {
+                if days < MIN_RETENTION_DAYS {
+                    return Err(format!(
+                        "data_governance.tool_mappings[{}].retention_days is {}, minimum is {}",
+                        i, days, MIN_RETENTION_DAYS,
+                    ));
+                }
+                if days > MAX_RETENTION_DAYS {
+                    return Err(format!(
+                        "data_governance.tool_mappings[{}].retention_days is {}, maximum is {}",
+                        i, days, MAX_RETENTION_DAYS,
+                    ));
+                }
             }
         }
         // SECURITY (FIND-R157-005): Validate data_governance.default_retention_days bounds.
@@ -911,6 +936,90 @@ reviewers = ["Alice"]
             retention_days: Some(365),
         }];
         assert!(config.validate().is_ok());
+    }
+
+    // ── FIND-R224-004: ToolDataMapping.retention_days validation ──────────────
+
+    #[test]
+    fn test_tool_mapping_retention_days_below_minimum_rejected() {
+        let mut config = ComplianceConfig::default();
+        config.data_governance.tool_mappings = vec![ToolDataMapping {
+            tool_pattern: "filesystem.*".to_string(),
+            classifications: vec![],
+            purpose: ProcessingPurpose::ToolExecution,
+            provenance: None,
+            retention_days: Some(10), // below MIN_RETENTION_DAYS (30)
+        }];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("retention_days"), "err: {}", err);
+        assert!(err.contains("minimum"), "err: {}", err);
+    }
+
+    #[test]
+    fn test_tool_mapping_retention_days_above_maximum_rejected() {
+        let mut config = ComplianceConfig::default();
+        config.data_governance.tool_mappings = vec![ToolDataMapping {
+            tool_pattern: "filesystem.*".to_string(),
+            classifications: vec![],
+            purpose: ProcessingPurpose::ToolExecution,
+            provenance: None,
+            retention_days: Some(MAX_RETENTION_DAYS + 1),
+        }];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("retention_days"), "err: {}", err);
+        assert!(err.contains("maximum"), "err: {}", err);
+    }
+
+    #[test]
+    fn test_tool_mapping_retention_days_at_bounds_accepted() {
+        let mut config = ComplianceConfig::default();
+        config.data_governance.tool_mappings = vec![
+            ToolDataMapping {
+                tool_pattern: "tool-a".to_string(),
+                classifications: vec![],
+                purpose: ProcessingPurpose::ToolExecution,
+                provenance: None,
+                retention_days: Some(MIN_RETENTION_DAYS),
+            },
+            ToolDataMapping {
+                tool_pattern: "tool-b".to_string(),
+                classifications: vec![],
+                purpose: ProcessingPurpose::ToolExecution,
+                provenance: None,
+                retention_days: Some(MAX_RETENTION_DAYS),
+            },
+        ];
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_tool_mapping_retention_days_none_accepted() {
+        let mut config = ComplianceConfig::default();
+        config.data_governance.tool_mappings = vec![ToolDataMapping {
+            tool_pattern: "filesystem.*".to_string(),
+            classifications: vec![],
+            purpose: ProcessingPurpose::ToolExecution,
+            provenance: None,
+            retention_days: None,
+        }];
+        assert!(config.validate().is_ok());
+    }
+
+    // ── FIND-R224-005: ToolDataMapping.tool_pattern empty string ────────────
+
+    #[test]
+    fn test_tool_mapping_empty_tool_pattern_rejected() {
+        let mut config = ComplianceConfig::default();
+        config.data_governance.tool_mappings = vec![ToolDataMapping {
+            tool_pattern: String::new(),
+            classifications: vec![],
+            purpose: ProcessingPurpose::ToolExecution,
+            provenance: None,
+            retention_days: None,
+        }];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("tool_pattern"), "err: {}", err);
+        assert!(err.contains("must not be empty"), "err: {}", err);
     }
 
     // ── Phase 41: OWASP ASI config tests ─────────────────────────────────────

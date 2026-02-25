@@ -295,6 +295,30 @@ pub struct AuditQueryResult {
     pub limit: u64,
 }
 
+impl AuditQueryResult {
+    /// Validate structural invariants on deserialized query results.
+    ///
+    /// SECURITY (FIND-R224-005): Prevents oversized result sets from untrusted
+    /// deserialized payloads and ensures total >= entries.len() invariant.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.entries.len() as u64 > MAX_QUERY_LIMIT {
+            return Err(format!(
+                "AuditQueryResult entries count {} exceeds MAX_QUERY_LIMIT {}",
+                self.entries.len(),
+                MAX_QUERY_LIMIT
+            ));
+        }
+        if (self.entries.len() as u64) > self.total {
+            return Err(format!(
+                "AuditQueryResult entries count ({}) exceeds total ({})",
+                self.entries.len(),
+                self.total
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Status of the audit store backend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

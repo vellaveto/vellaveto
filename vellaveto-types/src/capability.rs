@@ -303,6 +303,33 @@ impl CapabilityToken {
                 "holder contains control or format characters".to_string(),
             ));
         }
+        // SECURITY (FIND-R224-002): Validate parent_token_id when present — reject
+        // empty strings and dangerous characters to prevent delegation chain confusion.
+        if let Some(ref parent_id) = self.parent_token_id {
+            if parent_id.is_empty() {
+                return Err(CapabilityError::ValidationFailed(
+                    "parent_token_id must not be empty when present".to_string(),
+                ));
+            }
+            if crate::core::has_dangerous_chars(parent_id) {
+                return Err(CapabilityError::ValidationFailed(
+                    "parent_token_id contains control or format characters".to_string(),
+                ));
+            }
+        }
+        // SECURITY (FIND-R224-006): Validate signature and issuer_public_key for
+        // dangerous characters. These hex-encoded cryptographic fields should never
+        // contain control or Unicode format characters.
+        if crate::core::has_dangerous_chars(&self.signature) {
+            return Err(CapabilityError::ValidationFailed(
+                "signature contains control or format characters".to_string(),
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.issuer_public_key) {
+            return Err(CapabilityError::ValidationFailed(
+                "issuer_public_key contains control or format characters".to_string(),
+            ));
+        }
         if self.grants.is_empty() {
             return Err(CapabilityError::ValidationFailed(
                 "grants must not be empty".to_string(),

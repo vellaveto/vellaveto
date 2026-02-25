@@ -465,6 +465,14 @@ impl StagingReport {
         if has_dangerous_chars(&self.policy_id) {
             return Err("policy_id contains invalid characters".to_string());
         }
+        // SECURITY (FIND-R224-004): Reject divergent_evaluations exceeding total_evaluations.
+        // This invariant must always hold; a violation indicates data corruption or tampering.
+        if self.divergent_evaluations > self.total_evaluations {
+            return Err(format!(
+                "divergent_evaluations ({}) exceeds total_evaluations ({})",
+                self.divergent_evaluations, self.total_evaluations
+            ));
+        }
         if self.divergences.len() > MAX_STAGING_REPORT_ENTRIES {
             return Err(format!(
                 "divergences count {} exceeds max {}",
@@ -506,4 +514,26 @@ pub struct PolicyLifecycleStatus {
     pub staging_count: usize,
     /// Whether approval workflow is required (required_approvals > 0).
     pub approval_workflow_enabled: bool,
+}
+
+impl PolicyLifecycleStatus {
+    /// Validate structural invariants on deserialized status data.
+    ///
+    /// SECURITY (FIND-R224-007): Prevents inconsistent or oversized status values
+    /// from untrusted deserialized payloads.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.total_versions > MAX_TOTAL_VERSIONS {
+            return Err(format!(
+                "total_versions ({}) exceeds MAX_TOTAL_VERSIONS ({})",
+                self.total_versions, MAX_TOTAL_VERSIONS
+            ));
+        }
+        if self.staging_count > self.tracked_policies {
+            return Err(format!(
+                "staging_count ({}) exceeds tracked_policies ({})",
+                self.staging_count, self.tracked_policies
+            ));
+        }
+        Ok(())
+    }
 }

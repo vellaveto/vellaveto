@@ -376,7 +376,11 @@ pub(crate) fn validate_name(value: &str, field: &'static str) -> Result<(), Vali
 /// Use [`Action::validated`] or [`Action::validate`] at trust boundaries
 /// (MCP extractor, HTTP proxy) to enforce structural invariants before
 /// evaluation.
+/// SECURITY (FIND-R224-001): deny_unknown_fields prevents deserialization of
+/// payloads with unexpected fields, which could indicate misconfiguration or
+/// injection of attacker-controlled data that would silently be ignored.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct Action {
     pub tool: String,
     pub function: String,

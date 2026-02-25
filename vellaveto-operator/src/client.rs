@@ -37,6 +37,7 @@ pub struct VellavetoApiClient {
 
 /// Policy as returned by the Vellaveto server API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ApiPolicy {
     pub id: String,
     pub name: String,
@@ -52,6 +53,7 @@ pub struct ApiPolicy {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ApiPathRules {
     #[serde(default)]
     pub allowed: Vec<String>,
@@ -60,6 +62,7 @@ pub struct ApiPathRules {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ApiNetworkRules {
     #[serde(default)]
     pub allowed_domains: Vec<String>,
@@ -70,6 +73,7 @@ pub struct ApiNetworkRules {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ApiIpRules {
     #[serde(default)]
     pub block_private: bool,
@@ -81,6 +85,7 @@ pub struct ApiIpRules {
 
 /// Tenant as returned by the Vellaveto server API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ApiTenant {
     pub id: String,
     pub name: String,
@@ -97,6 +102,7 @@ pub struct ApiTenant {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ApiTenantQuotas {
     #[serde(default)]
     pub max_policies: u64,
@@ -124,24 +130,28 @@ pub struct TenantRequest {
 
 /// Wrapper for tenant API responses.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TenantResponse {
     pub tenant: ApiTenant,
 }
 
 /// Wrapper for tenant list API responses.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TenantListResponse {
     pub tenants: Vec<ApiTenant>,
 }
 
 /// Wrapper for policy list API responses.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PolicyListResponse {
     pub policies: Vec<ApiPolicy>,
 }
 
 /// Health check response.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HealthResponse {
     #[serde(default)]
     pub status: String,
@@ -534,5 +544,79 @@ mod tests {
         // (indirectly tested via a successful construction)
         let client = VellavetoApiClient::new("http://localhost:3000");
         assert!(client.is_ok());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // FIND-R224-003: deny_unknown_fields on API response types
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_api_policy_deny_unknown_fields() {
+        let json = r#"{"id":"p1","name":"t","policy_type":"Allow","priority":0,"extra":"bad"}"#;
+        let result = serde_json::from_str::<ApiPolicy>(json);
+        assert!(result.is_err(), "ApiPolicy should reject unknown fields");
+    }
+
+    #[test]
+    fn test_api_path_rules_deny_unknown_fields() {
+        let json = r#"{"allowed":[],"blocked":[],"extra":"bad"}"#;
+        let result = serde_json::from_str::<ApiPathRules>(json);
+        assert!(result.is_err(), "ApiPathRules should reject unknown fields");
+    }
+
+    #[test]
+    fn test_api_network_rules_deny_unknown_fields() {
+        let json = r#"{"allowed_domains":[],"blocked_domains":[],"extra":"bad"}"#;
+        let result = serde_json::from_str::<ApiNetworkRules>(json);
+        assert!(result.is_err(), "ApiNetworkRules should reject unknown fields");
+    }
+
+    #[test]
+    fn test_api_ip_rules_deny_unknown_fields() {
+        let json = r#"{"block_private":false,"blocked_cidrs":[],"allowed_cidrs":[],"extra":"bad"}"#;
+        let result = serde_json::from_str::<ApiIpRules>(json);
+        assert!(result.is_err(), "ApiIpRules should reject unknown fields");
+    }
+
+    #[test]
+    fn test_api_tenant_deny_unknown_fields() {
+        let json = r#"{"id":"t1","name":"T","enabled":true,"quotas":{},"metadata":{},"extra":"bad"}"#;
+        let result = serde_json::from_str::<ApiTenant>(json);
+        assert!(result.is_err(), "ApiTenant should reject unknown fields");
+    }
+
+    #[test]
+    fn test_api_tenant_quotas_deny_unknown_fields() {
+        let json = r#"{"max_policies":10,"extra":"bad"}"#;
+        let result = serde_json::from_str::<ApiTenantQuotas>(json);
+        assert!(result.is_err(), "ApiTenantQuotas should reject unknown fields");
+    }
+
+    #[test]
+    fn test_tenant_response_deny_unknown_fields() {
+        let json = r#"{"tenant":{"id":"t1","name":"T","enabled":true,"quotas":{},"metadata":{}},"extra":"bad"}"#;
+        let result = serde_json::from_str::<TenantResponse>(json);
+        assert!(result.is_err(), "TenantResponse should reject unknown fields");
+    }
+
+    #[test]
+    fn test_tenant_list_response_deny_unknown_fields() {
+        let json = r#"{"tenants":[],"extra":"bad"}"#;
+        let result = serde_json::from_str::<TenantListResponse>(json);
+        assert!(result.is_err(), "TenantListResponse should reject unknown fields");
+    }
+
+    #[test]
+    fn test_policy_list_response_deny_unknown_fields() {
+        let json = r#"{"policies":[],"extra":"bad"}"#;
+        let result = serde_json::from_str::<PolicyListResponse>(json);
+        assert!(result.is_err(), "PolicyListResponse should reject unknown fields");
+    }
+
+    #[test]
+    fn test_health_response_deny_unknown_fields() {
+        let json = r#"{"status":"ok","extra":"bad"}"#;
+        let result = serde_json::from_str::<HealthResponse>(json);
+        assert!(result.is_err(), "HealthResponse should reject unknown fields");
     }
 }

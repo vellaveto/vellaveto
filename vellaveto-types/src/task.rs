@@ -571,6 +571,19 @@ impl TaskCheckpoint {
                 Self::MAX_TIMESTAMP_LEN,
             ));
         }
+        // SECURITY (FIND-R224-003): Validate state_hash, created_at, signature, and
+        // public_key for dangerous characters. These fields could be used for log
+        // injection or identity confusion if control/format characters are present.
+        if crate::core::has_dangerous_chars(&self.state_hash) {
+            return Err(
+                "TaskCheckpoint state_hash contains control or format characters".to_string(),
+            );
+        }
+        if crate::core::has_dangerous_chars(&self.created_at) {
+            return Err(
+                "TaskCheckpoint created_at contains control or format characters".to_string(),
+            );
+        }
         if self.signature.len() > Self::MAX_SIGNATURE_LEN {
             return Err(format!(
                 "TaskCheckpoint signature length {} exceeds max {}",
@@ -578,12 +591,22 @@ impl TaskCheckpoint {
                 Self::MAX_SIGNATURE_LEN,
             ));
         }
+        if crate::core::has_dangerous_chars(&self.signature) {
+            return Err(
+                "TaskCheckpoint signature contains control or format characters".to_string(),
+            );
+        }
         if self.public_key.len() > Self::MAX_PUBLIC_KEY_LEN {
             return Err(format!(
                 "TaskCheckpoint public_key length {} exceeds max {}",
                 self.public_key.len(),
                 Self::MAX_PUBLIC_KEY_LEN,
             ));
+        }
+        if crate::core::has_dangerous_chars(&self.public_key) {
+            return Err(
+                "TaskCheckpoint public_key contains control or format characters".to_string(),
+            );
         }
         Ok(())
     }

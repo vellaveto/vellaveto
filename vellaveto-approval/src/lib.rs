@@ -842,7 +842,7 @@ impl ApprovalStore {
         // create() inserts a dedup entry for an approval being expired.
         let mut pending = self.pending.write().await;
         let mut dedup = self.dedup_index.write().await;
-        let mut expired_count = 0;
+        let mut expired_count: usize = 0;
         let mut to_persist = Vec::new();
 
         for approval in pending.values_mut() {
@@ -880,9 +880,36 @@ impl ApprovalStore {
         drop(dedup);
         drop(pending);
 
+        // SECURITY (FIND-R224-005): Track which approvals failed to persist and
+        // rollback their in-memory state. Without this, approvals that fail to
+        // persist as Expired remain Expired in memory but Pending on disk. On
+        // restart they reload as Pending and can be resolved — creating ghost
+        // approvals that bypass the expiry system.
+        let mut failed_ids = Vec::new();
         for approval in &to_persist {
             if let Err(e) = self.persist_approval(approval).await {
                 tracing::warn!("Failed to persist expired approval {}: {}", approval.id, e);
+                failed_ids.push(approval.id.clone());
+            }
+        }
+        if !failed_ids.is_empty() {
+            let mut pending = self.pending.write().await;
+            let mut dedup = self.dedup_index.write().await;
+            for id in &failed_ids {
+                if let Some(approval) = pending.get_mut(id) {
+                    if approval.status == ApprovalStatus::Expired {
+                        approval.status = ApprovalStatus::Pending;
+                        expired_count = expired_count.saturating_sub(1);
+                        // Restore dedup key so duplicates are still rejected
+                        if let Ok(key) = compute_dedup_key(
+                            &approval.action,
+                            &approval.reason,
+                            approval.requested_by.as_deref(),
+                        ) {
+                            dedup.insert(key, id.clone());
+                        }
+                    }
+                }
             }
         }
 

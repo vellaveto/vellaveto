@@ -165,7 +165,12 @@ pub struct ResourceRequirements {
 }
 
 /// Status subresource for VellavetoCluster.
+///
+/// SECURITY (FIND-R224-002): `deny_unknown_fields` is safe here because the status
+/// subresource is entirely operator-controlled — Kubernetes stores exactly what the
+/// operator writes and validates against the CRD schema.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct VellavetoClusterStatus {
     /// Current phase: Pending, Running, or Failed.
     #[serde(default)]
@@ -304,7 +309,10 @@ pub struct PolicyLifecycleSpec {
 }
 
 /// Status subresource for VellavetoPolicy.
+///
+/// SECURITY (FIND-R224-002): `deny_unknown_fields` is safe — see `VellavetoClusterStatus`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct VellavetoPolicyStatus {
     /// Whether the policy is synchronized with the target cluster.
     #[serde(default)]
@@ -402,7 +410,10 @@ pub struct TenantQuotasSpec {
 }
 
 /// Status subresource for VellavetoTenant.
+///
+/// SECURITY (FIND-R224-002): `deny_unknown_fields` is safe — see `VellavetoClusterStatus`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct VellavetoTenantStatus {
     /// Whether the tenant is synchronized with the target cluster.
     #[serde(default)]
@@ -427,6 +438,7 @@ pub struct VellavetoTenantStatus {
 
 /// Standard Kubernetes-style condition.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Condition {
     /// Type of condition (e.g. "Ready", "Synced", "Available").
     #[serde(rename = "type")]
@@ -448,8 +460,9 @@ impl Condition {
     /// Create a new Condition with bounded message length.
     ///
     /// Truncates `message` to [`MAX_CONDITION_MESSAGE_LEN`] at a char boundary.
-    /// Strips dangerous chars from `reason` and `condition_type` when reading
-    /// from external sources.
+    /// SECURITY (FIND-R224-006): Strips dangerous chars (control + Unicode format)
+    /// from `condition_type`, `status`, and `reason` to prevent log injection and
+    /// bidi override attacks.
     pub fn new(
         condition_type: impl Into<String>,
         status: impl Into<String>,
@@ -469,13 +482,23 @@ impl Condition {
             }
         });
         Self {
-            condition_type: condition_type.into(),
-            status: status.into(),
+            condition_type: strip_dangerous_chars(&condition_type.into()),
+            status: strip_dangerous_chars(&status.into()),
             last_transition_time,
-            reason,
+            reason: reason.map(|r| strip_dangerous_chars(&r)),
             message: truncated_message,
         }
     }
+}
+
+/// Strip control characters and Unicode format characters from a string.
+///
+/// Used in constructors where rejection is not appropriate — the sanitized
+/// value is safe for logging and display.
+fn strip_dangerous_chars(s: &str) -> String {
+    s.chars()
+        .filter(|c| !c.is_control() && !is_unicode_format_char(*c))
+        .collect()
 }
 
 // ═══════════════════════════════════════════════════
@@ -643,6 +666,14 @@ impl VellavetoConfigOverrides {
         if let Some(rps) = self.rate_limit_rps {
             if rps == 0 {
                 return Err("rate_limit_rps must be > 0".into());
+            }
+            // SECURITY (FIND-R224-007): Upper bound prevents unreasonable rate
+            // limits that could overwhelm the server or exhaust resources.
+            const MAX_RATE_LIMIT_RPS: u32 = 100_000;
+            if rps > MAX_RATE_LIMIT_RPS {
+                return Err(format!(
+                    "rate_limit_rps exceeds max of {MAX_RATE_LIMIT_RPS}"
+                ));
             }
         }
         Ok(())
@@ -1538,5 +1569,133 @@ mod tests {
             network_rules: None,
         };
         assert!(spec.validate().unwrap_err().contains("conditions exceed max size"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // FIND-R224 finding tests
+    // ═══════════════════════════════════════════════════
+
+    // FIND-R224-001: Condition deny_unknown_fields
+    #[test]
+    fn test_condition_deny_unknown_fields() {
+        let json = r#"{"type":"Ready","status":"True","extra":"bad"}"#;
+        let result = serde_json::from_str::<Condition>(json);
+        assert!(result.is_err(), "Condition should reject unknown fields");
+    }
+
+    // FIND-R224-002: Status types deny_unknown_fields
+    #[test]
+    fn test_cluster_status_deny_unknown_fields() {
+        let json = r#"{"phase":"Pending","replicas":0,"readyReplicas":0,"observedGeneration":0,"extra":"bad"}"#;
+        let result = serde_json::from_str::<VellavetoClusterStatus>(json);
+        assert!(result.is_err(), "VellavetoClusterStatus should reject unknown fields");
+    }
+
+    #[test]
+    fn test_policy_status_deny_unknown_fields() {
+        let json = r#"{"synced":false,"observedGeneration":0,"extra":"bad"}"#;
+        let result = serde_json::from_str::<VellavetoPolicyStatus>(json);
+        assert!(result.is_err(), "VellavetoPolicyStatus should reject unknown fields");
+    }
+
+    #[test]
+    fn test_tenant_status_deny_unknown_fields() {
+        let json = r#"{"synced":false,"observedGeneration":0,"extra":"bad"}"#;
+        let result = serde_json::from_str::<VellavetoTenantStatus>(json);
+        assert!(result.is_err(), "VellavetoTenantStatus should reject unknown fields");
+    }
+
+    // Verify status types still deserialize correctly with only known fields
+    #[test]
+    fn test_cluster_status_valid_deserialize() {
+        let json = r#"{"phase":"Running","replicas":3,"readyReplicas":3,"observedGeneration":1}"#;
+        let status: VellavetoClusterStatus = serde_json::from_str(json).unwrap();
+        assert_eq!(status.phase, ClusterPhase::Running);
+        assert_eq!(status.replicas, 3);
+    }
+
+    #[test]
+    fn test_policy_status_valid_deserialize() {
+        let json = r#"{"synced":true,"observedGeneration":5}"#;
+        let status: VellavetoPolicyStatus = serde_json::from_str(json).unwrap();
+        assert!(status.synced);
+        assert_eq!(status.observed_generation, 5);
+    }
+
+    #[test]
+    fn test_tenant_status_valid_deserialize() {
+        let json = r#"{"synced":true,"observedGeneration":2}"#;
+        let status: VellavetoTenantStatus = serde_json::from_str(json).unwrap();
+        assert!(status.synced);
+    }
+
+    // FIND-R224-006: Condition::new() strips dangerous chars
+    #[test]
+    fn test_condition_new_strips_control_chars_from_type() {
+        let cond = Condition::new("Rea\x00dy", "True", None, None, None);
+        assert_eq!(cond.condition_type, "Ready");
+    }
+
+    #[test]
+    fn test_condition_new_strips_control_chars_from_status() {
+        let cond = Condition::new("Ready", "Tr\x01ue", None, None, None);
+        assert_eq!(cond.status, "True");
+    }
+
+    #[test]
+    fn test_condition_new_strips_bidi_from_reason() {
+        let cond = Condition::new(
+            "Ready",
+            "False",
+            None,
+            Some("failed\u{200B}check".to_string()),
+            None,
+        );
+        assert_eq!(cond.reason.as_deref(), Some("failedcheck"));
+    }
+
+    #[test]
+    fn test_condition_new_strips_unicode_format_from_type() {
+        // BOM (U+FEFF)
+        let cond = Condition::new("\u{FEFF}Synced", "True", None, None, None);
+        assert_eq!(cond.condition_type, "Synced");
+    }
+
+    #[test]
+    fn test_condition_new_clean_input_unchanged() {
+        let cond = Condition::new("Available", "True", None, Some("all pods ready".to_string()), None);
+        assert_eq!(cond.condition_type, "Available");
+        assert_eq!(cond.status, "True");
+        assert_eq!(cond.reason.as_deref(), Some("all pods ready"));
+    }
+
+    // FIND-R224-007: rate_limit_rps upper bound
+    #[test]
+    fn test_config_overrides_validate_rate_limit_rps_upper_bound() {
+        let config = VellavetoConfigOverrides {
+            rate_limit_rps: Some(100_001),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("rate_limit_rps"), "err: {}", err);
+        assert!(err.contains("100000"), "err: {}", err);
+    }
+
+    #[test]
+    fn test_config_overrides_validate_rate_limit_rps_at_max() {
+        let config = VellavetoConfigOverrides {
+            rate_limit_rps: Some(100_000),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_overrides_validate_rate_limit_rps_zero() {
+        let config = VellavetoConfigOverrides {
+            rate_limit_rps: Some(0),
+            ..Default::default()
+        };
+        assert!(config.validate().unwrap_err().contains("rate_limit_rps must be > 0"));
     }
 }

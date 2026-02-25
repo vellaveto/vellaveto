@@ -2982,6 +2982,66 @@ fn test_deployment_info_redacted_anonymous_mode() {
 }
 
 // ═══════════════════════════════════════════════════════
+// IMP-R224-007: DiscoveryEvent::validate() bounds checking
+// ═══════════════════════════════════════════════════════
+
+#[test]
+fn test_discovery_event_validate_removed_valid() {
+    let event = DiscoveryEvent::Removed {
+        id: "pod-1".to_string(),
+    };
+    assert!(event.validate().is_ok());
+}
+
+#[test]
+fn test_discovery_event_validate_removed_too_long_id() {
+    let event = DiscoveryEvent::Removed {
+        id: "a".repeat(257),
+    };
+    let err = event.validate().unwrap_err();
+    assert!(
+        err.contains("exceeds max"),
+        "Expected length error, got: {}",
+        err,
+    );
+}
+
+#[test]
+fn test_discovery_event_validate_removed_control_chars() {
+    let event = DiscoveryEvent::Removed {
+        id: "bad\nid".to_string(),
+    };
+    let err = event.validate().unwrap_err();
+    assert!(
+        err.contains("control"),
+        "Expected control char error, got: {}",
+        err,
+    );
+}
+
+#[test]
+fn test_discovery_event_validate_added_delegates_to_endpoint() {
+    let event = DiscoveryEvent::Added(ServiceEndpoint {
+        id: "a".repeat(257),
+        url: "http://ok:3000".to_string(),
+        labels: HashMap::new(),
+        healthy: true,
+    });
+    assert!(event.validate().is_err());
+}
+
+#[test]
+fn test_discovery_event_validate_updated_delegates_to_endpoint() {
+    let event = DiscoveryEvent::Updated(ServiceEndpoint {
+        id: "ok".to_string(),
+        url: "http://ok:3000".to_string(),
+        labels: HashMap::new(),
+        healthy: true,
+    });
+    assert!(event.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════
 // FIND-R44-031: truncate_for_log must not panic on multi-byte UTF-8
 // ═══════════════════════════════════════════════════════
 
@@ -9680,4 +9740,338 @@ fn test_evidence_pack_validate_critical_gap_control_chars() {
     };
     let err = pack.validate().unwrap_err();
     assert!(err.contains("critical_gaps"), "should reject control chars in critical_gaps: {err}");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R224-001: Action deny_unknown_fields
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r224_001_action_rejects_unknown_fields() {
+    let json = r#"{"tool":"t","function":"f","parameters":{},"unknown_field":"bad"}"#;
+    let result = serde_json::from_str::<Action>(json);
+    assert!(
+        result.is_err(),
+        "Action deserialization should reject unknown fields"
+    );
+}
+
+#[test]
+fn test_r224_001_action_roundtrip_still_works() {
+    let action = Action::new("tool", "func", json!({"key": "value"}));
+    let serialized = serde_json::to_string(&action).unwrap();
+    let deserialized: Action = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(action, deserialized);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R224-002: CapabilityToken.parent_token_id validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r224_002_capability_token_rejects_empty_parent_token_id() {
+    let token = CapabilityToken {
+        token_id: "tok-1".to_string(),
+        parent_token_id: Some(String::new()),
+        issuer: "issuer-1".to_string(),
+        holder: "holder-1".to_string(),
+        grants: vec![CapabilityGrant {
+            tool_pattern: "test".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-12-31T23:59:59Z".to_string(),
+        signature: "sig".to_string(),
+        issuer_public_key: "key".to_string(),
+    };
+    let err = token.validate_structure().unwrap_err();
+    assert!(
+        matches!(err, CapabilityError::ValidationFailed(ref msg) if msg.contains("parent_token_id") && msg.contains("empty")),
+        "expected empty parent_token_id rejection, got: {:?}",
+        err
+    );
+}
+
+#[test]
+fn test_r224_002_capability_token_rejects_dangerous_parent_token_id() {
+    let token = CapabilityToken {
+        token_id: "tok-1".to_string(),
+        parent_token_id: Some("parent\x00id".to_string()),
+        issuer: "issuer-1".to_string(),
+        holder: "holder-1".to_string(),
+        grants: vec![CapabilityGrant {
+            tool_pattern: "test".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-12-31T23:59:59Z".to_string(),
+        signature: "sig".to_string(),
+        issuer_public_key: "key".to_string(),
+    };
+    let err = token.validate_structure().unwrap_err();
+    assert!(
+        matches!(err, CapabilityError::ValidationFailed(ref msg) if msg.contains("parent_token_id") && msg.contains("control or format")),
+        "expected dangerous chars rejection in parent_token_id, got: {:?}",
+        err
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R224-003: TaskCheckpoint.validate() has_dangerous_chars on 4 fields
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r224_003_task_checkpoint_rejects_dangerous_state_hash() {
+    let cp = TaskCheckpoint {
+        checkpoint_id: "cp-1".to_string(),
+        task_id: "task-1".to_string(),
+        sequence: 0,
+        state_hash: "hash\x1b_injection".to_string(),
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        signature: "sig".to_string(),
+        public_key: "key".to_string(),
+    };
+    let err = cp.validate().unwrap_err();
+    assert!(err.contains("state_hash"), "expected state_hash rejection, got: {err}");
+}
+
+#[test]
+fn test_r224_003_task_checkpoint_rejects_dangerous_created_at() {
+    let cp = TaskCheckpoint {
+        checkpoint_id: "cp-1".to_string(),
+        task_id: "task-1".to_string(),
+        sequence: 0,
+        state_hash: "abc123".to_string(),
+        created_at: "2026\x00-01-01T00:00:00Z".to_string(),
+        signature: "sig".to_string(),
+        public_key: "key".to_string(),
+    };
+    let err = cp.validate().unwrap_err();
+    assert!(err.contains("created_at"), "expected created_at rejection, got: {err}");
+}
+
+#[test]
+fn test_r224_003_task_checkpoint_rejects_dangerous_signature() {
+    let cp = TaskCheckpoint {
+        checkpoint_id: "cp-1".to_string(),
+        task_id: "task-1".to_string(),
+        sequence: 0,
+        state_hash: "abc123".to_string(),
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        signature: "sig\u{200B}nature".to_string(),
+        public_key: "key".to_string(),
+    };
+    let err = cp.validate().unwrap_err();
+    assert!(err.contains("signature"), "expected signature rejection, got: {err}");
+}
+
+#[test]
+fn test_r224_003_task_checkpoint_rejects_dangerous_public_key() {
+    let cp = TaskCheckpoint {
+        checkpoint_id: "cp-1".to_string(),
+        task_id: "task-1".to_string(),
+        sequence: 0,
+        state_hash: "abc123".to_string(),
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        signature: "sig".to_string(),
+        public_key: "key\u{202E}evil".to_string(),
+    };
+    let err = cp.validate().unwrap_err();
+    assert!(err.contains("public_key"), "expected public_key rejection, got: {err}");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R224-004: StagingReport divergent > total
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r224_004_staging_report_rejects_divergent_exceeds_total() {
+    let r = crate::StagingReport {
+        policy_id: "pol-1".to_string(),
+        staging_version: 2,
+        total_evaluations: 10,
+        divergent_evaluations: 20,
+        divergences: vec![],
+        staging_started_at: "2026-01-15T10:00:00Z".to_string(),
+    };
+    let err = r.validate().unwrap_err();
+    assert!(
+        err.contains("divergent_evaluations") && err.contains("total_evaluations"),
+        "expected divergent > total rejection, got: {err}"
+    );
+}
+
+#[test]
+fn test_r224_004_staging_report_accepts_divergent_equals_total() {
+    let r = crate::StagingReport {
+        policy_id: "pol-1".to_string(),
+        staging_version: 2,
+        total_evaluations: 10,
+        divergent_evaluations: 10,
+        divergences: vec![],
+        staging_started_at: "2026-01-15T10:00:00Z".to_string(),
+    };
+    assert!(r.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R224-005: AuditQueryResult.validate()
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r224_005_audit_query_result_validate_ok() {
+    let result = crate::AuditQueryResult {
+        entries: vec![json!({"id": "abc"})],
+        total: 42,
+        offset: 0,
+        limit: 100,
+    };
+    assert!(result.validate().is_ok());
+}
+
+#[test]
+fn test_r224_005_audit_query_result_rejects_entries_exceeding_limit() {
+    let entries: Vec<serde_json::Value> = (0..1001).map(|i| json!({"id": i})).collect();
+    let result = crate::AuditQueryResult {
+        entries,
+        total: 2000,
+        offset: 0,
+        limit: 1001,
+    };
+    let err = result.validate().unwrap_err();
+    assert!(
+        err.contains("MAX_QUERY_LIMIT"),
+        "expected entries count rejection, got: {err}"
+    );
+}
+
+#[test]
+fn test_r224_005_audit_query_result_rejects_entries_exceeding_total() {
+    let result = crate::AuditQueryResult {
+        entries: vec![json!({"id": 1}), json!({"id": 2})],
+        total: 1,
+        offset: 0,
+        limit: 100,
+    };
+    let err = result.validate().unwrap_err();
+    assert!(
+        err.contains("entries count") && err.contains("total"),
+        "expected entries > total rejection, got: {err}"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R224-006: CapabilityToken signature/issuer_public_key has_dangerous_chars
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r224_006_capability_token_rejects_dangerous_signature() {
+    let token = CapabilityToken {
+        token_id: "tok-1".to_string(),
+        parent_token_id: None,
+        issuer: "issuer-1".to_string(),
+        holder: "holder-1".to_string(),
+        grants: vec![CapabilityGrant {
+            tool_pattern: "test".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-12-31T23:59:59Z".to_string(),
+        signature: "sig\x00nal".to_string(),
+        issuer_public_key: "key".to_string(),
+    };
+    let err = token.validate_structure().unwrap_err();
+    assert!(
+        matches!(err, CapabilityError::ValidationFailed(ref msg) if msg.contains("signature") && msg.contains("control or format")),
+        "expected dangerous chars rejection in signature, got: {:?}",
+        err
+    );
+}
+
+#[test]
+fn test_r224_006_capability_token_rejects_dangerous_issuer_public_key() {
+    let token = CapabilityToken {
+        token_id: "tok-1".to_string(),
+        parent_token_id: None,
+        issuer: "issuer-1".to_string(),
+        holder: "holder-1".to_string(),
+        grants: vec![CapabilityGrant {
+            tool_pattern: "test".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-12-31T23:59:59Z".to_string(),
+        signature: "sig".to_string(),
+        issuer_public_key: "key\u{FEFF}bom".to_string(),
+    };
+    let err = token.validate_structure().unwrap_err();
+    assert!(
+        matches!(err, CapabilityError::ValidationFailed(ref msg) if msg.contains("issuer_public_key") && msg.contains("control or format")),
+        "expected dangerous chars rejection in issuer_public_key, got: {:?}",
+        err
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R224-007: PolicyLifecycleStatus.validate()
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r224_007_policy_lifecycle_status_validate_ok() {
+    let status = crate::PolicyLifecycleStatus {
+        enabled: true,
+        tracked_policies: 10,
+        total_versions: 50,
+        staging_count: 3,
+        approval_workflow_enabled: true,
+    };
+    assert!(status.validate().is_ok());
+}
+
+#[test]
+fn test_r224_007_policy_lifecycle_status_rejects_excessive_total_versions() {
+    let status = crate::PolicyLifecycleStatus {
+        enabled: true,
+        tracked_policies: 10,
+        total_versions: 10_001,
+        staging_count: 0,
+        approval_workflow_enabled: false,
+    };
+    let err = status.validate().unwrap_err();
+    assert!(
+        err.contains("total_versions") && err.contains("MAX_TOTAL_VERSIONS"),
+        "expected total_versions rejection, got: {err}"
+    );
+}
+
+#[test]
+fn test_r224_007_policy_lifecycle_status_rejects_staging_exceeds_tracked() {
+    let status = crate::PolicyLifecycleStatus {
+        enabled: true,
+        tracked_policies: 5,
+        total_versions: 10,
+        staging_count: 6,
+        approval_workflow_enabled: false,
+    };
+    let err = status.validate().unwrap_err();
+    assert!(
+        err.contains("staging_count") && err.contains("tracked_policies"),
+        "expected staging_count > tracked_policies rejection, got: {err}"
+    );
 }
