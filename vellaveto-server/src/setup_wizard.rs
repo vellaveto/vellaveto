@@ -1748,7 +1748,7 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("tool_pattern = \"*\"\n");
             toml.push_str("function_pattern = \"*\"\n\n");
             toml.push_str("[policies.path_rules]\n");
-            toml.push_str("blocked_patterns = [\"**/.env\", \"**/*.key\", \"**/*.pem\", \"**/credentials*\", \"**/.ssh/**\", \"**/.aws/**\"]\n\n");
+            toml.push_str("blocked = [\"**/.env\", \"**/*.key\", \"**/*.pem\", \"**/credentials*\", \"**/.ssh/**\", \"**/.aws/**\"]\n\n");
 
             // Block exfiltration
             toml.push_str("[[policies]]\n");
@@ -1771,8 +1771,7 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("priority = 50\n");
             toml.push_str("tool_pattern = \"*\"\n");
             toml.push_str("function_pattern = \"*\"\n\n");
-            toml.push_str("[policies.path_rules]\n");
-            toml.push_str("write_patterns = [\"**/*\"]\n\n");
+            // No path_rules needed — tool_pattern/function_pattern already match all
         }
         PolicyPreset::Balanced => {
             toml.push_str("# Policy preset: Balanced (deny-by-default, read allowed, writes require approval)\n\n");
@@ -1795,7 +1794,7 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("tool_pattern = \"*\"\n");
             toml.push_str("function_pattern = \"*\"\n\n");
             toml.push_str("[policies.path_rules]\n");
-            toml.push_str("blocked_patterns = [\"**/.env\", \"**/*.key\", \"**/*.pem\", \"**/credentials*\", \"**/.ssh/**\", \"**/.aws/**\"]\n\n");
+            toml.push_str("blocked = [\"**/.env\", \"**/*.key\", \"**/*.pem\", \"**/credentials*\", \"**/.ssh/**\", \"**/.aws/**\"]\n\n");
 
             // Allow reads
             toml.push_str("[[policies]]\n");
@@ -1836,7 +1835,7 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("tool_pattern = \"*\"\n");
             toml.push_str("function_pattern = \"*\"\n\n");
             toml.push_str("[policies.path_rules]\n");
-            toml.push_str("blocked_patterns = [\"**/.env\", \"**/*.key\", \"**/*.pem\", \"**/credentials*\", \"**/.ssh/**\", \"**/.aws/**\"]\n\n");
+            toml.push_str("blocked = [\"**/.env\", \"**/*.key\", \"**/*.pem\", \"**/credentials*\", \"**/.ssh/**\", \"**/.aws/**\"]\n\n");
 
             // Block exfiltration
             toml.push_str("[[policies]]\n");

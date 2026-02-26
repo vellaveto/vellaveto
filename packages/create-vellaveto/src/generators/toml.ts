@@ -166,7 +166,7 @@ function generateStrictPreset(): string {
   toml += 'function_pattern = "*"\n\n';
   toml += "[policies.path_rules]\n";
   toml +=
-    'blocked_patterns = ["**/.env", "**/*.key", "**/*.pem", "**/credentials*", "**/.ssh/**", "**/.aws/**"]\n\n';
+    'blocked = ["**/.env", "**/*.key", "**/*.pem", "**/credentials*", "**/.ssh/**", "**/.aws/**"]\n\n';
 
   // Block exfiltration
   toml += "[[policies]]\n";
@@ -188,8 +188,8 @@ function generateStrictPreset(): string {
   toml += "priority = 50\n";
   toml += 'tool_pattern = "*"\n';
   toml += 'function_pattern = "*"\n\n';
-  toml += "[policies.path_rules]\n";
-  toml += 'write_patterns = ["**/*"]\n\n';
+  // No path_rules needed — tool_pattern/function_pattern already match all
+
 
   return toml;
 }
@@ -218,7 +218,7 @@ function generateBalancedPreset(): string {
   toml += 'function_pattern = "*"\n\n';
   toml += "[policies.path_rules]\n";
   toml +=
-    'blocked_patterns = ["**/.env", "**/*.key", "**/*.pem", "**/credentials*", "**/.ssh/**", "**/.aws/**"]\n\n';
+    'blocked = ["**/.env", "**/*.key", "**/*.pem", "**/credentials*", "**/.ssh/**", "**/.aws/**"]\n\n';
 
   // Allow reads
   toml += "[[policies]]\n";
@@ -226,7 +226,7 @@ function generateBalancedPreset(): string {
   toml += 'name = "Allow file reads"\n';
   toml += 'policy_type = "Allow"\n';
   toml += "priority = 50\n";
-  toml += 'tool = "*"\n';
+  toml += 'tool_pattern = "*"\n';
   toml += 'function_pattern = "read*"\n\n';
 
   // Require approval for writes
@@ -235,7 +235,7 @@ function generateBalancedPreset(): string {
   toml += 'name = "Require approval for file writes"\n';
   toml += 'policy_type = "RequireApproval"\n';
   toml += "priority = 50\n";
-  toml += 'tool = "*"\n';
+  toml += 'tool_pattern = "*"\n';
   toml += 'function_pattern = "write*"\n\n';
 
   return toml;
@@ -265,7 +265,7 @@ function generatePermissivePreset(): string {
   toml += 'function_pattern = "*"\n\n';
   toml += "[policies.path_rules]\n";
   toml +=
-    'blocked_patterns = ["**/.env", "**/*.key", "**/*.pem", "**/credentials*", "**/.ssh/**", "**/.aws/**"]\n\n';
+    'blocked = ["**/.env", "**/*.key", "**/*.pem", "**/credentials*", "**/.ssh/**", "**/.aws/**"]\n\n';
 
   // Block exfiltration
   toml += "[[policies]]\n";
