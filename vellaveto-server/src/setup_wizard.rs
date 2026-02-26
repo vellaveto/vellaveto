@@ -1631,7 +1631,7 @@ fn generate_config_toml(session: &WizardSession) -> String {
     toml.push_str("[injection]\n");
     let _ = writeln!(toml, "enabled = {}", session.injection_enabled);
     if session.injection_enabled {
-        let _ = writeln!(toml, "blocking = {}", session.injection_blocking);
+        let _ = writeln!(toml, "block_on_injection = {}", session.injection_blocking);
     }
     toml.push('\n');
 
@@ -1639,7 +1639,7 @@ fn generate_config_toml(session: &WizardSession) -> String {
     toml.push_str("[dlp]\n");
     let _ = writeln!(toml, "enabled = {}", session.dlp_enabled);
     if session.dlp_enabled {
-        let _ = writeln!(toml, "blocking = {}", session.dlp_blocking);
+        let _ = writeln!(toml, "block_on_finding = {}", session.dlp_blocking);
     }
     toml.push('\n');
 
@@ -1662,17 +1662,27 @@ fn generate_config_toml(session: &WizardSession) -> String {
     // Audit export
     if session.audit_export_format != "none" {
         toml.push_str("[audit_export]\n");
-        let _ = writeln!(
-            toml,
-            "format = \"{}\"",
-            escape_toml_string(&session.audit_export_format)
-        );
+        // Map "webhook" to "jsonl" format (webhook is delivery, not format)
+        let fmt = if session.audit_export_format == "webhook" {
+            "jsonl"
+        } else {
+            &session.audit_export_format
+        };
+        let _ = writeln!(toml, "format = \"{}\"", escape_toml_string(fmt));
         if !session.audit_export_target.is_empty() {
-            let _ = writeln!(
-                toml,
-                "target = \"{}\"",
-                escape_toml_string(&session.audit_export_target)
-            );
+            if session.audit_export_format == "webhook" {
+                let _ = writeln!(
+                    toml,
+                    "webhook_url = \"{}\"",
+                    escape_toml_string(&session.audit_export_target)
+                );
+            } else {
+                let _ = writeln!(
+                    toml,
+                    "# Export file: {}",
+                    escape_toml_string(&session.audit_export_target)
+                );
+            }
         }
         toml.push('\n');
     }
@@ -2026,8 +2036,8 @@ mod tests {
         session.audit_export_target = "https://siem.example.com/events".to_string();
         let toml = generate_config_toml(&session);
         assert!(toml.contains("[audit_export]"));
-        assert!(toml.contains("format = \"webhook\""));
-        assert!(toml.contains("target = \"https://siem.example.com/events\""));
+        assert!(toml.contains("format = \"jsonl\""));
+        assert!(toml.contains("webhook_url = \"https://siem.example.com/events\""));
     }
 
     #[test]
@@ -2165,7 +2175,7 @@ mod tests {
         session.injection_enabled = true;
         session.injection_blocking = true;
         let toml = generate_config_toml(&session);
-        assert!(toml.contains("blocking = true"));
+        assert!(toml.contains("block_on_injection = true"));
     }
 
     // --- TOML escape adversarial tests (FIND-P2-TOML-INJECTION) ---

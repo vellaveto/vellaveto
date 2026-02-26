@@ -56,14 +56,14 @@ function generateValues(state: WizardState): string {
 
   yaml += "  injection:\n";
   yaml += `    enabled: ${state.injectionEnabled}\n`;
-  yaml += `    blocking: ${state.injectionBlocking}\n\n`;
+  yaml += `    blockOnInjection: ${state.injectionBlocking}\n\n`;
 
   yaml += "  dlp:\n";
   yaml += `    enabled: ${state.dlpEnabled}\n`;
-  yaml += `    blocking: ${state.dlpBlocking}\n\n`;
+  yaml += `    blockOnFinding: ${state.dlpBlocking}\n\n`;
 
   yaml += "  audit:\n";
-  yaml += `    redactionLevel: "${capitalize(state.redactionLevel)}"\n\n`;
+  yaml += `    redactionLevel: "${mapRedactionLevel(state.redactionLevel)}"\n\n`;
 
   yaml += "  # API key should be provided via Kubernetes Secret:\n";
   yaml += "  #   kubectl create secret generic vellaveto-api-key --from-literal=api-key=<YOUR_KEY>\n";
@@ -114,6 +114,15 @@ function generateConfigMap(state: WizardState): string {
   return yaml;
 }
 
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
+function mapRedactionLevel(level: string): string {
+  switch (level) {
+    case "off":
+      return "Off";
+    case "low":
+      return "KeysOnly";
+    case "high":
+      return "KeysAndPatterns";
+    default:
+      return level;
+  }
 }

@@ -9,6 +9,20 @@
 import type { WizardState } from "../types.js";
 import { escapeTomlString } from "../utils.js";
 
+/** Map wizard redaction level names to server-accepted values. */
+function mapRedactionLevel(level: string): string {
+  switch (level) {
+    case "off":
+      return "Off";
+    case "low":
+      return "KeysOnly";
+    case "high":
+      return "KeysAndPatterns";
+    default:
+      return level;
+  }
+}
+
 export function generateToml(state: WizardState): string {
   let toml = "";
 
@@ -43,14 +57,14 @@ export function generateToml(state: WizardState): string {
   toml += "[injection]\n";
   toml += `enabled = ${state.injectionEnabled}\n`;
   if (state.injectionEnabled) {
-    toml += `blocking = ${state.injectionBlocking}\n`;
+    toml += `block_on_injection = ${state.injectionBlocking}\n`;
   }
   toml += "\n";
 
   toml += "[dlp]\n";
   toml += `enabled = ${state.dlpEnabled}\n`;
   if (state.dlpEnabled) {
-    toml += `blocking = ${state.dlpBlocking}\n`;
+    toml += `block_on_finding = ${state.dlpBlocking}\n`;
   }
   toml += "\n";
 
@@ -62,7 +76,7 @@ export function generateToml(state: WizardState): string {
   // Audit
   toml += "# ─── Audit ──────────────────────────────────────────────────\n\n";
   toml += "[audit]\n";
-  toml += `redaction_level = "${escapeTomlString(state.redactionLevel)}"\n`;
+  toml += `redaction_level = "${escapeTomlString(mapRedactionLevel(state.redactionLevel))}"\n`;
   toml += "\n";
   if (state.checkpointInterval > 0) {
     toml += `# Checkpoint interval: set VELLAVETO_CHECKPOINT_INTERVAL=${state.checkpointInterval} env var\n\n`;
@@ -70,10 +84,15 @@ export function generateToml(state: WizardState): string {
 
   // Audit export
   if (state.auditExportFormat !== "none") {
+    // Map "webhook" format to "jsonl" (webhook is delivery, not format)
+    const exportFormat = state.auditExportFormat === "webhook" ? "jsonl" : state.auditExportFormat;
     toml += "[audit_export]\n";
-    toml += `format = "${escapeTomlString(state.auditExportFormat)}"\n`;
-    if (state.auditExportTarget) {
-      toml += `target = "${escapeTomlString(state.auditExportTarget)}"\n`;
+    toml += `format = "${escapeTomlString(exportFormat)}"\n`;
+    // webhook_url is only valid for webhook delivery (must be https://)
+    if (state.auditExportFormat === "webhook" && state.auditExportTarget) {
+      toml += `webhook_url = "${escapeTomlString(state.auditExportTarget)}"\n`;
+    } else if (state.auditExportTarget && state.auditExportFormat !== "webhook") {
+      toml += `# Export file: ${escapeTomlString(state.auditExportTarget)}\n`;
     }
     toml += "\n";
   }
