@@ -237,13 +237,17 @@ impl AuditLogger {
             "entry_count": entry_count,
             "previous_hash": previous_hash,
         });
+        // SECURITY (R226-AUD-1): Compute unsigned canonical digest ONCE before any
+        // signatures are added. Both Ed25519 and ML-DSA-65 must sign the same content.
+        // Previously, PQC signed after Ed25519 fields were added, but verification
+        // strips all signature fields — causing a message mismatch.
+        let unsigned_canonical = Self::canonical_json(&manifest_entry)?;
+        let mut base_hasher = Sha256::new();
+        base_hasher.update(&unsigned_canonical);
+        let unsigned_digest = base_hasher.finalize();
+
         if let Some(signing_key) = &self.signing_key {
-            // Sign the canonical JSON of the manifest entry (before adding signature)
-            let canonical = Self::canonical_json(&manifest_entry)?;
-            let mut hasher = Sha256::new();
-            hasher.update(&canonical);
-            let digest = hasher.finalize();
-            let signature = signing_key.sign(&digest);
+            let signature = signing_key.sign(&unsigned_digest);
             manifest_entry["signature"] =
                 serde_json::Value::String(hex::encode(signature.to_bytes()));
             manifest_entry["verifying_key"] =
@@ -255,13 +259,10 @@ impl AuditLogger {
         if let (Some(ref sk_hex), Some(ref pk_hex)) =
             (&self.pqc_secret_key_hex, &self.pqc_public_key_hex)
         {
-            // Sign the digest (same content Ed25519 signed) with ML-DSA-65
-            let canonical = Self::canonical_json(&manifest_entry)?;
-            let mut pqc_hasher = Sha256::new();
-            pqc_hasher.update(&canonical);
-            let pqc_digest = pqc_hasher.finalize();
+            // SECURITY (R226-AUD-1): Use same unsigned digest as Ed25519 — matches
+            // verification which strips all signature fields before re-computing digest
             let pqc_sig =
-                crate::pqc::ml_dsa_sign(sk_hex, &pqc_digest, crate::pqc::MANIFEST_CONTEXT)?;
+                crate::pqc::ml_dsa_sign(sk_hex, &unsigned_digest, crate::pqc::MANIFEST_CONTEXT)?;
             manifest_entry["pqc_signature"] = serde_json::Value::String(pqc_sig);
             manifest_entry["pqc_verifying_key"] = serde_json::Value::String(pk_hex.clone());
             manifest_entry["signature_version"] =

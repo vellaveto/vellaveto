@@ -57,8 +57,26 @@ pub fn parse_iso8601_secs(ts: &str) -> Result<u64, String> {
     if month == 0 || month > 12 {
         return Err(format!("Month {month} out of range 1..=12"));
     }
-    if day == 0 || day > 31 {
-        return Err(format!("Day {day} out of range 1..=31"));
+    // SECURITY (R226-TYP-1): Validate day against actual month length, including
+    // leap year support. Previously accepted Feb 31, Apr 31, etc., enabling
+    // credential expiry bypass via artificially large timestamps.
+    let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    let max_day: u64 = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if is_leap {
+                29
+            } else {
+                28
+            }
+        }
+        _ => return Err(format!("Month {month} out of range 1..=12")),
+    };
+    if day == 0 || day > max_day {
+        return Err(format!(
+            "Day {day} out of range for month {month} (max {max_day})"
+        ));
     }
     if hour > 23 {
         return Err(format!("Hour {hour} out of range 0..=23"));
@@ -71,8 +89,24 @@ pub fn parse_iso8601_secs(ts: &str) -> Result<u64, String> {
         return Err(format!("Second {sec} out of range 0..=60"));
     }
 
-    // Approximate calculation (ignores leap years, varying month lengths)
-    let days_since_epoch = (year - 1970) * 365 + (month - 1) * 30 + day;
+    // SECURITY (R226-TYP-2): Use correct cumulative day-of-year offsets instead
+    // of 30-day approximation. The old formula `(month-1)*30` caused ~99-day skew
+    // by December, enabling time-window policy bypass.
+    let month_offsets: [u64; 12] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    let day_of_year = month_offsets[(month - 1) as usize] + (day - 1);
+    // Add leap day if past February in a leap year
+    let leap_adjustment = if is_leap && month > 2 { 1 } else { 0 };
+
+    // Count leap years between 1970 and (year-1) for correct epoch offset
+    let leap_years_since_epoch = if year > 1970 {
+        let y = year - 1; // count up to previous year
+        let from_1970 = 1969u64; // year before epoch
+        (y / 4 - from_1970 / 4) - (y / 100 - from_1970 / 100) + (y / 400 - from_1970 / 400)
+    } else {
+        0
+    };
+    let days_since_epoch =
+        (year - 1970) * 365 + leap_years_since_epoch + day_of_year + leap_adjustment;
     Ok(days_since_epoch * 86400 + hour * 3600 + min * 60 + sec)
 }
 
@@ -156,5 +190,88 @@ mod tests {
         let t3 = parse_iso8601_secs("2026-02-01T00:00:00Z").unwrap();
         assert!(t1 < t2);
         assert!(t2 < t3);
+    }
+
+    /// R226-TYP-1: Feb 31 must be rejected (invalid date).
+    #[test]
+    fn test_parse_iso8601_secs_rejects_feb_31() {
+        let result = parse_iso8601_secs("2026-02-31T00:00:00Z");
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("Day"),
+            "Must reject Feb 31"
+        );
+    }
+
+    /// R226-TYP-1: Feb 29 in non-leap year must be rejected.
+    #[test]
+    fn test_parse_iso8601_secs_rejects_feb_29_non_leap() {
+        let result = parse_iso8601_secs("2026-02-29T00:00:00Z");
+        assert!(result.is_err(), "2026 is not a leap year — Feb 29 invalid");
+    }
+
+    /// R226-TYP-1: Feb 29 in leap year must be accepted.
+    #[test]
+    fn test_parse_iso8601_secs_accepts_feb_29_leap() {
+        let result = parse_iso8601_secs("2024-02-29T00:00:00Z");
+        assert!(result.is_ok(), "2024 is a leap year — Feb 29 valid");
+    }
+
+    /// R226-TYP-1: Apr 31, Jun 31, Sep 31, Nov 31 must be rejected.
+    #[test]
+    fn test_parse_iso8601_secs_rejects_day_31_in_30day_months() {
+        for month in &["04", "06", "09", "11"] {
+            let ts = format!("2026-{}-31T00:00:00Z", month);
+            let result = parse_iso8601_secs(&ts);
+            assert!(result.is_err(), "Month {} has only 30 days", month);
+        }
+    }
+
+    /// R226-TYP-2: Epoch accuracy — 2026-01-01 should be close to actual epoch.
+    #[test]
+    fn test_parse_iso8601_secs_epoch_accuracy() {
+        // 2026-01-01T00:00:00Z actual Unix epoch = 1767225600
+        let result = parse_iso8601_secs("2026-01-01T00:00:00Z").unwrap();
+        let actual_epoch = 1767225600u64;
+        let diff = if result > actual_epoch {
+            result - actual_epoch
+        } else {
+            actual_epoch - result
+        };
+        // Should be within 1 day of actual epoch (86400 seconds)
+        assert!(
+            diff < 86400,
+            "Epoch calculation off by {} seconds (result={}, expected={})",
+            diff,
+            result,
+            actual_epoch
+        );
+    }
+
+    /// R226-TYP-2: Monotonic across all months (regression for 30-day approx fix).
+    #[test]
+    fn test_parse_iso8601_secs_monotonic_all_months() {
+        let mut prev = 0u64;
+        for month in 1..=12 {
+            let ts = format!("2026-{:02}-01T00:00:00Z", month);
+            let val = parse_iso8601_secs(&ts).unwrap();
+            assert!(
+                val > prev,
+                "Month {} must be greater than previous (got {} <= {})",
+                month,
+                val,
+                prev
+            );
+            prev = val;
+        }
+    }
+
+    /// R226-TYP-1: Century leap year rules (2000 is leap, 1900 is not, 2100 is not).
+    #[test]
+    fn test_parse_iso8601_secs_century_leap_years() {
+        // 2000 is a leap year (divisible by 400)
+        assert!(parse_iso8601_secs("2000-02-29T00:00:00Z").is_ok());
+        // 2100 is NOT a leap year (divisible by 100 but not 400)
+        assert!(parse_iso8601_secs("2100-02-29T00:00:00Z").is_err());
     }
 }

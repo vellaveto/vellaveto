@@ -331,11 +331,18 @@ impl DecisionCache {
             }
             Some(ctx) => {
                 1u8.hash(&mut hasher); // sentinel for present context
-                ctx.agent_id.as_deref().unwrap_or("").hash(&mut hasher);
-                ctx.tenant_id.as_deref().unwrap_or("").hash(&mut hasher);
+                // SECURITY (R226-ENG-1): Hash Option<String> directly, not unwrap_or("").
+                // Previously, None and Some("") hashed to the same value, causing
+                // cross-tenant cache collisions when one tenant has agent_id=None
+                // and another has agent_id=Some("").
+                ctx.agent_id.hash(&mut hasher);
+                ctx.tenant_id.hash(&mut hasher);
                 if let Some(ref identity) = ctx.agent_identity {
-                    identity.issuer.as_deref().unwrap_or("").hash(&mut hasher);
-                    identity.subject.as_deref().unwrap_or("").hash(&mut hasher);
+                    2u8.hash(&mut hasher); // sentinel for identity present
+                    identity.issuer.hash(&mut hasher);
+                    identity.subject.hash(&mut hasher);
+                } else {
+                    3u8.hash(&mut hasher); // sentinel for identity absent
                 }
             }
         }
