@@ -33,3 +33,7 @@ harness = false
 [[bench]]
 name = "e2e_pipeline"
 harness = false
+
+[[bench]]
+name = "throughput"
+harness = false
