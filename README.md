@@ -16,6 +16,7 @@
     <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-224_rounds%2C_1500%2B_findings-informational.svg" alt="Adversarial Testing: 224 rounds, 1500+ findings"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
+    <a href="https://www.bestpractices.dev/projects/12042"><img src="https://www.bestpractices.dev/projects/12042/badge" alt="OpenSSF Best Practices"></a>
   </p>
   <p align="center">
     <a href="#-quick-start">Quick Start</a> &middot;
@@ -324,7 +325,14 @@ sha256sum dist/vellaveto-main-*.zip
 
 ## 🚀 Quick Start
 
-### Docker (recommended)
+### Setup Wizard (recommended)
+
+```bash
+# Interactive wizard — generates config, docker-compose, Helm values, or setup script
+npx create-vellaveto
+```
+
+### Docker
 
 ```bash
 # Clone and start with docker compose

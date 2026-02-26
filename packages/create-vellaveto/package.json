@@ -1,0 +1,42 @@
+{
+  "name": "create-vellaveto",
+  "version": "4.0.0",
+  "description": "Setup wizard for Vellaveto — MCP Tool Firewall",
+  "type": "module",
+  "bin": {
+    "create-vellaveto": "./dist/index.js"
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paolovella/vellaveto.git",
+    "directory": "packages/create-vellaveto"
+  },
+  "keywords": [
+    "vellaveto",
+    "mcp",
+    "security",
+    "firewall",
+    "setup",
+    "create"
+  ],
+  "dependencies": {
+    "@clack/prompts": "^0.9.1",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
