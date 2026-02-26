@@ -11,7 +11,7 @@
     <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-7%2C697_passing-brightgreen.svg" alt="Tests: 7,697 passing">
+    <img src="https://img.shields.io/badge/tests-7%2C877_passing-brightgreen.svg" alt="Tests: 7,877 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-224_rounds%2C_1500%2B_findings-informational.svg" alt="Adversarial Testing: 224 rounds, 1500+ findings"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
@@ -43,15 +43,16 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>4.0.0-dev</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>7,697 Rust + 385 Python + 127 Go + 119 TypeScript tests (+ 24 fuzz targets), 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>7,877 Rust + 385 Python + 127 Go + 119 TypeScript tests (+ 24 fuzz targets), 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
 <tr><td>📄 <strong>License</strong></td><td>AGPL-3.0 (dual license available)</td></tr>
 </table>
 
-## Recent Updates (2026-02-25)
+## Recent Updates (2026-02-26)
 
+- **Phase 54: Post-Quantum Cryptography (ML-DSA-65)** — Hybrid Ed25519 + ML-DSA-65 (FIPS 204) signatures for audit checkpoints and rotation manifests. Both signatures must verify (fail-closed). Backward-compatible: legacy Ed25519-only (v1) checkpoints continue to verify. PQC key continuity enforcement and trusted key pinning. Feature-gated behind `pqc-hybrid` Cargo feature. Domain-separated context bytes for checkpoints vs manifests. New `vellaveto-audit/src/pqc.rs` module with keygen/sign/verify helpers. 10 dedicated PQC tests. 7,877 Rust tests passing.
 - **Security Hardening (Rounds 216–224)** — Per-entry validation across ABAC constraints, NHI delegation/behavioral types, DID:PLC genesis operations. DORA/NIS2 registries fail-closed (0% on empty, was 100%). SIEM exporter config validation wired (Syslog/Webhook/Datadog). HTTP proxy injection scanning parity on task/extension parameters. SessionState fields narrowed to `pub(crate)`. WitnessStore capacity enforcement on restore. Approval expiry persist rollback. DNS discovery refresh interval bounds. Static discovery endpoint validation. 7,697 Rust tests passing.
 - **Phase 49: Kubernetes Operator (CRDs)** — Standalone `vellaveto-operator` binary using `kube-rs` with three CRDs (`VellavetoCluster`, `VellavetoPolicy`, `VellavetoTenant`) for declarative, GitOps-friendly management. Cluster reconciler manages StatefulSet/Service/ConfigMap with owner references. Policy and tenant reconcilers sync to the Vellaveto server REST API with finalizer-based cleanup. Typed API client with SSRF validation. Helm chart extended with CRD manifests, operator Deployment, and RBAC templates (optional, `operator.enabled: false` default). 41 new tests.
 - **Phase 47: Policy Lifecycle Management** — Versioned policies with Draft → Staging → Active → Archived lifecycle. Multi-approver workflows with self-approval prevention (NFKC + homoglyph normalization), staging shadow evaluation (non-blocking verdict comparison), structural diffs, and rollback. 9 new REST API endpoints. Compile-first promote-to-Active with ArcSwap atomic swap. `PolicyLifecycleConfig` (default disabled). Round 206 hardening: auth-bound audit identity, archive TOCTOU lock, stale staging snapshot invalidation, version overflow guard. 49 new tests. 7,469 Rust tests passing.
@@ -107,19 +108,17 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 - **24 fuzz targets** — Coverage for JSON-RPC framing, path normalization, domain extraction, CIDR parsing, DLP scanning, injection detection, agent card URL/parse, A2A classification, homoglyph normalization, attestation verification, WebSocket frame parsing, gRPC proto conversion.
 - See `CHANGELOG.md` for full release and patch details.
 
-## 🧪 Post-Quantum Readiness (Research Track)
+## 🔐 Post-Quantum Cryptography (Phase 54)
 
-- Vellaveto tracks NIST PQC standards: `FIPS 203 (ML-KEM)`, `FIPS 204 (ML-DSA)`, `FIPS 205 (SLH-DSA)`, plus migration guidance in `NIST SP 800-227` (finalized on 2025-08-13).
-- TLS post-quantum key exchange for TLS 1.3 is still draft-stage in IETF (hybrid and pure ML-KEM drafts), so Vellaveto keeps a crypto-agile migration posture until RFCs and ecosystem support stabilize.
-- Implemented controls:
-  - Configurable `tls.kex_policy` (`classical_only`, `hybrid_preferred`, `hybrid_required_when_supported`) in `TlsConfig`
-  - Validation guardrails: hybrid policies require `tls.mode` enabled and `tls.min_version = "1.3"`
-  - Negotiate and emit TLS metadata (`protocol`, `cipher`, `kex_group`) to audit and observability contexts
-  - Standardize workspace outbound `reqwest` TLS backend to rustls
-  - Fail-closed handling for ambiguous forwarded TLS metadata aliases/duplicates
-- Migration runbook:
-  - `docs/quantum-migration.md` includes phased rollout, canary gates, and rollback procedure
-- Vellaveto roadmap now tracks external migration milestones (goals by 2028, high-priority migration by 2031, full migration by 2035). See `ROADMAP.md`.
+Vellaveto implements hybrid Ed25519 + ML-DSA-65 (FIPS 204) signatures for audit integrity, aligned with NIST SP 800-227.
+
+- **Hybrid audit signatures** — Checkpoint and rotation manifest signatures use both Ed25519 and ML-DSA-65. Both must verify (fail-closed, composite approach per NIST SP 800-227).
+- **Backward compatible** — Legacy Ed25519-only (v1) checkpoints continue to verify. Signature version field (`None`/`1` = Ed25519 only, `2` = hybrid).
+- **Feature-gated** — `pqc-hybrid` Cargo feature enables ML-DSA-65 support via the `fips204` crate (pure Rust, constant-time). Without the feature, v2 checkpoints fail verification with a clear error.
+- **Key management** — `with_pqc_keypair()` and `with_trusted_pqc_key()` builders on `AuditLogger`. PQC key continuity enforced across checkpoints (TOFU model + optional pinning).
+- **Domain separation** — Different context bytes for checkpoint vs manifest signing prevent cross-protocol signature reuse.
+- **TLS post-quantum** — Configurable `tls.kex_policy` (`classical_only`, `hybrid_preferred`, `hybrid_required_when_supported`) in `TlsConfig` for TLS 1.3 hybrid key exchange readiness.
+- Migration runbook at `docs/quantum-migration.md`.
 
 ## ❓ Why Vellaveto?
 
@@ -172,7 +171,7 @@ Vellaveto enforces security policies on every tool call before it reaches the to
 - **Policy lifecycle management** — Versioned policies with Draft → Staging → Active → Archived lifecycle, multi-approver workflows with self-approval prevention, staging shadow evaluation, structural diffs, and rollback
 - **Hot policy reload** via SIGHUP signal or filesystem watching with atomic swap and audit trail
 - **SIEM export** in CEF (Common Event Format) and JSON Lines for integration with Splunk, ArcSight, Elasticsearch, and Datadog
-- **Tamper-evident audit logging** with SHA-256 hash chains, Merkle tree inclusion proofs, Ed25519 signed checkpoints, and rotation chain continuity
+- **Tamper-evident audit logging** with SHA-256 hash chains, Merkle tree inclusion proofs, Ed25519 signed checkpoints, hybrid Ed25519+ML-DSA-65 post-quantum signatures (feature-gated), and rotation chain continuity
 - **Structured output validation** via OutputSchemaRegistry against declared `outputSchema`
 
 ### 🔐 Authentication & Access Control

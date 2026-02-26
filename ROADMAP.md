@@ -2,7 +2,7 @@
 
 > **Version:** 5.0.0-dev
 > **Updated:** 2026-02-25
-> **Current:** 7,867 Rust + 59 React + 12 Terraform, 433 Python, 127 Go, 119 TypeScript | 224 audit rounds | 55 phases complete
+> **Current:** 7,877 Rust + 59 React + 12 Terraform, 433 Python, 127 Go, 119 TypeScript | 224 audit rounds | 56 phases complete
 > **Strategic position:** Agentic Security Control Plane & Policy Gateway
 > **License:** AGPL-3.0 (core) + Commercial Enterprise
 
@@ -42,24 +42,26 @@ Q2 2026 (Done):  Phase 36 — Developer Experience & SDK Ecosystem         [P2] 
 Q2 2026 (Done):  Phase 51 — Partner Integration Kit                      [P3] ✅
                   Phase 53 — Marketplace & Self-Service Onboarding       [P3] ✅
 
-Q4 2026:         Phase 54 — Post-Quantum Cryptography Migration          [P3]
-                  Phase 55 — Performance & Scale Validation              [P3]
+Q2 2026 (Done):  Phase 54 — Post-Quantum Cryptography Migration          [P3] ✅
+Q4 2026:         Phase 55 — Performance & Scale Validation              [P3]
 ```
 
 ---
 
 ---
 
-## Phase 54: Post-Quantum Cryptography Migration (P3)
+## Phase 54: Post-Quantum Cryptography Migration (P3) ✅
 
-*Focus: FIPS 203 (ML-KEM) and FIPS 204 (ML-DSA) for audit signatures and key exchange.*
+*Hybrid Ed25519 + ML-DSA-65 (FIPS 204) signatures for audit integrity.*
 
-- ML-KEM-768 for key encapsulation (replacing X25519 where applicable)
-- ML-DSA-65 for audit checkpoint signatures (hybrid with Ed25519)
-- Backward-compatible signature verification (Ed25519 + ML-DSA dual)
-- NIST SP 800-227 compliance documentation
+- ML-DSA-65 hybrid signatures for checkpoints and rotation manifests
+- Backward-compatible verification (v1 Ed25519-only checkpoints still verify)
+- PQC key continuity enforcement and trusted key pinning
+- Feature-gated via `pqc-hybrid` Cargo feature (fail-closed without feature)
+- Domain separation: checkpoint vs manifest context bytes
+- 10 dedicated PQC tests + all existing tests pass
 
-**Exit criteria:** Hybrid Ed25519+ML-DSA signatures, backward-compatible verification, NIST compliance
+**Delivered:** `vellaveto-audit/src/pqc.rs`, hybrid signing in checkpoints.rs/rotation.rs
 
 ---
 
@@ -88,11 +90,11 @@ Phase 50 (Billing)         ──── ✅ core complete (Postgres persistence 
                                                                             │
 Phase 51 (Partner Kit)     ──── ✅ complete ─────────────────────────────────┤
 Phase 53 (Marketplace)     ──── ✅ complete ─────────────────────────────────┤
-Phase 54 (PQC)             ──── independent ───────────────────────────────┤
+Phase 54 (PQC)             ──── ✅ complete ─────────────────────────────────┤
 Phase 55 (Scale)           ──── depends on Phase 50 ✅ ──── UNBLOCKED ─────┘
 ```
 
-**Critical path:** All predecessor phases complete. Only Phase 54 (PQC) and Phase 55 (Scale) remain.
+**Critical path:** All predecessor phases complete. Only Phase 55 (Scale) remains.
 
 ---
 
@@ -148,7 +150,7 @@ Phase 55 (Scale)           ──── depends on Phase 50 ✅ ──── UNB
 ---
 
 <details>
-<summary>Completed Phases Archive (1-51)</summary>
+<summary>Completed Phases Archive (1-54)</summary>
 
 | Phase | Name | Key Deliverable |
 |-------|------|-----------------|
@@ -195,6 +197,7 @@ Phase 55 (Scale)           ──── depends on Phase 50 ✅ ──── UNB
 | 50 | Usage Metering & Billing | In-memory atomic counters, per-tenant quotas, Stripe/Paddle webhooks |
 | 51 | Partner Integration Kit | CrewAI, Google ADK, OpenAI Agents integrations + Terraform provider + SI pilot kit |
 | 53 | Marketplace & Onboarding | 11 policy presets, OpenAPI 3.0 spec (135+ endpoints), self-service signup, cloud marketplace docs |
+| 54 | Post-Quantum Cryptography | Hybrid Ed25519+ML-DSA-65 (FIPS 204) checkpoint/manifest signatures, backward-compatible |
 
 </details>
 
