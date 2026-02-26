@@ -4,7 +4,7 @@
 > **State:** v6.0.0-dev (Phases 1–66 complete, 226 audit rounds)
 > **Version:** 6.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 8,502 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
+> **Tests:** 8,508 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
 > **Updated:** 2026-02-27
 
 ---
@@ -248,7 +248,7 @@ Test naming: `test_<function>_<scenario>_<expected>`
 7. **Silent failures** — every error must be observable
 8. **Premature optimization** — measure first, optimize proven hot spots
 
-### Discovered from 225 audit rounds (top causes of breakage)
+### Discovered from 226 audit rounds (top causes of breakage)
 9. **Changing error messages without grepping tests** — tests assert on exact substrings; grep `tests.rs` for the old string before changing
 10. **Using a name-similar constant** — `MAX_ID_LENGTH` vs `MAX_SERVER_ID_LENGTH` are different; verify the doc comment matches your domain
 11. **Adding unbounded collections** — every `Vec`/`HashMap`/`HashSet` needs a `MAX_*` constant enforced in `validate()`

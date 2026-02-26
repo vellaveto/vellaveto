@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Adversarial Audit Round 226 (23 findings — 4 CRITICAL, 6 HIGH, 8 MEDIUM, 5 LOW):**
+  Full-codebase adversarial security audit across engine, MCP, server, audit, A2A, config, and types crates. 13 real findings fixed, 10 triaged as false positives (already defended).
+  - **Sprint 1 — 4 CRITICAL + 3 HIGH:**
+    - **R226-AUD-1 (CRITICAL):** PQC rotation manifest signature mismatch — ML-DSA-65 was signing content that already included the Ed25519 signature, causing verification failure. Fixed: unsigned digest computed once before any signatures added (`vellaveto-audit/src/rotation.rs`).
+    - **R226-MCP-1 (CRITICAL):** MAX_SCAN_MATCHES bypass — `reversed_matches` appended without cap check, allowing unbounded Vec growth. Fixed: truncate before extend (`vellaveto-mcp/src/inspection/injection.rs`).
+    - **R226-A2A-1 (CRITICAL):** Agent Card `name`, `url`, `version`, and `provider.url` fields not scanned for injection — attacker-controlled metadata bypassed content inspection (`vellaveto-mcp/src/a2a/agent_card.rs`).
+    - **R226-TYP-1 (CRITICAL):** ISO 8601 parser accepted invalid dates (Feb 31, Apr 31, Feb 29 in non-leap years) enabling credential expiry bypass. Fixed: month-specific day validation with leap year support (`vellaveto-types/src/time_util.rs`).
+    - **R226-TYP-2 (HIGH):** 30-day month approximation in epoch calculation caused ~99-day skew by December, enabling time-window policy bypass. Fixed: correct cumulative day-of-year offsets with leap year adjustment.
+    - **R226-ENG-1 (HIGH):** Decision cache identity collision — `None` and `Some("")` hashed identically via `unwrap_or("")`. Fixed: hash `Option<String>` discriminant directly (`vellaveto-engine/src/cache.rs`).
+    - **R226-MCP-3 (HIGH):** JSON Schema 2020-12 keywords `unevaluatedProperties`, `unevaluatedItems`, `propertyNames`, `contentSchema` not scanned for injection payloads (`vellaveto-mcp/src/inspection/tool_description.rs`).
+  - **Sprint 2 — 2 HIGH:**
+    - **R226-MCP-4 (HIGH):** Regional indicator emoji smuggling — ZWJ (U+200D), ZWNJ, variation selectors, BOM, and zero-width spaces interleaved between regional indicator codepoints broke Aho-Corasick pattern matching. Fixed: strip invisible characters in `decode_regional_indicators()`.
+    - **R226-SRV-5 (HIGH):** SAML `<Conditions>` element missing was silently accepted, allowing assertion replay without NotBefore/NotOnOrAfter enforcement. Fixed: require element presence (fail-closed) (`vellaveto-server/src/iam.rs`).
+  - **Sprint 3 — 4 MEDIUM + 2 LOW:**
+    - **R226-MCP-2 (MEDIUM):** Leetspeak normalization expanded from 7→14 substitutions (`$→s, !→i, |→l, 8→b, 6→g, 9→g, 2→z`) — covers Analytics Vidhya 36% bypass rate research.
+    - **R226-SRV-2 (MEDIUM):** Cross-tenant rate limit collision — rate limit key now includes `X-Tenant-ID` prefix preventing Tenant A's burst from throttling Tenant B.
+    - **R226-CROSS-1 (MEDIUM):** Audit chain verification now validates timestamp monotonicity — detects clock tampering and log reordering attacks (`vellaveto-audit/src/verification.rs`).
+    - **R226-MCP-8 (LOW):** Tool description DoS — scanning bounded at 64KB per description, 1MB total (`vellaveto-mcp/src/inspection/tool_description.rs`).
+    - **R226-ENG-3 (LOW):** Circuit breaker deny reason no longer leaks internal `tool_pattern` to API clients (`vellaveto-engine/src/policy_compile.rs`).
+    - **R226-AUD-5 (LOW):** CEF timestamps without timezone indicator get `Z` appended per CEF spec (`vellaveto-audit/src/export/mod.rs`).
+  - **False positives (no action):** R226-SRV-1 (setup wizard TOCTOU already fixed by FIND-R101-001), R226-MCP-5 (response body scanning complete), R226-SRV-3 (CORS already case-insensitive), R226-SRV-6 (wizard uses auto-generated API key), R226-CFG-1 (Cedar import already bounded at 10K), R226-CFG-2 (config reload already atomic via ArcSwap), R226-SRV-4 (health cache by design), R226-MCP-9 (schema defaults already scanned), R226-ENG-2 (cache LRU eviction documented), R226-AUD-3 (PQC test alignment only).
+  - 6 new tests. **8,508 Rust tests passing, 0 failures.**
+
 - **R226: Threat Intelligence Sweep — 17-Item Security Hardening**
   Comprehensive sweep informed by 50+ new threats (Feb 2026) across MCP vulnerabilities, agentic AI attacks, supply chain compromises, and compliance deadlines.
   - **Sprint 1 (P0 Critical — 6 items):** ML-DSA `use_hint` edge-case verification, MCP-ITP implicit tool poisoning defense (tool descriptions referencing other tools), Policy Puppetry injection detection (`<override>`, `<system_prompt>`, `[SYSTEM]` XML/JSON/INI policy disguise), Google AIza DLP severity upgrade (LOW→HIGH) + Supabase/HuggingFace/W&B patterns, URL-embedded data exfiltration entropy analysis (>4.5 bits/byte threshold), tool namespace collision fail-closed mode (`governance.tool_namespace_strict`).
