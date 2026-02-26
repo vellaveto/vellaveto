@@ -53,6 +53,23 @@ const MAX_ALERT_HISTORY: usize = 10_000;
 /// Maximum length of parameter data for entropy analysis (64 KB).
 const MAX_PARAM_DATA_LEN: usize = 65_536;
 
+/// Maximum denial events retained per agent for reconnaissance detection.
+const MAX_DENIAL_EVENTS_PER_AGENT: usize = 500;
+
+/// Maximum number of agents tracked for reconnaissance detection.
+const MAX_RECON_TRACKED_AGENTS: usize = 10_000;
+
+/// Maximum number of agents tracked for behavioral drift detection.
+const MAX_DRIFT_TRACKED_AGENTS: usize = 10_000;
+
+/// Maximum tool usage entries per drift profile.
+const MAX_DRIFT_TOOL_ENTRIES: usize = 500;
+
+/// Maximum number of historical denial rate snapshots per agent.
+/// Reserved for future multi-window drift comparison.
+#[allow(dead_code)]
+const MAX_DRIFT_SNAPSHOTS: usize = 100;
+
 // ═══════════════════════════════════════════════════
 // CONFIGURATION
 // ═══════════════════════════════════════════════════
@@ -95,6 +112,36 @@ pub struct CollusionConfig {
     /// Default: 0.7
     #[serde(default = "default_sync_threshold")]
     pub sync_threshold: f64,
+
+    /// R226: Number of distinct policy denials within `recon_window_secs` that
+    /// triggers a reconnaissance probe alert. Detects agents systematically
+    /// probing permission boundaries (Promptware Kill Chain Stage 3).
+    /// Default: 10
+    #[serde(default = "default_recon_denial_threshold")]
+    pub recon_denial_threshold: u32,
+
+    /// R226: Time window (seconds) for reconnaissance probe detection.
+    /// Default: 60
+    #[serde(default = "default_recon_window_secs")]
+    pub recon_window_secs: u64,
+
+    /// R226: Drift detection — minimum change in denial rate (0.0–1.0) across
+    /// a time window to trigger an alert. E.g., if an agent's denial rate jumps
+    /// from 5% to 30%, the drift is 0.25 which exceeds the default 0.20 threshold.
+    /// Default: 0.20
+    #[serde(default = "default_drift_threshold")]
+    pub drift_threshold: f64,
+
+    /// R226: Drift detection — time window (seconds) for comparing behavior
+    /// baseline vs current. Default: 3600 (1 hour).
+    #[serde(default = "default_drift_window_secs")]
+    pub drift_window_secs: u64,
+
+    /// R226: Drift detection — minimum number of actions before drift detection
+    /// activates (avoids false alerts on small sample sizes).
+    /// Default: 20
+    #[serde(default = "default_drift_min_actions")]
+    pub drift_min_actions: u32,
 }
 
 fn default_enabled() -> bool {
@@ -115,6 +162,21 @@ fn default_min_coordinated_agents() -> u32 {
 fn default_sync_threshold() -> f64 {
     0.7
 }
+fn default_recon_denial_threshold() -> u32 {
+    10
+}
+fn default_recon_window_secs() -> u64 {
+    60
+}
+fn default_drift_threshold() -> f64 {
+    0.20
+}
+fn default_drift_window_secs() -> u64 {
+    3600
+}
+fn default_drift_min_actions() -> u32 {
+    20
+}
 
 impl Default for CollusionConfig {
     fn default() -> Self {
@@ -125,6 +187,11 @@ impl Default for CollusionConfig {
             min_entropy_observations: default_min_entropy_observations(),
             min_coordinated_agents: default_min_coordinated_agents(),
             sync_threshold: default_sync_threshold(),
+            recon_denial_threshold: default_recon_denial_threshold(),
+            recon_window_secs: default_recon_window_secs(),
+            drift_threshold: default_drift_threshold(),
+            drift_window_secs: default_drift_window_secs(),
+            drift_min_actions: default_drift_min_actions(),
         }
     }
 }
@@ -189,6 +256,37 @@ impl CollusionConfig {
                 "min_coordinated_agents must be >= 2".to_string(),
             ));
         }
+        // R226: Recon detection validation.
+        if self.recon_denial_threshold == 0 {
+            return Err(CollusionError::InvalidConfig(
+                "recon_denial_threshold must be > 0".to_string(),
+            ));
+        }
+        if self.recon_window_secs == 0 {
+            return Err(CollusionError::InvalidConfig(
+                "recon_window_secs must be > 0".to_string(),
+            ));
+        }
+        // R226: Drift detection validation.
+        if !self.drift_threshold.is_finite()
+            || self.drift_threshold < 0.0
+            || self.drift_threshold > 1.0
+        {
+            return Err(CollusionError::InvalidConfig(format!(
+                "drift_threshold must be in [0.0, 1.0], got {}",
+                self.drift_threshold
+            )));
+        }
+        if self.drift_window_secs == 0 {
+            return Err(CollusionError::InvalidConfig(
+                "drift_window_secs must be > 0".to_string(),
+            ));
+        }
+        if self.drift_min_actions == 0 {
+            return Err(CollusionError::InvalidConfig(
+                "drift_min_actions must be > 0".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -207,6 +305,14 @@ pub enum CollusionType {
     CoordinatedAccess,
     /// Synchronized behavior: agents showing correlated tool call timing.
     SynchronizedBehavior,
+    /// R226: Reconnaissance probe — agent rapidly triggering many distinct policy
+    /// denials in a short window, indicating boundary probing before an attack.
+    /// (Schneier / Promptware Kill Chain Stage 3)
+    ReconnaissanceProbe,
+    /// R226: Gradual constraint drift — agent behavior shifts significantly over
+    /// a time window, indicating "salami slicing" or progressive boundary pushing.
+    /// (Straiker — agent hijacking via gradual drift)
+    ConstraintDrift,
 }
 
 /// Severity of a collusion alert.
@@ -304,6 +410,60 @@ impl EntropyProfile {
     }
 }
 
+/// R226: A policy denial event for reconnaissance detection.
+#[derive(Debug, Clone)]
+struct DenialEvent {
+    /// Tool that was denied.
+    tool: String,
+    /// Unix timestamp of the denial.
+    timestamp: u64,
+}
+
+/// R226: Per-agent behavioral drift profile.
+///
+/// Tracks tool call and denial counts in a sliding window to detect gradual
+/// shifts in an agent's behavior over time. A sudden increase in denial rate
+/// indicates the agent is being pushed beyond its authorized boundaries.
+#[derive(Debug, Clone)]
+struct DriftProfile {
+    /// Timestamped action records: (timestamp, was_denied).
+    actions: VecDeque<(u64, bool)>,
+}
+
+impl DriftProfile {
+    fn new() -> Self {
+        Self {
+            actions: VecDeque::new(),
+        }
+    }
+
+    /// Record an action (tool call attempt, possibly denied).
+    fn record(&mut self, timestamp: u64, denied: bool) {
+        if self.actions.len() >= MAX_DRIFT_TOOL_ENTRIES {
+            self.actions.pop_front();
+        }
+        self.actions.push_back((timestamp, denied));
+    }
+
+    /// Compute denial rate for actions within a time window ending at `now`.
+    fn denial_rate_in_window(&self, window_start: u64, window_end: u64) -> Option<f64> {
+        let mut total = 0u64;
+        let mut denied = 0u64;
+        for &(ts, was_denied) in &self.actions {
+            if ts >= window_start && ts <= window_end {
+                total = total.saturating_add(1);
+                if was_denied {
+                    denied = denied.saturating_add(1);
+                }
+            }
+        }
+        if total == 0 {
+            return None;
+        }
+        Some(denied as f64 / total as f64)
+    }
+}
+
 /// Per-agent tool call timing profile for synchronization detection.
 #[derive(Debug, Clone)]
 struct TimingProfile {
@@ -346,6 +506,10 @@ pub struct CollusionDetector {
     timing_profiles: RwLock<HashMap<String, TimingProfile>>,
     /// Alert history (ring buffer).
     alerts: RwLock<VecDeque<CollusionAlert>>,
+    /// R226: Per-agent denial event ring buffers for reconnaissance detection.
+    denial_events: RwLock<HashMap<String, VecDeque<DenialEvent>>>,
+    /// R226: Per-agent behavioral drift profiles.
+    drift_profiles: RwLock<HashMap<String, DriftProfile>>,
 }
 
 impl std::fmt::Debug for CollusionDetector {
@@ -356,6 +520,8 @@ impl std::fmt::Debug for CollusionDetector {
             .field("entropy_profiles", &"<locked>")
             .field("timing_profiles", &"<locked>")
             .field("alerts", &"<locked>")
+            .field("denial_events", &"<locked>")
+            .field("drift_profiles", &"<locked>")
             .finish()
     }
 }
@@ -370,6 +536,8 @@ impl CollusionDetector {
             entropy_profiles: RwLock::new(HashMap::new()),
             timing_profiles: RwLock::new(HashMap::new()),
             alerts: RwLock::new(VecDeque::new()),
+            denial_events: RwLock::new(HashMap::new()),
+            drift_profiles: RwLock::new(HashMap::new()),
         })
     }
 
@@ -914,6 +1082,246 @@ impl CollusionDetector {
     }
 
     // ═══════════════════════════════════════════════
+    // R226: RECONNAISSANCE PROBE DETECTION
+    // ═══════════════════════════════════════════════
+
+    /// Record a policy denial event for an agent and check for reconnaissance
+    /// probing patterns.
+    ///
+    /// A reconnaissance probe is detected when an agent triggers
+    /// `recon_denial_threshold` or more distinct policy denials within
+    /// `recon_window_secs`. This indicates the agent is systematically
+    /// probing permission boundaries before launching an attack
+    /// (Promptware Kill Chain Stage 3 — Schneier/arXiv:2601.09625).
+    ///
+    /// Returns an alert if the threshold is exceeded.
+    pub fn record_denial(
+        &self,
+        agent_id: &str,
+        tool: &str,
+        timestamp: u64,
+    ) -> Result<Option<CollusionAlert>, CollusionError> {
+        if !self.config.enabled {
+            return Ok(None);
+        }
+        Self::validate_agent_id(agent_id)?;
+        Self::validate_tool_name(tool)?;
+
+        let mut denials = self
+            .denial_events
+            .write()
+            .map_err(|_| CollusionError::LockPoisoned("denial_events write lock".to_string()))?;
+
+        // SECURITY (Trap 3): Bound tracked agents.
+        if !denials.contains_key(agent_id) && denials.len() >= MAX_RECON_TRACKED_AGENTS {
+            tracing::warn!(
+                max = MAX_RECON_TRACKED_AGENTS,
+                "Reconnaissance denial tracking at capacity, skipping new agent"
+            );
+            return Ok(None);
+        }
+
+        let events = denials
+            .entry(agent_id.to_string())
+            .or_insert_with(VecDeque::new);
+
+        // Evict events outside the window.
+        let cutoff = timestamp.saturating_sub(self.config.recon_window_secs);
+        while let Some(front) = events.front() {
+            if front.timestamp < cutoff {
+                events.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        // Add new event, evicting oldest if at capacity.
+        if events.len() >= MAX_DENIAL_EVENTS_PER_AGENT {
+            events.pop_front();
+        }
+        events.push_back(DenialEvent {
+            tool: tool.to_string(),
+            timestamp,
+        });
+
+        // Count distinct tools denied within the window.
+        let mut distinct_tools: Vec<&str> = Vec::new();
+        let mut denial_timestamps: Vec<u64> = Vec::new();
+        for event in events.iter() {
+            if event.timestamp >= cutoff {
+                if !distinct_tools.contains(&event.tool.as_str()) {
+                    distinct_tools.push(&event.tool);
+                }
+                denial_timestamps.push(event.timestamp);
+            }
+        }
+
+        let distinct_count = distinct_tools.len() as u32;
+        if distinct_count >= self.config.recon_denial_threshold {
+            let now = Self::now_secs();
+
+            let severity = if distinct_count >= self.config.recon_denial_threshold.saturating_mul(2)
+            {
+                CollusionSeverity::Critical
+            } else {
+                CollusionSeverity::High
+            };
+
+            let alert = CollusionAlert {
+                collusion_type: CollusionType::ReconnaissanceProbe,
+                severity,
+                agent_ids: vec![agent_id.to_string()],
+                target: format!("agent:{agent_id}"),
+                description: format!(
+                    "Agent '{}' triggered {} distinct policy denials within {}s window \
+                     (threshold: {}), indicating reconnaissance probing",
+                    agent_id,
+                    distinct_count,
+                    self.config.recon_window_secs,
+                    self.config.recon_denial_threshold,
+                ),
+                detected_at: now,
+                evidence: CollusionEvidence {
+                    entropy_values: None,
+                    access_timestamps: Some(denial_timestamps),
+                    sync_score: None,
+                    observation_count: distinct_count,
+                },
+            };
+
+            metrics::counter!(
+                "vellaveto_collusion_alerts_total",
+                "type" => "reconnaissance_probe"
+            )
+            .increment(1);
+
+            tracing::warn!(
+                agent_id = %agent_id,
+                distinct_denials = %distinct_count,
+                window_secs = %self.config.recon_window_secs,
+                "Reconnaissance probe detected: agent systematically probing permission boundaries"
+            );
+
+            self.record_alert(alert.clone())?;
+            return Ok(Some(alert));
+        }
+
+        Ok(None)
+    }
+
+    // ═══════════════════════════════════════════════
+    // R226: GRADUAL CONSTRAINT DRIFT DETECTION
+    // ═══════════════════════════════════════════════
+
+    /// Record a tool call attempt and detect behavioral drift.
+    ///
+    /// Tracks each agent's action history (allowed vs denied) and compares the
+    /// denial rate in the first half of the time window (baseline) to the second
+    /// half (current). If the denial rate increases by more than `drift_threshold`,
+    /// an alert is raised indicating the agent may be gradually pushing boundaries.
+    ///
+    /// (Straiker — "salami slicing" agent hijacking over multiple sessions)
+    pub fn record_agent_action(
+        &self,
+        agent_id: &str,
+        denied: bool,
+        timestamp: u64,
+    ) -> Result<Option<CollusionAlert>, CollusionError> {
+        if !self.config.enabled {
+            return Ok(None);
+        }
+        Self::validate_agent_id(agent_id)?;
+
+        let mut profiles = self
+            .drift_profiles
+            .write()
+            .map_err(|_| CollusionError::LockPoisoned("drift_profiles write lock".to_string()))?;
+
+        // SECURITY (Trap 3): Bound tracked agents.
+        if !profiles.contains_key(agent_id) && profiles.len() >= MAX_DRIFT_TRACKED_AGENTS {
+            tracing::warn!(
+                max = MAX_DRIFT_TRACKED_AGENTS,
+                "Drift tracking at capacity, skipping new agent"
+            );
+            return Ok(None);
+        }
+
+        let profile = profiles
+            .entry(agent_id.to_string())
+            .or_insert_with(DriftProfile::new);
+
+        profile.record(timestamp, denied);
+
+        // Need enough actions before computing drift.
+        if profile.actions.len() < self.config.drift_min_actions as usize {
+            return Ok(None);
+        }
+
+        // Split the window into baseline (first half) and current (second half).
+        let window_start = timestamp.saturating_sub(self.config.drift_window_secs);
+        let midpoint = window_start.saturating_add(self.config.drift_window_secs / 2);
+
+        let baseline_rate = profile.denial_rate_in_window(window_start, midpoint);
+        let current_rate = profile.denial_rate_in_window(midpoint, timestamp);
+
+        if let (Some(baseline), Some(current)) = (baseline_rate, current_rate) {
+            let drift = current - baseline;
+            if drift >= self.config.drift_threshold {
+                let now = Self::now_secs();
+
+                let severity = if drift >= self.config.drift_threshold * 2.0 {
+                    CollusionSeverity::High
+                } else {
+                    CollusionSeverity::Medium
+                };
+
+                let alert = CollusionAlert {
+                    collusion_type: CollusionType::ConstraintDrift,
+                    severity,
+                    agent_ids: vec![agent_id.to_string()],
+                    target: format!("agent:{agent_id}"),
+                    description: format!(
+                        "Agent '{}' denial rate shifted from {:.1}% to {:.1}% \
+                         (drift: {:.1}%, threshold: {:.1}%) within {}s window",
+                        agent_id,
+                        baseline * 100.0,
+                        current * 100.0,
+                        drift * 100.0,
+                        self.config.drift_threshold * 100.0,
+                        self.config.drift_window_secs,
+                    ),
+                    detected_at: now,
+                    evidence: CollusionEvidence {
+                        entropy_values: None,
+                        access_timestamps: None,
+                        sync_score: Some(drift),
+                        observation_count: profile.actions.len() as u32,
+                    },
+                };
+
+                metrics::counter!(
+                    "vellaveto_collusion_alerts_total",
+                    "type" => "constraint_drift"
+                )
+                .increment(1);
+
+                tracing::warn!(
+                    agent_id = %agent_id,
+                    baseline_rate = %format!("{:.2}", baseline),
+                    current_rate = %format!("{:.2}", current),
+                    drift = %format!("{:.2}", drift),
+                    "Gradual constraint drift detected: agent behavior shifting"
+                );
+
+                self.record_alert(alert.clone())?;
+                return Ok(Some(alert));
+            }
+        }
+
+        Ok(None)
+    }
+
+    // ═══════════════════════════════════════════════
     // ALERT MANAGEMENT
     // ═══════════════════════════════════════════════
 
@@ -1419,5 +1827,286 @@ mod tests {
         let parsed: CollusionAlert = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.collusion_type, CollusionType::SteganographicChannel);
         assert_eq!(parsed.severity, CollusionSeverity::High);
+    }
+
+    // ────────────────────────────────────────────────
+    // R226: Reconnaissance probe detection
+    // ────────────────────────────────────────────────
+
+    #[test]
+    fn test_record_denial_disabled_returns_none() {
+        let mut cfg = default_config();
+        cfg.enabled = false;
+        let detector = CollusionDetector::new(cfg).unwrap();
+        let result = detector.record_denial("agent-1", "read_file", 1000);
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_record_denial_below_threshold_no_alert() {
+        let mut cfg = default_config();
+        cfg.recon_denial_threshold = 5;
+        cfg.recon_window_secs = 60;
+        let detector = CollusionDetector::new(cfg).unwrap();
+
+        let base = 1_000_000u64;
+        // 4 distinct tool denials — below threshold of 5.
+        for (i, tool) in ["read_file", "write_file", "exec_cmd", "list_dir"]
+            .iter()
+            .enumerate()
+        {
+            let result = detector
+                .record_denial("probe-agent", tool, base + i as u64)
+                .unwrap();
+            assert!(
+                result.is_none(),
+                "Below threshold should not trigger alert (tool #{i})"
+            );
+        }
+    }
+
+    #[test]
+    fn test_record_denial_at_threshold_triggers_alert() {
+        let mut cfg = default_config();
+        cfg.recon_denial_threshold = 5;
+        cfg.recon_window_secs = 60;
+        let detector = CollusionDetector::new(cfg).unwrap();
+
+        let base = 1_000_000u64;
+        let tools = [
+            "read_file",
+            "write_file",
+            "exec_cmd",
+            "list_dir",
+            "delete_file",
+        ];
+
+        let mut triggered = false;
+        for (i, tool) in tools.iter().enumerate() {
+            if let Some(alert) = detector
+                .record_denial("probe-agent", tool, base + i as u64)
+                .unwrap()
+            {
+                assert_eq!(alert.collusion_type, CollusionType::ReconnaissanceProbe);
+                assert_eq!(alert.severity, CollusionSeverity::High);
+                assert!(alert.description.contains("5 distinct policy denials"));
+                assert!(alert.description.contains("probe-agent"));
+                assert_eq!(alert.evidence.observation_count, 5);
+                triggered = true;
+                break;
+            }
+        }
+        assert!(
+            triggered,
+            "Should have triggered reconnaissance probe alert at threshold"
+        );
+    }
+
+    #[test]
+    fn test_record_denial_same_tool_repeated_no_alert() {
+        let mut cfg = default_config();
+        cfg.recon_denial_threshold = 5;
+        cfg.recon_window_secs = 60;
+        let detector = CollusionDetector::new(cfg).unwrap();
+
+        let base = 1_000_000u64;
+        // Same tool denied 20 times — only 1 distinct tool, below threshold.
+        for i in 0..20 {
+            let result = detector
+                .record_denial("probe-agent", "read_file", base + i)
+                .unwrap();
+            assert!(
+                result.is_none(),
+                "Repeated same-tool denial should not trigger recon alert"
+            );
+        }
+    }
+
+    #[test]
+    fn test_record_denial_outside_window_no_alert() {
+        let mut cfg = default_config();
+        cfg.recon_denial_threshold = 3;
+        cfg.recon_window_secs = 10;
+        let detector = CollusionDetector::new(cfg).unwrap();
+
+        let base = 1_000_000u64;
+        // First 2 denials at base time.
+        detector
+            .record_denial("probe-agent", "tool_a", base)
+            .unwrap();
+        detector
+            .record_denial("probe-agent", "tool_b", base + 1)
+            .unwrap();
+
+        // Third denial well outside the 10s window.
+        let result = detector
+            .record_denial("probe-agent", "tool_c", base + 100)
+            .unwrap();
+        // tool_a and tool_b have expired (100 > 10), so only tool_c = 1 distinct, < 3.
+        assert!(
+            result.is_none(),
+            "Denials outside window should not trigger alert"
+        );
+    }
+
+    #[test]
+    fn test_record_denial_critical_severity_at_double_threshold() {
+        let mut cfg = default_config();
+        cfg.recon_denial_threshold = 3;
+        cfg.recon_window_secs = 120;
+        let detector = CollusionDetector::new(cfg).unwrap();
+
+        let base = 1_000_000u64;
+        let tools = ["t1", "t2", "t3", "t4", "t5", "t6"];
+
+        let mut last_alert = None;
+        for (i, tool) in tools.iter().enumerate() {
+            if let Some(alert) = detector
+                .record_denial("heavy-probe", tool, base + i as u64)
+                .unwrap()
+            {
+                last_alert = Some(alert);
+            }
+        }
+        let alert = last_alert.expect("Should have triggered alert with 6 tools");
+        // 6 >= 3*2, so severity should be Critical.
+        assert_eq!(alert.severity, CollusionSeverity::Critical);
+    }
+
+    #[test]
+    fn test_record_denial_invalid_agent_id_rejected() {
+        let detector = make_detector();
+        assert!(detector.record_denial("", "tool", 1000).is_err());
+    }
+
+    #[test]
+    fn test_record_denial_invalid_tool_name_rejected() {
+        let detector = make_detector();
+        assert!(detector.record_denial("agent", "", 1000).is_err());
+    }
+
+    #[test]
+    fn test_recon_config_validate_zero_threshold_rejected() {
+        let mut cfg = default_config();
+        cfg.recon_denial_threshold = 0;
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_recon_config_validate_zero_window_rejected() {
+        let mut cfg = default_config();
+        cfg.recon_window_secs = 0;
+        assert!(cfg.validate().is_err());
+    }
+
+    // ────────────────────────────────────────────────
+    // R226: Gradual constraint drift detection
+    // ────────────────────────────────────────────────
+
+    #[test]
+    fn test_record_agent_action_disabled_returns_none() {
+        let mut cfg = default_config();
+        cfg.enabled = false;
+        let detector = CollusionDetector::new(cfg).unwrap();
+        let result = detector.record_agent_action("agent-1", false, 1000);
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_record_agent_action_below_min_actions_no_alert() {
+        let mut cfg = default_config();
+        cfg.drift_min_actions = 20;
+        cfg.drift_window_secs = 100;
+        cfg.drift_threshold = 0.20;
+        let detector = CollusionDetector::new(cfg).unwrap();
+
+        // Record only 10 actions — below min_actions threshold.
+        for i in 0..10 {
+            let result = detector
+                .record_agent_action("agent-1", i % 3 == 0, 1000 + i)
+                .unwrap();
+            assert!(result.is_none(), "Below min_actions should not trigger");
+        }
+    }
+
+    #[test]
+    fn test_record_agent_action_drift_triggers_alert() {
+        let mut cfg = default_config();
+        cfg.drift_min_actions = 10;
+        cfg.drift_window_secs = 100;
+        cfg.drift_threshold = 0.20;
+        let detector = CollusionDetector::new(cfg).unwrap();
+
+        let base = 1_000_000u64;
+        // Baseline half (0-50s): all allowed (denial rate = 0%).
+        for i in 0..10 {
+            detector
+                .record_agent_action("drift-agent", false, base + i * 5)
+                .unwrap();
+        }
+        // Current half (51-100s): all denied (denial rate = 100%).
+        let mut triggered = false;
+        for i in 0..10 {
+            if let Some(alert) = detector
+                .record_agent_action("drift-agent", true, base + 51 + i * 5)
+                .unwrap()
+            {
+                assert_eq!(alert.collusion_type, CollusionType::ConstraintDrift);
+                assert!(alert.description.contains("drift-agent"));
+                triggered = true;
+                break;
+            }
+        }
+        assert!(triggered, "Significant drift should trigger alert");
+    }
+
+    #[test]
+    fn test_record_agent_action_no_drift_no_alert() {
+        let mut cfg = default_config();
+        cfg.drift_min_actions = 10;
+        cfg.drift_window_secs = 100;
+        cfg.drift_threshold = 0.20;
+        let detector = CollusionDetector::new(cfg).unwrap();
+
+        let base = 1_000_000u64;
+        // Stable denial rate across both halves (~10% each).
+        for i in 0..30 {
+            let denied = i % 10 == 0; // ~10% denial rate
+            let result = detector
+                .record_agent_action("stable-agent", denied, base + i * 3)
+                .unwrap();
+            assert!(
+                result.is_none(),
+                "Stable denial rate should not trigger drift alert (action {i})"
+            );
+        }
+    }
+
+    #[test]
+    fn test_drift_config_validate_invalid_threshold() {
+        let mut cfg = default_config();
+        cfg.drift_threshold = 1.5;
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_drift_config_validate_nan_threshold() {
+        let mut cfg = default_config();
+        cfg.drift_threshold = f64::NAN;
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_drift_config_validate_zero_window() {
+        let mut cfg = default_config();
+        cfg.drift_window_secs = 0;
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_drift_config_validate_zero_min_actions() {
+        let mut cfg = default_config();
+        cfg.drift_min_actions = 0;
+        assert!(cfg.validate().is_err());
     }
 }

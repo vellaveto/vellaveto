@@ -139,9 +139,9 @@ mod tests {
         // A variety of messages that exercise different coefficient distributions
         let messages: &[&[u8]] = &[
             b"vellaveto checkpoint payload",
-            b"",                     // empty — maximises edge-case coefficient patterns
-            &[0u8; 64],             // all-zero block
-            &[0xFFu8; 128],         // all-one block
+            b"",            // empty — maximises edge-case coefficient patterns
+            &[0u8; 64],     // all-zero block
+            &[0xFFu8; 128], // all-one block
             b"The quick brown fox jumps over the lazy dog",
         ];
 
@@ -182,10 +182,7 @@ mod tests {
         let tampered = hex::encode(sig_bytes);
 
         let result = ml_dsa_verify(&pk, msg, &tampered, CHECKPOINT_CONTEXT);
-        assert!(
-            result.is_err(),
-            "Tampered signature must fail verification"
-        );
+        assert!(result.is_err(), "Tampered signature must fail verification");
     }
 
     /// R226-PQC-4: Invalid key lengths must be rejected.

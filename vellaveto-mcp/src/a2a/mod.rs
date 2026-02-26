@@ -94,10 +94,9 @@ pub mod signature;
 
 // Re-export commonly used types at the module level
 pub use agent_card::{
-    build_agent_card_url, parse_agent_card, scan_agent_card_for_injection,
-    supports_auth_scheme, supports_streaming, validate_agent_card, validate_request_method,
-    AgentCapabilities, AgentCard, AgentCardCache, AgentSkill, AuthScheme, AuthenticationInfo,
-    ProviderInfo,
+    build_agent_card_url, parse_agent_card, scan_agent_card_for_injection, supports_auth_scheme,
+    supports_streaming, validate_agent_card, validate_request_method, AgentCapabilities, AgentCard,
+    AgentCardCache, AgentSkill, AuthScheme, AuthenticationInfo, ProviderInfo,
 };
 pub use error::A2aError;
 pub use extractor::{

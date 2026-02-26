@@ -17,10 +17,7 @@ use vellaveto_types::{Policy, PolicyType};
 
 /// Attach a simulated peer connection address to a request so that
 /// `ConnectInfo` is available in handlers.
-fn with_connect_info(
-    mut request: Request<Body>,
-    addr: std::net::SocketAddr,
-) -> Request<Body> {
+fn with_connect_info(mut request: Request<Body>, addr: std::net::SocketAddr) -> Request<Body> {
     request
         .extensions_mut()
         .insert(axum::extract::ConnectInfo(addr));

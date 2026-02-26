@@ -252,26 +252,33 @@ impl SamlState {
     }
 
     fn ensure_conditions(&self, assertion: Node) -> Result<(), IamError> {
-        if let Some(conditions) = assertion
+        // SECURITY (R226-SRV-5): Require Conditions element (fail-closed).
+        // Previously, a missing Conditions element silently returned Ok(()),
+        // allowing an attacker to strip Conditions from an unsigned assertion
+        // to bypass NotOnOrAfter expiry checks.
+        let conditions = assertion
             .descendants()
             .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "Conditions")))
-        {
-            let now = Utc::now();
-            if let Some(not_before) = conditions.attribute("NotBefore") {
-                let timestamp = parse_saml_timestamp(not_before)?;
-                if now < timestamp {
-                    return Err(IamError::Saml(
-                        "SAML Conditions NotBefore is in the future".to_string(),
-                    ));
-                }
+            .ok_or_else(|| {
+                IamError::Saml(
+                    "SAML Conditions element missing (fail-closed)".to_string(),
+                )
+            })?;
+        let now = Utc::now();
+        if let Some(not_before) = conditions.attribute("NotBefore") {
+            let timestamp = parse_saml_timestamp(not_before)?;
+            if now < timestamp {
+                return Err(IamError::Saml(
+                    "SAML Conditions NotBefore is in the future".to_string(),
+                ));
             }
-            if let Some(not_on_or_after) = conditions.attribute("NotOnOrAfter") {
-                let timestamp = parse_saml_timestamp(not_on_or_after)?;
-                if now >= timestamp {
-                    return Err(IamError::Saml(
-                        "SAML Conditions NotOnOrAfter has passed".to_string(),
-                    ));
-                }
+        }
+        if let Some(not_on_or_after) = conditions.attribute("NotOnOrAfter") {
+            let timestamp = parse_saml_timestamp(not_on_or_after)?;
+            if now >= timestamp {
+                return Err(IamError::Saml(
+                    "SAML Conditions NotOnOrAfter has passed".to_string(),
+                ));
             }
         }
         Ok(())
@@ -2293,6 +2300,31 @@ mod tests {
             saml_state.ensure_destination(response),
             Err(IamError::Saml(_))
         ));
+    }
+
+    /// R226-SRV-5: Missing Conditions element must be rejected (fail-closed).
+    #[test]
+    fn ensure_conditions_rejects_missing_conditions_element() {
+        let config = test_saml_config();
+        let metadata_xml = test_metadata_xml();
+        let document = Document::parse(&metadata_xml).unwrap();
+        let saml_state = SamlState::from_document(document, &config).unwrap();
+        // Assertion without Conditions element
+        let xml = format!(
+            "<Assertion xmlns=\"{}\"><Subject/></Assertion>",
+            SAML_ASSERTION_NS
+        );
+        let assertion_doc = Document::parse(&xml).unwrap();
+        let assertion = assertion_doc.root_element();
+        let result = saml_state.ensure_conditions(assertion);
+        assert!(
+            result.is_err(),
+            "Missing Conditions element must be rejected (fail-closed)"
+        );
+        assert!(
+            format!("{}", result.unwrap_err()).contains("missing"),
+            "Error must mention missing Conditions"
+        );
     }
 
     fn role_claims(subject: &str, role: &str) -> RoleClaims {

@@ -1605,6 +1605,18 @@ async fn cmd_serve(
 
     let app = routes::build_router(state);
 
+    // R226: Warn when binding to all interfaces (NeighborJack / Backslash MCP vulnerability).
+    // Binding to 0.0.0.0 or :: exposes the server to all network interfaces, including
+    // adjacent networks. This is intentional in Docker/K8s but dangerous on developer machines.
+    if bind == "0.0.0.0" || bind == "::" || bind == "[::]" {
+        tracing::warn!(
+            bind_address = %bind,
+            "Server binding to ALL network interfaces. This exposes Vellaveto to \
+             adjacent network attackers (NeighborJack). Use 127.0.0.1 for local-only \
+             access, or ensure firewall rules restrict access in production."
+        );
+    }
+
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", bind, port))
         .await
         .context("Failed to bind to address")?;

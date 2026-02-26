@@ -66,6 +66,12 @@ pub mod nis2;
 // ── Phase 41: OWASP Agentic Security Index (ASI) registry ───────────────────
 pub mod owasp_asi;
 
+// ── R226: OWASP MCP Top 10 compliance registry ─────────────────────────────
+pub mod owasp_mcp;
+
+// ── R226: Cross-regulation incident reporting ───────────────────────────────
+pub mod incident_report;
+
 // ── NIST AI 600-1 GenAI Profile compliance registry ────────────────────────
 pub mod nist_ai600;
 
