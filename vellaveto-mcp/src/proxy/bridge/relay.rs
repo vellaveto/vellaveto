@@ -797,6 +797,78 @@ impl ProxyBridge {
             return Ok(());
         }
 
+        // SECURITY (FIND-040): Injection scan tool call parameters.
+        // Transport parity with HTTP/WS/gRPC handlers — the stdio relay
+        // must scan outbound tool call arguments for injection patterns.
+        if !self.injection_disabled {
+            let synthetic_msg = json!({
+                "method": tool_name,
+                "params": arguments,
+            });
+            let injection_matches: Vec<String> =
+                if let Some(ref scanner) = self.injection_scanner {
+                    scanner
+                        .scan_notification(&synthetic_msg)
+                        .into_iter()
+                        .map(|s| s.to_string())
+                        .collect()
+                } else {
+                    scan_notification_for_injection(&synthetic_msg)
+                        .into_iter()
+                        .map(|s| s.to_string())
+                        .collect()
+                };
+            if !injection_matches.is_empty() {
+                tracing::warn!(
+                    "SECURITY: Injection in tool call params '{}': {:?}",
+                    tool_name,
+                    injection_matches
+                );
+                let action = extract_action(&tool_name, &arguments);
+                let verdict = if self.injection_blocking {
+                    Verdict::Deny {
+                        reason: format!(
+                            "Tool call blocked: injection detected in parameters ({:?})",
+                            injection_matches
+                        ),
+                    }
+                } else {
+                    Verdict::Allow
+                };
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "tool_call_injection_detected",
+                            "tool": tool_name,
+                            "patterns": injection_matches,
+                            "blocked": self.injection_blocking,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit tool call injection finding: {}", e);
+                }
+                if self.injection_blocking {
+                    let response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": "Request blocked: security policy violation",
+                        }
+                    });
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+            }
+        }
+
         // OWASP ASI06: Check for memory poisoning
         let poisoning_matches = state.memory_tracker.check_parameters(&arguments);
         if !poisoning_matches.is_empty() {

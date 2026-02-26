@@ -161,7 +161,7 @@ impl IamConfig {
 }
 
 /// OpenID Connect provider configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct OidcConfig {
     #[serde(default)]
@@ -193,6 +193,25 @@ pub struct OidcConfig {
 
     #[serde(default = "default_jwks_cache_secs")]
     pub jwks_cache_secs: u64,
+}
+
+/// SECURITY (FIND-038): Custom Debug redacts client_secret to prevent
+/// leaking OIDC credential material in log output.
+impl std::fmt::Debug for OidcConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OidcConfig")
+            .field("enabled", &self.enabled)
+            .field("issuer_url", &self.issuer_url)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &self.client_secret.as_ref().map(|_| "[REDACTED]"))
+            .field("redirect_uri", &self.redirect_uri)
+            .field("scopes", &self.scopes)
+            .field("role_claim", &self.role_claim)
+            .field("allow_insecure_issuer", &self.allow_insecure_issuer)
+            .field("pkce", &self.pkce)
+            .field("jwks_cache_secs", &self.jwks_cache_secs)
+            .finish()
+    }
 }
 
 impl Default for OidcConfig {
@@ -410,7 +429,7 @@ impl SessionConfig {
 }
 
 /// SCIM provisioning configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ScimConfig {
     #[serde(default)]
@@ -427,6 +446,20 @@ pub struct ScimConfig {
 
     #[serde(default = "default_scim_sync_interval")]
     pub sync_interval_secs: u64,
+}
+
+/// SECURITY (FIND-039): Custom Debug redacts bearer_token to prevent
+/// leaking SCIM credential material in log output.
+impl std::fmt::Debug for ScimConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScimConfig")
+            .field("enabled", &self.enabled)
+            .field("endpoint", &self.endpoint)
+            .field("bearer_token", &self.bearer_token.as_ref().map(|_| "[REDACTED]"))
+            .field("bearer_token_env", &self.bearer_token_env)
+            .field("sync_interval_secs", &self.sync_interval_secs)
+            .finish()
+    }
 }
 
 impl Default for ScimConfig {
@@ -639,5 +672,70 @@ impl M2mClient {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_oidc_config_debug_redacts_client_secret() {
+        let config = OidcConfig {
+            client_secret: Some("super-secret-value-12345".to_string()),
+            ..Default::default()
+        };
+        let debug_output = format!("{:?}", config);
+        assert!(
+            !debug_output.contains("super-secret-value-12345"),
+            "client_secret leaked in Debug output: {}",
+            debug_output
+        );
+        assert!(
+            debug_output.contains("[REDACTED]"),
+            "Debug output missing [REDACTED]: {}",
+            debug_output
+        );
+    }
+
+    #[test]
+    fn test_oidc_config_debug_none_secret() {
+        let config = OidcConfig::default();
+        let debug_output = format!("{:?}", config);
+        assert!(
+            debug_output.contains("None"),
+            "Debug output should show None for absent client_secret: {}",
+            debug_output
+        );
+    }
+
+    #[test]
+    fn test_scim_config_debug_redacts_bearer_token() {
+        let config = ScimConfig {
+            bearer_token: Some("Bearer my-secret-token-xyz".to_string()),
+            ..Default::default()
+        };
+        let debug_output = format!("{:?}", config);
+        assert!(
+            !debug_output.contains("my-secret-token-xyz"),
+            "bearer_token leaked in Debug output: {}",
+            debug_output
+        );
+        assert!(
+            debug_output.contains("[REDACTED]"),
+            "Debug output missing [REDACTED]: {}",
+            debug_output
+        );
+    }
+
+    #[test]
+    fn test_scim_config_debug_none_token() {
+        let config = ScimConfig::default();
+        let debug_output = format!("{:?}", config);
+        assert!(
+            debug_output.contains("None"),
+            "Debug output should show None for absent bearer_token: {}",
+            debug_output
+        );
     }
 }

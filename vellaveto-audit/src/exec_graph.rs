@@ -949,7 +949,9 @@ impl ExecutionGraphStore {
                 .metadata
                 .started_at
                 .map(|t| t >= cutoff)
-                .unwrap_or(true)
+                // SECURITY (FIND-041): Fail-closed — graphs without timestamps
+                // cannot have their age verified, so treat them as expired.
+                .unwrap_or(false)
         });
 
         initial_len - graphs.len()
@@ -1786,5 +1788,41 @@ mod tests {
             !svg.contains('\u{202E}'),
             "SVG must not contain bidi override characters"
         );
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_expired_no_timestamp_fail_closed() {
+        // FIND-041: Graphs without started_at should be treated as expired
+        // (fail-closed), not retained indefinitely.
+        let store = ExecutionGraphStore::new(100, 60);
+
+        // Manually insert a graph with no started_at (simulates get_or_create
+        // without any node additions)
+        {
+            let mut graphs = store.graphs.write().await;
+            let mut graph = ExecutionGraph::new("no-timestamp-session".to_string());
+            // Ensure started_at is None by not adding any nodes
+            graph.metadata.started_at = None;
+            graphs.insert("no-timestamp-session".to_string(), graph);
+        }
+
+        // Verify graph exists
+        {
+            let graphs = store.graphs.read().await;
+            assert!(graphs.contains_key("no-timestamp-session"));
+        }
+
+        // cleanup_expired should remove it (fail-closed: no timestamp = expired)
+        let cleaned = store.cleanup_expired().await;
+        assert_eq!(cleaned, 1, "Graph without timestamp should be expired");
+
+        // Verify it's gone
+        {
+            let graphs = store.graphs.read().await;
+            assert!(
+                !graphs.contains_key("no-timestamp-session"),
+                "Graph without timestamp should have been cleaned up"
+            );
+        }
     }
 }
