@@ -4,7 +4,7 @@
 > **State:** v6.0.0-dev (Phases 1–66 complete, 225 audit rounds)
 > **Version:** 6.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 8,213 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
+> **Tests:** 8,228 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
 > **Updated:** 2026-02-26
 
 ---
@@ -133,7 +133,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Self-service signup | `vellaveto-server/src/routes/signup.rs` |
 | Terraform provider | `terraform-provider-vellaveto/` |
 | OpenAPI 3.0 spec | `docs/openapi.yaml` |
-| Policy preset templates (11) | `examples/presets/*.toml` |
+| Policy preset templates (12) | `examples/presets/*.toml` |
 | Cloud marketplace docs | `docs/MARKETPLACE.md` |
 | SI pilot kit | `docs/si-pilot-kit/` |
 | Cedar policy import/export | `vellaveto-config/src/cedar.rs` |
@@ -148,6 +148,8 @@ All phases implemented, tested, and hardened through 225 audit rounds. Details i
 **Core:** Policy evaluation (glob/regex/domain), path traversal protection, DNS rebinding, context-aware policies, decision cache (LRU+TTL), Wasm policy plugins (Wasmtime with fuel metering) | **Audit:** Tamper-evident logging (SHA-256, Merkle, Ed25519), export (CEF/JSONL/webhook/syslog/OCSF), PostgreSQL dual-write, ZK proofs (Pedersen + Groth16) | **Security:** Injection (Aho-Corasick + NFKC), DLP (5-layer decode), tool squatting, memory poisoning, behavioral anomaly, multimodal injection, multi-agent collusion detection, cascading failure circuit breakers, NHI identity lifecycle (ephemeral creds, rotation enforcement) | **Auth:** OAuth 2.1/JWT/JWKS, ABAC forbid-overrides, capability delegation, least-agency, DPoP (RFC 9449) token binding | **Enterprise IAM:** OIDC (Okta/AzureAD/Keycloak), SAML 2.0, RBAC (4 roles, 14 perms), session management, SCIM 2.0 | **Transport:** HTTP, stdio, WebSocket, gRPC, MCP gateway, smart fallback | **MCP:** 2025-11-25 spec (Tasks primitive, CIMD, XAA, M2M auth, step-up authorization) | **Compliance:** EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, OWASP ASI, DORA, NIS2, Singapore MGF, NIST AI 600-1, CSA ATF, evidence packs | **Infra:** K8s operator (3 CRDs), multi-tenancy, policy lifecycle (Draft→Active), setup wizard | **Admin Console:** React SPA (10 pages), OIDC+API-key auth, RBAC navigation, dark theme, 59 vitest tests | **SDKs:** Python (sync+async, LangChain/LangGraph/CrewAI/Google ADK/OpenAI Agents/Composio/Claude Agent/Strands/MS Agents), TypeScript, Go, Java (120 tests) | **DevEx:** VS Code extension (validation, completions, snippets, simulator), execution graph SVG export | **Terraform:** Provider with policy resource + data sources (health, policies) | **Billing:** Per-tenant metering (atomic counters), quota enforcement, Stripe/Paddle webhooks, tiered licensing | **Marketplace:** Self-service signup (POST /api/signup), 11 policy preset templates, OpenAPI 3.0 spec (135+ endpoints), cloud deployment docs (AWS/Azure/GCP) | **PQC:** Hybrid Ed25519+ML-DSA-65 (FIPS 204) checkpoint/manifest signatures, backward-compatible, feature-gated | **Cedar:** Policy import/export for AWS AgentCore/CNCF Cedar interoperability | **A2A Hardening:** Agent Card Ed25519 signature enforcement, MCP Registry integration, DPoP token binding | **Formal:** TLA+ (policy engine, ABAC, workflow, task lifecycle, cascading failure), Alloy (capability delegation), Kani (5 proof harnesses)
 
 **Adversarial hardening:** 225 audit rounds, 1000+ findings fixed. Key patterns enforced: `deny_unknown_fields` on all deserialized structs, `validate()` with bounded collections, `has_dangerous_chars()` on all external strings, custom `Debug` redacting secrets, `saturating_add` on all counters, transport parity across HTTP/WS/gRPC/stdio/SSE.
+
+**SANDWORM-001 hardening (Feb 2026):** Defends against npm supply-chain worms that inject rogue MCP servers into AI assistant configs. Server allowlist enforcement (`governance.require_server_registration`), tool-to-server origin binding with conflict detection (`ToolEntry.server_id`), `sandworm-hardened.toml` preset with all 10 defensive layers enabled. See `docs/THREAT_MODEL.md` for full attack chain analysis.
 
 ---
 

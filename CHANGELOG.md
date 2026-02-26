@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **SANDWORM-001: Rogue MCP Server Injection Hardening**
+  Defends against the SANDWORM_MODE npm supply-chain worm (Feb 2026) that injects malicious MCP servers into AI coding assistant configs.
+  - **`governance.require_server_registration`** (`vellaveto-config/src/governance.rs`): New fail-closed enforcement gate — when enabled with a populated `known_servers` list, tool calls from unknown MCP servers are denied. Mirrors `require_agent_registration` for agents.
+  - **`ShadowAiDiscovery::should_deny_unknown_server()`** (`vellaveto-mcp/src/shadow_ai_discovery.rs`): Server allowlist enforcement with fail-closed lock poisoning behavior. New `with_server_registration()` constructor.
+  - **`ToolEntry.server_id` origin binding** (`vellaveto-mcp/src/tool_registry.rs`): Binds tools to their originating MCP server. Tools seen from multiple servers flagged with `server_id_conflict` and penalized -0.3 in trust score.
+  - **`sandworm-hardened.toml` preset** (`examples/presets/sandworm-hardened.toml`): Maximum-security config enabling all 10 defensive layers (supply chain verification, ETDI signatures required, server allowlist, injection blocking, DLP, credential path blocking, git hook protection, default-deny).
+  - **Threat model update** (`docs/THREAT_MODEL.md`): Full SANDWORM_MODE attack chain diagram, 10-layer defense mapping table, recommended configuration, residual risk analysis.
+  - 15 new tests (8 shadow_ai_discovery + 7 tool_registry). 8,228 Rust tests passing, 0 failures.
+
 - **Adversarial Audit Round 225 (4 findings fixed):**
   - **FIND-038 (P2):** `OidcConfig` custom `Debug` impl redacts `client_secret` — prevents OIDC credential leakage in logs (`vellaveto-config/src/iam.rs`)
   - **FIND-039 (P2):** `ScimConfig` custom `Debug` impl redacts `bearer_token` — prevents SCIM credential leakage in logs (`vellaveto-config/src/iam.rs`)
