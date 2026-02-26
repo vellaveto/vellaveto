@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Adversarial Audit Round 225 (4 findings fixed):**
+  - **FIND-038 (P2):** `OidcConfig` custom `Debug` impl redacts `client_secret` — prevents OIDC credential leakage in logs (`vellaveto-config/src/iam.rs`)
+  - **FIND-039 (P2):** `ScimConfig` custom `Debug` impl redacts `bearer_token` — prevents SCIM credential leakage in logs (`vellaveto-config/src/iam.rs`)
+  - **FIND-040 (P2):** Stdio proxy injection detection on outbound tool call parameters — closes transport parity gap with HTTP/WS/gRPC handlers (`vellaveto-mcp/src/proxy/bridge/relay.rs`)
+  - **FIND-041 (P3):** `ExecutionGraphStore::cleanup_expired` fail-closed — graphs without `started_at` timestamps now treated as expired instead of retained indefinitely (`vellaveto-audit/src/exec_graph.rs`)
+  - 5 new tests (4 Debug redaction + 1 cleanup fail-closed). 8,213 Rust tests passing.
+
 ### Added
 
 - **v6.0 Platform Expansion (Phases 56–66):**
