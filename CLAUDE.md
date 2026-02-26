@@ -1,11 +1,11 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v5.0.0-dev (Phases 1–54 complete, 224 audit rounds)
-> **Version:** 5.0.0-dev
+> **State:** v6.0.0-dev (Phases 1–66 complete, 224 audit rounds)
+> **Version:** 6.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 7,877 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
-> **Updated:** 2026-02-25
+> **Tests:** 8,208 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
+> **Updated:** 2026-02-26
 
 ---
 
@@ -87,9 +87,14 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Policy evaluation | `vellaveto-engine/src/lib.rs` |
 | ABAC engine + Cedar-style evaluation | `vellaveto-engine/src/abac.rs` |
 | Least-agency tracker | `vellaveto-engine/src/least_agency.rs` |
+| Decision cache (LRU + TTL) | `vellaveto-engine/src/cache.rs` |
+| Collusion detection (entropy, correlation) | `vellaveto-engine/src/collusion.rs` |
+| Cascading failure circuit breakers | `vellaveto-engine/src/cascading.rs` |
+| Wasm policy plugins (Wasmtime) | `vellaveto-engine/src/wasm_plugin.rs` |
 | **vellaveto-audit** | |
 | AuditLogger + rotation + verification | `vellaveto-audit/src/lib.rs` |
-| Compliance registries (EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, OWASP ASI, DORA, NIS2) | `vellaveto-audit/src/{eu_ai_act,soc2,cosai,adversa_top25,iso42001,owasp_asi,dora,nis2,gap_analysis}.rs` |
+| Compliance registries (EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, OWASP ASI, DORA, NIS2, Singapore MGF, NIST AI 600-1, CSA ATF) | `vellaveto-audit/src/{eu_ai_act,soc2,cosai,adversa_top25,iso42001,owasp_asi,dora,nis2,singapore_mgf,nist_ai600,csa_atf,gap_analysis}.rs` |
+| OCSF export | `vellaveto-audit/src/export/{mod,ocsf}.rs` |
 | Evidence pack + ZK audit | `vellaveto-audit/src/evidence_pack.rs`, `vellaveto-audit/src/zk/*.rs` |
 | Audit sink + PostgreSQL | `vellaveto-audit/src/sink.rs`, `vellaveto-audit/src/sink/postgres.rs` |
 | Audit query (file/PostgreSQL) | `vellaveto-audit/src/query/{file,postgres}.rs` |
@@ -103,12 +108,17 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | DLP / inspection + multimodal | `vellaveto-mcp/src/inspection.rs`, `vellaveto-mcp/src/inspection/multimodal.rs` |
 | Capability tokens, accountability, DID:PLC, session guard | `vellaveto-mcp/src/{capability_token,accountability,did_plc,session_guard}.rs` |
 | Semantic guardrails, A2A, transparency, discovery, projector | `vellaveto-mcp/src/{semantic_guardrails,a2a,transparency,discovery,projector}/` |
+| A2A Agent Card signature enforcement | `vellaveto-mcp/src/a2a/signature.rs` |
+| MCP Registry client + identity verification | `vellaveto-mcp/src/discovery/registry.rs` |
+| MCP Task state lifecycle | `vellaveto-mcp/src/task_state.rs` |
+| NHI identity lifecycle (ephemeral creds, rotation) | `vellaveto-mcp/src/nhi.rs` |
 | **vellaveto-http-proxy** | |
 | HTTP/WebSocket/gRPC proxy | `vellaveto-http-proxy/src/proxy/*.rs` |
 | Transport health + smart fallback | `vellaveto-http-proxy/src/proxy/{transport_health,smart_fallback}.rs` |
 | **vellaveto-server** | |
 | HTTP API + routes | `vellaveto-server/src/main.rs`, `vellaveto-server/src/routes/*.rs` |
 | Dashboard + setup wizard | `vellaveto-server/src/{dashboard,setup_wizard}.rs` |
+| DPoP token binding (RFC 9449) | `vellaveto-server/src/dpop.rs` |
 | **vellaveto-operator** | |
 | CRDs + reconcilers + client | `vellaveto-operator/src/{crd,client}.rs`, `vellaveto-operator/src/reconciler/*.rs` |
 | Helm chart | `helm/vellaveto/` |
@@ -126,7 +136,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Policy preset templates (11) | `examples/presets/*.toml` |
 | Cloud marketplace docs | `docs/MARKETPLACE.md` |
 | SI pilot kit | `docs/si-pilot-kit/` |
-| Formal verification (TLA+, Alloy) | `formal/` |
+| Cedar policy import/export | `vellaveto-config/src/cedar.rs` |
+| Formal verification (TLA+, Alloy, Kani) | `formal/` |
 
 ---
 
@@ -134,7 +145,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 All phases implemented, tested, and hardened through 224 audit rounds. Details in CHANGELOG.md.
 
-**Core:** Policy evaluation (glob/regex/domain), path traversal protection, DNS rebinding, context-aware policies | **Audit:** Tamper-evident logging (SHA-256, Merkle, Ed25519), export (CEF/JSONL/webhook/syslog), PostgreSQL dual-write, ZK proofs (Pedersen + Groth16) | **Security:** Injection (Aho-Corasick + NFKC), DLP (5-layer decode), tool squatting, memory poisoning, behavioral anomaly, multimodal injection | **Auth:** OAuth 2.1/JWT/JWKS, ABAC forbid-overrides, capability delegation, least-agency | **Enterprise IAM:** OIDC (Okta/AzureAD/Keycloak), SAML 2.0, RBAC (4 roles, 14 perms), session management, SCIM 2.0 | **Transport:** HTTP, stdio, WebSocket, gRPC, MCP gateway, smart fallback | **Compliance:** EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, OWASP ASI, DORA, NIS2, evidence packs | **Infra:** K8s operator (3 CRDs), multi-tenancy, policy lifecycle (Draft→Active), setup wizard | **Admin Console:** React SPA (10 pages), OIDC+API-key auth, RBAC navigation, dark theme, 59 vitest tests | **SDKs:** Python (sync+async, LangChain/LangGraph/CrewAI/Google ADK/OpenAI Agents/Composio), TypeScript, Go, Java (120 tests) | **DevEx:** VS Code extension (validation, completions, snippets, simulator), execution graph SVG export | **Terraform:** Provider with policy resource + data sources (health, policies) | **Billing:** Per-tenant metering (atomic counters), quota enforcement, Stripe/Paddle webhooks, tiered licensing | **Marketplace:** Self-service signup (POST /api/signup), 11 policy preset templates, OpenAPI 3.0 spec (135+ endpoints), cloud deployment docs (AWS/Azure/GCP) | **PQC:** Hybrid Ed25519+ML-DSA-65 (FIPS 204) checkpoint/manifest signatures, backward-compatible, feature-gated | **Formal:** TLA+ (policy engine, ABAC, workflow), Alloy (capability delegation)
+**Core:** Policy evaluation (glob/regex/domain), path traversal protection, DNS rebinding, context-aware policies, decision cache (LRU+TTL), Wasm policy plugins (Wasmtime with fuel metering) | **Audit:** Tamper-evident logging (SHA-256, Merkle, Ed25519), export (CEF/JSONL/webhook/syslog/OCSF), PostgreSQL dual-write, ZK proofs (Pedersen + Groth16) | **Security:** Injection (Aho-Corasick + NFKC), DLP (5-layer decode), tool squatting, memory poisoning, behavioral anomaly, multimodal injection, multi-agent collusion detection, cascading failure circuit breakers, NHI identity lifecycle (ephemeral creds, rotation enforcement) | **Auth:** OAuth 2.1/JWT/JWKS, ABAC forbid-overrides, capability delegation, least-agency, DPoP (RFC 9449) token binding | **Enterprise IAM:** OIDC (Okta/AzureAD/Keycloak), SAML 2.0, RBAC (4 roles, 14 perms), session management, SCIM 2.0 | **Transport:** HTTP, stdio, WebSocket, gRPC, MCP gateway, smart fallback | **MCP:** 2025-11-25 spec (Tasks primitive, CIMD, XAA, M2M auth, step-up authorization) | **Compliance:** EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, OWASP ASI, DORA, NIS2, Singapore MGF, NIST AI 600-1, CSA ATF, evidence packs | **Infra:** K8s operator (3 CRDs), multi-tenancy, policy lifecycle (Draft→Active), setup wizard | **Admin Console:** React SPA (10 pages), OIDC+API-key auth, RBAC navigation, dark theme, 59 vitest tests | **SDKs:** Python (sync+async, LangChain/LangGraph/CrewAI/Google ADK/OpenAI Agents/Composio/Claude Agent/Strands/MS Agents), TypeScript, Go, Java (120 tests) | **DevEx:** VS Code extension (validation, completions, snippets, simulator), execution graph SVG export | **Terraform:** Provider with policy resource + data sources (health, policies) | **Billing:** Per-tenant metering (atomic counters), quota enforcement, Stripe/Paddle webhooks, tiered licensing | **Marketplace:** Self-service signup (POST /api/signup), 11 policy preset templates, OpenAPI 3.0 spec (135+ endpoints), cloud deployment docs (AWS/Azure/GCP) | **PQC:** Hybrid Ed25519+ML-DSA-65 (FIPS 204) checkpoint/manifest signatures, backward-compatible, feature-gated | **Cedar:** Policy import/export for AWS AgentCore/CNCF Cedar interoperability | **A2A Hardening:** Agent Card Ed25519 signature enforcement, MCP Registry integration, DPoP token binding | **Formal:** TLA+ (policy engine, ABAC, workflow, task lifecycle, cascading failure), Alloy (capability delegation), Kani (5 proof harnesses)
 
 **Adversarial hardening:** 224 audit rounds, 1000+ findings fixed. Key patterns enforced: `deny_unknown_fields` on all deserialized structs, `validate()` with bounded collections, `has_dangerous_chars()` on all external strings, custom `Debug` redacting secrets, `saturating_add` on all counters, transport parity across HTTP/WS/gRPC/stdio/SSE.
 
@@ -164,7 +175,7 @@ cargo clippy --workspace
 
 <body>
 
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ```
 
 Types: `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `chore`
@@ -245,7 +256,7 @@ Test naming: `test_<function>_<scenario>_<expected>`
 
 ## References
 
-- [MCP Specification 2025-06-18](https://modelcontextprotocol.io/specification/2025-06-18)
+- [MCP Specification 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25)
 - [OWASP Top 10 for Agentic Applications 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
 - [ETDI: Mitigating Tool Squatting and Rug Pull Attacks in MCP](https://arxiv.org/abs/2506.01333)
 - [Enterprise-Grade Security for MCP (arxiv)](https://arxiv.org/pdf/2504.08623)

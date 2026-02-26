@@ -1,8 +1,8 @@
 # Vellaveto Roadmap
 
-> **Version:** 5.0.0-dev
-> **Updated:** 2026-02-25
-> **Current:** 7,877 Rust + 59 React + 12 Terraform, 433 Python, 127 Go, 119 TypeScript | 224 audit rounds | 56 phases complete
+> **Version:** 6.0.0-dev
+> **Updated:** 2026-02-26
+> **Current:** 8,208 Rust + 59 React + 12 Terraform, 433 Python, 127 Go, 119 TypeScript | 224 audit rounds | 66 phases complete
 > **Strategic position:** Agentic Security Control Plane & Policy Gateway
 > **License:** AGPL-3.0 (core) + Commercial Enterprise
 
@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Vellaveto is an **Agentic Security Control Plane** — the platform through which enterprises govern, observe, and secure every AI agent tool call. Built on the most comprehensive open-source MCP runtime security engine (full MCP 2025-06-18 compliance, 4 transport layers, Cedar-style ABAC, formal verification, zero-knowledge audit trails), the roadmap extends into centralized multi-tenant governance, enterprise IAM, and commercial packaging.
+Vellaveto is an **Agentic Security Control Plane** — the platform through which enterprises govern, observe, and secure every AI agent tool call. Built on the most comprehensive open-source MCP runtime security engine (full MCP 2025-11-25 compliance, 4 transport layers, Cedar-style ABAC, formal verification, zero-knowledge audit trails), the roadmap extends into centralized multi-tenant governance, enterprise IAM, and commercial packaging.
 
 **Market signals driving the roadmap:**
 1. **Enterprises need centralized agent governance** — the explosion of AI agents (LangChain, CrewAI, AutoGen, Google ADK, OpenAI Agents SDK) demands a unified control plane
@@ -43,6 +43,21 @@ Q2 2026 (Done):  Phase 51 — Partner Integration Kit                      [P3] 
                   Phase 53 — Marketplace & Self-Service Onboarding       [P3] ✅
 
 Q2 2026 (Done):  Phase 54 — Post-Quantum Cryptography Migration          [P3] ✅
+
+Q2 2026 (Done):  Phase 56 — MCP 2025-11-25 Specification Update          [P1] ✅
+                  Phase 57 — New SDK Integrations (Claude/Strands/MS)     [P1] ✅
+                  Phase 58 — Compliance Registry Updates                  [P1] ✅
+
+Q2 2026 (Done):  Phase 59 — Observability & SIEM Modernization           [P2] ✅
+                  Phase 60 — Wasm Policy Plugin System                    [P2] ✅
+                  Phase 61 — Rust Ecosystem Modernization                 [P2] ✅
+                  Phase 62 — Advanced Security Features                   [P2] ✅
+
+Q2 2026 (Done):  Phase 63 — Performance & Data Structure Optimization    [P3] ✅
+                  Phase 64 — Cedar Policy Compatibility                   [P3] ✅
+                  Phase 65 — A2A Protocol Hardening & MCP Registry        [P3] ✅
+                  Phase 66 — Formal Verification Expansion                [P3] ✅
+
 Q4 2026:         Phase 55 — Performance & Scale Validation              [P3]
 ```
 
@@ -62,6 +77,70 @@ Q4 2026:         Phase 55 — Performance & Scale Validation              [P3]
 - 10 dedicated PQC tests + all existing tests pass
 
 **Delivered:** `vellaveto-audit/src/pqc.rs`, hybrid signing in checkpoints.rs/rotation.rs
+
+---
+
+## Phases 56–66: v6.0 Platform Expansion ✅
+
+*MCP spec update, new SDKs, compliance expansion, observability, Wasm plugins, advanced security, Cedar compatibility, A2A hardening, formal verification.*
+
+### Phase 56: MCP 2025-11-25 Specification Update (P1) ✅
+- Tasks primitive support (create/get/cancel, state tracking, policy evaluation)
+- CIMD (Client ID Metadata Documents) for OAuth
+- URL-mode elicitation for credential acquisition
+- Cross App Access (XAA) with enterprise IdP tokens
+- Machine-to-machine auth (OAuth client credentials)
+- Step-up authorization (403 with required_scopes)
+
+### Phase 57: New SDK Integrations (P1) ✅
+- Anthropic Claude Agent SDK integration (Python + TypeScript)
+- AWS Strands Agents SDK integration (Python)
+- Microsoft Agent Framework SDK integration (Python)
+
+### Phase 58: Compliance Registry Updates (P1) ✅
+- Singapore MGF for Agentic AI — world's first agentic governance framework
+- NIST AI RMF + AI 600-1 GenAI Profile (200+ mitigation actions)
+- CSA Agentic Trust Framework — progressive autonomy levels
+
+### Phase 59: Observability & SIEM Modernization (P2) ✅
+- OCSF (Open Cybersecurity Schema Framework) export for AWS Security Lake, Datadog, Splunk
+- OTLP exporter for OpenTelemetry Collector deployments
+
+### Phase 60: Wasm Policy Plugin System (P2) ✅
+- Wasmtime-based plugin host with fuel metering and memory limits
+- WIT interface for custom policy evaluation
+- Hot-reload on policy file change
+
+### Phase 61: Rust Ecosystem Modernization (P2) ✅
+- Enhanced cargo-deny configuration (advisories, licenses, sources)
+- Tokio LTS pinning (1.42)
+- SBOM generation script
+- Edition 2024 migration plan
+
+### Phase 62: Advanced Security Features (P2) ✅
+- Multi-agent collusion detection (Shannon entropy, Pearson correlation, coordinated access)
+- Cascading failure circuit breakers (chain depth limits, sliding window error rates)
+- NHI identity lifecycle (ephemeral JIT credentials, rotation enforcement, inventory)
+
+### Phase 63: Performance & Data Structure Optimization (P3) ✅
+- Decision cache (LRU with TTL and generation-based invalidation)
+- Batch policy evaluation API
+
+### Phase 64: Cedar Policy Compatibility (P3) ✅
+- Cedar policy import/export for AWS AgentCore/CNCF Cedar interoperability
+- Permit/forbid with conditions, entity type mapping
+
+### Phase 65: A2A Protocol Hardening & MCP Registry (P3) ✅
+- Agent Card Ed25519 signature enforcement with constant-time comparison
+- MCP Registry client with TTL-based cache and identity verification
+- DPoP (RFC 9449) token binding with JTI replay detection
+
+### Phase 66: Formal Verification Expansion (P3) ✅
+- TLA+: MCPTaskLifecycle (5 safety + 2 liveness properties)
+- TLA+: CascadingFailure (5 safety + 2 liveness properties)
+- Kani: 5 proof harnesses (fail-closed, path normalization, saturating arithmetic)
+
+**Delivered:** 8,208 Rust tests passing, 11 compliance frameworks, 8 SDK integrations, 33 TLA+ properties + 5 Kani harnesses
 
 ---
 
@@ -91,6 +170,19 @@ Phase 50 (Billing)         ──── ✅ core complete (Postgres persistence 
 Phase 51 (Partner Kit)     ──── ✅ complete ─────────────────────────────────┤
 Phase 53 (Marketplace)     ──── ✅ complete ─────────────────────────────────┤
 Phase 54 (PQC)             ──── ✅ complete ─────────────────────────────────┤
+                                                                            │
+Phase 56 (MCP 2025-11-25)  ──── ✅ complete ─────────────────────────────────┤
+Phase 57 (New SDKs)        ──── ✅ complete ─────────────────────────────────┤
+Phase 58 (Compliance)      ──── ✅ complete ─────────────────────────────────┤
+Phase 59 (Observability)   ──── ✅ complete ─────────────────────────────────┤
+Phase 60 (Wasm Plugins)    ──── ✅ complete ─────────────────────────────────┤
+Phase 61 (Rust Modernize)  ──── ✅ complete ─────────────────────────────────┤
+Phase 62 (Adv. Security)   ──── ✅ complete ─────────────────────────────────┤
+Phase 63 (Performance)     ──── ✅ complete ─────────────────────────────────┤
+Phase 64 (Cedar Compat)    ──── ✅ complete ─────────────────────────────────┤
+Phase 65 (A2A Hardening)   ──── ✅ complete ─────────────────────────────────┤
+Phase 66 (Formal Verif.)   ──── ✅ complete ─────────────────────────────────┤
+                                                                            │
 Phase 55 (Scale)           ──── depends on Phase 50 ✅ ──── UNBLOCKED ─────┘
 ```
 
@@ -102,16 +194,20 @@ Phase 55 (Scale)           ──── depends on Phase 50 ✅ ──── UNB
 
 | Feature | Vellaveto | MintMCP | TrueFoundry | MS MCP GW | AWS AgentCore |
 |---------|-----------|---------|-------------|-----------|---------------|
-| MCP Native | Full (4 transports) | Full | Full | HTTP only | Managed |
+| MCP Native | Full (4 transports, 2025-11-25) | Full | Full | HTTP only | Managed |
+| Policy Language | TOML + Cedar import/export | Custom | Custom | Custom | Cedar |
 | Multi-Tenancy | Per-tenant isolation | Unknown | Unknown | Unknown | Per-account |
 | Admin Console | React SPA (10 pages, RBAC) | Dashboard | Dashboard | None | Console |
-| Enterprise IAM | OIDC/SAML/RBAC/SCIM | OAuth | OAuth | Azure AD | IAM |
-| Compliance Packs | DORA/NIS2/ISO42001/EUAIA | SOC 2 only | None | None | SOC 2 |
+| Enterprise IAM | OIDC/SAML/RBAC/SCIM/DPoP | OAuth | OAuth | Azure AD | IAM |
+| Compliance Packs | 11 frameworks (DORA/NIS2/ISO42001/EUAIA/Singapore MGF/NIST/CSA ATF) | SOC 2 only | None | None | SOC 2 |
+| Wasm Plugins | User-extensible (Wasmtime) | None | None | None | None |
 | K8s Operator | CRDs (3 resources) | None | K8s | K8s native | Managed |
-| Formal Verification | TLA+/Alloy (20+ props) | None | None | None | None |
+| Formal Verification | TLA+ + Alloy + Kani (33 props + 5 harnesses) | None | None | None | None |
 | zk-SNARK Audit | Pedersen + Groth16 | None | None | None | None |
+| Observability | OTel GenAI + OCSF + OTLP | Basic | Basic | CloudWatch | CloudWatch |
 | Open Source | AGPL-3.0 (core) | Commercial | Commercial | MIT | Commercial |
-| SDKs | Python/TS/Go/Java | Python | Python | None | Python |
+| SDKs | 8 frameworks (Python/TS/Go/Java + Claude/Strands/MS) | Python | Python | None | Python |
+| A2A Security | Enforced Ed25519 signing | None | None | None | None |
 | Self-Service Signup | API + marketplace | SaaS only | SaaS only | Portal | Console |
 | Policy Templates | 11 presets | None | None | None | None |
 | OpenAPI Spec | 135+ endpoints | Unknown | Unknown | Unknown | Managed |
@@ -198,6 +294,17 @@ Phase 55 (Scale)           ──── depends on Phase 50 ✅ ──── UNB
 | 51 | Partner Integration Kit | CrewAI, Google ADK, OpenAI Agents integrations + Terraform provider + SI pilot kit |
 | 53 | Marketplace & Onboarding | 11 policy presets, OpenAPI 3.0 spec (135+ endpoints), self-service signup, cloud marketplace docs |
 | 54 | Post-Quantum Cryptography | Hybrid Ed25519+ML-DSA-65 (FIPS 204) checkpoint/manifest signatures, backward-compatible |
+| 56 | MCP 2025-11-25 Spec | Tasks primitive, CIMD, XAA, M2M auth, step-up authorization |
+| 57 | New SDK Integrations | Claude Agent SDK, AWS Strands, Microsoft Agent Framework |
+| 58 | Compliance Registries | Singapore MGF, NIST AI 600-1, CSA Agentic Trust Framework |
+| 59 | Observability/SIEM | OCSF export, OTLP exporter, OTel GenAI semantic conventions |
+| 60 | Wasm Policy Plugins | Wasmtime host, fuel metering, WIT interface, hot-reload |
+| 61 | Rust Modernization | cargo-deny, Tokio LTS, SBOM generation, Edition 2024 plan |
+| 62 | Advanced Security | Collusion detection, cascading circuit breakers, NHI lifecycle |
+| 63 | Performance Optimization | Decision cache (LRU+TTL), batch evaluation API |
+| 64 | Cedar Compatibility | Cedar policy import/export for AgentCore/CNCF interop |
+| 65 | A2A Hardening | Agent Card signatures, MCP Registry, DPoP token binding |
+| 66 | Formal Verification | TLA+ task lifecycle + cascading failure, 5 Kani proof harnesses |
 
 </details>
 

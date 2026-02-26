@@ -7,11 +7,11 @@
     🔍 Intercept &middot; ⚖️ Evaluate &middot; 🚫 Enforce &middot; 📋 Audit
   </p>
   <p align="center">
-    <a href="https://github.com/paolovella/vellaveto/releases"><img src="https://img.shields.io/badge/version-4.0.0--dev-blue.svg" alt="Version 4.0.0-dev"></a>
+    <a href="https://github.com/paolovella/vellaveto/releases"><img src="https://img.shields.io/badge/version-6.0.0--dev-blue.svg" alt="Version 4.0.0-dev"></a>
     <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-7%2C877_passing-brightgreen.svg" alt="Tests: 7,877 passing">
+    <img src="https://img.shields.io/badge/tests-8%2C208_passing-brightgreen.svg" alt="Tests: 7,877 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-224_rounds%2C_1500%2B_findings-informational.svg" alt="Adversarial Testing: 224 rounds, 1500+ findings"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
@@ -41,9 +41,9 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 - **Public security contract**: [Security Guarantees](docs/SECURITY_GUARANTEES.md) + [Assurance Case](docs/ASSURANCE_CASE.md) with reproducible evidence.
 
 <table>
-<tr><td>🏷️ <strong>Version</strong></td><td>4.0.0-dev</td></tr>
+<tr><td>🏷️ <strong>Version</strong></td><td>6.0.0-dev</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>7,877 Rust + 385 Python + 127 Go + 119 TypeScript tests (+ 24 fuzz targets), 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>8,208 Rust + 433 Python + 127 Go + 119 TypeScript + 120 Java tests (+ 24 fuzz targets), 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
@@ -52,8 +52,9 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 
 ## Recent Updates (2026-02-26)
 
-- **Phase 54: Post-Quantum Cryptography (ML-DSA-65)** — Hybrid Ed25519 + ML-DSA-65 (FIPS 204) signatures for audit checkpoints and rotation manifests. Both signatures must verify (fail-closed). Backward-compatible: legacy Ed25519-only (v1) checkpoints continue to verify. PQC key continuity enforcement and trusted key pinning. Feature-gated behind `pqc-hybrid` Cargo feature. Domain-separated context bytes for checkpoints vs manifests. New `vellaveto-audit/src/pqc.rs` module with keygen/sign/verify helpers. 10 dedicated PQC tests. 7,877 Rust tests passing.
-- **Security Hardening (Rounds 216–224)** — Per-entry validation across ABAC constraints, NHI delegation/behavioral types, DID:PLC genesis operations. DORA/NIS2 registries fail-closed (0% on empty, was 100%). SIEM exporter config validation wired (Syslog/Webhook/Datadog). HTTP proxy injection scanning parity on task/extension parameters. SessionState fields narrowed to `pub(crate)`. WitnessStore capacity enforcement on restore. Approval expiry persist rollback. DNS discovery refresh interval bounds. Static discovery endpoint validation. 7,697 Rust tests passing.
+- **v6.0 Platform Expansion (Phases 56–66)** — 11 phases delivering MCP 2025-11-25 spec compliance (Tasks primitive, CIMD, XAA, M2M auth), 3 new SDK integrations (Claude Agent, AWS Strands, Microsoft Agents), 3 new compliance frameworks (Singapore MGF, NIST AI 600-1, CSA ATF), OCSF/OTLP observability export, Wasm policy plugin system (Wasmtime with fuel metering), multi-agent collusion detection, cascading failure circuit breakers, NHI identity lifecycle, decision caching, Cedar policy import/export, A2A Agent Card signature enforcement, MCP Registry integration, DPoP token binding (RFC 9449), and formal verification expansion (2 new TLA+ models + 5 Kani proof harnesses). 8,208 Rust tests passing.
+- **Phase 54: Post-Quantum Cryptography (ML-DSA-65)** — Hybrid Ed25519 + ML-DSA-65 (FIPS 204) signatures for audit checkpoints and rotation manifests. Both signatures must verify (fail-closed). Backward-compatible: legacy Ed25519-only (v1) checkpoints continue to verify. PQC key continuity enforcement and trusted key pinning. Feature-gated behind `pqc-hybrid` Cargo feature.
+- **Security Hardening (Rounds 216–224)** — Per-entry validation across ABAC constraints, NHI delegation/behavioral types, DID:PLC genesis operations. DORA/NIS2 registries fail-closed (0% on empty, was 100%). SIEM exporter config validation wired. SessionState fields narrowed to `pub(crate)`. WitnessStore capacity enforcement on restore.
 - **Phase 49: Kubernetes Operator (CRDs)** — Standalone `vellaveto-operator` binary using `kube-rs` with three CRDs (`VellavetoCluster`, `VellavetoPolicy`, `VellavetoTenant`) for declarative, GitOps-friendly management. Cluster reconciler manages StatefulSet/Service/ConfigMap with owner references. Policy and tenant reconcilers sync to the Vellaveto server REST API with finalizer-based cleanup. Typed API client with SSRF validation. Helm chart extended with CRD manifests, operator Deployment, and RBAC templates (optional, `operator.enabled: false` default). 41 new tests.
 - **Phase 47: Policy Lifecycle Management** — Versioned policies with Draft → Staging → Active → Archived lifecycle. Multi-approver workflows with self-approval prevention (NFKC + homoglyph normalization), staging shadow evaluation (non-blocking verdict comparison), structural diffs, and rollback. 9 new REST API endpoints. Compile-first promote-to-Active with ArcSwap atomic swap. `PolicyLifecycleConfig` (default disabled). Round 206 hardening: auth-bound audit identity, archive TOCTOU lock, stale staging snapshot invalidation, version overflow guard. 49 new tests. 7,469 Rust tests passing.
 - **Phase 43: Centralized Audit Store** — Optional dual-write to PostgreSQL alongside the existing JSONL file log with structured query support. `AuditSink` trait for pluggable external stores, `PostgresAuditSink` with mpsc channel + background batch INSERT, `AuditQueryService` trait with `FileAuditQuery` (in-memory) and `PostgresAuditQuery` (SQL with parameterized queries, GIN indexes). `AuditStoreConfig` with SSRF validation, SQL identifier validation, secret redaction. REST API: `GET /api/audit/search`, `GET /api/audit/store/status`, `GET /api/audit/entry/{id}`. Feature-gated behind `postgres-store` (sqlx). File log remains source of truth. ~55 new tests.
@@ -150,7 +151,8 @@ Vellaveto enforces security policies on every tool call before it reaches the to
 - **Rug-pull detection** (ASI03) — Alerts on MCP tool annotation changes, schema mutations, tool removals, and new tool additions with persistent flagging
 - **Schema poisoning detection** (ASI05) — Schema lineage tracking with mutation thresholds and trust scoring
 - **Confused deputy prevention** (ASI02) — Delegation chain validation with configurable depth limits
-- **Circuit breaker** (ASI08) — Cascading failure prevention with failure budgets and automatic recovery
+- **Circuit breaker** (ASI08) — Cascading failure prevention with failure budgets, chain depth limits, sliding window error rates, and automatic recovery
+- **Multi-agent collusion detection** — Shannon entropy analysis for steganographic channels, Pearson correlation for synchronized behavior, coordinated resource access detection
 - **Shadow agent detection** — Agent fingerprinting and impersonation alerts for multi-agent environments
 - **Memory poisoning defense** (ASI06) — Cross-request data flow tracking detects when tool response data is replayed verbatim in subsequent tool call parameters
 - **Memory injection defense** (ASI06) — Taint propagation with provenance graphs, exponential trust decay, quarantine management, and agent namespace isolation
@@ -170,7 +172,7 @@ Vellaveto enforces security policies on every tool call before it reaches the to
 - **Prometheus metrics** at `/metrics` with evaluation latency histograms, verdict counters, and DLP finding counts
 - **Policy lifecycle management** — Versioned policies with Draft → Staging → Active → Archived lifecycle, multi-approver workflows with self-approval prevention, staging shadow evaluation, structural diffs, and rollback
 - **Hot policy reload** via SIGHUP signal or filesystem watching with atomic swap and audit trail
-- **SIEM export** in CEF (Common Event Format) and JSON Lines for integration with Splunk, ArcSight, Elasticsearch, and Datadog
+- **SIEM export** in CEF, JSON Lines, OCSF (Open Cybersecurity Schema Framework), and OTLP for integration with Splunk, ArcSight, Elasticsearch, Datadog, AWS Security Lake, and any OTel Collector
 - **Tamper-evident audit logging** with SHA-256 hash chains, Merkle tree inclusion proofs, Ed25519 signed checkpoints, hybrid Ed25519+ML-DSA-65 post-quantum signatures (feature-gated), and rotation chain continuity
 - **Structured output validation** via OutputSchemaRegistry against declared `outputSchema`
 
@@ -184,6 +186,7 @@ Vellaveto enforces security policies on every tool call before it reaches the to
 - **CSRF protection** via Origin header validation on mutating endpoints
 - **Rate limiting** per-IP, per-principal, and per-endpoint with configurable burst
 - **Security headers** including HSTS, CSP, X-Frame-Options, and X-Permitted-Cross-Domain-Policies
+- **DPoP token binding** (RFC 9449) — Demonstrating Proof-of-Possession for access tokens with JWK thumbprint verification and JTI replay detection
 - **Constant-time auth** comparison to prevent timing attacks
 
 ### 🌐 Network & Path Security
@@ -191,7 +194,9 @@ Vellaveto enforces security policies on every tool call before it reaches the to
 - **Domain normalization** with trailing dot, case folding, scheme/port stripping, and RFC 1035 validation
 - **DNS rebinding protection** with IP-level access control (block private IPs, CIDR allow/blocklists)
 - **Supply chain verification** with SHA-256 hash checking of MCP server binaries
-- **MCP 2025-11-25 compliance** with protocol version header, RFC 8707 resource indicators, and `_meta` preservation (with backwards compatibility for 2025-06-18 and 2025-03-26)
+- **MCP 2025-11-25 compliance** with Tasks primitive, CIMD, Cross App Access (XAA), M2M auth, step-up authorization, protocol version header, RFC 8707 resource indicators, and `_meta` preservation (backwards compatible with 2025-06-18 and 2025-03-26)
+- **Cedar policy compatibility** — Import/export Cedar policy files for AWS AgentCore and CNCF Cedar interoperability
+- **Wasm policy plugins** — User-extensible policy evaluation via Wasmtime with WIT interface, fuel metering, memory limits, and hot-reload
 
 ### 🔐 ETDI: Cryptographic Tool Security
 - **Tool signature verification** — Ed25519/ECDSA P-256 cryptographic signing of tool definitions with trusted signer allowlists (fingerprints + SPIFFE IDs)
@@ -214,6 +219,8 @@ Vellaveto enforces security policies on every tool call before it reaches the to
 - **Behavioral attestation** — Continuous authentication via behavioral baselines using Welford's online variance algorithm
 - **Delegation chains** — Agent-to-agent permission delegation with scope constraints, depth limits, and accountability tracking
 - **Credential rotation** — Automatic lifecycle with expiration warnings, rotation history, and DPoP (RFC 9449) support
+- **Ephemeral credentials** — JIT (Just-In-Time) access with max 1-hour TTL, auto-suspend for critically overdue rotation
+- **Identity inventory** — Agent identity enumeration with health assessment across all registered NHI identities
 - **NHI API** — 16 REST endpoints for identity registration, lifecycle management, behavioral checks, delegations, and credential rotation
 
 ### ⏱️ MCP Tasks Security
@@ -251,6 +258,8 @@ Vellaveto enforces security policies on every tool call before it reaches the to
 - **Proxy service** — HTTP proxy for A2A traffic with policy evaluation, DLP scanning, injection detection, and circuit breaker
 - **Batch rejection** — JSON-RPC batch requests rejected to prevent TOCTOU attacks (matching MCP security pattern)
 - **Authentication validation** — Validate request authentication against agent card supported schemes (API key, Bearer, OAuth 2.0, mTLS)
+- **Agent Card signature enforcement** — Ed25519 signature validation on Agent Cards with token lifetime enforcement and constant-time comparison
+- **MCP Registry integration** — Server discovery and identity verification against `registry.modelcontextprotocol.io` with TTL-based cache
 - **Task operation restrictions** — Configurable allowlist for task operations (get, cancel, resubscribe)
 
 ### 🪪 Identity Verification
