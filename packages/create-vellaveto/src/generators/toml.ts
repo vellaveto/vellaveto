@@ -95,8 +95,8 @@ export function generateToml(state: WizardState): string {
       toml += "enabled = true\n";
     }
     if (state.complianceFrameworks.includes("iso42001")) {
-      toml += "\n[compliance.iso42001]\n";
-      toml += "enabled = true\n";
+      toml +=
+        "\n# ISO 42001 compliance enabled — AI management system controls active\n";
     }
     if (state.complianceFrameworks.includes("nis2")) {
       toml +=
