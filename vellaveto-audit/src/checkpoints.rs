@@ -75,12 +75,36 @@ impl AuditLogger {
             signature: String::new(),
             verifying_key: hex::encode(signing_key.verifying_key().as_bytes()),
             merkle_root,
+            pqc_signature: None,
+            pqc_verifying_key: None,
+            signature_version: None,
         };
 
-        // Sign the canonical content
+        // Phase 54: Set PQC fields before signing so they're included in signing_content()
+        #[cfg(feature = "pqc-hybrid")]
+        if let (Some(ref _sk_hex), Some(ref pk_hex)) =
+            (&self.pqc_secret_key_hex, &self.pqc_public_key_hex)
+        {
+            checkpoint.pqc_verifying_key = Some(pk_hex.clone());
+            checkpoint.signature_version = Some(2);
+        }
+
+        // Sign the canonical content (Ed25519)
         let content = checkpoint.signing_content();
         let signature = signing_key.sign(&content);
         checkpoint.signature = hex::encode(signature.to_bytes());
+
+        // Phase 54: Add ML-DSA-65 signature for hybrid (v2) checkpoints
+        #[cfg(feature = "pqc-hybrid")]
+        if let Some(ref sk_hex) = self.pqc_secret_key_hex {
+            if checkpoint.signature_version == Some(2) {
+                checkpoint.pqc_signature = Some(crate::pqc::ml_dsa_sign(
+                    sk_hex,
+                    &content,
+                    crate::pqc::CHECKPOINT_CONTEXT,
+                )?);
+            }
+        }
 
         // Append to checkpoint file
         let mut line = serde_json::to_string(&checkpoint)?;
@@ -262,6 +286,9 @@ impl AuditLogger {
         let mut prev_entry_count = 0usize;
         // Track the first checkpoint's key for continuity enforcement
         let mut established_key: Option<String> = pinned_key.map(|k| k.to_string());
+        // Phase 54: Track PQC key for continuity enforcement
+        let mut _established_pqc_key: Option<String> =
+            self.trusted_pqc_verifying_key.clone();
 
         for (i, cp) in checkpoints.iter().enumerate() {
             // 1. Verify entry_count is non-decreasing
@@ -315,15 +342,95 @@ impl AuditLogger {
                 .map_err(|_| AuditError::Validation("Signature must be 64 bytes".to_string()))?;
             let signature = ed25519_dalek::Signature::from_bytes(&sig_array);
 
-            // 5. Verify signature over canonical content
+            // 5. Verify Ed25519 signature over canonical content
             let content = cp.signing_content();
             if verifying_key.verify(&content, &signature).is_err() {
                 return Ok(CheckpointVerification {
                     valid: false,
                     checkpoints_checked: i + 1,
                     first_invalid_at: Some(i),
-                    failure_reason: Some("Signature verification failed".to_string()),
+                    failure_reason: Some(
+                        "Ed25519 signature verification failed".to_string(),
+                    ),
                 });
+            }
+
+            // 5b. Phase 54: Verify ML-DSA-65 signature for hybrid (v2) checkpoints
+            let sig_version = cp.signature_version.unwrap_or(1);
+            if sig_version >= 2 {
+                // PQC key continuity: all v2 checkpoints must use the same PQC key
+                if let Some(ref pqc_vk) = cp.pqc_verifying_key {
+                    match &_established_pqc_key {
+                        Some(expected) if expected != pqc_vk => {
+                            return Ok(CheckpointVerification {
+                                valid: false,
+                                checkpoints_checked: i + 1,
+                                first_invalid_at: Some(i),
+                                failure_reason: Some(
+                                    "PQC verifying key changed between checkpoints (key continuity violated)"
+                                        .to_string(),
+                                ),
+                            });
+                        }
+                        None => {
+                            _established_pqc_key = Some(pqc_vk.clone());
+                        }
+                        _ => {} // Key matches
+                    }
+                } else {
+                    return Ok(CheckpointVerification {
+                        valid: false,
+                        checkpoints_checked: i + 1,
+                        first_invalid_at: Some(i),
+                        failure_reason: Some(
+                            "v2 checkpoint missing PQC verifying key".to_string(),
+                        ),
+                    });
+                }
+
+                // Verify ML-DSA-65 signature
+                #[cfg(feature = "pqc-hybrid")]
+                {
+                    let pqc_sig = cp.pqc_signature.as_deref().ok_or_else(|| {
+                        AuditError::Validation(
+                            "v2 checkpoint missing PQC signature".to_string(),
+                        )
+                    })?;
+                    let pqc_vk = cp.pqc_verifying_key.as_deref().ok_or_else(|| {
+                        AuditError::Validation(
+                            "v2 checkpoint missing PQC verifying key".to_string(),
+                        )
+                    })?;
+                    if let Err(e) = crate::pqc::ml_dsa_verify(
+                        pqc_vk,
+                        &content,
+                        pqc_sig,
+                        crate::pqc::CHECKPOINT_CONTEXT,
+                    ) {
+                        return Ok(CheckpointVerification {
+                            valid: false,
+                            checkpoints_checked: i + 1,
+                            first_invalid_at: Some(i),
+                            failure_reason: Some(format!(
+                                "ML-DSA-65 signature verification failed: {}",
+                                e
+                            )),
+                        });
+                    }
+                }
+
+                // Without pqc-hybrid feature, v2 checkpoints are fail-closed
+                #[cfg(not(feature = "pqc-hybrid"))]
+                {
+                    return Ok(CheckpointVerification {
+                        valid: false,
+                        checkpoints_checked: i + 1,
+                        first_invalid_at: Some(i),
+                        failure_reason: Some(
+                            "v2 checkpoint requires pqc-hybrid feature to verify".to_string(),
+                        ),
+                    });
+                }
             }
 
             // 6. Verify chain_head_hash against the audit log

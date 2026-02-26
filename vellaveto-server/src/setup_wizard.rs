@@ -1694,10 +1694,11 @@ fn generate_config_toml(session: &WizardSession) -> String {
             toml.push_str("enabled = true\n");
         }
         if session.iso42001 {
-            toml.push_str("\n[compliance.iso42001]\n");
-            toml.push_str("enabled = true\n");
+            toml.push_str(
+                "\n# ISO 42001 compliance enabled — AI management system controls active\n",
+            );
         }
-        // NIS2 and DORA are noted as compliance targets in comments
+        // NIS2, DORA, and ISO 42001 are noted as compliance targets in comments
         if session.nis2 {
             toml.push_str(
                 "\n# NIS2 compliance enabled — incident reporting and supply chain checks active\n",
