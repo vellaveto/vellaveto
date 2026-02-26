@@ -339,6 +339,11 @@ sha256sum dist/vellaveto-main-*.zip
 ```bash
 # Interactive wizard — generates config, docker-compose, Helm values, or setup script
 npx create-vellaveto
+
+# Follow the generated instructions, e.g. for source builds:
+cargo build --release
+VELLAVETO_API_KEY='vk_...' ./target/release/vellaveto serve --config vellaveto.toml --open
+# --open launches the dashboard in your browser automatically
 ```
 
 ### Docker
@@ -382,7 +387,7 @@ function_pattern = "read"
 policy_type = "Allow"
 priority = 100
 [policies.path_rules]
-allowed_globs = ["/tmp/**"]
+allowed = ["/tmp/**"]
 
 [[policies]]
 name = "Default deny"
@@ -392,8 +397,8 @@ policy_type = "Deny"
 priority = 0  # Lowest priority — catches everything not explicitly allowed
 EOF
 
-# Start the server
-VELLAVETO_API_KEY=your-secret vellaveto serve --config policy.toml --port 3000
+# Start the server (--open launches dashboard in browser)
+VELLAVETO_API_KEY=your-secret vellaveto serve --config policy.toml --port 3000 --open
 
 # Evaluate a tool call (another terminal)
 curl -s http://localhost:3000/api/evaluate \
@@ -1214,7 +1219,7 @@ Benchmark results (criterion, single-threaded):
 
 ```bash
 # HTTP policy server
-vellaveto serve --config policy.toml [--port 3000] [--bind 127.0.0.1] [--allow-anonymous]
+vellaveto serve --config policy.toml [--port 3000] [--bind 127.0.0.1] [--allow-anonymous] [--open]
 
 # One-shot evaluation (no server needed)
 vellaveto evaluate --tool file --function read \
