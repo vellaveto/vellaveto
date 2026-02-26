@@ -123,5 +123,8 @@ function generateDotEnv(state: WizardState): string {
   if (state.corsOrigins.length > 0) {
     env += `VELLAVETO_CORS_ORIGINS=${state.corsOrigins.join(",")}\n`;
   }
+  if (state.checkpointInterval > 0) {
+    env += `VELLAVETO_CHECKPOINT_INTERVAL=${state.checkpointInterval}\n`;
+  }
   return env;
 }

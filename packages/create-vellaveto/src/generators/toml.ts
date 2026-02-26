@@ -63,10 +63,10 @@ export function generateToml(state: WizardState): string {
   toml += "# ─── Audit ──────────────────────────────────────────────────\n\n";
   toml += "[audit]\n";
   toml += `redaction_level = "${escapeTomlString(state.redactionLevel)}"\n`;
-  if (state.checkpointInterval > 0) {
-    toml += `checkpoint_interval = ${state.checkpointInterval}\n`;
-  }
   toml += "\n";
+  if (state.checkpointInterval > 0) {
+    toml += `# Checkpoint interval: set VELLAVETO_CHECKPOINT_INTERVAL=${state.checkpointInterval} env var\n\n`;
+  }
 
   // Audit export
   if (state.auditExportFormat !== "none") {

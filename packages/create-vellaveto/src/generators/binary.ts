@@ -71,7 +71,7 @@ chmod +x "\${INSTALL_DIR}/vellaveto" "\${INSTALL_DIR}/vellaveto-http-proxy" 2>/d
 if [ ! -f "\${SCRIPT_DIR}/.env" ]; then
   cat > "\${SCRIPT_DIR}/.env" << 'ENVEOF'
 # Vellaveto environment variables — do not commit this file
-VELLAVETO_API_KEY=${state.apiKey}
+VELLAVETO_API_KEY=${state.apiKey}${state.checkpointInterval > 0 ? `\nVELLAVETO_CHECKPOINT_INTERVAL=${state.checkpointInterval}` : ""}
 ENVEOF
   echo "==> Wrote .env"
 fi
