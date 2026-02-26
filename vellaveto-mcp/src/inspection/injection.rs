@@ -962,7 +962,9 @@ fn decode_emoji(text: &str) -> Option<String> {
 ///
 /// Returns the decoded string if any substitutions were made, `None` otherwise.
 fn decode_leetspeak(text: &str) -> Option<String> {
-    // Leetspeak substitution map (input is already lowercased).
+    // SECURITY (R226-MCP-2): Expanded leetspeak substitution map.
+    // Input is already lowercased. Covers common evasion patterns from
+    // Analytics Vidhya research (36% bypass rate with basic maps).
     const LEET_MAP: &[(char, char)] = &[
         ('4', 'a'),
         ('3', 'e'),
@@ -971,6 +973,13 @@ fn decode_leetspeak(text: &str) -> Option<String> {
         ('7', 't'),
         ('5', 's'),
         ('@', 'a'),
+        ('$', 's'),
+        ('!', 'i'),
+        ('|', 'l'),
+        ('8', 'b'),
+        ('6', 'g'),
+        ('9', 'g'),
+        ('2', 'z'),
     ];
 
     // Count how many substitutable characters exist.
@@ -1319,7 +1328,7 @@ fn scan_reversed_default(
     matches
 }
 
-//// SECURITY (SANDWORM-P1-EMOJI): Decode regional indicator sequences to ASCII.
+/// SECURITY (SANDWORM-P1-EMOJI): Decode regional indicator sequences to ASCII.
 ///
 /// R226-MCP-4 FIX: Also strips zero-width joiners (U+200D), variation selectors
 /// (U+FE00-U+FE0F), and other invisible formatting characters that survive
@@ -2666,5 +2675,27 @@ mod tests {
         assert!(decode_leetspeak("12").is_none(), "Only 2 leet chars → None (below threshold)");
         let decoded = decode_leetspeak("1gn0r3").unwrap();
         assert_eq!(decoded, "ignore", "1→i, 0→o, 3→e");
+    }
+
+    /// R226-MCP-2: Expanded leetspeak — `$` → s, `!` → i, `|` → l.
+    #[test]
+    fn test_r226_decode_leetspeak_expanded() {
+        // $→s, !→i, |→l (3 leet chars meets threshold)
+        let decoded = decode_leetspeak("$!|ent").unwrap();
+        assert_eq!(decoded, "silent", "$→s, !→i, |→l");
+    }
+
+    /// R226-MCP-2: Expanded leetspeak — `8` → b, `6` → g, `9` → g.
+    #[test]
+    fn test_r226_decode_leetspeak_digits() {
+        let decoded = decode_leetspeak("8u6 fi9ht").unwrap();
+        assert_eq!(decoded, "bug fight", "8→b, 6→g, 9→g");
+    }
+
+    /// R226-MCP-2: Expanded leetspeak — `2` → z.
+    #[test]
+    fn test_r226_decode_leetspeak_2_to_z() {
+        let decoded = decode_leetspeak("fr332e").unwrap();
+        assert_eq!(decoded, "freeze", "3→e, 2→z");
     }
 }

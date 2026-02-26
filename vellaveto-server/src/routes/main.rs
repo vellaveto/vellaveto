@@ -2717,6 +2717,18 @@ fn extract_client_ip(request: &Request, trusted_proxies: &[std::net::IpAddr]) ->
 fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]) -> String {
     /// Maximum X-Principal header length to prevent memory abuse in rate-limit maps.
     const MAX_PRINCIPAL_LEN: usize = 256;
+
+    // SECURITY (R226-SRV-2): Include tenant_id in rate limit key to prevent
+    // cross-tenant collision. Without this, principal "admin" from Tenant A and
+    // Tenant B share the same rate limit bucket, enabling cross-tenant DoS.
+    let tenant_prefix = request
+        .headers()
+        .get("x-tenant-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|t| !t.is_empty() && t.len() <= MAX_PRINCIPAL_LEN && !t.chars().any(crate::routes::is_unsafe_char))
+        .map(|t| format!("t:{}|", t))
+        .unwrap_or_default();
+
     // 1. X-Principal header — only trust from known proxies (KL1)
     if is_connection_from_trusted_proxy(request, trusted_proxies) {
         if let Some(principal) = request
@@ -2728,7 +2740,7 @@ fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]
                 && principal.len() <= MAX_PRINCIPAL_LEN
                 && !principal.chars().any(crate::routes::is_unsafe_char)
             {
-                return format!("principal:{}", principal);
+                return format!("{}principal:{}", tenant_prefix, principal);
             }
         }
     }
@@ -2747,14 +2759,14 @@ fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]
                 use sha2::{Digest, Sha256};
                 let hash = Sha256::digest(token.as_bytes());
                 // 128-bit truncation is sufficient for rate limit bucketing
-                return format!("bearer:{}", hex::encode(&hash[..16]));
+                return format!("{}bearer:{}", tenant_prefix, hex::encode(&hash[..16]));
             }
         }
     }
 
     // 3. Fallback to client IP
     let client_ip = extract_client_ip(request, trusted_proxies);
-    format!("ip:{}", client_ip)
+    format!("{}ip:{}", tenant_prefix, client_ip)
 }
 
 fn categorize_rate_limit<'a>(

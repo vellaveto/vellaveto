@@ -201,8 +201,32 @@ impl AuditLogger {
 
         let mut prev_hash: Option<String> = None;
         let mut seen_hashed_entry = false;
+        // SECURITY (R226-CROSS-1): Track previous timestamp for monotonicity.
+        // Timestamps must be non-decreasing to prevent audit log reordering
+        // via clock tampering.
+        let mut prev_timestamp: Option<&str> = None;
 
         for (i, entry) in entries.iter().enumerate() {
+            // SECURITY (R226-CROSS-1): Verify timestamp ordering.
+            // ISO 8601 timestamps are lexicographically orderable when in UTC,
+            // so string comparison is sufficient for monotonicity checks.
+            if let Some(prev_ts) = prev_timestamp {
+                if entry.timestamp.as_str() < prev_ts {
+                    tracing::warn!(
+                        entry_index = i,
+                        prev_ts = prev_ts,
+                        curr_ts = %entry.timestamp,
+                        "Audit chain timestamp regression detected"
+                    );
+                    return Ok(ChainVerification {
+                        valid: false,
+                        entries_checked: i + 1,
+                        first_broken_at: Some(i),
+                    });
+                }
+            }
+            prev_timestamp = Some(&entry.timestamp);
+
             if entry.entry_hash.is_none() {
                 // Legacy entries are only allowed before the first hashed entry.
                 // Once a hashed entry appears, all subsequent entries MUST have hashes.

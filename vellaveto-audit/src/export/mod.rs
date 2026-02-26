@@ -109,7 +109,20 @@ pub fn to_cef(entry: &AuditEntry) -> String {
         _ => String::new(),
     };
 
-    let rt_escaped = cef_escape_ext(&entry.timestamp);
+    // SECURITY (R226-AUD-5): CEF timestamps require timezone information per
+    // CEF specification. Append 'Z' if timestamp has no timezone indicator
+    // (Z, +HH:MM, -HH:MM) to ensure SIEM parsers interpret as UTC.
+    let ts = &entry.timestamp;
+    let has_tz = ts.ends_with('Z')
+        || ts.ends_with('z')
+        || ts.len() >= 6 && (ts.as_bytes()[ts.len() - 6] == b'+' || ts.as_bytes()[ts.len() - 6] == b'-')
+        || ts.len() >= 5 && (ts.as_bytes()[ts.len() - 5] == b'+' || ts.as_bytes()[ts.len() - 5] == b'-');
+    let ts_with_tz = if has_tz {
+        ts.clone()
+    } else {
+        format!("{}Z", ts)
+    };
+    let rt_escaped = cef_escape_ext(&ts_with_tz);
     let rt_val = truncate_bytes(&rt_escaped, CEF_EXT_MAX_BYTES);
     let cs1_escaped = cef_escape_ext(&entry.id);
     let cs1_val = truncate_bytes(&cs1_escaped, CEF_EXT_MAX_BYTES);
@@ -745,6 +758,44 @@ mod tests {
         assert!(
             std::str::from_utf8(name_field.as_bytes()).is_ok(),
             "Truncated name field must be valid UTF-8"
+        );
+    }
+
+    /// R226-AUD-5: CEF timestamp without timezone gets Z appended.
+    #[test]
+    fn test_r226_cef_timestamp_without_timezone_gets_z() {
+        let mut entry = make_entry("tool", "fn", Verdict::Allow);
+        entry.timestamp = "2026-02-26T14:30:00".to_string(); // No timezone
+        let cef = to_cef(&entry);
+        assert!(
+            cef.contains("rt=2026-02-26T14:30:00Z"),
+            "Timestamp without TZ must get Z appended, got: {}",
+            cef
+        );
+    }
+
+    /// R226-AUD-5: CEF timestamp with Z is left unchanged.
+    #[test]
+    fn test_r226_cef_timestamp_with_z_unchanged() {
+        let entry = make_entry("tool", "fn", Verdict::Allow);
+        let cef = to_cef(&entry);
+        assert!(
+            cef.contains("rt=2026-02-04T12:00:00Z"),
+            "Timestamp with Z must be preserved, got: {}",
+            cef
+        );
+    }
+
+    /// R226-AUD-5: CEF timestamp with offset is left unchanged.
+    #[test]
+    fn test_r226_cef_timestamp_with_offset_unchanged() {
+        let mut entry = make_entry("tool", "fn", Verdict::Allow);
+        entry.timestamp = "2026-02-26T14:30:00+05:30".to_string();
+        let cef = to_cef(&entry);
+        assert!(
+            cef.contains("rt=2026-02-26T14:30:00+05:30"),
+            "Timestamp with offset must be preserved, got: {}",
+            cef
         );
     }
 }

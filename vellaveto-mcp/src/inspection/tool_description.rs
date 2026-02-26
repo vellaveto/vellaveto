@@ -211,10 +211,17 @@ fn scan_tool_descriptions_inner(
 
         // Collect all text to scan: top-level description + nested property descriptions
         let mut texts_to_scan = Vec::new();
+        // SECURITY (R226-MCP-8): Track total bytes to prevent DoS via
+        // multi-gigabyte tool descriptions from malicious MCP servers.
+        const MAX_DESC_BYTES: usize = 65_536; // 64 KB per description
+        const MAX_TOTAL_DESC_BYTES: usize = 1_048_576; // 1 MB total
+        let mut total_bytes: usize = 0;
 
         // Top-level description (optional — R31-MCP-2: don't skip tools without it)
         if let Some(d) = tool.get("description").and_then(|d| d.as_str()) {
-            texts_to_scan.push(d.to_string());
+            let truncated = if d.len() > MAX_DESC_BYTES { &d[..MAX_DESC_BYTES] } else { d };
+            total_bytes = total_bytes.saturating_add(truncated.len());
+            texts_to_scan.push(truncated.to_string());
         }
 
         // SECURITY (R30-MCP-5, R31-MCP-1): Recursively scan inputSchema descriptions
@@ -224,9 +231,32 @@ fn scan_tool_descriptions_inner(
             // SECURITY (R35-MCP-7): Explicitly collect top-level schema description
             // which is skipped by collect_schema_descriptions at depth=0.
             if let Some(desc) = schema.get("description").and_then(|d| d.as_str()) {
-                texts_to_scan.push(desc.to_string());
+                let truncated = if desc.len() > MAX_DESC_BYTES { &desc[..MAX_DESC_BYTES] } else { desc };
+                total_bytes = total_bytes.saturating_add(truncated.len());
+                texts_to_scan.push(truncated.to_string());
             }
             collect_schema_descriptions(schema, &mut texts_to_scan, 0);
+        }
+
+        // SECURITY (R226-MCP-8): Enforce total description size limit.
+        // Fail-closed: if total exceeds limit, flag the tool as suspicious.
+        total_bytes = total_bytes.saturating_add(
+            texts_to_scan.iter().skip(1).map(|t| t.len()).sum::<usize>()
+        );
+        if total_bytes > MAX_TOTAL_DESC_BYTES {
+            tracing::warn!(
+                tool_name = %name,
+                total_bytes = total_bytes,
+                "Tool description total size exceeds {} bytes limit — truncating scan",
+                MAX_TOTAL_DESC_BYTES
+            );
+            // Truncate to within budget — keep first descriptions which are most likely to contain payloads
+            let mut budget = MAX_TOTAL_DESC_BYTES;
+            texts_to_scan.retain(|t| {
+                if budget == 0 { return false; }
+                budget = budget.saturating_sub(t.len());
+                true
+            });
         }
 
         let mut all_matches: Vec<String> = Vec::new();
