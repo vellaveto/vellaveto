@@ -42,6 +42,17 @@ pub struct GovernanceConfig {
     #[serde(default)]
     pub require_agent_registration: bool,
 
+    /// When true, tool calls from MCP servers not in `known_servers` are denied (fail-closed).
+    /// Only effective when `known_servers` is non-empty.
+    /// Default: false (monitor-only).
+    ///
+    /// SECURITY (SANDWORM-001): Without this, a rogue MCP server injected via
+    /// config tampering (e.g. SANDWORM_MODE attack) can register tools and have
+    /// them execute through the policy engine. Enable this with a populated
+    /// `known_servers` list to enforce a server allowlist.
+    #[serde(default)]
+    pub require_server_registration: bool,
+
     /// Time window (seconds) for aggregating discovery observations.
     /// Default: 300 (5 minutes).
     #[serde(default = "default_discovery_window")]
@@ -92,6 +103,7 @@ impl Default for GovernanceConfig {
         Self {
             shadow_ai_discovery: false,
             require_agent_registration: false,
+            require_server_registration: false,
             discovery_window_secs: 300,
             approved_tools: Vec::new(),
             known_servers: Vec::new(),

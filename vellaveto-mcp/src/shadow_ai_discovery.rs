@@ -63,6 +63,12 @@ pub struct ShadowAiDiscovery {
     known_servers: RwLock<HashSet<String>>,
     unknown_servers: RwLock<HashMap<String, UnknownMcpServer>>,
     require_registration: bool,
+    /// When true and `known_servers` is non-empty, tool calls from unknown
+    /// servers are denied (fail-closed). Mirrors `require_registration` for agents.
+    ///
+    /// SECURITY (SANDWORM-001): Defends against rogue MCP server injection
+    /// attacks like SANDWORM_MODE that add malicious servers to config files.
+    require_server_registration: bool,
     /// Counter for entries dropped from `unregistered` due to capacity (FIND-R44-016).
     unregistered_drop_count: AtomicUsize,
     /// Counter for entries dropped from `unapproved` due to capacity (FIND-R44-016).
@@ -79,6 +85,29 @@ impl ShadowAiDiscovery {
         known_servers: HashSet<String>,
         require_registration: bool,
     ) -> Self {
+        Self::with_server_registration(
+            registered_agents,
+            approved_tools,
+            known_servers,
+            require_registration,
+            false,
+        )
+    }
+
+    /// Create a new discovery engine with server registration enforcement.
+    ///
+    /// When `require_server_registration` is true and `known_servers` is non-empty,
+    /// `should_deny_unknown_server()` returns true for servers not in the list.
+    ///
+    /// SECURITY (SANDWORM-001): This is the primary defense against rogue MCP
+    /// server injection attacks that add malicious servers to AI assistant configs.
+    pub fn with_server_registration(
+        registered_agents: HashSet<String>,
+        approved_tools: HashSet<String>,
+        known_servers: HashSet<String>,
+        require_registration: bool,
+        require_server_registration: bool,
+    ) -> Self {
         Self {
             registered_agents: RwLock::new(registered_agents),
             unregistered: RwLock::new(HashMap::new()),
@@ -87,6 +116,7 @@ impl ShadowAiDiscovery {
             known_servers: RwLock::new(known_servers),
             unknown_servers: RwLock::new(HashMap::new()),
             require_registration,
+            require_server_registration,
             unregistered_drop_count: AtomicUsize::new(0),
             unapproved_drop_count: AtomicUsize::new(0),
             unknown_servers_drop_count: AtomicUsize::new(0),
@@ -326,6 +356,36 @@ impl ShadowAiDiscovery {
     /// Only returns true when `require_registration` is enabled.
     pub fn should_deny_unregistered(&self, agent_id: &str) -> bool {
         self.require_registration && !self.is_agent_registered(agent_id)
+    }
+
+    /// Check if an MCP server is in the known servers list.
+    /// Returns true if the known list is empty (all servers allowed).
+    ///
+    /// Fail-closed: if the lock is poisoned, returns `false` (unknown),
+    /// which causes denial when `require_server_registration` is enabled.
+    pub fn is_server_known(&self, server_id: &str) -> bool {
+        self.known_servers
+            .read()
+            .map(|r| r.is_empty() || r.contains(server_id))
+            .unwrap_or_else(|_| {
+                tracing::error!("known_servers lock poisoned — fail-closed: treating as unknown");
+                false // fail-closed: unknown → deny if require_server_registration enabled
+            })
+    }
+
+    /// Returns true when a tool call should be denied because the originating
+    /// MCP server is not in the `known_servers` list.
+    ///
+    /// Only returns true when:
+    /// - `require_server_registration` is enabled, AND
+    /// - `known_servers` is non-empty, AND
+    /// - the server_id is not in `known_servers`
+    ///
+    /// SECURITY (SANDWORM-001): This is the enforcement gate for the server
+    /// allowlist. Without it, rogue MCP servers injected via config tampering
+    /// (SANDWORM_MODE) can register tools that execute through the policy engine.
+    pub fn should_deny_unknown_server(&self, server_id: &str) -> bool {
+        self.require_server_registration && !self.is_server_known(server_id)
     }
 
     /// Register an agent at runtime (complements config-defined agents).
@@ -794,6 +854,80 @@ mod tests {
     // ═══════════════════════════════════════════════════════════════════════════
     // FIND-R44-016: Bounded collections fail-open warning
     // ═══════════════════════════════════════════════════════════════════════════
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SANDWORM-001: Server registration enforcement
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    fn sandworm_hardened_discovery() -> ShadowAiDiscovery {
+        let mut known = HashSet::new();
+        known.insert("trusted-server".to_string());
+        known.insert("internal-mcp".to_string());
+
+        ShadowAiDiscovery::with_server_registration(
+            HashSet::new(),
+            HashSet::new(),
+            known,
+            false,
+            true, // require_server_registration
+        )
+    }
+
+    #[test]
+    fn test_should_deny_unknown_server_when_required() {
+        let d = sandworm_hardened_discovery();
+        assert!(d.should_deny_unknown_server("rogue-server"));
+        assert!(d.should_deny_unknown_server("sandworm-mcp"));
+    }
+
+    #[test]
+    fn test_should_not_deny_known_server() {
+        let d = sandworm_hardened_discovery();
+        assert!(!d.should_deny_unknown_server("trusted-server"));
+        assert!(!d.should_deny_unknown_server("internal-mcp"));
+    }
+
+    #[test]
+    fn test_should_not_deny_server_when_enforcement_disabled() {
+        let d = configured_discovery(); // require_server_registration = false
+        assert!(!d.should_deny_unknown_server("rogue-server"));
+    }
+
+    #[test]
+    fn test_should_not_deny_server_when_known_list_empty() {
+        // Empty known_servers = all allowed, even with enforcement enabled
+        let d = ShadowAiDiscovery::with_server_registration(
+            HashSet::new(),
+            HashSet::new(),
+            HashSet::new(), // empty
+            false,
+            true, // require_server_registration
+        );
+        assert!(!d.should_deny_unknown_server("any-server"));
+    }
+
+    #[test]
+    fn test_is_server_known_with_empty_list() {
+        let d = empty_discovery();
+        assert!(d.is_server_known("any-server"));
+    }
+
+    #[test]
+    fn test_is_server_known_with_populated_list() {
+        let d = sandworm_hardened_discovery();
+        assert!(d.is_server_known("trusted-server"));
+        assert!(!d.is_server_known("unknown-server"));
+    }
+
+    #[test]
+    fn test_backward_compat_new_does_not_require_server_registration() {
+        // The original `new()` constructor should default to false
+        let mut known = HashSet::new();
+        known.insert("srv".to_string());
+        let d = ShadowAiDiscovery::new(HashSet::new(), HashSet::new(), known, false);
+        // Even though "rogue" is unknown, enforcement is off
+        assert!(!d.should_deny_unknown_server("rogue"));
+    }
 
     #[test]
     fn test_bounded_unregistered_agents_increments_drop_counter() {

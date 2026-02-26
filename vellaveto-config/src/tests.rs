@@ -3395,6 +3395,7 @@ fn test_governance_config_serde_roundtrip() {
     let config = GovernanceConfig {
         shadow_ai_discovery: true,
         require_agent_registration: true,
+        require_server_registration: true,
         discovery_window_secs: 600,
         approved_tools: vec!["filesystem".into(), "http".into()],
         known_servers: vec!["server-1".into()],

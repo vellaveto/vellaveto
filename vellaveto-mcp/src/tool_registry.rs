@@ -95,6 +95,23 @@ pub struct ToolEntry {
     pub trust_score: f32,
 
     // ═══════════════════════════════════════════════════
+    // Server Origin Binding (SANDWORM-001)
+    // ═══════════════════════════════════════════════════
+    /// The MCP server that originally registered this tool.
+    ///
+    /// SECURITY (SANDWORM-001): Binds tools to their originating server so that
+    /// squatting detection can distinguish identical tool names from different
+    /// servers. A tool seen from multiple servers is suspicious and penalized.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_id: Option<String>,
+    /// Whether this tool has been seen from a different server than `server_id`.
+    ///
+    /// SECURITY (SANDWORM-001): Indicates a possible rogue MCP server attempting
+    /// to shadow a legitimate tool. Penalized -0.3 in trust score.
+    #[serde(default)]
+    pub server_id_conflict: bool,
+
+    // ═══════════════════════════════════════════════════
     // ETDI (Enhanced Tool Definition Interface) Fields
     // ═══════════════════════════════════════════════════
     /// ETDI signature for this tool (from tool provider).
@@ -132,6 +149,9 @@ impl ToolEntry {
             admin_approved: false,
             flagged_for_squatting: false,
             trust_score: 0.5, // Will be recomputed
+            // Server origin binding (SANDWORM-001)
+            server_id: None,
+            server_id_conflict: false,
             // ETDI fields
             signature: None,
             signature_verified: false,
@@ -195,6 +215,7 @@ impl ToolEntry {
     /// - +0.1 for version_pinned = true
     /// - -0.3 for each schema change (rug-pull)
     /// - -0.2 if flagged for squatting
+    /// - -0.3 if server_id_conflict (SANDWORM-001: seen from multiple servers)
     /// - Clamped to [0.0, 1.0]
     pub fn compute_trust_score(&mut self) {
         let mut score: f32 = 0.5;
@@ -243,6 +264,13 @@ impl ToolEntry {
         // Squatting penalty
         if self.flagged_for_squatting {
             score -= 0.2;
+        }
+
+        // SECURITY (SANDWORM-001): Server origin conflict penalty.
+        // A tool seen from multiple servers indicates a possible rogue MCP
+        // server attempting to shadow a legitimate tool.
+        if self.server_id_conflict {
+            score -= 0.3;
         }
 
         // Clamp to [0.0, 1.0]
@@ -442,11 +470,19 @@ impl ToolRegistry {
     ///
     /// If the tool already exists and the schema hash changed, records a
     /// schema change (rug-pull). Returns true if this is a new tool.
+    ///
+    /// The `server_id` parameter binds the tool to its originating MCP server.
+    /// If the same tool_id is later seen from a different server, the entry is
+    /// flagged with `server_id_conflict` and penalized in the trust score.
+    ///
+    /// SECURITY (SANDWORM-001): Server origin binding prevents rogue MCP servers
+    /// from silently shadowing legitimate tools.
     pub async fn register_tool(
         &self,
         tool_id: &str,
         schema: &serde_json::Value,
         flagged_for_squatting: bool,
+        server_id: Option<&str>,
     ) -> bool {
         let schema_hash = compute_schema_hash(schema);
         let mut entries = self.entries.write().await;
@@ -461,6 +497,30 @@ impl ToolRegistry {
                     schema_hash
                 );
                 entry.record_schema_change(schema_hash);
+            }
+            // SECURITY (SANDWORM-001): Detect server origin conflict.
+            // If the tool was previously registered from a different server,
+            // flag the conflict and penalize the trust score.
+            if let Some(new_sid) = server_id {
+                match &entry.server_id {
+                    Some(existing_sid) if existing_sid != new_sid => {
+                        if !entry.server_id_conflict {
+                            tracing::warn!(
+                                "Tool '{}' seen from different server: '{}' (was '{}'). \
+                                 Possible rogue MCP server (SANDWORM-001).",
+                                tool_id,
+                                new_sid,
+                                existing_sid,
+                            );
+                            entry.server_id_conflict = true;
+                            entry.compute_trust_score();
+                        }
+                    }
+                    None => {
+                        entry.server_id = Some(new_sid.to_string());
+                    }
+                    _ => {} // Same server, no change
+                }
             }
             entry.touch();
             if flagged_for_squatting && !entry.flagged_for_squatting {
@@ -482,6 +542,7 @@ impl ToolRegistry {
             // New tool
             let mut entry = ToolEntry::new(tool_id.to_string(), schema_hash);
             entry.flagged_for_squatting = flagged_for_squatting;
+            entry.server_id = server_id.map(|s| s.to_string());
             entry.compute_trust_score();
             entries.insert(tool_id.to_string(), entry);
             true
@@ -829,10 +890,10 @@ mod tests {
         // Create and populate registry
         let registry = ToolRegistry::new(&path);
         registry
-            .register_tool("tool_a", &json!({"type": "object"}), false)
+            .register_tool("tool_a", &json!({"type": "object"}), false, None)
             .await;
         registry
-            .register_tool("tool_b", &json!({"type": "string"}), true)
+            .register_tool("tool_b", &json!({"type": "string"}), true, None)
             .await;
         registry.approve("tool_a").await.unwrap();
 
@@ -869,7 +930,7 @@ mod tests {
         let registry = ToolRegistry::new(&path);
 
         let is_new = registry
-            .register_tool("new_tool", &json!({"type": "object"}), false)
+            .register_tool("new_tool", &json!({"type": "object"}), false, None)
             .await;
         assert!(is_new, "Should report new tool");
 
@@ -886,10 +947,10 @@ mod tests {
         let registry = ToolRegistry::new(&path);
 
         registry
-            .register_tool("tool", &json!({"type": "object"}), false)
+            .register_tool("tool", &json!({"type": "object"}), false, None)
             .await;
         let is_new = registry
-            .register_tool("tool", &json!({"type": "object"}), false)
+            .register_tool("tool", &json!({"type": "object"}), false, None)
             .await;
         assert!(!is_new, "Should not be new");
 
@@ -904,10 +965,10 @@ mod tests {
         let registry = ToolRegistry::new(&path);
 
         registry
-            .register_tool("tool", &json!({"type": "object"}), false)
+            .register_tool("tool", &json!({"type": "object"}), false, None)
             .await;
         registry
-            .register_tool("tool", &json!({"type": "string"}), false)
+            .register_tool("tool", &json!({"type": "string"}), false, None)
             .await;
 
         let entry = registry.get("tool").await.unwrap();
@@ -925,7 +986,7 @@ mod tests {
         let registry = ToolRegistry::new(&path);
 
         registry
-            .register_tool("tool", &json!({"type": "object"}), false)
+            .register_tool("tool", &json!({"type": "object"}), false, None)
             .await;
         registry.record_call("tool").await;
         registry.record_call("tool").await;
@@ -941,7 +1002,7 @@ mod tests {
         let registry = ToolRegistry::new(&path);
 
         registry
-            .register_tool("tool", &json!({"type": "object"}), false)
+            .register_tool("tool", &json!({"type": "object"}), false, None)
             .await;
 
         let entry = registry.approve("tool").await.unwrap();
@@ -972,7 +1033,7 @@ mod tests {
 
         // New tool has base score 0.5, so at threshold (not below)
         registry
-            .register_tool("tool", &json!({"type": "object"}), false)
+            .register_tool("tool", &json!({"type": "object"}), false, None)
             .await;
         assert!(
             registry.check_trust("tool").await.is_none(),
@@ -981,7 +1042,7 @@ mod tests {
 
         // Add squatting flag to drop below threshold
         registry
-            .register_tool("tool2", &json!({"type": "object"}), true)
+            .register_tool("tool2", &json!({"type": "object"}), true, None)
             .await;
         assert!(
             registry.check_trust("tool2").await.is_some(),
@@ -1002,7 +1063,7 @@ mod tests {
         );
 
         registry
-            .register_tool("trusted", &json!({"type": "object"}), false)
+            .register_tool("trusted", &json!({"type": "object"}), false, None)
             .await;
         assert!(
             !registry.requires_approval("trusted").await,
@@ -1010,7 +1071,7 @@ mod tests {
         );
 
         registry
-            .register_tool("untrusted", &json!({"type": "object"}), true)
+            .register_tool("untrusted", &json!({"type": "object"}), true, None)
             .await;
         assert!(
             registry.requires_approval("untrusted").await,
@@ -1024,8 +1085,12 @@ mod tests {
         let path = dir.path().join("registry.jsonl");
         let registry = ToolRegistry::new(&path);
 
-        registry.register_tool("tool_a", &json!({}), false).await;
-        registry.register_tool("tool_b", &json!({}), false).await;
+        registry
+            .register_tool("tool_a", &json!({}), false, None)
+            .await;
+        registry
+            .register_tool("tool_b", &json!({}), false, None)
+            .await;
 
         let list = registry.list().await;
         assert_eq!(list.len(), 2);
@@ -1041,7 +1106,7 @@ mod tests {
 
         let registry = ToolRegistry::new(&path).with_hmac_key(key);
         registry
-            .register_tool("tool_a", &json!({"type": "object"}), false)
+            .register_tool("tool_a", &json!({"type": "object"}), false, None)
             .await;
         registry.persist().await.unwrap();
 
@@ -1060,7 +1125,7 @@ mod tests {
 
         let registry = ToolRegistry::new(&path).with_hmac_key(key);
         registry
-            .register_tool("tool_x", &json!({"type": "object"}), false)
+            .register_tool("tool_x", &json!({"type": "object"}), false, None)
             .await;
         registry.persist().await.unwrap();
 
@@ -1084,7 +1149,7 @@ mod tests {
 
         let registry = ToolRegistry::new(&path).with_hmac_key(key1);
         registry
-            .register_tool("tool_z", &json!({"type": "string"}), false)
+            .register_tool("tool_z", &json!({"type": "string"}), false, None)
             .await;
         registry.persist().await.unwrap();
 
@@ -1102,7 +1167,7 @@ mod tests {
         // Persist without HMAC
         let registry = ToolRegistry::new(&path);
         registry
-            .register_tool("tool_plain", &json!({}), false)
+            .register_tool("tool_plain", &json!({}), false, None)
             .await;
         registry.persist().await.unwrap();
 
@@ -1124,7 +1189,7 @@ mod tests {
         // Persist without HMAC
         let registry = ToolRegistry::new(&path);
         registry
-            .register_tool("tool_normal", &json!({}), false)
+            .register_tool("tool_normal", &json!({}), false, None)
             .await;
         registry.persist().await.unwrap();
 
@@ -1146,6 +1211,8 @@ mod tests {
             admin_approved: true,
             flagged_for_squatting: false,
             trust_score: 0.75,
+            server_id: Some("trusted-server".to_string()),
+            server_id_conflict: false,
             signature: None,
             signature_verified: false,
             signer_trusted: false,
@@ -1185,5 +1252,155 @@ mod tests {
             !entries.contains_key("overflow_tool"),
             "Overflow registration should be rejected"
         );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SANDWORM-001: Server Origin Binding Tests
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_register_tool_with_server_id() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::new(&path);
+
+        registry
+            .register_tool(
+                "read_file",
+                &json!({"type": "object"}),
+                false,
+                Some("legit-server"),
+            )
+            .await;
+
+        let entry = registry.get("read_file").await.unwrap();
+        assert_eq!(entry.server_id, Some("legit-server".to_string()));
+        assert!(!entry.server_id_conflict);
+    }
+
+    #[tokio::test]
+    async fn test_register_tool_server_id_conflict_detected() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::new(&path);
+
+        // First registration from legit server
+        registry
+            .register_tool(
+                "read_file",
+                &json!({"type": "object"}),
+                false,
+                Some("legit-server"),
+            )
+            .await;
+
+        // Second registration from rogue server — SANDWORM_MODE attack
+        registry
+            .register_tool(
+                "read_file",
+                &json!({"type": "object"}),
+                false,
+                Some("rogue-server"),
+            )
+            .await;
+
+        let entry = registry.get("read_file").await.unwrap();
+        assert_eq!(
+            entry.server_id,
+            Some("legit-server".to_string()),
+            "Original server preserved"
+        );
+        assert!(entry.server_id_conflict, "Conflict should be flagged");
+        assert!(
+            entry.trust_score < 0.3,
+            "Trust should be penalized: got {}",
+            entry.trust_score
+        );
+    }
+
+    #[tokio::test]
+    async fn test_register_tool_same_server_no_conflict() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::new(&path);
+
+        registry
+            .register_tool(
+                "read_file",
+                &json!({"type": "object"}),
+                false,
+                Some("server-1"),
+            )
+            .await;
+        registry
+            .register_tool(
+                "read_file",
+                &json!({"type": "object"}),
+                false,
+                Some("server-1"),
+            )
+            .await;
+
+        let entry = registry.get("read_file").await.unwrap();
+        assert!(!entry.server_id_conflict, "Same server should not conflict");
+    }
+
+    #[tokio::test]
+    async fn test_register_tool_none_server_then_server_fills_in() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::new(&path);
+
+        // First registration without server_id
+        registry
+            .register_tool("tool", &json!({}), false, None)
+            .await;
+        let entry = registry.get("tool").await.unwrap();
+        assert_eq!(entry.server_id, None);
+
+        // Later registration with server_id fills it in
+        registry
+            .register_tool("tool", &json!({}), false, Some("server-1"))
+            .await;
+        let entry = registry.get("tool").await.unwrap();
+        assert_eq!(entry.server_id, Some("server-1".to_string()));
+        assert!(!entry.server_id_conflict);
+    }
+
+    #[test]
+    fn test_trust_score_server_id_conflict_penalty() {
+        let mut entry = new_entry("test_tool");
+        entry.server_id_conflict = true;
+        entry.compute_trust_score();
+        assert!(
+            (entry.trust_score - 0.2).abs() < 0.01,
+            "Server conflict penalty -0.3: expected 0.2, got {}",
+            entry.trust_score
+        );
+    }
+
+    #[tokio::test]
+    async fn test_register_tool_server_id_conflict_persists_across_load() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+
+        let registry = ToolRegistry::new(&path);
+        registry
+            .register_tool("tool", &json!({"type": "object"}), false, Some("server-a"))
+            .await;
+        registry
+            .register_tool("tool", &json!({"type": "object"}), false, Some("server-b"))
+            .await;
+        registry.persist().await.unwrap();
+
+        let registry2 = ToolRegistry::new(&path);
+        registry2.load().await.unwrap();
+
+        let entry = registry2.get("tool").await.unwrap();
+        assert!(
+            entry.server_id_conflict,
+            "Conflict flag should survive persistence"
+        );
+        assert_eq!(entry.server_id, Some("server-a".to_string()));
     }
 }

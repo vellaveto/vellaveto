@@ -16,6 +16,7 @@ This document describes the threat model for Vellaveto, covering attack vectors,
   - [Data Exfiltration](#data-exfiltration)
   - [Privilege Escalation](#privilege-escalation)
   - [Denial of Service](#denial-of-service)
+  - [Supply Chain Worm (SANDWORM_MODE)](#supply-chain-worm-sandworm_mode)
 - [Security Controls](#security-controls)
 - [Residual Risks](#residual-risks)
 
@@ -478,6 +479,92 @@ Agent B claims to be Agent A using forged identity assertions
 - Verification tiers (Unverified → FullyVerified) with fail-closed enforcement
 - Ed25519 accountability attestations with constant-time key comparison
 - Behavioral baselines detect anomalous identity claims
+
+---
+
+### Supply Chain Worm (SANDWORM_MODE)
+
+**Threat ID:** SANDWORM-001
+**Date Identified:** February 2026
+**Severity:** Critical
+**References:** [Socket.dev Report](https://socket.dev/blog/sandworm-mode-npm-worm-ai-toolchain-poisoning)
+
+**Description:**
+SANDWORM_MODE is an active npm supply-chain worm (19+ malicious packages) that targets AI coding assistants. The attack chain:
+
+1. **Typosquatted npm packages** mimic trusted tools (including Claude Code impersonators)
+2. **Rogue MCP server injection** — writes a malicious MCP server binary to a hidden path and injects `mcpServers` entries into configs for Claude Code, Cursor, Continue, Windsurf, and Codeium
+3. **Protocol-level prompt injection** — the rogue MCP server embeds instructions that coerce the AI assistant into reading credential files and exfiltrating their contents
+4. **LLM API key harvesting** — steals keys from 9 providers (OpenAI, Anthropic, Google, Groq, Together, Fireworks, Replicate, Mistral, Cohere) from environment variables and `.env` files
+5. **Worm propagation** — uses stolen GitHub/npm tokens to modify additional repositories
+6. **Persistence** — installs git hooks and SSH-based fallback propagation
+7. **DNS exfiltration** — falls back to DNS tunneling when HTTP exfiltration is blocked
+
+**Attack Diagram:**
+```
+npm install typosquatted-pkg
+    |
+    v
+[postinstall script]
+    |
+    +---> Write rogue MCP server to ~/.local/share/.hidden/mcp-server
+    +---> Inject mcpServers into ~/.claude/claude_desktop_config.json
+    +---> Inject mcpServers into ~/.cursor/mcp.json
+    +---> Install git hook for persistence
+    |
+    v
+[AI assistant starts session]
+    |
+    +---> tools/list returns rogue tools with embedded injection
+    +---> Agent reads ~/.aws/credentials, ~/.ssh/id_rsa, .env files
+    +---> Rogue tool exfiltrates credentials via HTTP/DNS
+    +---> Stolen tokens used to propagate to more repos
+```
+
+**Vellaveto Defense Layers:**
+
+| Layer | Defense | Mechanism | Config |
+|-------|---------|-----------|--------|
+| **L1: Binary Verification** | Supply chain hash check | SHA-256 allowlist of MCP server binaries | `supply_chain.enabled = true` |
+| **L2: Server Allowlist** | Server registration enforcement | Only tools from `known_servers` are allowed | `governance.require_server_registration = true` |
+| **L3: Tool Signatures** | ETDI cryptographic verification | Ed25519 signatures on tool definitions required | `etdi.require_signatures = true` |
+| **L4: Tool Squatting** | Name similarity detection | Levenshtein + homoglyph + mixed-script analysis | Always active |
+| **L5: Server Origin Binding** | Multi-server conflict detection | Tools seen from multiple servers are penalized | Always active via tool registry |
+| **L6: Rug-Pull Detection** | Schema change tracking | Tools that change definitions post-install are flagged | Always active |
+| **L7: Injection Scanning** | Protocol-level injection detection | 90+ patterns via Aho-Corasick + semantic n-gram matching | `injection.blocking = true` |
+| **L8: DLP Scanning** | Credential leak prevention | Detects API keys, tokens, PII in tool responses | `dlp.blocking = true` |
+| **L9: Credential Path Blocking** | Policy-based file protection | Denies access to `.aws/`, `.ssh/`, `.env`, config dirs | Policy rules |
+| **L10: Shadow AI Discovery** | Unknown server alerting | Passive detection of unregistered servers | `governance.shadow_ai_discovery = true` |
+
+**Recommended Configuration:**
+Use `examples/presets/sandworm-hardened.toml` for maximum protection. At minimum, enable:
+
+```toml
+[supply_chain]
+enabled = true
+
+[etdi]
+enabled = true
+require_signatures = true
+
+[governance]
+shadow_ai_discovery = true
+require_server_registration = true
+known_servers = ["your-legit-server-id"]
+
+[injection]
+enabled = true
+blocking = true
+
+[dlp]
+enabled = true
+blocking = true
+```
+
+**Residual Risks:**
+- If the attacker compromises a server already in `known_servers`, L1/L2 do not help; L3-L8 remain effective
+- Supply chain verification requires operators to maintain hash allowlists when updating server binaries
+- ETDI signature verification depends on the tool provider implementing signing
 
 ---
 

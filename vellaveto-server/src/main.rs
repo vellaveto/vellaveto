@@ -982,11 +982,12 @@ async fn cmd_serve(
                 .cloned()
                 .collect();
             Some(Arc::new(
-                vellaveto_mcp::shadow_ai_discovery::ShadowAiDiscovery::new(
+                vellaveto_mcp::shadow_ai_discovery::ShadowAiDiscovery::with_server_registration(
                     registered,
                     approved,
                     known,
                     policy_config.governance.require_agent_registration,
+                    policy_config.governance.require_server_registration,
                 ),
             ))
         } else {
@@ -1611,7 +1612,7 @@ async fn cmd_serve(
     tracing::info!("Vellaveto server listening on {}:{}", bind, port);
 
     if open_browser {
-        let url = format!("http://{}:{}", bind, port);
+        let url = format!("http://{}:{}/dashboard", bind, port);
         tokio::task::spawn_blocking(move || {
             if let Err(e) = open_url_in_browser(&url) {
                 tracing::warn!("Failed to open browser: {}", e);
@@ -2075,8 +2076,10 @@ fn open_url_in_browser(url: &str) -> Result<()> {
         .args(["/c", "start", "", url])
         .spawn();
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-    let result: std::io::Result<std::process::Child> =
-        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "unsupported platform"));
+    let result: std::io::Result<std::process::Child> = Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "unsupported platform",
+    ));
 
     result.map(|_| ()).context("browser open failed")
 }
