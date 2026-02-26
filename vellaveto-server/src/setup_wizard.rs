@@ -1763,15 +1763,7 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
                 "blocked_domains = [\"*.pastebin.com\", \"*.transfer.sh\", \"*.ngrok.io\"]\n\n",
             );
 
-            // Require approval for destructive commands
-            toml.push_str("[[policies]]\n");
-            toml.push_str("id = \"approve-destructive\"\n");
-            toml.push_str("name = \"Require approval for destructive operations\"\n");
-            toml.push_str("policy_type = \"RequireApproval\"\n");
-            toml.push_str("priority = 50\n");
-            toml.push_str("tool_pattern = \"*\"\n");
-            toml.push_str("function_pattern = \"*\"\n\n");
-            // No path_rules needed — tool_pattern/function_pattern already match all
+            // Note: all operations not explicitly allowed are denied by default-deny
         }
         PolicyPreset::Balanced => {
             toml.push_str("# Policy preset: Balanced (deny-by-default, read allowed, writes require approval)\n\n");
@@ -1805,14 +1797,7 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("tool_pattern = \"*\"\n");
             toml.push_str("function_pattern = \"read*\"\n\n");
 
-            // Require approval for writes
-            toml.push_str("[[policies]]\n");
-            toml.push_str("id = \"approve-writes\"\n");
-            toml.push_str("name = \"Require approval for file writes\"\n");
-            toml.push_str("policy_type = \"RequireApproval\"\n");
-            toml.push_str("priority = 50\n");
-            toml.push_str("tool_pattern = \"*\"\n");
-            toml.push_str("function_pattern = \"write*\"\n\n");
+            // Note: writes are denied by default-deny; only reads are explicitly allowed
         }
         PolicyPreset::Permissive => {
             toml.push_str("# Policy preset: Permissive (allow-by-default, block credentials and exfiltration)\n\n");
@@ -2005,7 +1990,7 @@ mod tests {
         assert!(toml.contains("id = \"default-deny\""));
         assert!(toml.contains("id = \"block-credentials\""));
         assert!(toml.contains("id = \"block-exfiltration\""));
-        assert!(toml.contains("id = \"approve-destructive\""));
+        assert!(!toml.contains("RequireApproval"));
     }
 
     #[test]

@@ -180,17 +180,7 @@ function generateStrictPreset(): string {
   toml +=
     'blocked_domains = ["*.pastebin.com", "*.transfer.sh", "*.ngrok.io"]\n\n';
 
-  // Require approval for destructive
-  toml += "[[policies]]\n";
-  toml += 'id = "approve-destructive"\n';
-  toml += 'name = "Require approval for destructive operations"\n';
-  toml += 'policy_type = "RequireApproval"\n';
-  toml += "priority = 50\n";
-  toml += 'tool_pattern = "*"\n';
-  toml += 'function_pattern = "*"\n\n';
-  // No path_rules needed — tool_pattern/function_pattern already match all
-
-
+  // Note: all operations not explicitly allowed are denied by default-deny
   return toml;
 }
 
@@ -229,14 +219,7 @@ function generateBalancedPreset(): string {
   toml += 'tool_pattern = "*"\n';
   toml += 'function_pattern = "read*"\n\n';
 
-  // Require approval for writes
-  toml += "[[policies]]\n";
-  toml += 'id = "approve-writes"\n';
-  toml += 'name = "Require approval for file writes"\n';
-  toml += 'policy_type = "RequireApproval"\n';
-  toml += "priority = 50\n";
-  toml += 'tool_pattern = "*"\n';
-  toml += 'function_pattern = "write*"\n\n';
+  // Note: writes are denied by default-deny; only reads are explicitly allowed
 
   return toml;
 }
