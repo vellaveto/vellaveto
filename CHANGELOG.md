@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **R226: Threat Intelligence Sweep — 17-Item Security Hardening**
+  Comprehensive sweep informed by 50+ new threats (Feb 2026) across MCP vulnerabilities, agentic AI attacks, supply chain compromises, and compliance deadlines.
+  - **Sprint 1 (P0 Critical — 6 items):** ML-DSA `use_hint` edge-case verification, MCP-ITP implicit tool poisoning defense (tool descriptions referencing other tools), Policy Puppetry injection detection (`<override>`, `<system_prompt>`, `[SYSTEM]` XML/JSON/INI policy disguise), Google AIza DLP severity upgrade (LOW→HIGH) + Supabase/HuggingFace/W&B patterns, URL-embedded data exfiltration entropy analysis (>4.5 bits/byte threshold), tool namespace collision fail-closed mode (`governance.tool_namespace_strict`).
+  - **Sprint 2 (P1 High — 6 items):** Reconnaissance probe detection (>10 distinct policy denials in 60s window flags `ReconnaissanceProbe`), leetspeak normalization (`4→a 3→e 1→i 0→o 7→t 5→s @→a $→s !→i |→l 8→b 6→g 9→g 2→z`), NeighborJack bind-address `0.0.0.0` warning, output poisoning in error.message/error.data (verified covered), WebSocket Origin validation (verified covered), log-to-LLM header sanitization (verified covered).
+  - **Sprint 3 (P2 Medium — 5 items):** OWASP MCP Top 10 compliance registry (22 controls mapped across MCP-01 through MCP-10, `vellaveto-audit/src/owasp_mcp.rs`), cross-regulation incident reporting with DORA 24h/72h timelines + NIS2 sector categorization + EU AI Act Art 62 obligations (`vellaveto-audit/src/incident_report.rs`), gradual constraint drift detection (denial-rate shift across configurable windows), SANDWORM rogue tool test patterns (6 integration tests), new DLP patterns (already present).
+  - **Additional hardening:** CEF timestamp timezone normalization (append Z for SIEM), audit chain timestamp monotonicity verification, cross-tenant rate-limit key isolation (X-Tenant-ID prefix), circuit-breaker deny reason redaction, tool description DoS size limits (64KB/desc, 1MB total), regional indicator ZWJ injection fix.
+  - 274 new tests. **8,502 Rust tests passing, 0 failures.**
+
 - **SANDWORM-P1: Threat Intelligence Hardening (5 P1 defenses)**
   Defenses informed by comprehensive threat intelligence sweep analyzing 100+ attack vectors, 30+ CVEs, and 14 research papers across MCP, A2A, supply chain, injection bypass, and compliance domains.
   - **FlipAttack reversal detection** (`vellaveto-mcp/src/inspection/injection.rs`): Detects character-level and word-level text reversal used to evade pattern matchers (98% ASR in academic research). Both `inspect_for_injection()` and `InjectionScanner::inspect()` now scan reversed text against the full pattern automaton.
