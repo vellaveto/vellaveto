@@ -1,6 +1,6 @@
 {
   "name": "create-vellaveto",
-  "version": "4.0.6",
+  "version": "4.0.7",
   "description": "Setup wizard for Vellaveto — MCP Tool Firewall",
   "type": "module",
   "bin": {

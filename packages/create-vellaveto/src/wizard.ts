@@ -219,7 +219,7 @@ function nextSteps(state: WizardState, absDir: string): string {
       lines.push(`  cd ${absDir}`);
       lines.push("  bash setup.sh");
       lines.push(
-        `  VELLAVETO_API_KEY='${state.apiKey}' ./bin/vellaveto serve --config vellaveto.toml`,
+        `  VELLAVETO_API_KEY='${state.apiKey}' ./bin/vellaveto serve --config vellaveto.toml --open`,
       );
       break;
 
@@ -247,7 +247,7 @@ function nextSteps(state: WizardState, absDir: string): string {
         `  VELLAVETO_API_KEY='${state.apiKey}' \\`,
       );
       lines.push(
-        `    ./target/release/vellaveto serve --config ${absDir}/vellaveto.toml`,
+        `    ./target/release/vellaveto serve --config ${absDir}/vellaveto.toml --open`,
       );
       break;
   }

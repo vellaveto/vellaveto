@@ -39,6 +39,9 @@ enum Commands {
         /// Watch the policy config file for changes and auto-reload.
         #[arg(long, default_value_t = false)]
         watch: bool,
+        /// Open the dashboard in the default browser after startup.
+        #[arg(long, default_value_t = false)]
+        open: bool,
     },
     /// One-shot action evaluation
     Evaluate {
@@ -169,7 +172,8 @@ async fn main() -> Result<()> {
             bind,
             allow_anonymous,
             watch,
-        } => cmd_serve(port, config, bind, allow_anonymous, watch).await,
+            open,
+        } => cmd_serve(port, config, bind, allow_anonymous, watch, open).await,
         Commands::Evaluate {
             tool,
             function,
@@ -230,6 +234,7 @@ async fn cmd_serve(
     bind: String,
     allow_anonymous: bool,
     watch: bool,
+    open_browser: bool,
 ) -> Result<()> {
     let policy_config = PolicyConfig::load_file(&config)
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
@@ -1605,6 +1610,15 @@ async fn cmd_serve(
 
     tracing::info!("Vellaveto server listening on {}:{}", bind, port);
 
+    if open_browser {
+        let url = format!("http://{}:{}", bind, port);
+        tokio::task::spawn_blocking(move || {
+            if let Err(e) = open_url_in_browser(&url) {
+                tracing::warn!("Failed to open browser: {}", e);
+            }
+        });
+    }
+
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
@@ -2045,6 +2059,26 @@ async fn cmd_verify(audit: String, trusted_key: Option<String>, list_rotated: bo
     }
 
     Ok(())
+}
+
+/// Open a URL in the user's default browser.
+///
+/// Uses platform-specific commands: `xdg-open` (Linux), `open` (macOS),
+/// `cmd /c start` (Windows). Failures are non-fatal.
+fn open_url_in_browser(url: &str) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    let result = std::process::Command::new("xdg-open").arg(url).spawn();
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open").arg(url).spawn();
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("cmd")
+        .args(["/c", "start", "", url])
+        .spawn();
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    let result: std::io::Result<std::process::Child> =
+        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "unsupported platform"));
+
+    result.map(|_| ()).context("browser open failed")
 }
 
 /// Wait for SIGTERM or SIGINT (Ctrl+C) for graceful shutdown.
