@@ -4,7 +4,7 @@
 > **State:** v6.0.0-dev (Phases 1–66 complete, 225 audit rounds)
 > **Version:** 6.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 8,228 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
+> **Tests:** 8,245 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
 > **Updated:** 2026-02-26
 
 ---
@@ -150,6 +150,8 @@ All phases implemented, tested, and hardened through 225 audit rounds. Details i
 **Adversarial hardening:** 225 audit rounds, 1000+ findings fixed. Key patterns enforced: `deny_unknown_fields` on all deserialized structs, `validate()` with bounded collections, `has_dangerous_chars()` on all external strings, custom `Debug` redacting secrets, `saturating_add` on all counters, transport parity across HTTP/WS/gRPC/stdio/SSE.
 
 **SANDWORM-001 hardening (Feb 2026):** Defends against npm supply-chain worms that inject rogue MCP servers into AI assistant configs. Server allowlist enforcement (`governance.require_server_registration`), tool-to-server origin binding with conflict detection (`ToolEntry.server_id`), `sandworm-hardened.toml` preset with all 10 defensive layers enabled. See `docs/THREAT_MODEL.md` for full attack chain analysis.
+
+**SANDWORM-P1 threat intelligence hardening (Feb 2026):** 5 P1 defenses from threat intelligence sweep (100+ attack vectors, 30+ CVEs analyzed): FlipAttack reversal detection (98% ASR defense — char-level + word-level), Full-Schema Poisoning coverage (`$comment`, `const`, `if/then/else`, `not`, `patternProperties`, `dependentSchemas`, `prefixItems`, `contains`), emoji smuggling via regional indicator sequences (U+1F1E6-U+1F1FF), Unicode Tag Character stripping verified (U+E0000-U+E007F), A2A Agent Card content injection scanning (description, skills, tags, examples). 22 new tests.
 
 ---
 

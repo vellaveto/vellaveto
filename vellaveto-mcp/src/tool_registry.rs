@@ -306,6 +306,11 @@ pub struct ToolRegistry {
     /// Optional HMAC-SHA256 key for persistence integrity.
     /// When set, each persisted line is signed and verified on load.
     hmac_key: Option<[u8; 32]>,
+    /// R226: When true, tool namespace collisions (same tool name from different
+    /// servers) are rejected outright instead of just penalizing the trust score.
+    /// This is the fail-closed defense against cross-server tool shadowing (Acuvity).
+    /// Corresponds to `governance.tool_namespace_strict` in config.
+    tool_namespace_strict: bool,
 }
 
 impl ToolRegistry {
@@ -316,6 +321,7 @@ impl ToolRegistry {
             persistence_path: persistence_path.as_ref().to_path_buf(),
             trust_threshold: DEFAULT_TRUST_THRESHOLD,
             hmac_key: None,
+            tool_namespace_strict: false,
         }
     }
 
@@ -326,7 +332,19 @@ impl ToolRegistry {
             persistence_path: persistence_path.as_ref().to_path_buf(),
             trust_threshold: threshold.clamp(0.0, 1.0),
             hmac_key: None,
+            tool_namespace_strict: false,
         }
+    }
+
+    /// R226: Enable strict tool namespace mode.
+    ///
+    /// When enabled, any tool name collision across different MCP servers
+    /// results in the tool being rejected outright (Deny) rather than just
+    /// penalized in trust score. This is the fail-closed defense against
+    /// cross-server tool shadowing (Acuvity, Feb 2026).
+    pub fn with_namespace_strict(mut self, strict: bool) -> Self {
+        self.tool_namespace_strict = strict;
+        self
     }
 
     /// Set an HMAC-SHA256 key for persistence integrity.
@@ -498,11 +516,14 @@ impl ToolRegistry {
                 );
                 entry.record_schema_change(schema_hash);
             }
-            // SECURITY (SANDWORM-001): Detect server origin conflict.
+            // SECURITY (SANDWORM-001 + R226): Detect server origin conflict.
             // If the tool was previously registered from a different server,
             // flag the conflict and penalize the trust score.
+            // When tool_namespace_strict is enabled, reject outright (fail-closed).
             if let Some(new_sid) = server_id {
-                match &entry.server_id {
+                // Clone to avoid borrowing entry immutably across mutable updates.
+                let existing_sid = entry.server_id.clone();
+                match existing_sid.as_deref() {
                     Some(existing_sid) if existing_sid != new_sid => {
                         if !entry.server_id_conflict {
                             tracing::warn!(
@@ -514,6 +535,17 @@ impl ToolRegistry {
                             );
                             entry.server_id_conflict = true;
                             entry.compute_trust_score();
+                        }
+                        // R226: In strict namespace mode, reject the tool outright.
+                        if self.tool_namespace_strict {
+                            tracing::error!(
+                                tool = tool_id,
+                                new_server = new_sid,
+                                existing_server = %existing_sid,
+                                "R226: Tool namespace collision DENIED (strict mode). \
+                                 Cross-server tool shadowing blocked."
+                            );
+                            return false;
                         }
                     }
                     None => {
@@ -592,6 +624,25 @@ impl ToolRegistry {
                 None
             }
         })
+    }
+
+    /// R226: Check if a tool has a cross-server namespace conflict.
+    ///
+    /// In strict mode, this indicates the tool should be denied entirely.
+    /// In non-strict mode, the trust score is merely penalized.
+    pub async fn has_namespace_conflict(&self, tool_id: &str) -> bool {
+        let entries = self.entries.read().await;
+        entries
+            .get(tool_id)
+            .map(|e| e.server_id_conflict)
+            .unwrap_or(false)
+    }
+
+    /// R226: Check if strict namespace mode would deny a tool.
+    ///
+    /// Returns true if the tool has a namespace conflict AND strict mode is on.
+    pub async fn is_namespace_denied(&self, tool_id: &str) -> bool {
+        self.tool_namespace_strict && self.has_namespace_conflict(tool_id).await
     }
 
     /// Check if a tool requires approval due to low trust score.
@@ -1402,5 +1453,79 @@ mod tests {
             "Conflict flag should survive persistence"
         );
         assert_eq!(entry.server_id, Some("server-a".to_string()));
+    }
+
+    // ── R226: Tool namespace strict mode tests ──
+
+    #[tokio::test]
+    async fn test_r226_namespace_strict_rejects_collision() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::new(&path).with_namespace_strict(true);
+
+        // Register from server-a
+        let is_new = registry
+            .register_tool("shared_tool", &json!({}), false, Some("server-a"))
+            .await;
+        assert!(is_new, "First registration should succeed");
+
+        // Register same tool from server-b — strict mode should reject
+        let is_new = registry
+            .register_tool("shared_tool", &json!({}), false, Some("server-b"))
+            .await;
+        assert!(
+            !is_new,
+            "R226: Namespace collision must be rejected in strict mode"
+        );
+
+        // Verify the tool is flagged
+        assert!(
+            registry.has_namespace_conflict("shared_tool").await,
+            "Tool must be flagged as having namespace conflict"
+        );
+        assert!(
+            registry.is_namespace_denied("shared_tool").await,
+            "Tool must be denied in strict mode"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r226_namespace_non_strict_allows_collision() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::new(&path); // non-strict (default)
+
+        registry
+            .register_tool("shared_tool", &json!({}), false, Some("server-a"))
+            .await;
+        registry
+            .register_tool("shared_tool", &json!({}), false, Some("server-b"))
+            .await;
+
+        // Conflict is flagged but not denied
+        assert!(registry.has_namespace_conflict("shared_tool").await);
+        assert!(
+            !registry.is_namespace_denied("shared_tool").await,
+            "Non-strict mode should not deny on conflict"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r226_namespace_same_server_no_conflict() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::new(&path).with_namespace_strict(true);
+
+        registry
+            .register_tool("safe_tool", &json!({}), false, Some("server-a"))
+            .await;
+        registry
+            .register_tool("safe_tool", &json!({}), false, Some("server-a"))
+            .await;
+
+        assert!(
+            !registry.has_namespace_conflict("safe_tool").await,
+            "Same server re-registration must not flag conflict"
+        );
     }
 }

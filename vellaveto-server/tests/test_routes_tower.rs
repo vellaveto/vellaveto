@@ -15,6 +15,21 @@ use vellaveto_engine::PolicyEngine;
 use vellaveto_server::{routes, AppState, Metrics, RateLimits};
 use vellaveto_types::{Policy, PolicyType};
 
+/// Attach a simulated peer connection address to a request so that
+/// `ConnectInfo` is available in handlers.
+fn with_connect_info(
+    mut request: Request<Body>,
+    addr: std::net::SocketAddr,
+) -> Request<Body> {
+    request
+        .extensions_mut()
+        .insert(axum::extract::ConnectInfo(addr));
+    request
+}
+
+/// Convenience: localhost peer address used in most trusted-proxy tests.
+const LOCALHOST_PEER: &str = "127.0.0.1:9999";
+
 fn make_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
@@ -3562,17 +3577,20 @@ async fn per_principal_x_principal_takes_precedence_over_bearer() {
     }))
     .unwrap();
 
+    let peer: std::net::SocketAddr = LOCALHOST_PEER.parse().unwrap();
+
     // First request: X-Principal: agent-x with Bearer token
     let app = routes::build_router(state.clone());
     let resp = app
-        .oneshot(
+        .oneshot(with_connect_info(
             Request::post("/api/evaluate")
                 .header("content-type", "application/json")
                 .header("x-principal", "agent-x")
                 .header("authorization", "Bearer some-token")
                 .body(Body::from(body.clone()))
                 .unwrap(),
-        )
+            peer,
+        ))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -3581,14 +3599,15 @@ async fn per_principal_x_principal_takes_precedence_over_bearer() {
     // because X-Principal takes precedence
     let app = routes::build_router(state);
     let resp = app
-        .oneshot(
+        .oneshot(with_connect_info(
             Request::post("/api/evaluate")
                 .header("content-type", "application/json")
                 .header("x-principal", "agent-y")
                 .header("authorization", "Bearer some-token")
                 .body(Body::from(body))
                 .unwrap(),
-        )
+            peer,
+        ))
         .await
         .unwrap();
     assert_eq!(

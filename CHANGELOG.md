@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **SANDWORM-P1: Threat Intelligence Hardening (5 P1 defenses)**
+  Defenses informed by comprehensive threat intelligence sweep analyzing 100+ attack vectors, 30+ CVEs, and 14 research papers across MCP, A2A, supply chain, injection bypass, and compliance domains.
+  - **FlipAttack reversal detection** (`vellaveto-mcp/src/inspection/injection.rs`): Detects character-level and word-level text reversal used to evade pattern matchers (98% ASR in academic research). Both `inspect_for_injection()` and `InjectionScanner::inspect()` now scan reversed text against the full pattern automaton.
+  - **Full-Schema Poisoning coverage** (`vellaveto-mcp/src/inspection/tool_description.rs`): `collect_schema_descriptions()` now scans 8 additional JSON Schema keywords hiding injection payloads: `$comment`, `const`, `if/then/else`, `not`, `patternProperties`, `dependentSchemas`, `prefixItems`, `contains`. Achieves parity with elicitation scanner. Addresses CyberArk FSP research.
+  - **Emoji smuggling detection** (`vellaveto-mcp/src/inspection/injection.rs`): Decodes regional indicator sequences (U+1F1E6–U+1F1FF) that map to A–Z letters, preventing attackers from spelling injection commands as innocent flag emoji sequences. 100% bypass rate against commercial guardrails without this defense.
+  - **Unicode Tag Character stripping verified** (U+E0000–U+E007F): Confirmed coverage in `is_invisible_char()` — all 128 tag characters stripped during sanitization.
+  - **A2A Agent Card content injection scanning** (`vellaveto-mcp/src/a2a/agent_card.rs`): New `scan_agent_card_for_injection()` scans LLM-visible Agent Card fields (description, skill descriptions, skill names, tags, examples, provider organization) for injection patterns. Even cryptographically signed cards can carry injection payloads in content fields.
+  - **Tool namespace strict mode** (`vellaveto-mcp/src/tool_registry.rs`): `with_namespace_strict()` rejects tool name collisions across different MCP servers outright (Deny) instead of just penalizing trust score. Fail-closed defense against cross-server tool shadowing (Acuvity).
+  - 22 new tests. 8,245 Rust tests passing, 0 failures.
+
 - **SANDWORM-001 Hardening & Fail-Closed Integration Tests**
   - 6 integration tests corrected to assert fail-closed behavior for non-boolean `require_approval` values (FIND-IMP-013). Engine correctly uses `as_bool().unwrap_or(true)` — non-boolean types (string, integer, null) now consistently produce `RequireApproval`, not `Allow`.
   - New engine modules: adaptive rate limiting (`adaptive_rate.rs`), coverage analysis (`coverage.rs`), impact analysis (`impact.rs`), policy linting (`lint.rs`), audit analytics (`analytics.rs`), bulk config operations (`bulk.rs`).

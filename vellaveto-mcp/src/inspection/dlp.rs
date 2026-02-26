@@ -179,7 +179,10 @@ pub const DLP_PATTERNS: &[(&str, &str)] = &[
         "stripe_key",
         r"(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{20,255}",
     ),
-    // Google Cloud Platform API key
+    // Google Cloud Platform / Gemini API key
+    // SECURITY (R226-DLP-1): AIza keys now authenticate Gemini API (Truffle Security
+    // Feb 2026). Historically public-only, leaked keys now enable attacker to run
+    // Gemini at victim's expense. Severity upgraded to HIGH.
     ("gcp_api_key", r"AIza[A-Za-z0-9_\-]{35}"),
     // Azure storage/service bus connection string key component
     (
@@ -246,6 +249,17 @@ pub const DLP_PATTERNS: &[(&str, &str)] = &[
     ("planetscale_token", r"pscale_[A-Za-z0-9_]{40,60}"),
     // Neon database token
     ("neon_token", r"neon_[A-Za-z0-9_]{30,50}"),
+    // ── R226-DLP: New service credential patterns (Feb 2026 threats) ──
+    // Supabase service-role secret key (sb_secret_ prefix, distinct from sbp_ public key)
+    ("supabase_secret_key", r"sb_secret_[A-Za-z0-9_-]{20,80}"),
+    // Weights & Biases API key (wandb_ prefix + observed 32-64 alphanumeric payload)
+    // SECURITY (R226-DLP-2): Keep bounded to reduce false positives.
+    ("wandb_api_key", r"wandb_[A-Za-z0-9]{32,64}"),
+    // Mistral AI API key
+    (
+        "mistral_api_key",
+        r"(?i)mistral[_-]?(?:api)?[_-]?key[=:\s]+[A-Za-z0-9]{30,50}",
+    ),
 ];
 
 /// A finding from DLP scanning of tool call parameters.
@@ -271,6 +285,115 @@ impl From<DlpFinding> for super::scanner_base::ScanFinding {
     fn from(finding: DlpFinding) -> Self {
         finding.to_scan_finding()
     }
+}
+
+/// Minimum segment length to consider for entropy analysis.
+const URL_EXFIL_MIN_SEGMENT_LEN: usize = 32;
+/// Minimum hex segment length that is suspicious for exfiltration.
+/// 32-char UUID-like IDs are common; require >=40 to reduce false positives.
+const URL_EXFIL_MIN_HEX_SEGMENT_LEN: usize = 40;
+
+/// Shannon entropy threshold (bits/byte) above which a URL segment is suspicious.
+/// Base64-encoded random data has ~6.0 bits/byte; natural language is ~3.5-4.5.
+/// Threshold of 4.5 balances false positives vs detection rate.
+const URL_EXFIL_ENTROPY_THRESHOLD: f64 = 4.5;
+
+/// Calculate Shannon entropy of a byte string in bits per byte.
+fn shannon_entropy(data: &[u8]) -> f64 {
+    if data.is_empty() {
+        return 0.0;
+    }
+    let mut counts = [0u32; 256];
+    for &b in data {
+        counts[b as usize] = counts[b as usize].saturating_add(1);
+    }
+    let len = data.len() as f64;
+    let mut entropy = 0.0f64;
+    for &count in &counts {
+        if count > 0 {
+            let p = count as f64 / len;
+            entropy -= p * p.log2();
+        }
+    }
+    entropy
+}
+
+/// Heuristic for suspicious URL payload segments.
+///
+/// Flags either:
+/// - high-entropy long segments (base64/base64url-like), or
+/// - long all-hex segments commonly used to exfiltrate encoded secrets.
+fn is_suspicious_url_segment(decoded: &str) -> bool {
+    if decoded.len() < URL_EXFIL_MIN_SEGMENT_LEN {
+        return false;
+    }
+
+    if shannon_entropy(decoded.as_bytes()) > URL_EXFIL_ENTROPY_THRESHOLD {
+        return true;
+    }
+
+    decoded.len() >= URL_EXFIL_MIN_HEX_SEGMENT_LEN && decoded.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// R226-DLP-EXFIL: Detect potential data exfiltration via URL query/path segments.
+///
+/// Agents can exfiltrate secrets by embedding them in outbound URLs — e.g., in
+/// query parameters or path segments.  Messaging platform link previews trigger
+/// zero-click exfiltration (PromptArmor, Feb 2026).
+///
+/// Returns a DLP finding if any URL segment contains high-entropy data (likely
+/// base64 or hex-encoded secrets) above the entropy threshold.
+pub fn detect_url_data_exfiltration(url: &str) -> Option<DlpFinding> {
+    // Only inspect http(s) URLs
+    let lower = url.to_ascii_lowercase();
+    if !lower.starts_with("http://") && !lower.starts_with("https://") {
+        return None;
+    }
+
+    // Split on '?' to separate path from query
+    let parts: Vec<&str> = url.splitn(2, '?').collect();
+
+    // Check query string segments
+    if let Some(query) = parts.get(1) {
+        // Remove fragment
+        let query = query.split('#').next().unwrap_or(query);
+        for param in query.split('&') {
+            // Check the value part (after '=')
+            if let Some(value) = param.split('=').nth(1) {
+                let decoded = percent_encoding::percent_decode_str(value).decode_utf8_lossy();
+                if is_suspicious_url_segment(&decoded) {
+                    return Some(DlpFinding {
+                        pattern_name: "url_data_exfiltration".to_string(),
+                        location: "query_parameter".to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Check path segments for high-entropy data
+    let path = parts
+        .first()
+        .and_then(|p| p.split("://").nth(1))
+        .and_then(|p| p.split('/').nth(1).map(|_| p))
+        .unwrap_or("");
+    // Skip the authority (host:port), only check path segments
+    if let Some(path_part) = path.split('/').nth(1).map(|_| {
+        let after_authority = path.find('/').map(|i| &path[i..]).unwrap_or("");
+        after_authority
+    }) {
+        for segment in path_part.split('/') {
+            let decoded = percent_encoding::percent_decode_str(segment).decode_utf8_lossy();
+            if is_suspicious_url_segment(&decoded) {
+                return Some(DlpFinding {
+                    pattern_name: "url_data_exfiltration".to_string(),
+                    location: "path_segment".to_string(),
+                });
+            }
+        }
+    }
+
+    None
 }
 
 /// Scan tool call parameters for potential secret exfiltration.
@@ -2306,6 +2429,112 @@ mod tests {
             findings.iter().any(|f| f.pattern_name == "aws_access_key"),
             "Double-encoded secret must always be detected (no time budget gate), findings: {:?}",
             findings
+        );
+    }
+
+    // ── R226-DLP: New pattern detection tests ──
+
+    #[test]
+    fn test_r226_dlp_supabase_secret_key() {
+        let params = json!({"key": "sb_secret_Abc123Def456Ghi789Jkl012Mno345Pqr678"});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern_name == "supabase_secret_key"),
+            "Supabase service-role secret key must be detected, findings: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_r226_dlp_wandb_api_key() {
+        let params = json!({"key": "wandb_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ab"});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "wandb_api_key"),
+            "Weights & Biases API key must be detected, findings: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_r226_dlp_gcp_aiza_key() {
+        // R226-DLP-1: AIza keys (now HIGH severity for Gemini API)
+        let params = json!({"key": "AIzaSyA1234567890abcdefghijklmnopqrstuvw"});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "gcp_api_key"),
+            "Google AIza (Gemini) key must be detected, findings: {:?}",
+            findings
+        );
+    }
+
+    // ── R226-DLP-EXFIL: URL data exfiltration detection tests ──
+
+    #[test]
+    fn test_r226_url_exfil_high_entropy_query() {
+        // Base64-encoded secret in URL query parameter
+        use base64::Engine;
+        let secret = "sk-ant-api03-ThisIsAVeryLongSecretKeyThatShouldBeDetectedByEntropy";
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(secret);
+        let url = format!("https://attacker.com/callback?data={}", encoded);
+        let result = detect_url_data_exfiltration(&url);
+        assert!(
+            result.is_some(),
+            "High-entropy URL query parameter must trigger exfiltration detection"
+        );
+        assert_eq!(result.unwrap().pattern_name, "url_data_exfiltration");
+    }
+
+    #[test]
+    fn test_r226_url_exfil_normal_url_no_false_positive() {
+        let url = "https://api.example.com/v1/files?path=/home/user/docs&format=json";
+        let result = detect_url_data_exfiltration(&url);
+        assert!(
+            result.is_none(),
+            "Normal URL with short/low-entropy params must not trigger"
+        );
+    }
+
+    #[test]
+    fn test_r226_url_exfil_high_entropy_path() {
+        // Hex-encoded secret in URL path segment
+        let hex_data = "a1b2c3d4e5f6789012345678901234567890abcdef";
+        let url = format!("https://evil.com/exfil/{}", hex_data);
+        let result = detect_url_data_exfiltration(&url);
+        assert!(
+            result.is_some(),
+            "High-entropy path segment must trigger exfiltration detection"
+        );
+    }
+
+    #[test]
+    fn test_r226_url_exfil_non_http_ignored() {
+        let url = "ftp://server.com/data?key=supersecretvalue1234567890abcdef";
+        let result = detect_url_data_exfiltration(&url);
+        assert!(result.is_none(), "Non-HTTP URLs should not be inspected");
+    }
+
+    #[test]
+    fn test_r226_shannon_entropy_calculation() {
+        // All same bytes → entropy = 0
+        assert_eq!(shannon_entropy(&[0u8; 100]), 0.0);
+        // Random-looking data → high entropy
+        let random_ish: Vec<u8> = (0..=255).collect();
+        let entropy = shannon_entropy(&random_ish);
+        assert!(
+            entropy > 7.0,
+            "256 unique bytes should have ~8 bits entropy, got {}",
+            entropy
+        );
+        // Repeated pattern → low entropy
+        let pattern = b"aaabbbccc";
+        let entropy = shannon_entropy(pattern);
+        assert!(
+            entropy < 2.0,
+            "Simple repeated pattern should have low entropy, got {}",
+            entropy
         );
     }
 }

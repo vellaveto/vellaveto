@@ -120,3 +120,84 @@ pub fn ml_dsa_verify(
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Item 1 / R226-PQC-1: Verify ML-DSA-65 sign/verify roundtrip.
+    ///
+    /// Exercises the `use_hint` code path in FIPS 204 Algorithm 40 by signing
+    /// multiple messages (including an empty one, which tends to produce edge-case
+    /// `r0 = 0` coefficients) and verifying them.  If the underlying `fips204`
+    /// crate has an off-by-two bug in `use_hint`, at least some of these will
+    /// fail verification.
+    #[test]
+    fn test_ml_dsa_sign_verify_roundtrip() {
+        let (pk, sk) = generate_ml_dsa_keypair().expect("keygen must succeed");
+
+        // A variety of messages that exercise different coefficient distributions
+        let messages: &[&[u8]] = &[
+            b"vellaveto checkpoint payload",
+            b"",                     // empty — maximises edge-case coefficient patterns
+            &[0u8; 64],             // all-zero block
+            &[0xFFu8; 128],         // all-one block
+            b"The quick brown fox jumps over the lazy dog",
+        ];
+
+        for (i, msg) in messages.iter().enumerate() {
+            let sig = ml_dsa_sign(&sk, msg, CHECKPOINT_CONTEXT)
+                .unwrap_or_else(|e| panic!("sign must succeed for message {}: {}", i, e));
+            ml_dsa_verify(&pk, msg, &sig, CHECKPOINT_CONTEXT)
+                .unwrap_or_else(|e| panic!("verify must succeed for message {}: {}", i, e));
+        }
+    }
+
+    /// R226-PQC-2: Wrong context must fail verification (domain separation).
+    #[test]
+    fn test_ml_dsa_verify_wrong_context_fails() {
+        let (pk, sk) = generate_ml_dsa_keypair().expect("keygen must succeed");
+        let msg = b"checkpoint data";
+        let sig = ml_dsa_sign(&sk, msg, CHECKPOINT_CONTEXT).expect("sign must succeed");
+
+        // Verify with MANIFEST_CONTEXT instead — must fail
+        let result = ml_dsa_verify(&pk, msg, &sig, MANIFEST_CONTEXT);
+        assert!(
+            result.is_err(),
+            "Verification with wrong context must fail (domain separation)"
+        );
+    }
+
+    /// R226-PQC-3: Tampered signature must fail verification (fail-closed).
+    #[test]
+    fn test_ml_dsa_verify_tampered_signature_fails() {
+        let (pk, sk) = generate_ml_dsa_keypair().expect("keygen must succeed");
+        let msg = b"audit checkpoint";
+        let sig = ml_dsa_sign(&sk, msg, CHECKPOINT_CONTEXT).expect("sign must succeed");
+
+        // Flip a byte in the middle of the hex-encoded signature
+        let mut sig_bytes = hex::decode(&sig).expect("valid hex");
+        let mid = sig_bytes.len() / 2;
+        sig_bytes[mid] ^= 0xFF;
+        let tampered = hex::encode(sig_bytes);
+
+        let result = ml_dsa_verify(&pk, msg, &tampered, CHECKPOINT_CONTEXT);
+        assert!(
+            result.is_err(),
+            "Tampered signature must fail verification"
+        );
+    }
+
+    /// R226-PQC-4: Invalid key lengths must be rejected.
+    #[test]
+    fn test_ml_dsa_verify_wrong_key_length() {
+        let result = ml_dsa_verify("deadbeef", b"msg", "abcd", CHECKPOINT_CONTEXT);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("wrong length"),
+            "Error should mention wrong length, got: {}",
+            err_msg
+        );
+    }
+}
