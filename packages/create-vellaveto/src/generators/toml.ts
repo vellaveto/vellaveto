@@ -153,8 +153,8 @@ function generateStrictPreset(): string {
   toml += 'name = "Default deny all"\n';
   toml += 'policy_type = "Deny"\n';
   toml += "priority = 0\n";
-  toml += 'tool = "*"\n';
-  toml += 'function = "*"\n\n';
+  toml += 'tool_pattern = "*"\n';
+  toml += 'function_pattern = "*"\n\n';
 
   // Block credentials
   toml += "[[policies]]\n";
@@ -162,8 +162,8 @@ function generateStrictPreset(): string {
   toml += 'name = "Block credential access"\n';
   toml += 'policy_type = "Deny"\n';
   toml += "priority = 100\n";
-  toml += 'tool = "*"\n';
-  toml += 'function = "*"\n\n';
+  toml += 'tool_pattern = "*"\n';
+  toml += 'function_pattern = "*"\n\n';
   toml += "[policies.path_rules]\n";
   toml +=
     'blocked_patterns = ["**/.env", "**/*.key", "**/*.pem", "**/credentials*", "**/.ssh/**", "**/.aws/**"]\n\n';
@@ -174,8 +174,8 @@ function generateStrictPreset(): string {
   toml += 'name = "Block data exfiltration"\n';
   toml += 'policy_type = "Deny"\n';
   toml += "priority = 100\n";
-  toml += 'tool = "*"\n';
-  toml += 'function = "*"\n\n';
+  toml += 'tool_pattern = "*"\n';
+  toml += 'function_pattern = "*"\n\n';
   toml += "[policies.network_rules]\n";
   toml +=
     'blocked_domains = ["*.pastebin.com", "*.transfer.sh", "*.ngrok.io"]\n\n';
@@ -186,8 +186,8 @@ function generateStrictPreset(): string {
   toml += 'name = "Require approval for destructive operations"\n';
   toml += 'policy_type = "RequireApproval"\n';
   toml += "priority = 50\n";
-  toml += 'tool = "*"\n';
-  toml += 'function = "*"\n\n';
+  toml += 'tool_pattern = "*"\n';
+  toml += 'function_pattern = "*"\n\n';
   toml += "[policies.path_rules]\n";
   toml += 'write_patterns = ["**/*"]\n\n';
 
@@ -205,8 +205,8 @@ function generateBalancedPreset(): string {
   toml += 'name = "Default deny all"\n';
   toml += 'policy_type = "Deny"\n';
   toml += "priority = 0\n";
-  toml += 'tool = "*"\n';
-  toml += 'function = "*"\n\n';
+  toml += 'tool_pattern = "*"\n';
+  toml += 'function_pattern = "*"\n\n';
 
   // Block credentials
   toml += "[[policies]]\n";
@@ -214,8 +214,8 @@ function generateBalancedPreset(): string {
   toml += 'name = "Block credential access"\n';
   toml += 'policy_type = "Deny"\n';
   toml += "priority = 100\n";
-  toml += 'tool = "*"\n';
-  toml += 'function = "*"\n\n';
+  toml += 'tool_pattern = "*"\n';
+  toml += 'function_pattern = "*"\n\n';
   toml += "[policies.path_rules]\n";
   toml +=
     'blocked_patterns = ["**/.env", "**/*.key", "**/*.pem", "**/credentials*", "**/.ssh/**", "**/.aws/**"]\n\n';
@@ -227,7 +227,7 @@ function generateBalancedPreset(): string {
   toml += 'policy_type = "Allow"\n';
   toml += "priority = 50\n";
   toml += 'tool = "*"\n';
-  toml += 'function = "read*"\n\n';
+  toml += 'function_pattern = "read*"\n\n';
 
   // Require approval for writes
   toml += "[[policies]]\n";
@@ -236,7 +236,7 @@ function generateBalancedPreset(): string {
   toml += 'policy_type = "RequireApproval"\n';
   toml += "priority = 50\n";
   toml += 'tool = "*"\n';
-  toml += 'function = "write*"\n\n';
+  toml += 'function_pattern = "write*"\n\n';
 
   return toml;
 }
@@ -252,8 +252,8 @@ function generatePermissivePreset(): string {
   toml += 'name = "Default allow all"\n';
   toml += 'policy_type = "Allow"\n';
   toml += "priority = 0\n";
-  toml += 'tool = "*"\n';
-  toml += 'function = "*"\n\n';
+  toml += 'tool_pattern = "*"\n';
+  toml += 'function_pattern = "*"\n\n';
 
   // Block credentials
   toml += "[[policies]]\n";
@@ -261,8 +261,8 @@ function generatePermissivePreset(): string {
   toml += 'name = "Block credential access"\n';
   toml += 'policy_type = "Deny"\n';
   toml += "priority = 100\n";
-  toml += 'tool = "*"\n';
-  toml += 'function = "*"\n\n';
+  toml += 'tool_pattern = "*"\n';
+  toml += 'function_pattern = "*"\n\n';
   toml += "[policies.path_rules]\n";
   toml +=
     'blocked_patterns = ["**/.env", "**/*.key", "**/*.pem", "**/credentials*", "**/.ssh/**", "**/.aws/**"]\n\n';
@@ -273,8 +273,8 @@ function generatePermissivePreset(): string {
   toml += 'name = "Block data exfiltration"\n';
   toml += 'policy_type = "Deny"\n';
   toml += "priority = 100\n";
-  toml += 'tool = "*"\n';
-  toml += 'function = "*"\n\n';
+  toml += 'tool_pattern = "*"\n';
+  toml += 'function_pattern = "*"\n\n';
   toml += "[policies.network_rules]\n";
   toml +=
     'blocked_domains = ["*.pastebin.com", "*.transfer.sh", "*.ngrok.io"]\n\n';

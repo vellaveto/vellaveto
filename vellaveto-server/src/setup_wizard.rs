@@ -1736,8 +1736,8 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("name = \"Default deny all\"\n");
             toml.push_str("policy_type = \"Deny\"\n");
             toml.push_str("priority = 0\n");
-            toml.push_str("tool = \"*\"\n");
-            toml.push_str("function = \"*\"\n\n");
+            toml.push_str("tool_pattern = \"*\"\n");
+            toml.push_str("function_pattern = \"*\"\n\n");
 
             // Block credential access
             toml.push_str("[[policies]]\n");
@@ -1745,8 +1745,8 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("name = \"Block credential access\"\n");
             toml.push_str("policy_type = \"Deny\"\n");
             toml.push_str("priority = 100\n");
-            toml.push_str("tool = \"*\"\n");
-            toml.push_str("function = \"*\"\n\n");
+            toml.push_str("tool_pattern = \"*\"\n");
+            toml.push_str("function_pattern = \"*\"\n\n");
             toml.push_str("[policies.path_rules]\n");
             toml.push_str("blocked_patterns = [\"**/.env\", \"**/*.key\", \"**/*.pem\", \"**/credentials*\", \"**/.ssh/**\", \"**/.aws/**\"]\n\n");
 
@@ -1756,8 +1756,8 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("name = \"Block data exfiltration\"\n");
             toml.push_str("policy_type = \"Deny\"\n");
             toml.push_str("priority = 100\n");
-            toml.push_str("tool = \"*\"\n");
-            toml.push_str("function = \"*\"\n\n");
+            toml.push_str("tool_pattern = \"*\"\n");
+            toml.push_str("function_pattern = \"*\"\n\n");
             toml.push_str("[policies.network_rules]\n");
             toml.push_str(
                 "blocked_domains = [\"*.pastebin.com\", \"*.transfer.sh\", \"*.ngrok.io\"]\n\n",
@@ -1769,8 +1769,8 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("name = \"Require approval for destructive operations\"\n");
             toml.push_str("policy_type = \"RequireApproval\"\n");
             toml.push_str("priority = 50\n");
-            toml.push_str("tool = \"*\"\n");
-            toml.push_str("function = \"*\"\n\n");
+            toml.push_str("tool_pattern = \"*\"\n");
+            toml.push_str("function_pattern = \"*\"\n\n");
             toml.push_str("[policies.path_rules]\n");
             toml.push_str("write_patterns = [\"**/*\"]\n\n");
         }
@@ -1783,8 +1783,8 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("name = \"Default deny all\"\n");
             toml.push_str("policy_type = \"Deny\"\n");
             toml.push_str("priority = 0\n");
-            toml.push_str("tool = \"*\"\n");
-            toml.push_str("function = \"*\"\n\n");
+            toml.push_str("tool_pattern = \"*\"\n");
+            toml.push_str("function_pattern = \"*\"\n\n");
 
             // Block credentials
             toml.push_str("[[policies]]\n");
@@ -1792,8 +1792,8 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("name = \"Block credential access\"\n");
             toml.push_str("policy_type = \"Deny\"\n");
             toml.push_str("priority = 100\n");
-            toml.push_str("tool = \"*\"\n");
-            toml.push_str("function = \"*\"\n\n");
+            toml.push_str("tool_pattern = \"*\"\n");
+            toml.push_str("function_pattern = \"*\"\n\n");
             toml.push_str("[policies.path_rules]\n");
             toml.push_str("blocked_patterns = [\"**/.env\", \"**/*.key\", \"**/*.pem\", \"**/credentials*\", \"**/.ssh/**\", \"**/.aws/**\"]\n\n");
 
@@ -1803,8 +1803,8 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("name = \"Allow file reads\"\n");
             toml.push_str("policy_type = \"Allow\"\n");
             toml.push_str("priority = 50\n");
-            toml.push_str("tool = \"*\"\n");
-            toml.push_str("function = \"read*\"\n\n");
+            toml.push_str("tool_pattern = \"*\"\n");
+            toml.push_str("function_pattern = \"read*\"\n\n");
 
             // Require approval for writes
             toml.push_str("[[policies]]\n");
@@ -1812,8 +1812,8 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("name = \"Require approval for file writes\"\n");
             toml.push_str("policy_type = \"RequireApproval\"\n");
             toml.push_str("priority = 50\n");
-            toml.push_str("tool = \"*\"\n");
-            toml.push_str("function = \"write*\"\n\n");
+            toml.push_str("tool_pattern = \"*\"\n");
+            toml.push_str("function_pattern = \"write*\"\n\n");
         }
         PolicyPreset::Permissive => {
             toml.push_str("# Policy preset: Permissive (allow-by-default, block credentials and exfiltration)\n\n");
@@ -1824,8 +1824,8 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("name = \"Default allow all\"\n");
             toml.push_str("policy_type = \"Allow\"\n");
             toml.push_str("priority = 0\n");
-            toml.push_str("tool = \"*\"\n");
-            toml.push_str("function = \"*\"\n\n");
+            toml.push_str("tool_pattern = \"*\"\n");
+            toml.push_str("function_pattern = \"*\"\n\n");
 
             // Block credentials
             toml.push_str("[[policies]]\n");
@@ -1833,8 +1833,8 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("name = \"Block credential access\"\n");
             toml.push_str("policy_type = \"Deny\"\n");
             toml.push_str("priority = 100\n");
-            toml.push_str("tool = \"*\"\n");
-            toml.push_str("function = \"*\"\n\n");
+            toml.push_str("tool_pattern = \"*\"\n");
+            toml.push_str("function_pattern = \"*\"\n\n");
             toml.push_str("[policies.path_rules]\n");
             toml.push_str("blocked_patterns = [\"**/.env\", \"**/*.key\", \"**/*.pem\", \"**/credentials*\", \"**/.ssh/**\", \"**/.aws/**\"]\n\n");
 
@@ -1844,8 +1844,8 @@ fn generate_policy_preset_toml(toml: &mut String, preset: &PolicyPreset) {
             toml.push_str("name = \"Block data exfiltration\"\n");
             toml.push_str("policy_type = \"Deny\"\n");
             toml.push_str("priority = 100\n");
-            toml.push_str("tool = \"*\"\n");
-            toml.push_str("function = \"*\"\n\n");
+            toml.push_str("tool_pattern = \"*\"\n");
+            toml.push_str("function_pattern = \"*\"\n\n");
             toml.push_str("[policies.network_rules]\n");
             toml.push_str(
                 "blocked_domains = [\"*.pastebin.com\", \"*.transfer.sh\", \"*.ngrok.io\"]\n\n",
