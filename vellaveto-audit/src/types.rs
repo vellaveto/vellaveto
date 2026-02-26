@@ -108,6 +108,19 @@ pub struct Checkpoint {
     /// Backward compatible: old checkpoints without this field still verify.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub merkle_root: Option<String>,
+    /// Phase 54: ML-DSA-65 (FIPS 204) signature for post-quantum security.
+    /// Hex-encoded 3309-byte signature. Present only for hybrid (v2) checkpoints.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pqc_signature: Option<String>,
+    /// Phase 54: ML-DSA-65 verifying (public) key. Hex-encoded 1952-byte key.
+    /// Present only for hybrid (v2) checkpoints.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pqc_verifying_key: Option<String>,
+    /// Phase 54: Signature algorithm version.
+    /// - None or 1: Ed25519 only (legacy, backward compatible)
+    /// - 2: Hybrid Ed25519 + ML-DSA-65 (both must verify)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature_version: Option<u8>,
 }
 
 impl Checkpoint {
@@ -125,14 +138,19 @@ impl Checkpoint {
             self.chain_head_hash.as_deref().unwrap_or("").as_bytes(),
         );
         // SECURITY (FIND-R46-012): Always include merkle_root in signed content.
-        // Use empty string when absent. This ensures the signed content is
-        // deterministic regardless of whether the Merkle tree was enabled,
-        // and prevents an attacker from stripping the merkle_root field
-        // from a checkpoint without invalidating the signature.
         Self::hash_field(
             &mut hasher,
             self.merkle_root.as_deref().unwrap_or("").as_bytes(),
         );
+        // Phase 54: Include PQC verifying key for hybrid (v2) checkpoints.
+        // For v1 (legacy), this block is skipped → identical signing content.
+        // SECURITY: Prevents stripping PQC fields without invalidating Ed25519 sig.
+        if self.signature_version.unwrap_or(1) >= 2 {
+            Self::hash_field(
+                &mut hasher,
+                self.pqc_verifying_key.as_deref().unwrap_or("").as_bytes(),
+            );
+        }
         hasher.finalize().to_vec()
     }
 

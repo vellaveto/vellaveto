@@ -29,6 +29,10 @@ pub mod archive;
 #[cfg(feature = "zk-audit")]
 pub mod zk;
 
+// ── Phase 54: Post-Quantum Cryptography (ML-DSA-65 hybrid signatures) ────────
+#[cfg(feature = "pqc-hybrid")]
+pub mod pqc;
+
 // ── Phase 43: Centralized Audit Store ────────────────────────────────────────
 pub mod query;
 pub mod sink;
@@ -61,6 +65,9 @@ pub mod nis2;
 
 // ── Phase 41: OWASP Agentic Security Index (ASI) registry ───────────────────
 pub mod owasp_asi;
+
+// ── NIST AI 600-1 GenAI Profile compliance registry ────────────────────────
+pub mod nist_ai600;
 
 // ── Re-exports: preserve exact public API ────────────────────────────────────
 

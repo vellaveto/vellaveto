@@ -80,5 +80,7 @@ sqlx = { workspace = true, optional = true }
 
 async-trait.workspace = true
 unicode-normalization = "0.1"
+argon2 = { workspace = true }
+password-hash = { workspace = true }
 [dev-dependencies]
 tempfile = "3.0"

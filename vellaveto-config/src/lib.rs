@@ -44,6 +44,8 @@ pub mod projector;
 pub mod tool_registry;
 pub mod zk_audit;
 
+pub mod cedar;
+
 #[cfg(test)]
 mod tests;
 
@@ -91,7 +93,7 @@ pub use enterprise::{
     TlsKexPolicy, TlsMode,
 };
 
-pub use iam::IamConfig;
+pub use iam::{IamConfig, M2mClient, M2mConfig};
 
 pub use memory_nhi::{
     DpopConfig, MemorySecurityConfig, NamespaceConfig, NhiConfig, VerificationConfig,

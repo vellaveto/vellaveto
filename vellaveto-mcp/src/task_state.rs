@@ -31,7 +31,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use vellaveto_types::{TaskStatus, TrackedTask};
+use vellaveto_types::{TaskCreateParams, TaskStatus, TrackedTask};
 
 /// Absolute maximum number of tracked tasks to prevent unbounded memory growth.
 ///
@@ -172,6 +172,47 @@ impl TaskStateManager {
 
         tasks.insert(task.task_id.clone(), task);
         Ok(())
+    }
+
+    /// Register a new task from a `tasks/create` request.
+    ///
+    /// Validates the `TaskCreateParams`, generates a task ID if not provided,
+    /// creates a `TrackedTask`, and delegates to `register_task()`.
+    ///
+    /// Returns the assigned `task_id` on success.
+    /// Returns `Err(reason)` if validation or registration fails.
+    pub async fn register_task_from_create(
+        &self,
+        params: &TaskCreateParams,
+        created_by: Option<String>,
+        session_id: Option<String>,
+    ) -> Result<String, String> {
+        // Validate input params at the trust boundary.
+        params.validate()?;
+
+        // Resolve task_id: use client-supplied or generate a UUID.
+        let task_id = match &params.task_id {
+            Some(tid) => tid.clone(),
+            None => uuid::Uuid::new_v4().to_string(),
+        };
+
+        let task = TrackedTask {
+            task_id: task_id.clone(),
+            tool: params.tool.clone(),
+            function: "execute".to_string(),
+            status: TaskStatus::Pending,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            expires_at: None,
+            created_by,
+            session_id,
+        };
+
+        // Validate the constructed TrackedTask before registering.
+        task.validate()
+            .map_err(|e| format!("Task validation failed: {}", e))?;
+
+        self.register_task(task).await?;
+        Ok(task_id)
     }
 
     /// Update a task's status.

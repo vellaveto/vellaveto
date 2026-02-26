@@ -19,6 +19,25 @@ const MAX_SESSIONS_PER_PRINCIPAL: u32 = 100;
 const MIN_SCIM_SYNC_SECS: u64 = 60;
 const MAX_SCIM_SYNC_SECS: u64 = 86_400;
 
+/// Maximum number of M2M clients that can be configured.
+const MAX_M2M_CLIENTS: usize = 100;
+/// Maximum length for an M2M client_id.
+const MAX_M2M_CLIENT_ID_LEN: usize = 128;
+/// Maximum length for an M2M client_secret_hash (Argon2 hashes are ~97 chars).
+const MAX_M2M_SECRET_HASH_LEN: usize = 256;
+/// Maximum length for an M2M role string.
+const MAX_M2M_ROLE_LEN: usize = 64;
+/// Maximum number of allowed scopes per M2M client.
+const MAX_M2M_SCOPES_PER_CLIENT: usize = 32;
+/// Minimum M2M token TTL in seconds (30 seconds).
+const MIN_M2M_TOKEN_TTL_SECS: u64 = 30;
+/// Maximum M2M token TTL in seconds (1 hour).
+const MAX_M2M_TOKEN_TTL_SECS: u64 = 3_600;
+/// Default M2M token TTL in seconds (5 minutes).
+const DEFAULT_M2M_TOKEN_TTL_SECS: u64 = 300;
+/// Maximum length for the M2M issuer string.
+const MAX_M2M_ISSUER_LEN: usize = 256;
+
 fn default_oidc_role_claim() -> String {
     "vellaveto_role".to_string()
 }
@@ -55,6 +74,10 @@ fn default_scim_sync_interval() -> u64 {
     3_600
 }
 
+fn default_m2m_token_ttl_secs() -> u64 {
+    DEFAULT_M2M_TOKEN_TTL_SECS
+}
+
 fn ensure_safe_str(field: &str, value: &str, max_len: usize) -> Result<(), String> {
     if value.is_empty() {
         return Err(format!("{} must not be empty", field));
@@ -89,7 +112,7 @@ fn ensure_env_var(field: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Enterprise IAM configuration covering OIDC, SAML, session, and SCIM plumbing.
+/// Enterprise IAM configuration covering OIDC, SAML, session, SCIM, and M2M plumbing.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct IamConfig {
@@ -112,6 +135,10 @@ pub struct IamConfig {
     /// SCIM provisioning integration configuration.
     #[serde(default)]
     pub scim: ScimConfig,
+
+    /// Machine-to-machine (OAuth client credentials) configuration.
+    #[serde(default)]
+    pub m2m: M2mConfig,
 }
 
 impl IamConfig {
@@ -121,10 +148,11 @@ impl IamConfig {
         self.saml.validate()?;
         self.session.validate()?;
         self.scim.validate()?;
+        self.m2m.validate()?;
 
-        if self.enabled && !self.oidc.enabled && !self.saml.enabled {
+        if self.enabled && !self.oidc.enabled && !self.saml.enabled && !self.m2m.enabled {
             return Err(
-                "iam.enabled is true but neither oidc.enabled nor saml.enabled is configured"
+                "iam.enabled is true but none of oidc.enabled, saml.enabled, or m2m.enabled is configured"
                     .to_string(),
             );
         }
@@ -444,6 +472,170 @@ impl ScimConfig {
                 "iam.scim.sync_interval_secs must be between {} and {}",
                 MIN_SCIM_SYNC_SECS, MAX_SCIM_SYNC_SECS
             ));
+        }
+
+        Ok(())
+    }
+}
+
+/// Machine-to-machine (M2M) OAuth client credentials configuration.
+///
+/// When enabled, service accounts can authenticate using the client credentials
+/// grant flow (RFC 6749 Section 4.4) without interactive login. The server
+/// generates short-lived JWTs with scopes mapped to RBAC roles.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct M2mConfig {
+    /// Enable M2M client credentials authentication.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Registered M2M clients.
+    #[serde(default)]
+    pub clients: Vec<M2mClient>,
+
+    /// Token time-to-live in seconds. Default 300 (5 minutes).
+    #[serde(default = "default_m2m_token_ttl_secs")]
+    pub token_ttl_secs: u64,
+
+    /// Issuer value for M2M-issued JWTs. Defaults to "vellaveto".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issuer: Option<String>,
+}
+
+impl Default for M2mConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            clients: Vec::new(),
+            token_ttl_secs: default_m2m_token_ttl_secs(),
+            issuer: None,
+        }
+    }
+}
+
+impl M2mConfig {
+    /// Validate M2M configuration bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.enabled {
+            return Ok(());
+        }
+
+        if self.clients.is_empty() {
+            return Err(
+                "iam.m2m.clients must contain at least one client when m2m.enabled is true"
+                    .to_string(),
+            );
+        }
+        if self.clients.len() > MAX_M2M_CLIENTS {
+            return Err(format!(
+                "iam.m2m.clients count {} exceeds max {}",
+                self.clients.len(),
+                MAX_M2M_CLIENTS
+            ));
+        }
+
+        if self.token_ttl_secs < MIN_M2M_TOKEN_TTL_SECS
+            || self.token_ttl_secs > MAX_M2M_TOKEN_TTL_SECS
+        {
+            return Err(format!(
+                "iam.m2m.token_ttl_secs must be between {} and {}",
+                MIN_M2M_TOKEN_TTL_SECS, MAX_M2M_TOKEN_TTL_SECS
+            ));
+        }
+
+        if let Some(ref issuer) = self.issuer {
+            ensure_safe_str("iam.m2m.issuer", issuer, MAX_M2M_ISSUER_LEN)?;
+        }
+
+        let mut seen_ids = std::collections::HashSet::new();
+        for (i, client) in self.clients.iter().enumerate() {
+            client.validate(i)?;
+            if !seen_ids.insert(&client.client_id) {
+                return Err(format!(
+                    "iam.m2m.clients[{}].client_id '{}' is duplicated",
+                    i, client.client_id
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// A single M2M client registration.
+///
+/// SECURITY: The `client_secret_hash` stores an Argon2id hash of the client
+/// secret. The plaintext secret is never stored in configuration. The custom
+/// `Debug` implementation redacts the hash to prevent leaking it in logs.
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct M2mClient {
+    /// Unique client identifier (e.g., "ci-pipeline", "monitoring-agent").
+    pub client_id: String,
+
+    /// Argon2id hash of the client secret. Never store plaintext.
+    pub client_secret_hash: String,
+
+    /// RBAC role assigned to this client (e.g., "operator", "viewer").
+    pub role: String,
+
+    /// Scopes this client is permitted to request.
+    #[serde(default)]
+    pub allowed_scopes: Vec<String>,
+}
+
+/// SECURITY: Custom Debug redacts the secret hash to prevent leaking
+/// credential material in log output.
+impl std::fmt::Debug for M2mClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("M2mClient")
+            .field("client_id", &self.client_id)
+            .field("client_secret_hash", &"[REDACTED]")
+            .field("role", &self.role)
+            .field("allowed_scopes", &self.allowed_scopes)
+            .finish()
+    }
+}
+
+impl M2mClient {
+    fn validate(&self, index: usize) -> Result<(), String> {
+        let prefix = format!("iam.m2m.clients[{}]", index);
+
+        ensure_safe_str(
+            &format!("{}.client_id", prefix),
+            &self.client_id,
+            MAX_M2M_CLIENT_ID_LEN,
+        )?;
+
+        if self.client_secret_hash.is_empty() {
+            return Err(format!("{}.client_secret_hash must not be empty", prefix));
+        }
+        if self.client_secret_hash.len() > MAX_M2M_SECRET_HASH_LEN {
+            return Err(format!(
+                "{}.client_secret_hash length {} exceeds max {}",
+                prefix,
+                self.client_secret_hash.len(),
+                MAX_M2M_SECRET_HASH_LEN
+            ));
+        }
+
+        ensure_safe_str(&format!("{}.role", prefix), &self.role, MAX_M2M_ROLE_LEN)?;
+
+        if self.allowed_scopes.len() > MAX_M2M_SCOPES_PER_CLIENT {
+            return Err(format!(
+                "{}.allowed_scopes count {} exceeds max {}",
+                prefix,
+                self.allowed_scopes.len(),
+                MAX_M2M_SCOPES_PER_CLIENT
+            ));
+        }
+        for (j, scope) in self.allowed_scopes.iter().enumerate() {
+            ensure_safe_str(
+                &format!("{}.allowed_scopes[{}]", prefix, j),
+                scope,
+                MAX_OIDC_SCOPE_LEN,
+            )?;
         }
 
         Ok(())

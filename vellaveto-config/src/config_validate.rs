@@ -627,9 +627,9 @@ impl PolicyConfig {
         // SECURITY (FIND-R72-CFG-006): Validate audit_export.format is a recognized value.
         // Unrecognized values could cause silent export failures or unexpected behavior.
         // SECURITY (FIND-R75-004): Accept all aliases recognized by ExportFormat::parse_format()
-        // ("cef", "jsonl", "json_lines", "jsonlines") to avoid breaking valid configurations.
+        // ("cef", "jsonl", "json_lines", "jsonlines", "ocsf") to avoid breaking valid configurations.
         {
-            let valid_formats = ["cef", "jsonl", "json_lines", "jsonlines"];
+            let valid_formats = ["cef", "jsonl", "json_lines", "jsonlines", "ocsf"];
             let format_lower = self.audit_export.format.to_lowercase();
             if !valid_formats.contains(&format_lower.as_str()) {
                 return Err(format!(

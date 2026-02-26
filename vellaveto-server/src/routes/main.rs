@@ -656,6 +656,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/iam/scim/status", get(iam::scim_status))
         .route("/iam/saml/metadata", get(iam::saml_metadata))
         .route("/iam/saml/acs", post(iam::saml_acs))
+        // M2M client credentials token endpoint
+        .route("/api/auth/token", post(iam::m2m_token))
+        // CIMD (Client ID Metadata Document) endpoint
+        .route("/api/auth/client-metadata", post(iam::client_metadata))
         .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit));
 
     // Setup wizard routes — unauthenticated (before API key middleware).

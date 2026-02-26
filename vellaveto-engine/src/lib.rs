@@ -1,5 +1,6 @@
 pub mod abac;
 pub mod behavioral;
+pub mod cache;
 pub mod circuit_breaker;
 mod compiled;
 mod constraint_eval;
@@ -16,6 +17,7 @@ mod path;
 mod policy_compile;
 mod rule_check;
 mod traced;
+pub mod wasm_plugin;
 
 pub use compiled::{
     CompiledConstraint, CompiledContextCondition, CompiledIpRules, CompiledNetworkRules,

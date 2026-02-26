@@ -47,6 +47,8 @@ ark-std = { version = "0.5", optional = true }
 ark-snark = { version = "0.5", optional = true }
 # Phase 43: Centralized Audit Store (PostgreSQL backend)
 sqlx = { workspace = true, optional = true }
+# Phase 54: Post-Quantum Cryptography (ML-DSA-65, FIPS 204)
+fips204 = { version = "0.4", optional = true, default-features = false, features = ["ml-dsa-65", "default-rng"] }
 
 [features]
 default = []
@@ -56,6 +58,7 @@ archive = ["flate2"]
 otlp-exporter = ["opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp", "opentelemetry-semantic-conventions"]
 zk-audit = ["curve25519-dalek", "ark-groth16", "ark-bn254", "ark-relations", "ark-ff", "ark-r1cs-std", "ark-serialize", "ark-std", "ark-snark"]
 postgres-store = ["sqlx"]
+pqc-hybrid = ["fips204"]
 
 [dev-dependencies]
 tempfile = "3.0"

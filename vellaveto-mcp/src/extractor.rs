@@ -51,7 +51,7 @@ pub enum MessageType {
     SamplingRequest { id: Value },
     /// An `elicitation/create` request (MCP 2025-06-18) — server-initiated user prompt.
     ElicitationRequest { id: Value },
-    /// A `tasks/get` or `tasks/cancel` request (MCP 2025-11-25) — async task management.
+    /// A `tasks/*` request (MCP 2025-11-25) — async task management (get, cancel, list, resubscribe, create).
     TaskRequest {
         id: Value,
         task_method: String,
@@ -211,7 +211,13 @@ pub fn classify_message(msg: &Value) -> MessageType {
         }
         "sampling/createmessage" => MessageType::SamplingRequest { id },
         "elicitation/create" => MessageType::ElicitationRequest { id },
-        method @ ("tasks/get" | "tasks/cancel" | "tasks/list" | "tasks/resubscribe") => {
+        method
+            @ ("tasks/get"
+            | "tasks/cancel"
+            | "tasks/list"
+            | "tasks/resubscribe"
+            | "tasks/create") =>
+        {
             let task_id = params
                 .and_then(|p| p.get("id"))
                 .and_then(|t| t.as_str())

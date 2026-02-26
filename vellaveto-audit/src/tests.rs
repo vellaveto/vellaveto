@@ -1304,7 +1304,7 @@ async fn test_checkpoint_tampered_signature_detected() {
         .failure_reason
         .as_ref()
         .unwrap()
-        .contains("Signature"));
+        .contains("signature verification failed"));
 }
 
 #[tokio::test]
@@ -1338,7 +1338,7 @@ async fn test_checkpoint_tampered_entry_count_detected() {
         .failure_reason
         .as_ref()
         .unwrap()
-        .contains("Signature"));
+        .contains("signature verification failed"));
 }
 
 #[tokio::test]
@@ -1657,6 +1657,9 @@ async fn test_checkpoint_key_continuity_rejects_key_change() {
         signature: String::new(),
         verifying_key: hex::encode(key2.verifying_key().as_bytes()),
         merkle_root: None,
+        pqc_signature: None,
+        pqc_verifying_key: None,
+        signature_version: None,
     };
     let sig = key2.sign(&cp2.signing_content());
     cp2.signature = hex::encode(sig.to_bytes());
@@ -1724,6 +1727,9 @@ async fn test_checkpoint_decreasing_entry_count_detected() {
         signature: String::new(),
         verifying_key: hex::encode(key.verifying_key().as_bytes()),
         merkle_root: None,
+        pqc_signature: None,
+        pqc_verifying_key: None,
+        signature_version: None,
     };
     let content = forged_cp.signing_content();
     let sig = key.sign(&content);
@@ -4628,4 +4634,310 @@ async fn test_file_audit_query_recent_capped_at_max_query_limit() {
     let recent = query.recent(u64::MAX).await.unwrap();
     // Empty log: result is still empty
     assert!(recent.is_empty());
+}
+
+// ── Phase 54: Post-Quantum Cryptography (PQC) Tests ─────────────────────────
+
+/// Test that Checkpoint signing_content() is stable for v1 (no PQC fields).
+#[test]
+fn test_pqc_signing_content_v1_backward_compat() {
+    let cp = Checkpoint {
+        id: "test-id".to_string(),
+        timestamp: "2026-02-25T12:00:00Z".to_string(),
+        entry_count: 5,
+        chain_head_hash: Some("abcd1234".to_string()),
+        signature: String::new(),
+        verifying_key: "vk-hex".to_string(),
+        merkle_root: Some("merkle-root-hex".to_string()),
+        pqc_signature: None,
+        pqc_verifying_key: None,
+        signature_version: None, // v1 (legacy)
+    };
+    let content1 = cp.signing_content();
+
+    // Same checkpoint with explicit v1
+    let cp_v1 = Checkpoint {
+        signature_version: Some(1),
+        ..cp.clone()
+    };
+    let content_v1 = cp_v1.signing_content();
+
+    // v1 explicit and None should produce identical signing content
+    assert_eq!(content1, content_v1, "None and Some(1) must produce identical signing content");
+}
+
+/// Test that v2 signing content includes PQC verifying key.
+#[test]
+fn test_pqc_signing_content_v2_includes_pqc_key() {
+    let cp_v1 = Checkpoint {
+        id: "test-id".to_string(),
+        timestamp: "2026-02-25T12:00:00Z".to_string(),
+        entry_count: 5,
+        chain_head_hash: Some("abcd1234".to_string()),
+        signature: String::new(),
+        verifying_key: "vk-hex".to_string(),
+        merkle_root: None,
+        pqc_signature: None,
+        pqc_verifying_key: None,
+        signature_version: None,
+    };
+
+    let cp_v2 = Checkpoint {
+        pqc_verifying_key: Some("pqc-pk-hex".to_string()),
+        signature_version: Some(2),
+        ..cp_v1.clone()
+    };
+
+    let content_v1 = cp_v1.signing_content();
+    let content_v2 = cp_v2.signing_content();
+
+    // v2 must produce DIFFERENT signing content (includes PQC key)
+    assert_ne!(content_v1, content_v2, "v2 signing content must differ from v1");
+}
+
+/// Test that changing PQC verifying key in v2 changes signing content.
+/// SECURITY: prevents PQC key substitution without invalidating Ed25519 sig.
+#[test]
+fn test_pqc_signing_content_v2_key_binding() {
+    let cp_a = Checkpoint {
+        id: "test-id".to_string(),
+        timestamp: "2026-02-25T12:00:00Z".to_string(),
+        entry_count: 5,
+        chain_head_hash: None,
+        signature: String::new(),
+        verifying_key: "vk-hex".to_string(),
+        merkle_root: None,
+        pqc_signature: None,
+        pqc_verifying_key: Some("pqc-key-A".to_string()),
+        signature_version: Some(2),
+    };
+
+    let cp_b = Checkpoint {
+        pqc_verifying_key: Some("pqc-key-B".to_string()),
+        ..cp_a.clone()
+    };
+
+    let content_a = cp_a.signing_content();
+    let content_b = cp_b.signing_content();
+
+    assert_ne!(
+        content_a, content_b,
+        "Different PQC keys must produce different signing content"
+    );
+}
+
+/// Test that v2 checkpoint without PQC feature fails verification (fail-closed).
+#[tokio::test]
+async fn test_pqc_v2_checkpoint_without_feature_fails_closed() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let key = AuditLogger::generate_signing_key();
+    let logger = AuditLogger::new(log_path.clone()).with_signing_key(key.clone());
+
+    let action = test_action();
+    logger
+        .log_entry(&action, &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
+
+    // Create a checkpoint normally, then manually inject v2 fields
+    logger.create_checkpoint().await.unwrap();
+    let cp_path = logger.checkpoint_path();
+    let content = tokio::fs::read_to_string(&cp_path).await.unwrap();
+    let mut cp: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
+
+    // Inject v2 fields without valid PQC signatures
+    cp["signature_version"] = serde_json::Value::Number(serde_json::Number::from(2u8));
+    cp["pqc_verifying_key"] = serde_json::Value::String("deadbeef".to_string());
+    cp["pqc_signature"] = serde_json::Value::String("cafebabe".to_string());
+
+    // Re-sign with Ed25519 (the signing content now includes PQC key)
+    let modified_cp: Checkpoint = serde_json::from_value(cp).unwrap();
+    let signing_content = modified_cp.signing_content();
+    let sig = key.sign(&signing_content);
+    let mut cp_val = serde_json::to_value(&modified_cp).unwrap();
+    cp_val["signature"] = serde_json::Value::String(hex::encode(sig.to_bytes()));
+    let tampered = format!("{}\n", serde_json::to_string(&cp_val).unwrap());
+    tokio::fs::write(&cp_path, tampered).await.unwrap();
+
+    // Without pqc-hybrid feature, v2 checkpoints should fail-closed
+    let verification = logger.verify_checkpoints().await.unwrap();
+    // On non-pqc build: should fail with "requires pqc-hybrid feature"
+    // On pqc build: should fail with ML-DSA verification failure (invalid key/sig)
+    assert!(
+        !verification.valid,
+        "v2 checkpoint with invalid PQC fields must fail verification"
+    );
+    let reason = verification.failure_reason.as_ref().unwrap();
+    assert!(
+        reason.contains("pqc") || reason.contains("PQC") || reason.contains("ML-DSA"),
+        "Failure reason should mention PQC/ML-DSA, got: {}",
+        reason
+    );
+}
+
+/// Test that trusted_pqc_verifying_key builder works.
+#[test]
+fn test_pqc_trusted_key_builder() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path)
+        .with_trusted_pqc_key("abcd1234".to_string());
+    assert_eq!(
+        logger.trusted_pqc_verifying_key.as_deref(),
+        Some("abcd1234")
+    );
+}
+
+/// Test Checkpoint serialization round-trip with PQC fields.
+#[test]
+fn test_pqc_checkpoint_serde_round_trip() {
+    let cp = Checkpoint {
+        id: "cp-1".to_string(),
+        timestamp: "2026-02-25T12:00:00Z".to_string(),
+        entry_count: 10,
+        chain_head_hash: Some("hash123".to_string()),
+        signature: "sig-hex".to_string(),
+        verifying_key: "vk-hex".to_string(),
+        merkle_root: None,
+        pqc_signature: Some("pqc-sig-hex".to_string()),
+        pqc_verifying_key: Some("pqc-vk-hex".to_string()),
+        signature_version: Some(2),
+    };
+
+    let json = serde_json::to_string(&cp).unwrap();
+    let deserialized: Checkpoint = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(deserialized.pqc_signature.as_deref(), Some("pqc-sig-hex"));
+    assert_eq!(deserialized.pqc_verifying_key.as_deref(), Some("pqc-vk-hex"));
+    assert_eq!(deserialized.signature_version, Some(2));
+}
+
+/// Test that v1 checkpoints (without PQC fields) still deserialize correctly.
+#[test]
+fn test_pqc_v1_checkpoint_deserialization() {
+    let json = r#"{
+        "id": "cp-old",
+        "timestamp": "2026-01-01T00:00:00Z",
+        "entry_count": 5,
+        "chain_head_hash": "abcd",
+        "signature": "sig",
+        "verifying_key": "vk",
+        "merkle_root": null
+    }"#;
+
+    let cp: Checkpoint = serde_json::from_str(json).unwrap();
+    assert!(cp.pqc_signature.is_none());
+    assert!(cp.pqc_verifying_key.is_none());
+    assert!(cp.signature_version.is_none());
+}
+
+/// Test that PQC fields are skipped in serialization when None.
+#[test]
+fn test_pqc_fields_skip_serializing_when_none() {
+    let cp = Checkpoint {
+        id: "cp-1".to_string(),
+        timestamp: "2026-02-25T12:00:00Z".to_string(),
+        entry_count: 0,
+        chain_head_hash: None,
+        signature: "sig".to_string(),
+        verifying_key: "vk".to_string(),
+        merkle_root: None,
+        pqc_signature: None,
+        pqc_verifying_key: None,
+        signature_version: None,
+    };
+
+    let json = serde_json::to_string(&cp).unwrap();
+    assert!(!json.contains("pqc_signature"), "None PQC fields should be skipped");
+    assert!(!json.contains("pqc_verifying_key"), "None PQC fields should be skipped");
+    assert!(!json.contains("signature_version"), "None signature_version should be skipped");
+}
+
+/// Test that Ed25519 checkpoint error message changed correctly.
+#[tokio::test]
+async fn test_pqc_ed25519_error_message_format() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let key = AuditLogger::generate_signing_key();
+    let logger = AuditLogger::new(log_path.clone()).with_signing_key(key);
+
+    let action = test_action();
+    logger
+        .log_entry(&action, &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
+    logger.create_checkpoint().await.unwrap();
+
+    // Tamper signature
+    let cp_path = logger.checkpoint_path();
+    let content = tokio::fs::read_to_string(&cp_path).await.unwrap();
+    let mut cp: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
+    let sig = cp["signature"].as_str().unwrap().to_string();
+    let tampered_sig = if sig.starts_with('a') {
+        format!("b{}", &sig[1..])
+    } else {
+        format!("a{}", &sig[1..])
+    };
+    cp["signature"] = serde_json::Value::String(tampered_sig);
+    let tampered = format!("{}\n", serde_json::to_string(&cp).unwrap());
+    tokio::fs::write(&cp_path, tampered).await.unwrap();
+
+    let verification = logger.verify_checkpoints().await.unwrap();
+    assert!(!verification.valid);
+    let reason = verification.failure_reason.as_ref().unwrap();
+    assert!(
+        reason.contains("Ed25519 signature verification failed"),
+        "Error message should specify Ed25519, got: {}",
+        reason
+    );
+}
+
+/// Test that rotation manifest Ed25519 error message changed correctly.
+#[tokio::test]
+async fn test_pqc_rotation_manifest_ed25519_error_message() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let key = AuditLogger::generate_signing_key();
+    let logger = AuditLogger::new(log_path.clone())
+        .with_signing_key(key.clone())
+        .with_max_file_size(100) // tiny size to trigger rotation
+        .with_trusted_key(hex::encode(key.verifying_key().as_bytes()));
+
+    let action = test_action();
+    // Write enough entries to trigger rotation
+    for _ in 0..5 {
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({"data": "x".repeat(50)}))
+            .await
+            .unwrap();
+    }
+
+    // Tamper with the manifest signature
+    let manifest_path = logger.rotation_manifest_path();
+    if manifest_path.exists() {
+        let content = tokio::fs::read_to_string(&manifest_path).await.unwrap();
+        if let Some(first_line) = content.lines().next() {
+            let mut entry: serde_json::Value = serde_json::from_str(first_line).unwrap();
+            if let Some(sig) = entry.get("signature").and_then(|v| v.as_str()) {
+                let tampered_sig = if sig.starts_with('a') {
+                    format!("b{}", &sig[1..])
+                } else {
+                    format!("a{}", &sig[1..])
+                };
+                entry["signature"] = serde_json::Value::String(tampered_sig);
+                let tampered = format!("{}\n", serde_json::to_string(&entry).unwrap());
+                tokio::fs::write(&manifest_path, tampered).await.unwrap();
+
+                let verification = logger.verify_across_rotations().await.unwrap();
+                assert!(!verification.valid);
+                let reason = verification.first_failure.as_ref().unwrap();
+                assert!(
+                    reason.contains("Ed25519 signature invalid"),
+                    "Error message should specify Ed25519, got: {}",
+                    reason
+                );
+            }
+        }
+    }
 }

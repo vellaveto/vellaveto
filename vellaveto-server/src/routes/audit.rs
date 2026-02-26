@@ -194,6 +194,7 @@ pub async fn audit_export(
     let content_type = match format {
         vellaveto_audit::export::ExportFormat::Cef => "text/plain",
         vellaveto_audit::export::ExportFormat::JsonLines => "application/x-ndjson",
+        vellaveto_audit::export::ExportFormat::Ocsf => "application/json",
     };
 
     Ok(([(header::CONTENT_TYPE, content_type)], body))

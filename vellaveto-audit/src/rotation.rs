@@ -249,6 +249,28 @@ impl AuditLogger {
             manifest_entry["verifying_key"] =
                 serde_json::Value::String(hex::encode(signing_key.verifying_key().as_bytes()));
         }
+
+        // Phase 54: Add ML-DSA-65 signature for hybrid manifest entries
+        #[cfg(feature = "pqc-hybrid")]
+        if let (Some(ref sk_hex), Some(ref pk_hex)) =
+            (&self.pqc_secret_key_hex, &self.pqc_public_key_hex)
+        {
+            // Sign the digest (same content Ed25519 signed) with ML-DSA-65
+            let canonical = Self::canonical_json(&manifest_entry)?;
+            let mut pqc_hasher = Sha256::new();
+            pqc_hasher.update(&canonical);
+            let pqc_digest = pqc_hasher.finalize();
+            let pqc_sig = crate::pqc::ml_dsa_sign(
+                sk_hex,
+                &pqc_digest,
+                crate::pqc::MANIFEST_CONTEXT,
+            )?;
+            manifest_entry["pqc_signature"] = serde_json::Value::String(pqc_sig);
+            manifest_entry["pqc_verifying_key"] = serde_json::Value::String(pk_hex.clone());
+            manifest_entry["signature_version"] =
+                serde_json::Value::Number(serde_json::Number::from(2u8));
+        }
+
         let mut manifest_line =
             serde_json::to_string(&manifest_entry).map_err(AuditError::Serialization)?;
         manifest_line.push('\n');
@@ -520,8 +542,97 @@ impl AuditLogger {
                     return Ok(RotationVerification {
                         valid: false,
                         files_checked: i,
-                        first_failure: Some(format!("Manifest entry {} signature invalid", i)),
+                        first_failure: Some(format!(
+                            "Manifest entry {} Ed25519 signature invalid",
+                            i
+                        )),
                     });
+                }
+
+                // Phase 54: Verify ML-DSA-65 signature on manifest entries
+                let manifest_sig_version = entry
+                    .get("signature_version")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(1);
+                if manifest_sig_version >= 2 {
+                    #[cfg(feature = "pqc-hybrid")]
+                    {
+                        let pqc_sig_hex = entry
+                            .get("pqc_signature")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                AuditError::Validation(format!(
+                                    "Manifest entry {} v2 missing pqc_signature",
+                                    i
+                                ))
+                            })?;
+                        let pqc_vk_hex = entry
+                            .get("pqc_verifying_key")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                AuditError::Validation(format!(
+                                    "Manifest entry {} v2 missing pqc_verifying_key",
+                                    i
+                                ))
+                            })?;
+
+                        // PQC key pinning
+                        if let Some(ref trusted_pqc) = self.trusted_pqc_verifying_key {
+                            if pqc_vk_hex != trusted_pqc.as_str() {
+                                return Ok(RotationVerification {
+                                    valid: false,
+                                    files_checked: i,
+                                    first_failure: Some(format!(
+                                        "Manifest entry {} signed by untrusted PQC key",
+                                        i
+                                    )),
+                                });
+                            }
+                        }
+
+                        // Re-compute the unsigned entry digest for PQC verification
+                        // (same digest Ed25519 signed — the unsigned entry before adding sigs)
+                        let mut pqc_unsigned = entry.clone();
+                        if let Some(obj) = pqc_unsigned.as_object_mut() {
+                            obj.remove("signature");
+                            obj.remove("verifying_key");
+                            obj.remove("pqc_signature");
+                            obj.remove("pqc_verifying_key");
+                            obj.remove("signature_version");
+                        }
+                        let pqc_canonical = Self::canonical_json(&pqc_unsigned)?;
+                        let mut pqc_hasher = Sha256::new();
+                        pqc_hasher.update(&pqc_canonical);
+                        let pqc_digest = pqc_hasher.finalize();
+
+                        if let Err(e) = crate::pqc::ml_dsa_verify(
+                            pqc_vk_hex,
+                            &pqc_digest,
+                            pqc_sig_hex,
+                            crate::pqc::MANIFEST_CONTEXT,
+                        ) {
+                            return Ok(RotationVerification {
+                                valid: false,
+                                files_checked: i,
+                                first_failure: Some(format!(
+                                    "Manifest entry {} ML-DSA-65 signature invalid: {}",
+                                    i, e
+                                )),
+                            });
+                        }
+                    }
+
+                    #[cfg(not(feature = "pqc-hybrid"))]
+                    {
+                        return Ok(RotationVerification {
+                            valid: false,
+                            files_checked: i,
+                            first_failure: Some(format!(
+                                "Manifest entry {} v2 requires pqc-hybrid feature to verify",
+                                i
+                            )),
+                        });
+                    }
                 }
             } else if self.trusted_verifying_key.is_some() {
                 // Trusted key is configured but manifest entry is unsigned

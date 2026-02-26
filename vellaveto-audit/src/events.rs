@@ -197,6 +197,41 @@ impl AuditLogger {
         self.log_entry(&action, &verdict, metadata).await
     }
 
+    /// Log a task lifecycle state transition event.
+    ///
+    /// Records MCP 2025-11-25 task state transitions for audit visibility.
+    /// Unlike `log_task_event` which covers enforcement events (limit exceeded),
+    /// this helper covers the full lifecycle: creation, status transitions,
+    /// and terminal states.
+    ///
+    /// Event types:
+    /// - `created` -- task registered via `tasks/create`
+    /// - `working` -- task transitioned to running/working state
+    /// - `input_required` -- task requires additional input from the client
+    /// - `completed` -- task completed successfully
+    /// - `failed` -- task execution failed
+    /// - `cancelled` -- task cancelled by agent or system
+    pub async fn log_task_lifecycle_event(
+        &self,
+        event_type: &str,
+        task_id: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("vellaveto", "task_lifecycle", serde_json::json!({}));
+        let verdict = match event_type {
+            "failed" | "cancelled" => Verdict::Deny {
+                reason: format!("Task {} for task: {}", event_type, task_id),
+            },
+            _ => Verdict::Allow,
+        };
+        let mut metadata = serde_json::json!({
+            "event": format!("task_lifecycle.{}", event_type),
+            "task_id": task_id,
+        });
+        merge_details_safe(&mut metadata, details);
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
     /// Log an authentication level event.
     ///
     /// Auth events track step-up authentication requirements, level upgrades,

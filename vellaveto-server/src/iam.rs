@@ -12,10 +12,11 @@ use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use flate2::read::{DeflateDecoder, ZlibDecoder};
 use jsonwebtoken::{
-    decode, decode_header,
+    decode, decode_header, encode,
     jwk::{JwkSet, KeyAlgorithm},
-    Algorithm, DecodingKey, Validation,
+    Algorithm, DecodingKey, EncodingKey, Header, Validation,
 };
+use password_hash::{PasswordHash, PasswordVerifier};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use reqwest::{header as reqwest_header, Client};
@@ -48,6 +49,35 @@ use vellaveto_config::{
 
 const FLOW_TTL_SECS: u64 = 300;
 const MAX_NEXT_LEN: usize = 512;
+
+/// Maximum length for M2M client_id in token requests.
+const MAX_M2M_CLIENT_ID_REQUEST_LEN: usize = 128;
+/// Maximum length for M2M client_secret in token requests.
+const MAX_M2M_CLIENT_SECRET_REQUEST_LEN: usize = 512;
+/// Maximum number of scopes in an M2M token request.
+const MAX_M2M_REQUESTED_SCOPES: usize = 32;
+/// Maximum length of a single M2M scope string in a request.
+const MAX_M2M_SCOPE_REQUEST_LEN: usize = 64;
+/// Default issuer for M2M tokens when not configured.
+const DEFAULT_M2M_ISSUER: &str = "vellaveto";
+/// HMAC signing secret environment variable for M2M JWTs.
+const M2M_JWT_SECRET_ENV: &str = "VELLAVETO_M2M_JWT_SECRET";
+/// Minimum length for the M2M JWT signing secret.
+const MIN_M2M_JWT_SECRET_LEN: usize = 32;
+
+/// Maximum length for a CIMD URL.
+const MAX_CIMD_URL_LEN: usize = 2048;
+/// Cache TTL for CIMD entries (5 minutes).
+const CIMD_CACHE_TTL_SECS: u64 = 300;
+/// Maximum number of CIMD cache entries.
+const MAX_CIMD_CACHE_SIZE: usize = 1000;
+/// Maximum response size for CIMD fetch (64 KB).
+const MAX_CIMD_RESPONSE_SIZE: usize = 65_536;
+/// Maximum number of redirect URIs in client metadata.
+const MAX_CIMD_REDIRECT_URIS: usize = 20;
+/// Maximum number of grant types in client metadata.
+const MAX_CIMD_GRANT_TYPES: usize = 10;
+
 const SAML_PROTOCOL_NS: &str = "urn:oasis:names:tc:SAML:2.0:protocol";
 const SAML_METADATA_NS: &str = "urn:oasis:names:tc:SAML:2.0:metadata";
 const SAML_ASSERTION_NS: &str = "urn:oasis:names:tc:SAML:2.0:assertion";
@@ -362,7 +392,7 @@ impl SamlState {
     }
 }
 
-/// Shared IAM state (OIDC + SAML + session management) for Phase 46.
+/// Shared IAM state (OIDC + SAML + session management + M2M + CIMD) for Phase 46+.
 #[derive(Debug)]
 pub struct IamState {
     config: IamConfig,
@@ -374,6 +404,10 @@ pub struct IamState {
     saml_state: Option<SamlState>,
     scim_status: Arc<RwLock<ScimStatus>>,
     _scim_task: Option<JoinHandle<()>>,
+    /// HMAC signing key for M2M JWT generation. Loaded from env at startup.
+    m2m_signing_secret: Option<Vec<u8>>,
+    /// Cache for CIMD (Client ID Metadata Documents).
+    cimd_cache: DashMap<String, CachedClientMetadata>,
 }
 
 impl IamState {
@@ -415,6 +449,22 @@ impl IamState {
         } else {
             None
         };
+        // Load M2M JWT signing secret from environment if M2M is enabled.
+        let m2m_signing_secret = if config.m2m.enabled {
+            let secret = env::var(M2M_JWT_SECRET_ENV).ok().map(|s| s.into_bytes());
+            if let Some(ref s) = secret {
+                if s.len() < MIN_M2M_JWT_SECRET_LEN {
+                    warn!(
+                        "M2M JWT secret from {} is shorter than {} bytes",
+                        M2M_JWT_SECRET_ENV, MIN_M2M_JWT_SECRET_LEN
+                    );
+                }
+            }
+            secret
+        } else {
+            None
+        };
+
         Ok(Self {
             config,
             discovery,
@@ -425,11 +475,18 @@ impl IamState {
             saml_state,
             scim_status,
             _scim_task: scim_task,
+            m2m_signing_secret,
+            cimd_cache: DashMap::new(),
         })
     }
 
     #[cfg(test)]
     pub(crate) fn new_for_test(config: IamConfig) -> Self {
+        Self::new_for_test_with_secret(config, None)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test_with_secret(config: IamConfig, secret: Option<Vec<u8>>) -> Self {
         let discovery = OidcDiscovery {
             authorization_endpoint: "https://example.com/authorize".to_string(),
             token_endpoint: "https://example.com/token".to_string(),
@@ -446,6 +503,8 @@ impl IamState {
             saml_state: None,
             scim_status: Arc::new(RwLock::new(ScimStatus::default())),
             _scim_task: None,
+            m2m_signing_secret: secret,
+            cimd_cache: DashMap::new(),
         }
     }
 
@@ -729,6 +788,282 @@ impl IamState {
             self.config.session.secure_cookie,
             self.config.session.http_only,
         )
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // M2M Client Credentials Flow
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Exchange client credentials for a short-lived M2M JWT.
+    ///
+    /// Validates client_id + client_secret against configured M2M clients,
+    /// verifies requested scopes are permitted, and generates an HMAC-signed
+    /// JWT with `sub` = client_id, `scope` = granted scopes, `role` = configured role.
+    pub fn exchange_client_credentials(
+        &self,
+        client_id: &str,
+        client_secret: &str,
+        scopes: &[String],
+    ) -> Result<M2mTokenResponse, IamError> {
+        if !self.config.m2m.enabled {
+            return Err(IamError::M2mDisabled);
+        }
+
+        // SECURITY: Validate input lengths before any processing.
+        if client_id.len() > MAX_M2M_CLIENT_ID_REQUEST_LEN
+            || has_dangerous_chars(client_id)
+        {
+            return Err(IamError::M2mInvalidCredentials);
+        }
+        if client_secret.len() > MAX_M2M_CLIENT_SECRET_REQUEST_LEN {
+            return Err(IamError::M2mInvalidCredentials);
+        }
+        if scopes.len() > MAX_M2M_REQUESTED_SCOPES {
+            return Err(IamError::M2mScopeNotPermitted(
+                "too many scopes requested".to_string(),
+            ));
+        }
+        for scope in scopes {
+            if scope.len() > MAX_M2M_SCOPE_REQUEST_LEN || has_dangerous_chars(scope) {
+                return Err(IamError::M2mScopeNotPermitted(
+                    "invalid scope value".to_string(),
+                ));
+            }
+        }
+
+        // Find the configured client by ID.
+        let m2m_client = self
+            .config
+            .m2m
+            .clients
+            .iter()
+            .find(|c| c.client_id == client_id)
+            .ok_or(IamError::M2mInvalidCredentials)?;
+
+        // SECURITY: Verify secret against stored Argon2id hash.
+        // Constant-time comparison via the argon2 crate's PasswordVerifier.
+        let parsed_hash = PasswordHash::new(&m2m_client.client_secret_hash)
+            .map_err(|_| IamError::M2mInvalidCredentials)?;
+        argon2::Argon2::default()
+            .verify_password(client_secret.as_bytes(), &parsed_hash)
+            .map_err(|_| IamError::M2mInvalidCredentials)?;
+
+        // Validate requested scopes against allowed scopes.
+        let granted_scopes = if scopes.is_empty() {
+            // No specific scopes requested: grant all allowed scopes.
+            m2m_client.allowed_scopes.clone()
+        } else {
+            let mut granted = Vec::with_capacity(scopes.len());
+            for scope in scopes {
+                if !m2m_client.allowed_scopes.contains(scope) {
+                    return Err(IamError::M2mScopeNotPermitted(scope.clone()));
+                }
+                granted.push(scope.clone());
+            }
+            granted
+        };
+
+        // Generate JWT.
+        let signing_secret = self
+            .m2m_signing_secret
+            .as_ref()
+            .ok_or_else(|| {
+                IamError::M2mTokenGeneration(format!(
+                    "{} environment variable not set",
+                    M2M_JWT_SECRET_ENV
+                ))
+            })?;
+
+        let now = chrono::Utc::now().timestamp() as u64;
+        let ttl = self.config.m2m.token_ttl_secs;
+        let issuer = self
+            .config
+            .m2m
+            .issuer
+            .as_deref()
+            .unwrap_or(DEFAULT_M2M_ISSUER);
+
+        let claims = M2mJwtClaims {
+            sub: client_id.to_string(),
+            iss: issuer.to_string(),
+            scope: granted_scopes.join(" "),
+            role: m2m_client.role.clone(),
+            iat: now,
+            exp: now.saturating_add(ttl),
+            jti: Uuid::new_v4().to_string(),
+        };
+
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(signing_secret),
+        )
+        .map_err(|e| IamError::M2mTokenGeneration(e.to_string()))?;
+
+        info!(
+            target: "iam",
+            client_id = client_id,
+            scopes = claims.scope.as_str(),
+            role = claims.role.as_str(),
+            "M2M token issued"
+        );
+
+        Ok(M2mTokenResponse {
+            access_token: token,
+            token_type: "Bearer".to_string(),
+            expires_in: ttl,
+            scope: claims.scope,
+        })
+    }
+
+    /// Whether M2M authentication is enabled.
+    pub fn m2m_enabled(&self) -> bool {
+        self.config.m2m.enabled
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // CIMD (Client ID Metadata Documents)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Fetch and cache Client ID Metadata from a URL.
+    ///
+    /// SECURITY: URL is validated for SSRF (private IPs, loopback, link-local,
+    /// cloud metadata endpoints). Responses are size-limited. Cache has TTL.
+    pub async fn fetch_client_metadata(
+        &self,
+        client_id_url: &str,
+    ) -> Result<ClientMetadata, IamError> {
+        // Input validation.
+        if client_id_url.len() > MAX_CIMD_URL_LEN {
+            return Err(IamError::CimdValidation("URL too long".to_string()));
+        }
+        if has_dangerous_chars(client_id_url) {
+            return Err(IamError::CimdValidation(
+                "URL contains invalid characters".to_string(),
+            ));
+        }
+
+        // Check cache.
+        let now = Instant::now();
+        if let Some(entry) = self.cimd_cache.get(client_id_url) {
+            let ttl = Duration::from_secs(CIMD_CACHE_TTL_SECS);
+            if now.duration_since(entry.fetched_at) < ttl {
+                return Ok(entry.metadata.clone());
+            }
+        }
+
+        // SECURITY: Validate URL for SSRF protection.
+        let parsed = Url::parse(client_id_url).map_err(|e| {
+            IamError::CimdValidation(format!("invalid URL: {}", e))
+        })?;
+        if parsed.scheme() != "https" {
+            return Err(IamError::CimdValidation(
+                "CIMD URL must use HTTPS".to_string(),
+            ));
+        }
+        // Block private/loopback/link-local hosts.
+        validate_cimd_host(&parsed)?;
+
+        // Fetch metadata.
+        let response = self
+            .http
+            .get(client_id_url)
+            .header(reqwest_header::ACCEPT, "application/json")
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| IamError::CimdFetch(format!("request failed: {}", e)))?
+            .error_for_status()
+            .map_err(|e| IamError::CimdFetch(format!("HTTP error: {}", e)))?;
+
+        // SECURITY: Limit response body size.
+        let content_length = response.content_length().unwrap_or(0);
+        if content_length > MAX_CIMD_RESPONSE_SIZE as u64 {
+            return Err(IamError::CimdFetch(
+                "response too large".to_string(),
+            ));
+        }
+
+        let body = response
+            .bytes()
+            .await
+            .map_err(|e| IamError::CimdFetch(format!("failed to read body: {}", e)))?;
+
+        if body.len() > MAX_CIMD_RESPONSE_SIZE {
+            return Err(IamError::CimdFetch(
+                "response body exceeds size limit".to_string(),
+            ));
+        }
+
+        let raw: CimdRawResponse = serde_json::from_slice(&body)
+            .map_err(|e| IamError::CimdValidation(format!("invalid JSON: {}", e)))?;
+
+        // Validate metadata.
+        if raw.redirect_uris.len() > MAX_CIMD_REDIRECT_URIS {
+            return Err(IamError::CimdValidation(
+                "too many redirect_uris".to_string(),
+            ));
+        }
+        if raw.grant_types.len() > MAX_CIMD_GRANT_TYPES {
+            return Err(IamError::CimdValidation(
+                "too many grant_types".to_string(),
+            ));
+        }
+
+        // Validate redirect URIs use HTTPS.
+        for uri in &raw.redirect_uris {
+            if let Ok(parsed_uri) = Url::parse(uri) {
+                if parsed_uri.scheme() != "https" && parsed_uri.scheme() != "http" {
+                    return Err(IamError::CimdValidation(format!(
+                        "redirect_uri uses unsupported scheme: {}",
+                        parsed_uri.scheme()
+                    )));
+                }
+            }
+        }
+
+        let metadata = ClientMetadata {
+            client_name: raw.client_name,
+            redirect_uris: raw.redirect_uris,
+            grant_types: raw.grant_types,
+            token_endpoint_auth_method: raw.token_endpoint_auth_method,
+            fetched_at: now,
+        };
+
+        // Evict stale cache entries if we're over the limit.
+        if self.cimd_cache.len() >= MAX_CIMD_CACHE_SIZE {
+            self.cleanup_cimd_cache();
+        }
+
+        self.cimd_cache.insert(
+            client_id_url.to_string(),
+            CachedClientMetadata {
+                metadata: metadata.clone(),
+                fetched_at: now,
+            },
+        );
+
+        Ok(metadata)
+    }
+
+    /// Remove expired entries from the CIMD cache.
+    fn cleanup_cimd_cache(&self) {
+        let now = Instant::now();
+        let ttl = Duration::from_secs(CIMD_CACHE_TTL_SECS);
+        let expired: Vec<String> = self
+            .cimd_cache
+            .iter()
+            .filter_map(|entry| {
+                if now.duration_since(entry.value().fetched_at) >= ttl {
+                    Some(entry.key().clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for key in expired {
+            self.cimd_cache.remove(&key);
+        }
     }
 }
 
@@ -1207,6 +1542,18 @@ pub enum IamError {
     Saml(String),
     #[error("SCIM sync failed: {0}")]
     Scim(String),
+    #[error("M2M authentication is disabled")]
+    M2mDisabled,
+    #[error("Invalid client credentials")]
+    M2mInvalidCredentials,
+    #[error("M2M scope not permitted: {0}")]
+    M2mScopeNotPermitted(String),
+    #[error("M2M token generation failed: {0}")]
+    M2mTokenGeneration(String),
+    #[error("CIMD fetch failed: {0}")]
+    CimdFetch(String),
+    #[error("CIMD validation failed: {0}")]
+    CimdValidation(String),
 }
 
 #[derive(Deserialize)]
@@ -1396,6 +1743,317 @@ fn build_saml_metadata(config: &SamlConfig) -> String {
     SAML_SP_METADATA_TEMPLATE
         .replace("{entity}", config.entity_id.as_deref().unwrap_or_default())
         .replace("{acs}", config.acs_url.as_deref().unwrap_or_default())
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// M2M Types
+// ═══════════════════════════════════════════════════════════════════
+
+/// JWT claims for M2M tokens.
+#[derive(Debug, Serialize, Deserialize)]
+struct M2mJwtClaims {
+    /// Subject: the client_id.
+    sub: String,
+    /// Issuer.
+    iss: String,
+    /// Space-separated scopes.
+    scope: String,
+    /// RBAC role.
+    role: String,
+    /// Issued-at timestamp (Unix epoch seconds).
+    iat: u64,
+    /// Expiration timestamp (Unix epoch seconds).
+    exp: u64,
+    /// Unique token identifier.
+    jti: String,
+}
+
+/// M2M token endpoint response.
+#[derive(Debug, Serialize)]
+pub struct M2mTokenResponse {
+    /// The JWT access token.
+    pub access_token: String,
+    /// Token type (always "Bearer").
+    pub token_type: String,
+    /// Seconds until the token expires.
+    pub expires_in: u64,
+    /// Space-separated granted scopes.
+    pub scope: String,
+}
+
+/// SECURITY: Custom Debug for M2mTokenResponse redacts the access token.
+impl std::fmt::Display for M2mTokenResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "M2mTokenResponse {{ token_type: {}, expires_in: {}, scope: {} }}",
+            self.token_type, self.expires_in, self.scope
+        )
+    }
+}
+
+/// Request body for the M2M token endpoint.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct M2mTokenRequest {
+    /// Must be "client_credentials".
+    pub grant_type: String,
+    /// The client identifier.
+    pub client_id: String,
+    /// The client secret (plaintext, verified against stored hash).
+    pub client_secret: String,
+    /// Optional space-separated scopes to request.
+    #[serde(default)]
+    pub scope: Option<String>,
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Step-Up Authorization Types
+// ═══════════════════════════════════════════════════════════════════
+
+/// Information returned when a request is denied due to insufficient scopes
+/// and the caller may be able to step up their authorization level.
+#[derive(Debug, Serialize)]
+pub struct StepUpRequired {
+    /// Scopes that would be needed to perform the action.
+    pub required_scopes: Vec<String>,
+    /// Scopes the caller currently holds.
+    pub current_scopes: Vec<String>,
+    /// Optional URL where the caller can upgrade their authorization.
+    pub upgrade_url: Option<String>,
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CIMD Types
+// ═══════════════════════════════════════════════════════════════════
+
+/// Fetched and validated client metadata from a Client ID Metadata Document.
+#[derive(Debug, Clone, Serialize)]
+pub struct ClientMetadata {
+    /// Human-readable client name.
+    pub client_name: Option<String>,
+    /// Registered redirect URIs.
+    pub redirect_uris: Vec<String>,
+    /// Supported grant types.
+    pub grant_types: Vec<String>,
+    /// Preferred token endpoint authentication method.
+    pub token_endpoint_auth_method: Option<String>,
+    /// When this metadata was fetched.
+    #[serde(skip)]
+    pub fetched_at: Instant,
+}
+
+/// Internal cache entry for CIMD.
+#[derive(Debug, Clone)]
+struct CachedClientMetadata {
+    metadata: ClientMetadata,
+    fetched_at: Instant,
+}
+
+/// Raw JSON response from a CIMD endpoint.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CimdRawResponse {
+    #[serde(default)]
+    client_name: Option<String>,
+    #[serde(default)]
+    redirect_uris: Vec<String>,
+    #[serde(default)]
+    grant_types: Vec<String>,
+    #[serde(default)]
+    token_endpoint_auth_method: Option<String>,
+}
+
+/// SECURITY: Validate CIMD URL host is not a private/loopback/link-local/metadata address.
+fn validate_cimd_host(url: &Url) -> Result<(), IamError> {
+    let host = url
+        .host_str()
+        .ok_or_else(|| IamError::CimdValidation("URL has no host".to_string()))?;
+
+    // Block common SSRF targets.
+    let lower = host.to_lowercase();
+    if lower == "localhost"
+        || lower == "127.0.0.1"
+        || lower == "[::1]"
+        || lower == "0.0.0.0"
+        || lower.starts_with("169.254.")
+        || lower.starts_with("10.")
+        || lower.starts_with("192.168.")
+        || lower == "metadata.google.internal"
+        || lower == "metadata.google.com"
+    {
+        return Err(IamError::CimdValidation(
+            "URL host is blocked (private/loopback/metadata)".to_string(),
+        ));
+    }
+
+    // Block 172.16.0.0/12 range.
+    if let Ok(ip) = lower.parse::<std::net::Ipv4Addr>() {
+        let octets = ip.octets();
+        if octets[0] == 172 && (16..=31).contains(&octets[1]) {
+            return Err(IamError::CimdValidation(
+                "URL host is blocked (private range)".to_string(),
+            ));
+        }
+        if octets[0] == 169 && octets[1] == 254 {
+            return Err(IamError::CimdValidation(
+                "URL host is blocked (link-local)".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// M2M Route Handler
+// ═══════════════════════════════════════════════════════════════════
+
+/// POST /api/auth/token — M2M client credentials token endpoint.
+pub async fn m2m_token(
+    State(state): State<AppState>,
+    Json(req): Json<M2mTokenRequest>,
+) -> Result<Json<M2mTokenResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let iam = state.iam_state.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "IAM is disabled".to_string(),
+            }),
+        )
+    })?;
+
+    if req.grant_type != "client_credentials" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Unsupported grant_type; must be 'client_credentials'".to_string(),
+            }),
+        ));
+    }
+
+    let scopes = req
+        .scope
+        .as_deref()
+        .map(|s| {
+            s.split_whitespace()
+                .map(|scope| scope.to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let token_response = iam
+        .exchange_client_credentials(&req.client_id, &req.client_secret, &scopes)
+        .map_err(|e| match &e {
+            IamError::M2mDisabled => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ErrorResponse {
+                    error: "M2M authentication is disabled".to_string(),
+                }),
+            ),
+            IamError::M2mInvalidCredentials => (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse {
+                    error: "Invalid client credentials".to_string(),
+                }),
+            ),
+            IamError::M2mScopeNotPermitted(scope) => (
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: format!("Scope not permitted: {}", scope),
+                }),
+            ),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    // SECURITY: Do not leak internal error details.
+                    error: "Token generation failed".to_string(),
+                }),
+            ),
+        })?;
+
+    Ok(Json(token_response))
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CIMD Route Handler
+// ═══════════════════════════════════════════════════════════════════
+
+/// Request body for fetching CIMD.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CimdRequest {
+    /// The HTTPS URL of the Client ID Metadata Document.
+    pub client_id_url: String,
+}
+
+/// GET /api/auth/client-metadata — Fetch Client ID Metadata Document.
+pub async fn client_metadata(
+    State(state): State<AppState>,
+    Json(req): Json<CimdRequest>,
+) -> Result<Json<ClientMetadata>, (StatusCode, Json<ErrorResponse>)> {
+    let iam = state.iam_state.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "IAM is disabled".to_string(),
+            }),
+        )
+    })?;
+
+    let metadata = iam
+        .fetch_client_metadata(&req.client_id_url)
+        .await
+        .map_err(|e| match &e {
+            IamError::CimdValidation(msg) => (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Client metadata validation failed: {}", msg),
+                }),
+            ),
+            IamError::CimdFetch(_) => (
+                StatusCode::BAD_GATEWAY,
+                Json(ErrorResponse {
+                    // SECURITY: Do not leak upstream error details.
+                    error: "Failed to fetch client metadata".to_string(),
+                }),
+            ),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Internal error".to_string(),
+                }),
+            ),
+        })?;
+
+    Ok(Json(metadata))
+}
+
+/// Build a step-up required response for a 403 Forbidden.
+///
+/// Called by the evaluate handler when a deny verdict is due to insufficient
+/// scopes/permissions and step-up authorization is available.
+pub fn build_step_up_response(
+    required_scopes: Vec<String>,
+    current_scopes: Vec<String>,
+    upgrade_url: Option<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let step_up = StepUpRequired {
+        required_scopes,
+        current_scopes,
+        upgrade_url,
+    };
+    (
+        StatusCode::FORBIDDEN,
+        Json(serde_json::json!({
+            "error": "Insufficient authorization",
+            "step_up_required": {
+                "required_scopes": step_up.required_scopes,
+                "current_scopes": step_up.current_scopes,
+                "upgrade_url": step_up.upgrade_url,
+            }
+        })),
+    )
 }
 
 #[cfg(test)]
@@ -1690,6 +2348,348 @@ mod tests {
         assert!(iam.find_session(&s1.id).is_none());
         assert!(iam.find_session(&s2.id).is_some());
         assert!(iam.find_session(&s3.id).is_some());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // M2M Tests
+    // ═══════════════════════════════════════════════════════════════
+
+    fn make_argon2_hash(secret: &str) -> String {
+        use argon2::Argon2;
+        use password_hash::rand_core::OsRng;
+        use password_hash::{PasswordHasher, SaltString};
+        let salt = SaltString::generate(&mut OsRng);
+        Argon2::default()
+            .hash_password(secret.as_bytes(), &salt)
+            .expect("hash password")
+            .to_string()
+    }
+
+    fn m2m_config_with_client(
+        client_id: &str,
+        secret: &str,
+        role: &str,
+        scopes: Vec<String>,
+    ) -> IamConfig {
+        use vellaveto_config::iam::M2mClient;
+        let hash = make_argon2_hash(secret);
+        let mut config = IamConfig::default();
+        config.oidc.enabled = true;
+        config.m2m.enabled = true;
+        config.m2m.token_ttl_secs = 300;
+        config.m2m.clients.push(M2mClient {
+            client_id: client_id.to_string(),
+            client_secret_hash: hash,
+            role: role.to_string(),
+            allowed_scopes: scopes,
+        });
+        config
+    }
+
+    #[test]
+    fn test_m2m_exchange_success() {
+        let config = m2m_config_with_client(
+            "test-client",
+            "test-secret-123",
+            "operator",
+            vec!["evaluate".to_string(), "audit:read".to_string()],
+        );
+        let secret = b"this-is-a-32-byte-or-longer-secret-key".to_vec();
+        let iam = IamState::new_for_test_with_secret(config, Some(secret));
+        let result = iam.exchange_client_credentials(
+            "test-client",
+            "test-secret-123",
+            &["evaluate".to_string()],
+        );
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert_eq!(response.token_type, "Bearer");
+        assert_eq!(response.expires_in, 300);
+        assert_eq!(response.scope, "evaluate");
+        assert!(!response.access_token.is_empty());
+    }
+
+    #[test]
+    fn test_m2m_exchange_all_scopes_when_empty() {
+        let config = m2m_config_with_client(
+            "test-client",
+            "test-secret-123",
+            "operator",
+            vec!["evaluate".to_string(), "audit:read".to_string()],
+        );
+        let secret = b"this-is-a-32-byte-or-longer-secret-key".to_vec();
+        let iam = IamState::new_for_test_with_secret(config, Some(secret));
+        let result = iam.exchange_client_credentials("test-client", "test-secret-123", &[]);
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert_eq!(response.scope, "evaluate audit:read");
+    }
+
+    #[test]
+    fn test_m2m_exchange_wrong_secret() {
+        let config = m2m_config_with_client(
+            "test-client",
+            "correct-secret",
+            "operator",
+            vec!["evaluate".to_string()],
+        );
+        let secret = b"this-is-a-32-byte-or-longer-secret-key".to_vec();
+        let iam = IamState::new_for_test_with_secret(config, Some(secret));
+        let result =
+            iam.exchange_client_credentials("test-client", "wrong-secret", &[]);
+        assert!(matches!(result, Err(IamError::M2mInvalidCredentials)));
+    }
+
+    #[test]
+    fn test_m2m_exchange_unknown_client() {
+        let config = m2m_config_with_client(
+            "test-client",
+            "test-secret",
+            "operator",
+            vec![],
+        );
+        let secret = b"this-is-a-32-byte-or-longer-secret-key".to_vec();
+        let iam = IamState::new_for_test_with_secret(config, Some(secret));
+        let result = iam.exchange_client_credentials("unknown", "test-secret", &[]);
+        assert!(matches!(result, Err(IamError::M2mInvalidCredentials)));
+    }
+
+    #[test]
+    fn test_m2m_exchange_scope_not_permitted() {
+        let config = m2m_config_with_client(
+            "test-client",
+            "test-secret-123",
+            "viewer",
+            vec!["evaluate".to_string()],
+        );
+        let secret = b"this-is-a-32-byte-or-longer-secret-key".to_vec();
+        let iam = IamState::new_for_test_with_secret(config, Some(secret));
+        let result = iam.exchange_client_credentials(
+            "test-client",
+            "test-secret-123",
+            &["admin:write".to_string()],
+        );
+        assert!(matches!(result, Err(IamError::M2mScopeNotPermitted(_))));
+    }
+
+    #[test]
+    fn test_m2m_exchange_disabled() {
+        let config = IamConfig::default();
+        let iam = IamState::new_for_test(config);
+        let result =
+            iam.exchange_client_credentials("client", "secret", &[]);
+        assert!(matches!(result, Err(IamError::M2mDisabled)));
+    }
+
+    #[test]
+    fn test_m2m_exchange_no_signing_secret() {
+        let config = m2m_config_with_client(
+            "test-client",
+            "test-secret-123",
+            "operator",
+            vec!["evaluate".to_string()],
+        );
+        // No signing secret provided.
+        let iam = IamState::new_for_test_with_secret(config, None);
+        let result = iam.exchange_client_credentials(
+            "test-client",
+            "test-secret-123",
+            &["evaluate".to_string()],
+        );
+        assert!(matches!(result, Err(IamError::M2mTokenGeneration(_))));
+    }
+
+    #[test]
+    fn test_m2m_exchange_dangerous_chars_in_client_id() {
+        let config = m2m_config_with_client(
+            "test-client",
+            "test-secret",
+            "operator",
+            vec![],
+        );
+        let secret = b"this-is-a-32-byte-or-longer-secret-key".to_vec();
+        let iam = IamState::new_for_test_with_secret(config, Some(secret));
+        let result =
+            iam.exchange_client_credentials("test\x00client", "test-secret", &[]);
+        assert!(matches!(result, Err(IamError::M2mInvalidCredentials)));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Step-Up Tests
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_build_step_up_response_structure() {
+        let (status, body) = build_step_up_response(
+            vec!["admin:write".to_string()],
+            vec!["evaluate".to_string()],
+            Some("https://example.com/auth/upgrade".to_string()),
+        );
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let json = body.0;
+        assert_eq!(json["error"], "Insufficient authorization");
+        assert!(json["step_up_required"]["required_scopes"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("admin:write")));
+        assert!(json["step_up_required"]["current_scopes"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("evaluate")));
+        assert_eq!(
+            json["step_up_required"]["upgrade_url"],
+            "https://example.com/auth/upgrade"
+        );
+    }
+
+    #[test]
+    fn test_build_step_up_response_no_upgrade_url() {
+        let (status, body) = build_step_up_response(
+            vec!["admin:write".to_string()],
+            vec![],
+            None,
+        );
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let json = body.0;
+        assert!(json["step_up_required"]["upgrade_url"].is_null());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // CIMD Tests
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_validate_cimd_host_blocks_localhost() {
+        let url = Url::parse("https://localhost/metadata").unwrap();
+        assert!(validate_cimd_host(&url).is_err());
+    }
+
+    #[test]
+    fn test_validate_cimd_host_blocks_loopback() {
+        let url = Url::parse("https://127.0.0.1/metadata").unwrap();
+        assert!(validate_cimd_host(&url).is_err());
+    }
+
+    #[test]
+    fn test_validate_cimd_host_blocks_link_local() {
+        let url = Url::parse("https://169.254.169.254/metadata").unwrap();
+        assert!(validate_cimd_host(&url).is_err());
+    }
+
+    #[test]
+    fn test_validate_cimd_host_blocks_private_10() {
+        let url = Url::parse("https://10.0.0.1/metadata").unwrap();
+        assert!(validate_cimd_host(&url).is_err());
+    }
+
+    #[test]
+    fn test_validate_cimd_host_blocks_private_192() {
+        let url = Url::parse("https://192.168.1.1/metadata").unwrap();
+        assert!(validate_cimd_host(&url).is_err());
+    }
+
+    #[test]
+    fn test_validate_cimd_host_blocks_private_172() {
+        let url = Url::parse("https://172.16.0.1/metadata").unwrap();
+        assert!(validate_cimd_host(&url).is_err());
+    }
+
+    #[test]
+    fn test_validate_cimd_host_blocks_metadata_google() {
+        let url = Url::parse("https://metadata.google.internal/metadata").unwrap();
+        assert!(validate_cimd_host(&url).is_err());
+    }
+
+    #[test]
+    fn test_validate_cimd_host_allows_public() {
+        let url = Url::parse("https://auth.example.com/.well-known/oauth-client").unwrap();
+        assert!(validate_cimd_host(&url).is_ok());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // M2M Config Validation Tests
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_m2m_config_validation_disabled_is_ok() {
+        let config = IamConfig::default();
+        assert!(config.m2m.validate().is_ok());
+    }
+
+    #[test]
+    fn test_m2m_config_validation_enabled_no_clients() {
+        use vellaveto_config::iam::M2mConfig;
+        let config = M2mConfig {
+            enabled: true,
+            clients: vec![],
+            token_ttl_secs: 300,
+            issuer: None,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_m2m_config_validation_duplicate_client_ids() {
+        use vellaveto_config::iam::{M2mClient, M2mConfig};
+        let client = M2mClient {
+            client_id: "dup".to_string(),
+            client_secret_hash: "hash123456789012345678901234567890".to_string(),
+            role: "viewer".to_string(),
+            allowed_scopes: vec![],
+        };
+        let config = M2mConfig {
+            enabled: true,
+            clients: vec![client.clone(), client],
+            token_ttl_secs: 300,
+            issuer: None,
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("duplicated"));
+    }
+
+    #[test]
+    fn test_m2m_client_debug_redacts_secret() {
+        use vellaveto_config::iam::M2mClient;
+        let client = M2mClient {
+            client_id: "test".to_string(),
+            client_secret_hash: "super-secret-hash".to_string(),
+            role: "viewer".to_string(),
+            allowed_scopes: vec![],
+        };
+        let debug = format!("{:?}", client);
+        assert!(debug.contains("[REDACTED]"));
+        assert!(!debug.contains("super-secret-hash"));
+    }
+
+    #[test]
+    fn test_m2m_token_jwt_contains_expected_claims() {
+        let config = m2m_config_with_client(
+            "test-client",
+            "test-secret-123",
+            "operator",
+            vec!["evaluate".to_string()],
+        );
+        let secret = b"this-is-a-32-byte-or-longer-secret-key".to_vec();
+        let iam = IamState::new_for_test_with_secret(config, Some(secret.clone()));
+        let result = iam
+            .exchange_client_credentials("test-client", "test-secret-123", &[])
+            .unwrap();
+
+        // Decode the JWT and verify claims.
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.set_required_spec_claims::<&str>(&[]);
+        let token_data = decode::<M2mJwtClaims>(
+            &result.access_token,
+            &DecodingKey::from_secret(&secret),
+            &validation,
+        )
+        .unwrap();
+        assert_eq!(token_data.claims.sub, "test-client");
+        assert_eq!(token_data.claims.role, "operator");
+        assert_eq!(token_data.claims.scope, "evaluate");
+        assert_eq!(token_data.claims.iss, "vellaveto");
+        assert!(!token_data.claims.jti.is_empty());
     }
 }
 

@@ -71,6 +71,19 @@ pub struct AuditLogger {
     pub(crate) sink: Option<std::sync::Arc<dyn crate::sink::AuditSink>>,
     /// Whether sink failures should be treated as fatal errors.
     pub(crate) sink_failure_fatal: bool,
+    /// Phase 54: ML-DSA-65 secret key (hex-encoded 4032-byte key).
+    /// Used for creating hybrid (v2) checkpoints and rotation manifests.
+    #[cfg(feature = "pqc-hybrid")]
+    pub(crate) pqc_secret_key_hex: Option<String>,
+    /// Phase 54: ML-DSA-65 public key (hex-encoded 1952-byte key).
+    /// Stored alongside secret key for embedding in checkpoints.
+    #[cfg(feature = "pqc-hybrid")]
+    pub(crate) pqc_public_key_hex: Option<String>,
+    /// Phase 54: Trusted ML-DSA-65 verifying key (hex-encoded 1952-byte key).
+    /// When set, hybrid checkpoint verification rejects any checkpoint signed
+    /// by a different PQC key. NOT feature-gated because verification logic
+    /// must reject v2 checkpoints even when the feature is disabled.
+    pub(crate) trusted_pqc_verifying_key: Option<String>,
 }
 
 impl AuditLogger {
@@ -96,6 +109,11 @@ impl AuditLogger {
             merkle_tree: None,
             sink: None,
             sink_failure_fatal: false,
+            #[cfg(feature = "pqc-hybrid")]
+            pqc_secret_key_hex: None,
+            #[cfg(feature = "pqc-hybrid")]
+            pqc_public_key_hex: None,
+            trusted_pqc_verifying_key: None,
         }
     }
 
@@ -115,6 +133,11 @@ impl AuditLogger {
             merkle_tree: None,
             sink: None,
             sink_failure_fatal: false,
+            #[cfg(feature = "pqc-hybrid")]
+            pqc_secret_key_hex: None,
+            #[cfg(feature = "pqc-hybrid")]
+            pqc_public_key_hex: None,
+            trusted_pqc_verifying_key: None,
         }
     }
 
@@ -148,6 +171,26 @@ impl AuditLogger {
     /// key pins all subsequent ones (TOFU model).
     pub fn with_trusted_key(mut self, hex_key: String) -> Self {
         self.trusted_verifying_key = Some(hex_key);
+        self
+    }
+
+    /// Set ML-DSA-65 key pair for creating hybrid (v2) checkpoints.
+    ///
+    /// When set, `create_checkpoint()` and `maybe_rotate()` will produce
+    /// hybrid Ed25519 + ML-DSA-65 signatures (signature_version = 2).
+    #[cfg(feature = "pqc-hybrid")]
+    pub fn with_pqc_keypair(mut self, secret_key_hex: String, public_key_hex: String) -> Self {
+        self.pqc_secret_key_hex = Some(secret_key_hex);
+        self.pqc_public_key_hex = Some(public_key_hex);
+        self
+    }
+
+    /// Pin a trusted ML-DSA-65 verifying key (hex-encoded 1952-byte public key).
+    ///
+    /// When set, `verify_checkpoints()` rejects any v2 checkpoint signed by
+    /// a different PQC key. This prevents PQC key substitution attacks.
+    pub fn with_trusted_pqc_key(mut self, hex_key: String) -> Self {
+        self.trusted_pqc_verifying_key = Some(hex_key);
         self
     }
 

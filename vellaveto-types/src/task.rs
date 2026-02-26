@@ -3,6 +3,134 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+/// Maximum number of metadata entries in `TaskCreateParams`.
+const MAX_TASK_METADATA_ENTRIES: usize = 64;
+
+/// Parameters for the MCP 2025-11-25 `tasks/create` method.
+///
+/// The `tasks/create` method allows clients to explicitly create a new async task
+/// for a specified tool invocation. The server assigns a task ID and begins
+/// executing the tool in the background.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TaskCreateParams {
+    /// The tool to invoke for this task.
+    pub tool: String,
+    /// Arguments to pass to the tool.
+    #[serde(default)]
+    pub arguments: serde_json::Value,
+    /// Optional client-supplied task ID. If omitted, the server generates one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    /// Optional metadata for the task (e.g., labels, priority hints).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+impl TaskCreateParams {
+    /// Maximum length for `tool` field (bytes).
+    const MAX_TOOL_LEN: usize = 256;
+    /// Maximum length for `task_id` field (bytes).
+    const MAX_TASK_ID_LEN: usize = 256;
+    /// Maximum serialized size for `arguments` (bytes).
+    const MAX_ARGUMENTS_SIZE: usize = 1_048_576; // 1 MiB
+    /// Maximum length for individual metadata keys (bytes).
+    const MAX_METADATA_KEY_LEN: usize = 256;
+    /// Maximum serialized size for individual metadata values (bytes).
+    const MAX_METADATA_VALUE_SIZE: usize = 8192;
+
+    /// Validate structural bounds on all fields.
+    ///
+    /// SECURITY: Prevents memory exhaustion and control character injection
+    /// from untrusted `tasks/create` payloads.
+    pub fn validate(&self) -> Result<(), String> {
+        // Validate tool
+        if self.tool.is_empty() {
+            return Err("TaskCreateParams tool must not be empty".to_string());
+        }
+        if self.tool.len() > Self::MAX_TOOL_LEN {
+            return Err(format!(
+                "TaskCreateParams tool length {} exceeds max {}",
+                self.tool.len(),
+                Self::MAX_TOOL_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.tool) {
+            return Err(
+                "TaskCreateParams tool contains control or format characters".to_string(),
+            );
+        }
+
+        // Validate arguments size
+        let args_size = serde_json::to_string(&self.arguments)
+            .map(|s| s.len())
+            .unwrap_or(0);
+        if args_size > Self::MAX_ARGUMENTS_SIZE {
+            return Err(format!(
+                "TaskCreateParams arguments serialized size {} exceeds max {}",
+                args_size, Self::MAX_ARGUMENTS_SIZE,
+            ));
+        }
+
+        // Validate optional task_id
+        if let Some(ref tid) = self.task_id {
+            if tid.is_empty() {
+                return Err("TaskCreateParams task_id must not be empty when provided".to_string());
+            }
+            if tid.len() > Self::MAX_TASK_ID_LEN {
+                return Err(format!(
+                    "TaskCreateParams task_id length {} exceeds max {}",
+                    tid.len(),
+                    Self::MAX_TASK_ID_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(tid) {
+                return Err(
+                    "TaskCreateParams task_id contains control or format characters".to_string(),
+                );
+            }
+        }
+
+        // Validate metadata
+        if let Some(ref meta) = self.metadata {
+            if meta.len() > MAX_TASK_METADATA_ENTRIES {
+                return Err(format!(
+                    "TaskCreateParams metadata entry count {} exceeds max {}",
+                    meta.len(),
+                    MAX_TASK_METADATA_ENTRIES,
+                ));
+            }
+            for (key, value) in meta {
+                if key.len() > Self::MAX_METADATA_KEY_LEN {
+                    return Err(format!(
+                        "TaskCreateParams metadata key length {} exceeds max {}",
+                        key.len(),
+                        Self::MAX_METADATA_KEY_LEN,
+                    ));
+                }
+                if crate::core::has_dangerous_chars(key) {
+                    return Err(
+                        "TaskCreateParams metadata key contains control or format characters"
+                            .to_string(),
+                    );
+                }
+                let val_size = serde_json::to_string(value)
+                    .map(|s| s.len())
+                    .unwrap_or(0);
+                if val_size > Self::MAX_METADATA_VALUE_SIZE {
+                    return Err(format!(
+                        "TaskCreateParams metadata value size {} exceeds max {}",
+                        val_size,
+                        Self::MAX_METADATA_VALUE_SIZE,
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
 /// Status of an async MCP task for lifecycle tracking.
 ///
 /// MCP 2025-11-25 introduces async tasks that run in the background.
