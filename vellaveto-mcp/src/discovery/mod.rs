@@ -20,7 +20,12 @@
 pub mod engine;
 pub mod error;
 pub mod index;
+pub mod registry;
 
 pub use engine::{DiscoveryEngine, IndexStats};
 pub use error::DiscoveryError;
 pub use index::ToolIndex;
+pub use registry::{
+    compute_publisher_hash, McpRegistryClient, RegistryConfig, RegistryQueryResult,
+    RegistryServerEntry, RegistryVerificationResult,
+};

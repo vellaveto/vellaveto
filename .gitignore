@@ -66,6 +66,9 @@ scripts/run-quality-gates.sh
 fuzz/Cargo.lock
 fuzz/target/
 
+# SBOM output (generated, not committed)
+sbom/
+
 # Quality reports (session-local)
 quality/
 

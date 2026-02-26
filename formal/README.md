@@ -9,14 +9,17 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 
 | Model | Framework | Properties | What It Covers |
 |-------|-----------|------------|----------------|
-| `MCPPolicyEngine.tla` | TLA+ | S1–S6, L1–L2 | First-match-wins policy evaluation, fail-closed defaults |
+| `MCPPolicyEngine.tla` | TLA+ | S1–S7, L1–L2 | First-match-wins policy evaluation, fail-closed defaults |
 | `AbacForbidOverrides.tla` | TLA+ | S7–S10, L3 | ABAC forbid-overrides combining algorithm |
+| `MCPTaskLifecycle.tla` | TLA+ | T1–T5, TL1–TL2 | MCP Task primitive lifecycle state machine |
+| `CascadingFailure.tla` | TLA+ | C1–C5, CL1–CL2 | Multi-agent cascading failure circuit breaker |
 | `CapabilityDelegation.als` | Alloy | S11–S16 | Capability token delegation with monotonic attenuation |
 | `Determinism.lean` | Lean 4 | — | Policy evaluation determinism (same input → same verdict) |
 | `FailClosed.lean` | Lean 4 | S1, S5 | Fail-closed: no match → Deny; Allow requires matching Allow policy |
 | `PathNormalization.lean` | Lean 4 | — | Path normalization idempotence: `normalize(normalize(x)) = normalize(x)` |
+| `kani/proofs.rs` | Kani | K1–K5 | Bounded model checking of actual Rust implementation |
 
-**19 verified properties total** (16 safety + 3 liveness) + **3 Lean 4 lemmas**.
+**33 verified properties total** (26 safety + 7 liveness) + **3 Lean 4 lemmas** + **5 Kani proof harnesses**.
 
 ## Directory Structure
 
@@ -31,6 +34,12 @@ formal/
     AbacForbidOverrides.tla          ← ABAC forbid-overrides evaluation
     MC_AbacForbidOverrides.tla       ← Model companion (concrete constants for TLC)
     AbacForbidOverrides.cfg          ← TLC configuration for ABAC
+    MCPTaskLifecycle.tla             ← MCP Task primitive lifecycle
+    MC_MCPTaskLifecycle.tla          ← Model companion (task IDs)
+    MCPTaskLifecycle.cfg             ← TLC configuration for tasks
+    CascadingFailure.tla             ← Multi-agent cascading failure
+    MC_CascadingFailure.tla          ← Model companion (agents, tools)
+    CascadingFailure.cfg             ← TLC configuration for cascading failure
   alloy/
     CapabilityDelegation.als         ← Capability token delegation model
   lean/
@@ -40,6 +49,9 @@ formal/
       Determinism.lean              ← Evaluation determinism proof
       FailClosed.lean               ← Fail-closed and S1/S5 proofs
       PathNormalization.lean        ← Path normalization idempotence
+  kani/
+    README.md                        ← Kani setup and usage guide
+    proofs.rs                        ← Proof harnesses (5 properties)
 ```
 
 ## Tooling Setup
@@ -93,6 +105,24 @@ java -jar org.alloytools.alloy.dist.jar
 
 Expected output: all 6 assertions pass with 0 counterexamples found.
 
+### TLA+ Task Lifecycle (T1–T5, TL1–TL2)
+
+```bash
+cd formal/tla
+java -jar tla2tools.jar -config MCPTaskLifecycle.cfg MC_MCPTaskLifecycle.tla
+```
+
+Expected output: all 5 invariants and 2 temporal properties pass with zero violations.
+
+### TLA+ Cascading Failure (C1–C5, CL1–CL2)
+
+```bash
+cd formal/tla
+java -jar tla2tools.jar -config CascadingFailure.cfg MC_CascadingFailure.tla
+```
+
+Expected output: all 5 invariants and 2 temporal properties pass with zero violations.
+
 ### Lean 4 Lemmas (Determinism, Fail-Closed, Idempotence)
 
 ```bash
@@ -138,13 +168,47 @@ and no warnings.
 | S15 | **Terminal cannot delegate:** depth=0 → no children | `vellaveto-mcp/src/capability_token.rs:128-131` | `CapabilityDelegation.als:S15` |
 | S16 | **Issuer chain integrity:** child.issuer = parent.holder | `vellaveto-mcp/src/capability_token.rs:195` | `CapabilityDelegation.als:S16` |
 
-### Liveness (L1–L3)
+### Task Lifecycle Safety (T1–T5)
+
+| ID | Property | Source | Spec Location |
+|----|----------|--------|---------------|
+| T1 | **Terminal absorbing:** completed/failed/cancelled are permanent | `vellaveto-mcp/src/task_state.rs` | `MCPTaskLifecycle.tla:InvariantT1_TerminalAbsorbing` |
+| T2 | **Initial state:** tasks begin in Working or Failed | MCP 2025-11-25 Tasks spec | `MCPTaskLifecycle.tla:InvariantT2_InitialState` |
+| T3 | **Policy evaluated:** every task has a policy verdict | `vellaveto-mcp/src/task_state.rs:register_task_from_create` | `MCPTaskLifecycle.tla:InvariantT3_PolicyEvaluated` |
+| T4 | **Terminal audited:** terminal tasks always have audit events | `vellaveto-audit/src/events.rs:log_task_lifecycle_event` | `MCPTaskLifecycle.tla:InvariantT4_TerminalAudited` |
+| T5 | **Bounded concurrency:** non-terminal tasks ≤ MaxTasks | `vellaveto-mcp/src/task_state.rs:MAX_CONCURRENT_TASKS` | `MCPTaskLifecycle.tla:InvariantT5_BoundedConcurrency` |
+
+### Cascading Failure Safety (C1–C5)
+
+| ID | Property | Source | Spec Location |
+|----|----------|--------|---------------|
+| C1 | **Chain depth bounded:** call chain ≤ MaxChainDepth | `vellaveto-engine/src/circuit_breaker.rs` | `CascadingFailure.tla:InvariantC1_ChainDepthBounded` |
+| C2 | **Error threshold:** consecutive errors trigger circuit open | OWASP ASI08 | `CascadingFailure.tla:InvariantC2_ErrorThresholdTriggersOpen` |
+| C3 | **Open denies all:** open circuit rejects requests (fail-closed) | `vellaveto-engine/src/circuit_breaker.rs` | `CascadingFailure.tla:InvariantC3_OpenCircuitDenies` |
+| C4 | **Half-open transient:** half-open is a transient probe state | Circuit breaker pattern | `CascadingFailure.tla:InvariantC4_HalfOpenTransient` |
+| C5 | **Probe success closes:** successful probe returns to closed | Circuit breaker pattern | `CascadingFailure.tla:InvariantC5_ProbeSuccessCloses` |
+
+### Kani Proof Harnesses (K1–K5)
+
+| ID | Property | Source | Harness |
+|----|----------|--------|---------|
+| K1 | **Fail-closed (implementation):** empty policies → Deny | `vellaveto-engine/src/lib.rs` | `proof_fail_closed_no_match_produces_deny` |
+| K2 | **Path idempotence (implementation):** `normalize(normalize(x)) == normalize(x)` | `vellaveto-engine/src/path.rs` | `proof_path_normalize_idempotent` |
+| K3 | **No traversal (implementation):** normalized path has no `..` | `vellaveto-engine/src/path.rs` | `proof_path_normalize_no_traversal` |
+| K4 | **Counter monotonicity:** `saturating_add` never decreases | All counter operations | `proof_saturating_counters_never_wrap` |
+| K5 | **Error → Deny (implementation):** evaluation errors produce Deny | `vellaveto-engine/src/lib.rs` | `proof_verdict_deny_on_error` |
+
+### Liveness (L1–L3, TL1–TL2, CL1–CL2)
 
 | ID | Property | Spec Location |
 |----|----------|---------------|
 | L1 | **Eventual verdict:** every pending action eventually receives a verdict | `MCPPolicyEngine.tla:LivenessL1` |
 | L2 | **No stuck states:** engine never permanently stuck in matching/applying | `MCPPolicyEngine.tla:LivenessL2` |
 | L3 | **ABAC eventual decision:** every pending ABAC eval eventually gets a decision | `AbacForbidOverrides.tla:LivenessAbacEventualDecision` |
+| TL1 | **Task termination:** every task eventually reaches a terminal state | `MCPTaskLifecycle.tla:LivenessTL1_EventualTermination` |
+| TL2 | **Input resolved:** input-required tasks eventually resume or terminate | `MCPTaskLifecycle.tla:LivenessTL2_InputResolved` |
+| CL1 | **Circuit recovery:** open circuits eventually transition to half-open | `CascadingFailure.tla:LivenessCL1_OpenEventuallyHalfOpen` |
+| CL2 | **Half-open resolves:** half-open circuits eventually close or reopen | `CascadingFailure.tla:LivenessCL2_HalfOpenResolves` |
 
 ## Design Decisions
 
@@ -253,10 +317,11 @@ bound values.
 
 | Verification Layer | Method | Count |
 |--------------------|--------|-------|
-| Unit tests | Rust `#[test]` | 4,857 |
+| Unit tests | Rust `#[test]` | 8,044 |
 | Fuzz targets | `cargo fuzz` | 22 |
 | Property-based tests | `proptest` | ~50 |
-| **Formal specs** | **TLA+ / Alloy** | **19 properties** |
+| **Formal specs (models)** | **TLA+ / Alloy / Lean** | **33 properties + 3 lemmas** |
+| **Formal specs (code)** | **Kani** | **5 proof harnesses** |
 
 The formal specs complement (not replace) the test suite:
 - Tests verify concrete executions against expected outputs

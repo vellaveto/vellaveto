@@ -1,7 +1,9 @@
 pub mod abac;
 pub mod behavioral;
 pub mod cache;
+pub mod cascading;
 pub mod circuit_breaker;
+pub mod collusion;
 mod compiled;
 mod constraint_eval;
 mod context_check;

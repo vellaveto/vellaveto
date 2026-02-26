@@ -1,11 +1,28 @@
+# deny.toml — cargo-deny configuration for Vellaveto supply chain hardening
+#
+# Run: cargo deny check
+# CI:  cargo deny --all-features check
+#
+# Docs: https://embarkstudios.github.io/cargo-deny/
+
+# ---------------------------------------------------------------------------
+# [advisories] — Deny known vulnerabilities from the RustSec advisory database
+# ---------------------------------------------------------------------------
 [advisories]
 db-urls = ["https://github.com/RustSec/advisory-db"]
-# cargo-deny >=0.19.0: unmaintained/unsound use scope values, not severity
+# Treat unmaintained and unsound crates as workspace-level warnings so they
+# surface in CI but do not hard-block builds (these are informational).
 unmaintained = "workspace"
 unsound = "workspace"
-yanked = "warn"
+# Yanked crates should block — a yanked version was pulled for a reason.
+yanked = "deny"
+# Explicitly ignored advisories (with justification required for each).
+# Keep this list empty; add entries only with a comment explaining why.
 ignore = []
 
+# ---------------------------------------------------------------------------
+# [bans] — Detect duplicate crate versions and wildcard dependencies
+# ---------------------------------------------------------------------------
 [bans]
 multiple-versions = "warn"
 wildcards = "allow"
@@ -39,18 +56,38 @@ skip = [
 ]
 skip-tree = []
 
+# ---------------------------------------------------------------------------
+# [sources] — Ensure all crates come from crates.io only
+# ---------------------------------------------------------------------------
 [sources]
+# Deny crates from unknown registries — supply chain attack vector.
 unknown-registry = "deny"
+# Deny crates sourced from git — these bypass crates.io review and checksum
+# verification. All dependencies must be published on crates.io.
 unknown-git = "deny"
+# Only allow the official crates.io registry.
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# No git sources allowed. If a git dependency is temporarily needed, add it
+# here with a comment explaining when it can be removed.
 allow-git = []
+# If git sources are ever allowed, require a pinned revision (not branch/tag)
+# to prevent upstream mutations.
 required-git-spec = "rev"
 
+# ---------------------------------------------------------------------------
+# [licenses] — Enforce license allowlist for all dependencies
+# ---------------------------------------------------------------------------
 [licenses]
 version = 2
+# Minimum confidence for SPDX license detection. 0.8 is the recommended
+# default — it catches most license files while avoiding false positives.
 confidence-threshold = 0.8
+# Allowed licenses. This list is intentionally conservative.
+# Every addition must be reviewed for compatibility with AGPL-3.0-only.
 allow = [
+  # Project license
   "AGPL-3.0-only",
+  # Permissive licenses compatible with AGPL-3.0
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",
   "BSD-2-Clause",
@@ -60,10 +97,16 @@ allow = [
   "ISC",
   "MIT",
   "MIT-0",
-  "OpenSSL",
-  "CDLA-Permissive-2.0",
-  "Unicode-3.0",
+  "0BSD",
   "Unlicense",
   "Zlib",
-  "0BSD",
+  # Special-purpose licenses for specific dependency domains
+  "OpenSSL",
+  "CDLA-Permissive-2.0",
+  # Unicode licenses (required by unicode-ident, icu4x, and related crates)
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
 ]
+# Crates whose license could not be auto-detected. Each entry requires a
+# manual review confirming the license is acceptable.
+exceptions = []

@@ -1,4 +1,5 @@
 pub mod dashboard;
+pub mod dpop;
 pub mod iam;
 pub mod idempotency;
 pub mod jit;

@@ -90,6 +90,7 @@ pub mod error;
 pub mod extractor;
 pub mod message;
 pub mod proxy;
+pub mod signature;
 
 // Re-export commonly used types at the module level
 pub use agent_card::{
@@ -107,3 +108,7 @@ pub use message::{
     FileContent, MessagePart, PartContent, TaskState,
 };
 pub use proxy::{process_response, A2aProxyConfig, A2aProxyDecision, A2aProxyService};
+pub use signature::{
+    compute_card_hash, AgentCardClaims, AgentCardSignatureVerifier, AgentSigningKey,
+    SignatureEnforcementConfig,
+};
