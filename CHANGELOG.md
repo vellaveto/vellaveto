@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **SANDWORM-001 Hardening & Fail-Closed Integration Tests**
+  - 6 integration tests corrected to assert fail-closed behavior for non-boolean `require_approval` values (FIND-IMP-013). Engine correctly uses `as_bool().unwrap_or(true)` — non-boolean types (string, integer, null) now consistently produce `RequireApproval`, not `Allow`.
+  - New engine modules: adaptive rate limiting (`adaptive_rate.rs`), coverage analysis (`coverage.rs`), impact analysis (`impact.rs`), policy linting (`lint.rs`), audit analytics (`analytics.rs`), bulk config operations (`bulk.rs`).
+  - Hardening across audit (PQC, OCSF, NIST AI 600-1, checkpoints, rotation), engine (cascading circuit breakers, collusion detection, Wasm plugins, cache), MCP (A2A signatures, NHI lifecycle, registry client, relay), server (DPoP, IAM, RBAC, signup, routes).
+  - Socket.dev badge added to README. `@clack/prompts` upgraded 0.9.1 → 1.0.1 (removes unmaintained `sisteransi` transitive dep).
+  - 8,228 Rust tests passing, zero warnings.
+
 - **SANDWORM-001: Rogue MCP Server Injection Hardening**
   Defends against the SANDWORM_MODE npm supply-chain worm (Feb 2026) that injects malicious MCP servers into AI coding assistant configs.
   - **`governance.require_server_registration`** (`vellaveto-config/src/governance.rs`): New fail-closed enforcement gate — when enabled with a populated `known_servers` list, tool calls from unknown MCP servers are denied. Mirrors `require_agent_registration` for agents.

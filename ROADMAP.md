@@ -2,7 +2,7 @@
 
 > **Version:** 6.0.0-dev
 > **Updated:** 2026-02-26
-> **Current:** 8,229 Rust + 59 React + 12 Terraform, 433 Python, 127 Go, 119 TypeScript | 225 audit rounds | 67 phases complete
+> **Current:** 8,228 Rust + 59 React + 12 Terraform, 433 Python, 127 Go, 119 TypeScript | 225 audit rounds | 67 phases complete
 > **Strategic position:** Agentic Security Control Plane & Policy Gateway
 > **License:** AGPL-3.0 (core) + Commercial Enterprise
 
