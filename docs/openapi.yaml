@@ -1,0 +1,3273 @@
+openapi: "3.0.3"
+info:
+  title: Vellaveto — MCP Tool Firewall API
+  description: |
+    Runtime security engine for AI agent tool calls. Intercepts MCP
+    (Model Context Protocol) and function-calling requests, enforces
+    security policies on paths/domains/actions, and maintains a
+    tamper-evident audit trail.
+
+    ## Authentication
+
+    All endpoints (except `/health`, `/setup/*`, `/iam/*`, and billing
+    webhooks) require one of:
+    - **API Key** — `Authorization: Bearer <key>` header
+    - **OAuth 2.0** — Bearer token from OIDC provider
+
+    ## Multi-Tenancy
+
+    Pass `X-Tenant-ID: <tenant>` header to scope requests to a tenant.
+    Default tenant is used when the header is absent.
+
+    ## Rate Limiting
+
+    All endpoints are rate-limited. Categories:
+    - **evaluate** — higher throughput (default 1000 req/s)
+    - **admin** — moderate (default 100 req/s)
+    - **readonly** — moderate (default 200 req/s)
+
+    HTTP 429 is returned when limits are exceeded.
+  version: 5.0.0
+  license:
+    name: AGPL-3.0
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+  contact:
+    name: Vellaveto
+    url: https://github.com/paolovella/vellaveto
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+  - url: https://vellaveto.example.com
+    description: Production
+
+tags:
+  - name: Health
+    description: Liveness and readiness checks
+  - name: Evaluation
+    description: Core policy evaluation engine
+  - name: Policies
+    description: Policy CRUD management
+  - name: Policy Lifecycle
+    description: Policy versioning, approval, and promotion
+  - name: Approvals
+    description: Human-in-the-loop approval workflow
+  - name: Audit
+    description: Audit log entries, export, and verification
+  - name: Compliance
+    description: Compliance framework reports and evidence packs
+  - name: Tenants
+    description: Multi-tenant management
+  - name: NHI
+    description: Non-Human Identity lifecycle management
+  - name: Memory Security
+    description: Memory injection defense (MINJA)
+  - name: ETDI
+    description: Enhanced Tool Definition Integrity (cryptographic tool security)
+  - name: Discovery
+    description: Tool discovery and search
+  - name: Simulator
+    description: Policy simulation, validation, and red-teaming
+  - name: Execution Graphs
+    description: Call-chain execution graph visualization
+  - name: Governance
+    description: Shadow AI detection and governance reporting
+  - name: ZK Audit
+    description: Zero-knowledge audit proofs
+  - name: Federation
+    description: Agent identity federation
+  - name: Billing
+    description: Licensing, usage metering, and payment webhooks
+  - name: IAM
+    description: OIDC/SAML login, sessions, and SCIM
+  - name: Circuit Breaker
+    description: Per-tool circuit breaker management
+  - name: Shadow Agents
+    description: Shadow agent detection and trust management
+  - name: Deputy
+    description: Deputy delegation validation
+  - name: Projector
+    description: Model-specific schema projection
+  - name: Observability
+    description: Observability exporter management
+  - name: Setup
+    description: First-run setup wizard (unauthenticated)
+
+security:
+  - apiKey: []
+  - oauth2: []
+
+paths:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # HEALTH
+  # ═══════════════════════════════════════════════════════════════════════════
+  /health:
+    get:
+      operationId: getHealth
+      summary: Health check
+      description: Returns server health status. Does not require authentication.
+      tags: [Health]
+      security: []
+      responses:
+        "200":
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /metrics:
+    get:
+      operationId: getMetrics
+      summary: Prometheus metrics
+      description: Returns Prometheus-format metrics. Requires authentication and is rate-limited.
+      tags: [Health]
+      responses:
+        "200":
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # EVALUATION
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/evaluate:
+    post:
+      operationId: evaluate
+      summary: Evaluate an action against policies
+      description: |
+        Core endpoint. Evaluates a tool call action against loaded policies
+        and returns a verdict (Allow, Deny, or RequireApproval). The action's
+        parameters are redacted in the response for security.
+      tags: [Evaluation]
+      parameters:
+        - name: trace
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Enable detailed evaluation trace in response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvaluateRequest"
+      responses:
+        "200":
+          description: Evaluation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvaluateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # POLICIES
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/policies:
+    get:
+      operationId: listPolicies
+      summary: List all policies
+      description: Returns all loaded policies. Tenant-scoped when X-Tenant-ID is set.
+      tags: [Policies]
+      responses:
+        "200":
+          description: Policy list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Policy"
+    post:
+      operationId: addPolicy
+      summary: Add a new policy
+      description: |
+        Add a policy at runtime. Dynamic policies have priority range
+        [-1000, +1000]. Max 10,000 policies per server.
+      tags: [Policies]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Policy"
+      responses:
+        "201":
+          description: Policy created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Duplicate policy ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/policies/{id}:
+    delete:
+      operationId: removePolicy
+      summary: Remove a policy by ID
+      tags: [Policies]
+      parameters:
+        - $ref: "#/components/parameters/PolicyId"
+      responses:
+        "200":
+          description: Policy removed
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/policies/reload:
+    post:
+      operationId: reloadPolicies
+      summary: Reload policies from config file
+      tags: [Policies]
+      responses:
+        "200":
+          description: Policies reloaded
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # POLICY LIFECYCLE
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/policies/{id}/versions:
+    get:
+      operationId: listPolicyVersions
+      summary: List versions of a policy
+      tags: [Policy Lifecycle]
+      parameters:
+        - $ref: "#/components/parameters/PolicyId"
+      responses:
+        "200":
+          description: Version list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PolicyVersion"
+    post:
+      operationId: createPolicyVersion
+      summary: Create a new policy version (Draft)
+      tags: [Policy Lifecycle]
+      parameters:
+        - $ref: "#/components/parameters/PolicyId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVersionRequest"
+      responses:
+        "201":
+          description: Version created
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/policies/{id}/versions/{version}:
+    get:
+      operationId: getPolicyVersion
+      summary: Get a specific policy version
+      tags: [Policy Lifecycle]
+      parameters:
+        - $ref: "#/components/parameters/PolicyId"
+        - $ref: "#/components/parameters/VersionNumber"
+      responses:
+        "200":
+          description: Policy version details
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/policies/{id}/versions/{version}/approve:
+    post:
+      operationId: approvePolicyVersion
+      summary: Approve a policy version
+      tags: [Policy Lifecycle]
+      parameters:
+        - $ref: "#/components/parameters/PolicyId"
+        - $ref: "#/components/parameters/VersionNumber"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveVersionRequest"
+      responses:
+        "200":
+          description: Version approved
+
+  /api/policies/{id}/versions/{version}/promote:
+    post:
+      operationId: promotePolicyVersion
+      summary: Promote a version to active
+      tags: [Policy Lifecycle]
+      parameters:
+        - $ref: "#/components/parameters/PolicyId"
+        - $ref: "#/components/parameters/VersionNumber"
+      responses:
+        "200":
+          description: Version promoted to active
+
+  /api/policies/{id}/versions/{version}/archive:
+    post:
+      operationId: archivePolicyVersion
+      summary: Archive a policy version
+      tags: [Policy Lifecycle]
+      parameters:
+        - $ref: "#/components/parameters/PolicyId"
+        - $ref: "#/components/parameters/VersionNumber"
+      responses:
+        "200":
+          description: Version archived
+
+  /api/policies/{id}/versions/{v1}/diff/{v2}:
+    get:
+      operationId: diffPolicyVersions
+      summary: Compare two policy versions
+      tags: [Policy Lifecycle]
+      parameters:
+        - $ref: "#/components/parameters/PolicyId"
+        - name: v1
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: v2
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: Version diff
+
+  /api/policies/{id}/rollback:
+    post:
+      operationId: rollbackPolicy
+      summary: Rollback to a previous version
+      tags: [Policy Lifecycle]
+      parameters:
+        - $ref: "#/components/parameters/PolicyId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RollbackRequest"
+      responses:
+        "200":
+          description: Rolled back successfully
+
+  /api/policy-lifecycle/status:
+    get:
+      operationId: getPolicyLifecycleStatus
+      summary: Policy lifecycle management status
+      tags: [Policy Lifecycle]
+      responses:
+        "200":
+          description: Lifecycle status
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # APPROVALS
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/approvals/pending:
+    get:
+      operationId: listPendingApprovals
+      summary: List pending approval requests
+      tags: [Approvals]
+      responses:
+        "200":
+          description: Pending approvals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  approvals:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ApprovalEntry"
+
+  /api/approvals/{id}:
+    get:
+      operationId: getApproval
+      summary: Get a specific approval request
+      tags: [Approvals]
+      parameters:
+        - $ref: "#/components/parameters/ApprovalId"
+      responses:
+        "200":
+          description: Approval details
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/approvals/{id}/approve:
+    post:
+      operationId: approveRequest
+      summary: Approve a pending request
+      tags: [Approvals]
+      parameters:
+        - $ref: "#/components/parameters/ApprovalId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveRequest"
+      responses:
+        "200":
+          description: Request approved
+
+  /api/approvals/{id}/deny:
+    post:
+      operationId: denyRequest
+      summary: Deny a pending request
+      tags: [Approvals]
+      parameters:
+        - $ref: "#/components/parameters/ApprovalId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveRequest"
+      responses:
+        "200":
+          description: Request denied
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # AUDIT
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/audit/entries:
+    get:
+      operationId: listAuditEntries
+      summary: List audit entries (paginated)
+      tags: [Audit]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Audit entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditEntry"
+
+  /api/audit/export:
+    get:
+      operationId: exportAudit
+      summary: Export audit in SIEM format
+      description: Export audit entries in CEF or JSONL format for SIEM ingestion.
+      tags: [Audit]
+      parameters:
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [cef, jsonl]
+            default: jsonl
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: ISO 8601 timestamp filter
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+      responses:
+        "200":
+          description: Audit data in requested format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/audit/report:
+    get:
+      operationId: getAuditReport
+      summary: Audit summary report
+      tags: [Audit]
+      responses:
+        "200":
+          description: Summary statistics
+
+  /api/audit/verify:
+    get:
+      operationId: verifyAuditChain
+      summary: Verify audit chain integrity
+      description: |
+        Verifies the SHA-256 hash chain and Ed25519 signatures
+        of the audit log. Returns integrity status.
+      tags: [Audit]
+      responses:
+        "200":
+          description: Chain integrity result
+
+  /api/audit/search:
+    get:
+      operationId: searchAudit
+      summary: Search audit entries
+      description: Full-text search across audit entries with filtering.
+      tags: [Audit]
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Search query
+        - name: tool
+          in: query
+          schema:
+            type: string
+        - name: verdict
+          in: query
+          schema:
+            type: string
+            enum: [allow, deny, require_approval]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+      responses:
+        "200":
+          description: Search results
+
+  /api/audit/checkpoints:
+    get:
+      operationId: listCheckpoints
+      summary: List audit checkpoints
+      tags: [Audit]
+      responses:
+        "200":
+          description: Checkpoint list
+
+  /api/audit/checkpoints/verify:
+    get:
+      operationId: verifyCheckpoints
+      summary: Verify checkpoint Ed25519 signatures
+      tags: [Audit]
+      responses:
+        "200":
+          description: Checkpoint verification result
+
+  /api/audit/checkpoint:
+    post:
+      operationId: createCheckpoint
+      summary: Create a new audit checkpoint
+      tags: [Audit]
+      responses:
+        "201":
+          description: Checkpoint created
+
+  /api/audit/store/status:
+    get:
+      operationId: getAuditStoreStatus
+      summary: Audit store status
+      tags: [Audit]
+      responses:
+        "200":
+          description: Store status
+
+  /api/audit/entry/{id}:
+    get:
+      operationId: getAuditEntry
+      summary: Get audit entry by ID
+      tags: [Audit]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Audit entry
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # COMPLIANCE
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/compliance/status:
+    get:
+      operationId: getComplianceStatus
+      summary: Overall compliance status
+      tags: [Compliance]
+      parameters:
+        - name: include_nist
+          in: query
+          schema:
+            type: boolean
+            default: true
+        - name: include_iso
+          in: query
+          schema:
+            type: boolean
+            default: true
+      responses:
+        "200":
+          description: Compliance status across all frameworks
+
+  /api/compliance/iso42001/report:
+    get:
+      operationId: getIso42001Report
+      summary: ISO 42001 compliance report
+      tags: [Compliance]
+      responses:
+        "200":
+          description: ISO 42001 report
+
+  /api/compliance/eu-ai-act/report:
+    get:
+      operationId: getEuAiActReport
+      summary: EU AI Act compliance report
+      tags: [Compliance]
+      responses:
+        "200":
+          description: EU AI Act report
+
+  /api/compliance/soc2/evidence:
+    get:
+      operationId: getSoc2Evidence
+      summary: SOC 2 evidence collection
+      tags: [Compliance]
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SOC 2 evidence
+
+  /api/compliance/soc2/access-review:
+    get:
+      operationId: getSoc2AccessReview
+      summary: SOC 2 access review
+      tags: [Compliance]
+      responses:
+        "200":
+          description: Access review data
+
+  /api/compliance/threat-coverage:
+    get:
+      operationId: getThreatCoverage
+      summary: Threat coverage analysis
+      tags: [Compliance]
+      responses:
+        "200":
+          description: Coverage analysis
+
+  /api/compliance/gap-analysis:
+    get:
+      operationId: getGapAnalysis
+      summary: Compliance gap analysis
+      tags: [Compliance]
+      responses:
+        "200":
+          description: Gap analysis report
+
+  /api/compliance/data-governance:
+    get:
+      operationId: getDataGovernance
+      summary: Data governance summary
+      tags: [Compliance]
+      responses:
+        "200":
+          description: Governance summary
+
+  /api/compliance/owasp-agentic:
+    get:
+      operationId: getOwaspAgenticCoverage
+      summary: OWASP Agentic Security Initiative coverage
+      tags: [Compliance]
+      responses:
+        "200":
+          description: OWASP ASI coverage map
+
+  /api/compliance/evidence-pack/status:
+    get:
+      operationId: getEvidencePackStatus
+      summary: Evidence pack generation status
+      tags: [Compliance]
+      responses:
+        "200":
+          description: Pack status
+
+  /api/compliance/evidence-pack/{framework}:
+    get:
+      operationId: getEvidencePack
+      summary: Download evidence pack for a compliance framework
+      tags: [Compliance]
+      parameters:
+        - name: framework
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [eu_ai_act, soc2, iso42001, dora, nis2, cosai, adversa, owasp_asi]
+      responses:
+        "200":
+          description: Evidence pack
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TENANTS
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/tenants:
+    get:
+      operationId: listTenants
+      summary: List all tenants
+      tags: [Tenants]
+      responses:
+        "200":
+          description: Tenant list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Tenant"
+    post:
+      operationId: createTenant
+      summary: Create a new tenant
+      tags: [Tenants]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantRequest"
+      responses:
+        "201":
+          description: Tenant created
+        "409":
+          description: Duplicate tenant ID
+
+  /api/tenants/{id}:
+    get:
+      operationId: getTenant
+      summary: Get tenant details
+      tags: [Tenants]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Tenant details
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updateTenant
+      summary: Update tenant
+      tags: [Tenants]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantRequest"
+      responses:
+        "200":
+          description: Tenant updated
+    delete:
+      operationId: deleteTenant
+      summary: Delete tenant
+      tags: [Tenants]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Tenant deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # NHI — Non-Human Identity
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/nhi/agents:
+    get:
+      operationId: listNhiAgents
+      summary: List NHI agents
+      tags: [NHI]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, suspended, revoked, expired]
+      responses:
+        "200":
+          description: Agent list
+    post:
+      operationId: registerNhiAgent
+      summary: Register a new NHI agent
+      tags: [NHI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterNhiAgentRequest"
+      responses:
+        "201":
+          description: Agent registered
+
+  /api/nhi/agents/{id}:
+    get:
+      operationId: getNhiAgent
+      summary: Get NHI agent details
+      tags: [NHI]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent details
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: revokeNhiAgent
+      summary: Revoke an NHI agent
+      tags: [NHI]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent revoked
+
+  /api/nhi/agents/{id}/activate:
+    post:
+      operationId: activateNhiAgent
+      summary: Activate an NHI agent
+      tags: [NHI]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent activated
+
+  /api/nhi/agents/{id}/suspend:
+    post:
+      operationId: suspendNhiAgent
+      summary: Suspend an NHI agent
+      tags: [NHI]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent suspended
+
+  /api/nhi/agents/{id}/baseline:
+    get:
+      operationId: getNhiBaseline
+      summary: Get behavioral baseline for an agent
+      tags: [NHI]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Behavioral baseline data
+
+  /api/nhi/agents/{id}/check:
+    post:
+      operationId: checkNhiBehavior
+      summary: Check behavior against baseline
+      tags: [NHI]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckNhiBehaviorRequest"
+      responses:
+        "200":
+          description: Behavior check result
+
+  /api/nhi/agents/{id}/rotate:
+    post:
+      operationId: rotateNhiCredentials
+      summary: Rotate agent credentials
+      tags: [NHI]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RotateNhiCredentialsRequest"
+      responses:
+        "200":
+          description: Credentials rotated
+
+  /api/nhi/delegations:
+    get:
+      operationId: listNhiDelegations
+      summary: List NHI delegations
+      tags: [NHI]
+      parameters:
+        - name: agent_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Delegation list
+    post:
+      operationId: createNhiDelegation
+      summary: Create an NHI delegation
+      tags: [NHI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNhiDelegationRequest"
+      responses:
+        "201":
+          description: Delegation created
+
+  /api/nhi/delegations/{from}/{to}:
+    get:
+      operationId: getNhiDelegation
+      summary: Get specific delegation
+      tags: [NHI]
+      parameters:
+        - name: from
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: to
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Delegation details
+    delete:
+      operationId: revokeNhiDelegation
+      summary: Revoke delegation
+      tags: [NHI]
+      parameters:
+        - name: from
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: to
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Delegation revoked
+
+  /api/nhi/delegations/{id}/chain:
+    get:
+      operationId: getNhiDelegationChain
+      summary: Get delegation chain
+      tags: [NHI]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Delegation chain
+
+  /api/nhi/expiring:
+    get:
+      operationId: getExpiringIdentities
+      summary: Get expiring NHI identities
+      tags: [NHI]
+      responses:
+        "200":
+          description: Expiring identities
+
+  /api/nhi/dpop/nonce:
+    post:
+      operationId: generateDpopNonce
+      summary: Generate DPoP nonce
+      tags: [NHI]
+      responses:
+        "200":
+          description: DPoP nonce
+
+  /api/nhi/stats:
+    get:
+      operationId: getNhiStats
+      summary: NHI statistics
+      tags: [NHI]
+      responses:
+        "200":
+          description: Statistics
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MEMORY SECURITY
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/memory/entries:
+    get:
+      operationId: listMemoryEntries
+      summary: List memory entries
+      tags: [Memory Security]
+      parameters:
+        - name: session_id
+          in: query
+          schema:
+            type: string
+            maxLength: 128
+        - name: quarantined_only
+          in: query
+          schema:
+            type: boolean
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Memory entries
+
+  /api/memory/entries/{id}:
+    get:
+      operationId: getMemoryEntry
+      summary: Get a memory entry
+      tags: [Memory Security]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Memory entry
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/memory/entries/{id}/quarantine:
+    post:
+      operationId: quarantineMemoryEntry
+      summary: Quarantine a memory entry
+      tags: [Memory Security]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuarantineRequest"
+      responses:
+        "200":
+          description: Entry quarantined
+
+  /api/memory/entries/{id}/release:
+    post:
+      operationId: releaseMemoryEntry
+      summary: Release a quarantined entry
+      tags: [Memory Security]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Entry released
+
+  /api/memory/integrity/{session}:
+    get:
+      operationId: verifyMemoryIntegrity
+      summary: Verify memory integrity for a session
+      tags: [Memory Security]
+      parameters:
+        - name: session
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Integrity check result
+
+  /api/memory/provenance/{id}:
+    get:
+      operationId: getMemoryProvenance
+      summary: Get entry provenance chain
+      tags: [Memory Security]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Provenance data
+
+  /api/memory/stats:
+    get:
+      operationId: getMemoryStats
+      summary: Memory security statistics
+      tags: [Memory Security]
+      responses:
+        "200":
+          description: Statistics
+
+  /api/memory/namespaces:
+    get:
+      operationId: listMemoryNamespaces
+      summary: List memory namespaces
+      tags: [Memory Security]
+      responses:
+        "200":
+          description: Namespace list
+    post:
+      operationId: createMemoryNamespace
+      summary: Create a memory namespace
+      tags: [Memory Security]
+      responses:
+        "201":
+          description: Namespace created
+
+  /api/memory/namespaces/{id}/share:
+    post:
+      operationId: shareMemoryNamespace
+      summary: Share a namespace with another agent
+      tags: [Memory Security]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Namespace shared
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ETDI
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/etdi/signatures:
+    get:
+      operationId: listToolSignatures
+      summary: List tool signatures
+      tags: [ETDI]
+      responses:
+        "200":
+          description: Signature list
+
+  /api/etdi/signatures/{tool}:
+    get:
+      operationId: getToolSignature
+      summary: Get tool signature
+      tags: [ETDI]
+      parameters:
+        - name: tool
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Tool signature
+
+  /api/etdi/signatures/{tool}/verify:
+    post:
+      operationId: verifyToolSignature
+      summary: Verify a tool's signature against its schema
+      tags: [ETDI]
+      parameters:
+        - name: tool
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                schema:
+                  type: object
+                  description: JSON schema to verify against
+      responses:
+        "200":
+          description: Verification result
+
+  /api/etdi/attestations:
+    get:
+      operationId: listAttestations
+      summary: List attestation chains
+      tags: [ETDI]
+      responses:
+        "200":
+          description: Attestation list
+
+  /api/etdi/attestations/{tool}:
+    get:
+      operationId: getToolAttestations
+      summary: Get attestation chain for a tool
+      tags: [ETDI]
+      parameters:
+        - name: tool
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Attestation chain
+
+  /api/etdi/attestations/{tool}/verify:
+    get:
+      operationId: verifyAttestationChain
+      summary: Verify attestation chain
+      tags: [ETDI]
+      parameters:
+        - name: tool
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Chain verification result
+
+  /api/etdi/pins:
+    get:
+      operationId: listVersionPins
+      summary: List tool version pins
+      tags: [ETDI]
+      responses:
+        "200":
+          description: Pin list
+
+  /api/etdi/pins/{tool}:
+    get:
+      operationId: getVersionPin
+      summary: Get version pin for a tool
+      tags: [ETDI]
+      parameters:
+        - name: tool
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Version pin
+    post:
+      operationId: createVersionPin
+      summary: Pin a tool version
+      tags: [ETDI]
+      parameters:
+        - name: tool
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Pin created
+    delete:
+      operationId: deleteVersionPin
+      summary: Remove version pin
+      tags: [ETDI]
+      parameters:
+        - name: tool
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pin removed
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SIMULATOR
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/simulator/evaluate:
+    post:
+      operationId: simulateEvaluate
+      summary: Simulate policy evaluation
+      description: |
+        Evaluate an action against policies in simulation mode.
+        Supports inline policy config for testing.
+      tags: [Simulator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SimulateRequest"
+      responses:
+        "200":
+          description: Simulation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimulateResponse"
+
+  /api/simulator/batch:
+    post:
+      operationId: simulateBatch
+      summary: Batch simulate multiple actions
+      description: Max 100 actions (25 with inline config).
+      tags: [Simulator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchRequest"
+      responses:
+        "200":
+          description: Batch results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchResponse"
+
+  /api/simulator/validate:
+    post:
+      operationId: validateConfig
+      summary: Validate a policy configuration
+      description: Parse and validate TOML policy config, returning findings.
+      tags: [Simulator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidateRequest"
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidateResponse"
+
+  /api/simulator/diff:
+    post:
+      operationId: simulateDiff
+      summary: Compare two policy configurations
+      tags: [Simulator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiffRequest"
+      responses:
+        "200":
+          description: Diff result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiffResponse"
+
+  /api/simulator/red-team:
+    post:
+      operationId: simulateRedTeam
+      summary: Red-team a policy configuration
+      description: Run adversarial test scenarios against policies.
+      tags: [Simulator]
+      responses:
+        "200":
+          description: Red team results
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DISCOVERY
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/discovery/search:
+    post:
+      operationId: discoverySearch
+      summary: Search for tools
+      tags: [Discovery]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiscoverySearchRequest"
+      responses:
+        "200":
+          description: Search results
+
+  /api/discovery/index/stats:
+    get:
+      operationId: getDiscoveryIndexStats
+      summary: Tool index statistics
+      tags: [Discovery]
+      responses:
+        "200":
+          description: Index statistics
+
+  /api/discovery/reindex:
+    post:
+      operationId: reindexDiscovery
+      summary: Trigger tool reindexing
+      tags: [Discovery]
+      responses:
+        "200":
+          description: Reindex started
+
+  /api/discovery/tools:
+    get:
+      operationId: listDiscoveryTools
+      summary: List indexed tools
+      tags: [Discovery]
+      responses:
+        "200":
+          description: Tool list (max 100)
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # EXECUTION GRAPHS
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/graphs:
+    get:
+      operationId: listGraphs
+      summary: List execution graphs
+      tags: [Execution Graphs]
+      parameters:
+        - name: tool
+          in: query
+          schema:
+            type: string
+            maxLength: 256
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Graph list
+
+  /api/graphs/{session}:
+    get:
+      operationId: getGraph
+      summary: Get execution graph for a session
+      tags: [Execution Graphs]
+      parameters:
+        - name: session
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Graph data (JSON)
+
+  /api/graphs/{session}/dot:
+    get:
+      operationId: getGraphDot
+      summary: Get graph in DOT format
+      tags: [Execution Graphs]
+      parameters:
+        - name: session
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: DOT graph
+          content:
+            text/vnd.graphviz:
+              schema:
+                type: string
+
+  /api/graphs/{session}/svg:
+    get:
+      operationId: getGraphSvg
+      summary: Get graph as SVG
+      tags: [Execution Graphs]
+      parameters:
+        - name: session
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SVG image
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+
+  /api/graphs/{session}/stats:
+    get:
+      operationId: getGraphStats
+      summary: Graph statistics
+      tags: [Execution Graphs]
+      parameters:
+        - name: session
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Graph statistics
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # GOVERNANCE
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/governance/shadow-report:
+    get:
+      operationId: getShadowReport
+      summary: Shadow AI usage report
+      tags: [Governance]
+      responses:
+        "200":
+          description: Shadow AI report
+
+  /api/governance/unregistered-agents:
+    get:
+      operationId: getUnregisteredAgents
+      summary: List unregistered agents
+      tags: [Governance]
+      responses:
+        "200":
+          description: Unregistered agent list
+
+  /api/governance/unapproved-tools:
+    get:
+      operationId: getUnapprovedTools
+      summary: List unapproved tools
+      tags: [Governance]
+      responses:
+        "200":
+          description: Unapproved tool list
+
+  /api/governance/least-agency/{agent_id}/{session_id}:
+    get:
+      operationId: getLeastAgencyAnalysis
+      summary: Least-agency privilege analysis
+      tags: [Governance]
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Least agency analysis
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ZK AUDIT
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/zk-audit/status:
+    get:
+      operationId: getZkAuditStatus
+      summary: Zero-knowledge audit status
+      tags: [ZK Audit]
+      responses:
+        "200":
+          description: ZK audit status
+
+  /api/zk-audit/proofs:
+    get:
+      operationId: listZkProofs
+      summary: List ZK proofs
+      tags: [ZK Audit]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: ZK proof list
+
+  /api/zk-audit/verify:
+    post:
+      operationId: verifyZkProof
+      summary: Verify a ZK proof
+      tags: [ZK Audit]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [batch_id]
+              properties:
+                batch_id:
+                  type: string
+      responses:
+        "200":
+          description: Proof verification result
+
+  /api/zk-audit/commitments:
+    get:
+      operationId: listZkCommitments
+      summary: List ZK commitments
+      tags: [ZK Audit]
+      responses:
+        "200":
+          description: Commitment list
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # FEDERATION
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/federation/status:
+    get:
+      operationId: getFederationStatus
+      summary: Agent identity federation status
+      tags: [Federation]
+      responses:
+        "200":
+          description: Federation status
+
+  /api/federation/trust-anchors:
+    get:
+      operationId: getTrustAnchors
+      summary: List federation trust anchors
+      tags: [Federation]
+      responses:
+        "200":
+          description: Trust anchor list
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # BILLING
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/billing/license:
+    get:
+      operationId: getLicenseInfo
+      summary: License information
+      tags: [Billing]
+      responses:
+        "200":
+          description: License info
+
+  /api/billing/usage/{tenant_id}:
+    get:
+      operationId: getUsage
+      summary: Get usage for a tenant
+      tags: [Billing]
+      parameters:
+        - name: tenant_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Usage data
+
+  /api/billing/quotas/{tenant_id}:
+    get:
+      operationId: getQuotas
+      summary: Get quota status for a tenant
+      tags: [Billing]
+      parameters:
+        - name: tenant_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Quota status
+
+  /api/billing/usage/{tenant_id}/history:
+    get:
+      operationId: getUsageHistory
+      summary: Usage history for a tenant
+      tags: [Billing]
+      parameters:
+        - name: tenant_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Usage history
+
+  /api/billing/usage/{tenant_id}/reset:
+    post:
+      operationId: resetUsage
+      summary: Reset usage counters for a tenant
+      tags: [Billing]
+      parameters:
+        - name: tenant_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Usage reset
+
+  /api/billing/paddle/webhook:
+    post:
+      operationId: paddleWebhook
+      summary: Paddle payment webhook
+      description: |
+        Receives Paddle webhook events. Validates HMAC-SHA256 signature.
+        Returns 200 for all payloads to prevent retry storms.
+      tags: [Billing]
+      security: []
+      responses:
+        "200":
+          description: Webhook received
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookResponse"
+
+  /api/billing/stripe/webhook:
+    post:
+      operationId: stripeWebhook
+      summary: Stripe payment webhook
+      description: |
+        Receives Stripe webhook events. Validates Stripe signature.
+        Returns 200 for all payloads to prevent retry storms.
+      tags: [Billing]
+      security: []
+      responses:
+        "200":
+          description: Webhook received
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookResponse"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CIRCUIT BREAKER
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/circuit-breaker:
+    get:
+      operationId: listCircuitBreakers
+      summary: List circuit breakers
+      tags: [Circuit Breaker]
+      responses:
+        "200":
+          description: Circuit breaker list
+
+  /api/circuit-breaker/stats:
+    get:
+      operationId: getCircuitBreakerStats
+      summary: Circuit breaker statistics
+      tags: [Circuit Breaker]
+      responses:
+        "200":
+          description: Statistics
+
+  /api/circuit-breaker/{tool}:
+    get:
+      operationId: getCircuitBreaker
+      summary: Get circuit breaker for a tool
+      tags: [Circuit Breaker]
+      parameters:
+        - name: tool
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Circuit breaker state
+
+  /api/circuit-breaker/{tool}/reset:
+    post:
+      operationId: resetCircuitBreaker
+      summary: Reset circuit breaker for a tool
+      tags: [Circuit Breaker]
+      parameters:
+        - name: tool
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Circuit breaker reset
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SHADOW AGENTS
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/shadow-agents:
+    get:
+      operationId: listShadowAgents
+      summary: List shadow agents
+      tags: [Shadow Agents]
+      responses:
+        "200":
+          description: Shadow agent list
+    post:
+      operationId: registerShadowAgent
+      summary: Register a shadow agent
+      tags: [Shadow Agents]
+      responses:
+        "201":
+          description: Agent registered
+
+  /api/shadow-agents/{id}:
+    delete:
+      operationId: removeShadowAgent
+      summary: Remove shadow agent
+      tags: [Shadow Agents]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent removed
+
+  /api/shadow-agents/{id}/trust:
+    put:
+      operationId: updateShadowAgentTrust
+      summary: Update agent trust level
+      tags: [Shadow Agents]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Trust updated
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DEPUTY
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/deputy/delegations:
+    get:
+      operationId: listDeputyDelegations
+      summary: List deputy delegations
+      tags: [Deputy]
+      responses:
+        "200":
+          description: Delegation list
+    post:
+      operationId: createDeputyDelegation
+      summary: Create deputy delegation
+      tags: [Deputy]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterDelegationRequest"
+      responses:
+        "201":
+          description: Delegation created
+
+  /api/deputy/delegations/{session}:
+    delete:
+      operationId: removeDeputyDelegation
+      summary: Remove deputy delegation
+      tags: [Deputy]
+      parameters:
+        - name: session
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Delegation removed
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PROJECTOR
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/projector/models:
+    get:
+      operationId: listProjectorModels
+      summary: List supported model families
+      tags: [Projector]
+      responses:
+        "200":
+          description: Model list
+
+  /api/projector/transform:
+    post:
+      operationId: transformSchema
+      summary: Transform schema for a model family
+      tags: [Projector]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectorTransformRequest"
+      responses:
+        "200":
+          description: Transformed schema
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # OBSERVABILITY
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/observability/exporters:
+    get:
+      operationId: listExporters
+      summary: List observability exporters
+      tags: [Observability]
+      responses:
+        "200":
+          description: Exporter list
+
+  /api/observability/stats:
+    get:
+      operationId: getObservabilityStats
+      summary: Observability statistics
+      tags: [Observability]
+      responses:
+        "200":
+          description: Statistics
+
+  /api/observability/test:
+    post:
+      operationId: testExporter
+      summary: Test an observability exporter
+      tags: [Observability]
+      responses:
+        "200":
+          description: Test result
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TOOL REGISTRY
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/registry/tools:
+    get:
+      operationId: listRegistryTools
+      summary: List tools in registry
+      tags: [Discovery]
+      responses:
+        "200":
+          description: Tool list
+
+  /api/registry/tools/{name}/approve:
+    post:
+      operationId: approveRegistryTool
+      summary: Approve a tool
+      tags: [Discovery]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Tool approved
+
+  /api/registry/tools/{name}/revoke:
+    post:
+      operationId: revokeRegistryTool
+      summary: Revoke a tool
+      tags: [Discovery]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Tool revoked
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SCHEMA LINEAGE
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/schema-lineage:
+    get:
+      operationId: listSchemaLineage
+      summary: List schema lineage records
+      tags: [ETDI]
+      responses:
+        "200":
+          description: Schema lineage list
+
+  /api/schema-lineage/{tool}:
+    get:
+      operationId: getSchemaLineage
+      summary: Get schema history for a tool
+      tags: [ETDI]
+      parameters:
+        - name: tool
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Schema history
+    delete:
+      operationId: removeSchemaLineage
+      summary: Remove schema lineage
+      tags: [ETDI]
+      parameters:
+        - name: tool
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Lineage removed
+
+  /api/schema-lineage/{tool}/trust:
+    put:
+      operationId: resetSchemaTrust
+      summary: Reset schema trust level
+      tags: [ETDI]
+      parameters:
+        - name: tool
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Trust reset
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TASK STATE
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/tasks:
+    get:
+      operationId: listTasks
+      summary: List MCP async tasks
+      tags: [Governance]
+      responses:
+        "200":
+          description: Task list
+
+  /api/tasks/stats:
+    get:
+      operationId: getTaskStats
+      summary: Task statistics
+      tags: [Governance]
+      responses:
+        "200":
+          description: Statistics
+
+  /api/tasks/{id}:
+    get:
+      operationId: getTask
+      summary: Get task by ID
+      tags: [Governance]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task details
+
+  /api/tasks/{id}/cancel:
+    post:
+      operationId: cancelTask
+      summary: Cancel a task
+      tags: [Governance]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task cancelled
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # AUTH LEVELS
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/auth-levels/{session}:
+    get:
+      operationId: getAuthLevel
+      summary: Get current auth level for session
+      tags: [IAM]
+      parameters:
+        - name: session
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Auth level
+    delete:
+      operationId: clearAuthLevel
+      summary: Clear auth level for session
+      tags: [IAM]
+      parameters:
+        - name: session
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Auth level cleared
+
+  /api/auth-levels/{session}/upgrade:
+    post:
+      operationId: upgradeAuthLevel
+      summary: Upgrade authentication level
+      tags: [IAM]
+      parameters:
+        - name: session
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpgradeAuthRequest"
+      responses:
+        "200":
+          description: Auth level upgraded
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SAMPLING
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/sampling/stats:
+    get:
+      operationId: getSamplingStats
+      summary: Sampling detection statistics
+      tags: [Governance]
+      responses:
+        "200":
+          description: Sampling statistics
+
+  /api/sampling/{session}/reset:
+    post:
+      operationId: resetSamplingStats
+      summary: Reset sampling stats for session
+      tags: [Governance]
+      parameters:
+        - name: session
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Stats reset
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DEPLOYMENT
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/deployment/info:
+    get:
+      operationId: getDeploymentInfo
+      summary: Deployment information
+      tags: [Health]
+      responses:
+        "200":
+          description: Deployment details
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # IAM
+  # ═══════════════════════════════════════════════════════════════════════════
+  /iam/login:
+    get:
+      operationId: iamLogin
+      summary: Initiate OIDC login flow
+      tags: [IAM]
+      security: []
+      responses:
+        "302":
+          description: Redirect to OIDC provider
+
+  /iam/callback:
+    get:
+      operationId: iamCallback
+      summary: OAuth callback
+      tags: [IAM]
+      security: []
+      responses:
+        "302":
+          description: Redirect to dashboard after auth
+
+  /iam/session:
+    get:
+      operationId: iamSession
+      summary: Get current session info
+      tags: [IAM]
+      responses:
+        "200":
+          description: Session info
+
+  /iam/logout:
+    post:
+      operationId: iamLogout
+      summary: Logout
+      tags: [IAM]
+      responses:
+        "200":
+          description: Logged out
+
+  /iam/saml/metadata:
+    get:
+      operationId: iamSamlMetadata
+      summary: SAML service provider metadata
+      tags: [IAM]
+      security: []
+      responses:
+        "200":
+          description: SAML metadata XML
+          content:
+            application/xml:
+              schema:
+                type: string
+
+  /iam/saml/acs:
+    post:
+      operationId: iamSamlAcs
+      summary: SAML Assertion Consumer Service
+      tags: [IAM]
+      security: []
+      responses:
+        "302":
+          description: Redirect after SAML assertion
+
+  /iam/scim/status:
+    get:
+      operationId: iamScimStatus
+      summary: SCIM provisioning status
+      tags: [IAM]
+      responses:
+        "200":
+          description: SCIM status
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SELF-SERVICE SIGNUP (Phase 53)
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/signup:
+    post:
+      operationId: signup
+      summary: Self-service tenant signup
+      description: |
+        Creates a new tenant with the specified plan tier and returns a fresh
+        API key. The API key is shown once and cannot be retrieved later.
+        Does not require authentication.
+      tags: [Tenants]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignupRequest"
+      responses:
+        "201":
+          description: Tenant created with API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignupResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Organization already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: Maximum tenant capacity reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SETUP WIZARD
+  # ═══════════════════════════════════════════════════════════════════════════
+  /setup:
+    get:
+      operationId: setupWelcome
+      summary: Setup wizard — welcome screen
+      tags: [Setup]
+      security: []
+      responses:
+        "200":
+          description: Welcome page (HTML)
+
+  /setup/security:
+    get:
+      operationId: setupSecurityGet
+      summary: Setup wizard — security config
+      tags: [Setup]
+      security: []
+      responses:
+        "200":
+          description: Security setup page
+    post:
+      operationId: setupSecurityPost
+      summary: Save security settings
+      tags: [Setup]
+      security: []
+      responses:
+        "200":
+          description: Settings saved
+
+  /setup/policies:
+    get:
+      operationId: setupPoliciesGet
+      summary: Setup wizard — policy config
+      tags: [Setup]
+      security: []
+      responses:
+        "200":
+          description: Policy setup page
+    post:
+      operationId: setupPoliciesPost
+      summary: Save policy settings
+      tags: [Setup]
+      security: []
+      responses:
+        "200":
+          description: Policies saved
+
+  /setup/detection:
+    get:
+      operationId: setupDetectionGet
+      summary: Setup wizard — detection config
+      tags: [Setup]
+      security: []
+      responses:
+        "200":
+          description: Detection setup page
+    post:
+      operationId: setupDetectionPost
+      summary: Save detection settings
+      tags: [Setup]
+      security: []
+      responses:
+        "200":
+          description: Detection saved
+
+  /setup/audit:
+    get:
+      operationId: setupAuditGet
+      summary: Setup wizard — audit config
+      tags: [Setup]
+      security: []
+      responses:
+        "200":
+          description: Audit setup page
+    post:
+      operationId: setupAuditPost
+      summary: Save audit settings
+      tags: [Setup]
+      security: []
+      responses:
+        "200":
+          description: Audit saved
+
+  /setup/compliance:
+    get:
+      operationId: setupComplianceGet
+      summary: Setup wizard — compliance config
+      tags: [Setup]
+      security: []
+      responses:
+        "200":
+          description: Compliance setup page
+    post:
+      operationId: setupCompliancePost
+      summary: Save compliance settings
+      tags: [Setup]
+      security: []
+      responses:
+        "200":
+          description: Compliance saved
+
+  /setup/review:
+    get:
+      operationId: setupReview
+      summary: Setup wizard — review settings
+      tags: [Setup]
+      security: []
+      responses:
+        "200":
+          description: Review page
+
+  /setup/apply:
+    post:
+      operationId: setupApply
+      summary: Apply setup configuration
+      tags: [Setup]
+      security: []
+      responses:
+        "200":
+          description: Configuration applied
+
+# ═══════════════════════════════════════════════════════════════════════════
+# COMPONENTS
+# ═══════════════════════════════════════════════════════════════════════════
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: API key passed as Bearer token
+    oauth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: /iam/login
+          tokenUrl: /iam/callback
+          scopes:
+            read: Read access
+            write: Write access
+            admin: Admin access
+
+  parameters:
+    PolicyId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 256
+      description: Policy ID (max 256 chars, no control characters)
+
+    VersionNumber:
+      name: version
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+    ApprovalId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 128
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+    RateLimited:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version:
+          type: string
+
+    # ─── Core Types ──────────────────────────────────────────────────────
+    Action:
+      type: object
+      required: [tool, function]
+      properties:
+        tool:
+          type: string
+          description: Tool name (e.g., "file_read", "api_gateway")
+          maxLength: 256
+        function:
+          type: string
+          description: Function name (e.g., "read", "query")
+          maxLength: 256
+        parameters:
+          type: object
+          additionalProperties: true
+          description: Tool call parameters (key-value pairs)
+        target_paths:
+          type: array
+          items:
+            type: string
+          description: File/resource paths accessed by this action
+        target_domains:
+          type: array
+          items:
+            type: string
+          description: Network domains accessed by this action
+        resolved_ips:
+          type: array
+          items:
+            type: string
+          description: Resolved IP addresses
+
+    Verdict:
+      oneOf:
+        - type: string
+          enum: [Allow]
+        - type: object
+          properties:
+            Deny:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+        - type: object
+          properties:
+            RequireApproval:
+              type: object
+              properties:
+                approval_id:
+                  type: string
+
+    Policy:
+      type: object
+      required: [id, name, tool_pattern, function_pattern, policy_type, priority]
+      properties:
+        id:
+          type: string
+          maxLength: 256
+        name:
+          type: string
+          maxLength: 256
+        tool_pattern:
+          type: string
+          description: Glob pattern matching tool names
+        function_pattern:
+          type: string
+          description: Glob pattern matching function names
+        policy_type:
+          $ref: "#/components/schemas/PolicyType"
+        priority:
+          type: integer
+          minimum: -1000
+          maximum: 1000
+          description: Higher priority policies are evaluated first
+        path_rules:
+          $ref: "#/components/schemas/PathRules"
+        network_rules:
+          $ref: "#/components/schemas/NetworkRules"
+
+    PolicyType:
+      oneOf:
+        - type: object
+          properties:
+            Allow:
+              type: object
+        - type: object
+          properties:
+            Deny:
+              type: object
+              properties:
+                reason:
+                  type: string
+        - type: object
+          properties:
+            Conditional:
+              type: object
+              properties:
+                conditions:
+                  type: object
+
+    PathRules:
+      type: object
+      properties:
+        allowed_paths:
+          type: array
+          items:
+            type: string
+          description: Glob patterns for allowed paths
+        blocked_paths:
+          type: array
+          items:
+            type: string
+          description: Glob patterns for blocked paths
+
+    NetworkRules:
+      type: object
+      properties:
+        allowed_domains:
+          type: array
+          items:
+            type: string
+          description: Allowed domain patterns (e.g., "*.example.com")
+        blocked_domains:
+          type: array
+          items:
+            type: string
+          description: Blocked domain patterns
+        ip_rules:
+          $ref: "#/components/schemas/IpRules"
+
+    IpRules:
+      type: object
+      properties:
+        block_private:
+          type: boolean
+          description: Block private/RFC1918 IP ranges
+        blocked_cidrs:
+          type: array
+          items:
+            type: string
+          description: Blocked CIDR ranges
+        allowed_cidrs:
+          type: array
+          items:
+            type: string
+          description: Allowed CIDR ranges
+
+    EvaluationContext:
+      type: object
+      properties:
+        agent_id:
+          type: string
+        session_id:
+          type: string
+        call_chain:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+
+    # ─── Request/Response Types ─────────────────────────────────────────
+    EvaluateRequest:
+      allOf:
+        - $ref: "#/components/schemas/Action"
+        - type: object
+          properties:
+            context:
+              $ref: "#/components/schemas/EvaluationContext"
+
+    EvaluateResponse:
+      type: object
+      required: [verdict, action]
+      properties:
+        verdict:
+          $ref: "#/components/schemas/Verdict"
+        action:
+          $ref: "#/components/schemas/Action"
+          description: Action with parameters redacted
+        approval_id:
+          type: string
+          description: Present when verdict is RequireApproval
+        trace:
+          type: object
+          description: Detailed evaluation trace (when trace=true)
+
+    SimulateRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          $ref: "#/components/schemas/Action"
+        context:
+          $ref: "#/components/schemas/EvaluationContext"
+        policy_config:
+          type: string
+          maxLength: 262144
+          description: Inline TOML policy config for testing
+
+    SimulateResponse:
+      type: object
+      properties:
+        verdict:
+          $ref: "#/components/schemas/Verdict"
+        trace:
+          type: object
+        policies_checked:
+          type: integer
+        duration_us:
+          type: integer
+          format: int64
+
+    BatchRequest:
+      type: object
+      required: [actions]
+      properties:
+        actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Action"
+          maxItems: 100
+          description: Actions to evaluate (max 25 with inline config)
+        policy_config:
+          type: string
+          maxLength: 262144
+
+    BatchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              verdict:
+                $ref: "#/components/schemas/Verdict"
+              trace:
+                type: object
+        summary:
+          type: object
+          properties:
+            total:
+              type: integer
+            allowed:
+              type: integer
+            denied:
+              type: integer
+            require_approval:
+              type: integer
+
+    ValidateRequest:
+      type: object
+      required: [config]
+      properties:
+        config:
+          type: string
+          maxLength: 524288
+          description: TOML policy configuration to validate
+        strict:
+          type: boolean
+          default: false
+
+    ValidateResponse:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationFinding"
+        summary:
+          type: object
+        policy_count:
+          type: integer
+
+    ValidationFinding:
+      type: object
+      properties:
+        severity:
+          type: string
+          enum: [error, warning, info]
+        message:
+          type: string
+        location:
+          type: string
+
+    DiffRequest:
+      type: object
+      required: [before, after]
+      properties:
+        before:
+          type: string
+          maxLength: 131072
+        after:
+          type: string
+          maxLength: 131072
+
+    DiffResponse:
+      type: object
+      properties:
+        added:
+          type: array
+          items:
+            type: object
+        removed:
+          type: array
+          items:
+            type: object
+        modified:
+          type: array
+          items:
+            type: object
+        unchanged:
+          type: integer
+
+    DiscoverySearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          maxLength: 1024
+        max_results:
+          type: integer
+          default: 5
+          maximum: 20
+        token_budget:
+          type: integer
+          maximum: 1000000
+
+    ResolveRequest:
+      type: object
+      properties:
+        resolved_by:
+          type: string
+          default: anonymous
+        reason:
+          type: string
+
+    ApprovalEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        action:
+          $ref: "#/components/schemas/Action"
+        status:
+          type: string
+          enum: [pending, approved, denied, expired]
+        requested_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        action:
+          $ref: "#/components/schemas/Action"
+        verdict:
+          $ref: "#/components/schemas/Verdict"
+        timestamp:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+        entry_hash:
+          type: string
+          description: SHA-256 hash of this entry
+        prev_hash:
+          type: string
+          description: SHA-256 hash of previous entry (chain link)
+
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        quotas:
+          type: object
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+
+    TenantRequest:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+          default: true
+        quotas:
+          type: object
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+
+    PolicyVersion:
+      type: object
+      properties:
+        version:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [draft, approved, active, archived]
+        policy:
+          $ref: "#/components/schemas/Policy"
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreateVersionRequest:
+      type: object
+      required: [policy, created_by]
+      properties:
+        policy:
+          $ref: "#/components/schemas/Policy"
+        created_by:
+          type: string
+        comment:
+          type: string
+
+    ApproveVersionRequest:
+      type: object
+      required: [approved_by]
+      properties:
+        approved_by:
+          type: string
+        comment:
+          type: string
+
+    RollbackRequest:
+      type: object
+      required: [to_version, created_by]
+      properties:
+        to_version:
+          type: integer
+          format: int64
+        created_by:
+          type: string
+
+    RegisterNhiAgentRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        attestation_type:
+          type: string
+        spiffe_id:
+          type: string
+        public_key:
+          type: string
+          description: Agent public key (redacted in logs)
+        key_algorithm:
+          type: string
+        ttl_secs:
+          type: integer
+          format: int64
+          maximum: 31536000
+          description: Time-to-live in seconds (max 1 year)
+        tags:
+          type: array
+          items:
+            type: string
+            maxLength: 256
+          maxItems: 100
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          maxProperties: 50
+
+    CheckNhiBehaviorRequest:
+      type: object
+      properties:
+        tool_call:
+          type: string
+        request_interval_secs:
+          type: number
+          format: double
+        source_ip:
+          type: string
+
+    RotateNhiCredentialsRequest:
+      type: object
+      required: [new_public_key]
+      properties:
+        new_public_key:
+          type: string
+          description: New public key (redacted in logs)
+        new_key_algorithm:
+          type: string
+        trigger:
+          type: string
+        new_ttl_secs:
+          type: integer
+          format: int64
+
+    CreateNhiDelegationRequest:
+      type: object
+      required: [from_agent, to_agent]
+      properties:
+        from_agent:
+          type: string
+        to_agent:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        scope_constraints:
+          type: array
+          items:
+            type: string
+        ttl_secs:
+          type: integer
+          format: int64
+        reason:
+          type: string
+
+    RegisterDelegationRequest:
+      type: object
+      required: [session_id, from_principal, to_principal]
+      properties:
+        session_id:
+          type: string
+        from_principal:
+          type: string
+        to_principal:
+          type: string
+        allowed_tools:
+          type: array
+          items:
+            type: string
+          maxItems: 100
+        expires_secs:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 2592000
+
+    QuarantineRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+        triggered_by:
+          type: string
+
+    UpgradeAuthRequest:
+      type: object
+      required: [level]
+      properties:
+        level:
+          type: string
+          enum: [none, basic, oauth, oauth_mfa, hardware_key]
+        expires_secs:
+          type: integer
+          format: int64
+          maximum: 86400
+
+    ProjectorTransformRequest:
+      type: object
+      required: [schema, model_family]
+      properties:
+        schema:
+          type: object
+          description: Canonical tool schema
+        model_family:
+          type: string
+          maxLength: 64
+          description: Target model family (e.g., "claude", "openai", "custom:gpt-5")
+
+    SignupRequest:
+      type: object
+      required: [org_name, email]
+      properties:
+        org_name:
+          type: string
+          maxLength: 200
+          description: Organization name
+        email:
+          type: string
+          maxLength: 254
+          description: Contact email (RFC 5321)
+        plan:
+          type: string
+          enum: [free, starter, team, enterprise-trial]
+          default: free
+          description: Plan tier
+
+    SignupResponse:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+          description: Created tenant ID
+        api_key:
+          type: string
+          description: API key (shown once, not retrievable later)
+        plan:
+          type: string
+        server_url:
+          type: string
+          description: Server URL for SDK configuration
+        next_steps:
+          type: array
+          items:
+            type: string
+          description: Onboarding instructions
+
+    WebhookResponse:
+      type: object
+      properties:
+        received:
+          type: boolean

@@ -306,7 +306,7 @@ pub struct RoleClaims {
 }
 
 /// JWT `aud` claim representation (string or array of strings).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum AudienceClaim {
     Single(String),
@@ -926,6 +926,7 @@ mod tests {
             vellaveto_role: None,
             roles: None,
             aud: None,
+            nonce: None,
         };
         assert_eq!(claims.effective_role(), Some(Role::Admin));
 
@@ -936,6 +937,7 @@ mod tests {
             vellaveto_role: Some("operator".into()),
             roles: None,
             aud: None,
+            nonce: None,
         };
         assert_eq!(claims.effective_role(), Some(Role::Operator));
 
@@ -946,6 +948,7 @@ mod tests {
             vellaveto_role: None,
             roles: Some(vec!["auditor".into()]),
             aud: None,
+            nonce: None,
         };
         assert_eq!(claims.effective_role(), Some(Role::Auditor));
 
@@ -956,6 +959,7 @@ mod tests {
             vellaveto_role: Some("viewer".into()),
             roles: None,
             aud: None,
+            nonce: None,
         };
         assert_eq!(claims.effective_role(), Some(Role::Admin));
 
@@ -966,6 +970,7 @@ mod tests {
             vellaveto_role: None,
             roles: None,
             aud: None,
+            nonce: None,
         };
         assert_eq!(claims.effective_role(), None);
     }
@@ -1280,6 +1285,7 @@ mod tests {
             vellaveto_role: None,
             roles: None,
             aud: None,
+            nonce: None,
         };
 
         let token = encode(

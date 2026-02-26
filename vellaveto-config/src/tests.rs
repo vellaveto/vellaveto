@@ -1130,6 +1130,7 @@ fn test_validate_rejects_too_many_policies() {
         audit_store: Default::default(),
         policy_lifecycle: Default::default(),
         metering: Default::default(),
+        iam: Default::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {

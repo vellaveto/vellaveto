@@ -2,7 +2,7 @@
 
 > **Version:** 5.0.0-dev
 > **Updated:** 2026-02-25
-> **Current:** 7,697 Rust tests, 385 Python, 127 Go, 119 TypeScript | 224 audit rounds | 49 phases complete
+> **Current:** 7,867 Rust + 59 React + 12 Terraform, 433 Python, 127 Go, 119 TypeScript | 224 audit rounds | 55 phases complete
 > **Strategic position:** Agentic Security Control Plane & Policy Gateway
 > **License:** AGPL-3.0 (core) + Commercial Enterprise
 
@@ -34,140 +34,19 @@ Vellaveto is an **Agentic Security Control Plane** — the platform through whic
 ## Timeline
 
 ```
-Q2 2026 (Now):   Phase 36 — Developer Experience & SDK Ecosystem         [P2]
+Q2 2026 (Done):  Phase 36 — Developer Experience & SDK Ecosystem         [P2] ✅
+                  Phase 45 — Admin Console (React SPA)                    [P1] ✅
+                  Phase 46 — Enterprise IAM (SSO/OIDC/SAML)              [P1] ✅
+                  Phase 50 — Usage Metering & Billing Foundation          [P3] ✅ (core complete)
 
-Q3 2026:         Phase 45 — Admin Console (React SPA)                    [P1]
-                  Phase 46 — Enterprise IAM (SSO/OIDC/SAML)              [P1]
+Q2 2026 (Done):  Phase 51 — Partner Integration Kit                      [P3] ✅
+                  Phase 53 — Marketplace & Self-Service Onboarding       [P3] ✅
 
-Q4 2026:         Phase 50 — Usage Metering & Billing Foundation          [P3]
-
-Q1 2027:         Phase 51 — Partner Integration Kit                      [P3]
-                  Phase 53 — Marketplace & Self-Service Onboarding       [P3]
-
-Q2 2027:         Phase 54 — Post-Quantum Cryptography Migration          [P3]
+Q4 2026:         Phase 54 — Post-Quantum Cryptography Migration          [P3]
                   Phase 55 — Performance & Scale Validation              [P3]
 ```
 
 ---
-
-## Phase 36: Developer Experience & SDK Ecosystem (P2) — In Progress
-
-*Focus: Lower the barrier for enterprise developers to adopt Vellaveto.*
-
-### 36.1 Java SDK
-
-| Task | Effort | Status |
-|------|--------|--------|
-| VellavetoClient with all 33 API methods (evaluate, approve, discover, ZK, compliance, federation, usage) | 3 days | |
-| Action, EvaluationResult, Verdict, EvaluationContext types | 1 day | |
-| Input validation (control chars, Unicode format chars, length bounds) | 1 day | |
-| Retry with exponential backoff (429/502/503/504) | 0.5 day | |
-| ParameterRedactor (client-side secret redaction) | 0.5 day | |
-| JUnit 5 tests (50+) | 2 days | |
-
-### 36.2 VS Code Extension
-
-| Task | Effort | Status |
-|------|--------|--------|
-| Extension scaffold with policy file detection (*.vellaveto.toml) | 0.5 day | |
-| On-save validation via POST /api/simulator/validate with VS Code diagnostics | 1 day | |
-| TOML completion provider for policy fields and enum values | 1 day | |
-| Snippet library from 5 presets (dev-laptop, ci-agent, database-agent, browser-agent, rag-agent) | 0.5 day | |
-| Simulator webview panel (test actions against current policy file) | 1.5 days | |
-| Tests (15+) | 1 day | |
-
-### 36.3 Execution Graph SVG Export
-
-| Task | Effort | Status |
-|------|--------|--------|
-| GET /api/graphs/{session}/svg endpoint with hierarchical layout | 1 day | |
-| Verdict-colored nodes (green/red/yellow), call chain edges | 0.5 day | |
-| Dashboard integration (SVG link for recent sessions) | 0.5 day | |
-
-### Exit Criteria
-- [ ] Java SDK: 33 API methods with full parity to Go/Python/TypeScript SDKs
-- [ ] Java SDK: 50+ passing JUnit 5 tests
-- [ ] VS Code extension: policy validation, completions, snippets, simulator
-- [ ] VS Code extension: 15+ passing tests
-- [ ] SVG export: embeddable execution graph visualization
-- [ ] All existing workspace tests still pass
-
----
-
-## Phase 45: Admin Console (P1)
-
-*Focus: Web-based admin console replacing CLI/API for security teams and compliance officers.*
-
-| Sub-phase | Key Deliverables |
-|-----------|-----------------|
-| 45.1 Core UI Framework | React + TypeScript + Vite, OIDC auth, RBAC (Admin/Operator/Viewer/Auditor), tenant selector |
-| 45.2 Dashboard & Monitoring | Real-time verdict stream (WebSocket), agent/tool inventories, shadow AI alerts, health |
-| 45.3 Audit Viewer | Searchable audit log (time range, agent, tool, verdict), export (CSV/JSONL/PDF), real-time tail |
-| 45.4 Policy Editor | TOML syntax highlighting with live validation, policy simulator, version diff |
-
-**Exit criteria:** OIDC login, RBAC navigation, real-time verdicts, audit viewer with search, policy editor, WCAG 2.1 AA
-
----
-
-## Phase 46: Enterprise IAM (P1)
-
-*Focus: Enterprise identity provider integration for admin console and agent identity resolution.*
-
-| Task | Priority |
-|------|----------|
-| OIDC provider integration (Okta, Azure AD/Entra ID, Keycloak) | P1 |
-| SAML 2.0 SP implementation for legacy IdPs | P1 |
-| Session management (secure cookies, CSRF, idle timeout) | P1 |
-| RBAC with tenant scoping | P1 |
-| SCIM 2.0 provisioning (auto-create/deactivate from IdP) | P2 |
-| Agent identity resolution from enterprise JWT claims | P1 |
-
-**Exit criteria:** OIDC + SAML login, RBAC enforced, configurable session timeout, agent identity from JWT claims
-
----
-
-## Phase 50: Usage Metering & Billing Foundation (P3)
-
-*Focus: Per-tenant usage tracking for commercial licensing.*
-
-| Task | Priority |
-|------|----------|
-| PostgresUsageMeter with hourly rollup tables | P3 |
-| Per-tenant usage API with period aggregation | P3 |
-| Stripe metered billing webhook | P3 |
-| License enforcement: Community (10K evals/day), Pro (100K), Enterprise (unlimited) | P3 |
-
-**Exit criteria:** Accurate per-tenant counts, Community tier enforcement, Stripe billing functional
-
----
-
-## Phase 51: Partner Integration Kit (P3)
-
-*Focus: Pre-packaged integrations for SI partners and enterprise AI platforms.*
-
-| Integration | Framework |
-|------------|-----------|
-| LangChain/LangGraph middleware | Python SDK |
-| CrewAI crew-level policy enforcement | Python SDK |
-| Google ADK tool validation callback | Python SDK |
-| OpenAI Agents SDK function calling interceptor | Python SDK |
-| Terraform provider (policies, tenants, users) | Go |
-| SI pilot kit (deployment guide, demo script, reference architecture) | Docs |
-
-**Exit criteria:** LangChain + CrewAI on PyPI, Terraform provider, SI pilot kit, 10+ tests per integration
-
----
-
-## Phase 53: Marketplace & Self-Service Onboarding (P3)
-
-*Focus: Self-service tenant onboarding and community ecosystem.*
-
-- Self-service signup with email verification
-- Policy marketplace (community-contributed templates)
-- Cloud marketplace images (AWS AMI, Azure VM, GCP)
-- Interactive API docs (OpenAPI/Swagger)
-
-**Exit criteria:** Signup-to-first-evaluation in < 5 min, 10+ policy templates, 2+ cloud marketplaces
 
 ---
 
@@ -202,19 +81,18 @@ Q2 2027:         Phase 54 — Post-Quantum Cryptography Migration          [P3]
 ## Phase Dependency Map
 
 ```
-Phase 36 (DX/SDK)          ──── independent, in progress ──────────────────┐
+Phase 36 (DX/SDK)          ──── ✅ complete ─────────────────────────────────┐
+Phase 45 (Admin Console)   ──── ✅ complete ─────────────────────────────────┤
+Phase 46 (Enterprise IAM)  ──── ✅ complete ─────────────────────────────────┤
+Phase 50 (Billing)         ──── ✅ core complete (Postgres persistence TBD) ─┤
                                                                             │
-Phase 45 (Admin Console)   ──── depends on Phase 46 ───────────────────────┤
-Phase 46 (Enterprise IAM)  ──── independent ───────────────────────────────┤
-                                                                            │
-Phase 50 (Billing)         ──── depends on Phase 46 ───────────────────────┤
-Phase 51 (Partner Kit)     ──── depends on Phase 36 ───────────────────────┤
-Phase 53 (Marketplace)     ──── depends on Phase 46 + 50 ─────────────────┤
+Phase 51 (Partner Kit)     ──── ✅ complete ─────────────────────────────────┤
+Phase 53 (Marketplace)     ──── ✅ complete ─────────────────────────────────┤
 Phase 54 (PQC)             ──── independent ───────────────────────────────┤
-Phase 55 (Scale)           ──── depends on Phase 50 ───────────────────────┘
+Phase 55 (Scale)           ──── depends on Phase 50 ✅ ──── UNBLOCKED ─────┘
 ```
 
-**Critical path:** Phase 46 (IAM) -> Phase 45 (Console) -> Phase 50 (Billing) -> Phase 53 (Marketplace)
+**Critical path:** All predecessor phases complete. Only Phase 54 (PQC) and Phase 55 (Scale) remain.
 
 ---
 
@@ -224,14 +102,17 @@ Phase 55 (Scale)           ──── depends on Phase 50 ──────�
 |---------|-----------|---------|-------------|-----------|---------------|
 | MCP Native | Full (4 transports) | Full | Full | HTTP only | Managed |
 | Multi-Tenancy | Per-tenant isolation | Unknown | Unknown | Unknown | Per-account |
-| Admin Console | Dashboard (SPA planned) | Dashboard | Dashboard | None | Console |
-| Enterprise IAM | JWT/OAuth (SSO planned) | OAuth | OAuth | Azure AD | IAM |
+| Admin Console | React SPA (10 pages, RBAC) | Dashboard | Dashboard | None | Console |
+| Enterprise IAM | OIDC/SAML/RBAC/SCIM | OAuth | OAuth | Azure AD | IAM |
 | Compliance Packs | DORA/NIS2/ISO42001/EUAIA | SOC 2 only | None | None | SOC 2 |
 | K8s Operator | CRDs (3 resources) | None | K8s | K8s native | Managed |
 | Formal Verification | TLA+/Alloy (20+ props) | None | None | None | None |
 | zk-SNARK Audit | Pedersen + Groth16 | None | None | None | None |
 | Open Source | AGPL-3.0 (core) | Commercial | Commercial | MIT | Commercial |
 | SDKs | Python/TS/Go/Java | Python | Python | None | Python |
+| Self-Service Signup | API + marketplace | SaaS only | SaaS only | Portal | Console |
+| Policy Templates | 11 presets | None | None | None | None |
+| OpenAPI Spec | 135+ endpoints | Unknown | Unknown | Unknown | Managed |
 
 ---
 
@@ -267,7 +148,7 @@ Phase 55 (Scale)           ──── depends on Phase 50 ──────�
 ---
 
 <details>
-<summary>Completed Phases Archive (1-49)</summary>
+<summary>Completed Phases Archive (1-51)</summary>
 
 | Phase | Name | Key Deliverable |
 |-------|------|-----------------|
@@ -308,6 +189,12 @@ Phase 55 (Scale)           ──── depends on Phase 50 ──────�
 | 47 | Policy Lifecycle | Versioned policies, approval workflows, staging, rollback |
 | 48 | Compliance Evidence Packs | DORA/NIS2/ISO 42001/EU AI Act bundles |
 | 49 | Kubernetes Operator | CRDs (VellavetoCluster, VellavetoPolicy, VellavetoTenant), HPA |
+| 36 | Developer Experience | Java SDK (33 methods, 53 tests), VS Code extension, SVG graph export |
+| 45 | Admin Console | React SPA: 10 pages, OIDC+API-key auth, RBAC nav, dark theme, 59 vitest tests |
+| 46 | Enterprise IAM | OIDC, SAML 2.0, RBAC (4 roles, 14 perms), sessions, SCIM provisioning |
+| 50 | Usage Metering & Billing | In-memory atomic counters, per-tenant quotas, Stripe/Paddle webhooks |
+| 51 | Partner Integration Kit | CrewAI, Google ADK, OpenAI Agents integrations + Terraform provider + SI pilot kit |
+| 53 | Marketplace & Onboarding | 11 policy presets, OpenAPI 3.0 spec (135+ endpoints), self-service signup, cloud marketplace docs |
 
 </details>
 

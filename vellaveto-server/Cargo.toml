@@ -56,6 +56,7 @@ percent-encoding = "2.3"
 url = "2"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.18"
+ring = "0.17"
 # OpenTelemetry (Phase 4)
 opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
@@ -71,7 +72,7 @@ reqwest = { workspace = true }
 base64 = "0.22"
 rand = "0.8"
 flate2 = { version = "1.0", features = ["zlib"] }
-roxmltree = "0.24"
+roxmltree = "0.21"
 # SECURITY: lru >= 0.16.3 required to fix RUSTSEC-2026-0002 (Stacked Borrows violation)
 lru = "0.16"
 # Phase 43: Centralized Audit Store (PostgreSQL backend)

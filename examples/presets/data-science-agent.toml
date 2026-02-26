@@ -1,0 +1,107 @@
+# Vellaveto Preset: Data Science Agent
+#
+# For AI agents running data analysis, ML model training, and notebook
+# execution. Allows read access to data directories and controlled write
+# access to output directories. Blocks system files and credentials.
+#
+# Usage:
+#   vellaveto serve --config examples/presets/data-science-agent.toml --port 3000
+
+# --- Block credential and system files ---
+[[policies]]
+name = "Block credentials"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "datasci:*:credential-block"
+
+[policies.policy_type.Deny]
+reason = "Access to credentials is blocked"
+
+[policies.path_rules]
+blocked_paths = [
+  "/home/*/.aws/**",
+  "/home/*/.ssh/**",
+  "/home/*/.gnupg/**",
+  "**/.env",
+  "**/.env.*",
+  "**/secrets.*",
+  "/etc/shadow",
+  "/etc/passwd",
+]
+
+# --- Allow read access to data directories ---
+[[policies]]
+name = "Allow data read"
+tool_pattern = "file_read"
+function_pattern = "*"
+priority = 200
+id = "datasci:file_read:allow-data"
+
+[policies.policy_type.Allow]
+
+[policies.path_rules]
+allowed_paths = [
+  "/data/**",
+  "/datasets/**",
+  "/mnt/data/**",
+  "/home/*/projects/**",
+  "/home/*/notebooks/**",
+  "/tmp/**",
+]
+
+# --- Allow write to output directories ---
+[[policies]]
+name = "Allow output write"
+tool_pattern = "file_write"
+function_pattern = "*"
+priority = 200
+id = "datasci:file_write:allow-output"
+
+[policies.policy_type.Allow]
+
+[policies.path_rules]
+allowed_paths = [
+  "/output/**",
+  "/results/**",
+  "/home/*/projects/*/output/**",
+  "/tmp/**",
+]
+
+# --- Allow package registries and data sources ---
+[[policies]]
+name = "Allow data sources"
+tool_pattern = "web_*"
+function_pattern = "*"
+priority = 200
+id = "datasci:web:allow-data-sources"
+
+[policies.policy_type.Allow]
+
+[policies.network_rules]
+allowed_domains = [
+  "pypi.org",
+  "*.anaconda.org",
+  "huggingface.co",
+  "*.kaggle.com",
+  "storage.googleapis.com",
+  "*.amazonaws.com",
+  "registry.npmjs.org",
+]
+
+# --- Default deny ---
+[[policies]]
+name = "Default deny"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 0
+id = "datasci:*:default-deny"
+
+[policies.policy_type.Deny]
+reason = "Action not permitted by data science policy"
+
+[detection]
+injection_enabled = true
+injection_blocking = true
+dlp_enabled = true
+dlp_blocking = true

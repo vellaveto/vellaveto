@@ -1,0 +1,75 @@
+# Vellaveto Preset: API Gateway Agent
+#
+# For AI agents that call external REST APIs (Stripe, Twilio, Salesforce, etc.)
+# Enforces domain allowlisting and prevents calls to internal/private networks.
+#
+# Usage:
+#   vellaveto serve --config examples/presets/api-gateway-agent.toml --port 3000
+
+# --- Block private/internal network access ---
+[[policies]]
+name = "Block internal networks"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "api-gw:*:block-internal"
+
+[policies.policy_type.Deny]
+reason = "Agent cannot access internal networks"
+
+[policies.network_rules]
+blocked_domains = ["*.internal", "*.local", "localhost", "*.corp"]
+[policies.network_rules.ip_rules]
+block_private = true
+blocked_cidrs = ["169.254.0.0/16", "100.64.0.0/10"]
+
+# --- Allow approved external APIs ---
+[[policies]]
+name = "Allow approved APIs"
+tool_pattern = "http_*"
+function_pattern = "*"
+priority = 200
+id = "api-gw:http:allow-approved"
+
+[policies.policy_type.Allow]
+
+[policies.network_rules]
+allowed_domains = [
+  "api.stripe.com",
+  "api.twilio.com",
+  "*.salesforce.com",
+  "api.sendgrid.com",
+  "api.github.com",
+  "api.openai.com",
+  "api.anthropic.com",
+]
+
+# --- Require approval for unknown domains ---
+[[policies]]
+name = "Require approval for unknown APIs"
+tool_pattern = "http_*"
+function_pattern = "*"
+priority = 100
+id = "api-gw:http:require-approval"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "require_approval"
+parameter_constraints = []
+
+# --- Default deny everything else ---
+[[policies]]
+name = "Default deny"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 0
+id = "api-gw:*:default-deny"
+
+[policies.policy_type.Deny]
+reason = "No matching policy for this action"
+
+# --- Detection settings ---
+[detection]
+injection_enabled = true
+injection_blocking = true
+dlp_enabled = true
+dlp_blocking = true

@@ -4,10 +4,13 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     Json,
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+    Engine,
+};
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use flate2::read::DeflateDecoder;
+use flate2::read::{DeflateDecoder, ZlibDecoder};
 use jsonwebtoken::{
     decode, decode_header,
     jwk::{JwkSet, KeyAlgorithm},
@@ -16,12 +19,12 @@ use jsonwebtoken::{
 use rand::rngs::OsRng;
 use rand::RngCore;
 use reqwest::{header as reqwest_header, Client};
-use roxmltree::Document;
+use ring::{digest, signature};
+use roxmltree::{Document, Node, NodeType};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
     env,
     io::{Cursor, Read},
     sync::Arc,
@@ -33,17 +36,23 @@ use tracing::{info, warn};
 use url::Url;
 use uuid::Uuid;
 use vellaveto_types::has_dangerous_chars;
+use x509_parser::prelude::*;
 
-use crate::rbac::{Role, RoleClaims};
+use crate::rbac::{AudienceClaim, Role, RoleClaims};
 use crate::routes::ErrorResponse;
 use crate::AppState;
 use vellaveto_config::{
-    iam::{OidcConfig as VellavetoOidcConfig, ScimConfig},
+    iam::{OidcConfig as VellavetoOidcConfig, SamlConfig, ScimConfig},
     IamConfig,
 };
 
 const FLOW_TTL_SECS: u64 = 300;
 const MAX_NEXT_LEN: usize = 512;
+const SAML_PROTOCOL_NS: &str = "urn:oasis:names:tc:SAML:2.0:protocol";
+const SAML_METADATA_NS: &str = "urn:oasis:names:tc:SAML:2.0:metadata";
+const SAML_ASSERTION_NS: &str = "urn:oasis:names:tc:SAML:2.0:assertion";
+const XMLDSIG_NS: &str = "http://www.w3.org/2000/09/xmldsig#";
+const SAML_STATUS_SUCCESS: &str = "urn:oasis:names:tc:SAML:2.0:status:Success";
 
 #[derive(Debug, Default)]
 struct ScimStatus {
@@ -51,6 +60,306 @@ struct ScimStatus {
     last_error: Option<String>,
     last_user_count: Option<usize>,
     last_sync_duration_ms: Option<u128>,
+}
+
+#[derive(Debug)]
+struct SamlState {
+    entity_id: String,
+    acs_url: String,
+    idp_entity_id: String,
+    certificates: Vec<Vec<u8>>,
+    role_attribute: String,
+}
+
+impl SamlState {
+    async fn new(config: &SamlConfig, client: &Client) -> Result<Self, IamError> {
+        let metadata_url = config
+            .idp_metadata_url
+            .as_ref()
+            .ok_or_else(|| IamError::Saml("iam.saml.idp_metadata_url is required".to_string()))?;
+        let body = client
+            .get(metadata_url)
+            .send()
+            .await
+            .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {}", e)))?
+            .error_for_status()
+            .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {}", e)))?
+            .text()
+            .await
+            .map_err(|e| IamError::Saml(format!("Failed to read SAML metadata: {}", e)))?;
+        let document = Document::parse(&body)
+            .map_err(|e| IamError::Saml(format!("Invalid SAML metadata XML: {}", e)))?;
+        Self::from_document(document, config)
+    }
+
+    fn from_document(document: Document, config: &SamlConfig) -> Result<Self, IamError> {
+        let entity_node = document
+            .descendants()
+            .find(|node| node.has_tag_name((SAML_METADATA_NS, "EntityDescriptor")))
+            .ok_or_else(|| IamError::Saml("SAML metadata missing EntityDescriptor".to_string()))?;
+        let idp_entity_id = entity_node
+            .attribute("entityID")
+            .ok_or_else(|| IamError::Saml("EntityDescriptor missing entityID".to_string()))?
+            .to_string();
+        let sso_location = document
+            .descendants()
+            .filter(|node| node.has_tag_name((SAML_METADATA_NS, "SingleSignOnService")))
+            .find(|node| {
+                matches!(
+                    node.attribute("Binding"),
+                    Some("urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST")
+                )
+            })
+            .or_else(|| {
+                document
+                    .descendants()
+                    .find(|node| node.has_tag_name((SAML_METADATA_NS, "SingleSignOnService")))
+            })
+            .and_then(|node| node.attribute("Location"));
+        sso_location.ok_or_else(|| {
+            IamError::Saml("SAML metadata missing SingleSignOnService or Location".to_string())
+        })?;
+        let mut certificates = Vec::new();
+        for node in document
+            .descendants()
+            .filter(|node| node.has_tag_name((XMLDSIG_NS, "X509Certificate")))
+        {
+            if let Some(text) = node.text() {
+                certificates.push(decode_base64(text.trim(), "SAML metadata certificate")?);
+            }
+        }
+        if certificates.is_empty() {
+            return Err(IamError::Saml(
+                "SAML metadata includes no signing certificates".to_string(),
+            ));
+        }
+        let entity_id = config
+            .entity_id
+            .clone()
+            .ok_or_else(|| IamError::Saml("iam.saml.entity_id must be configured".to_string()))?;
+        let acs_url = config
+            .acs_url
+            .clone()
+            .ok_or_else(|| IamError::Saml("iam.saml.acs_url must be configured".to_string()))?;
+        let role_attribute = config
+            .role_attribute
+            .clone()
+            .unwrap_or_else(|| "Role".to_string());
+        Ok(Self {
+            entity_id,
+            acs_url,
+            idp_entity_id,
+            certificates,
+            role_attribute,
+        })
+    }
+}
+
+impl SamlState {
+    fn extract_claims(&self, document: &Document) -> Result<RoleClaims, IamError> {
+        let response = document
+            .descendants()
+            .find(|node| node.has_tag_name((SAML_PROTOCOL_NS, "Response")))
+            .ok_or_else(|| IamError::Saml("SAML Response element missing".to_string()))?;
+        self.ensure_status_success(response)?;
+        self.ensure_destination(response)?;
+        let assertion = response
+            .descendants()
+            .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "Assertion")))
+            .ok_or_else(|| IamError::Saml("SAML Assertion element missing".to_string()))?;
+        self.verify_assertion(assertion)?;
+        self.ensure_issuer(response, assertion)?;
+        self.ensure_conditions(assertion)?;
+        self.ensure_audience(assertion)?;
+        Ok(self.claims_from_assertion(assertion))
+    }
+
+    fn ensure_status_success(&self, response: Node) -> Result<(), IamError> {
+        let status_value = response
+            .descendants()
+            .find(|node| node.has_tag_name((SAML_PROTOCOL_NS, "StatusCode")))
+            .and_then(|node| node.attribute("Value"))
+            .ok_or_else(|| IamError::Saml("SAML StatusCode missing".to_string()))?;
+        if status_value != SAML_STATUS_SUCCESS {
+            return Err(IamError::Saml(format!(
+                "SAML response status is not Success: {}",
+                status_value
+            )));
+        }
+        Ok(())
+    }
+
+    fn ensure_destination(&self, response: Node) -> Result<(), IamError> {
+        if let Some(destination) = response.attribute("Destination") {
+            if destination != self.acs_url {
+                return Err(IamError::Saml(format!(
+                    "SAML response destination {} does not match ACS {}",
+                    destination, self.acs_url
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn ensure_issuer(&self, response: Node, assertion: Node) -> Result<(), IamError> {
+        let issuer = response
+            .descendants()
+            .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "Issuer")))
+            .or_else(|| {
+                assertion
+                    .descendants()
+                    .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "Issuer")))
+            })
+            .and_then(|node| node.text())
+            .ok_or_else(|| IamError::Saml("SAML issuer missing".to_string()))?;
+        if issuer != self.idp_entity_id {
+            return Err(IamError::Saml(format!(
+                "SAML issuer mismatch (expected {}, got {})",
+                self.idp_entity_id, issuer
+            )));
+        }
+        Ok(())
+    }
+
+    fn ensure_conditions(&self, assertion: Node) -> Result<(), IamError> {
+        if let Some(conditions) = assertion
+            .descendants()
+            .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "Conditions")))
+        {
+            let now = Utc::now();
+            if let Some(not_before) = conditions.attribute("NotBefore") {
+                let timestamp = parse_saml_timestamp(not_before)?;
+                if now < timestamp {
+                    return Err(IamError::Saml(
+                        "SAML Conditions NotBefore is in the future".to_string(),
+                    ));
+                }
+            }
+            if let Some(not_on_or_after) = conditions.attribute("NotOnOrAfter") {
+                let timestamp = parse_saml_timestamp(not_on_or_after)?;
+                if now >= timestamp {
+                    return Err(IamError::Saml(
+                        "SAML Conditions NotOnOrAfter has passed".to_string(),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn ensure_audience(&self, assertion: Node) -> Result<(), IamError> {
+        let audience_found = assertion
+            .descendants()
+            .filter(|node| node.has_tag_name((SAML_ASSERTION_NS, "Audience")))
+            .filter_map(|node| node.text())
+            .any(|value| value == self.entity_id);
+        if !audience_found {
+            return Err(IamError::Saml(format!(
+                "SAML AudienceRestriction does not include {}",
+                self.entity_id
+            )));
+        }
+        Ok(())
+    }
+
+    fn claims_from_assertion(&self, assertion: Node) -> RoleClaims {
+        let subject = assertion
+            .descendants()
+            .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "NameID")))
+            .and_then(|node| node.text())
+            .map(|text| text.to_string());
+        let mut roles = Vec::new();
+        for attribute in assertion
+            .descendants()
+            .filter(|node| node.has_tag_name((SAML_ASSERTION_NS, "Attribute")))
+        {
+            if attribute
+                .attribute("Name")
+                .map(|name| name == self.role_attribute)
+                .unwrap_or(false)
+            {
+                for value_node in attribute
+                    .descendants()
+                    .filter(|node| node.has_tag_name((SAML_ASSERTION_NS, "AttributeValue")))
+                {
+                    if let Some(value) = value_node.text() {
+                        roles.push(value.to_string());
+                    }
+                }
+            }
+        }
+        RoleClaims {
+            sub: subject,
+            role: roles.first().cloned(),
+            vellaveto_role: None,
+            roles: if roles.is_empty() { None } else { Some(roles) },
+            aud: Some(AudienceClaim::Single(self.entity_id.clone())),
+            nonce: None,
+        }
+    }
+
+    fn verify_assertion(&self, assertion: Node) -> Result<(), IamError> {
+        let signature = assertion
+            .children()
+            .find(|node| node.has_tag_name((XMLDSIG_NS, "Signature")))
+            .ok_or_else(|| IamError::Saml("SAML Assertion missing Signature".to_string()))?;
+        let signed_info = signature
+            .children()
+            .find(|node| node.has_tag_name((XMLDSIG_NS, "SignedInfo")))
+            .ok_or_else(|| IamError::Saml("SAML SignedInfo missing".to_string()))?;
+        let reference = signed_info
+            .children()
+            .find(|node| node.has_tag_name((XMLDSIG_NS, "Reference")))
+            .ok_or_else(|| IamError::Saml("SAML Reference missing".to_string()))?;
+        let digest_method = reference
+            .children()
+            .find(|node| node.has_tag_name((XMLDSIG_NS, "DigestMethod")))
+            .and_then(|node| node.attribute("Algorithm"))
+            .ok_or_else(|| IamError::Saml("DigestMethod algorithm missing".to_string()))?;
+        let digest_algorithm = map_digest_algorithm(digest_method)?;
+        let digest_value = reference
+            .children()
+            .find(|node| node.has_tag_name((XMLDSIG_NS, "DigestValue")))
+            .and_then(|node| node.text())
+            .ok_or_else(|| IamError::Saml("DigestValue missing".to_string()))?;
+        let digest_bytes = decode_base64(digest_value.trim(), "C14n digest value")?;
+        let canonical_assertion = canonicalize_node(assertion, true);
+        let computed = digest::digest(digest_algorithm, canonical_assertion.as_bytes());
+        if computed.as_ref() != digest_bytes.as_slice() {
+            return Err(IamError::Saml(
+                "SAML assertion digest does not match".to_string(),
+            ));
+        }
+        let signature_method = signed_info
+            .children()
+            .find(|node| node.has_tag_name((XMLDSIG_NS, "SignatureMethod")))
+            .and_then(|node| node.attribute("Algorithm"))
+            .ok_or_else(|| IamError::Saml("SignatureMethod algorithm missing".to_string()))?;
+        let signature_alg = map_signature_algorithm(signature_method)?;
+        let signature_value = signature
+            .children()
+            .find(|node| node.has_tag_name((XMLDSIG_NS, "SignatureValue")))
+            .and_then(|node| node.text())
+            .ok_or_else(|| IamError::Saml("SignatureValue missing".to_string()))?;
+        let signature_bytes = decode_base64(signature_value.trim(), "Signature value")?;
+        let canonical_signed_info = canonicalize_node(signed_info, false);
+        for cert in &self.certificates {
+            let (_, parsed) = X509Certificate::from_der(cert)
+                .map_err(|e| IamError::Saml(format!("Invalid metadata certificate: {}", e)))?;
+            let spki = parsed.tbs_certificate.subject_pki;
+            let verifier =
+                signature::UnparsedPublicKey::new(signature_alg, spki.subject_public_key.data);
+            if verifier
+                .verify(canonical_signed_info.as_bytes(), signature_bytes.as_slice())
+                .is_ok()
+            {
+                return Ok(());
+            }
+        }
+        Err(IamError::Saml(
+            "SAML signature verification failed".to_string(),
+        ))
+    }
 }
 
 /// Shared IAM state (OIDC + SAML + session management) for Phase 46.
@@ -64,7 +373,7 @@ pub struct IamState {
     jwks_cache: RwLock<Option<CachedJwks>>,
     saml_state: Option<SamlState>,
     scim_status: Arc<RwLock<ScimStatus>>,
-    scim_task: Option<JoinHandle<()>>,
+    _scim_task: Option<JoinHandle<()>>,
 }
 
 impl IamState {
@@ -115,8 +424,29 @@ impl IamState {
             jwks_cache: RwLock::new(None),
             saml_state,
             scim_status,
-            scim_task,
+            _scim_task: scim_task,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test(config: IamConfig) -> Self {
+        let discovery = OidcDiscovery {
+            authorization_endpoint: "https://example.com/authorize".to_string(),
+            token_endpoint: "https://example.com/token".to_string(),
+            jwks_uri: "https://example.com/jwks".to_string(),
+        };
+        let http = Client::new();
+        IamState {
+            config,
+            discovery,
+            http,
+            flow_states: DashMap::new(),
+            sessions: DashMap::new(),
+            jwks_cache: RwLock::new(None),
+            saml_state: None,
+            scim_status: Arc::new(RwLock::new(ScimStatus::default())),
+            _scim_task: None,
+        }
     }
 
     /// Name of the session cookie.
@@ -319,19 +649,56 @@ impl IamState {
             role,
             scopes,
             expires_at: now + Duration::from_secs(self.config.session.max_age_secs),
+            last_activity: now,
         };
         self.sessions.insert(session.id.clone(), session.clone());
+        self.trim_sessions_for_subject(session.subject.as_deref());
         session
+    }
+
+    fn trim_sessions_for_subject(&self, subject: Option<&str>) {
+        let subject = match subject {
+            Some(value) => value,
+            None => return,
+        };
+        let limit = self.config.session.max_sessions_per_principal as usize;
+        if limit == 0 {
+            return;
+        }
+        let mut entries: Vec<(Instant, String)> = self
+            .sessions
+            .iter()
+            .filter_map(|entry| {
+                let value = entry.value();
+                value
+                    .subject
+                    .as_deref()
+                    .filter(|s| *s == subject)
+                    .map(|_| (value.last_activity, entry.key().clone()))
+            })
+            .collect();
+        if entries.len() <= limit {
+            return;
+        }
+        entries.sort_by_key(|(activity, _)| *activity);
+        let remove_count = entries.len() - limit;
+        for (_, id) in entries.into_iter().take(remove_count) {
+            self.sessions.remove(&id);
+        }
     }
 
     pub fn find_session(&self, id: &str) -> Option<IamSession> {
         let now = Instant::now();
-        if let Some(session) = self.sessions.get(id) {
-            if session.is_expired_at(now) {
-                self.sessions.remove(id);
+        let idle_timeout = Duration::from_secs(self.config.session.idle_timeout_secs);
+        if let Some(mut entry) = self.sessions.get_mut(id) {
+            if entry.is_expired_at(now, idle_timeout) {
+                let key = entry.key().clone();
+                drop(entry);
+                self.sessions.remove(&key);
                 return None;
             }
-            return Some(session.clone());
+            entry.touch();
+            return Some(entry.clone());
         }
         None
     }
@@ -417,6 +784,15 @@ pub struct CallbackParams {
     pub code: Option<String>,
     pub state: Option<String>,
     pub error: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SamlAcsForm {
+    #[serde(rename = "SAMLResponse")]
+    pub saml_response: String,
+
+    #[serde(rename = "RelayState")]
+    pub relay_state: Option<String>,
 }
 
 /// Standard session info response.
@@ -595,6 +971,67 @@ pub async fn logout(
     Ok(response)
 }
 
+pub async fn saml_acs(
+    State(state): State<AppState>,
+    Form(form): Form<SamlAcsForm>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let iam = state.iam_state.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "IAM is disabled".to_string(),
+            }),
+        )
+    })?;
+    let saml_state = iam.saml_state.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "SAML is disabled".to_string(),
+            }),
+        )
+    })?;
+    let xml = decode_saml_response(&form.saml_response).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+    let document = Document::parse(&xml).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("Invalid SAML XML: {}", e),
+            }),
+        )
+    })?;
+    let claims = saml_state.extract_claims(&document).map_err(|e| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+    let session = iam.create_session(claims, vec![]);
+    let cookie = iam
+        .session_cookie_header(&session.id, Some(iam.config.session.max_age_secs))
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+    let next = sanitize_next(form.relay_state.clone());
+    let mut response = Redirect::temporary(&next).into_response();
+    response.headers_mut().append(header::SET_COOKIE, cookie);
+    Ok(response)
+}
+
 pub async fn scim_status(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
@@ -617,14 +1054,31 @@ pub async fn scim_status(
     })))
 }
 
-pub async fn saml_placeholder() -> Response {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(serde_json::json!({
-            "error": "SAML SP support is coming soon"
-        })),
-    )
-        .into_response()
+pub async fn saml_metadata(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let iam = state.iam_state.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "IAM is disabled".to_string(),
+            }),
+        )
+    })?;
+    if !iam.config.saml.enabled {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "SAML metadata is disabled".to_string(),
+            }),
+        ));
+    }
+    let metadata = build_saml_metadata(&iam.config.saml);
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/samlmetadata+xml")],
+        metadata,
+    ))
 }
 
 #[derive(Clone, Debug)]
@@ -657,11 +1111,16 @@ pub struct IamSession {
     pub role: Role,
     pub scopes: Vec<String>,
     expires_at: Instant,
+    last_activity: Instant,
 }
 
 impl IamSession {
-    fn is_expired_at(&self, at: Instant) -> bool {
-        at >= self.expires_at
+    fn is_expired_at(&self, now: Instant, idle_timeout: Duration) -> bool {
+        now >= self.expires_at || now.duration_since(self.last_activity) >= idle_timeout
+    }
+
+    fn touch(&mut self) {
+        self.last_activity = Instant::now();
     }
 
     fn expires_in_secs(&self) -> u64 {
@@ -744,6 +1203,8 @@ pub enum IamError {
     Jwks(String),
     #[error("Failed to encode cookie: {0}")]
     CookieEncode(String),
+    #[error("SAML error: {0}")]
+    Saml(String),
     #[error("SCIM sync failed: {0}")]
     Scim(String),
 }
@@ -788,6 +1249,448 @@ fn parse_scope_list(scope: Option<&str>) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn canonicalize_node(node: Node, skip_signature: bool) -> String {
+    let mut output = String::new();
+    output.push('<');
+    output.push_str(&qualified_name(node));
+    let mut attrs: Vec<_> = node.attributes().collect();
+    attrs.sort_by(|a: &roxmltree::Attribute, b: &roxmltree::Attribute| {
+        a.namespace()
+            .unwrap_or("")
+            .cmp(b.namespace().unwrap_or(""))
+            .then_with(|| a.name().cmp(b.name()))
+    });
+    for attr in &attrs {
+        output.push(' ');
+        output.push_str(&attribute_name(attr));
+        output.push('=');
+        output.push('"');
+        output.push_str(attr.value());
+        output.push('"');
+    }
+    output.push('>');
+    for child in node.children() {
+        match child.node_type() {
+            NodeType::Text => {
+                if let Some(text) = child.text() {
+                    output.push_str(text);
+                }
+            }
+            NodeType::Element => {
+                let is_signature = child.has_tag_name((XMLDSIG_NS, "Signature"))
+                    || child.tag_name().name() == "Signature";
+                if skip_signature && is_signature {
+                    continue;
+                }
+                output.push_str(&canonicalize_node(child, skip_signature));
+            }
+            _ => {}
+        }
+    }
+    output.push_str("</");
+    output.push_str(&qualified_name(node));
+    output.push('>');
+    output
+}
+
+fn qualified_name(node: Node) -> String {
+    if let Some(ns) = node.tag_name().namespace() {
+        if let Some(prefix) = node.lookup_prefix(ns) {
+            return format!("{}:{}", prefix, node.tag_name().name());
+        }
+    }
+    node.tag_name().name().to_string()
+}
+
+fn attribute_name(attr: &roxmltree::Attribute) -> String {
+    // roxmltree 0.21 does not expose attribute prefix directly;
+    // for SAML canonicalization we use the local name only (sufficient
+    // for namespace-unqualified attributes in SAML assertions).
+    attr.name().to_string()
+}
+
+fn map_digest_algorithm(uri: &str) -> Result<&'static digest::Algorithm, IamError> {
+    match uri {
+        "http://www.w3.org/2000/09/xmldsig#sha1" => Ok(&digest::SHA1_FOR_LEGACY_USE_ONLY),
+        "http://www.w3.org/2001/04/xmlenc#sha256" => Ok(&digest::SHA256),
+        "http://www.w3.org/2001/04/xmlenc#sha384" => Ok(&digest::SHA384),
+        "http://www.w3.org/2001/04/xmlenc#sha512" => Ok(&digest::SHA512),
+        _ => Err(IamError::Saml(format!(
+            "Unsupported SAML digest algorithm {}",
+            uri
+        ))),
+    }
+}
+
+fn map_signature_algorithm(
+    uri: &str,
+) -> Result<&'static dyn signature::VerificationAlgorithm, IamError> {
+    match uri {
+        "http://www.w3.org/2000/09/xmldsig#rsa-sha1" => {
+            Ok(&signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY)
+        }
+        "http://www.w3.org/2000/09/xmldsig#rsa-sha256"
+        | "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256" => {
+            Ok(&signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY)
+        }
+        "http://www.w3.org/2000/09/xmldsig#rsa-sha512"
+        | "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512" => {
+            Ok(&signature::RSA_PKCS1_1024_8192_SHA512_FOR_LEGACY_USE_ONLY)
+        }
+        _ => Err(IamError::Saml(format!(
+            "Unsupported SAML signature algorithm {}",
+            uri
+        ))),
+    }
+}
+
+fn parse_saml_timestamp(value: &str) -> Result<DateTime<Utc>, IamError> {
+    DateTime::parse_from_rfc3339(value)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|e| IamError::Saml(format!("Invalid SAML timestamp '{}': {}", value, e)))
+}
+
+fn decode_base64(value: &str, context: &str) -> Result<Vec<u8>, IamError> {
+    STANDARD
+        .decode(value)
+        .map_err(|e| IamError::Saml(format!("{}: {}", context, e)))
+}
+
+fn decode_saml_response(encoded: &str) -> Result<String, IamError> {
+    let decoded = STANDARD
+        .decode(encoded)
+        .map_err(|e| IamError::Saml(format!("Invalid SAML response encoding: {}", e)))?;
+    if let Ok(text) = String::from_utf8(decoded.clone()) {
+        return Ok(text);
+    }
+    let mut buffer = String::new();
+    let mut zlib_decoder = ZlibDecoder::new(Cursor::new(decoded.clone()));
+    if zlib_decoder.read_to_string(&mut buffer).is_ok() {
+        return Ok(buffer);
+    }
+    buffer.clear();
+    let mut deflate_decoder = DeflateDecoder::new(Cursor::new(decoded));
+    deflate_decoder
+        .read_to_string(&mut buffer)
+        .map_err(|e| IamError::Saml(format!("Failed to decompress SAML response: {}", e)))?;
+    Ok(buffer)
+}
+
+const SAML_SP_METADATA_TEMPLATE: &str = r#"<?xml version="1.0"?>
+<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="{entity}">
+  <SPSSODescriptor
+    protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"
+    AuthnRequestsSigned="false"
+    WantAssertionsSigned="true">
+    <NameIDFormat>urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress</NameIDFormat>
+    <AssertionConsumerService
+      Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+      Location="{acs}"
+      index="0"/>
+  </SPSSODescriptor>
+</EntityDescriptor>"#;
+
+fn build_saml_metadata(config: &SamlConfig) -> String {
+    SAML_SP_METADATA_TEMPLATE
+        .replace("{entity}", config.entity_id.as_deref().unwrap_or_default())
+        .replace("{acs}", config.acs_url.as_deref().unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::engine::general_purpose::STANDARD;
+    use chrono::{Duration, Utc};
+    use flate2::write::DeflateEncoder;
+    use flate2::Compression;
+    use ring::digest;
+    use ring::rand::SystemRandom;
+    use ring::signature::{RsaKeyPair, RSA_PKCS1_SHA256};
+    use std::io::Write;
+    use std::time::{Duration as StdDuration, Instant as StdInstant};
+    use vellaveto_config::iam::SamlConfig;
+    use vellaveto_config::IamConfig;
+
+    const TEST_CERT_BASE64: &str = "MIIDDTCCAfWgAwIBAgIUXFfuq4zQ2fx8g6c6OmSBI/yIhmYwDQYJKoZIhvcNAQELBQAwFjEUMBIGA1UEAwwLcGhhc2U0Ni1pZHAwHhcNMjYwMjI1MjI0MzQ1WhcNMjcwMjI1MjI0MzQ1WjAWMRQwEgYDVQQDDAtwaGFzZTQ2LWlkcDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALqJvn8K/WDkH3pjGevAAatWwodmNJqy7jUHTG/OzRBN8vjBLYN7Xdl1NGtjsVSJL4aUbam41CP++xn+NcwpZ0LHDBhyRmyV+Bl26PE4s3/0+UyJUl08PMkLugoDxmduJ2PbjIbBSGoMfYV7HsueMJjpWZt3btY90QCU3SH9jkylz424GHhziYsIqdfIDNxiO91rjojl/caWcLFjSH4l7Ve6v5nubzmPcpueL1pEGbXW+qXc7vZ6N/urC0j8KTX8KTxV9GQ61KatzoNjlHevhrW2gntPos8CRJd2hAUUovHG0ExZhmpMpPzz0J8iLxI7YXvwrPgm7r4a9rG8SXLvxB0CAwEAAaNTMFEwHQYDVR0OBBYEFJQs00ep7Zq0sY62RHT8X0izPzg7MB8GA1UdIwQYMBaAFJQs00ep7Zq0sY62RHT8X0izPzg7MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAJ3sXJJX3yqxsR2lzKFsGrsD2c/ih3GotqaNtkwC9GHiE0Sz9cYXZLIFXArISfEBTLyNn6WX5ZO+a0CeIKSLgSTAYYjwUkIB9OFTwzh5wDTCc5yXexJoN4oR1lqsxYtQ61to6PbIGXUJmFYtaJS96Wj0AXneNVZoItAvTPMKstCnYZOZ/vwT3t8tbRUM1JRtfkRYplroy0H3dKt3l31LD6NB4ergCOJHhqVbss+r8mZzNnhN222VIdQ2qjVq8kxmYJTO/itL8w2DVpufwwFFiWkinBOd2FeAwST7v4n+voeUIXj9zWnd6NiuVE8hymsu995U5xGrBuVGrweSoEelwoY=";
+    const TEST_PRIVATE_KEY_BASE64: &str = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC6ib5/Cv1g5B96YxnrwAGrVsKHZjSasu41B0xvzs0QTfL4wS2De13ZdTRrY7FUiS+GlG2puNQj/vsZ/jXMKWdCxwwYckZslfgZdujxOLN/9PlMiVJdPDzJC7oKA8Znbidj24yGwUhqDH2Fex7LnjCY6Vmbd27WPdEAlN0h/Y5Mpc+NuBh4c4mLCKnXyAzcYjvda46I5f3GlnCxY0h+Je1Xur+Z7m85j3Kbni9aRBm11vql3O72ejf7qwtI/Ck1/Ck8VfRkOtSmrc6DY5R3r4a1toJ7T6LPAkSXdoQFFKLxxtBMWYZqTKT889CfIi8SO2F78Kz4Ju6+GvaxvEly78QdAgMBAAECggEAFXXscdRIrgGAx5qoLEcU9L/mCyAh6YcFaxoRsVlS8/nBJtz0CLOZlVTrziEUO+a5ONv8Y9ws9+PewrD27Sv5l9AA9Ge38h0s2SJ6OT+t6F49jOXNkTFxctXZC6GUjWi5umjTWYYvd8KZHFFmYRmsJfjOw4PxlKSxq3Cfokiiuu7e50rrAIU7wAg99drbfCGluYctc8FlayAO3tG+aweIOQjun6QbiSkLRwyFz5KCGqsHHTND1J0GF0/pqSKXUEJ+qMeUo+SnfdAPW+4/Xwlp5mR2eO+ffS14dIv7O+QMj+t3jk5SYChDw2JtZlwppCBdfs9368+s4lrdQfAjgi2CFwKBgQDnlex/juB+PQ27J2QF56EpVaj9s3tM77cbyS4mXGqA5tXEH3K47yWbISdTKG4ubRjic+JMsp8qKyx+qqQVHmxkDrLsE2NmFdMEXiktWnZwbXH2x2mHEx9O2IwK8jdJVInE/kJNZVtZtV4v82HZi+A4L1ZOI6lYBg56lDGyLpsvNwKBgQDONBFlCjqsGkl6LQ4tQWSYTgsRQeylSffc5Jw9lENRTfrXuqb5OE1uSe9tJeycVO7QKuGddv/f7UZoru1drc3zxm2004RDJBzcrDoxyXZrbRDvorFZEMPJXOmneY0zLjMnQY4NVXUUZp3hPtP0Bk1YDtC/50wZ7HPUCx0zp7AJSwKBgQC8KuMomezqZa08fjsVWSlnroRK74Sl9LixSPvIi5q19dmHK45JmXbS31NWjClKa7ameUZMz23oE4BpwzjjN/8WJaNXkkFXdzAoAmIuyawmmabZvxmNeQodRHI1iq1FVf1DJNy2ij55W5aWG4lL/A1JWZ0kjHFSZklpa/QdNSU+bQKBgHV92YN25qN1fvRsg61pm0XlAg1dQNeVY/OrFxNHTWwgQJN3OPi8CfKTkibg+wbApipapJ8yVO1kpz+ynHFKPRVvtMbZ1nzjMMbUI3yGzEC9rm68hsy27rfnhwL0EW5eHqt5gNU8Ii/zoHXddKuQg7VvC6asxgHnZsAlbQgnvfgtAoGAGuW5KPZlvFJ24jLnmDrpAOjNEdfdlQ3fcY4Dq4pdy0JojyzOvWcrAvQQzH+oJk7JlVJTpzmKKBM9pckZ7pXbTIhoPn4BIvKwkr1rpZAF1bbUhb5+N6zU7AUp7x6GB/fIV8KHzX3UReUuJfSobzSS6KrWkNTqnl7Gl9JpzsirwqU=";
+    const TEST_IDP_ENTITY_ID: &str = "https://idp.example.com";
+    const TEST_SSO_URL: &str = "https://idp.example.com/sso";
+    const TEST_SP_ENTITY_ID: &str = "https://sp.example.com";
+    const TEST_SP_ACS: &str = "https://sp.example.com/acs";
+    const TEST_SUBJECT: &str = "alice@example.com";
+    const TEST_ROLE_VALUE: &str = "Admin";
+    const SIGNED_INFO_TEMPLATE: &str = r#"<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">
+  <CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+  <SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha256"/>
+  <Reference URI="">
+    <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+    <DigestValue>{digest}</DigestValue>
+  </Reference>
+</SignedInfo>"#;
+    const ASSERTION_TEMPLATE: &str = r#"<Assertion Version="2.0" IssueInstant="{issue}" ID="_assertion" xmlns="urn:oasis:names:tc:SAML:2.0:assertion">
+  <Issuer>{idp}</Issuer>
+  <Subject>
+    <NameID>{subject}</NameID>
+  </Subject>
+  <Conditions NotBefore="{not_before}" NotOnOrAfter="{not_on_or_after}">
+    <AudienceRestriction>
+      <Audience>{audience}</Audience>
+    </AudienceRestriction>
+  </Conditions>
+  <AttributeStatement>
+    <Attribute Name="{role_attr}">
+      <AttributeValue>{role_value}</AttributeValue>
+    </Attribute>
+  </AttributeStatement>
+  <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+    {signed_info}
+    <SignatureValue>{signature}</SignatureValue>
+  </Signature>
+</Assertion>"#;
+    const RESPONSE_TEMPLATE: &str = r#"<Response Version="2.0" IssueInstant="{issue}" Destination="{acs}" xmlns="urn:oasis:names:tc:SAML:2.0:protocol">
+  <Issuer xmlns="urn:oasis:names:tc:SAML:2.0:assertion">{idp}</Issuer>
+  <Status>
+    <StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/>
+  </Status>
+  {assertion}
+</Response>"#;
+    const SAML_METADATA_TEMPLATE: &str = r#"<?xml version="1.0"?>
+<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="{idp}">
+  <IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+    <SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="{sso}"/>
+    <KeyDescriptor use="signing">
+      <KeyInfo xmlns="http://www.w3.org/2000/09/xmldsig#">
+        <X509Data>
+          <X509Certificate>{cert}</X509Certificate>
+        </X509Data>
+      </KeyInfo>
+    </KeyDescriptor>
+  </IDPSSODescriptor>
+</EntityDescriptor>"#;
+    const SIGNATURE_PLACEHOLDER: &str = "{signature}";
+
+    #[test]
+    fn canonicalize_node_filters_signature_when_requested() {
+        let xml = r#"<root attr="value"><Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><dummy/></Signature><child id="1">text</child></root>"#;
+        let doc = Document::parse(xml).unwrap();
+        let root = doc.root_element();
+        let canonical = canonicalize_node(root, true);
+        assert!(canonical.contains("<child"));
+        assert!(!canonical.contains("Signature"));
+    }
+
+    #[test]
+    fn canonicalize_node_preserves_signature_when_not_skipped() {
+        let xml = r#"<root><Signature><dummy/></Signature></root>"#;
+        let doc = Document::parse(xml).unwrap();
+        let root = doc.root_element();
+        let canonical = canonicalize_node(root, false);
+        assert!(canonical.contains("Signature"));
+    }
+
+    #[test]
+    fn decode_saml_response_handles_plain_and_deflated() {
+        let payload = "<Response></Response>";
+        let plain = STANDARD.encode(payload);
+        assert_eq!(decode_saml_response(&plain).unwrap(), payload);
+
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(payload.as_bytes()).unwrap();
+        let deflated = encoder.finish().unwrap();
+        let encoded = STANDARD.encode(deflated);
+        assert_eq!(decode_saml_response(&encoded).unwrap(), payload);
+    }
+
+    #[test]
+    fn parse_saml_timestamp_accepts_and_rejects_values() {
+        assert!(parse_saml_timestamp("2026-02-25T12:00:00Z").is_ok());
+        assert!(parse_saml_timestamp("not-a-timestamp").is_err());
+    }
+
+    #[test]
+    fn map_digest_algorithm_supports_known_uris() {
+        let sha256 = map_digest_algorithm("http://www.w3.org/2001/04/xmlenc#sha256").unwrap();
+        assert!(std::ptr::eq(sha256, &digest::SHA256));
+        assert!(map_digest_algorithm("unsupported").is_err());
+    }
+
+    #[test]
+    fn map_signature_algorithm_supports_known_uris() {
+        assert!(map_signature_algorithm("http://www.w3.org/2000/09/xmldsig#rsa-sha256").is_ok());
+        assert!(map_signature_algorithm("unsupported").is_err());
+    }
+
+    fn test_metadata_xml() -> String {
+        SAML_METADATA_TEMPLATE
+            .replace("{idp}", TEST_IDP_ENTITY_ID)
+            .replace("{sso}", TEST_SSO_URL)
+            .replace("{cert}", TEST_CERT_BASE64)
+    }
+
+    fn test_saml_config() -> SamlConfig {
+        SamlConfig {
+            enabled: true,
+            entity_id: Some(TEST_SP_ENTITY_ID.to_string()),
+            acs_url: Some(TEST_SP_ACS.to_string()),
+            idp_metadata_url: Some("https://idp.example.com/metadata".to_string()),
+            role_attribute: Some("Role".to_string()),
+        }
+    }
+
+    fn private_key_pair() -> RsaKeyPair {
+        let key_bytes = STANDARD.decode(TEST_PRIVATE_KEY_BASE64).unwrap();
+        RsaKeyPair::from_pkcs8(&key_bytes).unwrap()
+    }
+
+    fn canonicalize_signed_info(xml: &str) -> String {
+        let document = Document::parse(xml).unwrap();
+        let root = document.root_element();
+        canonicalize_node(root, false)
+    }
+
+    fn compute_assertion_digest(assertion_xml: &str) -> String {
+        let document = Document::parse(assertion_xml).unwrap();
+        let assertion_node = document
+            .descendants()
+            .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "Assertion")))
+            .unwrap();
+        let canonical = canonicalize_node(assertion_node, true);
+        let digest = digest::digest(&digest::SHA256, canonical.as_bytes());
+        STANDARD.encode(digest.as_ref())
+    }
+
+    fn sign_canonicalized_signed_info(signed_info: &str) -> String {
+        let key_pair = private_key_pair();
+        let rng = SystemRandom::new();
+        let canonical = canonicalize_signed_info(signed_info);
+        let mut signature = vec![0; key_pair.public().modulus_len()];
+        key_pair
+            .sign(
+                &RSA_PKCS1_SHA256,
+                &rng,
+                canonical.as_bytes(),
+                &mut signature,
+            )
+            .unwrap();
+        STANDARD.encode(signature)
+    }
+
+    fn build_signed_response(saml_state: &SamlState) -> String {
+        let issue_instant = Utc::now().to_rfc3339();
+        let not_before = (Utc::now() - Duration::seconds(30)).to_rfc3339();
+        let not_on_or_after = (Utc::now() + Duration::minutes(5)).to_rfc3339();
+        let assertion_template = ASSERTION_TEMPLATE
+            .replace("{issue}", &issue_instant)
+            .replace("{idp}", &saml_state.idp_entity_id)
+            .replace("{subject}", TEST_SUBJECT)
+            .replace("{not_before}", &not_before)
+            .replace("{not_on_or_after}", &not_on_or_after)
+            .replace("{audience}", &saml_state.entity_id)
+            .replace("{role_attr}", &saml_state.role_attribute)
+            .replace("{role_value}", TEST_ROLE_VALUE)
+            .replace("{signed_info}", "{signed_info}")
+            .replace("{signature}", SIGNATURE_PLACEHOLDER);
+        let assertion_for_digest = assertion_template
+            .replace("{signed_info}", SIGNED_INFO_TEMPLATE)
+            .replace("{signature}", SIGNATURE_PLACEHOLDER);
+        let digest_value = compute_assertion_digest(&assertion_for_digest);
+        let signed_info = SIGNED_INFO_TEMPLATE.replace("{digest}", &digest_value);
+        let signature_value = sign_canonicalized_signed_info(&signed_info);
+        let final_assertion = assertion_template
+            .replace("{signed_info}", &signed_info)
+            .replace("{signature}", &signature_value);
+        RESPONSE_TEMPLATE
+            .replace("{issue}", &issue_instant)
+            .replace("{acs}", &saml_state.acs_url)
+            .replace("{idp}", &saml_state.idp_entity_id)
+            .replace("{assertion}", &final_assertion)
+    }
+
+    #[test]
+    fn saml_state_extracts_signed_response_claims() {
+        let config = test_saml_config();
+        let metadata_xml = test_metadata_xml();
+        let document = Document::parse(&metadata_xml).unwrap();
+        let saml_state = SamlState::from_document(document, &config).unwrap();
+        let response = build_signed_response(&saml_state);
+        let response_doc = Document::parse(&response).unwrap();
+        let claims = saml_state.extract_claims(&response_doc).unwrap();
+        assert_eq!(claims.sub.as_deref(), Some(TEST_SUBJECT));
+        let roles = claims.roles.unwrap_or_default();
+        assert!(roles.contains(&TEST_ROLE_VALUE.to_string()));
+        assert_eq!(
+            claims.aud,
+            Some(AudienceClaim::Single(TEST_SP_ENTITY_ID.to_string()))
+        );
+    }
+
+    #[test]
+    fn build_saml_metadata_includes_entity_and_acs() {
+        let config = test_saml_config();
+        let metadata = build_saml_metadata(&config);
+        assert!(metadata.contains(TEST_SP_ENTITY_ID));
+        assert!(metadata.contains(TEST_SP_ACS));
+        assert!(metadata.contains("AssertionConsumerService"));
+    }
+
+    #[test]
+    fn ensure_destination_rejects_mismatched_values() {
+        let config = test_saml_config();
+        let metadata_xml = test_metadata_xml();
+        let document = Document::parse(&metadata_xml).unwrap();
+        let saml_state = SamlState::from_document(document, &config).unwrap();
+        let xml = format!(
+            "<Response xmlns=\"{}\" Destination=\"https://bad.example.com\"/>",
+            SAML_PROTOCOL_NS
+        );
+        let response_doc = Document::parse(&xml).unwrap();
+        let response = response_doc.root_element();
+        assert!(matches!(
+            saml_state.ensure_destination(response),
+            Err(IamError::Saml(_))
+        ));
+    }
+
+    fn role_claims(subject: &str, role: &str) -> RoleClaims {
+        RoleClaims {
+            sub: Some(subject.to_string()),
+            role: Some(role.to_string()),
+            vellaveto_role: None,
+            roles: None,
+            aud: None,
+            nonce: None,
+        }
+    }
+
+    #[test]
+    fn session_expires_after_idle_timeout() {
+        let mut config = IamConfig::default();
+        config.oidc.enabled = true;
+        config.session.idle_timeout_secs = 1;
+        let iam = IamState::new_for_test(config);
+        let session = iam.create_session(role_claims("alice", "admin"), vec![]);
+        {
+            let mut entry = iam.sessions.get_mut(&session.id).unwrap();
+            entry.last_activity = StdInstant::now() - StdDuration::from_secs(2);
+        }
+        assert!(iam.find_session(&session.id).is_none());
+    }
+
+    #[test]
+    fn create_session_prunes_oldest_when_limit_reached() {
+        let mut config = IamConfig::default();
+        config.oidc.enabled = true;
+        config.session.max_sessions_per_principal = 2;
+        let iam = IamState::new_for_test(config);
+        let s1 = iam.create_session(role_claims("bob", "operator"), vec![]);
+        let s2 = iam.create_session(role_claims("bob", "operator"), vec![]);
+        let s3 = iam.create_session(role_claims("bob", "operator"), vec![]);
+        assert!(iam.find_session(&s1.id).is_none());
+        assert!(iam.find_session(&s2.id).is_some());
+        assert!(iam.find_session(&s3.id).is_some());
+    }
 }
 
 fn resolve_scim_token(config: &ScimConfig) -> Result<String, IamError> {
@@ -881,8 +1784,8 @@ async fn fetch_scim_user_count(
 fn extract_scim_user_count(payload: &Value) -> usize {
     payload
         .get("totalResults")
-        .and_then(|value| value_to_usize(value))
-        .or_else(|| payload.get("total").and_then(|value| value_to_usize(value)))
+        .and_then(value_to_usize)
+        .or_else(|| payload.get("total").and_then(value_to_usize))
         .or_else(|| {
             payload
                 .get("Resources")

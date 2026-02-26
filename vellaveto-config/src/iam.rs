@@ -90,7 +90,7 @@ fn ensure_env_var(field: &str, value: &str) -> Result<(), String> {
 }
 
 /// Enterprise IAM configuration covering OIDC, SAML, session, and SCIM plumbing.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct IamConfig {
     /// Globally enable IAM integration.
@@ -112,18 +112,6 @@ pub struct IamConfig {
     /// SCIM provisioning integration configuration.
     #[serde(default)]
     pub scim: ScimConfig,
-}
-
-impl Default for IamConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            oidc: OidcConfig::default(),
-            saml: SamlConfig::default(),
-            session: SessionConfig::default(),
-            scim: ScimConfig::default(),
-        }
-    }
 }
 
 impl IamConfig {

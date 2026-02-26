@@ -67,6 +67,7 @@ fn make_test_state(tmp: &TempDir) -> AppState {
         // Phase 1 & 2 security managers — disabled in tests
         task_state: None,
         auth_level: None,
+        iam_state: None,
         circuit_breaker: None,
         deputy: None,
         shadow_agent: None,

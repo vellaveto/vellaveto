@@ -642,13 +642,20 @@ pub fn build_router(state: AppState) -> Router {
         Router::new()
     };
 
+    // Self-service signup route — unauthenticated (creates credentials).
+    // SECURITY (Phase 53): Rate-limited to prevent abuse.
+    let signup_routes = Router::new()
+        .route("/api/signup", post(super::signup::signup))
+        .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit));
+
     let iam_routes = Router::new()
         .route("/iam/login", get(iam::login))
         .route("/iam/callback", get(iam::callback))
         .route("/iam/session", get(iam::session_info))
         .route("/iam/logout", post(iam::logout))
         .route("/iam/scim/status", get(iam::scim_status))
-        .route("/iam/saml/acs", get(iam::saml_placeholder))
+        .route("/iam/saml/metadata", get(iam::saml_metadata))
+        .route("/iam/saml/acs", post(iam::saml_acs))
         .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit));
 
     // Setup wizard routes — unauthenticated (before API key middleware).
@@ -687,6 +694,7 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .merge(authenticated)
         .merge(billing)
+        .merge(signup_routes)
         .merge(iam_routes)
         .merge(wizard)
         .layer(middleware::from_fn(request_id))

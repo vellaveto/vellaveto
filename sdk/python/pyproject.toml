@@ -53,10 +53,22 @@ langgraph = [
 composio = [
     "composio>=1.0.0",
 ]
+crewai = [
+    "crewai>=0.70.0",
+]
+google-adk = [
+    "google-adk>=0.3.0",
+]
+openai-agents = [
+    "openai-agents>=0.1.0",
+]
 all = [
     "langchain-core>=0.2.0",
     "langgraph>=0.2.0",
     "composio>=1.0.0",
+    "crewai>=0.70.0",
+    "google-adk>=0.3.0",
+    "openai-agents>=0.1.0",
 ]
 dev = [
     "pytest>=7.0.0",

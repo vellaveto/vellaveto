@@ -28,6 +28,7 @@
 //! - `sampling` - Sampling detection handlers
 //! - `schema_lineage` - Schema lineage tracking handlers (OWASP ASI05)
 //! - `shadow_agent` - Shadow agent detection handlers
+//! - `signup` - Self-service tenant signup (Phase 53)
 //! - `simulator` - Policy simulator API handlers (Phase 22)
 //! - `task_state` - MCP async task state handlers
 //! - `tenant` - Tenant management handlers (Phase 3)
@@ -58,6 +59,7 @@ pub mod registry;
 pub mod sampling;
 pub mod schema_lineage;
 pub mod shadow_agent;
+pub mod signup;
 pub mod simulator;
 pub mod task_state;
 pub mod tenant;

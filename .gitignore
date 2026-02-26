@@ -17,11 +17,15 @@ __pycache__/
 node_modules/
 sdk/typescript/dist/
 vscode-vellaveto/out/
+admin-console/dist/
 
 # Java / Maven / Gradle
 sdk/java/target/
 sdk/java/.gradle/
 sdk/java/build/
+
+# Terraform provider
+terraform-provider-vellaveto/terraform-provider-vellaveto
 
 # IDE
 .vscode/
