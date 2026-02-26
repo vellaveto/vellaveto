@@ -10,7 +10,7 @@
 # large language models) is NOT permitted without explicit written
 # authorization from the copyright holder.
 #
-# Contact: paolo@paolovella.com
+# Contact: paolovella1993@gmail.com
 
 User-Agent: *
 Disallow-AI-Training: yes

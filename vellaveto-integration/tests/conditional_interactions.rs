@@ -389,8 +389,9 @@ fn non_string_items_in_forbidden_array_ignored() {
 }
 
 #[test]
-fn require_approval_non_bool_is_treated_as_false() {
-    // as_bool().unwrap_or(false) → non-bool → false
+fn require_approval_non_bool_fail_closed() {
+    // FIND-IMP-013: Non-boolean require_approval fail-closed → RequireApproval
+    // as_bool().unwrap_or(true) → non-bool → true (fail-closed)
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
     let policies = vec![conditional_policy(
@@ -402,5 +403,9 @@ fn require_approval_non_bool_is_treated_as_false() {
         }),
     )];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(verdict, Verdict::Allow));
+    assert!(
+        matches!(verdict, Verdict::RequireApproval { .. }),
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
+        verdict
+    );
 }

@@ -311,12 +311,11 @@ fn concurrent_throughput(c: &mut Criterion) {
                             .map(|_| {
                                 s.spawn(|| {
                                     for _ in 0..ITERS_PER_THREAD {
-                                        let _ = black_box(
-                                            engine.evaluate_action(
+                                        let _ =
+                                            black_box(engine.evaluate_action(
                                                 black_box(&action),
                                                 black_box(&[]),
-                                            ),
-                                        );
+                                            ));
                                     }
                                 })
                             })

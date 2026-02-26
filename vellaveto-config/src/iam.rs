@@ -203,7 +203,10 @@ impl std::fmt::Debug for OidcConfig {
             .field("enabled", &self.enabled)
             .field("issuer_url", &self.issuer_url)
             .field("client_id", &self.client_id)
-            .field("client_secret", &self.client_secret.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "client_secret",
+                &self.client_secret.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("redirect_uri", &self.redirect_uri)
             .field("scopes", &self.scopes)
             .field("role_claim", &self.role_claim)
@@ -455,7 +458,10 @@ impl std::fmt::Debug for ScimConfig {
         f.debug_struct("ScimConfig")
             .field("enabled", &self.enabled)
             .field("endpoint", &self.endpoint)
-            .field("bearer_token", &self.bearer_token.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "bearer_token",
+                &self.bearer_token.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("bearer_token_env", &self.bearer_token_env)
             .field("sync_interval_secs", &self.sync_interval_secs)
             .finish()

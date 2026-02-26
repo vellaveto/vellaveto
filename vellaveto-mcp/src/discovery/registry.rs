@@ -347,15 +347,11 @@ impl fmt::Debug for McpRegistryClient {
             .field("config", &self.config.to_string())
             .field(
                 "cache_hits",
-                &self
-                    .cache_hits
-                    .load(std::sync::atomic::Ordering::Relaxed),
+                &self.cache_hits.load(std::sync::atomic::Ordering::Relaxed),
             )
             .field(
                 "cache_misses",
-                &self
-                    .cache_misses
-                    .load(std::sync::atomic::Ordering::Relaxed),
+                &self.cache_misses.load(std::sync::atomic::Ordering::Relaxed),
             )
             .finish()
     }
@@ -525,7 +521,11 @@ impl McpRegistryClient {
         // Look up in identity cache first
         let identity_key = format!("id:{}", server_id);
         if let Some(cached) = self.check_identity_cache(&identity_key) {
-            if let Some(entry) = cached.entries.into_iter().find(|e| e.server_id == server_id) {
+            if let Some(entry) = cached
+                .entries
+                .into_iter()
+                .find(|e| e.server_id == server_id)
+            {
                 return Ok(self.build_verification_result(
                     &entry,
                     expected_url,
@@ -572,10 +572,7 @@ impl McpRegistryClient {
     }
 
     /// Store a registry entry for identity verification.
-    pub fn store_identity_entry(
-        &self,
-        entry: RegistryServerEntry,
-    ) -> Result<(), DiscoveryError> {
+    pub fn store_identity_entry(&self, entry: RegistryServerEntry) -> Result<(), DiscoveryError> {
         entry.validate()?;
         let identity_key = format!("id:{}", entry.server_id);
 
@@ -635,7 +632,7 @@ impl McpRegistryClient {
                     false
                 }
             }
-            (None, _) => true, // No expectation
+            (None, _) => true,        // No expectation
             (Some(_), None) => false, // Expected but not present
         };
         let version_match = match expected_version {
@@ -739,14 +736,12 @@ impl McpRegistryClient {
 
     /// Get the number of cache hits.
     pub fn cache_hit_count(&self) -> u64 {
-        self.cache_hits
-            .load(std::sync::atomic::Ordering::Relaxed)
+        self.cache_hits.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get the number of cache misses.
     pub fn cache_miss_count(&self) -> u64 {
-        self.cache_misses
-            .load(std::sync::atomic::Ordering::Relaxed)
+        self.cache_misses.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get a reference to the configuration.
@@ -916,10 +911,7 @@ mod tests {
     #[test]
     fn test_client_ingest_and_query() {
         let client = McpRegistryClient::new(test_config()).unwrap();
-        let entries = vec![
-            sample_entry("fs-server"),
-            sample_entry("db-server"),
-        ];
+        let entries = vec![sample_entry("fs-server"), sample_entry("db-server")];
         let ingested = client
             .ingest_registry_response("filesystem", entries)
             .unwrap();
@@ -934,10 +926,10 @@ mod tests {
     #[test]
     fn test_client_query_caps_results() {
         let client = McpRegistryClient::new(test_config()).unwrap();
-        let entries: Vec<_> = (0..10).map(|i| sample_entry(&format!("srv-{}", i))).collect();
-        client
-            .ingest_registry_response("test", entries)
-            .unwrap();
+        let entries: Vec<_> = (0..10)
+            .map(|i| sample_entry(&format!("srv-{}", i)))
+            .collect();
+        client.ingest_registry_response("test", entries).unwrap();
 
         let result = client.query("test", 3).unwrap();
         assert!(result.servers.len() <= 3);
@@ -966,9 +958,7 @@ mod tests {
         let mut unverified = sample_entry("unverified-srv");
         unverified.verified = false;
         let entries = vec![sample_entry("verified-srv"), unverified];
-        client
-            .ingest_registry_response("test", entries)
-            .unwrap();
+        client.ingest_registry_response("test", entries).unwrap();
 
         let result = client.query("test", 10).unwrap();
         assert_eq!(result.servers.len(), 1);
@@ -1002,7 +992,9 @@ mod tests {
     #[test]
     fn test_verify_server_identity_url_mismatch() {
         let client = McpRegistryClient::new(test_config()).unwrap();
-        client.store_identity_entry(sample_entry("my-server")).unwrap();
+        client
+            .store_identity_entry(sample_entry("my-server"))
+            .unwrap();
 
         let result = client
             .verify_server_identity("my-server", "https://evil.example.com", None, None)
@@ -1015,7 +1007,9 @@ mod tests {
     #[test]
     fn test_verify_server_identity_publisher_hash_mismatch() {
         let client = McpRegistryClient::new(test_config()).unwrap();
-        client.store_identity_entry(sample_entry("my-server")).unwrap();
+        client
+            .store_identity_entry(sample_entry("my-server"))
+            .unwrap();
 
         let result = client
             .verify_server_identity(
@@ -1044,7 +1038,9 @@ mod tests {
     #[test]
     fn test_verify_server_identity_version_mismatch() {
         let client = McpRegistryClient::new(test_config()).unwrap();
-        client.store_identity_entry(sample_entry("my-server")).unwrap();
+        client
+            .store_identity_entry(sample_entry("my-server"))
+            .unwrap();
 
         let result = client
             .verify_server_identity(
@@ -1061,8 +1057,7 @@ mod tests {
     #[test]
     fn test_verify_server_identity_dangerous_chars_rejected() {
         let client = McpRegistryClient::new(test_config()).unwrap();
-        let result =
-            client.verify_server_identity("bad\nid", "https://example.com", None, None);
+        let result = client.verify_server_identity("bad\nid", "https://example.com", None, None);
         assert!(result.is_err());
     }
 
@@ -1074,9 +1069,7 @@ mod tests {
         let mut bad = sample_entry("bad");
         bad.server_id = String::new(); // Invalid
         let entries = vec![sample_entry("good"), bad];
-        let count = client
-            .ingest_registry_response("test", entries)
-            .unwrap();
+        let count = client.ingest_registry_response("test", entries).unwrap();
         assert_eq!(count, 1);
     }
 
@@ -1118,10 +1111,7 @@ mod tests {
 
     #[test]
     fn test_compute_publisher_hash_different_data_differ() {
-        assert_ne!(
-            compute_publisher_hash(b"a"),
-            compute_publisher_hash(b"b")
-        );
+        assert_ne!(compute_publisher_hash(b"a"), compute_publisher_hash(b"b"));
     }
 
     // ── Entry serde roundtrip ───────────────────────────────────────────
@@ -1147,12 +1137,7 @@ mod tests {
             .unwrap();
 
         let result = client
-            .verify_server_identity(
-                "cached-srv",
-                "https://cached-srv.example.com",
-                None,
-                None,
-            )
+            .verify_server_identity("cached-srv", "https://cached-srv.example.com", None, None)
             .unwrap();
         assert!(result.found);
         assert!(result.identity_match);

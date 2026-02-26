@@ -100,11 +100,7 @@ impl std::fmt::Debug for DecisionCache {
             )
             .field(
                 "current_size",
-                &self
-                    .cache
-                    .read()
-                    .map(|c| c.len())
-                    .unwrap_or_default(),
+                &self.cache.read().map(|c| c.len()).unwrap_or_default(),
             )
             .finish()
     }
@@ -165,7 +161,9 @@ impl DecisionCache {
         };
 
         match cache.get(&key) {
-            Some(entry) if entry.generation == current_gen && entry.inserted_at.elapsed() < self.ttl => {
+            Some(entry)
+                if entry.generation == current_gen && entry.inserted_at.elapsed() < self.ttl =>
+            {
                 self.hits.fetch_add(1, Ordering::Relaxed);
                 // Note: We do not update last_accessed here under a read lock
                 // to avoid upgrading to a write lock on every hit. The LRU
@@ -188,12 +186,7 @@ impl DecisionCache {
     ///
     /// No-op if the internal lock is poisoned (fail-closed: we do not
     /// serve stale data from a potentially corrupted map).
-    pub fn insert(
-        &self,
-        action: &Action,
-        context: Option<&EvaluationContext>,
-        verdict: &Verdict,
-    ) {
+    pub fn insert(&self, action: &Action, context: Option<&EvaluationContext>, verdict: &Verdict) {
         if !Self::is_cacheable_context(context) {
             return;
         }
@@ -249,10 +242,7 @@ impl DecisionCache {
     ///
     /// Returns 0 if the lock is poisoned (fail-closed).
     pub fn len(&self) -> usize {
-        self.cache
-            .read()
-            .map(|c| c.len())
-            .unwrap_or(0)
+        self.cache.read().map(|c| c.len()).unwrap_or(0)
     }
 
     /// Returns `true` if the cache contains no entries.
@@ -818,10 +808,8 @@ mod tests {
     fn test_domain_order_independence() {
         let cache = DecisionCache::new(100, Duration::from_secs(60));
 
-        let action_a =
-            make_action_with_targets("http", "get", vec![], vec!["a.com", "b.com"]);
-        let action_b =
-            make_action_with_targets("http", "get", vec![], vec!["b.com", "a.com"]);
+        let action_a = make_action_with_targets("http", "get", vec![], vec!["a.com", "b.com"]);
+        let action_b = make_action_with_targets("http", "get", vec![], vec!["b.com", "a.com"]);
 
         cache.insert(&action_a, None, &Verdict::Allow);
         assert_eq!(cache.get(&action_b, None), Some(Verdict::Allow));

@@ -340,20 +340,17 @@ impl CascadingBreaker {
     ///
     /// Returns `Err(ChainDepthExceeded)` if the new depth would exceed
     /// `max_chain_depth`.
-    pub fn enter_chain(
-        &self,
-        chain_id: &str,
-        pipeline_id: &str,
-    ) -> Result<u32, CascadingError> {
+    pub fn enter_chain(&self, chain_id: &str, pipeline_id: &str) -> Result<u32, CascadingError> {
         if !self.config.enabled {
             return Ok(0);
         }
         Self::validate_chain_id(chain_id)?;
         Self::validate_pipeline_id(pipeline_id)?;
 
-        let mut chains = self.chains.write().map_err(|_| {
-            CascadingError::LockPoisoned("chains write lock".to_string())
-        })?;
+        let mut chains = self
+            .chains
+            .write()
+            .map_err(|_| CascadingError::LockPoisoned("chains write lock".to_string()))?;
 
         if let Some(chain) = chains.get_mut(chain_id) {
             let new_depth = chain.depth.saturating_add(1);
@@ -414,9 +411,10 @@ impl CascadingBreaker {
         }
         Self::validate_chain_id(chain_id)?;
 
-        let mut chains = self.chains.write().map_err(|_| {
-            CascadingError::LockPoisoned("chains write lock".to_string())
-        })?;
+        let mut chains = self
+            .chains
+            .write()
+            .map_err(|_| CascadingError::LockPoisoned("chains write lock".to_string()))?;
 
         if let Some(chain) = chains.get_mut(chain_id) {
             if chain.depth <= 1 {
@@ -437,9 +435,10 @@ impl CascadingBreaker {
         }
         Self::validate_chain_id(chain_id)?;
 
-        let chains = self.chains.read().map_err(|_| {
-            CascadingError::LockPoisoned("chains read lock".to_string())
-        })?;
+        let chains = self
+            .chains
+            .read()
+            .map_err(|_| CascadingError::LockPoisoned("chains read lock".to_string()))?;
 
         Ok(chains.get(chain_id).map(|c| c.depth).unwrap_or(0))
     }
@@ -458,9 +457,10 @@ impl CascadingBreaker {
         }
         Self::validate_pipeline_id(pipeline_id)?;
 
-        let pipelines = self.pipelines.read().map_err(|_| {
-            CascadingError::LockPoisoned("pipelines read lock".to_string())
-        })?;
+        let pipelines = self
+            .pipelines
+            .read()
+            .map_err(|_| CascadingError::LockPoisoned("pipelines read lock".to_string()))?;
 
         if let Some(state) = pipelines.get(pipeline_id) {
             if state.is_broken {
@@ -545,9 +545,10 @@ impl CascadingBreaker {
         pipeline_id: &str,
         is_error: bool,
     ) -> Result<(), CascadingError> {
-        let mut pipelines = self.pipelines.write().map_err(|_| {
-            CascadingError::LockPoisoned("pipelines write lock".to_string())
-        })?;
+        let mut pipelines = self
+            .pipelines
+            .write()
+            .map_err(|_| CascadingError::LockPoisoned("pipelines write lock".to_string()))?;
 
         // Bound tracked pipelines.
         if !pipelines.contains_key(pipeline_id) && pipelines.len() >= MAX_TRACKED_PIPELINES {
@@ -649,9 +650,10 @@ impl CascadingBreaker {
         }
         Self::validate_pipeline_id(pipeline_id)?;
 
-        let pipelines = self.pipelines.read().map_err(|_| {
-            CascadingError::LockPoisoned("pipelines read lock".to_string())
-        })?;
+        let pipelines = self
+            .pipelines
+            .read()
+            .map_err(|_| CascadingError::LockPoisoned("pipelines read lock".to_string()))?;
 
         if let Some(state) = pipelines.get(pipeline_id) {
             Ok(self.compute_error_rate_inner(state))
@@ -667,9 +669,10 @@ impl CascadingBreaker {
         }
         Self::validate_pipeline_id(pipeline_id)?;
 
-        let pipelines = self.pipelines.read().map_err(|_| {
-            CascadingError::LockPoisoned("pipelines read lock".to_string())
-        })?;
+        let pipelines = self
+            .pipelines
+            .read()
+            .map_err(|_| CascadingError::LockPoisoned("pipelines read lock".to_string()))?;
 
         Ok(pipelines
             .get(pipeline_id)
@@ -679,12 +682,14 @@ impl CascadingBreaker {
 
     /// Get summary statistics for all pipelines.
     pub fn pipeline_summary(&self) -> Result<CascadingSummary, CascadingError> {
-        let pipelines = self.pipelines.read().map_err(|_| {
-            CascadingError::LockPoisoned("pipelines read lock".to_string())
-        })?;
-        let chains = self.chains.read().map_err(|_| {
-            CascadingError::LockPoisoned("chains read lock".to_string())
-        })?;
+        let pipelines = self
+            .pipelines
+            .read()
+            .map_err(|_| CascadingError::LockPoisoned("pipelines read lock".to_string()))?;
+        let chains = self
+            .chains
+            .read()
+            .map_err(|_| CascadingError::LockPoisoned("chains read lock".to_string()))?;
 
         let mut healthy = 0usize;
         let mut broken = 0usize;
@@ -1056,7 +1061,10 @@ mod tests {
     fn test_config_deny_unknown_fields() {
         let json = r#"{"enabled": true, "bogus": 42}"#;
         let result: Result<CascadingConfig, _> = serde_json::from_str(json);
-        assert!(result.is_err(), "deny_unknown_fields should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "deny_unknown_fields should reject unknown fields"
+        );
     }
 
     #[test]

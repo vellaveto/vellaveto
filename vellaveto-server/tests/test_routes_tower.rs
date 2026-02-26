@@ -2075,6 +2075,80 @@ async fn auth_post_without_header_returns_401() {
 }
 
 #[tokio::test]
+async fn iam_scim_status_requires_auth() {
+    let (state, _tmp) = make_authed_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::get("/iam/scim/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn iam_scim_status_with_auth_reaches_handler() {
+    let (state, _tmp) = make_authed_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::get("/iam/scim/status")
+                .header("authorization", "Bearer test-secret-key-42")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Auth passes; handler returns service unavailable when IAM isn't configured.
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn iam_client_metadata_requires_auth() {
+    let (state, _tmp) = make_authed_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/auth/client-metadata")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"client_id_url":"https://example.com"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn iam_client_metadata_with_auth_reaches_handler() {
+    let (state, _tmp) = make_authed_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/auth/client-metadata")
+                .header("authorization", "Bearer test-secret-key-42")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"client_id_url":"https://example.com"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Auth passes; handler returns service unavailable when IAM isn't configured.
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
 async fn auth_post_with_wrong_token_returns_401() {
     let (state, _tmp) = make_authed_state();
     let app = routes::build_router(state);

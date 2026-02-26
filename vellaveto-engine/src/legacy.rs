@@ -471,8 +471,10 @@ impl PolicyEngine {
         }
 
         // Check require_approval first
+        // SECURITY (FIND-IMP-013): Fail-closed — non-boolean values default to
+        // requiring approval rather than silently bypassing it.
         if let Some(require_approval) = conditions.get("require_approval") {
-            if require_approval.as_bool().unwrap_or(false) {
+            if require_approval.as_bool().unwrap_or(true) {
                 return Ok(Some(Verdict::RequireApproval {
                     reason: format!("Approval required by policy '{}'", policy.name),
                 }));

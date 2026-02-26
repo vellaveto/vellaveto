@@ -499,9 +499,9 @@ fn require_approval_false_does_not_trigger() {
 }
 
 #[test]
-fn require_approval_as_string_does_not_trigger() {
-    // require_approval should be a bool. If it's a string, `as_bool()` returns None,
-    // `unwrap_or(false)` yields false, so no approval required.
+fn require_approval_as_string_fails_closed() {
+    // FIND-IMP-013: Non-boolean require_approval fails closed → RequireApproval.
+    // `as_bool()` returns None, `unwrap_or(true)` yields true (fail-closed).
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
     let policies = vec![conditional_policy(
@@ -511,24 +511,25 @@ fn require_approval_as_string_does_not_trigger() {
     )];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(
-        result,
-        Verdict::Allow,
-        "require_approval as string 'yes' should not trigger (not a bool)"
+    assert!(
+        matches!(result, Verdict::RequireApproval { .. }),
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
+        result
     );
 }
 
 #[test]
-fn require_approval_as_integer_does_not_trigger() {
+fn require_approval_as_integer_fails_closed() {
+    // FIND-IMP-013: Non-boolean require_approval fails closed → RequireApproval.
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
     let policies = vec![conditional_policy("*", 10, json!({"require_approval": 1}))];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(
-        result,
-        Verdict::Allow,
-        "require_approval as integer 1 should not trigger (not a bool)"
+    assert!(
+        matches!(result, Verdict::RequireApproval { .. }),
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
+        result
     );
 }
 

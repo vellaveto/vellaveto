@@ -287,8 +287,7 @@ impl AuditLogger {
         // Track the first checkpoint's key for continuity enforcement
         let mut established_key: Option<String> = pinned_key.map(|k| k.to_string());
         // Phase 54: Track PQC key for continuity enforcement
-        let mut _established_pqc_key: Option<String> =
-            self.trusted_pqc_verifying_key.clone();
+        let mut _established_pqc_key: Option<String> = self.trusted_pqc_verifying_key.clone();
 
         for (i, cp) in checkpoints.iter().enumerate() {
             // 1. Verify entry_count is non-decreasing
@@ -349,9 +348,7 @@ impl AuditLogger {
                     valid: false,
                     checkpoints_checked: i + 1,
                     first_invalid_at: Some(i),
-                    failure_reason: Some(
-                        "Ed25519 signature verification failed".to_string(),
-                    ),
+                    failure_reason: Some("Ed25519 signature verification failed".to_string()),
                 });
             }
 
@@ -382,9 +379,7 @@ impl AuditLogger {
                         valid: false,
                         checkpoints_checked: i + 1,
                         first_invalid_at: Some(i),
-                        failure_reason: Some(
-                            "v2 checkpoint missing PQC verifying key".to_string(),
-                        ),
+                        failure_reason: Some("v2 checkpoint missing PQC verifying key".to_string()),
                     });
                 }
 
@@ -392,9 +387,7 @@ impl AuditLogger {
                 #[cfg(feature = "pqc-hybrid")]
                 {
                     let pqc_sig = cp.pqc_signature.as_deref().ok_or_else(|| {
-                        AuditError::Validation(
-                            "v2 checkpoint missing PQC signature".to_string(),
-                        )
+                        AuditError::Validation("v2 checkpoint missing PQC signature".to_string())
                     })?;
                     let pqc_vk = cp.pqc_verifying_key.as_deref().ok_or_else(|| {
                         AuditError::Validation(

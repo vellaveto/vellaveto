@@ -211,13 +211,8 @@ pub fn classify_message(msg: &Value) -> MessageType {
         }
         "sampling/createmessage" => MessageType::SamplingRequest { id },
         "elicitation/create" => MessageType::ElicitationRequest { id },
-        method
-            @ ("tasks/get"
-            | "tasks/cancel"
-            | "tasks/list"
-            | "tasks/resubscribe"
-            | "tasks/create") =>
-        {
+        method @ ("tasks/get" | "tasks/cancel" | "tasks/list" | "tasks/resubscribe"
+        | "tasks/create") => {
             let task_id = params
                 .and_then(|p| p.get("id"))
                 .and_then(|t| t.as_str())

@@ -1893,15 +1893,14 @@ impl NhiManager {
                 .map(|dt| dt.with_timezone(&chrono::Utc))
         });
 
-        let time_since_rotation_secs = reference_time
-            .map(|ref_time| {
-                let duration = now.signed_duration_since(ref_time);
-                if duration.num_seconds() < 0 {
-                    0u64
-                } else {
-                    duration.num_seconds() as u64
-                }
-            });
+        let time_since_rotation_secs = reference_time.map(|ref_time| {
+            let duration = now.signed_duration_since(ref_time);
+            if duration.num_seconds() < 0 {
+                0u64
+            } else {
+                duration.num_seconds() as u64
+            }
+        });
 
         let compliant = time_since_rotation_secs
             .map(|secs| secs <= max_rotation_interval_secs)
@@ -2117,14 +2116,13 @@ impl NhiManager {
         let mut issues = 0u32;
 
         // Check expiration proximity.
-        let expiring_soon = if let Ok(expires) =
-            chrono::DateTime::parse_from_rfc3339(&identity.expires_at)
-        {
-            let expires_utc = expires.with_timezone(&chrono::Utc);
-            expires_utc <= *warning_threshold && expires_utc > *now
-        } else {
-            true // Fail-closed: unparseable expiry = expiring
-        };
+        let expiring_soon =
+            if let Ok(expires) = chrono::DateTime::parse_from_rfc3339(&identity.expires_at) {
+                let expires_utc = expires.with_timezone(&chrono::Utc);
+                expires_utc <= *warning_threshold && expires_utc > *now
+            } else {
+                true // Fail-closed: unparseable expiry = expiring
+            };
 
         if expiring_soon {
             issues = issues.saturating_add(1);
@@ -4638,7 +4636,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(result.compliant, "Freshly registered identity should be compliant");
+        assert!(
+            result.compliant,
+            "Freshly registered identity should be compliant"
+        );
         assert!(!result.should_suspend);
     }
 
@@ -4657,9 +4658,7 @@ mod tests {
     async fn test_check_rotation_compliance_disabled_rejected() {
         let manager = NhiManager::new(NhiConfig::default());
 
-        let result = manager
-            .check_rotation_compliance("some-id", 86400)
-            .await;
+        let result = manager.check_rotation_compliance("some-id", 86400).await;
 
         assert!(matches!(result, Err(NhiError::Disabled)));
     }
@@ -4687,10 +4686,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = manager
-            .check_rotation_compliance(&id, 86400)
-            .await
-            .unwrap();
+        let result = manager.check_rotation_compliance(&id, 86400).await.unwrap();
 
         assert!(
             result.compliant,
@@ -4717,17 +4713,17 @@ mod tests {
             .unwrap();
 
         // With 0-second interval, everything is non-compliant.
-        let results = manager
-            .enforce_rotation_policy(0, false)
-            .await
-            .unwrap();
+        let results = manager.enforce_rotation_policy(0, false).await.unwrap();
 
         // At least the one identity should show up (since it was just created,
         // it has 0 seconds elapsed, but 0 <= 0 so it should be compliant unless
         // time has passed).
         // Actually, with max_rotation_interval = 0 and time_since > 0, it's non-compliant.
         // The test is timing-dependent, so let's just verify the function returns Ok.
-        assert!(results.is_empty() || !results.is_empty(), "Should return results");
+        assert!(
+            results.is_empty() || !results.is_empty(),
+            "Should return results"
+        );
         // More importantly: verify function completes without error.
         let _ = id; // Suppress unused warning
     }
@@ -4835,7 +4831,10 @@ mod tests {
 
         let summary = manager.get_inventory_summary(86400).await;
         assert_eq!(summary.total, 2);
-        assert!(summary.terminal >= 1, "Should have at least 1 terminal identity");
+        assert!(
+            summary.terminal >= 1,
+            "Should have at least 1 terminal identity"
+        );
     }
 
     #[tokio::test]
@@ -4896,7 +4895,10 @@ mod tests {
     fn test_ephemeral_credential_deny_unknown_fields() {
         let json = r#"{"id":"1","principal_id":"p","identity_id":"i","scopes":["r"],"reason":"r","issued_at":"2025-01-01T00:00:00Z","expires_at":"2025-01-01T01:00:00Z","revoked":false,"use_count":0,"max_uses":null,"unknown":42}"#;
         let result: Result<EphemeralCredential, _> = serde_json::from_str(json);
-        assert!(result.is_err(), "deny_unknown_fields should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "deny_unknown_fields should reject unknown fields"
+        );
     }
 
     #[test]

@@ -80,8 +80,8 @@ fn generate_mixed_policies(count: usize) -> Vec<Policy> {
 #[test]
 fn test_evaluation_throughput_100k_per_second() {
     let policies = generate_mixed_policies(100);
-    let engine = PolicyEngine::with_policies(false, &policies)
-        .expect("100 mixed policies should compile");
+    let engine =
+        PolicyEngine::with_policies(false, &policies).expect("100 mixed policies should compile");
 
     let action = make_action("tool_0", "read");
     let mut count: u64 = 0;
@@ -116,8 +116,7 @@ fn test_evaluation_throughput_100k_per_second() {
 fn test_concurrent_evaluation_no_data_race() {
     let policies = generate_mixed_policies(50);
     let engine = Arc::new(
-        PolicyEngine::with_policies(false, &policies)
-            .expect("50 mixed policies should compile"),
+        PolicyEngine::with_policies(false, &policies).expect("50 mixed policies should compile"),
     );
 
     let num_threads = 16;
@@ -130,10 +129,8 @@ fn test_concurrent_evaluation_no_data_race() {
                 s.spawn(move || {
                     let mut verdicts = Vec::with_capacity(evals_per_thread);
                     for i in 0..evals_per_thread {
-                        let action = make_action(
-                            &format!("tool_{}", i % 50),
-                            &format!("func_t{}_{}", t, i),
-                        );
+                        let action =
+                            make_action(&format!("tool_{}", i % 50), &format!("func_t{}_{}", t, i));
                         let verdict = engine.evaluate_action(&action, &[]).unwrap();
                         verdicts.push(verdict);
                     }
@@ -338,10 +335,7 @@ fn test_concurrent_audit_logging_no_entry_loss() {
             let logger = Arc::clone(&logger);
             handles.push(tokio::spawn(async move {
                 for i in 0..entries_per_task {
-                    let action = make_action(
-                        &format!("task_{}_tool", t),
-                        &format!("func_{}", i),
-                    );
+                    let action = make_action(&format!("task_{}_tool", t), &format!("func_{}", i));
                     let metadata = json!({"task": t, "index": i});
                     logger
                         .log_entry(&action, &Verdict::Allow, metadata)
@@ -384,15 +378,12 @@ fn test_concurrent_audit_logging_no_entry_loss() {
 #[test]
 fn test_memory_stable_under_sustained_evaluation() {
     let policies = generate_mixed_policies(100);
-    let engine = PolicyEngine::with_policies(false, &policies)
-        .expect("100 mixed policies should compile");
+    let engine =
+        PolicyEngine::with_policies(false, &policies).expect("100 mixed policies should compile");
 
     // Evaluate 100K distinct actions — if this completes, no OOM or unbounded leak
     for i in 0..100_000u64 {
-        let action = make_action(
-            &format!("tool_{}", i % 100),
-            &format!("func_{}", i),
-        );
+        let action = make_action(&format!("tool_{}", i % 100), &format!("func_{}", i));
         let verdict = engine.evaluate_action(&action, &[]);
         assert!(
             verdict.is_ok(),
@@ -410,8 +401,8 @@ fn test_memory_stable_under_sustained_evaluation() {
 #[test]
 fn test_p99_latency_under_5ms_with_100_policies() {
     let policies = generate_mixed_policies(100);
-    let engine = PolicyEngine::with_policies(false, &policies)
-        .expect("100 mixed policies should compile");
+    let engine =
+        PolicyEngine::with_policies(false, &policies).expect("100 mixed policies should compile");
 
     let sample_count = 10_000;
     let mut durations = Vec::with_capacity(sample_count);

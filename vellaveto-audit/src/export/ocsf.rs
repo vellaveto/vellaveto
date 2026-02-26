@@ -562,7 +562,10 @@ mod tests {
 
         let event = audit_entry_to_ocsf(&entry);
 
-        let unmapped = event.unmapped.as_object().expect("unmapped should be an object");
+        let unmapped = event
+            .unmapped
+            .as_object()
+            .expect("unmapped should be an object");
         assert_eq!(unmapped["entry_hash"], "hash123");
         assert_eq!(unmapped["prev_hash"], "prevhash456");
         assert_eq!(unmapped["tenant_id"], "tenant-abc");

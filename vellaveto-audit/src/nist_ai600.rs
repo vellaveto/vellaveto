@@ -1219,8 +1219,7 @@ mod tests {
     #[test]
     fn test_mitigations_for_prompt_injection() {
         let registry = NistAi600Registry::new();
-        let mitigations =
-            registry.mitigations_for_detection(VellavetoDetection::PromptInjection);
+        let mitigations = registry.mitigations_for_detection(VellavetoDetection::PromptInjection);
         assert!(
             !mitigations.is_empty(),
             "PromptInjection should map to at least one AI 600-1 control"
@@ -1232,8 +1231,7 @@ mod tests {
     #[test]
     fn test_mitigations_for_secrets_in_output() {
         let registry = NistAi600Registry::new();
-        let mitigations =
-            registry.mitigations_for_detection(VellavetoDetection::SecretsInOutput);
+        let mitigations = registry.mitigations_for_detection(VellavetoDetection::SecretsInOutput);
         assert!(
             !mitigations.is_empty(),
             "SecretsInOutput should map to PRIV controls"
@@ -1244,8 +1242,7 @@ mod tests {
     #[test]
     fn test_mitigations_for_excessive_agency() {
         let registry = NistAi600Registry::new();
-        let mitigations =
-            registry.mitigations_for_detection(VellavetoDetection::ExcessiveAgency);
+        let mitigations = registry.mitigations_for_detection(VellavetoDetection::ExcessiveAgency);
         assert!(
             !mitigations.is_empty(),
             "ExcessiveAgency should map to HAIC controls"
@@ -1268,8 +1265,7 @@ mod tests {
     #[test]
     fn test_mitigations_for_schema_poisoning() {
         let registry = NistAi600Registry::new();
-        let mitigations =
-            registry.mitigations_for_detection(VellavetoDetection::SchemaPoisoning);
+        let mitigations = registry.mitigations_for_detection(VellavetoDetection::SchemaPoisoning);
         assert!(
             !mitigations.is_empty(),
             "SchemaPoisoning should map to VCINT controls"
@@ -1280,8 +1276,7 @@ mod tests {
     #[test]
     fn test_mitigations_for_goal_drift() {
         let registry = NistAi600Registry::new();
-        let mitigations =
-            registry.mitigations_for_detection(VellavetoDetection::GoalDrift);
+        let mitigations = registry.mitigations_for_detection(VellavetoDetection::GoalDrift);
         assert!(
             !mitigations.is_empty(),
             "GoalDrift should map to CONF controls"
@@ -1292,8 +1287,7 @@ mod tests {
     #[test]
     fn test_mitigations_for_memory_injection() {
         let registry = NistAi600Registry::new();
-        let mitigations =
-            registry.mitigations_for_detection(VellavetoDetection::MemoryInjection);
+        let mitigations = registry.mitigations_for_detection(VellavetoDetection::MemoryInjection);
         assert!(
             !mitigations.is_empty(),
             "MemoryInjection should map to CONF controls"
@@ -1304,8 +1298,7 @@ mod tests {
     #[test]
     fn test_mitigations_for_data_laundering() {
         let registry = NistAi600Registry::new();
-        let mitigations =
-            registry.mitigations_for_detection(VellavetoDetection::DataLaundering);
+        let mitigations = registry.mitigations_for_detection(VellavetoDetection::DataLaundering);
         assert!(
             !mitigations.is_empty(),
             "DataLaundering should map to PRIV controls"
@@ -1316,8 +1309,7 @@ mod tests {
     #[test]
     fn test_mitigations_for_indirect_injection() {
         let registry = NistAi600Registry::new();
-        let mitigations =
-            registry.mitigations_for_detection(VellavetoDetection::IndirectInjection);
+        let mitigations = registry.mitigations_for_detection(VellavetoDetection::IndirectInjection);
         assert!(
             !mitigations.is_empty(),
             "IndirectInjection should map to ISEC controls"
@@ -1329,10 +1321,7 @@ mod tests {
     fn test_rmf_cross_references() {
         let registry = NistAi600Registry::new();
         let refs = registry.rmf_cross_references("AI600-ISEC-01");
-        assert!(
-            !refs.is_empty(),
-            "ISEC-01 should have RMF cross-references"
-        );
+        assert!(!refs.is_empty(), "ISEC-01 should have RMF cross-references");
         assert!(refs.iter().any(|r| r.starts_with("MEASURE")));
     }
 
@@ -1546,8 +1535,7 @@ mod tests {
         let registry = NistAi600Registry::new();
         let report = registry.generate_report("Test", "test");
         // Risk areas should be in specification order (Ai600RiskArea::all() order)
-        let expected_order: Vec<Ai600RiskArea> =
-            Ai600RiskArea::all().to_vec();
+        let expected_order: Vec<Ai600RiskArea> = Ai600RiskArea::all().to_vec();
         let actual_order: Vec<Ai600RiskArea> =
             report.risk_areas.iter().map(|ra| ra.risk_area).collect();
         assert_eq!(actual_order, expected_order);

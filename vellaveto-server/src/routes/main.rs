@@ -2,7 +2,7 @@ use axum::{
     extract::{DefaultBodyLimit, Extension, Query, Request, State},
     http::{header, HeaderMap, HeaderName, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::{delete, get, post},
     Json, Router,
 };
@@ -121,6 +121,10 @@ pub fn build_router(state: AppState) -> Router {
             post(super::approval::deny_approval),
         )
         .route("/api/metrics", get(metrics_json))
+        // IAM operational routes that expose deployment/auth metadata.
+        .route("/iam/scim/status", get(iam::scim_status))
+        // CIMD fetch endpoint performs outbound requests and must stay behind auth.
+        .route("/api/auth/client-metadata", post(iam::client_metadata))
         // Tool registry endpoints (P2.1)
         .route(
             "/api/registry/tools",
@@ -156,6 +160,8 @@ pub fn build_router(state: AppState) -> Router {
             "/api/observability/test",
             post(super::observability::test_observability),
         )
+        // Root redirect → dashboard
+        .route("/", get(|| async { Redirect::permanent("/dashboard") }))
         // Admin dashboard (P3.2)
         .route("/dashboard", get(crate::dashboard::dashboard_page))
         .route(
@@ -653,13 +659,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/iam/callback", get(iam::callback))
         .route("/iam/session", get(iam::session_info))
         .route("/iam/logout", post(iam::logout))
-        .route("/iam/scim/status", get(iam::scim_status))
         .route("/iam/saml/metadata", get(iam::saml_metadata))
         .route("/iam/saml/acs", post(iam::saml_acs))
         // M2M client credentials token endpoint
         .route("/api/auth/token", post(iam::m2m_token))
-        // CIMD (Client ID Metadata Document) endpoint
-        .route("/api/auth/client-metadata", post(iam::client_metadata))
         .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit));
 
     // Setup wizard routes — unauthenticated (before API key middleware).

@@ -56,9 +56,7 @@ impl TaskCreateParams {
             ));
         }
         if crate::core::has_dangerous_chars(&self.tool) {
-            return Err(
-                "TaskCreateParams tool contains control or format characters".to_string(),
-            );
+            return Err("TaskCreateParams tool contains control or format characters".to_string());
         }
 
         // Validate arguments size
@@ -68,7 +66,8 @@ impl TaskCreateParams {
         if args_size > Self::MAX_ARGUMENTS_SIZE {
             return Err(format!(
                 "TaskCreateParams arguments serialized size {} exceeds max {}",
-                args_size, Self::MAX_ARGUMENTS_SIZE,
+                args_size,
+                Self::MAX_ARGUMENTS_SIZE,
             ));
         }
 
@@ -114,9 +113,7 @@ impl TaskCreateParams {
                             .to_string(),
                     );
                 }
-                let val_size = serde_json::to_string(value)
-                    .map(|s| s.len())
-                    .unwrap_or(0);
+                let val_size = serde_json::to_string(value).map(|s| s.len()).unwrap_or(0);
                 if val_size > Self::MAX_METADATA_VALUE_SIZE {
                     return Err(format!(
                         "TaskCreateParams metadata value size {} exceeds max {}",

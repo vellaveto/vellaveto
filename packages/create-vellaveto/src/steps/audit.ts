@@ -71,6 +71,7 @@ export async function auditStep(
       message: "Webhook URL",
       placeholder: "https://example.com/vellaveto-events",
       validate(value) {
+        if (!value) return "URL is required";
         try {
           const url = new URL(value);
           if (url.protocol !== "https:" && url.protocol !== "http:") {

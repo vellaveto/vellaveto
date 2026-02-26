@@ -36,7 +36,7 @@ use tokio::{sync::RwLock, task::JoinHandle, time::sleep};
 use tracing::{info, warn};
 use url::Url;
 use uuid::Uuid;
-use vellaveto_types::has_dangerous_chars;
+use vellaveto_types::{has_dangerous_chars, validate_url_no_ssrf};
 use x509_parser::prelude::*;
 
 use crate::rbac::{AudienceClaim, Role, RoleClaims};
@@ -810,9 +810,7 @@ impl IamState {
         }
 
         // SECURITY: Validate input lengths before any processing.
-        if client_id.len() > MAX_M2M_CLIENT_ID_REQUEST_LEN
-            || has_dangerous_chars(client_id)
-        {
+        if client_id.len() > MAX_M2M_CLIENT_ID_REQUEST_LEN || has_dangerous_chars(client_id) {
             return Err(IamError::M2mInvalidCredentials);
         }
         if client_secret.len() > MAX_M2M_CLIENT_SECRET_REQUEST_LEN {
@@ -864,15 +862,12 @@ impl IamState {
         };
 
         // Generate JWT.
-        let signing_secret = self
-            .m2m_signing_secret
-            .as_ref()
-            .ok_or_else(|| {
-                IamError::M2mTokenGeneration(format!(
-                    "{} environment variable not set",
-                    M2M_JWT_SECRET_ENV
-                ))
-            })?;
+        let signing_secret = self.m2m_signing_secret.as_ref().ok_or_else(|| {
+            IamError::M2mTokenGeneration(format!(
+                "{} environment variable not set",
+                M2M_JWT_SECRET_ENV
+            ))
+        })?;
 
         let now = chrono::Utc::now().timestamp() as u64;
         let ttl = self.config.m2m.token_ttl_secs;
@@ -953,9 +948,8 @@ impl IamState {
         }
 
         // SECURITY: Validate URL for SSRF protection.
-        let parsed = Url::parse(client_id_url).map_err(|e| {
-            IamError::CimdValidation(format!("invalid URL: {}", e))
-        })?;
+        let parsed = Url::parse(client_id_url)
+            .map_err(|e| IamError::CimdValidation(format!("invalid URL: {}", e)))?;
         if parsed.scheme() != "https" {
             return Err(IamError::CimdValidation(
                 "CIMD URL must use HTTPS".to_string(),
@@ -979,9 +973,7 @@ impl IamState {
         // SECURITY: Limit response body size.
         let content_length = response.content_length().unwrap_or(0);
         if content_length > MAX_CIMD_RESPONSE_SIZE as u64 {
-            return Err(IamError::CimdFetch(
-                "response too large".to_string(),
-            ));
+            return Err(IamError::CimdFetch("response too large".to_string()));
         }
 
         let body = response
@@ -1005,21 +997,12 @@ impl IamState {
             ));
         }
         if raw.grant_types.len() > MAX_CIMD_GRANT_TYPES {
-            return Err(IamError::CimdValidation(
-                "too many grant_types".to_string(),
-            ));
+            return Err(IamError::CimdValidation("too many grant_types".to_string()));
         }
 
-        // Validate redirect URIs use HTTPS.
+        // Validate redirect URIs are syntactically valid and use HTTPS only.
         for uri in &raw.redirect_uris {
-            if let Ok(parsed_uri) = Url::parse(uri) {
-                if parsed_uri.scheme() != "https" && parsed_uri.scheme() != "http" {
-                    return Err(IamError::CimdValidation(format!(
-                        "redirect_uri uses unsupported scheme: {}",
-                        parsed_uri.scheme()
-                    )));
-                }
-            }
+            validate_cimd_redirect_uri(uri)?;
         }
 
         let metadata = ClientMetadata {
@@ -1579,13 +1562,18 @@ fn sanitize_next(value: Option<String>) -> String {
     if value.len() > MAX_NEXT_LEN || value.contains("://") || has_dangerous_chars(&value) {
         return default;
     }
-    if !value.starts_with('/') {
+    let normalized = if !value.starts_with('/') {
         let mut normalized = String::from("/");
         normalized.push_str(&value);
         normalized
     } else {
         value
+    };
+    // Reject scheme-relative redirects and backslash-based path confusion.
+    if normalized.starts_with("//") || normalized.contains('\\') {
+        return default;
     }
+    normalized
 }
 
 fn parse_scope_list(scope: Option<&str>) -> Vec<String> {
@@ -1660,7 +1648,9 @@ fn attribute_name(attr: &roxmltree::Attribute) -> String {
 
 fn map_digest_algorithm(uri: &str) -> Result<&'static digest::Algorithm, IamError> {
     match uri {
-        "http://www.w3.org/2000/09/xmldsig#sha1" => Ok(&digest::SHA1_FOR_LEGACY_USE_ONLY),
+        "http://www.w3.org/2000/09/xmldsig#sha1" => Err(IamError::Saml(
+            "SHA-1 digest algorithm is disabled".to_string(),
+        )),
         "http://www.w3.org/2001/04/xmlenc#sha256" => Ok(&digest::SHA256),
         "http://www.w3.org/2001/04/xmlenc#sha384" => Ok(&digest::SHA384),
         "http://www.w3.org/2001/04/xmlenc#sha512" => Ok(&digest::SHA512),
@@ -1675,9 +1665,9 @@ fn map_signature_algorithm(
     uri: &str,
 ) -> Result<&'static dyn signature::VerificationAlgorithm, IamError> {
     match uri {
-        "http://www.w3.org/2000/09/xmldsig#rsa-sha1" => {
-            Ok(&signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY)
-        }
+        "http://www.w3.org/2000/09/xmldsig#rsa-sha1" => Err(IamError::Saml(
+            "SHA-1 signature algorithm is disabled".to_string(),
+        )),
         "http://www.w3.org/2000/09/xmldsig#rsa-sha256"
         | "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256" => {
             Ok(&signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY)
@@ -1870,36 +1860,30 @@ fn validate_cimd_host(url: &Url) -> Result<(), IamError> {
         .host_str()
         .ok_or_else(|| IamError::CimdValidation("URL has no host".to_string()))?;
 
-    // Block common SSRF targets.
-    let lower = host.to_lowercase();
-    if lower == "localhost"
-        || lower == "127.0.0.1"
-        || lower == "[::1]"
-        || lower == "0.0.0.0"
-        || lower.starts_with("169.254.")
-        || lower.starts_with("10.")
-        || lower.starts_with("192.168.")
-        || lower == "metadata.google.internal"
-        || lower == "metadata.google.com"
-    {
+    // Known cloud metadata hostnames should always be blocked.
+    let lower = host.to_ascii_lowercase();
+    if lower == "metadata.google.internal" || lower == "metadata.google.com" {
         return Err(IamError::CimdValidation(
             "URL host is blocked (private/loopback/metadata)".to_string(),
         ));
     }
 
-    // Block 172.16.0.0/12 range.
-    if let Ok(ip) = lower.parse::<std::net::Ipv4Addr>() {
-        let octets = ip.octets();
-        if octets[0] == 172 && (16..=31).contains(&octets[1]) {
-            return Err(IamError::CimdValidation(
-                "URL host is blocked (private range)".to_string(),
-            ));
-        }
-        if octets[0] == 169 && octets[1] == 254 {
-            return Err(IamError::CimdValidation(
-                "URL host is blocked (link-local)".to_string(),
-            ));
-        }
+    // Reuse shared SSRF validation for loopback/private/link-local and IPv6 transition ranges.
+    validate_url_no_ssrf(url.as_str())
+        .map_err(|e| IamError::CimdValidation(format!("URL host is blocked ({})", e)))?;
+
+    Ok(())
+}
+
+fn validate_cimd_redirect_uri(uri: &str) -> Result<(), IamError> {
+    let parsed = Url::parse(uri)
+        .map_err(|e| IamError::CimdValidation(format!("invalid redirect_uri: {}", e)))?;
+
+    if parsed.scheme() != "https" {
+        return Err(IamError::CimdValidation(format!(
+            "redirect_uri must use https, got scheme: {}",
+            parsed.scheme()
+        )));
     }
 
     Ok(())
@@ -1987,7 +1971,7 @@ pub struct CimdRequest {
     pub client_id_url: String,
 }
 
-/// GET /api/auth/client-metadata — Fetch Client ID Metadata Document.
+/// POST /api/auth/client-metadata — Fetch Client ID Metadata Document.
 pub async fn client_metadata(
     State(state): State<AppState>,
     Json(req): Json<CimdRequest>,
@@ -2435,19 +2419,13 @@ mod tests {
         );
         let secret = b"this-is-a-32-byte-or-longer-secret-key".to_vec();
         let iam = IamState::new_for_test_with_secret(config, Some(secret));
-        let result =
-            iam.exchange_client_credentials("test-client", "wrong-secret", &[]);
+        let result = iam.exchange_client_credentials("test-client", "wrong-secret", &[]);
         assert!(matches!(result, Err(IamError::M2mInvalidCredentials)));
     }
 
     #[test]
     fn test_m2m_exchange_unknown_client() {
-        let config = m2m_config_with_client(
-            "test-client",
-            "test-secret",
-            "operator",
-            vec![],
-        );
+        let config = m2m_config_with_client("test-client", "test-secret", "operator", vec![]);
         let secret = b"this-is-a-32-byte-or-longer-secret-key".to_vec();
         let iam = IamState::new_for_test_with_secret(config, Some(secret));
         let result = iam.exchange_client_credentials("unknown", "test-secret", &[]);
@@ -2476,8 +2454,7 @@ mod tests {
     fn test_m2m_exchange_disabled() {
         let config = IamConfig::default();
         let iam = IamState::new_for_test(config);
-        let result =
-            iam.exchange_client_credentials("client", "secret", &[]);
+        let result = iam.exchange_client_credentials("client", "secret", &[]);
         assert!(matches!(result, Err(IamError::M2mDisabled)));
     }
 
@@ -2501,16 +2478,10 @@ mod tests {
 
     #[test]
     fn test_m2m_exchange_dangerous_chars_in_client_id() {
-        let config = m2m_config_with_client(
-            "test-client",
-            "test-secret",
-            "operator",
-            vec![],
-        );
+        let config = m2m_config_with_client("test-client", "test-secret", "operator", vec![]);
         let secret = b"this-is-a-32-byte-or-longer-secret-key".to_vec();
         let iam = IamState::new_for_test_with_secret(config, Some(secret));
-        let result =
-            iam.exchange_client_credentials("test\x00client", "test-secret", &[]);
+        let result = iam.exchange_client_credentials("test\x00client", "test-secret", &[]);
         assert!(matches!(result, Err(IamError::M2mInvalidCredentials)));
     }
 
@@ -2544,11 +2515,7 @@ mod tests {
 
     #[test]
     fn test_build_step_up_response_no_upgrade_url() {
-        let (status, body) = build_step_up_response(
-            vec!["admin:write".to_string()],
-            vec![],
-            None,
-        );
+        let (status, body) = build_step_up_response(vec!["admin:write".to_string()], vec![], None);
         assert_eq!(status, StatusCode::FORBIDDEN);
         let json = body.0;
         assert!(json["step_up_required"]["upgrade_url"].is_null());
@@ -2567,6 +2534,12 @@ mod tests {
     #[test]
     fn test_validate_cimd_host_blocks_loopback() {
         let url = Url::parse("https://127.0.0.1/metadata").unwrap();
+        assert!(validate_cimd_host(&url).is_err());
+    }
+
+    #[test]
+    fn test_validate_cimd_host_blocks_ipv6_loopback() {
+        let url = Url::parse("https://[::1]/metadata").unwrap();
         assert!(validate_cimd_host(&url).is_err());
     }
 
@@ -2604,6 +2577,49 @@ mod tests {
     fn test_validate_cimd_host_allows_public() {
         let url = Url::parse("https://auth.example.com/.well-known/oauth-client").unwrap();
         assert!(validate_cimd_host(&url).is_ok());
+    }
+
+    #[test]
+    fn test_validate_cimd_redirect_uri_allows_https() {
+        assert!(validate_cimd_redirect_uri("https://auth.example.com/callback").is_ok());
+    }
+
+    #[test]
+    fn test_validate_cimd_redirect_uri_rejects_http() {
+        let err = validate_cimd_redirect_uri("http://auth.example.com/callback")
+            .expect_err("http redirect URIs must be rejected");
+        assert!(err.to_string().contains("https"));
+    }
+
+    #[test]
+    fn test_validate_cimd_redirect_uri_rejects_invalid_url() {
+        assert!(validate_cimd_redirect_uri("not-a-valid-uri").is_err());
+    }
+
+    #[test]
+    fn test_sanitize_next_rejects_scheme_relative_redirect() {
+        assert_eq!(sanitize_next(Some("//evil.example/path".to_string())), "/");
+        assert_eq!(sanitize_next(Some("///evil.example/path".to_string())), "/");
+    }
+
+    #[test]
+    fn test_sanitize_next_rejects_backslash_path_confusion() {
+        assert_eq!(sanitize_next(Some("/\\evil.example/path".to_string())), "/");
+        assert_eq!(sanitize_next(Some("\\evil.example/path".to_string())), "/");
+    }
+
+    #[test]
+    fn test_map_digest_algorithm_rejects_sha1() {
+        let err = map_digest_algorithm("http://www.w3.org/2000/09/xmldsig#sha1")
+            .expect_err("sha1 must be rejected");
+        assert!(err.to_string().contains("SHA-1"));
+    }
+
+    #[test]
+    fn test_map_signature_algorithm_rejects_sha1() {
+        let err = map_signature_algorithm("http://www.w3.org/2000/09/xmldsig#rsa-sha1")
+            .expect_err("rsa-sha1 must be rejected");
+        assert!(err.to_string().contains("SHA-1"));
     }
 
     // ═══════════════════════════════════════════════════════════════

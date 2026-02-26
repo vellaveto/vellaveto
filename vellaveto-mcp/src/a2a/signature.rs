@@ -424,10 +424,7 @@ impl AgentCardSignatureVerifier {
         let signature = Signature::from_bytes(&sig_array);
 
         // Find the matching trusted key
-        let key_id = claims
-            .kid
-            .as_deref()
-            .unwrap_or(&claims.iss);
+        let key_id = claims.kid.as_deref().unwrap_or(&claims.iss);
 
         let keys = self.trusted_keys.read().map_err(|_| {
             tracing::error!(
@@ -445,10 +442,7 @@ impl AgentCardSignatureVerifier {
 
         let signing_key = matching_key.ok_or_else(|| {
             self.increment_failures();
-            A2aError::AgentCardInvalid(format!(
-                "no trusted key found for issuer '{}'",
-                claims.iss
-            ))
+            A2aError::AgentCardInvalid(format!("no trusted key found for issuer '{}'", claims.iss))
         })?;
 
         // Verify the issuer matches the key's trusted issuer
@@ -462,13 +456,10 @@ impl AgentCardSignatureVerifier {
 
         // Verify the Ed25519 signature
         use ed25519_dalek::Verifier;
-        signing_key
-            .key
-            .verify(card_json, &signature)
-            .map_err(|_| {
-                self.increment_failures();
-                A2aError::AgentCardInvalid("Ed25519 signature verification failed".to_string())
-            })?;
+        signing_key.key.verify(card_json, &signature).map_err(|_| {
+            self.increment_failures();
+            A2aError::AgentCardInvalid("Ed25519 signature verification failed".to_string())
+        })?;
 
         // Store in cache on success
         self.store_cache(&cache_key);
@@ -800,8 +791,8 @@ mod tests {
     fn test_verify_card_valid_signature() {
         let (sk, vk) = test_keypair();
         let verifier = AgentCardSignatureVerifier::new(SignatureEnforcementConfig::default());
-        let key = AgentSigningKey::new("key-1", vk.as_bytes(), "https://issuer.example.com")
-            .unwrap();
+        let key =
+            AgentSigningKey::new("key-1", vk.as_bytes(), "https://issuer.example.com").unwrap();
         verifier.add_trusted_key(key).unwrap();
 
         let card_json = br#"{"name":"Test Agent","url":"https://agent.example.com","version":"1.0","capabilities":{}}"#;
@@ -821,8 +812,8 @@ mod tests {
         let (_, vk) = test_keypair();
         let (other_sk, _) = test_keypair(); // Different key
         let verifier = AgentCardSignatureVerifier::new(SignatureEnforcementConfig::default());
-        let key = AgentSigningKey::new("key-1", vk.as_bytes(), "https://issuer.example.com")
-            .unwrap();
+        let key =
+            AgentSigningKey::new("key-1", vk.as_bytes(), "https://issuer.example.com").unwrap();
         verifier.add_trusted_key(key).unwrap();
 
         let card_json = b"test card";

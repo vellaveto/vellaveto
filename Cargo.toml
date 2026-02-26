@@ -64,6 +64,9 @@ opt-level = 3
 strip = "symbols"
 overflow-checks = true
 
+[profile.test]
+opt-level = 1
+
 [profile.bench]
 inherits = "release"
 debug = true

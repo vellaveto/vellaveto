@@ -564,7 +564,10 @@ impl PluginManager {
 
     /// Returns the names of all currently loaded plugins.
     pub fn plugin_names(&self) -> Vec<&str> {
-        self.plugins.iter().map(|p| p.config.name.as_str()).collect()
+        self.plugins
+            .iter()
+            .map(|p| p.config.name.as_str())
+            .collect()
     }
 
     /// Returns whether the plugin system is enabled.
@@ -985,11 +988,8 @@ mod tests {
             .unwrap();
 
         let c2 = valid_plugin_config("deny-plugin");
-        mgr.load_plugin(
-            c2,
-            Box::new(StubPlugin::denying("deny-plugin", "blocked")),
-        )
-        .unwrap();
+        mgr.load_plugin(c2, Box::new(StubPlugin::denying("deny-plugin", "blocked")))
+            .unwrap();
 
         let action = test_action();
         let results = mgr.evaluate_all(&action);
@@ -1070,10 +1070,7 @@ mod tests {
                 valid_plugin_config("good"),
                 Box::new(StubPlugin::allowing("good")),
             ),
-            (
-                invalid_config,
-                Box::new(StubPlugin::allowing("bad-plugin")),
-            ),
+            (invalid_config, Box::new(StubPlugin::allowing("bad-plugin"))),
         ];
 
         let result = mgr.reload_plugins(new_plugins);
@@ -1149,20 +1146,29 @@ mod tests {
     fn test_plugin_verdict_deny_unknown_fields() {
         let json_str = r#"{"allow": true, "reason": null, "extra_field": "bad"}"#;
         let result: Result<PluginVerdict, _> = serde_json::from_str(json_str);
-        assert!(result.is_err(), "deny_unknown_fields should reject extra fields");
+        assert!(
+            result.is_err(),
+            "deny_unknown_fields should reject extra fields"
+        );
     }
 
     #[test]
     fn test_plugin_action_deny_unknown_fields() {
         let json_str = r#"{"tool":"t","function":"f","parameters":{},"target_paths":[],"target_domains":[],"evil":"yes"}"#;
         let result: Result<PluginAction, _> = serde_json::from_str(json_str);
-        assert!(result.is_err(), "deny_unknown_fields should reject extra fields");
+        assert!(
+            result.is_err(),
+            "deny_unknown_fields should reject extra fields"
+        );
     }
 
     #[test]
     fn test_plugin_config_deny_unknown_fields() {
         let json_str = r#"{"name":"n","path":"/p","memory_limit_bytes":1048576,"fuel_limit":1000,"timeout_ms":5,"rogue":true}"#;
         let result: Result<PluginConfig, _> = serde_json::from_str(json_str);
-        assert!(result.is_err(), "deny_unknown_fields should reject extra fields");
+        assert!(
+            result.is_err(),
+            "deny_unknown_fields should reject extra fields"
+        );
     }
 }

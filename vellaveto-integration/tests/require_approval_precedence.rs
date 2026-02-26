@@ -187,9 +187,10 @@ fn all_conditions_satisfied_allows() {
 // ══════════════════════════════════════
 
 /// require_approval set to string "true" — as_bool() returns None,
-/// unwrap_or(false) kicks in, so it should NOT require approval.
+/// FIND-IMP-013: String require_approval fails closed → RequireApproval.
+/// as_bool() returns None for strings, unwrap_or(true) → fail-closed.
 #[test]
-fn require_approval_string_true_is_not_bool_true() {
+fn require_approval_string_true_fails_closed() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
     let policies = vec![conditional_policy(
@@ -202,15 +203,15 @@ fn require_approval_string_true_is_not_bool_true() {
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
-        matches!(verdict, Verdict::Allow),
-        "String 'true' is not bool true; as_bool() returns None; should allow. Got {:?}",
+        matches!(verdict, Verdict::RequireApproval { .. }),
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
         verdict
     );
 }
 
-/// require_approval set to integer 1 — as_bool() returns None for integers.
+/// FIND-IMP-013: Integer require_approval fails closed → RequireApproval.
 #[test]
-fn require_approval_integer_1_is_not_bool_true() {
+fn require_approval_integer_1_fails_closed() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
     let policies = vec![conditional_policy(
@@ -223,15 +224,15 @@ fn require_approval_integer_1_is_not_bool_true() {
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
-        matches!(verdict, Verdict::Allow),
-        "Integer 1 is not bool true; as_bool() returns None; should allow. Got {:?}",
+        matches!(verdict, Verdict::RequireApproval { .. }),
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
         verdict
     );
 }
 
-/// require_approval set to null — as_bool() returns None.
+/// FIND-IMP-013: require_approval set to null fails closed → RequireApproval.
 #[test]
-fn require_approval_null_is_not_bool_true() {
+fn require_approval_null_fails_closed() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
     let policies = vec![conditional_policy(
@@ -244,8 +245,8 @@ fn require_approval_null_is_not_bool_true() {
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
-        matches!(verdict, Verdict::Allow),
-        "Null is not bool true; should allow. Got {:?}",
+        matches!(verdict, Verdict::RequireApproval { .. }),
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
         verdict
     );
 }

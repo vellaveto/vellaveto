@@ -497,14 +497,8 @@ mod tests {
             ExportFormat::parse_format("JSONL"),
             Some(ExportFormat::JsonLines)
         );
-        assert_eq!(
-            ExportFormat::parse_format("ocsf"),
-            Some(ExportFormat::Ocsf)
-        );
-        assert_eq!(
-            ExportFormat::parse_format("OCSF"),
-            Some(ExportFormat::Ocsf)
-        );
+        assert_eq!(ExportFormat::parse_format("ocsf"), Some(ExportFormat::Ocsf));
+        assert_eq!(ExportFormat::parse_format("OCSF"), Some(ExportFormat::Ocsf));
         assert_eq!(ExportFormat::parse_format("xml"), None);
         assert_eq!(ExportFormat::parse_format(""), None);
     }

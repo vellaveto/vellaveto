@@ -35,9 +35,8 @@ pub const MANIFEST_CONTEXT: &[u8] = b"vellaveto-manifest-v1";
 /// Both keys must be stored together — ML-DSA key pairs are generated jointly.
 /// The public key can also be derived from the private key via [`ml_dsa_public_key_from_secret`].
 pub fn generate_ml_dsa_keypair() -> Result<(String, String), AuditError> {
-    let (pk, sk) = ml_dsa_65::KG::try_keygen().map_err(|e| {
-        AuditError::Validation(format!("ML-DSA-65 key generation failed: {}", e))
-    })?;
+    let (pk, sk) = ml_dsa_65::KG::try_keygen()
+        .map_err(|e| AuditError::Validation(format!("ML-DSA-65 key generation failed: {}", e)))?;
     Ok((hex::encode(pk.into_bytes()), hex::encode(sk.into_bytes())))
 }
 
@@ -48,14 +47,9 @@ pub fn generate_ml_dsa_keypair() -> Result<(String, String), AuditError> {
 /// for rotation manifest signing.
 ///
 /// Returns the hex-encoded signature (6618 hex chars / 3309 bytes).
-pub fn ml_dsa_sign(
-    sk_hex: &str,
-    message: &[u8],
-    context: &[u8],
-) -> Result<String, AuditError> {
-    let sk_bytes = hex::decode(sk_hex).map_err(|e| {
-        AuditError::Validation(format!("Invalid ML-DSA secret key hex: {}", e))
-    })?;
+pub fn ml_dsa_sign(sk_hex: &str, message: &[u8], context: &[u8]) -> Result<String, AuditError> {
+    let sk_bytes = hex::decode(sk_hex)
+        .map_err(|e| AuditError::Validation(format!("Invalid ML-DSA secret key hex: {}", e)))?;
     if sk_bytes.len() != ML_DSA_65_SK_LEN {
         return Err(AuditError::Validation(format!(
             "ML-DSA secret key wrong length: {} (expected {})",
@@ -63,15 +57,15 @@ pub fn ml_dsa_sign(
             ML_DSA_65_SK_LEN
         )));
     }
-    let sk_arr: [u8; ML_DSA_65_SK_LEN] = sk_bytes.as_slice().try_into().map_err(|_| {
-        AuditError::Validation("ML-DSA secret key conversion failed".to_string())
-    })?;
-    let sk = ml_dsa_65::PrivateKey::try_from_bytes(sk_arr).map_err(|e| {
-        AuditError::Validation(format!("Invalid ML-DSA secret key bytes: {}", e))
-    })?;
-    let sig = sk.try_sign(message, context).map_err(|e| {
-        AuditError::Validation(format!("ML-DSA-65 signing failed: {}", e))
-    })?;
+    let sk_arr: [u8; ML_DSA_65_SK_LEN] = sk_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| AuditError::Validation("ML-DSA secret key conversion failed".to_string()))?;
+    let sk = ml_dsa_65::PrivateKey::try_from_bytes(sk_arr)
+        .map_err(|e| AuditError::Validation(format!("Invalid ML-DSA secret key bytes: {}", e)))?;
+    let sig = sk
+        .try_sign(message, context)
+        .map_err(|e| AuditError::Validation(format!("ML-DSA-65 signing failed: {}", e)))?;
     // Signature from try_sign() is [u8; SIG_LEN] directly
     Ok(hex::encode(sig))
 }
@@ -86,9 +80,8 @@ pub fn ml_dsa_verify(
     sig_hex: &str,
     context: &[u8],
 ) -> Result<(), AuditError> {
-    let pk_bytes = hex::decode(pk_hex).map_err(|e| {
-        AuditError::Validation(format!("Invalid ML-DSA public key hex: {}", e))
-    })?;
+    let pk_bytes = hex::decode(pk_hex)
+        .map_err(|e| AuditError::Validation(format!("Invalid ML-DSA public key hex: {}", e)))?;
     if pk_bytes.len() != ML_DSA_65_PK_LEN {
         return Err(AuditError::Validation(format!(
             "ML-DSA public key wrong length: {} (expected {})",
@@ -96,16 +89,15 @@ pub fn ml_dsa_verify(
             ML_DSA_65_PK_LEN
         )));
     }
-    let pk_arr: [u8; ML_DSA_65_PK_LEN] = pk_bytes.as_slice().try_into().map_err(|_| {
-        AuditError::Validation("ML-DSA public key conversion failed".to_string())
-    })?;
-    let pk = ml_dsa_65::PublicKey::try_from_bytes(pk_arr).map_err(|e| {
-        AuditError::Validation(format!("Invalid ML-DSA public key bytes: {}", e))
-    })?;
+    let pk_arr: [u8; ML_DSA_65_PK_LEN] = pk_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| AuditError::Validation("ML-DSA public key conversion failed".to_string()))?;
+    let pk = ml_dsa_65::PublicKey::try_from_bytes(pk_arr)
+        .map_err(|e| AuditError::Validation(format!("Invalid ML-DSA public key bytes: {}", e)))?;
 
-    let sig_bytes = hex::decode(sig_hex).map_err(|e| {
-        AuditError::Validation(format!("Invalid ML-DSA signature hex: {}", e))
-    })?;
+    let sig_bytes = hex::decode(sig_hex)
+        .map_err(|e| AuditError::Validation(format!("Invalid ML-DSA signature hex: {}", e)))?;
     if sig_bytes.len() != ML_DSA_65_SIG_LEN {
         return Err(AuditError::Validation(format!(
             "ML-DSA signature wrong length: {} (expected {})",
@@ -113,9 +105,10 @@ pub fn ml_dsa_verify(
             ML_DSA_65_SIG_LEN
         )));
     }
-    let sig_arr: [u8; ML_DSA_65_SIG_LEN] = sig_bytes.as_slice().try_into().map_err(|_| {
-        AuditError::Validation("ML-DSA signature conversion failed".to_string())
-    })?;
+    let sig_arr: [u8; ML_DSA_65_SIG_LEN] = sig_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| AuditError::Validation("ML-DSA signature conversion failed".to_string()))?;
 
     // Signature from signing is [u8; SIG_LEN] — verify takes a reference to it
     // SECURITY: Fail-closed — verification failure is an error, not a silent false

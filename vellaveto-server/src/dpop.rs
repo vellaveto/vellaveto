@@ -265,10 +265,13 @@ pub struct DpopConfig {
     pub clock_skew_secs: u64,
     /// JTI replay window in seconds.
     pub jti_window_secs: u64,
+    /// Temporary compatibility switch for environments that still use
+    /// unsigned synthetic proofs. MUST remain false in production.
+    pub allow_unverified_proofs: bool,
 }
 
 impl Default for DpopConfig {
-    /// Default is fail-closed: DPoP enabled and required.
+    /// Default is fail-closed for proof verification.
     fn default() -> Self {
         Self {
             enabled: true,
@@ -276,6 +279,7 @@ impl Default for DpopConfig {
             require_nonce: false,
             clock_skew_secs: MAX_CLOCK_SKEW_SECS,
             jti_window_secs: JTI_REPLAY_WINDOW_SECS,
+            allow_unverified_proofs: false,
         }
     }
 }
@@ -388,12 +392,10 @@ impl DpopVerifier {
         }
 
         // Decode header
-        let header_bytes = URL_SAFE_NO_PAD
-            .decode(parts[0])
-            .map_err(|e| {
-                self.increment_failures();
-                DpopError::MalformedProof(format!("invalid header base64: {}", e))
-            })?;
+        let header_bytes = URL_SAFE_NO_PAD.decode(parts[0]).map_err(|e| {
+            self.increment_failures();
+            DpopError::MalformedProof(format!("invalid header base64: {}", e))
+        })?;
         let header: DpopHeader = serde_json::from_slice(&header_bytes).map_err(|e| {
             self.increment_failures();
             DpopError::MalformedProof(format!("invalid header JSON: {}", e))
@@ -415,13 +417,10 @@ impl DpopVerifier {
                 jwk_size, MAX_JWK_SIZE
             )));
         }
-        let key_type = jwk
-            .get("kty")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                self.increment_failures();
-                DpopError::MissingJwk
-            })?;
+        let key_type = jwk.get("kty").and_then(|v| v.as_str()).ok_or_else(|| {
+            self.increment_failures();
+            DpopError::MissingJwk
+        })?;
         if key_type.len() > MAX_KEY_TYPE_LEN {
             self.increment_failures();
             return Err(DpopError::UnsupportedKeyType(
@@ -434,12 +433,10 @@ impl DpopVerifier {
         }
 
         // Decode claims
-        let claims_bytes = URL_SAFE_NO_PAD
-            .decode(parts[1])
-            .map_err(|e| {
-                self.increment_failures();
-                DpopError::MalformedProof(format!("invalid claims base64: {}", e))
-            })?;
+        let claims_bytes = URL_SAFE_NO_PAD.decode(parts[1]).map_err(|e| {
+            self.increment_failures();
+            DpopError::MalformedProof(format!("invalid claims base64: {}", e))
+        })?;
         let claims: DpopClaims = serde_json::from_slice(&claims_bytes).map_err(|e| {
             self.increment_failures();
             DpopError::MalformedProof(format!("invalid claims JSON: {}", e))
@@ -505,15 +502,13 @@ impl DpopVerifier {
             }
         }
 
-        // Note: Full cryptographic signature verification requires the
-        // specific algorithm implementation. For EC keys we would use
-        // ring::signature::ECDSA_P256_SHA256_FIXED, for RSA we would use
-        // ring::signature::RSA_PKCS1_2048_8192_SHA256, etc.
-        //
-        // In production, this verification is performed here. For this
-        // preparation module, we verify all other claims and structure.
-        // The actual signature verification will be connected when the
-        // MCP DPoP SEP is finalized.
+        // SECURITY: Fail closed until JOSE signature verification is wired.
+        // Accepting unsigned proofs would let attackers forge sender-constrained
+        // tokens by controlling arbitrary `jwk` and `jti` values.
+        if !self.config.allow_unverified_proofs {
+            self.increment_failures();
+            return Err(DpopError::SignatureVerificationFailed);
+        }
 
         // Record JTI as seen
         self.record_jti(&claims.jti);
@@ -743,9 +738,10 @@ pub fn compute_token_hash(token: &str) -> String {
 /// The thumbprint is a SHA-256 hash of the JWK's required members,
 /// serialized in lexicographic order.
 pub fn compute_jwk_thumbprint(jwk: &serde_json::Value) -> Result<String, DpopError> {
-    let kty = jwk.get("kty").and_then(|v| v.as_str()).ok_or_else(|| {
-        DpopError::MalformedProof("JWK missing 'kty' field".to_string())
-    })?;
+    let kty = jwk
+        .get("kty")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| DpopError::MalformedProof("JWK missing 'kty' field".to_string()))?;
 
     // Build the canonical representation per RFC 7638 Section 3.2
     let canonical = match kty {
@@ -753,10 +749,7 @@ pub fn compute_jwk_thumbprint(jwk: &serde_json::Value) -> Result<String, DpopErr
             let crv = jwk.get("crv").and_then(|v| v.as_str()).unwrap_or("");
             let x = jwk.get("x").and_then(|v| v.as_str()).unwrap_or("");
             let y = jwk.get("y").and_then(|v| v.as_str()).unwrap_or("");
-            format!(
-                r#"{{"crv":"{}","kty":"EC","x":"{}","y":"{}"}}"#,
-                crv, x, y
-            )
+            format!(r#"{{"crv":"{}","kty":"EC","x":"{}","y":"{}"}}"#, crv, x, y)
         }
         "RSA" => {
             let e = jwk.get("e").and_then(|v| v.as_str()).unwrap_or("");
@@ -797,10 +790,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 ///
 /// This is a helper for tests — not for production use.
 #[cfg(test)]
-fn build_test_proof(
-    claims: &DpopClaims,
-    jwk: &serde_json::Value,
-) -> String {
+fn build_test_proof(claims: &DpopClaims, jwk: &serde_json::Value) -> String {
     let header = serde_json::json!({
         "typ": "dpop+jwt",
         "alg": "ES256",
@@ -858,6 +848,7 @@ mod tests {
         assert!(config.enabled);
         assert!(!config.required); // Optional by default for gradual rollout
         assert!(!config.require_nonce);
+        assert!(!config.allow_unverified_proofs);
     }
 
     // ── DpopClaims validation ───────────────────────────────────────────
@@ -967,11 +958,10 @@ mod tests {
             None,
             None,
         );
-        assert!(result.is_ok(), "unexpected error: {:?}", result.err());
-        let result = result.unwrap();
-        assert!(result.valid);
-        assert!(result.jwk_thumbprint.is_some());
-        assert_eq!(result.bound_key_type.as_deref(), Some("EC"));
+        assert!(matches!(
+            result,
+            Err(DpopError::SignatureVerificationFailed)
+        ));
     }
 
     // ── Proof verification: HTTP method mismatch ────────────────────────
@@ -988,10 +978,7 @@ mod tests {
             None,
             None,
         );
-        assert!(matches!(
-            result,
-            Err(DpopError::HttpMethodMismatch { .. })
-        ));
+        assert!(matches!(result, Err(DpopError::HttpMethodMismatch { .. })));
     }
 
     // ── Proof verification: URI mismatch ────────────────────────────────
@@ -1001,7 +988,8 @@ mod tests {
         let verifier = DpopVerifier::new(DpopConfig::default());
         let claims = test_claims();
         let proof = build_test_proof(&claims, &test_jwk());
-        let result = verifier.verify_proof(&proof, "POST", "https://different.example.com", None, None);
+        let result =
+            verifier.verify_proof(&proof, "POST", "https://different.example.com", None, None);
         assert!(matches!(result, Err(DpopError::HttpUriMismatch)));
     }
 
@@ -1009,13 +997,18 @@ mod tests {
 
     #[test]
     fn test_verify_proof_replay_detected() {
-        let verifier = DpopVerifier::new(DpopConfig::default());
+        let verifier = DpopVerifier::new(DpopConfig {
+            allow_unverified_proofs: true,
+            ..DpopConfig::default()
+        });
         let claims = test_claims();
         let proof = build_test_proof(&claims, &test_jwk());
         let uri = "https://resource.example.com/api/evaluate";
 
         // First call succeeds
-        verifier.verify_proof(&proof, "POST", uri, None, None).unwrap();
+        verifier
+            .verify_proof(&proof, "POST", uri, None, None)
+            .unwrap();
 
         // Second call with same JTI is replay
         let result = verifier.verify_proof(&proof, "POST", uri, None, None);
@@ -1070,7 +1063,10 @@ mod tests {
 
     #[test]
     fn test_verify_proof_access_token_hash_match() {
-        let verifier = DpopVerifier::new(DpopConfig::default());
+        let verifier = DpopVerifier::new(DpopConfig {
+            allow_unverified_proofs: true,
+            ..DpopConfig::default()
+        });
         let token = "my-access-token-12345";
         let ath = compute_token_hash(token);
         let mut claims = test_claims();
@@ -1127,6 +1123,7 @@ mod tests {
     fn test_verify_proof_nonce_issued_and_verified() {
         let verifier = DpopVerifier::new(DpopConfig {
             require_nonce: true,
+            allow_unverified_proofs: true,
             ..DpopConfig::default()
         });
         let nonce = verifier.issue_nonce().unwrap();
@@ -1167,7 +1164,10 @@ mod tests {
 
     #[test]
     fn test_verify_proof_thumbprint_match() {
-        let verifier = DpopVerifier::new(DpopConfig::default());
+        let verifier = DpopVerifier::new(DpopConfig {
+            allow_unverified_proofs: true,
+            ..DpopConfig::default()
+        });
         let jwk = test_jwk();
         let thumbprint = compute_jwk_thumbprint(&jwk).unwrap();
         let claims = test_claims();
@@ -1264,7 +1264,10 @@ mod tests {
 
     #[test]
     fn test_clear_caches() {
-        let verifier = DpopVerifier::new(DpopConfig::default());
+        let verifier = DpopVerifier::new(DpopConfig {
+            allow_unverified_proofs: true,
+            ..DpopConfig::default()
+        });
         let claims = test_claims();
         let proof = build_test_proof(&claims, &test_jwk());
         verifier
@@ -1302,7 +1305,10 @@ mod tests {
 
     #[test]
     fn test_counters_increment_on_verification() {
-        let verifier = DpopVerifier::new(DpopConfig::default());
+        let verifier = DpopVerifier::new(DpopConfig {
+            allow_unverified_proofs: true,
+            ..DpopConfig::default()
+        });
         let claims = test_claims();
         let proof = build_test_proof(&claims, &test_jwk());
         verifier

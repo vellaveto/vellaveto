@@ -69,6 +69,9 @@ pub mod owasp_asi;
 // ── NIST AI 600-1 GenAI Profile compliance registry ────────────────────────
 pub mod nist_ai600;
 
+// ── Phase 68: Runtime Analytics & Insights API ─────────────────────────────
+pub mod analytics;
+
 // ── Re-exports: preserve exact public API ────────────────────────────────────
 
 // Types

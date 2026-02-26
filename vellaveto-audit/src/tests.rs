@@ -4663,7 +4663,10 @@ fn test_pqc_signing_content_v1_backward_compat() {
     let content_v1 = cp_v1.signing_content();
 
     // v1 explicit and None should produce identical signing content
-    assert_eq!(content1, content_v1, "None and Some(1) must produce identical signing content");
+    assert_eq!(
+        content1, content_v1,
+        "None and Some(1) must produce identical signing content"
+    );
 }
 
 /// Test that v2 signing content includes PQC verifying key.
@@ -4692,7 +4695,10 @@ fn test_pqc_signing_content_v2_includes_pqc_key() {
     let content_v2 = cp_v2.signing_content();
 
     // v2 must produce DIFFERENT signing content (includes PQC key)
-    assert_ne!(content_v1, content_v2, "v2 signing content must differ from v1");
+    assert_ne!(
+        content_v1, content_v2,
+        "v2 signing content must differ from v1"
+    );
 }
 
 /// Test that changing PQC verifying key in v2 changes signing content.
@@ -4781,8 +4787,7 @@ async fn test_pqc_v2_checkpoint_without_feature_fails_closed() {
 fn test_pqc_trusted_key_builder() {
     let dir = TempDir::new().unwrap();
     let log_path = dir.path().join("audit.jsonl");
-    let logger = AuditLogger::new(log_path)
-        .with_trusted_pqc_key("abcd1234".to_string());
+    let logger = AuditLogger::new(log_path).with_trusted_pqc_key("abcd1234".to_string());
     assert_eq!(
         logger.trusted_pqc_verifying_key.as_deref(),
         Some("abcd1234")
@@ -4809,7 +4814,10 @@ fn test_pqc_checkpoint_serde_round_trip() {
     let deserialized: Checkpoint = serde_json::from_str(&json).unwrap();
 
     assert_eq!(deserialized.pqc_signature.as_deref(), Some("pqc-sig-hex"));
-    assert_eq!(deserialized.pqc_verifying_key.as_deref(), Some("pqc-vk-hex"));
+    assert_eq!(
+        deserialized.pqc_verifying_key.as_deref(),
+        Some("pqc-vk-hex")
+    );
     assert_eq!(deserialized.signature_version, Some(2));
 }
 
@@ -4849,9 +4857,18 @@ fn test_pqc_fields_skip_serializing_when_none() {
     };
 
     let json = serde_json::to_string(&cp).unwrap();
-    assert!(!json.contains("pqc_signature"), "None PQC fields should be skipped");
-    assert!(!json.contains("pqc_verifying_key"), "None PQC fields should be skipped");
-    assert!(!json.contains("signature_version"), "None signature_version should be skipped");
+    assert!(
+        !json.contains("pqc_signature"),
+        "None PQC fields should be skipped"
+    );
+    assert!(
+        !json.contains("pqc_verifying_key"),
+        "None PQC fields should be skipped"
+    );
+    assert!(
+        !json.contains("signature_version"),
+        "None signature_version should be skipped"
+    );
 }
 
 /// Test that Ed25519 checkpoint error message changed correctly.

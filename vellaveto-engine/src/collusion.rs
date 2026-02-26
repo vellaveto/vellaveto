@@ -264,11 +264,7 @@ impl std::fmt::Display for CollusionAlert {
         write!(
             f,
             "[{:?}/{:?}] agents={:?} target='{}': {}",
-            self.severity,
-            self.collusion_type,
-            self.agent_ids,
-            self.target,
-            self.description,
+            self.severity, self.collusion_type, self.agent_ids, self.target, self.description,
         )
     }
 }
@@ -508,9 +504,10 @@ impl CollusionDetector {
         let entropy = Self::compute_entropy(data);
         let is_high = entropy >= self.config.entropy_threshold;
 
-        let mut profiles = self.entropy_profiles.write().map_err(|_| {
-            CollusionError::LockPoisoned("entropy_profiles write lock".to_string())
-        })?;
+        let mut profiles = self
+            .entropy_profiles
+            .write()
+            .map_err(|_| CollusionError::LockPoisoned("entropy_profiles write lock".to_string()))?;
 
         // SECURITY (Trap 3): Bound the number of tracked agents.
         if !profiles.contains_key(agent_id) && profiles.len() >= MAX_TRACKED_AGENTS {
@@ -620,9 +617,10 @@ impl CollusionDetector {
         Self::validate_resource_key(resource)?;
         Self::validate_tool_name(tool)?;
 
-        let mut events = self.resource_events.write().map_err(|_| {
-            CollusionError::LockPoisoned("resource_events write lock".to_string())
-        })?;
+        let mut events = self
+            .resource_events
+            .write()
+            .map_err(|_| CollusionError::LockPoisoned("resource_events write lock".to_string()))?;
 
         // SECURITY (Trap 3): Bound tracked resources.
         if !events.contains_key(resource) && events.len() >= MAX_TRACKED_RESOURCES {
@@ -739,9 +737,10 @@ impl CollusionDetector {
         }
         Self::validate_agent_id(agent_id)?;
 
-        let mut profiles = self.timing_profiles.write().map_err(|_| {
-            CollusionError::LockPoisoned("timing_profiles write lock".to_string())
-        })?;
+        let mut profiles = self
+            .timing_profiles
+            .write()
+            .map_err(|_| CollusionError::LockPoisoned("timing_profiles write lock".to_string()))?;
 
         // SECURITY (Trap 3): Bound tracked agents.
         if !profiles.contains_key(agent_id) && profiles.len() >= MAX_TRACKED_AGENTS {
@@ -1037,7 +1036,10 @@ mod tests {
     fn test_compute_entropy_uniform_data_returns_zero() {
         let data = vec![0x41u8; 100]; // All 'A'
         let entropy = CollusionDetector::compute_entropy(&data);
-        assert!(entropy < 0.01, "Uniform data should have ~0 entropy, got {entropy}");
+        assert!(
+            entropy < 0.01,
+            "Uniform data should have ~0 entropy, got {entropy}"
+        );
     }
 
     #[test]
@@ -1134,7 +1136,10 @@ mod tests {
                 break;
             }
         }
-        assert!(triggered, "Should have triggered steganographic alert after repeated high-entropy observations");
+        assert!(
+            triggered,
+            "Should have triggered steganographic alert after repeated high-entropy observations"
+        );
     }
 
     // ────────────────────────────────────────────────
@@ -1178,7 +1183,10 @@ mod tests {
         let result = detector
             .record_resource_access("agent-3", "/credentials/db", "read_file", base_time + 20)
             .unwrap();
-        assert!(result.is_some(), "Three agents in window should trigger alert");
+        assert!(
+            result.is_some(),
+            "Three agents in window should trigger alert"
+        );
 
         let alert = result.unwrap();
         assert_eq!(alert.collusion_type, CollusionType::CoordinatedAccess);
@@ -1208,7 +1216,10 @@ mod tests {
             .record_resource_access("agent-3", "/secret", "read", base_time + 100)
             .unwrap();
         // Agent-1's event is expired (100 > 60), so only agent-2 and agent-3 remain = 2 < 3.
-        assert!(result.is_none(), "Agent outside window should not trigger alert");
+        assert!(
+            result.is_none(),
+            "Agent outside window should not trigger alert"
+        );
     }
 
     // ────────────────────────────────────────────────
@@ -1371,7 +1382,10 @@ mod tests {
         let cfg = CollusionConfig::default();
         let json = serde_json::to_string(&cfg).unwrap();
         let parsed: CollusionConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.coordination_window_secs, cfg.coordination_window_secs);
+        assert_eq!(
+            parsed.coordination_window_secs,
+            cfg.coordination_window_secs
+        );
         assert_eq!(parsed.entropy_threshold, cfg.entropy_threshold);
     }
 
@@ -1379,7 +1393,10 @@ mod tests {
     fn test_config_deny_unknown_fields() {
         let json = r#"{"enabled": true, "unknown_field": 42}"#;
         let result: Result<CollusionConfig, _> = serde_json::from_str(json);
-        assert!(result.is_err(), "deny_unknown_fields should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "deny_unknown_fields should reject unknown fields"
+        );
     }
 
     #[test]

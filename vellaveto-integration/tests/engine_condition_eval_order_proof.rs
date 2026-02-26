@@ -169,38 +169,38 @@ fn require_approval_false_does_not_trigger() {
 }
 
 // ═════════════════════════════
-// REQUIRE_APPROVAL NON-BOOLEAN → skipped (unwrap_or(false))
+// REQUIRE_APPROVAL NON-BOOLEAN → fail-closed (unwrap_or(true), FIND-IMP-013)
 // ═════════════════════════════
 
 #[test]
-fn require_approval_string_value_does_not_trigger() {
+fn require_approval_string_value_fails_closed() {
     let engine = PolicyEngine::new(false);
     let action = make_action(json!({}));
-    // "true" as a string, not a boolean — as_bool() returns None, unwrap_or(false)
+    // "true" as a string, not a boolean — as_bool() returns None, unwrap_or(true) → fail-closed
     let policies = cond(json!({
         "require_approval": "true"
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(
-        result,
-        Verdict::Allow,
-        "String 'true' is not bool true, should fall through to Allow"
+    assert!(
+        matches!(result, Verdict::RequireApproval { .. }),
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
+        result
     );
 }
 
 #[test]
-fn require_approval_integer_one_does_not_trigger() {
+fn require_approval_integer_one_fails_closed() {
     let engine = PolicyEngine::new(false);
     let action = make_action(json!({}));
-    // 1 as integer  as_bool() returns None for integers
+    // 1 as integer — as_bool() returns None, unwrap_or(true) → fail-closed
     let policies = cond(json!({
         "require_approval": 1
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(
-        result,
-        Verdict::Allow,
-        "Integer 1 is not bool true, should fall through"
+    assert!(
+        matches!(result, Verdict::RequireApproval { .. }),
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
+        result
     );
 }
 

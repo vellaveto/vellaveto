@@ -687,6 +687,8 @@ pub fn endpoint_permission(method: &axum::http::Method, path: &str) -> Option<Pe
         // Metrics
         (&Method::GET, "/api/metrics") => Some(Permission::MetricsRead),
         (&Method::GET, "/metrics") => Some(Permission::MetricsRead),
+        (&Method::GET, "/iam/scim/status") => Some(Permission::MetricsRead),
+        (&Method::POST, "/api/auth/client-metadata") => Some(Permission::ConfigReload),
 
         // Billing and metering
         (&Method::GET, "/api/billing/license") => Some(Permission::MetricsRead),
@@ -1059,6 +1061,19 @@ mod tests {
         assert_eq!(
             endpoint_permission(&Method::GET, "/metrics"),
             Some(Permission::MetricsRead)
+        );
+        assert_eq!(
+            endpoint_permission(&Method::GET, "/iam/scim/status"),
+            Some(Permission::MetricsRead)
+        );
+    }
+
+    #[test]
+    fn test_endpoint_permission_cimd_fetch() {
+        use axum::http::Method;
+        assert_eq!(
+            endpoint_permission(&Method::POST, "/api/auth/client-metadata"),
+            Some(Permission::ConfigReload)
         );
     }
 

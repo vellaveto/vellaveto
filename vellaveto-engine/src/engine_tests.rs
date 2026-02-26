@@ -2505,6 +2505,33 @@ fn test_compiled_require_approval() {
 }
 
 #[test]
+fn test_require_approval_non_boolean_fail_closed() {
+    // FIND-IMP-013: Non-boolean require_approval must fail-closed (require approval),
+    // not fail-open (skip approval). Tests string, number, null, and object values.
+    for bad_value in &[json!("yes"), json!(1), json!(null), json!({"nested": true})] {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Non-bool approval".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({ "require_approval": bad_value }),
+            },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = Action::new("tool".to_string(), "fn".to_string(), json!({}));
+        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(
+            matches!(verdict, Verdict::RequireApproval { .. }),
+            "Non-boolean require_approval {:?} should fail-closed to RequireApproval, got {:?}",
+            bad_value,
+            verdict
+        );
+    }
+}
+
+#[test]
 fn test_compiled_forbidden_parameters() {
     let policies = vec![Policy {
         id: "*".to_string(),

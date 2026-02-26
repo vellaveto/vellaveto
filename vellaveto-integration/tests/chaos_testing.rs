@@ -166,8 +166,8 @@ fn test_audit_logger_recovers_from_corrupt_last_line() {
 #[test]
 fn test_evaluation_determinism_same_input_same_output() {
     let policies = generate_mixed_policies(50);
-    let engine = PolicyEngine::with_policies(false, &policies)
-        .expect("50 mixed policies should compile");
+    let engine =
+        PolicyEngine::with_policies(false, &policies).expect("50 mixed policies should compile");
 
     let action = make_action("tool_0", "read");
     let reference = engine.evaluate_action(&action, &[]).unwrap();
@@ -213,26 +213,26 @@ fn test_fail_closed_empty_policies_always_deny() {
 #[test]
 fn test_fail_closed_on_edge_case_inputs() {
     let policies = vec![allow_policy("safe_tool:*", 100)];
-    let engine = PolicyEngine::with_policies(true, &policies)
-        .expect("single allow policy should compile");
+    let engine =
+        PolicyEngine::with_policies(true, &policies).expect("single allow policy should compile");
 
     // Edge cases: the engine should never panic and should produce Deny
     // for tools that do not match the single "safe_tool:*" policy.
     let long_tool = "a".repeat(10_000);
     let long_func = "b".repeat(10_000);
     let edge_cases: Vec<(&str, &str)> = vec![
-        ("", ""),                                      // empty strings
-        ("", "func"),                                  // empty tool
-        ("tool", ""),                                  // empty function
-        (&long_tool, "func"),                          // very long tool name
-        ("tool", &long_func),                          // very long function name
-        ("tool\x00name", "func"),                      // embedded null byte
-        ("tool\nname", "func"),                        // embedded newline
-        ("tool\ttab", "func"),                         // embedded tab
-        ("\u{200B}invisible", "func"),                 // zero-width space
-        ("\u{202E}rtl_override", "func"),              // bidi override
-        ("tool/../../etc/passwd", "func"),             // path traversal attempt
-        ("tool\r\nX-Injected: true", "func"),          // header injection attempt
+        ("", ""),                             // empty strings
+        ("", "func"),                         // empty tool
+        ("tool", ""),                         // empty function
+        (&long_tool, "func"),                 // very long tool name
+        ("tool", &long_func),                 // very long function name
+        ("tool\x00name", "func"),             // embedded null byte
+        ("tool\nname", "func"),               // embedded newline
+        ("tool\ttab", "func"),                // embedded tab
+        ("\u{200B}invisible", "func"),        // zero-width space
+        ("\u{202E}rtl_override", "func"),     // bidi override
+        ("tool/../../etc/passwd", "func"),    // path traversal attempt
+        ("tool\r\nX-Injected: true", "func"), // header injection attempt
     ];
 
     for (tool, func) in &edge_cases {
@@ -392,8 +392,8 @@ fn test_concurrent_policy_compilation_no_panic() {
 fn test_recovery_from_poisoned_state() {
     // Phase 1: create engine and evaluate successfully
     let policies_v1 = vec![allow_policy("tool:*", 100)];
-    let engine_v1 = PolicyEngine::with_policies(false, &policies_v1)
-        .expect("v1 policies should compile");
+    let engine_v1 =
+        PolicyEngine::with_policies(false, &policies_v1).expect("v1 policies should compile");
 
     let action = make_action("tool", "read");
     let v1 = engine_v1.evaluate_action(&action, &[]).unwrap();
@@ -403,8 +403,8 @@ fn test_recovery_from_poisoned_state() {
     let policies_v2 = generate_mixed_policies(100);
 
     let recovery_start = Instant::now();
-    let engine_v2 = PolicyEngine::with_policies(false, &policies_v2)
-        .expect("v2 policies should compile");
+    let engine_v2 =
+        PolicyEngine::with_policies(false, &policies_v2).expect("v2 policies should compile");
     let v2 = engine_v2.evaluate_action(&action, &[]).unwrap();
     let recovery_time = recovery_start.elapsed();
 

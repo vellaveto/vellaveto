@@ -17,6 +17,7 @@
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
     <a href="https://www.bestpractices.dev/projects/12042"><img src="https://www.bestpractices.dev/projects/12042/badge" alt="OpenSSF Best Practices"></a>
+    <a href="https://socket.dev/npm/package/create-vellaveto/overview/4.0.7"><img src="https://badge.socket.dev/npm/package/create-vellaveto/4.0.7" alt="Socket Badge"></a>
   </p>
   <p align="center">
     <a href="#-quick-start">Quick Start</a> &middot;

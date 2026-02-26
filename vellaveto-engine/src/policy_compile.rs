@@ -265,9 +265,11 @@ impl PolicyEngine {
             });
         }
 
+        // SECURITY (FIND-IMP-013): Fail-closed — if require_approval is present
+        // but not a valid boolean, default to true (require approval).
         let require_approval = conditions
             .get("require_approval")
-            .and_then(|v| v.as_bool())
+            .map(|v| v.as_bool().unwrap_or(true))
             .unwrap_or(false);
 
         let on_no_match_continue = conditions

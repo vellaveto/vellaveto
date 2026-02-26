@@ -73,11 +73,7 @@ impl std::fmt::Display for CedarImportError {
                 write!(f, "unsupported Cedar feature: {}", feature)
             }
             CedarImportError::TooManyPolicies { count, max } => {
-                write!(
-                    f,
-                    "too many policies: {} exceeds maximum {}",
-                    count, max
-                )
+                write!(f, "too many policies: {} exceeds maximum {}", count, max)
             }
             CedarImportError::InputTooLarge { size, max } => {
                 write!(
@@ -87,11 +83,7 @@ impl std::fmt::Display for CedarImportError {
                 )
             }
             CedarImportError::TooManyConditions { count, max } => {
-                write!(
-                    f,
-                    "too many conditions: {} exceeds maximum {}",
-                    count, max
-                )
+                write!(f, "too many conditions: {} exceeds maximum {}", count, max)
             }
         }
     }
@@ -381,10 +373,12 @@ fn parse_statement(stmt: &RawStatement, idx: usize) -> Result<Policy, CedarImpor
 /// Returns the remaining text after the closing `)`.
 fn parse_head(text: &str, line: usize) -> Result<&str, CedarImportError> {
     // Must start with `(`
-    let text = text.strip_prefix('(').ok_or_else(|| CedarImportError::Parse {
-        line,
-        message: "expected '(' after permit/forbid".to_string(),
-    })?;
+    let text = text
+        .strip_prefix('(')
+        .ok_or_else(|| CedarImportError::Parse {
+            line,
+            message: "expected '(' after permit/forbid".to_string(),
+        })?;
 
     // Find the matching closing `)`
     let mut depth = 1i32;
@@ -422,12 +416,12 @@ fn parse_head(text: &str, line: usize) -> Result<&str, CedarImportError> {
     // We don't need to deeply parse the head for our simplified subset.
     // The conditions in the `when` clause carry the semantics.
     // But we do reject unsupported features like `unless`.
-    let remaining = text[close_pos..].strip_prefix(')').ok_or_else(|| {
-        CedarImportError::Parse {
+    let remaining = text[close_pos..]
+        .strip_prefix(')')
+        .ok_or_else(|| CedarImportError::Parse {
             line,
             message: "expected ')' in policy head".to_string(),
-        }
-    })?;
+        })?;
 
     let remaining = remaining.trim();
 
@@ -446,21 +440,25 @@ fn parse_when_clause(text: &str, line: usize) -> Result<Vec<Condition>, CedarImp
     let text = text.trim();
 
     // Must start with `when`
-    let text = text.strip_prefix("when").ok_or_else(|| CedarImportError::Parse {
-        line,
-        message: format!(
-            "expected 'when' clause or end of statement, got '{}'",
-            truncate_for_error(text, 40),
-        ),
-    })?;
+    let text = text
+        .strip_prefix("when")
+        .ok_or_else(|| CedarImportError::Parse {
+            line,
+            message: format!(
+                "expected 'when' clause or end of statement, got '{}'",
+                truncate_for_error(text, 40),
+            ),
+        })?;
 
     let text = text.trim();
 
     // Must have `{ ... }`
-    let text = text.strip_prefix('{').ok_or_else(|| CedarImportError::Parse {
-        line,
-        message: "expected '{' after 'when'".to_string(),
-    })?;
+    let text = text
+        .strip_prefix('{')
+        .ok_or_else(|| CedarImportError::Parse {
+            line,
+            message: "expected '{' after 'when'".to_string(),
+        })?;
 
     // Find matching `}`
     let mut depth = 1i32;
@@ -602,10 +600,7 @@ fn parse_condition(text: &str, line: usize) -> Result<Condition, CedarImportErro
 
     // Unsupported condition
     Err(CedarImportError::UnsupportedFeature {
-        feature: format!(
-            "condition '{}'",
-            truncate_for_error(text, 60),
-        ),
+        feature: format!("condition '{}'", truncate_for_error(text, 60),),
     })
 }
 
@@ -823,13 +818,19 @@ pub fn export_to_cedar(policies: &[Policy]) -> Result<String, CedarExportError> 
         // Tool name condition (skip if wildcard)
         let tool_name = extract_tool_from_id(&policy.id);
         if tool_name != "*" {
-            conditions.push(format!("resource.tool == \"{}\"", escape_cedar_string(&tool_name)));
+            conditions.push(format!(
+                "resource.tool == \"{}\"",
+                escape_cedar_string(&tool_name)
+            ));
         }
 
         // Path rules
         if let Some(ref pr) = policy.path_rules {
             for path in &pr.allowed {
-                conditions.push(format!("resource.path like \"{}\"", escape_cedar_string(path)));
+                conditions.push(format!(
+                    "resource.path like \"{}\"",
+                    escape_cedar_string(path)
+                ));
             }
             for path in &pr.blocked {
                 conditions.push(format!(
@@ -1208,7 +1209,8 @@ mod tests {
 
     #[test]
     fn test_escaped_quotes_in_string() {
-        let cedar = r#"permit(principal, action, resource) when { resource.tool == "say\"hello\"" };"#;
+        let cedar =
+            r#"permit(principal, action, resource) when { resource.tool == "say\"hello\"" };"#;
         let policies = import_cedar_policies(cedar).unwrap();
         assert_eq!(policies.len(), 1);
     }

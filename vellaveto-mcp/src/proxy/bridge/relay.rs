@@ -805,19 +805,18 @@ impl ProxyBridge {
                 "method": tool_name,
                 "params": arguments,
             });
-            let injection_matches: Vec<String> =
-                if let Some(ref scanner) = self.injection_scanner {
-                    scanner
-                        .scan_notification(&synthetic_msg)
-                        .into_iter()
-                        .map(|s| s.to_string())
-                        .collect()
-                } else {
-                    scan_notification_for_injection(&synthetic_msg)
-                        .into_iter()
-                        .map(|s| s.to_string())
-                        .collect()
-                };
+            let injection_matches: Vec<String> = if let Some(ref scanner) = self.injection_scanner {
+                scanner
+                    .scan_notification(&synthetic_msg)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            } else {
+                scan_notification_for_injection(&synthetic_msg)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            };
             if !injection_matches.is_empty() {
                 tracing::warn!(
                     "SECURITY: Injection in tool call params '{}': {:?}",

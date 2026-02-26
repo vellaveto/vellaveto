@@ -44,6 +44,7 @@ pub mod projector;
 pub mod tool_registry;
 pub mod zk_audit;
 
+pub mod bulk;
 pub mod cedar;
 
 #[cfg(test)]

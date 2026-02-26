@@ -260,11 +260,8 @@ impl AuditLogger {
             let mut pqc_hasher = Sha256::new();
             pqc_hasher.update(&canonical);
             let pqc_digest = pqc_hasher.finalize();
-            let pqc_sig = crate::pqc::ml_dsa_sign(
-                sk_hex,
-                &pqc_digest,
-                crate::pqc::MANIFEST_CONTEXT,
-            )?;
+            let pqc_sig =
+                crate::pqc::ml_dsa_sign(sk_hex, &pqc_digest, crate::pqc::MANIFEST_CONTEXT)?;
             manifest_entry["pqc_signature"] = serde_json::Value::String(pqc_sig);
             manifest_entry["pqc_verifying_key"] = serde_json::Value::String(pk_hex.clone());
             manifest_entry["signature_version"] =

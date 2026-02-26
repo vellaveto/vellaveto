@@ -26,7 +26,7 @@ export async function securityStep(
     const customKey = await p.text({
       message: "Enter your API key",
       validate(value) {
-        if (value.length < 8) return "API key must be at least 8 characters";
+        if (!value || value.length < 8) return "API key must be at least 8 characters";
       },
     });
 

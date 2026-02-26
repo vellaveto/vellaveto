@@ -13,11 +13,7 @@
 // - Email validated with basic RFC 5321 checks (no MX lookup)
 // - Org name max 200 chars, reject control/format characters
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, Json};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -166,10 +162,7 @@ pub async fn signup(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!(
-                    "invalid plan tier; allowed: {}",
-                    ALLOWED_TIERS.join(", ")
-                ),
+                error: format!("invalid plan tier; allowed: {}", ALLOWED_TIERS.join(", ")),
             }),
         ));
     }
@@ -353,28 +346,28 @@ fn tier_to_quotas(plan: &str) -> crate::tenant::TenantQuotas {
     match plan {
         "free" => crate::tenant::TenantQuotas {
             max_policies: 10,
-            max_evaluations_per_minute: 20,     // ~1,200/hour
+            max_evaluations_per_minute: 20, // ~1,200/hour
             max_pending_approvals: 5,
             max_audit_retention_days: 7,
-            max_request_body_bytes: 512 * 1024,  // 512 KB
+            max_request_body_bytes: 512 * 1024, // 512 KB
         },
         "starter" => crate::tenant::TenantQuotas {
             max_policies: 50,
-            max_evaluations_per_minute: 1000,   // ~60K/hour
+            max_evaluations_per_minute: 1000, // ~60K/hour
             max_pending_approvals: 50,
             max_audit_retention_days: 30,
             max_request_body_bytes: 1024 * 1024, // 1 MB
         },
         "team" => crate::tenant::TenantQuotas {
             max_policies: 200,
-            max_evaluations_per_minute: 5000,   // ~300K/hour
+            max_evaluations_per_minute: 5000, // ~300K/hour
             max_pending_approvals: 100,
             max_audit_retention_days: 90,
             max_request_body_bytes: 1024 * 1024, // 1 MB
         },
         "enterprise-trial" => crate::tenant::TenantQuotas {
             max_policies: 500,
-            max_evaluations_per_minute: 10000,  // ~600K/hour
+            max_evaluations_per_minute: 10000, // ~600K/hour
             max_pending_approvals: 100,
             max_audit_retention_days: 365,
             max_request_body_bytes: 1024 * 1024, // 1 MB

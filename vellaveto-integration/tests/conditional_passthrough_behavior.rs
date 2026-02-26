@@ -89,10 +89,10 @@ fn require_approval_false_allows() {
     assert!(matches!(result, Verdict::Allow));
 }
 
-/// require_approval as non-boolean value (string "true") should not trigger.
-/// The source uses `as_bool().unwrap_or(false)`.
+/// FIND-IMP-013: Non-boolean require_approval fails closed → RequireApproval.
+/// The source uses `as_bool().unwrap_or(true)` (fail-closed).
 #[test]
-fn require_approval_string_true_does_not_trigger() {
+fn require_approval_string_true_fails_closed() {
     let engine = PolicyEngine::new(false);
     let action = make_action("bash", "exec", json!({}));
     let policies = vec![conditional_policy(
@@ -103,16 +103,17 @@ fn require_approval_string_true_does_not_trigger() {
         }),
     )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    // as_bool() on "true" returns None → unwrap_or(false) → no approval required
+    // as_bool() on "true" returns None → unwrap_or(true) → fail-closed to RequireApproval
     assert!(
-        matches!(result, Verdict::Allow),
-        "String 'true' should not trigger require_approval (as_bool returns None)"
+        matches!(result, Verdict::RequireApproval { .. }),
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
+        result
     );
 }
 
-/// require_approval as integer 1 should not trigger.
+/// FIND-IMP-013: Integer require_approval fails closed → RequireApproval.
 #[test]
-fn require_approval_integer_one_does_not_trigger() {
+fn require_approval_integer_one_fails_closed() {
     let engine = PolicyEngine::new(false);
     let action = make_action("bash", "exec", json!({}));
     let policies = vec![conditional_policy(
@@ -124,8 +125,9 @@ fn require_approval_integer_one_does_not_trigger() {
     )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
-        matches!(result, Verdict::Allow),
-        "Integer 1 should not trigger require_approval (as_bool returns None for integers)"
+        matches!(result, Verdict::RequireApproval { .. }),
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
+        result
     );
 }
 

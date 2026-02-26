@@ -192,7 +192,8 @@ fn required_params_all_present_allows() {
 /// require_approval set to string "true" — as_bool() returns None,
 /// unwrap_or(false) makes it false. Should NOT trigger RequireApproval.
 #[test]
-fn require_approval_string_true_does_not_trigger() {
+fn require_approval_string_true_fails_closed() {
+    // FIND-IMP-013: Non-boolean require_approval fails closed → RequireApproval.
     let engine = PolicyEngine::new(false);
     let action = make_action(json!({}));
     let policies = cond_policy(json!({
@@ -200,14 +201,15 @@ fn require_approval_string_true_does_not_trigger() {
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
-        matches!(result, Verdict::Allow),
-        "String 'true' is not bool true — as_bool() returns None, falls through to Allow"
+        matches!(result, Verdict::RequireApproval { .. }),
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
+        result
     );
 }
 
-/// require_approval set to integer 1 — as_bool() returns None for integers.
+/// FIND-IMP-013: Integer require_approval fails closed → RequireApproval.
 #[test]
-fn require_approval_integer_1_does_not_trigger() {
+fn require_approval_integer_1_fails_closed() {
     let engine = PolicyEngine::new(false);
     let action = make_action(json!({}));
     let policies = cond_policy(json!({
@@ -215,7 +217,8 @@ fn require_approval_integer_1_does_not_trigger() {
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
-        matches!(result, Verdict::Allow),
-        "Integer 1 is not bool true — as_bool() returns None, falls through to Allow"
+        matches!(result, Verdict::RequireApproval { .. }),
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
+        result
     );
 }
