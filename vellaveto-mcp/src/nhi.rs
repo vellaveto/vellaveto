@@ -751,17 +751,17 @@ impl NhiManager {
         }
 
         // Check nonce if required
-        // SECURITY (FIND-R116-MCP-002): Drop the read guard before calling
-        // generate_dpop_nonce() which acquires a write lock on the same RwLock.
-        // Previously the read guard was held across the error path, causing deadlock.
+        // SECURITY (R229-NHI-1): Use consume() (write lock) instead of is_valid() (read lock)
+        // to enforce single-use nonces per RFC 9449 §8. A nonce used successfully is removed
+        // from the tracker, preventing replay within the TTL window.
         if self.config.dpop.require_nonce {
             let nonce_valid = {
-                let nonces = self.dpop_nonces.read().await;
+                let mut nonces = self.dpop_nonces.write().await;
                 match &proof.nonce {
-                    Some(nonce) => nonces.is_valid(nonce),
+                    Some(nonce) => nonces.consume(nonce),
                     None => false,
                 }
-            }; // nonces read guard dropped here
+            }; // nonces write guard dropped here
 
             if !nonce_valid {
                 let reason = if proof.nonce.is_some() {
@@ -2213,8 +2213,22 @@ impl DpopNonceTracker {
         Ok(nonce)
     }
 
+    #[cfg(test)]
     fn is_valid(&self, nonce: &str) -> bool {
         if let Some(&created_at) = self.nonces.get(nonce) {
+            let now = chrono::Utc::now().timestamp() as u64;
+            now.saturating_sub(created_at) < self.ttl_secs
+        } else {
+            false
+        }
+    }
+
+    /// SECURITY (R229-NHI-1): Consume a nonce on successful use (single-use).
+    ///
+    /// Per RFC 9449 §8, nonces should be single-use to prevent replay attacks.
+    /// Returns true if the nonce was valid and consumed, false otherwise.
+    fn consume(&mut self, nonce: &str) -> bool {
+        if let Some(created_at) = self.nonces.remove(nonce) {
             let now = chrono::Utc::now().timestamp() as u64;
             now.saturating_sub(created_at) < self.ttl_secs
         } else {

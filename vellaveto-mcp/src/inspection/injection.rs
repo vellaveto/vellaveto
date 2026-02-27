@@ -835,7 +835,7 @@ fn confusable_to_latin(c: char) -> Option<char> {
         '\u{0421}' => Some('c'), // С
         '\u{0422}' => Some('t'), // Т
         '\u{0425}' => Some('x'), // Х
-        // Greek → Latin
+        // Greek lowercase → Latin
         '\u{03B1}' => Some('a'), // α
         '\u{03B5}' => Some('e'), // ε
         '\u{03B9}' => Some('i'), // ι
@@ -845,6 +845,23 @@ fn confusable_to_latin(c: char) -> Option<char> {
         '\u{03BA}' => Some('k'), // κ
         '\u{03BD}' => Some('v'), // ν (nu)
         '\u{03C9}' => Some('w'), // ω
+        // SECURITY (R229-MCP-2): Greek UPPERCASE → Latin lowercase.
+        // These are visually identical to Latin uppercase A, B, E, H, I, K, M, N, O, P, T, X, Y, Z
+        // and can bypass injection detection if not normalized.
+        '\u{0391}' => Some('a'), // Α (Alpha)
+        '\u{0392}' => Some('b'), // Β (Beta)
+        '\u{0395}' => Some('e'), // Ε (Epsilon)
+        '\u{0397}' => Some('h'), // Η (Eta)
+        '\u{0399}' => Some('i'), // Ι (Iota)
+        '\u{039A}' => Some('k'), // Κ (Kappa)
+        '\u{039C}' => Some('m'), // Μ (Mu)
+        '\u{039D}' => Some('n'), // Ν (Nu)
+        '\u{039F}' => Some('o'), // Ο (Omicron)
+        '\u{03A1}' => Some('p'), // Ρ (Rho)
+        '\u{03A4}' => Some('t'), // Τ (Tau)
+        '\u{03A5}' => Some('u'), // Υ (Upsilon)
+        '\u{03A7}' => Some('x'), // Χ (Chi)
+        '\u{0396}' => Some('z'), // Ζ (Zeta)
         _ => None,
     }
 }

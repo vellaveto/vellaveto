@@ -186,6 +186,16 @@ pub fn collect_schema_descriptions(
             }
         }
     }
+    // SECURITY (R229-MCP-1): Recurse into $defs/definitions reusable schema definitions.
+    // Attackers can hide injection payloads in schema definitions that are referenced
+    // via $ref but whose descriptions are never scanned without explicit recursion.
+    for keyword in ["$defs", "definitions"] {
+        if let Some(defs) = schema.get(keyword).and_then(|v| v.as_object()) {
+            for sub_schema in defs.values() {
+                collect_schema_descriptions(sub_schema, texts, depth + 1);
+            }
+        }
+    }
 }
 
 /// R227: Imperative instruction patterns targeting LLM agents.

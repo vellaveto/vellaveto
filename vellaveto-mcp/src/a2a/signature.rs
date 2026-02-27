@@ -197,6 +197,32 @@ impl AgentCardClaims {
                 "card_hash must be a 64-character hex SHA-256 digest".to_string(),
             ));
         }
+        // SECURITY (R229-A2A-1): Validate card_hash is actually hex, not just 64 chars.
+        // A non-hex card_hash could be used for cache key injection or hash comparison bypass.
+        if !self.card_hash.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(A2aError::AgentCardInvalid(
+                "card_hash contains non-hex characters".to_string(),
+            ));
+        }
+        // SECURITY (R229-A2A-2): Validate kid field if present.
+        // kid flows into cache keys and log entries — must be bounded and safe.
+        if let Some(ref kid) = self.kid {
+            if kid.len() > 256 {
+                return Err(A2aError::AgentCardInvalid(
+                    "kid exceeds maximum length of 256".to_string(),
+                ));
+            }
+            if kid.is_empty() {
+                return Err(A2aError::AgentCardInvalid(
+                    "kid must not be empty when present".to_string(),
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(kid) {
+                return Err(A2aError::AgentCardInvalid(
+                    "kid contains dangerous characters".to_string(),
+                ));
+            }
+        }
         // Expiration must be after issued-at
         if self.exp <= self.iat {
             return Err(A2aError::AgentCardInvalid(

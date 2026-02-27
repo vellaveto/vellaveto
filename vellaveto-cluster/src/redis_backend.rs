@@ -195,6 +195,23 @@ impl RedisBackend {
                 "Redis key_prefix must not contain control characters".to_string(),
             ));
         }
+        // SECURITY (R229-CLUS-1): Reject Redis hash tag characters {} which allow
+        // cluster slot manipulation via hash tags like {slot}.
+        if key_prefix.contains('{') || key_prefix.contains('}') {
+            return Err(ClusterError::Validation(
+                "Redis key_prefix must not contain hash tag characters '{' or '}'".to_string(),
+            ));
+        }
+        // SECURITY (R229-CLUS-1): Reject Unicode format characters (invisible chars
+        // that can be used for key injection/confusion in multi-tenant environments).
+        if key_prefix
+            .chars()
+            .any(vellaveto_types::is_unicode_format_char)
+        {
+            return Err(ClusterError::Validation(
+                "Redis key_prefix must not contain Unicode format characters".to_string(),
+            ));
+        }
         let cfg = PoolConfig::from_url(redis_url);
         let pool = cfg
             .builder()
