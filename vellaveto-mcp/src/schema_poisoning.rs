@@ -375,10 +375,20 @@ impl SchemaLineageTracker {
             return Ok(());
         }
 
-        // Calculate how different the new schema is.
-        // Uses trust_score as a proxy when schema_content is unavailable from observe_schema;
-        // when schema_content is stored, observe_schema performs field-level comparison directly.
-        let similarity = record.trust_score;
+        // SECURITY (R228-MCP-2): Calculate actual schema similarity when previous
+        // schema content is available, rather than using the decayed trust_score.
+        // trust_score decays by 0.5 on every observed change, so after 3 changes
+        // it reads 0.125 regardless of actual similarity — causing false positives
+        // on tools with frequent minor updates and missing true poisoning attacks
+        // that arrive in a single large change between observation windows.
+        let (similarity, changed_fields) = if let Some(ref old_schema) = record.schema_content {
+            let sim = Self::calculate_similarity(old_schema, schema);
+            let changes = Self::detect_changes(old_schema, schema);
+            (sim, changes)
+        } else {
+            // Fallback to trust_score when schema_content is unavailable
+            (record.trust_score, Vec::new())
+        };
 
         if similarity < 1.0 - self.mutation_threshold {
             return Err(PoisoningAlert {
@@ -386,7 +396,7 @@ impl SchemaLineageTracker {
                 previous_hash: record.schema_hash.clone(),
                 current_hash,
                 similarity,
-                changed_fields: Vec::new(),
+                changed_fields,
             });
         }
 

@@ -931,6 +931,14 @@ async fn csrf_referer_check(
 /// checking all configured origins rather than returning early on match.
 /// This prevents attackers from enumerating allowed origins via timing analysis.
 fn validate_origin(origin: &str, allowed_origins: &[String]) -> bool {
+    // SECURITY (R227-SRV-2): Explicitly reject the literal "null" origin.
+    // Browsers send "Origin: null" from sandboxed iframes, data: URIs, and
+    // cross-origin redirects. Previously rejected implicitly by URL parse
+    // failure, but explicit rejection is more robust and testable.
+    if origin == "null" {
+        return false;
+    }
+
     // Wildcard allows everything (not secret, can return early)
     if allowed_origins.iter().any(|o| o == "*") {
         return true;
@@ -1043,11 +1051,20 @@ async fn require_api_key(State(state): State<AppState>, request: Request, next: 
     // When RBAC JWT validation is enabled, authentication is enforced by the
     // RBAC middleware using Authorization: Bearer <jwt>. In that mode, API key
     // auth must not preempt JWT handling.
-    if state.rbac_config.enabled
-        && state.rbac_config.jwt_config.is_some()
-        && request.headers().contains_key(header::AUTHORIZATION)
-    {
-        return next.run(request).await;
+    // SECURITY (R228-SRV-1): Only pass through when the header actually contains
+    // a Bearer token. Previously, ANY Authorization header value (even garbage)
+    // would bypass API key auth, allowing unauthenticated access when RBAC JWT
+    // validation had configuration gaps.
+    if state.rbac_config.enabled && state.rbac_config.jwt_config.is_some() {
+        if let Some(auth_val) = request
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+        {
+            if auth_val.len() > 7 && auth_val[..7].eq_ignore_ascii_case("bearer ") {
+                return next.run(request).await;
+            }
+        }
     }
 
     // Skip auth if no API key configured (development mode)

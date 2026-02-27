@@ -479,12 +479,13 @@ impl PolicyEngine {
     /// pattern could match `action.tool`, plus `always_check` (wildcard/prefix/suffix).
     /// Falls back to linear scan when no index has been built.
     fn evaluate_with_compiled(&self, action: &Action) -> Result<Verdict, EngineError> {
-        // SECURITY (FIND-SEM-003): Normalize tool/function names through homoglyph
-        // normalization before policy matching. This prevents fullwidth Unicode
-        // characters (e.g. U+FF52 'ｒ') from bypassing exact-match Deny policies.
-        // Patterns are also normalized at compile time for consistency.
-        let norm_tool = vellaveto_types::unicode::normalize_homoglyphs(&action.tool);
-        let norm_func = vellaveto_types::unicode::normalize_homoglyphs(&action.function);
+        // SECURITY (FIND-SEM-003, R227-TYP-1): Normalize tool/function names through
+        // the full pipeline (NFKC + lowercase + homoglyph) before policy matching.
+        // This prevents fullwidth Unicode, circled letters (Ⓐ), and mathematical
+        // variants from bypassing exact-match Deny policies. Patterns are also
+        // normalized via normalize_full at compile time for consistency.
+        let norm_tool = crate::normalize::normalize_full(&action.tool);
+        let norm_func = crate::normalize::normalize_full(&action.function);
 
         // If index was built, use it for O(matching) instead of O(all)
         if !self.tool_index.is_empty() || !self.always_check.is_empty() {
@@ -555,10 +556,10 @@ impl PolicyEngine {
         action: &Action,
         context: Option<&EvaluationContext>,
     ) -> Result<Verdict, EngineError> {
-        // SECURITY (FIND-SEM-003): Normalize tool/function names through homoglyph
-        // normalization before policy matching (same as evaluate_with_compiled).
-        let norm_tool = vellaveto_types::unicode::normalize_homoglyphs(&action.tool);
-        let norm_func = vellaveto_types::unicode::normalize_homoglyphs(&action.function);
+        // SECURITY (FIND-SEM-003, R227-TYP-1): Normalize tool/function names through
+        // the full pipeline (same as evaluate_with_compiled).
+        let norm_tool = crate::normalize::normalize_full(&action.tool);
+        let norm_func = crate::normalize::normalize_full(&action.function);
 
         if !self.tool_index.is_empty() || !self.always_check.is_empty() {
             let tool_specific = self.tool_index.get(&norm_tool);

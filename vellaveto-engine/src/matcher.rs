@@ -3,31 +3,26 @@
 //! This module provides pre-compiled pattern matchers for tool/function ID
 //! segments, used to efficiently match policies against actions at evaluation time.
 
-use vellaveto_types::unicode::normalize_homoglyphs;
+use crate::normalize::normalize_full;
 #[cfg(test)]
 use vellaveto_types::Action;
 
 /// Pre-compiled pattern matcher for tool/function ID segments.
 ///
-/// All matches are **case-sensitive** by design. MCP tool names are case-sensitive
-/// per the MCP spec, so ABAC action patterns and policy IDs must match the exact
-/// casing of tool names. The main engine's context checks (agent identity, action
-/// sequences) use `eq_ignore_ascii_case()` where case-insensitive matching is the
-/// security-correct behavior. (FIND-R58-ENG-006)
-///
-/// SECURITY (FIND-SEM-003): Pattern strings are normalized through
-/// `normalize_homoglyphs()` at compile time to prevent fullwidth Unicode
-/// characters from bypassing exact-match Deny policies. The evaluation
-/// path must also normalize action tool/function names before matching.
+/// SECURITY (FIND-SEM-003, R227-TYP-1): Pattern strings are normalized through
+/// `normalize_full()` (NFKC + lowercase + homoglyph mapping) at compile time.
+/// This prevents fullwidth Unicode, circled letters, and mathematical variants
+/// from bypassing exact-match Deny policies. The evaluation path must also
+/// normalize action tool/function names via `normalize_full()` before matching.
 #[derive(Debug, Clone)]
 pub enum PatternMatcher {
     /// Matches anything ("*")
     Any,
     /// Exact string match (pattern is homoglyph-normalized at compile time)
     Exact(String),
-    /// Prefix match ("prefix*") (prefix is homoglyph-normalized at compile time)
+    /// Prefix match ("prefix*") (normalize_full at compile time)
     Prefix(String),
-    /// Suffix match ("*suffix") (suffix is homoglyph-normalized at compile time)
+    /// Suffix match ("*suffix") (normalize_full at compile time)
     Suffix(String),
 }
 
@@ -48,8 +43,8 @@ impl PatternMatcher {
                 );
                 PatternMatcher::Any
             } else {
-                // SECURITY (FIND-SEM-003): Normalize homoglyphs at compile time
-                PatternMatcher::Suffix(normalize_homoglyphs(suffix))
+                // SECURITY (FIND-SEM-003, R227-TYP-1): normalize_full at compile time
+                PatternMatcher::Suffix(normalize_full(suffix))
             }
         } else if let Some(prefix) = pattern.strip_suffix('*') {
             if prefix.contains('*') {
@@ -59,8 +54,8 @@ impl PatternMatcher {
                 );
                 PatternMatcher::Any
             } else {
-                // SECURITY (FIND-SEM-003): Normalize homoglyphs at compile time
-                PatternMatcher::Prefix(normalize_homoglyphs(prefix))
+                // SECURITY (FIND-SEM-003, R227-TYP-1): normalize_full at compile time
+                PatternMatcher::Prefix(normalize_full(prefix))
             }
         } else if pattern.contains('*') {
             // Infix wildcard like "file_*_system" — not supported
@@ -70,8 +65,8 @@ impl PatternMatcher {
             );
             PatternMatcher::Any
         } else {
-            // SECURITY (FIND-SEM-003): Normalize homoglyphs at compile time
-            PatternMatcher::Exact(normalize_homoglyphs(pattern))
+            // SECURITY (FIND-SEM-003, R227-TYP-1): normalize_full at compile time
+            PatternMatcher::Exact(normalize_full(pattern))
         }
     }
 
@@ -285,8 +280,8 @@ mod tests {
         let matcher = CompiledToolMatcher::compile("read_file");
         // Normal ASCII match via matches_normalized
         assert!(matcher.matches_normalized("read_file", "any"));
-        // Fullwidth input pre-normalized by caller
-        let norm = vellaveto_types::unicode::normalize_homoglyphs(
+        // Fullwidth input pre-normalized by caller using normalize_full
+        let norm = normalize_full(
             "\u{FF52}\u{FF45}\u{FF41}\u{FF44}\u{FF3F}\u{FF46}\u{FF49}\u{FF4C}\u{FF45}",
         );
         assert_eq!(norm, "read_file");
@@ -297,8 +292,18 @@ mod tests {
     fn test_cyrillic_homoglyph_tool_name_normalized() {
         // Policy blocks "admin" — Cyrillic "аdmin" (U+0430 Cyrillic а) should also match
         let matcher = PatternMatcher::compile("admin");
-        let norm = vellaveto_types::unicode::normalize_homoglyphs("\u{0430}dmin");
+        let norm = normalize_full("\u{0430}dmin");
         assert_eq!(norm, "admin");
+        assert!(matcher.matches_normalized(&norm));
+    }
+
+    /// R227-TYP-1: Circled letter bypass — NFKC decomposes Ⓑash to Bash, then lowercase.
+    #[test]
+    fn test_r227_circled_letter_normalized() {
+        let matcher = PatternMatcher::compile("bash");
+        // Ⓑ = U+24B7 (circled Latin capital B) → NFKC → B → lowercase → b
+        let norm = normalize_full("\u{24B7}ash");
+        assert_eq!(norm, "bash");
         assert!(matcher.matches_normalized(&norm));
     }
 }

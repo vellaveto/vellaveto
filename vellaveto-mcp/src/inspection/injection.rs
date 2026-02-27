@@ -423,6 +423,25 @@ impl InjectionScanner {
             }
         }
 
+        // R228-MCP-1: Base64 decode pass — LLMs can decode base64 inline, so
+        // injection payloads hidden in base64 encoding bypass pattern matching.
+        // We split on whitespace and try decoding each word-like token individually
+        // to handle mixed text+base64 content.
+        for word in lower.split_whitespace() {
+            if let Some(b64_decoded) = super::util::try_base64_decode(word) {
+                let b64_lower = b64_decoded.to_lowercase();
+                for m in self.automaton.find_iter(&b64_lower) {
+                    if all_matches.len() >= MAX_SCAN_MATCHES {
+                        return all_matches;
+                    }
+                    let pattern = self.patterns[m.pattern().as_usize()].as_str();
+                    if !all_matches.contains(&pattern) {
+                        all_matches.push(pattern);
+                    }
+                }
+            }
+        }
+
         // SECURITY (SANDWORM-P1-FLIP): FlipAttack reversal defense
         {
             let char_reversed: String = lower.chars().rev().collect();
@@ -1093,11 +1112,26 @@ fn decode_leetspeak(text: &str) -> Option<String> {
 ///
 /// Input is expected to be already lowercased by caller.
 /// Returns the decoded string if any substitutions were made, `None` otherwise.
+/// Common English stop words. If any of these appear in the (lowercased) text,
+/// it is almost certainly natural language rather than ROT13-encoded content.
+/// This avoids wasting an Aho-Corasick pass on every normal English response.
+const ROT13_STOP_WORDS: &[&str] = &[" the ", " and ", " is ", " of ", " to ", " in ", " for "];
+
 fn decode_rot13(text: &str) -> Option<String> {
     // Require at least 4 alpha characters to avoid false positives on short texts.
     let alpha_count = text.chars().filter(|c| c.is_ascii_lowercase()).count();
     if alpha_count < 4 {
         return None;
+    }
+
+    // SECURITY (R228-INJ-1): Skip ROT13 decoding when the text contains common
+    // English stop words. ROT13-encoded text would not contain "the", "and", etc.
+    // This avoids a full Aho-Corasick scan on every normal English response,
+    // reducing false positive risk and computational overhead.
+    for stop in ROT13_STOP_WORDS {
+        if text.contains(stop) {
+            return None;
+        }
     }
 
     let mut decoded = String::with_capacity(text.len());
@@ -1272,6 +1306,23 @@ pub fn inspect_for_injection(text: &str) -> Vec<&'static str> {
             let pattern = DEFAULT_INJECTION_PATTERNS[m.pattern().as_usize()];
             if !all_matches.contains(&pattern) {
                 all_matches.push(pattern);
+            }
+        }
+    }
+
+    // R228-MCP-1: Base64 decode pass — LLMs can decode base64 inline, so
+    // injection payloads hidden in base64 encoding bypass pattern matching.
+    for word in lower.split_whitespace() {
+        if let Some(b64_decoded) = super::util::try_base64_decode(word) {
+            let b64_lower = b64_decoded.to_lowercase();
+            for m in automaton.find_iter(&b64_lower) {
+                if all_matches.len() >= MAX_SCAN_MATCHES {
+                    return all_matches;
+                }
+                let pattern = DEFAULT_INJECTION_PATTERNS[m.pattern().as_usize()];
+                if !all_matches.contains(&pattern) {
+                    all_matches.push(pattern);
+                }
             }
         }
     }

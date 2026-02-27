@@ -344,9 +344,16 @@ fn is_suspicious_url_segment(decoded: &str) -> bool {
 /// Returns a DLP finding if any URL segment contains high-entropy data (likely
 /// base64 or hex-encoded secrets) above the entropy threshold.
 pub fn detect_url_data_exfiltration(url: &str) -> Option<DlpFinding> {
-    // Only inspect http(s) URLs
+    // SECURITY (R228-DLP-1): Inspect all network-capable URL schemes, not just
+    // HTTP(S). Attackers can exfiltrate secrets via ftp://, ftps://, or
+    // protocol-relative // URLs that still reach external networks.
     let lower = url.to_ascii_lowercase();
-    if !lower.starts_with("http://") && !lower.starts_with("https://") {
+    let has_network_scheme = lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("ftp://")
+        || lower.starts_with("ftps://")
+        || lower.starts_with("//");
+    if !has_network_scheme {
         return None;
     }
 

@@ -215,6 +215,10 @@ pub struct RateLimitConfig {
 /// Maximum per-IP capacity to prevent unbounded memory usage from tracked IPs.
 const MAX_IP_CAPACITY: usize = 10_000_000;
 
+/// Maximum RPS/burst value for rate limit configuration (1,000,000).
+/// Prevents nonsensical values like u32::MAX from masking misconfiguration.
+const MAX_RPS: u32 = 1_000_000;
+
 impl RateLimitConfig {
     /// Validate rate limit configuration bounds.
     ///
@@ -225,6 +229,8 @@ impl RateLimitConfig {
     /// a governor that never replenishes tokens, silently blocking all requests.
     /// Zero burst creates a bucket with no capacity, also blocking all requests.
     /// Both are almost certainly operator errors, not intentional rate limiting.
+    /// SECURITY (R227-CFG-2): Upper-bound all RPS/burst values at MAX_RPS to
+    /// prevent u32::MAX from effectively disabling rate limiting.
     pub fn validate(&self) -> Result<(), String> {
         if let Some(cap) = self.per_ip_max_capacity {
             if cap > MAX_IP_CAPACITY {
@@ -234,35 +240,30 @@ impl RateLimitConfig {
                 ));
             }
         }
-        if let Some(0) = self.evaluate_rps {
-            return Err("rate_limit.evaluate_rps must be > 0 when set".to_string());
-        }
-        if let Some(0) = self.evaluate_burst {
-            return Err("rate_limit.evaluate_burst must be > 0 when set".to_string());
-        }
-        if let Some(0) = self.admin_rps {
-            return Err("rate_limit.admin_rps must be > 0 when set".to_string());
-        }
-        if let Some(0) = self.admin_burst {
-            return Err("rate_limit.admin_burst must be > 0 when set".to_string());
-        }
-        if let Some(0) = self.readonly_rps {
-            return Err("rate_limit.readonly_rps must be > 0 when set".to_string());
-        }
-        if let Some(0) = self.readonly_burst {
-            return Err("rate_limit.readonly_burst must be > 0 when set".to_string());
-        }
-        if let Some(0) = self.per_ip_rps {
-            return Err("rate_limit.per_ip_rps must be > 0 when set".to_string());
-        }
-        if let Some(0) = self.per_ip_burst {
-            return Err("rate_limit.per_ip_burst must be > 0 when set".to_string());
-        }
-        if let Some(0) = self.per_principal_rps {
-            return Err("rate_limit.per_principal_rps must be > 0 when set".to_string());
-        }
-        if let Some(0) = self.per_principal_burst {
-            return Err("rate_limit.per_principal_burst must be > 0 when set".to_string());
+        // Validate each RPS/burst field: must be > 0 and <= MAX_RPS
+        for (name, value) in [
+            ("evaluate_rps", self.evaluate_rps),
+            ("evaluate_burst", self.evaluate_burst),
+            ("admin_rps", self.admin_rps),
+            ("admin_burst", self.admin_burst),
+            ("readonly_rps", self.readonly_rps),
+            ("readonly_burst", self.readonly_burst),
+            ("per_ip_rps", self.per_ip_rps),
+            ("per_ip_burst", self.per_ip_burst),
+            ("per_principal_rps", self.per_principal_rps),
+            ("per_principal_burst", self.per_principal_burst),
+        ] {
+            if let Some(v) = value {
+                if v == 0 {
+                    return Err(format!("rate_limit.{} must be > 0 when set", name));
+                }
+                if v > MAX_RPS {
+                    return Err(format!(
+                        "rate_limit.{} must be <= {}, got {}",
+                        name, MAX_RPS, v
+                    ));
+                }
+            }
         }
         Ok(())
     }

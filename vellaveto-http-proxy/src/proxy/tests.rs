@@ -356,8 +356,8 @@ fn scan_sse_for_injection_sync(sse_bytes: &[u8]) -> Vec<String> {
 
     for event in &events {
         for line in event.lines() {
-            // SECURITY (R26-PROXY-3): Trim standard whitespace before prefix check.
-            let trimmed_line = line.trim_start_matches([' ', '\t']);
+            // SECURITY (R26-PROXY-3, R227-PROXY-1): Trim whitespace incl. NBSP before prefix check.
+            let trimmed_line = line.trim_start_matches([' ', '\t', '\u{00A0}']);
             let data_payload = if let Some(rest) = trimmed_line.strip_prefix("data: ") {
                 rest
             } else if let Some(rest) = trimmed_line.strip_prefix("data:") {

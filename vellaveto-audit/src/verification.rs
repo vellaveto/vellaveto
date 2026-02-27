@@ -3,6 +3,23 @@ use crate::types::{AuditEntry, AuditError, AuditReport, ChainVerification};
 use tokio::io::AsyncBufReadExt;
 use vellaveto_types::Verdict;
 
+/// Strip UTC suffix ('Z', 'z', or '+00:00') from an ISO 8601 timestamp to
+/// produce a suffix-free date-time prefix suitable for lexicographic comparison.
+///
+/// SECURITY (R228-AUD-1): A mix of 'Z' and '+00:00' suffixes in the same audit
+/// log breaks lexicographic ordering because '+' (0x2B) < 'Z' (0x5A) in ASCII.
+fn strip_utc_suffix(ts: &str) -> &str {
+    if let Some(s) = ts.strip_suffix("+00:00") {
+        s
+    } else if let Some(s) = ts.strip_suffix('Z') {
+        s
+    } else if let Some(s) = ts.strip_suffix('z') {
+        s
+    } else {
+        ts
+    }
+}
+
 impl AuditLogger {
     /// Maximum audit log file size for load operations (100 MB).
     ///
@@ -228,7 +245,13 @@ impl AuditLogger {
                 });
             }
             if let Some(prev_ts) = prev_timestamp {
-                if entry.timestamp.as_str() < prev_ts {
+                // SECURITY (R228-AUD-1): Normalize UTC suffixes before comparison.
+                // A mix of 'Z' and '+00:00' suffixes in the same log breaks
+                // lexicographic ordering because '+' (0x2B) < 'Z' (0x5A) in ASCII.
+                // Stripping the suffix allows correct date-time prefix comparison.
+                let curr_norm = strip_utc_suffix(&entry.timestamp);
+                let prev_norm = strip_utc_suffix(prev_ts);
+                if curr_norm < prev_norm {
                     tracing::warn!(
                         entry_index = i,
                         prev_ts = prev_ts,

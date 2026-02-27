@@ -54,6 +54,21 @@ pub fn inspect_elicitation(
         };
     }
 
+    // SECURITY (R228-MCP-3): Scan the elicitation `title` field for injection.
+    // The title is displayed prominently to the user and can contain social
+    // engineering payloads that bypass message-only scanning.
+    if let Some(title) = params.get("title").and_then(|t| t.as_str()) {
+        let injection_matches = crate::inspection::inspect_for_injection(title);
+        if !injection_matches.is_empty() {
+            return ElicitationVerdict::Deny {
+                reason: format!(
+                    "elicitation title contains injection patterns: {}",
+                    injection_matches.join(", ")
+                ),
+            };
+        }
+    }
+
     // SECURITY (R30-MCP-6): Scan the elicitation `message` field for
     // prompt injection patterns. A malicious server can use the message
     // to social-engineer the user into providing sensitive data, even if

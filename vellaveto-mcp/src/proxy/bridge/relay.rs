@@ -259,6 +259,10 @@ impl RelayState {
             .map(|pr| pr.tool_name.as_str())
     }
 
+    /// Maximum number of distinct tool names tracked for per-tool sampling limits.
+    /// Prevents unbounded HashMap growth from attacker-supplied unique tool names.
+    const MAX_SAMPLING_PER_TOOL_ENTRIES: usize = 10_000;
+
     /// R227: Check per-tool sampling rate limit. Returns Ok(()) if allowed,
     /// Err(reason) if the tool has exceeded its sampling budget.
     pub(super) fn check_per_tool_sampling_limit(
@@ -269,6 +273,14 @@ impl RelayState {
     ) -> Result<(), String> {
         if max_per_tool == 0 {
             return Ok(()); // Per-tool limiting disabled
+        }
+
+        // R228-PROXY-1: Bound the per-tool tracking HashMap to prevent memory
+        // exhaustion from attacker-supplied unique tool names.
+        if self.sampling_per_tool.len() >= Self::MAX_SAMPLING_PER_TOOL_ENTRIES
+            && !self.sampling_per_tool.contains_key(tool_name)
+        {
+            return Err("per-tool sampling tracking at capacity".to_string());
         }
 
         let now = Instant::now();
