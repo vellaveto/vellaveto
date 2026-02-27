@@ -177,6 +177,15 @@ pub fn import_cedar_policies(cedar_text: &str) -> Result<Vec<Policy>, CedarImpor
 
     for (idx, stmt) in statements.iter().enumerate() {
         let policy = parse_statement(stmt, idx)?;
+        // SECURITY (R228-CFG-1): Validate each imported policy to enforce bounds
+        // (MAX_POLICY_ID_LEN, MAX_POLICY_NAME_LEN, etc.). Without this, Cedar
+        // policies with oversized string literals bypass all validation gates.
+        if let Err(e) = policy.validate() {
+            return Err(CedarImportError::Parse {
+                line: stmt.line,
+                message: format!("imported policy failed validation: {}", e),
+            });
+        }
         policies.push(policy);
     }
 

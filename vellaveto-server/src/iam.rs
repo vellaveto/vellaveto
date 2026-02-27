@@ -219,14 +219,19 @@ impl SamlState {
         Ok(())
     }
 
+    /// SECURITY (R228-SRV-2): Destination is required per SAML 2.0 §3.2.2.
+    /// A missing Destination allows cross-SP response replay.
     fn ensure_destination(&self, response: Node) -> Result<(), IamError> {
-        if let Some(destination) = response.attribute("Destination") {
-            if destination != self.acs_url {
-                return Err(IamError::Saml(format!(
-                    "SAML response destination {} does not match ACS {}",
-                    destination, self.acs_url
-                )));
-            }
+        let destination = response.attribute("Destination").ok_or_else(|| {
+            IamError::Saml(
+                "SAML response missing required Destination attribute (fail-closed)".to_string(),
+            )
+        })?;
+        if destination != self.acs_url {
+            return Err(IamError::Saml(format!(
+                "SAML response destination {} does not match ACS {}",
+                destination, self.acs_url
+            )));
         }
         Ok(())
     }
@@ -1159,10 +1164,17 @@ pub async fn callback(
         )
     })?;
     if let Some(ref err) = params.error {
+        // SECURITY (R228-SRV-3): Sanitize IdP error parameter — it is attacker-controlled.
+        // Restrict to ASCII printable (alphanumeric + safe punctuation), max 128 chars.
+        let sanitized: String = err
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || matches!(*c, '_' | '-' | '.' | ' '))
+            .take(128)
+            .collect();
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("OIDC error: {}", err),
+                error: format!("OIDC error: {}", sanitized),
             }),
         ));
     }
@@ -1948,10 +1960,12 @@ pub async fn m2m_token(
                     error: "Invalid client credentials".to_string(),
                 }),
             ),
-            IamError::M2mScopeNotPermitted(scope) => (
+            IamError::M2mScopeNotPermitted(_scope) => (
                 StatusCode::FORBIDDEN,
                 Json(ErrorResponse {
-                    error: format!("Scope not permitted: {}", scope),
+                    // SECURITY (R228-SRV-4): Do not echo scope value — prevents
+                    // scope namespace enumeration by probing callers.
+                    error: "One or more requested scopes are not permitted".to_string(),
                 }),
             ),
             _ => (

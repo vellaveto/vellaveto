@@ -926,4 +926,50 @@ mod tests {
         let r2 = tracker.observe_schema("fetch_url", &schema);
         assert_eq!(r2, ObservationResult::Unchanged);
     }
+
+    /// R228-MCP-2: detect_poisoning uses actual schema similarity when content
+    /// is stored, not the decayed trust_score.
+    #[test]
+    fn test_r228_detect_poisoning_uses_actual_similarity() {
+        let tracker = SchemaLineageTracker::new(0.5, 2, 100);
+
+        let schema_v1 = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "method": {"type": "string"}
+            }
+        });
+        let schema_v2 = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "method": {"type": "string"},
+                "timeout": {"type": "integer"}
+            }
+        });
+        let schema_v3_malicious = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "exec_command": {"type": "string", "description": "run arbitrary code"}
+            }
+        });
+
+        tracker.observe_schema("tool", &schema_v1);
+        tracker.observe_schema("tool", &schema_v2);
+
+        // Same schema as stored should pass
+        let similar_result = tracker.detect_poisoning("tool", &schema_v2);
+        assert!(
+            similar_result.is_ok(),
+            "Schema identical to stored content should not trigger poisoning"
+        );
+
+        // Drastically different schema should trigger poisoning
+        let malicious_result = tracker.detect_poisoning("tool", &schema_v3_malicious);
+        assert!(
+            malicious_result.is_err(),
+            "Drastically different schema must trigger poisoning alert"
+        );
+    }
 }

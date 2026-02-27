@@ -5016,3 +5016,92 @@ async fn test_r227_verify_chain_accepts_utc_timestamp() {
     assert!(verification.valid, "UTC timestamps should pass verification");
     assert_eq!(verification.entries_checked, 3);
 }
+
+// ═══════════════════════════════════════════════════
+// R228-AUD-1: Mixed Z/+00:00 suffix handling
+// ═══════════════════════════════════════════════════
+
+/// R228-AUD-1: verify_chain accepts mixed Z and +00:00 suffixes when
+/// timestamps are in correct chronological order.
+#[tokio::test]
+async fn test_r228_verify_chain_mixed_utc_suffixes_correct_order() {
+    use crate::types::AuditEntry;
+
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("mixed_suffix.jsonl");
+    let action = test_action();
+
+    // Write 3 entries with alternating suffixes, in correct chronological order
+    let entries = [
+        ("mixed-0", "2026-02-27T10:00:00Z"),
+        ("mixed-1", "2026-02-27T10:00:01+00:00"),
+        ("mixed-2", "2026-02-27T10:00:02Z"),
+    ];
+    let mut content = String::new();
+    for (id, ts) in &entries {
+        let entry = AuditEntry {
+            id: id.to_string(),
+            action: action.clone(),
+            verdict: Verdict::Allow,
+            timestamp: ts.to_string(),
+            metadata: json!({}),
+            sequence: 0,
+            entry_hash: None,
+            prev_hash: None,
+            commitment: None,
+            tenant_id: None,
+        };
+        content.push_str(&serde_json::to_string(&entry).unwrap());
+        content.push('\n');
+    }
+    tokio::fs::write(&log_path, content).await.unwrap();
+
+    let logger = AuditLogger::new(log_path);
+    let verification = logger.verify_chain().await.unwrap();
+    assert!(
+        verification.valid,
+        "Mixed Z/+00:00 suffixes in correct chronological order must pass"
+    );
+}
+
+/// R228-AUD-1: verify_chain detects regression even with mixed suffixes.
+#[tokio::test]
+async fn test_r228_verify_chain_mixed_suffix_regression_detected() {
+    use crate::types::AuditEntry;
+
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("mixed_regression.jsonl");
+    let action = test_action();
+
+    // Second entry has EARLIER time but different suffix
+    let entries = [
+        ("entry-0", "2026-02-27T10:00:01+00:00"),
+        ("entry-1", "2026-02-27T10:00:00Z"), // EARLIER than entry-0
+    ];
+    let mut content = String::new();
+    for (id, ts) in &entries {
+        let entry = AuditEntry {
+            id: id.to_string(),
+            action: action.clone(),
+            verdict: Verdict::Allow,
+            timestamp: ts.to_string(),
+            metadata: json!({}),
+            sequence: 0,
+            entry_hash: None,
+            prev_hash: None,
+            commitment: None,
+            tenant_id: None,
+        };
+        content.push_str(&serde_json::to_string(&entry).unwrap());
+        content.push('\n');
+    }
+    tokio::fs::write(&log_path, content).await.unwrap();
+
+    let logger = AuditLogger::new(log_path);
+    let verification = logger.verify_chain().await.unwrap();
+    assert!(
+        !verification.valid,
+        "Timestamp regression with mixed Z/+00:00 suffixes must be detected"
+    );
+}
+

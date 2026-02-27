@@ -652,16 +652,20 @@ impl DpopVerifier {
     }
 
     /// Check if a nonce is valid (issued by this server and not expired).
+    ///
+    /// SECURITY (R228-SRV-1): Nonce is consumed on first use (removed from store)
+    /// to prevent replay attacks within the TTL window. RFC 9449 §8 requires
+    /// that server-issued nonces be single-use.
     fn check_nonce(&self, nonce: &str) -> Result<(), DpopError> {
-        let store = self.nonce_store.read().map_err(|_| {
+        let mut store = self.nonce_store.write().map_err(|_| {
             tracing::error!(
                 target: "vellaveto::security",
-                "DpopVerifier nonce_store read lock poisoned"
+                "DpopVerifier nonce_store write lock poisoned"
             );
             DpopError::Internal
         })?;
 
-        match store.get(nonce) {
+        match store.remove(nonce) {
             Some(entry) => {
                 let ttl = Duration::from_secs(SERVER_NONCE_TTL_SECS);
                 if entry.issued_at.elapsed() > ttl {

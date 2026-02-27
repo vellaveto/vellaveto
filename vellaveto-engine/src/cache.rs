@@ -884,4 +884,30 @@ mod tests {
             "All-caps tool name should match lowercased cache key"
         );
     }
+
+    /// R228-ENG-1: Different resolved IPs must produce different cache keys.
+    /// This prevents DNS rebinding attacks from hitting a stale Allow verdict
+    /// cached for a different IP resolution of the same domain.
+    #[test]
+    fn test_r228_resolved_ips_in_cache_key() {
+        let cache = DecisionCache::new(100, Duration::from_secs(60));
+
+        let mut action_public = Action::new("tool", "fn", serde_json::json!({}));
+        action_public.target_domains.push("attacker.com".into());
+        action_public.resolved_ips.push("1.2.3.4".into());
+
+        let mut action_metadata = Action::new("tool", "fn", serde_json::json!({}));
+        action_metadata.target_domains.push("attacker.com".into());
+        action_metadata.resolved_ips.push("169.254.169.254".into());
+
+        // Cache Allow for public IP
+        cache.insert(&action_public, None, &Verdict::Allow);
+
+        // Same domain but different resolved IP must be a cache miss
+        let result = cache.get(&action_metadata, None);
+        assert!(
+            result.is_none(),
+            "Different resolved IP must produce a cache miss (DNS rebinding defense)"
+        );
+    }
 }

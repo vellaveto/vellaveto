@@ -2735,16 +2735,21 @@ fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]
     /// Maximum X-Principal header length to prevent memory abuse in rate-limit maps.
     const MAX_PRINCIPAL_LEN: usize = 256;
 
-    // SECURITY (R226-SRV-2): Include tenant_id in rate limit key to prevent
-    // cross-tenant collision. Without this, principal "admin" from Tenant A and
-    // Tenant B share the same rate limit bucket, enabling cross-tenant DoS.
-    let tenant_prefix = request
-        .headers()
-        .get("x-tenant-id")
-        .and_then(|v| v.to_str().ok())
-        .filter(|t| !t.is_empty() && t.len() <= MAX_PRINCIPAL_LEN && !t.chars().any(crate::routes::is_unsafe_char))
-        .map(|t| format!("t:{}|", t))
-        .unwrap_or_default();
+    // SECURITY (R226-SRV-2, R228-SRV-5): Include tenant_id in rate limit key to
+    // prevent cross-tenant collision, but ONLY from trusted proxies. An unauthenticated
+    // client could forge X-Tenant-ID to create arbitrary rate-limit buckets, escaping
+    // per-IP rate limits or DoS-ing other tenants' buckets.
+    let tenant_prefix = if is_connection_from_trusted_proxy(request, trusted_proxies) {
+        request
+            .headers()
+            .get("x-tenant-id")
+            .and_then(|v| v.to_str().ok())
+            .filter(|t| !t.is_empty() && t.len() <= MAX_PRINCIPAL_LEN && !t.chars().any(crate::routes::is_unsafe_char))
+            .map(|t| format!("t:{}|", t))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
 
     // 1. X-Principal header — only trust from known proxies (KL1)
     if is_connection_from_trusted_proxy(request, trusted_proxies) {
