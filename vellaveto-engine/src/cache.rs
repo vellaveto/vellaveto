@@ -286,10 +286,16 @@ impl DecisionCache {
     }
 
     /// Build a cache key from an action and optional context.
+    ///
+    /// SECURITY (R227-ENG-1): Tool and function names are lowercased before
+    /// hashing to ensure cache key consistency with engine evaluation, which
+    /// uses case-insensitive matching. Without this, "FileRead" and "fileread"
+    /// produce different cache keys, causing cache pollution and inconsistent
+    /// verdicts for the same logical tool.
     fn build_key(action: &Action, context: Option<&EvaluationContext>) -> CacheKey {
         CacheKey {
-            tool_hash: Self::hash_str(&action.tool),
-            function_hash: Self::hash_str(&action.function),
+            tool_hash: Self::hash_str(&action.tool.to_lowercase()),
+            function_hash: Self::hash_str(&action.function.to_lowercase()),
             paths_hash: Self::hash_sorted_strs(&action.target_paths),
             domains_hash: Self::hash_sorted_strs(&action.target_domains),
             identity_hash: Self::hash_identity(context),
@@ -851,5 +857,26 @@ mod tests {
         assert!(debug_output.contains("max_entries"));
         assert!(debug_output.contains("current_size"));
         assert!(!debug_output.contains("secret_tool"));
+    }
+
+    /// R227-ENG-1: Cache keys are case-insensitive for tool/function names.
+    #[test]
+    fn test_r227_cache_key_case_insensitive() {
+        let cache = DecisionCache::new(100, Duration::from_secs(60));
+        let action_lower = make_action("file_read", "get_content");
+        let action_upper = make_action("File_Read", "Get_Content");
+        let action_mixed = make_action("FILE_READ", "GET_CONTENT");
+
+        cache.insert(&action_lower, None, &Verdict::Allow);
+
+        // All case variants should hit the same cache entry
+        assert!(
+            cache.get(&action_upper, None).is_some(),
+            "Mixed-case tool name should match lowercased cache key"
+        );
+        assert!(
+            cache.get(&action_mixed, None).is_some(),
+            "All-caps tool name should match lowercased cache key"
+        );
     }
 }
