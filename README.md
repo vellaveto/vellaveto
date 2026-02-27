@@ -11,9 +11,9 @@
     <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-8%2C508_passing-brightgreen.svg" alt="Tests: 8,538 passing">
+    <img src="https://img.shields.io/badge/tests-8%2C540_passing-brightgreen.svg" alt="Tests: 8,540 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
-    <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-226_rounds%2C_1500%2B_findings-informational.svg" alt="Adversarial Testing: 226 rounds, 1500+ findings"></a>
+    <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-227_rounds%2C_1500%2B_findings-informational.svg" alt="Adversarial Testing: 227 rounds, 1500+ findings"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
     <a href="https://www.bestpractices.dev/projects/12042"><img src="https://www.bestpractices.dev/projects/12042/badge" alt="OpenSSF Best Practices"></a>
@@ -44,7 +44,7 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>6.0.0-dev</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>8,538 Rust + 433 Python + 127 Go + 119 TypeScript + 120 Java tests (+ 24 fuzz targets), 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>8,540 Rust + 433 Python + 127 Go + 119 TypeScript + 120 Java tests (+ 24 fuzz targets), 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
@@ -53,7 +53,8 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 
 ## Recent Updates (2026-02-27)
 
-- **Adversarial Audit Round 226 (23 findings)** — Full-codebase security audit: 4 CRITICAL (PQC signature mismatch, MAX_SCAN_MATCHES bypass, Agent Card injection gap, ISO 8601 date validation bypass), 6 HIGH (epoch skew, cache identity collision, JSON Schema 2020-12 keywords, ZWJ emoji smuggling, SAML Conditions fail-closed), 4 MEDIUM (leetspeak expansion, cross-tenant rate limit, audit timestamp monotonicity), 2 LOW (description DoS limits, CEF timezone). 13 fixes, 10 false positives triaged. 8,538 Rust tests passing.
+- **Adversarial Audit Round 227 (31 findings)** — 6-agent parallel audit: 3 CRITICAL (Mathematical Alphanumeric injection bypass U+1D400-U+1D7FF, PQC field injection in Ed25519 manifests), 9 HIGH (cache key case collision, UTC timestamp enforcement, JSON Schema draft-07 `example` field), 13 MEDIUM (NFKC normalization consistency across policy eval/compile), 6 LOW (null origin guard, RPS config caps, NBSP test parity). 10 fixes, 21 false positives triaged. 8,540 Rust tests passing.
+- **Adversarial Audit Round 226 (23 findings)** — Full-codebase security audit: 4 CRITICAL (PQC signature mismatch, MAX_SCAN_MATCHES bypass, Agent Card injection gap, ISO 8601 date validation bypass), 6 HIGH (epoch skew, cache identity collision, JSON Schema 2020-12 keywords, ZWJ emoji smuggling, SAML Conditions fail-closed), 4 MEDIUM (leetspeak expansion, cross-tenant rate limit, audit timestamp monotonicity), 2 LOW (description DoS limits, CEF timezone). 13 fixes, 10 false positives triaged.
 - **R226 Threat Intelligence Sweep (17 items)** — Proactive hardening from 50+ new threats: Policy Puppetry detection, MCP-ITP defense, DLP severity upgrades, URL exfiltration entropy analysis, namespace collision fail-closed, reconnaissance probe detection, leetspeak normalization (14 substitutions), OWASP MCP Top 10 registry, cross-regulation incident reporting, constraint drift detection, SANDWORM rogue tool tests.
 - **v6.0 Platform Expansion (Phases 56–66)** — 11 phases delivering MCP 2025-11-25 spec compliance (Tasks primitive, CIMD, XAA, M2M auth), 3 new SDK integrations (Claude Agent, AWS Strands, Microsoft Agents), 3 new compliance frameworks (Singapore MGF, NIST AI 600-1, CSA ATF), OCSF/OTLP observability export, Wasm policy plugin system (Wasmtime with fuel metering), multi-agent collusion detection, cascading failure circuit breakers, NHI identity lifecycle, decision caching, Cedar policy import/export, A2A Agent Card signature enforcement, MCP Registry integration, DPoP token binding (RFC 9449), and formal verification expansion (2 new TLA+ models + 5 Kani proof harnesses).
 - **Phase 54: Post-Quantum Cryptography (ML-DSA-65)** — Hybrid Ed25519 + ML-DSA-65 (FIPS 204) signatures for audit checkpoints and rotation manifests. Both signatures must verify (fail-closed). Backward-compatible: legacy Ed25519-only (v1) checkpoints continue to verify. PQC key continuity enforcement and trusted key pinning. Feature-gated behind `pqc-hybrid` Cargo feature.

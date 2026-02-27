@@ -9,24 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **R227: Code Quality + Discovery Engine Wiring + Threat Hardening (8 items, 30 new tests)**
-  Code quality fixes, production wiring of discovery engine, and 4 new threat defenses informed by Feb 2026 MCP CVE wave and Adversa AI research.
-  - **Sprint 1 — Clippy Warnings (3 items):**
-    - `is_multiple_of()` in `vellaveto-types/src/time_util.rs` (replaces manual `%` checks)
-    - `result.clamp(0.0, 1.0)` in `vellaveto-engine/src/coverage.rs` (replaces manual if/else chain)
-    - Removed `let_and_return` binding in `vellaveto-mcp/src/inspection/dlp.rs`
-  - **Sprint 2 — R24-MCP-1 Discovery Engine Wiring (1 item):**
-    - **R24-MCP-1 (HIGH):** Discovery engine `ingest_tools_list()` now called in production from `handle_tools_list_response()`. Previously only exercised in unit tests. Tools from `tools/list` responses are indexed for intent-based discovery search. Feature-gated behind `discovery` feature flag. Server name captured from initialize response for server_id attribution.
-  - **Sprint 3 — Threat Hardening (4 items):**
-    - **ROT13 decode pass** (`vellaveto-mcp/src/inspection/injection.rs`): Defends against compound obfuscation (ROT13 + Unicode, ROT13 + leetspeak) that bypasses single-layer detection. Wired into both `inspect_for_injection()` and `InjectionScanner::inspect()` after leetspeak pass. Self-inverse, 4-alpha-char threshold to avoid false positives. 7 tests.
-    - **Per-tool sampling rate limiting** (`vellaveto-config/src/mcp_protocol.rs`, `vellaveto-mcp/src/proxy/bridge/relay.rs`): Prevents a single tool from draining compute via repeated `sampling/createMessage` invocations (Adversa AI research). Sliding-window counter per tool name (`max_per_tool`: 50, `per_tool_window_secs`: 60). Tool attributed from most recently dispatched pending request. 3 tests.
-    - **Tool capability drift detection** (`vellaveto-config/src/governance.rs`, `vellaveto-mcp/src/proxy/bridge/relay.rs`): `governance.block_tool_drift` (default false) blocks tools on ANY schema change, not just major changes. Defends against gradual capability expansion where tools incrementally broaden parameters/descriptions. Extends existing `SchemaLineageTracker`. 2 tests.
-    - **Imperative instruction detection** (`vellaveto-mcp/src/inspection/tool_description.rs`): Detects LLM-targeting imperative patterns in tool descriptions ("you must", "always return", "never refuse", "ignore your", etc.). Threshold: 2+ distinct patterns = flagged. Defends against MCP-ITP direct instruction injection. 4 tests.
-  - **Additional hardening (from concurrent agents):**
-    - **R227-AUD-1:** PQC rotation manifest verification strips `pqc_signature`, `pqc_verifying_key`, `signature_version` fields before Ed25519 digest computation.
-    - **R227-AUD-2:** Audit chain `verify_chain` rejects non-UTC timestamps.
-    - **R227-SRV-1:** DPoP `allow_unverified_proofs` documentation clarified as fail-closed by default.
-  - 30 new tests. **8,538 Rust tests passing, 0 failures, 0 clippy warnings.**
+- **Adversarial Audit Round 227 (31 findings — 3 CRITICAL, 9 HIGH, 13 MEDIUM, 6 LOW):**
+  Full-codebase adversarial security audit across 6 parallel agents (engine, MCP, server, audit+proxy, types+config, A2A+cluster). 10 real findings fixed across 3 sprints, 21 triaged as false positives.
+  - **Sprint 1 — 3 CRITICALs + 2 HIGHs:**
+    - **R227-MCP-1 (CRITICAL):** Mathematical Alphanumeric Symbols (U+1D400-U+1D7FF) bypass NFKC normalization. Added `math_alpha_to_latin()` covering 13 font variant blocks (Bold, Italic, Script, Fraktur, Sans-Serif, Monospace, etc.) in injection detection.
+    - **R227-AUD-1 (CRITICAL):** PQC field injection in Ed25519 manifest verification. Strips `pqc_signature`, `pqc_verifying_key`, `signature_version` before recomputing Ed25519 digest.
+    - **R227-AUD-2 (HIGH):** UTC enforcement in audit timestamp monotonicity. Accepts Z and +00:00 as valid UTC; rejects non-UTC offsets that break lexicographic ordering.
+    - **R227-MCP-4 (HIGH):** Scans singular `example` field (JSON Schema draft-07) in elicitation schema defaults.
+  - **Sprint 2 — 1 HIGH:**
+    - **R227-ENG-1 (HIGH):** Decision cache keys now lowercase tool/function names before hashing, matching engine's case-insensitive evaluation.
+  - **Sprint 3 — 1 MEDIUM + 3 LOWs:**
+    - **R227-TYP-1 (MEDIUM):** Unified `normalize_full()` (NFKC + lowercase + homoglyph) across policy evaluation, compilation, and pattern matching. Previously the eval path used `normalize_homoglyphs()` only, allowing circled letters (Ⓑ) to bypass primary Deny policies.
+    - **R227-SRV-2 (LOW):** Explicit "null" origin rejection in CORS validation (previously implicit via URL parse failure).
+    - **R227-CFG-2 (LOW):** RPS/burst config fields capped at MAX_RPS (1,000,000) to prevent u32::MAX misconfiguration.
+    - **R227-PROXY-1 (LOW):** Test helper SSE trim now includes NBSP (U+00A0), matching production paths.
+  - **Also includes:** ROT13 decode pass for injection detection, per-tool sampling rate limiting, schema drift detection, imperative tool description scanning, discovery engine wiring, UTC suffix normalization.
+  - **False positives (21):** R227-SRV-1 (DPoP fail-closed by design), R227-MCP-5 (already uses subtle::ConstantTimeEq), R227-ENG-3 (saturating_add with .min(5)), R227-A2A-1 (cached after verification), R227-A2A-2 (strict issuer binding), R227-TYP-3 (NaN handled at ABAC boundary), R227-AUD-3 (unsigned manifests rejected), R227-ENG-2 (deterministic 3-level tiebreaker), R227-MCP-2 (depth bounded at 8), R227-CFG-1 (async Mutex serializes reload), R227-TYP-2 (param size checked), R227-PROXY-2 (blob in parameters), R227-AUD-4 (cef_escape applied), R227-SRV-3 (bucket selection by design), R227-CLU-1 (no distributed election), R227-MCP-3 (fingerprint side effects only).
+  - 32 new tests. **8,540 Rust tests passing, 0 failures.**
 
 - **Adversarial Audit Round 226 (23 findings — 4 CRITICAL, 6 HIGH, 8 MEDIUM, 5 LOW):**
   Full-codebase adversarial security audit across engine, MCP, server, audit, A2A, config, and types crates. 13 real findings fixed, 10 triaged as false positives (already defended).
