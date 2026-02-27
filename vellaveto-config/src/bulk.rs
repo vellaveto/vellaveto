@@ -310,6 +310,10 @@ impl BulkOperations {
 }
 
 /// Escape a string for inclusion in a TOML quoted string.
+///
+/// SECURITY (R229-CFG-2): Escape all ASCII control characters (0x00-0x1F, 0x7F)
+/// via Unicode escape sequences, not just \n, \t, \r. Unescaped control chars
+/// can break TOML parsers or inject invisible content.
 fn escape_toml_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -319,6 +323,10 @@ fn escape_toml_string(s: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\t' => out.push_str("\\t"),
             '\r' => out.push_str("\\r"),
+            // R229-CFG-2: Escape remaining ASCII control chars via \uXXXX.
+            c if c.is_ascii_control() => {
+                out.push_str(&format!("\\u{:04X}", c as u32));
+            }
             _ => out.push(c),
         }
     }

@@ -197,7 +197,9 @@ impl DecisionCache {
 
         let key = Self::build_key(action, context);
         let current_gen = self.policy_generation.load(Ordering::SeqCst);
-        let access_order = self.access_counter.fetch_add(1, Ordering::Relaxed);
+        // SECURITY (R229-ENG-7): SeqCst for LRU ordering counter — Relaxed could
+        // allow reordering that causes incorrect eviction of recently-used entries.
+        let access_order = self.access_counter.fetch_add(1, Ordering::SeqCst);
 
         // Fail-closed: poisoned lock → no-op
         let mut cache = match self.cache.write() {

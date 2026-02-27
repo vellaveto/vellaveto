@@ -593,18 +593,22 @@ impl PolicyConfig {
     }
 
     /// Convert PolicyRules into vellaveto_types::Policy structs.
+    ///
+    /// SECURITY (R229-CFG-1): Each constructed Policy is validated via `Policy::validate()`
+    /// to enforce bounds on path/domain/CIDR entries and reject dangerous characters.
+    /// Invalid policies are logged and skipped (fail-closed: excluded from active set).
     pub fn to_policies(&self) -> Vec<Policy> {
         self.policies
             .iter()
-            .map(|rule| {
+            .filter_map(|rule| {
                 let id = rule
                     .id
                     .clone()
                     .unwrap_or_else(|| format!("{}:{}", rule.tool_pattern, rule.function_pattern));
                 // SECURITY (R19-CFG-1): Default to 0, not 100
                 let priority = rule.priority.unwrap_or(0);
-                Policy {
-                    id,
+                let policy = Policy {
+                    id: id.clone(),
                     name: rule.name.clone(),
                     policy_type: rule.policy_type.clone(),
                     priority,
@@ -613,7 +617,17 @@ impl PolicyConfig {
                     // all file-path and domain constraints from config-defined policies.
                     path_rules: rule.path_rules.clone(),
                     network_rules: rule.network_rules.clone(),
+                };
+                // SECURITY (R229-CFG-1): Validate constructed policy.
+                if let Err(e) = policy.validate() {
+                    tracing::warn!(
+                        policy_id = %id,
+                        error = %e,
+                        "Skipping invalid policy from config"
+                    );
+                    return None;
                 }
+                Some(policy)
             })
             .collect()
     }

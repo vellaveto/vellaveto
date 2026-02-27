@@ -93,6 +93,12 @@ pub fn collect_schema_descriptions(
     if let Some(default) = schema.get("default").and_then(|d| d.as_str()) {
         texts.push(default.to_string());
     }
+    // SECURITY (R229-MCP-4): Collect "example" (singular) string values.
+    // OpenAPI 3.0 and some JSON Schema drafts use "example" (singular) alongside
+    // "examples" (plural). Both can carry injection payloads in LLM context.
+    if let Some(example) = schema.get("example").and_then(|e| e.as_str()) {
+        texts.push(example.to_string());
+    }
     // SECURITY (FIND-049): Collect "examples" string values — arrays of example
     // values that are included in LLM context and can embed injection.
     if let Some(examples) = schema.get("examples").and_then(|e| e.as_array()) {

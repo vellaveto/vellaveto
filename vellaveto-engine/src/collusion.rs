@@ -236,9 +236,14 @@ impl CollusionConfig {
             ));
         }
         // SECURITY (Trap 4): Validate f64 fields for NaN/Infinity.
-        if !self.entropy_threshold.is_finite() || self.entropy_threshold < 0.0 {
+        // SECURITY (R229-ENG-5): Upper bound at 8.0 (max Shannon entropy for bytes).
+        // Values above 8.0 would disable detection entirely.
+        if !self.entropy_threshold.is_finite()
+            || self.entropy_threshold < 0.0
+            || self.entropy_threshold > 8.0
+        {
             return Err(CollusionError::InvalidConfig(format!(
-                "entropy_threshold must be finite and >= 0.0, got {}",
+                "entropy_threshold must be in [0.0, 8.0], got {}",
                 self.entropy_threshold
             )));
         }

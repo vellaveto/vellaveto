@@ -36,6 +36,40 @@ impl Default for AdaptiveRateConfig {
     }
 }
 
+impl AdaptiveRateConfig {
+    /// SECURITY (R229-ENG-3): Validate configuration values at construction time.
+    ///
+    /// Ensures f64 fields are finite and in valid ranges, and duration fields
+    /// are non-zero. Without this, NaN/Infinity values bypass threshold checks.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.base_rate_per_minute == 0 {
+            return Err("base_rate_per_minute must be > 0".to_string());
+        }
+        if !self.burst_multiplier.is_finite() || self.burst_multiplier <= 0.0 {
+            return Err(format!(
+                "burst_multiplier must be finite and > 0.0, got {}",
+                self.burst_multiplier
+            ));
+        }
+        if !self.anomaly_reduction_factor.is_finite()
+            || self.anomaly_reduction_factor < 0.0
+            || self.anomaly_reduction_factor > 1.0
+        {
+            return Err(format!(
+                "anomaly_reduction_factor must be in [0.0, 1.0], got {}",
+                self.anomaly_reduction_factor
+            ));
+        }
+        if self.recovery_period.is_zero() {
+            return Err("recovery_period must be > 0".to_string());
+        }
+        if self.window_size.is_zero() {
+            return Err("window_size must be > 0".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// Per-entity rate state.
 #[derive(Debug, Clone)]
 pub struct RateState {

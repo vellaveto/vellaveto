@@ -122,6 +122,16 @@ pub fn normalize_homoglyphs(s: &str) -> String {
             '\u{0396}' => 'z', // Zeta -> z
 
             // ═══════════════════════════════════════════════════════════════
+            // R229-TYP-5: Armenian confusables
+            // ═══════════════════════════════════════════════════════════════
+            '\u{0561}' => 'a', // Armenian small ayb -> a
+            '\u{0570}' => 'h', // Armenian small ho -> h
+            '\u{0578}' => 'n', // Armenian small now -> n (visual similarity in some fonts)
+            '\u{0585}' => 'o', // Armenian small oh -> o
+            '\u{057D}' => 's', // Armenian small seh -> s
+            '\u{0582}' => 'u', // Armenian small yiwn -> u (visual similarity)
+
+            // ═══════════════════════════════════════════════════════════════
             // Fullwidth Latin (U+FF01..U+FF5E map to U+0021..U+007E)
             // Note: NFKC handles these, but we include for defense-in-depth
             // ═══════════════════════════════════════════════════════════════

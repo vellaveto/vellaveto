@@ -43,6 +43,7 @@ pub fn is_unicode_format_char(c: char) -> bool {
         '\u{FFF9}'..='\u{FFFB}' |  // interlinear annotation anchors
         '\u{110BD}'             |  // R228-TYP-1: Kaithi Number Sign (Cf)
         '\u{110CD}'             |  // R228-TYP-1: Kaithi Number Sign Above (Cf)
+        '\u{180B}'..='\u{180F}'    | // R229-TYP-4: Mongolian Free Variation Selectors (Cf)
         '\u{1D173}'..='\u{1D17A}' | // R228-TYP-1: Musical Symbol format chars (Cf)
         '\u{E0001}'..='\u{E007F}'  // TAG characters
     )

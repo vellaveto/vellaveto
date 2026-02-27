@@ -195,6 +195,15 @@ impl CascadingConfig {
                 "break_duration_secs must be > 0".to_string(),
             ));
         }
+        // SECURITY (R229-ENG-9): Bound min_window_events to prevent disabling
+        // circuit breakers by setting an unreachably high minimum.
+        const MAX_MIN_WINDOW_EVENTS: u32 = 100_000;
+        if self.min_window_events > MAX_MIN_WINDOW_EVENTS {
+            return Err(CascadingError::InvalidConfig(format!(
+                "min_window_events must be <= {}, got {}",
+                MAX_MIN_WINDOW_EVENTS, self.min_window_events
+            )));
+        }
         Ok(())
     }
 }

@@ -91,6 +91,11 @@ impl AnalyticsEngine {
     /// Extracts tool names from `entry.action.tool`, agent IDs from
     /// `entry.metadata["agent_id"]` (if present), and deny reasons from
     /// the `Verdict::Deny` variant.
+    /// SECURITY (R229-AUD-6): Maximum distinct keys in analytics HashMaps.
+    /// Prevents memory exhaustion when processing entries with attacker-controlled
+    /// tool names, deny reasons, or agent IDs.
+    const MAX_DISTINCT_KEYS: usize = 10_000;
+
     pub fn summarize(entries: &[AuditEntry]) -> AnalyticsSummary {
         let mut allow_count: u64 = 0;
         let mut deny_count: u64 = 0;
@@ -107,24 +112,40 @@ impl AnalyticsEngine {
             match &entry.verdict {
                 Verdict::Allow => {
                     allow_count = allow_count.saturating_add(1);
-                    *allowed_tools.entry(entry.action.tool.clone()).or_insert(0) = allowed_tools
-                        .get(&entry.action.tool)
-                        .copied()
-                        .unwrap_or(0)
-                        .saturating_add(1);
+                    if allowed_tools.contains_key(&entry.action.tool)
+                        || allowed_tools.len() < Self::MAX_DISTINCT_KEYS
+                    {
+                        *allowed_tools
+                            .entry(entry.action.tool.clone())
+                            .or_insert(0) = allowed_tools
+                            .get(&entry.action.tool)
+                            .copied()
+                            .unwrap_or(0)
+                            .saturating_add(1);
+                    }
                 }
                 Verdict::Deny { reason } => {
                     deny_count = deny_count.saturating_add(1);
-                    *denied_tools.entry(entry.action.tool.clone()).or_insert(0) = denied_tools
-                        .get(&entry.action.tool)
-                        .copied()
-                        .unwrap_or(0)
-                        .saturating_add(1);
-                    *deny_reasons.entry(reason.clone()).or_insert(0) = deny_reasons
-                        .get(reason)
-                        .copied()
-                        .unwrap_or(0)
-                        .saturating_add(1);
+                    if denied_tools.contains_key(&entry.action.tool)
+                        || denied_tools.len() < Self::MAX_DISTINCT_KEYS
+                    {
+                        *denied_tools
+                            .entry(entry.action.tool.clone())
+                            .or_insert(0) = denied_tools
+                            .get(&entry.action.tool)
+                            .copied()
+                            .unwrap_or(0)
+                            .saturating_add(1);
+                    }
+                    if deny_reasons.contains_key(reason)
+                        || deny_reasons.len() < Self::MAX_DISTINCT_KEYS
+                    {
+                        *deny_reasons.entry(reason.clone()).or_insert(0) = deny_reasons
+                            .get(reason)
+                            .copied()
+                            .unwrap_or(0)
+                            .saturating_add(1);
+                    }
                 }
                 Verdict::RequireApproval { .. } => {
                     approval_count = approval_count.saturating_add(1);
@@ -132,24 +153,35 @@ impl AnalyticsEngine {
                 // Fail-closed: unknown future variants count as deny
                 _ => {
                     deny_count = deny_count.saturating_add(1);
-                    *denied_tools.entry(entry.action.tool.clone()).or_insert(0) = denied_tools
-                        .get(&entry.action.tool)
-                        .copied()
-                        .unwrap_or(0)
-                        .saturating_add(1);
+                    if denied_tools.contains_key(&entry.action.tool)
+                        || denied_tools.len() < Self::MAX_DISTINCT_KEYS
+                    {
+                        *denied_tools
+                            .entry(entry.action.tool.clone())
+                            .or_insert(0) = denied_tools
+                            .get(&entry.action.tool)
+                            .copied()
+                            .unwrap_or(0)
+                            .saturating_add(1);
+                    }
                 }
             }
 
             // Per-tool evaluation counts
-            *tools.entry(entry.action.tool.clone()).or_insert(0) = tools
-                .get(&entry.action.tool)
-                .copied()
-                .unwrap_or(0)
-                .saturating_add(1);
+            // SECURITY (R229-AUD-6): Only insert new keys if under capacity.
+            if tools.contains_key(&entry.action.tool) || tools.len() < Self::MAX_DISTINCT_KEYS {
+                *tools.entry(entry.action.tool.clone()).or_insert(0) = tools
+                    .get(&entry.action.tool)
+                    .copied()
+                    .unwrap_or(0)
+                    .saturating_add(1);
+            }
 
             // Agent extraction from metadata
             if let Some(agent_id) = entry.metadata.get("agent_id").and_then(|v| v.as_str()) {
-                agents.entry(agent_id.to_string()).or_insert(());
+                if agents.len() < Self::MAX_DISTINCT_KEYS {
+                    agents.entry(agent_id.to_string()).or_insert(());
+                }
             }
         }
 

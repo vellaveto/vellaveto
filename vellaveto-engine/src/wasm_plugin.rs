@@ -467,8 +467,13 @@ impl PluginManager {
             return Err(PluginError::MaxPluginsExceeded);
         }
 
-        // Check for duplicate names (case-sensitive)
-        if self.plugins.iter().any(|p| p.config.name == config.name) {
+        // SECURITY (R229-ENG-4): Case-insensitive duplicate check to prevent
+        // a "MaliciousPlugin" from coexisting with "maliciousplugin".
+        if self
+            .plugins
+            .iter()
+            .any(|p| p.config.name.eq_ignore_ascii_case(&config.name))
+        {
             return Err(PluginError::DuplicatePlugin(config.name.clone()));
         }
 
