@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Adversarial Audit Round 229 (40 findings — 17 HIGH, 21 MEDIUM, 2 LOW):**
+  Full-codebase adversarial security audit with 6-agent parallel swarm. 34 findings fixed across 4 sprints, 6 triaged as design/low-priority.
+  - **Sprint 1 — Types + Engine + DPoP (5 HIGH):**
+    - R229-TYP-1 (HIGH): Policy::validate() per-entry content validation for path/domain/CIDR rules
+    - R229-TYP-2 (HIGH): AbacEntity serialization failure fail-closed (was unwrap_or(0))
+    - R229-TYP-3 (HIGH): SSRF bypass via 198.18.0.0/15 benchmarking + 240.0.0.0/4 reserved ranges
+    - R229-ENG-1 (HIGH): Cache key paths/domains normalized via normalize_full() before hashing
+    - R229-ENG-2 (HIGH): Cascading breaker + collusion detector fail-closed on capacity exhaustion
+    - DPoP: deny_unknown_fields, nonce/ath dangerous char validation, saturating counters, JWK injection guard
+  - **Sprint 2 — SAML hardening (3 HIGH, 3 MEDIUM):**
+    - R229-SRV-1 (HIGH): SubjectConfirmation validation (bearer method, Recipient, NotOnOrAfter)
+    - R229-SRV-2 (HIGH): Signature Reference URI must match Assertion ID (wrapping attack prevention)
+    - R229-SRV-3 (HIGH): SAML decompression bomb prevention (10MB limit via take())
+    - R229-SRV-5 (MEDIUM): SP metadata XML injection — escape_xml_attr() for config interpolation
+    - R229-SRV-6 (MEDIUM): Bounded flow_states (100K) and sessions (500K)
+    - R229-SRV-7 (MEDIUM): SAML error messages genericized (no more config leakage)
+  - **Sprint 3 — MCP + A2A + Cluster (6 HIGH):**
+    - R229-MCP-1 (HIGH): collect_schema_descriptions recurses $defs/definitions
+    - R229-MCP-2 (HIGH): 14 Greek uppercase confusables added to injection detection
+    - R229-NHI-1 (HIGH): DPoP nonce consumed on use (single-use per RFC 9449 §8)
+    - R229-A2A-1 (HIGH): card_hash validated as hex (not just 64-char length)
+    - R229-A2A-2 (HIGH): kid field validated in AgentCardClaims (bounded, no dangerous chars)
+    - R229-CLUS-1 (HIGH): Redis key_prefix rejects {} hash tags + Unicode format chars
+  - **Sprint 4 — Audit + Engine + Types + Config (11 MEDIUM/LOW):**
+    - R229-AUD-6: Analytics HashMaps bounded at 10K distinct keys
+    - R229-TYP-4: Mongolian FVS (U+180B-U+180F) in is_unicode_format_char
+    - R229-TYP-5: Armenian confusables in normalize_homoglyphs
+    - R229-CFG-1: to_policies() calls Policy::validate() (invalid policies skipped)
+    - R229-CFG-2: TOML export escapes all ASCII control chars
+    - R229-ENG-3: AdaptiveRateConfig.validate() added
+    - R229-ENG-4: Plugin duplicate name check case-insensitive
+    - R229-ENG-5: CollusionConfig entropy_threshold bounded at 8.0
+    - R229-ENG-7: Cache access_counter uses SeqCst ordering
+    - R229-ENG-9: CascadingConfig min_window_events bounded at 100K
+    - R229-MCP-4: Schema "example" (singular) keyword collected
+
 - **Adversarial Audit Round 228 (11 findings — 1 CRITICAL, 3 HIGH, 4 MEDIUM, 3 LOW):**
   Full-codebase adversarial security audit with parallel threat intelligence sweep. 9 real findings fixed, 2 triaged as documentation-only (LOW).
   - **Sprint 1 — 1 CRITICAL + 3 HIGHs:**

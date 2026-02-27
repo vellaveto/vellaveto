@@ -11,9 +11,9 @@
     <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-8%2C546_passing-brightgreen.svg" alt="Tests: 8,546 passing">
+    <img src="https://img.shields.io/badge/tests-8%2C653_passing-brightgreen.svg" alt="Tests: 8,653 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
-    <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-228_rounds%2C_1500%2B_findings-informational.svg" alt="Adversarial Testing: 228 rounds, 1500+ findings"></a>
+    <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-229_rounds%2C_1500%2B_findings-informational.svg" alt="Adversarial Testing: 229 rounds, 1500+ findings"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
     <a href="https://www.bestpractices.dev/projects/12042"><img src="https://www.bestpractices.dev/projects/12042/badge" alt="OpenSSF Best Practices"></a>
