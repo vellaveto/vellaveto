@@ -14167,23 +14167,18 @@ fn test_nfkc_forbidden_previous_action_parenthesized_tool_name() {
 /// R230-ENG-4: Deny reasons must not leak internal patterns, CIDRs, or counts.
 #[test]
 fn test_r230_deny_reason_does_not_leak_path_pattern() {
-    let policy = Policy {
-        id: "p1".into(),
-        name: "test-policy".into(),
-        policy_type: PolicyType::Allow,
-        priority: 0,
-        path_rules: Some(PathRules {
+    let policy = policy_with_path_rules(
+        "read_file:*",
+        "test-policy",
+        PolicyType::Allow,
+        PathRules {
             allowed: vec![],
             blocked: vec!["/secret/**".to_string()],
-        }),
-        ..Default::default()
-    };
-    let engine = PolicyEngine::with_policies(true, &[policy]);
-    let action = Action {
-        tool: "read_file".into(),
-        target_paths: vec!["/secret/data.txt".to_string()],
-        ..Default::default()
-    };
+        },
+    );
+    let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+    let mut action = Action::new("read_file", "read", json!({}));
+    action.target_paths = vec!["/secret/data.txt".to_string()];
     let v = engine.evaluate_action(&action, &[]).unwrap();
     match &v {
         Verdict::Deny { reason } => {
@@ -14203,24 +14198,19 @@ fn test_r230_deny_reason_does_not_leak_path_pattern() {
 /// R230-ENG-4: Deny reasons must not leak blocked domain patterns.
 #[test]
 fn test_r230_deny_reason_does_not_leak_domain_pattern() {
-    let policy = Policy {
-        id: "p1".into(),
-        name: "test-policy".into(),
-        policy_type: PolicyType::Allow,
-        priority: 0,
-        network_rules: Some(NetworkRules {
+    let policy = policy_with_network_rules(
+        "http_fetch:*",
+        "test-policy",
+        PolicyType::Allow,
+        NetworkRules {
             allowed_domains: vec![],
             blocked_domains: vec!["*.evil.com".to_string()],
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-    let engine = PolicyEngine::with_policies(true, &[policy]);
-    let action = Action {
-        tool: "http_fetch".into(),
-        target_domains: vec!["sub.evil.com".to_string()],
-        ..Default::default()
-    };
+            ip_rules: None,
+        },
+    );
+    let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+    let mut action = Action::new("http_fetch", "get", json!({}));
+    action.target_domains = vec!["sub.evil.com".to_string()];
     let v = engine.evaluate_action(&action, &[]).unwrap();
     match &v {
         Verdict::Deny { reason } => {
@@ -14240,30 +14230,24 @@ fn test_r230_deny_reason_does_not_leak_domain_pattern() {
 /// R230-ENG-4: Deny reasons must not leak blocked CIDR values.
 #[test]
 fn test_r230_deny_reason_does_not_leak_cidr() {
-    let policy = Policy {
-        id: "p1".into(),
-        name: "test-policy".into(),
-        policy_type: PolicyType::Allow,
-        priority: 0,
-        network_rules: Some(NetworkRules {
+    let policy = policy_with_network_rules(
+        "http_fetch:*",
+        "test-policy",
+        PolicyType::Allow,
+        NetworkRules {
             allowed_domains: vec![],
             blocked_domains: vec![],
-            ip_rules: Some(IpRules {
+            ip_rules: Some(vellaveto_types::IpRules {
                 block_private: false,
                 blocked_cidrs: vec!["10.0.0.0/8".to_string()],
                 allowed_cidrs: vec![],
             }),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-    let engine = PolicyEngine::with_policies(true, &[policy]);
-    let action = Action {
-        tool: "http_fetch".into(),
-        target_domains: vec!["example.com".to_string()],
-        resolved_ips: vec!["10.1.2.3".to_string()],
-        ..Default::default()
-    };
+        },
+    );
+    let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+    let mut action = Action::new("http_fetch", "get", json!({}));
+    action.target_domains = vec!["example.com".to_string()];
+    action.resolved_ips = vec!["10.1.2.3".to_string()];
     let v = engine.evaluate_action(&action, &[]).unwrap();
     match &v {
         Verdict::Deny { reason } => {

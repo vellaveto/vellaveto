@@ -241,11 +241,10 @@ impl CircuitBreakerManager {
                         .record(start.elapsed().as_secs_f64());
                     return Ok(());
                 } else {
+                    // R230-ENG-4: Log internal details only; don't expose counts/timing to clients
                     let opens_in = (stats.last_state_change + eff_duration).saturating_sub(now);
-                    let failure_count = stats.failure_count;
-                    let reason = format!(
-                        "Circuit breaker open for tool '{tool}' (failures: {failure_count}, opens in {opens_in}s)"
-                    );
+                    tracing::debug!(tool = %tool, failures = stats.failure_count, opens_in_secs = opens_in, "Circuit breaker open (internal)");
+                    let reason = format!("Circuit breaker open for tool '{tool}'");
                     // GAP-011: Record rejection metric
                     metrics::counter!(
                         "vellaveto_circuit_breaker_rejections_total",

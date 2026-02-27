@@ -174,20 +174,16 @@ impl PolicyEngine {
                 // not as errors. This ensures malformed policies don't cause 500s.
                 match self.glob_is_match(pattern, &normalized, &policy.id) {
                     Ok(true) => {
+                        tracing::debug!(path = %normalized, pattern = %pattern, policy = %policy.name, "Path blocked (legacy)");
                         return Ok(Some(Verdict::Deny {
-                            reason: format!(
-                                "Path '{}' blocked by pattern '{}' in policy '{}'",
-                                normalized, pattern, policy.name
-                            ),
+                            reason: format!("Path '{}' blocked by policy '{}'", normalized, policy.name),
                         }));
                     }
                     Ok(false) => {}
                     Err(e) => {
+                        tracing::debug!(pattern = %pattern, policy = %policy.name, error = %e, "Invalid glob (legacy)");
                         return Ok(Some(Verdict::Deny {
-                            reason: format!(
-                                "Invalid glob pattern '{}' in policy '{}': {} (fail-closed)",
-                                pattern, policy.name, e
-                            ),
+                            reason: format!("Path rule error in policy '{}' (fail-closed)", policy.name),
                         }));
                     }
                 }
@@ -274,11 +270,9 @@ impl PolicyEngine {
             // Check blocked domains first
             for pattern in &rules.blocked_domains {
                 if match_domain_pattern(&domain, pattern) {
+                    tracing::debug!(domain = %domain, pattern = %pattern, policy = %policy.name, "Domain blocked (legacy)");
                     return Some(Verdict::Deny {
-                        reason: format!(
-                            "Domain '{}' blocked by pattern '{}' in policy '{}'",
-                            domain, pattern, policy.name
-                        ),
+                        reason: format!("Domain '{}' blocked by policy '{}'", domain, policy.name),
                     });
                 }
             }

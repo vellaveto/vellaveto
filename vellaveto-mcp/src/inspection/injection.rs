@@ -263,7 +263,13 @@ impl InjectionScanner {
     /// - Removes any pattern whose lowercase form matches a `disabled_patterns` entry
     /// - Appends all `extra_patterns`
     ///
-    /// Returns `None` if the resulting pattern list fails to compile.
+    /// # Returns
+    ///
+    /// Returns `None` in two cases:
+    /// 1. **All patterns disabled** — every default was removed and no extras added.
+    ///    Injection detection is disabled. Callers should fall back to
+    ///    [`inspect_for_injection()`] or refuse to start.
+    /// 2. **Compilation failure** — the Aho-Corasick automaton failed to build.
     pub fn from_config(extra_patterns: &[String], disabled_patterns: &[String]) -> Option<Self> {
         let disabled_lower: Vec<String> =
             disabled_patterns.iter().map(|p| p.to_lowercase()).collect();

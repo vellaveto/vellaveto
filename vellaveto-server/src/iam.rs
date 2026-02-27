@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 use base64::{
-    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+    engine::general_purpose::URL_SAFE_NO_PAD,
     Engine,
 };
 use chrono::{DateTime, Utc};
@@ -1903,8 +1903,14 @@ fn parse_saml_timestamp(value: &str) -> Result<DateTime<Utc>, IamError> {
         .map_err(|e| IamError::Saml(format!("Invalid SAML timestamp '{}': {}", value, e)))
 }
 
+/// R230-SRV-5: Padding-indifferent base64 for SAML interoperability.
 fn decode_base64(value: &str, context: &str) -> Result<Vec<u8>, IamError> {
-    STANDARD
+    use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
+    const PAD_INDIFFERENT: GeneralPurpose = GeneralPurpose::new(
+        &base64::alphabet::STANDARD,
+        GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+    );
+    PAD_INDIFFERENT
         .decode(value)
         .map_err(|e| IamError::Saml(format!("{}: {}", context, e)))
 }
@@ -1916,7 +1922,13 @@ fn decode_base64(value: &str, context: &str) -> Result<Vec<u8>, IamError> {
 const MAX_SAML_DECOMPRESSED_SIZE: u64 = 10 * 1024 * 1024;
 
 fn decode_saml_response(encoded: &str) -> Result<String, IamError> {
-    let decoded = STANDARD
+    // R230-SRV-5: Padding-indifferent base64 for SAML interoperability.
+    use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
+    const PAD_INDIFFERENT: GeneralPurpose = GeneralPurpose::new(
+        &base64::alphabet::STANDARD,
+        GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+    );
+    let decoded = PAD_INDIFFERENT
         .decode(encoded)
         .map_err(|e| IamError::Saml(format!("Invalid SAML response encoding: {}", e)))?;
     if let Ok(text) = String::from_utf8(decoded.clone()) {
@@ -2419,6 +2431,29 @@ mod tests {
     fn parse_saml_timestamp_accepts_and_rejects_values() {
         assert!(parse_saml_timestamp("2026-02-25T12:00:00Z").is_ok());
         assert!(parse_saml_timestamp("not-a-timestamp").is_err());
+    }
+
+    #[test]
+    fn test_r230_saml_timestamp_precision_variants() {
+        assert!(parse_saml_timestamp("2026-02-25T12:00:00.123Z").is_ok());
+        assert!(parse_saml_timestamp("2026-02-25T12:00:00.123456Z").is_ok());
+        assert!(parse_saml_timestamp("2026-02-25T12:00:00.123456789Z").is_ok());
+        assert!(parse_saml_timestamp("2026-02-25T12:00:00+00:00").is_ok());
+        assert!(parse_saml_timestamp("2026-02-25T12:00:00+05:30").is_ok());
+        assert!(parse_saml_timestamp("2026-02-25T12:00:00-08:00").is_ok());
+        assert!(parse_saml_timestamp("2026-02-25T12:00:00.500+00:00").is_ok());
+    }
+
+    #[test]
+    fn test_r230_saml_base64_padding_tolerance() {
+        let padded = STANDARD.encode(b"test cert data");
+        assert!(decode_base64(&padded, "test").is_ok());
+        let unpadded = padded.trim_end_matches('=').to_string();
+        assert!(decode_base64(&unpadded, "test").is_ok(), "Should accept unpadded base64");
+        let payload = "<Response>test</Response>";
+        let encoded = STANDARD.encode(payload);
+        let unpadded_resp = encoded.trim_end_matches('=').to_string();
+        assert!(decode_saml_response(&unpadded_resp).is_ok(), "Should accept unpadded SAML response");
     }
 
     #[test]

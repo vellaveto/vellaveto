@@ -1102,7 +1102,7 @@ mod tests {
     fn test_r229_pipeline_capacity_returns_error_not_ok() {
         // R229-ENG-1: Verify that pipeline tracker at capacity returns Err,
         // not Ok(()) which would silently drop events.
-        let breaker = make_breaker();
+        let _breaker = make_breaker();
         // The capacity check is in record_pipeline_event. We can't easily fill
         // 10,000 pipelines in a unit test, but we can verify the error type exists
         // and is properly constructed.
