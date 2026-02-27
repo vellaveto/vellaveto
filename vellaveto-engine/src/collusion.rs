@@ -1012,7 +1012,7 @@ impl CollusionDetector {
                     entropy_values: None,
                     access_timestamps: None,
                     sync_score: Some(max_sync_score),
-                    observation_count: all_agents.len() as u32,
+                    observation_count: u32::try_from(all_agents.len()).unwrap_or(u32::MAX),
                 },
             };
 
@@ -1330,7 +1330,7 @@ impl CollusionDetector {
                         entropy_values: None,
                         access_timestamps: None,
                         sync_score: Some(drift),
-                        observation_count: profile.actions.len() as u32,
+                        observation_count: u32::try_from(profile.actions.len()).unwrap_or(u32::MAX),
                     },
                 };
 

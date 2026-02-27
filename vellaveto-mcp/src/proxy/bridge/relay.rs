@@ -1356,6 +1356,74 @@ impl ProxyBridge {
             return Ok(());
         }
 
+        // SECURITY (R230-RELAY-4): Injection scan resource read URI.
+        // Parity with handle_tool_call (line 869).
+        if !self.injection_disabled {
+            let synthetic_msg = json!({"method": "resources/read", "params": {"uri": &uri}});
+            let injection_matches: Vec<String> =
+                if let Some(ref scanner) = self.injection_scanner {
+                    scanner
+                        .scan_notification(&synthetic_msg)
+                        .into_iter()
+                        .map(|s| s.to_string())
+                        .collect()
+                } else {
+                    scan_notification_for_injection(&synthetic_msg)
+                        .into_iter()
+                        .map(|s| s.to_string())
+                        .collect()
+                };
+            if !injection_matches.is_empty() {
+                let safe_uri = vellaveto_types::sanitize_for_log(&uri, 512);
+                tracing::warn!(
+                    "SECURITY: Injection in resource URI '{}': {:?}",
+                    safe_uri,
+                    injection_matches
+                );
+                let res_action = extract_resource_action(&uri);
+                let verdict = if self.injection_blocking {
+                    Verdict::Deny {
+                        reason: format!(
+                            "Resource read blocked: injection detected in URI ({:?})",
+                            injection_matches
+                        ),
+                    }
+                } else {
+                    Verdict::Allow
+                };
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &res_action,
+                        &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "resource_injection_detected",
+                            "patterns": injection_matches,
+                            "blocked": self.injection_blocking,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit resource injection finding: {}", e);
+                }
+                if self.injection_blocking {
+                    let response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": "Request blocked: security policy violation",
+                        }
+                    });
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+            }
+        }
+
         // SECURITY (FIND-R78-001): Build action early for DNS resolution.
         let mut action = extract_resource_action(&uri);
         if self.engine.has_ip_rules() {
@@ -1476,6 +1544,77 @@ impl ProxyBridge {
                         .await
                         .map_err(ProxyError::Framing)?;
                     return Ok(());
+                }
+
+                // SECURITY (TI-2026-002): Injection scan sampling system prompt
+                // and messages. A malicious MCP server can inject hidden instructions
+                // via sampling/createMessage to hijack the LLM or exfiltrate data.
+                if !self.injection_disabled {
+                    let synthetic_msg = json!({
+                        "method": "sampling/createMessage",
+                        "params": params,
+                    });
+                    let injection_matches: Vec<String> =
+                        if let Some(ref scanner) = self.injection_scanner {
+                            scanner
+                                .scan_notification(&synthetic_msg)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        } else {
+                            scan_notification_for_injection(&synthetic_msg)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        };
+                    if !injection_matches.is_empty() {
+                        tracing::warn!(
+                            "SECURITY: Injection in sampling/createMessage from tool '{}': {:?}",
+                            tool_name,
+                            injection_matches
+                        );
+                        if self.injection_blocking {
+                            let deny_action = vellaveto_types::Action::new(
+                                "vellaveto",
+                                "sampling_injection_blocked",
+                                json!({
+                                    "tool": &tool_name,
+                                    "patterns": injection_matches,
+                                }),
+                            );
+                            if let Err(e) = self
+                                .audit
+                                .log_entry(
+                                    &deny_action,
+                                    &Verdict::Deny {
+                                        reason: format!(
+                                            "Sampling blocked: injection in system prompt/messages ({:?})",
+                                            injection_matches
+                                        ),
+                                    },
+                                    json!({
+                                        "source": "proxy",
+                                        "event": "sampling_injection_blocked",
+                                        "tool": &tool_name,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    "Failed to audit sampling injection: {}",
+                                    e
+                                );
+                            }
+                            let response = make_denial_response(
+                                &id,
+                                "Request blocked: security policy violation",
+                            );
+                            write_message(agent_writer, &response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
+                        }
+                    }
                 }
 
                 // SECURITY (FIND-R125-001): Saturating add prevents
@@ -1730,6 +1869,77 @@ impl ProxyBridge {
             return Ok(());
         }
 
+        // SECURITY (R230-RELAY-3): Injection scan task request parameters.
+        // Parity with handle_tool_call (line 869).
+        if !self.injection_disabled {
+            let synthetic_msg = json!({
+                "method": task_method,
+                "params": task_params,
+            });
+            let injection_matches: Vec<String> =
+                if let Some(ref scanner) = self.injection_scanner {
+                    scanner
+                        .scan_notification(&synthetic_msg)
+                        .into_iter()
+                        .map(|s| s.to_string())
+                        .collect()
+                } else {
+                    scan_notification_for_injection(&synthetic_msg)
+                        .into_iter()
+                        .map(|s| s.to_string())
+                        .collect()
+                };
+            if !injection_matches.is_empty() {
+                let task_action = extract_task_action(&task_method, task_id.as_deref());
+                tracing::warn!(
+                    "SECURITY: Injection in task request '{}': {:?}",
+                    safe_task_method,
+                    injection_matches
+                );
+                let verdict = if self.injection_blocking {
+                    Verdict::Deny {
+                        reason: format!(
+                            "Task request blocked: injection detected in parameters ({:?})",
+                            injection_matches
+                        ),
+                    }
+                } else {
+                    Verdict::Allow
+                };
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &task_action,
+                        &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "task_injection_detected",
+                            "task_method": safe_task_method,
+                            "patterns": injection_matches,
+                            "blocked": self.injection_blocking,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit task injection finding: {}", e);
+                }
+                if self.injection_blocking {
+                    let response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": "Request blocked: security policy violation",
+                        }
+                    });
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+            }
+        }
+
         let action = extract_task_action(&task_method, task_id.as_deref());
         let eval_ctx = state.evaluation_context();
         match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
@@ -1956,6 +2166,94 @@ impl ProxyBridge {
 
         let params = msg.get("params").cloned().unwrap_or(json!({}));
         let action = extract_extension_action(&extension_id, &method, &params);
+
+        // SECURITY (R230-RELAY-2): Circuit breaker check for extension methods.
+        // Parity with handle_tool_call (line 692).
+        if let Some(ref cb) = self.circuit_breaker {
+            let cb_key = format!("ext:{}:{}", extension_id, method);
+            if let Err(reason) = cb.can_proceed(&cb_key) {
+                tracing::warn!(
+                    "SECURITY: Circuit breaker blocking extension '{}:{}': {}",
+                    safe_extension_id,
+                    safe_ext_method,
+                    reason
+                );
+                let verdict = Verdict::Deny {
+                    reason: reason.clone(),
+                };
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "circuit_breaker_blocked_extension",
+                            "extension_id": safe_extension_id,
+                            "method": safe_ext_method,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit circuit breaker block: {}", e);
+                }
+                let response = make_denial_response(&id, &reason);
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+                return Ok(());
+            }
+        }
+
+        // SECURITY (R230-RELAY-5): Shadow agent detection for extension methods.
+        // Parity with handle_tool_call (line 727).
+        if let Some(ref detector) = self.shadow_agent {
+            let fingerprint = Self::extract_fingerprint_from_meta(&msg);
+            if fingerprint.is_populated() {
+                if let Some(claimed_id) = Self::extract_agent_id(&msg) {
+                    if let Err(alert) = detector.detect_shadow(&claimed_id, &fingerprint) {
+                        tracing::warn!(
+                            "SECURITY: Shadow agent detected in extension '{}:{}' - claimed '{}'",
+                            safe_extension_id,
+                            safe_ext_method,
+                            claimed_id
+                        );
+                        let reason = format!(
+                            "Shadow agent detected: claimed identity '{}' does not match fingerprint",
+                            claimed_id
+                        );
+                        let verdict = Verdict::Deny {
+                            reason: reason.clone(),
+                        };
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &action,
+                                &verdict,
+                                json!({
+                                    "source": "proxy",
+                                    "event": "shadow_agent_detected_extension",
+                                    "claimed_id": claimed_id,
+                                    "expected_summary": alert.expected_fingerprint.summary(),
+                                    "actual_summary": alert.actual_fingerprint.summary(),
+                                    "extension_id": safe_extension_id,
+                                    "method": safe_ext_method,
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit shadow agent: {}", e);
+                        }
+                        let response = make_denial_response(&id, &reason);
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
         let eval_ctx = state.evaluation_context();
 
         match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
@@ -2094,6 +2392,77 @@ impl ProxyBridge {
                         .await
                         .map_err(ProxyError::Framing)?;
                     return Ok(());
+                }
+
+                // SECURITY (R230-RELAY-1): Injection scan extension method parameters.
+                // Transport parity with handle_tool_call (line 869).
+                if !self.injection_disabled {
+                    let synthetic_msg = json!({
+                        "method": method,
+                        "params": params,
+                    });
+                    let injection_matches: Vec<String> =
+                        if let Some(ref scanner) = self.injection_scanner {
+                            scanner
+                                .scan_notification(&synthetic_msg)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        } else {
+                            scan_notification_for_injection(&synthetic_msg)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        };
+                    if !injection_matches.is_empty() {
+                        tracing::warn!(
+                            "SECURITY: Injection in extension method '{}:{}': {:?}",
+                            safe_extension_id,
+                            safe_ext_method,
+                            injection_matches
+                        );
+                        let verdict = if self.injection_blocking {
+                            Verdict::Deny {
+                                reason: format!(
+                                    "Extension method blocked: injection detected in parameters ({:?})",
+                                    injection_matches
+                                ),
+                            }
+                        } else {
+                            Verdict::Allow
+                        };
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &action,
+                                &verdict,
+                                json!({
+                                    "source": "proxy",
+                                    "event": "extension_injection_detected",
+                                    "extension_id": safe_extension_id,
+                                    "method": safe_ext_method,
+                                    "patterns": injection_matches,
+                                    "blocked": self.injection_blocking,
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                "Failed to audit extension injection finding: {}",
+                                e
+                            );
+                        }
+                        if self.injection_blocking {
+                            let response = make_denial_response(
+                                &id,
+                                "Request blocked: security policy violation",
+                            );
+                            write_message(agent_writer, &response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
+                        }
+                    }
                 }
 
                 // SECURITY (FIND-R180-001): Memory poisoning CHECK for extension

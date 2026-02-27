@@ -56,6 +56,25 @@ pub async fn read_message<R: tokio::io::AsyncRead + Unpin>(
 
         let value: Value = serde_json::from_str(trimmed).map_err(FramingError::Json)?;
 
+        // SECURITY (TI-2026-001 / CVE-2026-27896): JSON-RPC key case-folding smuggling.
+        // Go's encoding/json folds Unicode chars (U+017F, U+212A) and performs
+        // case-insensitive key matching. If the proxy checks "method" but a
+        // downstream Go server also matches "Method" or "methOd", an attacker
+        // can smuggle method/params past the proxy. Reject any top-level key
+        // that case-folds to a JSON-RPC 2.0 key but is not exact-case.
+        if let Some(obj) = value.as_object() {
+            for key in obj.keys() {
+                let lower = key.to_ascii_lowercase();
+                let is_jsonrpc_key = matches!(
+                    lower.as_str(),
+                    "jsonrpc" | "method" | "params" | "id" | "result" | "error"
+                );
+                if is_jsonrpc_key && key.as_str() != lower.as_str() {
+                    return Err(FramingError::CaseFoldingSmuggle(key.clone()));
+                }
+            }
+        }
+
         // MCP 2025-06-18 removed JSON-RPC batching. Reject arrays at the
         // transport layer so that batch payloads never reach the classifier.
         if value.is_array() {
@@ -306,6 +325,8 @@ pub enum FramingError {
     DuplicateKeys(String),
     #[error("JSON-RPC batching is not allowed (MCP 2025-06-18)")]
     BatchNotAllowed,
+    #[error("JSON-RPC key case-folding smuggle detected: \"{0}\" (CVE-2026-27896)")]
+    CaseFoldingSmuggle(String),
 }
 
 #[cfg(test)]
@@ -575,5 +596,65 @@ mod tests {
             "Should read valid message after oversized line"
         );
         assert_eq!(msg.unwrap()["method"], "ping");
+    }
+
+    /// TI-2026-001: Reject "Method" (uppercase M) as case-folding smuggle.
+    #[tokio::test]
+    async fn test_r230_case_folding_smuggle_method() {
+        let data = r#"{"jsonrpc":"2.0","id":1,"Method":"tools/call","params":{}}"#;
+        let input = format!("{}\n", data);
+        let cursor = Cursor::new(input.into_bytes());
+        let mut reader = BufReader::new(cursor);
+        let result = read_message(&mut reader).await;
+        assert!(
+            matches!(result, Err(FramingError::CaseFoldingSmuggle(_))),
+            "Should reject 'Method' as case-folding smuggle: {:?}",
+            result
+        );
+    }
+
+    /// TI-2026-001: Reject "PARAMS" (all uppercase) as case-folding smuggle.
+    #[tokio::test]
+    async fn test_r230_case_folding_smuggle_params() {
+        let data = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","PARAMS":{}}"#;
+        let input = format!("{}\n", data);
+        let cursor = Cursor::new(input.into_bytes());
+        let mut reader = BufReader::new(cursor);
+        let result = read_message(&mut reader).await;
+        assert!(
+            matches!(result, Err(FramingError::CaseFoldingSmuggle(_))),
+            "Should reject 'PARAMS' as case-folding smuggle: {:?}",
+            result
+        );
+    }
+
+    /// TI-2026-001: Exact lowercase keys pass validation.
+    #[tokio::test]
+    async fn test_r230_case_folding_exact_lowercase_passes() {
+        let data = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{}}"#;
+        let input = format!("{}\n", data);
+        let cursor = Cursor::new(input.into_bytes());
+        let mut reader = BufReader::new(cursor);
+        let result = read_message(&mut reader).await;
+        assert!(
+            result.is_ok(),
+            "Exact lowercase keys should pass: {:?}",
+            result
+        );
+    }
+
+    /// TI-2026-001: Non-JSON-RPC keys with mixed case are allowed.
+    #[tokio::test]
+    async fn test_r230_case_folding_custom_keys_allowed() {
+        let data = r#"{"jsonrpc":"2.0","id":1,"method":"ping","customField":"value"}"#;
+        let input = format!("{}\n", data);
+        let cursor = Cursor::new(input.into_bytes());
+        let mut reader = BufReader::new(cursor);
+        let result = read_message(&mut reader).await;
+        assert!(
+            result.is_ok(),
+            "Custom keys with mixed case should pass: {:?}",
+            result
+        );
     }
 }

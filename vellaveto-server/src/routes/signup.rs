@@ -199,10 +199,20 @@ pub async fn signup(
         )
     })?;
 
+    // SECURITY (R230-SRV-1): Store API key hash in tenant metadata so the key
+    // can be verified for per-tenant authentication. Without this, the returned
+    // key is unverifiable and effectively useless.
+    let api_key_hash = {
+        use sha2::{Digest, Sha256};
+        let hash = Sha256::digest(api_key.as_bytes());
+        hex::encode(hash)
+    };
+
     let mut metadata = std::collections::HashMap::new();
     metadata.insert("email".to_string(), email.to_string());
     metadata.insert("plan".to_string(), plan.clone());
     metadata.insert("source".to_string(), "self-service-signup".to_string());
+    metadata.insert("api_key_hash".to_string(), api_key_hash);
 
     let now = chrono::Utc::now().to_rfc3339();
 
@@ -293,8 +303,10 @@ fn generate_tenant_id(org_name: &str) -> String {
     };
     let truncated = truncated.trim_end_matches('-');
 
-    // 6-char random hex suffix.
-    let mut suffix = [0u8; 3];
+    // SECURITY (R230-SRV-2): 16-char random hex suffix (64-bit entropy).
+    // Previously 6-char (24-bit) which gave ~50% collision at ~4096 signups
+    // with the same slug. 64-bit gives collision resistance past 2^32 signups.
+    let mut suffix = [0u8; 8];
     OsRng.fill_bytes(&mut suffix);
     let hex_suffix = hex::encode(suffix);
 
@@ -432,8 +444,8 @@ mod tests {
     fn test_tenant_id_long_name() {
         let long_name = "a".repeat(100);
         let id = generate_tenant_id(&long_name);
-        // 32 char slug + 1 hyphen + 6 hex = 39 chars max
-        assert!(id.len() <= 40);
+        // 32 char slug + 1 hyphen + 16 hex = 49 chars max (R230-SRV-2: 64-bit suffix)
+        assert!(id.len() <= 50);
     }
 
     #[test]
@@ -494,5 +506,21 @@ mod tests {
         assert!(free.max_policies < starter.max_policies);
         assert!(starter.max_policies < team.max_policies);
         assert!(team.max_policies < enterprise.max_policies);
+    }
+
+    /// R230-SRV-2: Tenant ID suffix is 16 hex chars (64-bit entropy).
+    #[test]
+    fn test_r230_tenant_id_suffix_is_64_bit() {
+        let id = generate_tenant_id("test-company");
+        // Format: slug-<16 hex chars>
+        let parts: Vec<&str> = id.rsplitn(2, '-').collect();
+        assert_eq!(parts.len(), 2, "ID should contain a hyphen");
+        let suffix = parts[0];
+        assert_eq!(suffix.len(), 16, "Suffix should be 16 hex chars (64-bit)");
+        assert!(
+            suffix.chars().all(|c| c.is_ascii_hexdigit()),
+            "Suffix should be hex: {}",
+            suffix
+        );
     }
 }
