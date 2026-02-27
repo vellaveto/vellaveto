@@ -337,6 +337,20 @@ impl AuditLogger {
             )));
         }
 
+        // R230-AUD-2: Validate metadata keys for control/format characters.
+        // Metadata keys appear in log output and SIEM queries — control chars
+        // enable log injection, Unicode format chars enable confusion attacks.
+        if let Some(obj) = metadata.as_object() {
+            for key in obj.keys() {
+                if vellaveto_types::has_dangerous_chars(key) {
+                    return Err(AuditError::Validation(format!(
+                        "Metadata key contains control or format characters (key starts with: '{}')",
+                        key.chars().take(32).collect::<String>()
+                    )));
+                }
+            }
+        }
+
         // Redact sensitive values based on configured redaction level
         let logged_action = match self.redaction_level {
             RedactionLevel::Off => action.clone(),

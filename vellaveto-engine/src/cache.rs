@@ -354,9 +354,8 @@ impl DecisionCache {
 
     /// Hash the identity components of an evaluation context.
     ///
-    /// Only hashes the stable, cacheable identity fields:
-    /// `agent_id` and `tenant_id`. If `agent_identity` is present,
-    /// its issuer and subject are included.
+    /// Hashes all identity-affecting fields: `agent_id`, `tenant_id`,
+    /// and the full `agent_identity` (issuer, subject, audience, claims).
     fn hash_identity(context: Option<&EvaluationContext>) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         match context {
@@ -375,6 +374,25 @@ impl DecisionCache {
                     2u8.hash(&mut hasher); // sentinel for identity present
                     identity.issuer.hash(&mut hasher);
                     identity.subject.hash(&mut hasher);
+                    // R230-ENG-2: Include audience and claims in cache key.
+                    // AgentIdentityMatch constraints check required_claims and
+                    // audience — different claims/audience must produce different
+                    // cache entries to prevent cross-identity cache collisions.
+                    identity.audience.len().hash(&mut hasher);
+                    for aud in &identity.audience {
+                        aud.hash(&mut hasher);
+                    }
+                    // Hash claims deterministically: sort by key
+                    let mut claim_keys: Vec<&String> = identity.claims.keys().collect();
+                    claim_keys.sort_unstable();
+                    claim_keys.len().hash(&mut hasher);
+                    for key in &claim_keys {
+                        key.hash(&mut hasher);
+                        // Hash the JSON string representation for Value
+                        if let Ok(val_str) = serde_json::to_string(&identity.claims[*key]) {
+                            val_str.hash(&mut hasher);
+                        }
+                    }
                 } else {
                     3u8.hash(&mut hasher); // sentinel for identity absent
                 }

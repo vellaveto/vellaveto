@@ -222,6 +222,11 @@ impl AuditLogger {
         // Timestamps must be non-decreasing to prevent audit log reordering
         // via clock tampering.
         let mut prev_timestamp: Option<&str> = None;
+        // R230-AUD-1: Track previous sequence for strict monotonicity.
+        // Sequence numbers are assigned via AtomicU64::fetch_add and must
+        // strictly increase. A regression indicates log tampering (deletion
+        // or reordering of entries).
+        let mut prev_sequence: Option<u64> = None;
 
         for (i, entry) in entries.iter().enumerate() {
             // SECURITY (R226-CROSS-1, R227-AUD-2): Verify timestamp ordering.
@@ -266,6 +271,28 @@ impl AuditLogger {
                 }
             }
             prev_timestamp = Some(&entry.timestamp);
+
+            // R230-AUD-1: Verify sequence monotonicity.
+            // sequence=0 is valid for legacy entries (pre-R33), so only check
+            // when the current entry has a non-zero sequence.
+            if entry.sequence > 0 {
+                if let Some(prev_seq) = prev_sequence {
+                    if entry.sequence <= prev_seq {
+                        tracing::warn!(
+                            entry_index = i,
+                            prev_seq = prev_seq,
+                            curr_seq = entry.sequence,
+                            "Audit chain sequence regression detected"
+                        );
+                        return Ok(ChainVerification {
+                            valid: false,
+                            entries_checked: i + 1,
+                            first_broken_at: Some(i),
+                        });
+                    }
+                }
+                prev_sequence = Some(entry.sequence);
+            }
 
             if entry.entry_hash.is_none() {
                 // Legacy entries are only allowed before the first hashed entry.

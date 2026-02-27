@@ -141,9 +141,14 @@ fn compute_dedup_key(
     sorted_paths.sort();
     let mut sorted_domains = action.target_domains.clone();
     sorted_domains.sort();
+    // R230-APPR-1: Normalize tool/function names through NFKC + lowercase +
+    // homoglyph mapping to prevent Unicode variants from bypassing dedup.
+    // E.g., "ﬁle_read" (fi ligature) and "file_read" must hash the same.
+    let norm_tool = vellaveto_types::unicode::normalize_identity(&action.tool);
+    let norm_func = vellaveto_types::unicode::normalize_identity(&action.function);
     let canonical = serde_json::json!({
-        "tool": action.tool,
-        "function": action.function,
+        "tool": norm_tool,
+        "function": norm_func,
         "parameters": action.parameters,
         "target_paths": sorted_paths,
         "target_domains": sorted_domains,

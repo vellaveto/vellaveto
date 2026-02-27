@@ -1046,10 +1046,24 @@ fn validate_origin(origin: &str, allowed_origins: &[String]) -> bool {
 ///
 /// If no API key is configured, all requests are allowed (development mode).
 async fn require_api_key(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    // R230-SRV-4: Reject TRACE/CONNECT methods explicitly (defense in depth).
+    // TRACE can reflect headers (XST attack, CVE-2004-2320); CONNECT is a
+    // tunneling method that has no legitimate use in an API server.
+    // Axum returns 405 for unrouted methods, but this catch is earlier
+    // (before auth, rate limiting, or logging), reducing attack surface.
+    let method = request.method().clone();
+    if method == Method::TRACE || method == Method::CONNECT {
+        return (
+            StatusCode::METHOD_NOT_ALLOWED,
+            "Method not allowed",
+        )
+            .into_response();
+    }
+
     // SECURITY: Only skip auth for CORS preflight (OPTIONS).
     // HEAD requests MUST go through auth — they can reveal endpoint existence,
     // response sizes, and header values (R30-SRV-1).
-    if request.method() == Method::OPTIONS {
+    if method == Method::OPTIONS {
         return next.run(request).await;
     }
 
