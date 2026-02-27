@@ -1403,4 +1403,76 @@ mod tests {
         );
         assert!(matches!(result, Err(DpopError::UnsupportedKeyType(_))));
     }
+
+    // ── R229 regression tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_r229_jwk_thumbprint_json_injection_rejected() {
+        // R229-SRV-1: JWK member values containing double quotes must be rejected.
+        let jwk = json!({
+            "kty": "EC",
+            "crv": "P-256",
+            "x": r#"foo","kty":"EC","x":"bar"#,
+            "y": "test"
+        });
+        let result = compute_jwk_thumbprint(&jwk);
+        assert!(result.is_err(), "JSON injection in JWK x should be rejected");
+    }
+
+    #[test]
+    fn test_r229_jwk_thumbprint_backslash_rejected() {
+        let jwk = json!({
+            "kty": "RSA",
+            "e": "AQAB",
+            "n": "test\\value"
+        });
+        let result = compute_jwk_thumbprint(&jwk);
+        assert!(result.is_err(), "Backslash in JWK n should be rejected");
+    }
+
+    #[test]
+    fn test_r229_jwk_thumbprint_clean_values_pass() {
+        let jwk = json!({
+            "kty": "EC",
+            "crv": "P-256",
+            "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+            "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
+        });
+        assert!(compute_jwk_thumbprint(&jwk).is_ok());
+    }
+
+    #[test]
+    fn test_r229_dpop_claims_nonce_dangerous_chars_rejected() {
+        // R229-SRV-2: nonce must reject dangerous characters.
+        let claims = DpopClaims {
+            jti: "test-jti".to_string(),
+            htm: "POST".to_string(),
+            htu: "https://example.com/api".to_string(),
+            iat: 1000,
+            nonce: Some("nonce\x00value".to_string()),
+            ath: None,
+        };
+        assert!(claims.validate().is_err());
+    }
+
+    #[test]
+    fn test_r229_dpop_claims_ath_dangerous_chars_rejected() {
+        let claims = DpopClaims {
+            jti: "test-jti".to_string(),
+            htm: "POST".to_string(),
+            htu: "https://example.com/api".to_string(),
+            iat: 1000,
+            nonce: None,
+            ath: Some("hash\u{200B}value".to_string()),
+        };
+        assert!(claims.validate().is_err());
+    }
+
+    #[test]
+    fn test_r229_dpop_header_deny_unknown_fields() {
+        // R229-SRV-4: DpopHeader rejects unknown fields.
+        let header_json = r#"{"typ":"dpop+jwt","alg":"ES256","jwk":{},"extra":"field"}"#;
+        let result: Result<DpopHeader, _> = serde_json::from_str(header_json);
+        assert!(result.is_err(), "Unknown field 'extra' should be rejected");
+    }
 }

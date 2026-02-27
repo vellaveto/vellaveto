@@ -201,6 +201,8 @@ impl SamlState {
         self.ensure_issuer(response, assertion)?;
         self.ensure_conditions(assertion)?;
         self.ensure_audience(assertion)?;
+        // SECURITY (R229-SRV-1): Validate SubjectConfirmation for bearer assertions.
+        self.ensure_subject_confirmation(assertion)?;
         Ok(self.claims_from_assertion(assertion))
     }
 
@@ -228,10 +230,10 @@ impl SamlState {
             )
         })?;
         if destination != self.acs_url {
-            return Err(IamError::Saml(format!(
-                "SAML response destination {} does not match ACS {}",
-                destination, self.acs_url
-            )));
+            // SECURITY (R229-SRV-7): Generic error — don't leak ACS URL or destination.
+            return Err(IamError::Saml(
+                "SAML response Destination does not match configured ACS URL".to_string(),
+            ));
         }
         Ok(())
     }
@@ -248,10 +250,10 @@ impl SamlState {
             .and_then(|node| node.text())
             .ok_or_else(|| IamError::Saml("SAML issuer missing".to_string()))?;
         if issuer != self.idp_entity_id {
-            return Err(IamError::Saml(format!(
-                "SAML issuer mismatch (expected {}, got {})",
-                self.idp_entity_id, issuer
-            )));
+            // SECURITY (R229-SRV-7): Generic error message — don't leak expected/got entity IDs.
+            return Err(IamError::Saml(
+                "SAML issuer does not match configured IdP entity".to_string(),
+            ));
         }
         Ok(())
     }
@@ -300,6 +302,64 @@ impl SamlState {
                 "SAML AudienceRestriction does not include {}",
                 self.entity_id
             )));
+        }
+        Ok(())
+    }
+
+    /// SECURITY (R229-SRV-1): Validate SubjectConfirmation per SAML 2.0 §2.4.1.
+    ///
+    /// For bearer assertions, SubjectConfirmationData must have:
+    /// - Recipient matching our ACS URL
+    /// - NotOnOrAfter that hasn't expired
+    /// Without this, an attacker can replay assertions or use cross-SP assertions.
+    fn ensure_subject_confirmation(&self, assertion: Node) -> Result<(), IamError> {
+        let subject = assertion
+            .descendants()
+            .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "Subject")))
+            .ok_or_else(|| {
+                IamError::Saml("SAML Subject element missing (fail-closed)".to_string())
+            })?;
+        let confirmation = subject
+            .descendants()
+            .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "SubjectConfirmation")))
+            .ok_or_else(|| {
+                IamError::Saml(
+                    "SAML SubjectConfirmation element missing (fail-closed)".to_string(),
+                )
+            })?;
+        // Require bearer method.
+        let method = confirmation.attribute("Method").unwrap_or("");
+        if method != "urn:oasis:names:tc:SAML:2.0:cm:bearer" {
+            return Err(IamError::Saml(
+                "SAML SubjectConfirmation Method is not bearer".to_string(),
+            ));
+        }
+        // SubjectConfirmationData is required for bearer.
+        let data = confirmation
+            .descendants()
+            .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "SubjectConfirmationData")))
+            .ok_or_else(|| {
+                IamError::Saml(
+                    "SAML SubjectConfirmationData missing for bearer assertion".to_string(),
+                )
+            })?;
+        // Validate Recipient matches our ACS URL.
+        if let Some(recipient) = data.attribute("Recipient") {
+            if recipient != self.acs_url {
+                return Err(IamError::Saml(
+                    "SAML SubjectConfirmationData Recipient mismatch".to_string(),
+                ));
+            }
+        }
+        // Validate NotOnOrAfter hasn't passed.
+        if let Some(not_on_or_after) = data.attribute("NotOnOrAfter") {
+            let timestamp = parse_saml_timestamp(not_on_or_after)?;
+            let now = Utc::now();
+            if now >= timestamp {
+                return Err(IamError::Saml(
+                    "SAML SubjectConfirmationData NotOnOrAfter has passed".to_string(),
+                ));
+            }
         }
         Ok(())
     }
@@ -353,6 +413,19 @@ impl SamlState {
             .children()
             .find(|node| node.has_tag_name((XMLDSIG_NS, "Reference")))
             .ok_or_else(|| IamError::Saml("SAML Reference missing".to_string()))?;
+        // SECURITY (R229-SRV-2): Validate Reference URI to prevent signature wrapping attacks.
+        // The URI must be empty (whole document) or "#" + assertion ID. Any other value means
+        // the signature covers a different element, enabling XML signature wrapping.
+        let ref_uri = reference.attribute("URI").unwrap_or("");
+        if !ref_uri.is_empty() {
+            let assertion_id = assertion.attribute("ID").unwrap_or("");
+            let expected_uri = format!("#{}", assertion_id);
+            if ref_uri != expected_uri {
+                return Err(IamError::Saml(
+                    "SAML Reference URI does not match Assertion ID".to_string(),
+                ));
+            }
+        }
         let digest_method = reference
             .children()
             .find(|node| node.has_tag_name((XMLDSIG_NS, "DigestMethod")))
@@ -539,8 +612,26 @@ impl IamState {
         (state_id, flow, authorize_url)
     }
 
+    /// Maximum number of concurrent login flows (prevents memory exhaustion).
+    ///
+    /// SECURITY (R229-SRV-6): Without a cap, an attacker can spray login initiations
+    /// to fill memory with flow states. Expired flows are cleaned up periodically,
+    /// but the gap between creation and cleanup is exploitable.
+    const MAX_FLOW_STATES: usize = 100_000;
+
+    /// Maximum number of active sessions.
+    const MAX_SESSIONS: usize = 500_000;
+
     /// Insert a login flow state. Returns the inserted state_id.
     fn store_flow(&self, state_id: String, flow: FlowState) {
+        // SECURITY (R229-SRV-6): Bound flow state count to prevent memory exhaustion.
+        if self.flow_states.len() >= Self::MAX_FLOW_STATES {
+            tracing::warn!(
+                max = Self::MAX_FLOW_STATES,
+                "Login flow state capacity reached, rejecting new flow"
+            );
+            return;
+        }
         self.flow_states.insert(state_id, flow);
     }
 
@@ -722,6 +813,14 @@ impl IamState {
             expires_at: now + Duration::from_secs(self.config.session.max_age_secs),
             last_activity: now,
         };
+        // SECURITY (R229-SRV-6): Bound session count to prevent memory exhaustion.
+        if self.sessions.len() >= Self::MAX_SESSIONS {
+            tracing::warn!(
+                max = Self::MAX_SESSIONS,
+                "Session capacity reached, rejecting new session creation"
+            );
+            return session;
+        }
         self.sessions.insert(session.id.clone(), session.clone());
         self.trim_sessions_for_subject(session.subject.as_deref());
         session
@@ -1714,23 +1813,47 @@ fn decode_base64(value: &str, context: &str) -> Result<Vec<u8>, IamError> {
         .map_err(|e| IamError::Saml(format!("{}: {}", context, e)))
 }
 
+/// Maximum decompressed SAML response size (10 MB).
+///
+/// SECURITY (R229-SRV-3): Prevents decompression bomb attacks where a small
+/// compressed payload expands to gigabytes, causing OOM.
+const MAX_SAML_DECOMPRESSED_SIZE: u64 = 10 * 1024 * 1024;
+
 fn decode_saml_response(encoded: &str) -> Result<String, IamError> {
     let decoded = STANDARD
         .decode(encoded)
         .map_err(|e| IamError::Saml(format!("Invalid SAML response encoding: {}", e)))?;
     if let Ok(text) = String::from_utf8(decoded.clone()) {
+        if text.len() as u64 > MAX_SAML_DECOMPRESSED_SIZE {
+            return Err(IamError::Saml(
+                "SAML response exceeds maximum allowed size".to_string(),
+            ));
+        }
         return Ok(text);
     }
+    // SECURITY (R229-SRV-3): Bound decompression via take() to prevent decompression bombs.
     let mut buffer = String::new();
-    let mut zlib_decoder = ZlibDecoder::new(Cursor::new(decoded.clone()));
+    let mut zlib_decoder = ZlibDecoder::new(Cursor::new(decoded.clone()))
+        .take(MAX_SAML_DECOMPRESSED_SIZE);
     if zlib_decoder.read_to_string(&mut buffer).is_ok() {
+        if buffer.len() as u64 >= MAX_SAML_DECOMPRESSED_SIZE {
+            return Err(IamError::Saml(
+                "SAML response exceeds maximum decompressed size".to_string(),
+            ));
+        }
         return Ok(buffer);
     }
     buffer.clear();
-    let mut deflate_decoder = DeflateDecoder::new(Cursor::new(decoded));
+    let mut deflate_decoder = DeflateDecoder::new(Cursor::new(decoded))
+        .take(MAX_SAML_DECOMPRESSED_SIZE);
     deflate_decoder
         .read_to_string(&mut buffer)
         .map_err(|e| IamError::Saml(format!("Failed to decompress SAML response: {}", e)))?;
+    if buffer.len() as u64 >= MAX_SAML_DECOMPRESSED_SIZE {
+        return Err(IamError::Saml(
+            "SAML response exceeds maximum decompressed size".to_string(),
+        ));
+    }
     Ok(buffer)
 }
 
@@ -1748,10 +1871,37 @@ const SAML_SP_METADATA_TEMPLATE: &str = r#"<?xml version="1.0"?>
   </SPSSODescriptor>
 </EntityDescriptor>"#;
 
+/// Escape XML special characters to prevent injection in SP metadata.
+///
+/// SECURITY (R229-SRV-5): Config values (entity_id, acs_url) are interpolated
+/// into XML attribute contexts. Without escaping, a malicious config value like
+/// `</EntityDescriptor><evil>` would break the XML structure.
+fn escape_xml_attr(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 fn build_saml_metadata(config: &SamlConfig) -> String {
+    // SECURITY (R229-SRV-5): Escape config values before interpolation into XML.
     SAML_SP_METADATA_TEMPLATE
-        .replace("{entity}", config.entity_id.as_deref().unwrap_or_default())
-        .replace("{acs}", config.acs_url.as_deref().unwrap_or_default())
+        .replace(
+            "{entity}",
+            &escape_xml_attr(config.entity_id.as_deref().unwrap_or_default()),
+        )
+        .replace(
+            "{acs}",
+            &escape_xml_attr(config.acs_url.as_deref().unwrap_or_default()),
+        )
 }
 
 // ═══════════════════════════════════════════════════════════════════

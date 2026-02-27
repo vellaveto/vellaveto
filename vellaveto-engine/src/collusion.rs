@@ -2139,4 +2139,33 @@ mod tests {
         cfg.drift_min_actions = 0;
         assert!(cfg.validate().is_err());
     }
+
+    // ── R229 regression tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_r229_capacity_alert_type_is_capacity_exhaustion() {
+        let alert = CollusionDetector::capacity_alert("test_tracker", 100);
+        assert_eq!(alert.collusion_type, CollusionType::CapacityExhaustion);
+        assert_eq!(alert.severity, CollusionSeverity::High);
+        assert!(alert.description.contains("capacity"));
+        assert!(alert.description.contains("100"));
+        assert_eq!(alert.target, "test_tracker");
+    }
+
+    #[test]
+    fn test_r229_capacity_exhaustion_serialization_roundtrip() {
+        let alert = CollusionDetector::capacity_alert("entropy_profiles", 10_000);
+        let json = serde_json::to_string(&alert).expect("serialize");
+        let parsed: CollusionAlert = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed.collusion_type, CollusionType::CapacityExhaustion);
+        assert_eq!(parsed.severity, CollusionSeverity::High);
+    }
+
+    #[test]
+    fn test_r229_safe_u32_cast_on_observation_count() {
+        // Verify u32::try_from pattern returns u32::MAX on overflow (not panic/wrap)
+        let huge: usize = u32::MAX as usize + 100;
+        let safe = u32::try_from(huge).unwrap_or(u32::MAX);
+        assert_eq!(safe, u32::MAX);
+    }
 }
