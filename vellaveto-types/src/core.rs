@@ -806,12 +806,8 @@ impl Policy {
                 self.id
             ));
         }
-        if self.priority < 0 {
-            return Err(format!(
-                "Policy '{}' priority must be non-negative, got {}",
-                self.id, self.priority
-            ));
-        }
+        // NOTE: Negative priorities are valid — they indicate lower precedence.
+        // The engine's 3-level deterministic tiebreaker handles priority ordering.
         // SECURITY (FIND-R49-003): Reject oversized Conditional conditions to prevent
         // memory exhaustion via deeply nested or excessively large JSON values.
         if let PolicyType::Conditional { ref conditions } = self.policy_type {

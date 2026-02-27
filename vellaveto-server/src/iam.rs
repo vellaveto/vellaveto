@@ -311,6 +311,7 @@ impl SamlState {
     /// For bearer assertions, SubjectConfirmationData must have:
     /// - Recipient matching our ACS URL
     /// - NotOnOrAfter that hasn't expired
+    ///
     /// Without this, an attacker can replay assertions or use cross-SP assertions.
     fn ensure_subject_confirmation(&self, assertion: Node) -> Result<(), IamError> {
         let subject = assertion
@@ -2246,6 +2247,9 @@ mod tests {
   <Issuer>{idp}</Issuer>
   <Subject>
     <NameID>{subject}</NameID>
+    <SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">
+      <SubjectConfirmationData NotOnOrAfter="{not_on_or_after}" Recipient="{acs}"/>
+    </SubjectConfirmation>
   </Subject>
   <Conditions NotBefore="{not_before}" NotOnOrAfter="{not_on_or_after}">
     <AudienceRestriction>
@@ -2401,6 +2405,7 @@ mod tests {
             .replace("{not_before}", &not_before)
             .replace("{not_on_or_after}", &not_on_or_after)
             .replace("{audience}", &saml_state.entity_id)
+            .replace("{acs}", &saml_state.acs_url)
             .replace("{role_attr}", &saml_state.role_attribute)
             .replace("{role_value}", TEST_ROLE_VALUE)
             .replace("{signed_info}", "{signed_info}")
