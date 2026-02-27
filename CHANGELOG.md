@@ -67,7 +67,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - **TI-2026-001 (P1):** JSON-RPC key case-folding smuggle defense (CVE-2026-27896) — reject `"Method"`, `"PARAMS"` etc. at framing layer. (`vellaveto-mcp/src/framing.rs`)
     - **TI-2026-004 (P1):** Tool output error message social engineering patterns (CyberArk "Poison Everywhere") — 10 new patterns: `provide contents of`, `try using the`, `provide your api key`, etc.
     - DPoP `htu` case-insensitive scheme matching fix (RFC 3986 §3.1).
-  - **21 new tests. 8,677 Rust tests passing, 0 failures, 0 warnings.**
+  - **Sprint 3 — 2 MEDIUM + 3 LOW:**
+    - **R230-ENG-4 (LOW):** Deny reasons leaked internal glob patterns, domain patterns, CIDR ranges, and circuit breaker failure counts/timing to API clients. Genericized all deny messages; details logged server-side at debug level. Covers `rule_check.rs`, `legacy.rs`, `circuit_breaker.rs`.
+    - **R230-MCP-1 (MEDIUM):** `InjectionScanner::from_config()` doc comment clarified: documents two reasons for `None` return (all patterns disabled vs. compilation failure). Resolves R228-CFG-1 doc debt.
+    - **R230-SRV-5 (LOW):** SAML base64 decoding now padding-indifferent via `DecodePaddingMode::Indifferent`. Handles IdPs that emit unpadded certificates/responses.
+    - **R230-SRV-6 (LOW):** Added timestamp precision tests (fractional seconds, timezone variants). Confirmed chrono handles all RFC 3339 variants correctly.
+    - **R230-ENG-3 (MEDIUM):** Triaged safe — decision cache not wired into evaluation flow; context-dependent verdicts never cached.
+  - **29 new tests total. 8,707 Rust tests passing, 0 failures, 0 warnings.**
 
 - **Adversarial Audit Round 229 (9 adversarial + additional hardening):**
   Full-codebase adversarial security audit with parallel threat intelligence sweep (9 CVEs, Promptware Kill Chain, Parasitic Toolchain research).

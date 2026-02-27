@@ -4,7 +4,7 @@
 > **State:** v6.0.0-dev (Phases 1–66 complete, 230 audit rounds)
 > **Version:** 6.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 8,702 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
+> **Tests:** 8,707 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
 > **Updated:** 2026-02-27
 
 ---
