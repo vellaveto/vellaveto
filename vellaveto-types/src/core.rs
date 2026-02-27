@@ -177,7 +177,7 @@ pub fn validate_url_no_ssrf(url: &str) -> Result<(), String> {
     // RFC 1034 §3.1 permits FQDN trailing dots; "localhost." resolves to 127.0.0.1.
     let host_stripped = host.trim_end_matches('.');
     let loopbacks = ["localhost", "127.0.0.1", "::1", "0.0.0.0"];
-    if loopbacks.iter().any(|lb| host_stripped == *lb) {
+    if loopbacks.contains(&host_stripped) {
         return Err(format!(
             "must not target localhost/loopback, got '{}'",
             host

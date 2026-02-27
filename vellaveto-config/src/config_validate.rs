@@ -486,7 +486,7 @@ impl PolicyConfig {
                 // SECURITY (R228-TYP-3): Strip trailing DNS dot before loopback check.
                 let host_stripped = host_for_check.trim_end_matches('.');
                 let loopbacks = ["localhost", "127.0.0.1", "[::1]", "0.0.0.0"];
-                if loopbacks.iter().any(|lb| host_stripped == *lb) {
+                if loopbacks.contains(&host_stripped) {
                     return Err(format!(
                         "audit_export.webhook_url must not target localhost/loopback, got '{}'",
                         host
