@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Topology Runtime Wiring (TopologyCrawler + RecrawlScheduler):**
+  Wire the discovery crate's topology pipeline into the server lifecycle for live topology management.
+  - **`StaticProbe`** — In-memory `McpServerProbe` implementation backed by `RwLock<Vec<StaticServerDecl>>`, fed by relay-intercepted `tools/list` responses. Supports `upsert_server()` and `remove_server()` for dynamic updates.
+  - **`TopologyGraph::to_static()`** — Round-trip reconstitution of `StaticServerDecl` from graph nodes, enabling incremental merge without full rebuild.
+  - **`TopologyGuard::upsert_server()`** — Incremental single-server update (read → merge → rebuild → swap) for live topology updates from relay intercepts.
+  - **Relay intercept** — `ProxyBridge` gains `topology_guard` field + `with_topology_guard()` builder. `handle_tools_list_response` now parses MCP `tools/list` JSON and upserts into the guard via `build_server_decl_from_tools_list()` helper.
+  - **RecrawlScheduler lifecycle** — `StaticProbe` → `TopologyCrawler` → `RecrawlScheduler` spawned as background task with `CancellationToken` for graceful shutdown on server exit.
+  - **REST endpoints** — `GET /api/topology` (snapshot), `GET /api/topology/status` (guard status), `POST /api/topology/recrawl` (trigger immediate re-crawl), `DELETE /api/topology/servers/:name` (remove server + re-crawl).
+  - **AppState fields** — `topology_probe` and `recrawl_trigger` added for runtime access.
+  - 25 new tests (11 StaticProbe, 5 to_static round-trip, 4 upsert_server, 5 integration). **8,671 Rust tests passing, 0 failures.**
+
 ### Security
 
 - **Adversarial Audit Round 229 (40 findings — 17 HIGH, 21 MEDIUM, 2 LOW):**
