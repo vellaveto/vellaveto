@@ -147,6 +147,7 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
+        topology_guard: None,
     };
     (state, tmp)
 }

@@ -8,6 +8,7 @@ members = [
     "vellaveto-mcp",
     "vellaveto-canonical",
     "vellaveto-config",
+    "vellaveto-discovery",
     "vellaveto-cluster",
     "vellaveto-integration",
     "vellaveto-server",

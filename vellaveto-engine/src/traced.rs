@@ -40,6 +40,20 @@ impl PolicyEngine {
                 .unwrap_or_default(),
         };
 
+        // Topology pre-filter: check if the tool exists in the topology graph.
+        #[cfg(feature = "discovery")]
+        if let Some(deny) = self.check_topology(action) {
+            let trace = EvaluationTrace {
+                action_summary,
+                policies_checked: 0,
+                policies_matched: 0,
+                matches: vec![],
+                verdict: deny.clone(),
+                duration_us: start.elapsed().as_micros() as u64,
+            };
+            return Ok((deny, trace));
+        }
+
         if self.compiled_policies.is_empty() {
             let verdict = Verdict::Deny {
                 reason: "No policies defined".to_string(),

@@ -42,6 +42,7 @@ pub mod policy_lifecycle;
 pub mod policy_rule;
 pub mod projector;
 pub mod tool_registry;
+pub mod topology;
 pub mod zk_audit;
 
 pub mod bulk;
@@ -142,6 +143,7 @@ pub use policy_lifecycle::PolicyLifecycleConfig;
 pub use policy_rule::PolicyRule;
 pub use projector::ProjectorConfig;
 pub use tool_registry::ToolRegistryConfig;
+pub use topology::TopologyConfig;
 pub use transport::TransportConfig;
 pub use zk_audit::ZkAuditConfig;
 
@@ -568,6 +570,15 @@ pub struct PolicyConfig {
     /// and enforces hard evaluation quotas by license tier.
     #[serde(default)]
     pub metering: MeteringConfig,
+
+    // ═══════════════════════════════════════════════════
+    // TOPOLOGY CRAWLING (ActionEngine-inspired)
+    // ═══════════════════════════════════════════════════
+    /// Topology crawling configuration for live MCP server discovery.
+    /// When enabled, periodically probes MCP servers to build a topology
+    /// graph used for pre-policy tool call filtering.
+    #[serde(default)]
+    pub topology: TopologyConfig,
 }
 
 impl PolicyConfig {

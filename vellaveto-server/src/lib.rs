@@ -984,6 +984,14 @@ pub struct AppState {
     pub cached_instance_id: Arc<String>,
 
     // ═══════════════════════════════════════════════════════════════════
+    // Topology Crawling (ActionEngine-inspired live discovery)
+    // ═══════════════════════════════════════════════════════════════════
+    /// Topology guard for pre-policy tool call filtering.
+    /// When set, tool calls are checked against the live topology graph
+    /// before policy evaluation. None when topology crawling is disabled.
+    pub topology_guard: Option<Arc<vellaveto_discovery::guard::TopologyGuard>>,
+
+    // ═══════════════════════════════════════════════════════════════════
     // Phase 34: Tool Discovery Service
     // ═══════════════════════════════════════════════════════════════════
     /// Tool discovery engine for intent-based tool search.
@@ -1293,6 +1301,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             audit_store: Default::default(),
             policy_lifecycle: Default::default(),
             metering: Default::default(),
+            topology: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

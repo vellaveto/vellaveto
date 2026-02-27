@@ -6,8 +6,13 @@ edition = "2021"
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+discovery = ["dep:vellaveto-discovery"]
+
 [dependencies]
 vellaveto-types = { path = "../vellaveto-types" }
+vellaveto-discovery = { path = "../vellaveto-discovery", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

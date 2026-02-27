@@ -443,6 +443,7 @@ mod server_auth {
             policy_lifecycle_config: Default::default(),
             staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
             usage_tracker: None,
+            topology_guard: None,
         };
         (state, tmp)
     }
@@ -631,6 +632,7 @@ mod server_auth {
             policy_lifecycle_config: Default::default(),
             staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
             usage_tracker: None,
+            topology_guard: None,
         };
         let app = routes::build_router(state);
 
@@ -1285,6 +1287,7 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         policy_lifecycle_config: Default::default(),
         staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
+        topology_guard: None,
     };
 
     let app = routes::build_router(state);
@@ -1439,6 +1442,7 @@ async fn finding_12_approval_creation_failure_denies_request() {
         policy_lifecycle_config: Default::default(),
         staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
+        topology_guard: None,
     };
 
     let app = routes::build_router(state);
@@ -1936,6 +1940,7 @@ async fn find_r46_it003_malformed_json_request_body_rejected() {
         policy_lifecycle_config: Default::default(),
         staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
+        topology_guard: None,
     };
 
     // Test 1: Completely invalid JSON

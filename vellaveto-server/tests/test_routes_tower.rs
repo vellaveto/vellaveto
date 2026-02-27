@@ -134,6 +134,7 @@ fn make_state() -> (AppState, TempDir) {
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
+        topology_guard: None,
     };
     (state, tmp)
 }
@@ -228,6 +229,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
+        topology_guard: None,
     };
     (state, tmp)
 }
@@ -1370,6 +1372,7 @@ priority = 1
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
+        topology_guard: None,
     };
     let app = routes::build_router(state.clone());
 
@@ -1529,6 +1532,7 @@ fn make_approval_state() -> (AppState, TempDir) {
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
+        topology_guard: None,
     };
     (state, tmp)
 }
@@ -2049,6 +2053,7 @@ fn make_authed_state() -> (AppState, TempDir) {
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
+        topology_guard: None,
     };
     (state, tmp)
 }
@@ -2666,6 +2671,7 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
+        topology_guard: None,
     };
     (state, tmp)
 }
@@ -3411,6 +3417,7 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         policy_lifecycle_config: Default::default(),
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
+        topology_guard: None,
     };
     (state, tmp)
 }

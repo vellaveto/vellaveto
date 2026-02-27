@@ -14,7 +14,7 @@ path = "src/main.rs"
 default = ["discovery", "projector"]
 redis-backend = ["vellaveto-cluster/redis-backend"]
 observability-exporters = ["vellaveto-audit/observability-exporters"]
-discovery = ["vellaveto-mcp/discovery"]
+discovery = ["vellaveto-mcp/discovery", "vellaveto-engine/discovery"]
 projector = ["vellaveto-mcp/projector"]
 postgres-store = ["vellaveto-audit/postgres-store", "dep:sqlx"]
 
@@ -27,6 +27,7 @@ vellaveto-canonical = { path = "../vellaveto-canonical" }
 vellaveto-config = { path = "../vellaveto-config" }
 vellaveto-approval = { path = "../vellaveto-approval" }
 vellaveto-cluster = { path = "../vellaveto-cluster" }
+vellaveto-discovery = { path = "../vellaveto-discovery" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -1,0 +1,24 @@
+[package]
+name = "vellaveto-discovery"
+version = "0.1.0"
+description = "MCP tool topology crawling and verification for VellaVeto"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+vellaveto-types = { path = "../vellaveto-types" }
+vellaveto-canonical = { path = "../vellaveto-canonical" }
+petgraph = "0.7"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { version = "1", features = ["time", "sync", "rt", "macros"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+sha2 = "0.10"
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest = "1.4"

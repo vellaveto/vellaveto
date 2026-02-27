@@ -96,12 +96,20 @@ pub struct PolicyEngine {
     /// via [`domain::normalize_domain_for_match`]. The eviction guard exists
     /// as a defense-in-depth measure for future caching additions.
     domain_norm_cache: RwLock<HashMap<String, Option<String>>>,
+    /// Optional topology guard for pre-policy tool call filtering.
+    /// When set, tool calls are checked against the live topology graph
+    /// before policy evaluation. Unknown tools may be denied or trigger
+    /// a re-crawl depending on configuration.
+    ///
+    /// Only available when the `discovery` feature is enabled.
+    #[cfg(feature = "discovery")]
+    topology_guard: Option<std::sync::Arc<vellaveto_discovery::guard::TopologyGuard>>,
 }
 
 impl std::fmt::Debug for PolicyEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PolicyEngine")
-            .field("strict_mode", &self.strict_mode)
+        let mut s = f.debug_struct("PolicyEngine");
+        s.field("strict_mode", &self.strict_mode)
             .field("compiled_policies_count", &self.compiled_policies.len())
             .field("indexed_tools", &self.tool_index.len())
             .field("always_check_count", &self.always_check.len())
@@ -124,8 +132,12 @@ impl std::fmt::Debug for PolicyEngine {
                     .read()
                     .map(|c| c.len())
                     .unwrap_or_default(),
-            )
-            .finish()
+            );
+        #[cfg(feature = "discovery")]
+        {
+            s.field("topology_guard", &self.topology_guard.is_some());
+        }
+        s.finish()
     }
 }
 
@@ -145,6 +157,8 @@ impl PolicyEngine {
             glob_matcher_cache: RwLock::new(HashMap::with_capacity(256)),
             // IMP-R208-001: Zero initial capacity — cache not actively populated.
             domain_norm_cache: RwLock::new(HashMap::new()),
+            #[cfg(feature = "discovery")]
+            topology_guard: None,
         }
     }
 
@@ -188,6 +202,8 @@ impl PolicyEngine {
             glob_matcher_cache: RwLock::new(HashMap::with_capacity(256)),
             // IMP-R208-001: Zero initial capacity — cache not actively populated.
             domain_norm_cache: RwLock::new(HashMap::new()),
+            #[cfg(feature = "discovery")]
+            topology_guard: None,
         })
     }
 
@@ -198,6 +214,54 @@ impl PolicyEngine {
     #[cfg(test)]
     pub fn set_trust_context_timestamps(&mut self, trust: bool) {
         self.trust_context_timestamps = trust;
+    }
+
+    /// Set the topology guard for pre-policy tool call filtering.
+    ///
+    /// When set, `evaluate_action` checks the tool against the topology graph
+    /// before policy evaluation. Unknown tools produce `Verdict::Deny` with a
+    /// topology-specific reason, unless the guard returns `Bypassed`.
+    #[cfg(feature = "discovery")]
+    pub fn set_topology_guard(
+        &mut self,
+        guard: std::sync::Arc<vellaveto_discovery::guard::TopologyGuard>,
+    ) {
+        self.topology_guard = Some(guard);
+    }
+
+    /// Check the topology guard (if set) before policy evaluation.
+    ///
+    /// Returns `Some(Verdict::Deny)` if the tool is unknown or ambiguous
+    /// and the guard is configured to block. Returns `None` to proceed
+    /// with normal policy evaluation.
+    #[cfg(feature = "discovery")]
+    fn check_topology(&self, action: &Action) -> Option<Verdict> {
+        let guard = self.topology_guard.as_ref()?;
+        let tool_name = &action.tool;
+        match guard.check(tool_name) {
+            vellaveto_discovery::guard::TopologyVerdict::Known { .. } => None,
+            vellaveto_discovery::guard::TopologyVerdict::Bypassed => None,
+            vellaveto_discovery::guard::TopologyVerdict::Unknown { suggestion, .. } => {
+                let reason = if let Some(closest) = suggestion {
+                    format!(
+                        "Tool '{}' not found in topology graph (did you mean '{}'?)",
+                        tool_name, closest
+                    )
+                } else {
+                    format!("Tool '{}' not found in topology graph", tool_name)
+                };
+                Some(Verdict::Deny { reason })
+            }
+            vellaveto_discovery::guard::TopologyVerdict::Ambiguous { matches, .. } => {
+                Some(Verdict::Deny {
+                    reason: format!(
+                        "Tool '{}' is ambiguous — matches servers: {}. Use qualified name (server::tool).",
+                        tool_name,
+                        matches.join(", ")
+                    ),
+                })
+            }
+        }
     }
 
     /// Set the maximum percent-decoding iterations for path normalization.
@@ -280,6 +344,13 @@ impl PolicyEngine {
         action: &Action,
         policies: &[Policy],
     ) -> Result<Verdict, EngineError> {
+        // Topology pre-filter: check if the tool exists in the topology graph.
+        // Unknown/ambiguous tools are denied before policy evaluation.
+        #[cfg(feature = "discovery")]
+        if let Some(deny) = self.check_topology(action) {
+            return Ok(deny);
+        }
+
         // Fast path: use pre-compiled policies (zero Mutex, zero runtime compilation)
         if !self.compiled_policies.is_empty() {
             return self.evaluate_with_compiled(action);
@@ -394,6 +465,12 @@ impl PolicyEngine {
         policies: &[Policy],
         context: Option<&EvaluationContext>,
     ) -> Result<Verdict, EngineError> {
+        // Topology pre-filter: check if the tool exists in the topology graph.
+        #[cfg(feature = "discovery")]
+        if let Some(deny) = self.check_topology(action) {
+            return Ok(deny);
+        }
+
         // SECURITY (FIND-R50-063): Validate context bounds before evaluation.
         // Without this, crafted EvaluationContext with >10K previous_actions
         // bypasses the bounds checks and causes unbounded CPU/memory usage.
@@ -434,6 +511,30 @@ impl PolicyEngine {
         action: &Action,
         context: Option<&EvaluationContext>,
     ) -> Result<(Verdict, EvaluationTrace), EngineError> {
+        // Topology pre-filter: check if the tool exists in the topology graph.
+        #[cfg(feature = "discovery")]
+        if let Some(deny) = self.check_topology(action) {
+            let param_keys: Vec<String> = action
+                .parameters
+                .as_object()
+                .map(|o| o.keys().cloned().collect::<Vec<String>>())
+                .unwrap_or_default();
+            let trace = EvaluationTrace {
+                action_summary: ActionSummary {
+                    tool: action.tool.clone(),
+                    function: action.function.clone(),
+                    param_count: param_keys.len(),
+                    param_keys,
+                },
+                policies_checked: 0,
+                policies_matched: 0,
+                matches: vec![],
+                verdict: deny.clone(),
+                duration_us: 0,
+            };
+            return Ok((deny, trace));
+        }
+
         // SECURITY (FIND-R50-063): Validate context bounds before evaluation.
         if let Some(ctx) = context {
             if let Err(reason) = ctx.validate() {

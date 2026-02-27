@@ -641,7 +641,7 @@ async fn cmd_serve(
     // compilation failure. The legacy evaluation path bypasses path_rules,
     // network_rules, and context_conditions — silently degrading to it would
     // drop all advanced security constraints. Matches vellaveto-http-proxy behavior.
-    let engine = match PolicyEngine::with_policies(false, &policies) {
+    let mut engine = match PolicyEngine::with_policies(false, &policies) {
         Ok(mut compiled) => {
             if let Some(max_iter) = policy_config.max_path_decode_iterations {
                 compiled.set_max_path_decode_iterations(max_iter);
@@ -766,6 +766,25 @@ async fn cmd_serve(
             let backend = vellaveto_cluster::local::LocalBackend::new(approvals.clone());
             tracing::info!("Cluster backend: local (single-instance mode)");
             Some(Arc::new(backend))
+        } else {
+            None
+        };
+
+    // Initialize topology guard for pre-policy tool filtering.
+    let topology_guard: Option<Arc<vellaveto_discovery::guard::TopologyGuard>> =
+        if policy_config.topology.enabled {
+            let guard = Arc::new(vellaveto_discovery::guard::TopologyGuard::new());
+            // Wire topology guard into the policy engine for pre-evaluation filtering.
+            #[cfg(feature = "discovery")]
+            {
+                engine.set_topology_guard(Arc::clone(&guard));
+            }
+            tracing::info!(
+                "Topology guard enabled (recrawl_interval={}s, fallback_mode={})",
+                policy_config.topology.recrawl_interval_secs,
+                policy_config.topology.fallback_mode,
+            );
+            Some(guard)
         } else {
             None
         };
@@ -1081,6 +1100,9 @@ async fn cmd_serve(
 
         // SECURITY (FIND-P27-004): Resolve instance ID once at startup.
         cached_instance_id: Arc::new(policy_config.deployment.effective_instance_id()),
+
+        // Topology Crawling (ActionEngine-inspired live discovery)
+        topology_guard,
 
         // Phase 34: Tool Discovery Service
         discovery_engine: if policy_config.discovery.enabled {
@@ -1922,6 +1944,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         audit_store: Default::default(),
         policy_lifecycle: Default::default(),
         metering: Default::default(),
+        topology: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

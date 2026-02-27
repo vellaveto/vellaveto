@@ -1569,6 +1569,9 @@ impl PolicyConfig {
         // Discovery configuration bounds (Phase 34)
         self.discovery.validate()?;
 
+        // Topology crawling configuration bounds
+        self.topology.validate()?;
+
         // Projector configuration bounds (Phase 35.1)
         self.projector.validate()?;
 
