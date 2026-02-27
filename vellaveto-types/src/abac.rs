@@ -424,13 +424,37 @@ impl AbacEntity {
     pub const MAX_ATTRIBUTES: usize = 256;
     /// Maximum length for a single parent ID entry.
     const MAX_PARENT_ID_LEN: usize = 256;
+    /// R228-TYP-2: Maximum length for entity_type field.
+    const MAX_ENTITY_TYPE_LEN: usize = 256;
+    /// R228-TYP-2: Maximum length for entity id field.
+    const MAX_ENTITY_ID_LEN: usize = 512;
+    /// R228-TYP-2: Maximum length for a single attribute key.
+    const MAX_ATTR_KEY_LEN: usize = 256;
+    /// R228-TYP-2: Maximum serialized size for a single attribute value.
+    const MAX_ATTR_VALUE_SIZE: usize = 65_536;
 
     /// Validate bounds on deserialized data.
     ///
     /// SECURITY (FIND-R48-004): Unbounded parents and attributes from deserialization.
     /// SECURITY (FIND-R115-006): Validate control/format chars on entity_type and id.
     /// SECURITY (FIND-R216-005): Per-entry validation on parents.
+    /// SECURITY (R228-TYP-2): Length bounds on entity_type, id, and attribute keys/values.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (R228-TYP-2): Length bounds on entity_type and id.
+        if self.entity_type.len() > Self::MAX_ENTITY_TYPE_LEN {
+            return Err(format!(
+                "AbacEntity entity_type length {} exceeds max {}",
+                self.entity_type.len(),
+                Self::MAX_ENTITY_TYPE_LEN
+            ));
+        }
+        if self.id.len() > Self::MAX_ENTITY_ID_LEN {
+            return Err(format!(
+                "AbacEntity id length {} exceeds max {}",
+                self.id.len(),
+                Self::MAX_ENTITY_ID_LEN
+            ));
+        }
         // SECURITY (FIND-R115-006): Reject control/format chars in identity fields.
         if crate::core::has_dangerous_chars(&self.entity_type) {
             return Err(format!(
@@ -480,6 +504,29 @@ impl AbacEntity {
                 self.attributes.len(),
                 Self::MAX_ATTRIBUTES
             ));
+        }
+        // SECURITY (R228-TYP-2): Per-key length, dangerous char, and per-value size checks.
+        for (key, value) in &self.attributes {
+            if key.len() > Self::MAX_ATTR_KEY_LEN {
+                return Err(format!(
+                    "AbacEntity '{}::{}' attribute key length {} exceeds max {}",
+                    self.entity_type, self.id, key.len(), Self::MAX_ATTR_KEY_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(key) {
+                return Err(format!(
+                    "AbacEntity '{}::{}' attribute key contains control or format characters",
+                    self.entity_type, self.id,
+                ));
+            }
+            // Bound serialized value size to prevent memory amplification.
+            let val_size = serde_json::to_string(value).map(|s| s.len()).unwrap_or(0);
+            if val_size > Self::MAX_ATTR_VALUE_SIZE {
+                return Err(format!(
+                    "AbacEntity '{}::{}' attribute '{}' value size {} exceeds max {}",
+                    self.entity_type, self.id, key, val_size, Self::MAX_ATTR_VALUE_SIZE,
+                ));
+            }
         }
         Ok(())
     }

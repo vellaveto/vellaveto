@@ -10,8 +10,8 @@ use crate::error::EngineError;
 use crate::PolicyEngine;
 use std::time::Instant;
 use vellaveto_types::{
-    unicode::normalize_homoglyphs, Action, ActionSummary, ConstraintResult, EvaluationContext,
-    EvaluationTrace, Policy, PolicyMatch, PolicyType, Verdict,
+    Action, ActionSummary, ConstraintResult, EvaluationContext, EvaluationTrace, Policy,
+    PolicyMatch, PolicyType, Verdict,
 };
 
 impl PolicyEngine {
@@ -74,8 +74,8 @@ impl PolicyEngine {
         // characters from bypassing exact-match Deny policies. Patterns are normalized
         // at compile time; input must be normalized at evaluation time for consistency.
         // Matches the normalization in evaluate_with_compiled().
-        let norm_tool = normalize_homoglyphs(&action.tool);
-        let norm_func = normalize_homoglyphs(&action.function);
+        let norm_tool = crate::normalize::normalize_full(&action.tool);
+        let norm_func = crate::normalize::normalize_full(&action.function);
 
         // Walk compiled policies using the tool index (same order as evaluate_with_compiled)
         let indices = self.collect_candidate_indices_normalized(&norm_tool);
@@ -178,8 +178,8 @@ impl PolicyEngine {
         }
 
         // SECURITY (FIND-R206-001): Normalize for homoglyph-safe matching.
-        let norm_tool = normalize_homoglyphs(&action.tool);
-        let norm_func = normalize_homoglyphs(&action.function);
+        let norm_tool = crate::normalize::normalize_full(&action.tool);
+        let norm_func = crate::normalize::normalize_full(&action.function);
 
         let indices = self.collect_candidate_indices_normalized(&norm_tool);
         let mut policy_matches: Vec<PolicyMatch> = Vec::with_capacity(indices.len());

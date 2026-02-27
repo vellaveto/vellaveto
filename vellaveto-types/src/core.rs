@@ -30,11 +30,20 @@ const MAX_PARAMETERS_SIZE: usize = 1_048_576;
 pub fn is_unicode_format_char(c: char) -> bool {
     matches!(c,
         '\u{00AD}'              |  // soft hyphen
+        '\u{0600}'..='\u{0605}' |  // R228-TYP-1: Arabic number/sign marks (Cf)
+        '\u{061C}'              |  // R228-TYP-1: Arabic Letter Mark (invisible bidi)
+        '\u{06DD}'              |  // R228-TYP-1: Arabic End of Ayah (Cf)
+        '\u{070F}'              |  // R228-TYP-1: Syriac Abbreviation Mark (Cf)
+        '\u{0890}'..='\u{0891}' |  // R228-TYP-1: Arabic Pound/Piastre Mark (Cf, Unicode 15.0+)
+        '\u{08E2}'              |  // R228-TYP-1: Arabic Disputed End of Ayah (Cf)
         '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
         '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
         '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
         '\u{FEFF}'              |  // BOM / zero-width no-break space
         '\u{FFF9}'..='\u{FFFB}' |  // interlinear annotation anchors
+        '\u{110BD}'             |  // R228-TYP-1: Kaithi Number Sign (Cf)
+        '\u{110CD}'             |  // R228-TYP-1: Kaithi Number Sign Above (Cf)
+        '\u{1D173}'..='\u{1D17A}' | // R228-TYP-1: Musical Symbol format chars (Cf)
         '\u{E0001}'..='\u{E007F}'  // TAG characters
     )
 }
@@ -164,9 +173,11 @@ pub fn validate_url_no_ssrf(url: &str) -> Result<(), String> {
         return Err("has no host".to_string());
     }
 
-    // Reject localhost/loopback hostnames
+    // SECURITY (R228-TYP-3): Strip trailing DNS dot before loopback check.
+    // RFC 1034 §3.1 permits FQDN trailing dots; "localhost." resolves to 127.0.0.1.
+    let host_stripped = host.trim_end_matches('.');
     let loopbacks = ["localhost", "127.0.0.1", "::1", "0.0.0.0"];
-    if loopbacks.iter().any(|lb| host == *lb) {
+    if loopbacks.iter().any(|lb| host_stripped == *lb) {
         return Err(format!(
             "must not target localhost/loopback, got '{}'",
             host

@@ -75,6 +75,10 @@ pub struct RateLimiterStats {
     pub anomaly_count: usize,
 }
 
+/// Maximum number of tracked entities to bound memory (R228-ENG-7).
+/// Beyond this limit, new entities are denied (fail-closed).
+const MAX_TRACKED_ENTITIES: usize = 100_000;
+
 /// Adaptive rate limiter that adjusts per-entity thresholds.
 ///
 /// Entities are identified by string key (e.g., agent_id, tenant_id, tool name).
@@ -102,6 +106,13 @@ impl AdaptiveRateLimiter {
         let now = Instant::now();
         let base_rate = self.config.base_rate_per_minute;
         let window_size = self.config.window_size;
+
+        // SECURITY (R228-ENG-7): Bound the number of tracked entities to prevent
+        // memory exhaustion from attacker-controlled entity_id proliferation.
+        // Fail-closed: new unknown entities are denied when at capacity.
+        if !self.states.contains_key(entity_id) && self.states.len() >= MAX_TRACKED_ENTITIES {
+            return RateDecision::Deny;
+        }
 
         let state = self
             .states

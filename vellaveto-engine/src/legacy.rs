@@ -49,12 +49,12 @@ impl PolicyEngine {
     /// which delegates to [`PatternMatcher::compile`] and treats unsupported infix
     /// wildcards as match-all (fail-closed).
     fn match_pattern(&self, pattern: &str, value: &str) -> bool {
-        // SECURITY (FIND-R206-003): Normalize both pattern and value through
-        // homoglyph normalization to prevent Cyrillic/Greek/fullwidth characters
-        // from bypassing legacy Deny policies. This matches the normalization
-        // applied in PatternMatcher::compile() for the compiled path.
-        let norm_pattern = vellaveto_types::unicode::normalize_homoglyphs(pattern);
-        let norm_value = vellaveto_types::unicode::normalize_homoglyphs(value);
+        // SECURITY (FIND-R206-003, R228-ENG-1): Normalize both pattern and value
+        // through the full pipeline (NFKC + lowercase + homoglyph mapping) to
+        // prevent Cyrillic/Greek/fullwidth/circled characters from bypassing legacy
+        // Deny policies. Parity with PatternMatcher::compile() (normalize_full).
+        let norm_pattern = crate::normalize::normalize_full(pattern);
+        let norm_value = crate::normalize::normalize_full(value);
 
         if norm_pattern == "*" {
             return true;

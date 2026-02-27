@@ -6,7 +6,7 @@
 use crate::matcher::PatternMatcher;
 use std::collections::{HashMap, HashSet};
 use vellaveto_types::{
-    is_unicode_format_char, unicode::normalize_homoglyphs, AbacEffect, AbacEntity, AbacOp,
+    is_unicode_format_char, AbacEffect, AbacEntity, AbacOp,
     AbacPolicy, Action, EvaluationContext, RiskScore,
 };
 
@@ -557,13 +557,13 @@ fn matches_principal(
     ctx: &AbacEvalContext<'_>,
     entity_store: &EntityStore,
 ) -> bool {
-    // SECURITY (FIND-R215-007): Normalize both required_type and ctx.principal_type
-    // through lowercase + normalize_homoglyphs() to prevent Cyrillic/fullwidth
+    // SECURITY (FIND-R215-007, R228-ENG-2): Normalize both required_type and ctx.principal_type
+    // through normalize_full() (NFKC + lowercase + homoglyphs) to prevent circled/fullwidth
     // characters from bypassing principal type matching in ABAC policies.
     // Type check
     if let Some(ref required_type) = principal.principal_type {
-        let norm_required = normalize_homoglyphs(&required_type.to_lowercase());
-        let norm_ctx_type = normalize_homoglyphs(&ctx.principal_type.to_lowercase());
+        let norm_required = crate::normalize::normalize_full(required_type);
+        let norm_ctx_type = crate::normalize::normalize_full(&ctx.principal_type);
         if norm_required != norm_ctx_type {
             // Check group membership: maybe this principal is a member of the required type
             let entity_key = format!("{}::{}", ctx.principal_type, ctx.principal_id);
@@ -574,13 +574,13 @@ fn matches_principal(
         }
     }
 
-    // SECURITY (FIND-R215-004): Normalize principal_id through normalize_homoglyphs()
+    // SECURITY (FIND-R215-004, R228-ENG-2): Normalize principal_id through normalize_full()
     // before matching against compiled id_matchers. Patterns are normalized at compile
     // time; runtime input must also be normalized to prevent Cyrillic/fullwidth
     // characters from bypassing Forbid policies.
     // ID pattern check
     if !principal.id_matchers.is_empty() {
-        let norm_id = normalize_homoglyphs(ctx.principal_id);
+        let norm_id = crate::normalize::normalize_full(ctx.principal_id);
         if !principal.id_matchers.iter().any(|m| m.matches(&norm_id)) {
             return false;
         }
@@ -600,10 +600,10 @@ fn matches_principal(
             Some(v) => v.as_str().unwrap_or(""),
             None => return false,
         };
-        // SECURITY (FIND-R215-005): Normalize claim values through normalize_homoglyphs()
+        // SECURITY (FIND-R215-005, R228-ENG-2): Normalize claim values through normalize_full()
         // before matching against compiled patterns. Without this, Cyrillic/fullwidth
         // characters in JWT claim values bypass ABAC principal claim checks.
-        let norm_claim = normalize_homoglyphs(claim_value);
+        let norm_claim = crate::normalize::normalize_full(claim_value);
         if !pattern.matches(&norm_claim) {
             return false;
         }
@@ -617,12 +617,12 @@ fn matches_action(action_constraint: &CompiledAction, action: &Action) -> bool {
     if action_constraint.matchers.is_empty() {
         return true;
     }
-    // SECURITY (FIND-R206-002): Normalize tool/function names through homoglyph
-    // normalization before ABAC matching. Patterns are normalized at compile time;
-    // input must also be normalized to prevent Cyrillic/Greek/fullwidth characters
-    // from bypassing Forbid policies.
-    let norm_tool = vellaveto_types::unicode::normalize_homoglyphs(&action.tool);
-    let norm_func = vellaveto_types::unicode::normalize_homoglyphs(&action.function);
+    // SECURITY (FIND-R206-002, R228-ENG-2): Normalize tool/function names through
+    // normalize_full() (NFKC + lowercase + homoglyphs) before ABAC matching. Patterns
+    // are normalized at compile time; input must also be normalized to prevent
+    // circled/Cyrillic/Greek/fullwidth characters from bypassing Forbid policies.
+    let norm_tool = crate::normalize::normalize_full(&action.tool);
+    let norm_func = crate::normalize::normalize_full(&action.function);
     action_constraint.matchers.iter().any(|(tool_m, func_m)| {
         tool_m.matches_normalized(&norm_tool) && func_m.matches_normalized(&norm_func)
     })

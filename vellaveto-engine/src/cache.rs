@@ -48,6 +48,10 @@ struct CacheKey {
     function_hash: u64,
     paths_hash: u64,
     domains_hash: u64,
+    /// SECURITY (R228-ENG-1): Include resolved IPs in cache key to prevent
+    /// DNS rebinding attacks from hitting a stale Allow verdict cached for
+    /// a different IP resolution of the same domain.
+    resolved_ips_hash: u64,
     identity_hash: u64,
 }
 
@@ -287,17 +291,18 @@ impl DecisionCache {
 
     /// Build a cache key from an action and optional context.
     ///
-    /// SECURITY (R227-ENG-1): Tool and function names are lowercased before
-    /// hashing to ensure cache key consistency with engine evaluation, which
-    /// uses case-insensitive matching. Without this, "FileRead" and "fileread"
-    /// produce different cache keys, causing cache pollution and inconsistent
-    /// verdicts for the same logical tool.
+    /// SECURITY (R227-ENG-1, R228-ENG-4): Tool and function names are normalized
+    /// through normalize_full() (NFKC + lowercase + homoglyph mapping) before
+    /// hashing to ensure cache key consistency with engine evaluation. Without this,
+    /// "FileRead", "fileread", and "ﬁleread" (fullwidth) produce different cache keys,
+    /// causing cache pollution and inconsistent verdicts for the same logical tool.
     fn build_key(action: &Action, context: Option<&EvaluationContext>) -> CacheKey {
         CacheKey {
-            tool_hash: Self::hash_str(&action.tool.to_lowercase()),
-            function_hash: Self::hash_str(&action.function.to_lowercase()),
+            tool_hash: Self::hash_str(&crate::normalize::normalize_full(&action.tool)),
+            function_hash: Self::hash_str(&crate::normalize::normalize_full(&action.function)),
             paths_hash: Self::hash_sorted_strs(&action.target_paths),
             domains_hash: Self::hash_sorted_strs(&action.target_domains),
+            resolved_ips_hash: Self::hash_sorted_strs(&action.resolved_ips),
             identity_hash: Self::hash_identity(context),
         }
     }

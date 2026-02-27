@@ -33,7 +33,6 @@ use crate::PatternMatcher;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
-use vellaveto_types::unicode::normalize_homoglyphs;
 use vellaveto_types::PrincipalContext;
 
 /// Error types for deputy validation.
@@ -272,11 +271,11 @@ impl DeputyValidator {
                 allowed_tools
                     .iter()
                     .filter(|t| {
-                        let norm_t = normalize_homoglyphs(&t.to_ascii_lowercase());
+                        let norm_t = crate::normalize::normalize_full(&t.to_ascii_lowercase());
                         parent
                             .allowed_tools
                             .iter()
-                            .any(|p| normalize_homoglyphs(&p.to_ascii_lowercase()) == norm_t)
+                            .any(|p| crate::normalize::normalize_full(&p.to_ascii_lowercase()) == norm_t)
                     })
                     .cloned()
                     .collect()
@@ -309,8 +308,8 @@ impl DeputyValidator {
         // Cyrillic/Greek/fullwidth variants of principal names would store differently
         // than they compare, creating an inconsistency that bypasses principal binding.
         let ctx = PrincipalContext {
-            original_principal: normalize_homoglyphs(&from.to_ascii_lowercase()),
-            delegated_to: Some(normalize_homoglyphs(&to.to_ascii_lowercase())),
+            original_principal: crate::normalize::normalize_full(&from.to_ascii_lowercase()),
+            delegated_to: Some(crate::normalize::normalize_full(&to.to_ascii_lowercase())),
             delegation_depth: new_depth,
             allowed_tools: effective_tools,
             delegation_expires: None, // Could be set from rule
@@ -380,7 +379,7 @@ impl DeputyValidator {
         // bypass principal binding checks — e.g., "wоrker" (Cyrillic 'о') would not match
         // stored "worker" (Latin 'o'), allowing a different agent to impersonate the delegate.
         if let Some(ref delegate) = ctx.delegated_to {
-            let claimed_norm = normalize_homoglyphs(&claimed_principal.to_ascii_lowercase());
+            let claimed_norm = crate::normalize::normalize_full(&claimed_principal.to_ascii_lowercase());
             if *delegate != claimed_norm {
                 return Err(DeputyError::PrincipalMismatch {
                     expected: delegate.clone(),
@@ -394,11 +393,11 @@ impl DeputyValidator {
         // to prevent Cyrillic/Greek/fullwidth characters from bypassing
         // delegation tool restrictions.
         if !ctx.allowed_tools.is_empty() {
-            let tool_norm = normalize_homoglyphs(&tool.to_ascii_lowercase());
+            let tool_norm = crate::normalize::normalize_full(&tool.to_ascii_lowercase());
             let allowed = ctx
                 .allowed_tools
                 .iter()
-                .any(|t| normalize_homoglyphs(&t.to_ascii_lowercase()) == tool_norm);
+                .any(|t| crate::normalize::normalize_full(&t.to_ascii_lowercase()) == tool_norm);
 
             if !allowed {
                 return Err(DeputyError::ToolNotInDelegation {
@@ -458,10 +457,10 @@ impl DeputyValidator {
         // SECURITY (FIND-R209-001): Normalize homoglyphs before comparison
         // to prevent Cyrillic/Greek/fullwidth characters from bypassing
         // delegation tool restrictions.
-        let tool_norm = normalize_homoglyphs(&tool.to_ascii_lowercase());
+        let tool_norm = crate::normalize::normalize_full(&tool.to_ascii_lowercase());
         ctx.allowed_tools
             .iter()
-            .any(|t| normalize_homoglyphs(&t.to_ascii_lowercase()) == tool_norm)
+            .any(|t| crate::normalize::normalize_full(&t.to_ascii_lowercase()) == tool_norm)
     }
 
     /// Get the current principal context for a session.
