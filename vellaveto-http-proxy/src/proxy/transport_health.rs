@@ -513,11 +513,58 @@ impl TransportHealthTracker {
     }
 }
 
+/// Thread-local mock clock for deterministic tests.
+///
+/// Each test thread gets its own independent clock, so parallel tests
+/// don't interfere. Use `MockTimeGuard::new(start)` to activate and
+/// `advance_mock_time(secs)` to advance. The guard clears the mock on drop.
+#[cfg(test)]
+thread_local! {
+    static MOCK_NOW: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn advance_mock_time(secs: u64) {
+    MOCK_NOW.with(|c| {
+        let current = c.get().expect("advance_mock_time called without MockTimeGuard");
+        c.set(Some(current + secs));
+    });
+}
+
+/// RAII guard that activates mock time on creation and clears it on drop
+/// (including on panic), preventing leaked state across tests.
+#[cfg(test)]
+struct MockTimeGuard;
+
+#[cfg(test)]
+impl MockTimeGuard {
+    fn new(start_secs: u64) -> Self {
+        MOCK_NOW.with(|c| c.set(Some(start_secs)));
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for MockTimeGuard {
+    fn drop(&mut self) {
+        MOCK_NOW.with(|c| c.set(None));
+    }
+}
+
 /// Current Unix timestamp in seconds.
 ///
 /// SECURITY (FIND-R42-014): Logs an error if the system clock is before the Unix
 /// epoch. Returns 0 as a fail-safe (circuit breaker timing may be inaccurate).
+///
+/// In test builds, returns the mock clock value if one is active (via `MockTimeGuard`).
 fn now_secs() -> u64 {
+    #[cfg(test)]
+    {
+        if let Some(t) = MOCK_NOW.with(|c| c.get()) {
+            return t;
+        }
+    }
+
     match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         Ok(d) => d.as_secs(),
         Err(e) => {
@@ -608,6 +655,7 @@ mod tests {
 
     #[test]
     fn test_half_open_recovers_on_successes() {
+        let _clock = MockTimeGuard::new(1000);
         let tracker = TransportHealthTracker::new(1, 2, 0); // 0 → clamped to 1s
         let proto = TransportProtocol::Http;
 
@@ -616,8 +664,8 @@ mod tests {
         tracker.record_failure("up", proto);
         assert!(tracker.can_use("up", proto).is_err());
 
-        // Wait for effective open duration to expire (2 seconds).
-        std::thread::sleep(std::time::Duration::from_millis(2100));
+        // Advance past effective open duration (2 seconds).
+        advance_mock_time(2);
 
         // Should transition to HalfOpen.
         assert!(tracker.can_use("up", proto).is_ok());
@@ -635,13 +683,14 @@ mod tests {
 
     #[test]
     fn test_half_open_failure_reopens_circuit() {
+        let _clock = MockTimeGuard::new(1000);
         let tracker = TransportHealthTracker::new(1, 2, 0); // clamped to 1s
         let proto = TransportProtocol::Grpc;
 
         // Open the circuit. Closed→Open sets trip_count=1 (FIND-R43-027),
         // effective open_duration = 1s * 2^1 = 2s.
         tracker.record_failure("up", proto);
-        std::thread::sleep(std::time::Duration::from_millis(2100));
+        advance_mock_time(2);
 
         // Transition to HalfOpen.
         assert!(tracker.can_use("up", proto).is_ok());
@@ -744,48 +793,50 @@ mod tests {
 
     #[test]
     fn test_exponential_backoff_increases_open_duration() {
+        let _clock = MockTimeGuard::new(1000);
         let tracker = TransportHealthTracker::new(1, 1, 1);
         let proto = TransportProtocol::Http;
 
         // First trip: Closed→Open sets trip_count=1 (FIND-R43-027), so
         // effective open_duration = 1s * 2^1 = 2s.
         tracker.record_failure("up", proto);
-        std::thread::sleep(std::time::Duration::from_millis(2100));
+        advance_mock_time(2);
         assert!(tracker.can_use("up", proto).is_ok()); // HalfOpen
 
         // Fail in HalfOpen → trip_count=2, open_duration = 1s * 2^2 = 4s.
         tracker.record_failure("up", proto);
 
-        // After 2.1s, should still be open (need 4s).
-        std::thread::sleep(std::time::Duration::from_millis(2100));
+        // After 2s, should still be open (need 4s).
+        advance_mock_time(2);
         assert!(tracker.can_use("up", proto).is_err());
 
-        // After another 2.1s (total ~4.2s), should transition to HalfOpen.
-        std::thread::sleep(std::time::Duration::from_millis(2100));
+        // After another 2s (total 4s), should transition to HalfOpen.
+        advance_mock_time(2);
         assert!(tracker.can_use("up", proto).is_ok());
     }
 
     #[test]
     fn test_trip_count_resets_on_full_recovery() {
+        let _clock = MockTimeGuard::new(1000);
         let tracker = TransportHealthTracker::new(1, 1, 1);
         let proto = TransportProtocol::Http;
 
         // Trip once: Closed→Open sets trip_count=1 (FIND-R43-027),
         // effective open_duration = 1s * 2^1 = 2s.
         tracker.record_failure("up", proto);
-        std::thread::sleep(std::time::Duration::from_millis(2100));
+        advance_mock_time(2);
         tracker.can_use("up", proto).ok(); // HalfOpen
         tracker.record_failure("up", proto); // trip_count=2, open_duration=4s
 
         // Recover: wait for 4s open duration to expire.
-        std::thread::sleep(std::time::Duration::from_millis(4100));
+        advance_mock_time(4);
         tracker.can_use("up", proto).ok(); // HalfOpen
         tracker.record_success("up", proto); // Closed, trip_count=0
 
         // Next trip: Closed→Open sets trip_count=1 again (FIND-R43-027),
         // effective open_duration = 1s * 2^1 = 2s.
         tracker.record_failure("up", proto);
-        std::thread::sleep(std::time::Duration::from_millis(2100));
+        advance_mock_time(2);
         assert!(tracker.can_use("up", proto).is_ok()); // Would fail if trip_count wasn't reset.
     }
 
@@ -881,13 +932,14 @@ mod tests {
     /// FIND-R42-010: Half-open circuit rejects concurrent probes.
     #[test]
     fn test_half_open_rejects_second_probe() {
+        let _clock = MockTimeGuard::new(1000);
         let tracker = TransportHealthTracker::new(1, 2, 0); // clamped to 1s
         let proto = TransportProtocol::Http;
 
         // Open the circuit. Closed→Open sets trip_count=1 (FIND-R43-027),
         // effective open_duration = 1s * 2^1 = 2s.
         tracker.record_failure("up", proto);
-        std::thread::sleep(std::time::Duration::from_millis(2100));
+        advance_mock_time(2);
 
         // First probe transitions Open → HalfOpen and sets in_flight.
         assert!(tracker.can_use("up", proto).is_ok());
@@ -903,13 +955,14 @@ mod tests {
     /// FIND-R42-010: Half-open in_flight flag is cleared on failure too.
     #[test]
     fn test_half_open_in_flight_cleared_on_failure() {
+        let _clock = MockTimeGuard::new(1000);
         let tracker = TransportHealthTracker::new(1, 2, 0); // clamped to 1s
         let proto = TransportProtocol::Grpc;
 
         // Open circuit: Closed→Open sets trip_count=1 (FIND-R43-027),
         // effective open_duration = 1s * 2^1 = 2s.
         tracker.record_failure("up", proto);
-        std::thread::sleep(std::time::Duration::from_millis(2100));
+        advance_mock_time(2);
         assert!(tracker.can_use("up", proto).is_ok()); // HalfOpen, in_flight=true
 
         // Fail the probe → back to Open, in_flight cleared.
@@ -917,8 +970,8 @@ mod tests {
         tracker.record_failure("up", proto);
         assert!(tracker.can_use("up", proto).is_err()); // Open again
 
-        // Wait for Open → HalfOpen transition (need 4s).
-        std::thread::sleep(std::time::Duration::from_millis(4100));
+        // Advance past 4s open duration.
+        advance_mock_time(4);
         // Should be able to probe again.
         assert!(tracker.can_use("up", proto).is_ok());
     }
@@ -944,13 +997,14 @@ mod tests {
     /// FIND-R44-002: peek_available_transports is side-effect-free.
     #[test]
     fn test_peek_available_transports_no_side_effects() {
+        let _clock = MockTimeGuard::new(1000);
         let tracker = TransportHealthTracker::new(1, 2, 0); // clamped to 1s
         let proto = TransportProtocol::Http;
 
         // Open the circuit.  After 1 failure with threshold=1, trip_count=1
         // so effective_open_duration = 1s * 2^1 = 2s (exponential backoff).
         tracker.record_failure("up", proto);
-        std::thread::sleep(std::time::Duration::from_millis(2100));
+        advance_mock_time(2);
 
         // peek should report it as available (timer expired) without transitioning.
         let available = tracker.peek_available_transports("up", &[proto]);
