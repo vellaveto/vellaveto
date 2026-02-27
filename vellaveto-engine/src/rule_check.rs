@@ -50,11 +50,10 @@ impl PolicyEngine {
             // Check blocked patterns first (blocked takes precedence)
             for (pattern, matcher) in &rules.blocked {
                 if matcher.is_match(&normalized) {
+                    // R230-ENG-4: Log pattern server-side; do not expose to clients
+                    tracing::debug!(path = %normalized, pattern = %pattern, policy = %cp.policy.name, "Path blocked by pattern");
                     return Some(Verdict::Deny {
-                        reason: format!(
-                            "Path '{}' blocked by pattern '{}' in policy '{}'",
-                            normalized, pattern, cp.policy.name
-                        ),
+                        reason: format!("Path '{}' blocked by policy '{}'", normalized, cp.policy.name),
                     });
                 }
             }

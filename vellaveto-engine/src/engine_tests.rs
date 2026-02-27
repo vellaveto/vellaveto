@@ -14163,3 +14163,119 @@ fn test_nfkc_forbidden_previous_action_parenthesized_tool_name() {
         "NFKC circled-letter forbidden tool in history should be caught: {v:?}"
     );
 }
+
+/// R230-ENG-4: Deny reasons must not leak internal patterns, CIDRs, or counts.
+#[test]
+fn test_r230_deny_reason_does_not_leak_path_pattern() {
+    let policy = Policy {
+        id: "p1".into(),
+        name: "test-policy".into(),
+        policy_type: PolicyType::Allow,
+        priority: 0,
+        path_rules: Some(PathRules {
+            allowed: vec![],
+            blocked: vec!["/secret/**".to_string()],
+        }),
+        ..Default::default()
+    };
+    let engine = PolicyEngine::with_policies(true, &[policy]);
+    let action = Action {
+        tool: "read_file".into(),
+        target_paths: vec!["/secret/data.txt".to_string()],
+        ..Default::default()
+    };
+    let v = engine.evaluate_action(&action, &[]).unwrap();
+    match &v {
+        Verdict::Deny { reason } => {
+            assert!(
+                !reason.contains("/secret/**"),
+                "Deny reason must not leak glob pattern: {reason}"
+            );
+            assert!(
+                reason.contains("blocked by policy"),
+                "Deny reason should say 'blocked by policy': {reason}"
+            );
+        }
+        _ => panic!("Expected Deny, got {v:?}"),
+    }
+}
+
+/// R230-ENG-4: Deny reasons must not leak blocked domain patterns.
+#[test]
+fn test_r230_deny_reason_does_not_leak_domain_pattern() {
+    let policy = Policy {
+        id: "p1".into(),
+        name: "test-policy".into(),
+        policy_type: PolicyType::Allow,
+        priority: 0,
+        network_rules: Some(NetworkRules {
+            allowed_domains: vec![],
+            blocked_domains: vec!["*.evil.com".to_string()],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let engine = PolicyEngine::with_policies(true, &[policy]);
+    let action = Action {
+        tool: "http_fetch".into(),
+        target_domains: vec!["sub.evil.com".to_string()],
+        ..Default::default()
+    };
+    let v = engine.evaluate_action(&action, &[]).unwrap();
+    match &v {
+        Verdict::Deny { reason } => {
+            assert!(
+                !reason.contains("*.evil.com"),
+                "Deny reason must not leak domain pattern: {reason}"
+            );
+            assert!(
+                reason.contains("blocked by policy"),
+                "Deny reason should say 'blocked by policy': {reason}"
+            );
+        }
+        _ => panic!("Expected Deny, got {v:?}"),
+    }
+}
+
+/// R230-ENG-4: Deny reasons must not leak blocked CIDR values.
+#[test]
+fn test_r230_deny_reason_does_not_leak_cidr() {
+    let policy = Policy {
+        id: "p1".into(),
+        name: "test-policy".into(),
+        policy_type: PolicyType::Allow,
+        priority: 0,
+        network_rules: Some(NetworkRules {
+            allowed_domains: vec![],
+            blocked_domains: vec![],
+            ip_rules: Some(IpRules {
+                block_private: false,
+                blocked_cidrs: vec!["10.0.0.0/8".to_string()],
+                allowed_cidrs: vec![],
+            }),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let engine = PolicyEngine::with_policies(true, &[policy]);
+    let action = Action {
+        tool: "http_fetch".into(),
+        target_domains: vec!["example.com".to_string()],
+        resolved_ips: vec!["10.1.2.3".to_string()],
+        ..Default::default()
+    };
+    let v = engine.evaluate_action(&action, &[]).unwrap();
+    match &v {
+        Verdict::Deny { reason } => {
+            assert!(
+                !reason.contains("10.0.0.0/8"),
+                "Deny reason must not leak CIDR range: {reason}"
+            );
+            assert!(
+                reason.contains("blocked CIDR"),
+                "Deny reason should mention 'blocked CIDR': {reason}"
+            );
+        }
+        _ => panic!("Expected Deny, got {v:?}"),
+    }
+}

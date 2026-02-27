@@ -4,7 +4,7 @@
 > **State:** v6.0.0-dev (Phases 1–66 complete, 230 audit rounds)
 > **Version:** 6.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 8,681 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
+> **Tests:** 8,702 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
 > **Updated:** 2026-02-27
 
 ---
@@ -169,6 +169,8 @@ All phases implemented, tested, and hardened through 230 audit rounds. Details i
 **R227 code quality + discovery wiring + threat hardening (Feb 2026):** 8-item round: 3 clippy fixes (is_multiple_of, clamp, let_and_return), R24-MCP-1 discovery engine wired to production (`ingest_tools_list()` called from `handle_tools_list_response()`), ROT13 decode pass in injection scanner (compound obfuscation defense), per-tool sampling rate limiting (`max_per_tool`: 50/60s window), tool capability drift detection (`governance.block_tool_drift`), imperative instruction detection in tool descriptions (10 patterns, threshold 2+). 30 new tests.
 
 **R228 adversarial audit (Feb 2026):** 11 findings (1 CRITICAL, 3 HIGH, 4 MEDIUM, 3 LOW). API key auth bypass via RBAC JWT passthrough (Bearer prefix validation), base64-encoded injection bypass (LLMs decode base64 inline), schema poisoning actual similarity vs decayed trust_score, ROT13 natural-language false-positive suppression, URL exfiltration extended to ftp/ftps/protocol-relative, cache key DNS rebinding fix (resolved_ips_hash), elicitation title injection scanning, UTC timestamp suffix normalization, sampling_per_tool capacity bound. 38 new tests.
+
+**R229 adversarial audit (Feb 2026):** 9 findings (3 HIGH, 4 MEDIUM, 2 LOW). JWK thumbprint JSON injection guard (DPoP token binding bypass), cascading pipeline tracker fail-closed on capacity exhaustion, collusion detection 5x fail-closed on capacity (CapacityExhaustion alert type), DPoP nonce/ath dangerous char validation, DPoP counters saturating_add, DpopHeader deny_unknown_fields, collusion usize→u32 safe cast. SAML SubjectConfirmation hardening. 10 new tests.
 
 ---
 
