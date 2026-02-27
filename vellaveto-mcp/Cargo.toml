@@ -16,7 +16,7 @@ llm-local-onnx = ["semantic-guardrails"]
 semantic-guardrails-full = ["semantic-guardrails", "llm-cloud", "llm-local-gguf", "llm-local-onnx"]
 rag-defense = []
 a2a = []
-discovery = []
+discovery = ["vellaveto-discovery"]
 projector = []
 multimodal = ["image"]
 fips = ["p256"]
@@ -49,6 +49,9 @@ chacha20poly1305 = "0.10"
 rand = "0.8"
 getrandom = "0.2"
 semver = "1.0"
+
+# Topology discovery (optional, gated by "discovery" feature)
+vellaveto-discovery = { path = "../vellaveto-discovery", optional = true }
 
 # Semantic guardrails dependencies
 # SECURITY: lru >= 0.16.3 required to fix RUSTSEC-2026-0002 (Stacked Borrows violation)

@@ -3,7 +3,7 @@
 //! Defines the [`McpServerProbe`] trait (implemented by `vellaveto-mcp`) and
 //! the [`TopologyCrawler`] that uses it to build a topology graph from live data.
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -333,4 +333,139 @@ async fn crawl_single_server(
         resources_found,
         duration: start.elapsed(),
     })
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STATIC PROBE (in-memory McpServerProbe implementation)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// A no-network [`McpServerProbe`] backed by in-memory [`StaticServerDecl`] data.
+///
+/// Used for wiring the topology crawler pipeline without live MCP connections.
+/// The relay intercept can push live `tools/list` responses into this probe
+/// via [`upsert_server()`](StaticProbe::upsert_server).
+pub struct StaticProbe {
+    servers: RwLock<Vec<StaticServerDecl>>,
+}
+
+impl StaticProbe {
+    /// Create a new static probe with initial server declarations.
+    pub fn new(servers: Vec<StaticServerDecl>) -> Self {
+        Self {
+            servers: RwLock::new(servers),
+        }
+    }
+
+    /// Merge or replace a single server's declaration.
+    ///
+    /// If a server with the same name already exists, it is replaced.
+    /// Otherwise the new declaration is appended.
+    pub fn upsert_server(&self, decl: StaticServerDecl) {
+        if let Ok(mut servers) = self.servers.write() {
+            if let Some(existing) = servers.iter_mut().find(|s| s.name == decl.name) {
+                *existing = decl;
+            } else {
+                servers.push(decl);
+            }
+        }
+    }
+
+    /// Remove a server by name. Returns `true` if the server was found and removed.
+    pub fn remove_server(&self, name: &str) -> bool {
+        if let Ok(mut servers) = self.servers.write() {
+            let before = servers.len();
+            servers.retain(|s| s.name != name);
+            servers.len() < before
+        } else {
+            false
+        }
+    }
+
+    /// Returns the number of servers currently registered.
+    pub fn server_count(&self) -> usize {
+        self.servers.read().map(|s| s.len()).unwrap_or(0)
+    }
+}
+
+#[async_trait]
+impl McpServerProbe for StaticProbe {
+    async fn list_servers(&self) -> Result<Vec<ServerInfo>, DiscoveryError> {
+        let servers = self.servers.read().map_err(|_| {
+            DiscoveryError::GraphError("StaticProbe RwLock poisoned".to_string())
+        })?;
+        Ok(servers
+            .iter()
+            .map(|s| ServerInfo {
+                id: s.name.clone(),
+                name: s.name.clone(),
+                version: None,
+            })
+            .collect())
+    }
+
+    async fn list_tools(&self, server_id: &str) -> Result<Vec<ToolInfo>, DiscoveryError> {
+        let servers = self.servers.read().map_err(|_| {
+            DiscoveryError::GraphError("StaticProbe RwLock poisoned".to_string())
+        })?;
+        let server = servers
+            .iter()
+            .find(|s| s.name == server_id)
+            .ok_or_else(|| DiscoveryError::ServerNotFound(server_id.to_string()))?;
+        Ok(server
+            .tools
+            .iter()
+            .map(|t| ToolInfo {
+                name: t.name.clone(),
+                description: t.description.clone(),
+                input_schema: t.input_schema.clone(),
+            })
+            .collect())
+    }
+
+    async fn list_resources(&self, server_id: &str) -> Result<Vec<ResourceInfo>, DiscoveryError> {
+        let servers = self.servers.read().map_err(|_| {
+            DiscoveryError::GraphError("StaticProbe RwLock poisoned".to_string())
+        })?;
+        let server = servers
+            .iter()
+            .find(|s| s.name == server_id)
+            .ok_or_else(|| DiscoveryError::ServerNotFound(server_id.to_string()))?;
+        Ok(server
+            .resources
+            .iter()
+            .map(|r| ResourceInfo {
+                uri_template: r.uri_template.clone(),
+                name: r.name.clone(),
+                mime_type: r.mime_type.clone(),
+            })
+            .collect())
+    }
+
+    async fn server_capabilities(
+        &self,
+        server_id: &str,
+    ) -> Result<ServerCapabilities, DiscoveryError> {
+        let servers = self.servers.read().map_err(|_| {
+            DiscoveryError::GraphError("StaticProbe RwLock poisoned".to_string())
+        })?;
+        let server = servers
+            .iter()
+            .find(|s| s.name == server_id)
+            .ok_or_else(|| DiscoveryError::ServerNotFound(server_id.to_string()))?;
+        Ok(ServerCapabilities {
+            tools: !server.tools.is_empty(),
+            resources: !server.resources.is_empty(),
+            prompts: false,
+            logging: false,
+        })
+    }
+}
+
+impl std::fmt::Debug for StaticProbe {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let count = self.server_count();
+        f.debug_struct("StaticProbe")
+            .field("server_count", &count)
+            .finish()
+    }
 }

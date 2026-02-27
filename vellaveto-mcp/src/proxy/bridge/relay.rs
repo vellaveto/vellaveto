@@ -3556,6 +3556,36 @@ impl ProxyBridge {
                 }
             }
         }
+
+        // Topology guard: upsert server from tools/list response for live topology updates.
+        // Advisory only — upsert failures don't block the response.
+        #[cfg(feature = "discovery")]
+        if let Some(ref topology_guard) = self.topology_guard {
+            if let Some(result_value) = msg.get("result") {
+                let server_id = state
+                    .server_name
+                    .as_deref()
+                    .unwrap_or("stdio");
+                match build_server_decl_from_tools_list(server_id, result_value) {
+                    Ok(decl) => {
+                        if let Err(e) = topology_guard.upsert_server(decl) {
+                            tracing::warn!(
+                                server_id = server_id,
+                                error = %e,
+                                "Failed to upsert server into topology guard"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            server_id = server_id,
+                            error = %e,
+                            "Failed to parse tools/list for topology"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /// Handle child process termination, flushing pending requests with errors.
@@ -3643,6 +3673,52 @@ impl ProxyBridge {
             }
         }
     }
+}
+
+/// Build a [`StaticServerDecl`](vellaveto_discovery::topology::StaticServerDecl) from an MCP
+/// `tools/list` response JSON. Parses the `tools` array from the result object.
+#[cfg(feature = "discovery")]
+fn build_server_decl_from_tools_list(
+    server_id: &str,
+    result_value: &serde_json::Value,
+) -> Result<vellaveto_discovery::topology::StaticServerDecl, String> {
+    let tools_array = result_value
+        .get("tools")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "tools/list result missing 'tools' array".to_string())?;
+
+    let mut tools = Vec::with_capacity(tools_array.len());
+    for tool_value in tools_array {
+        let name = tool_value
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if name.is_empty() {
+            continue; // Skip tools with missing/empty names
+        }
+        let description = tool_value
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let input_schema = tool_value
+            .get("inputSchema")
+            .cloned()
+            .unwrap_or(serde_json::json!({}));
+
+        tools.push(vellaveto_discovery::topology::StaticToolDecl {
+            name,
+            description,
+            input_schema,
+        });
+    }
+
+    Ok(vellaveto_discovery::topology::StaticServerDecl {
+        name: server_id.to_string(),
+        tools,
+        resources: Vec::new(), // tools/list doesn't include resources
+    })
 }
 
 #[cfg(test)]

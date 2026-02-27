@@ -155,6 +155,8 @@ fn test_state_with_tenants(
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     (state, tmp)
 }
@@ -1149,6 +1151,8 @@ async fn evaluate_non_default_tenant_does_not_see_other_tenant_policies() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     let app = routes::build_router(state);

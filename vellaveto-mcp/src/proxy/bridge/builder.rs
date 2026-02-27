@@ -309,4 +309,20 @@ impl ProxyBridge {
         self.discovery_engine = Some(engine);
         self
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Topology Guard Integration (live topology updates from relay)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Set the topology guard for live topology updates.
+    /// When set, `tools/list` responses are parsed and upserted into the
+    /// guard for incremental topology updates.
+    #[cfg(feature = "discovery")]
+    pub fn with_topology_guard(
+        mut self,
+        guard: Arc<vellaveto_discovery::guard::TopologyGuard>,
+    ) -> Self {
+        self.topology_guard = Some(guard);
+        self
+    }
 }

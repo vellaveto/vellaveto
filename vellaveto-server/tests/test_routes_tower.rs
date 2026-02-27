@@ -135,6 +135,8 @@ fn make_state() -> (AppState, TempDir) {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     (state, tmp)
 }
@@ -230,6 +232,8 @@ fn make_empty_state() -> (AppState, TempDir) {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     (state, tmp)
 }
@@ -1373,6 +1377,8 @@ priority = 1
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     let app = routes::build_router(state.clone());
 
@@ -1533,6 +1539,8 @@ fn make_approval_state() -> (AppState, TempDir) {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     (state, tmp)
 }
@@ -2054,6 +2062,8 @@ fn make_authed_state() -> (AppState, TempDir) {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     (state, tmp)
 }
@@ -2672,6 +2682,8 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     (state, tmp)
 }
@@ -3418,6 +3430,8 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     (state, tmp)
 }

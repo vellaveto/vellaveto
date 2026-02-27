@@ -315,3 +315,100 @@ fn test_debug_format() {
     assert!(debug.contains("TopologyGraph"));
     assert!(debug.contains("node_count"));
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// to_static() round-trip tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_to_static_roundtrip_single_server() {
+    let original = vec![make_fs_server()];
+    let graph = TopologyGraph::from_static(original.clone()).unwrap();
+    let reconstituted = graph.to_static();
+
+    assert_eq!(reconstituted.len(), 1);
+    assert_eq!(reconstituted[0].name, "fs");
+    assert_eq!(reconstituted[0].tools.len(), original[0].tools.len());
+    assert_eq!(reconstituted[0].resources.len(), original[0].resources.len());
+}
+
+#[test]
+fn test_to_static_roundtrip_multi_server() {
+    let original = vec![
+        make_fs_server(),
+        StaticServerDecl {
+            name: "web".to_string(),
+            tools: vec![StaticToolDecl {
+                name: "fetch_url".to_string(),
+                description: "Fetch a URL".to_string(),
+                input_schema: serde_json::json!({"type": "object"}),
+            }],
+            resources: vec![],
+        },
+    ];
+    let graph = TopologyGraph::from_static(original).unwrap();
+    let reconstituted = graph.to_static();
+
+    assert_eq!(reconstituted.len(), 2);
+    // Sorted by server name
+    let fs = reconstituted.iter().find(|s| s.name == "fs").unwrap();
+    let web = reconstituted.iter().find(|s| s.name == "web").unwrap();
+    assert_eq!(fs.tools.len(), 3); // read_file, write_file, list_directory
+    assert_eq!(web.tools.len(), 1);
+}
+
+#[test]
+fn test_to_static_empty_topology() {
+    let graph = TopologyGraph::empty();
+    let decls = graph.to_static();
+    assert!(decls.is_empty());
+}
+
+#[test]
+fn test_to_static_preserves_tool_data() {
+    let original = StaticServerDecl {
+        name: "test".to_string(),
+        tools: vec![StaticToolDecl {
+            name: "my_tool".to_string(),
+            description: "A test tool with specific schema".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {"x": {"type": "integer"}},
+                "required": ["x"]
+            }),
+        }],
+        resources: vec![StaticResourceDecl {
+            uri_template: "file:///data".to_string(),
+            name: "data".to_string(),
+            mime_type: Some("application/json".to_string()),
+        }],
+    };
+    let graph = TopologyGraph::from_static(vec![original]).unwrap();
+    let decls = graph.to_static();
+
+    assert_eq!(decls[0].tools[0].name, "my_tool");
+    assert_eq!(
+        decls[0].tools[0].description,
+        "A test tool with specific schema"
+    );
+    assert_eq!(
+        decls[0].tools[0].input_schema["properties"]["x"]["type"],
+        "integer"
+    );
+    assert_eq!(decls[0].resources[0].name, "data");
+    assert_eq!(
+        decls[0].resources[0].mime_type.as_deref(),
+        Some("application/json")
+    );
+}
+
+#[test]
+fn test_to_static_rebuild_produces_same_fingerprint() {
+    let original = vec![make_fs_server()];
+    let graph1 = TopologyGraph::from_static(original.clone()).unwrap();
+    let decls = graph1.to_static();
+    let graph2 = TopologyGraph::from_static(decls).unwrap();
+
+    // Fingerprints should match since content is the same
+    assert_eq!(graph1.fingerprint(), graph2.fingerprint());
+}

@@ -200,6 +200,8 @@ fn test_state() -> (AppState, TempDir) {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     (state, tmp)
 }
@@ -615,6 +617,8 @@ async fn health_not_rate_limited() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     // Rapid /health requests must all succeed despite strict rate limit
@@ -731,6 +735,8 @@ async fn rate_limit_429_includes_retry_after() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -941,6 +947,8 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1099,6 +1107,8 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1230,6 +1240,8 @@ async fn per_ip_health_exempt_from_rate_limit() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     // Multiple health checks from same IP should all succeed
@@ -1353,6 +1365,8 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1511,6 +1525,8 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1653,6 +1669,8 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1794,6 +1812,8 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1933,6 +1953,8 @@ async fn per_ip_rate_limit_429_response_body_format() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -2083,6 +2105,8 @@ async fn health_returns_degraded_when_cluster_unhealthy() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     let app = routes::build_router(state);

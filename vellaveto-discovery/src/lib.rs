@@ -37,7 +37,7 @@ pub mod topology;
 // Re-export primary types for convenience.
 pub use crawler::{
     CrawlConfig, CrawlResult, McpServerProbe, ResourceInfo, ServerCrawlResult, ServerInfo,
-    ToolInfo, TopologyCrawler,
+    StaticProbe, ToolInfo, TopologyCrawler,
 };
 pub use diff::{QualifiedTool, ToolModification, TopologyDiff};
 pub use error::DiscoveryError;

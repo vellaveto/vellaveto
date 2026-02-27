@@ -123,6 +123,8 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
         staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     }
 }
 
@@ -409,6 +411,8 @@ async fn regression_38_prometheus_metrics_rate_limited() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     // First request should succeed

@@ -125,6 +125,8 @@ fn make_test_state(tmp: &TempDir) -> AppState {
         staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     }
 }
 

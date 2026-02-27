@@ -63,6 +63,7 @@ pub mod signup;
 pub mod simulator;
 pub mod task_state;
 pub mod tenant;
+pub mod topology;
 pub mod zk_audit;
 
 pub use main::*;

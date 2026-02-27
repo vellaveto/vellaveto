@@ -278,3 +278,110 @@ fn test_guard_debug() {
     assert!(debug.contains("TopologyGuard"));
     assert!(debug.contains("loaded"));
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// upsert_server() tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_guard_upsert_server_into_empty() {
+    let guard = TopologyGuard::new();
+    assert!(matches!(guard.check("tool_a"), TopologyVerdict::Bypassed));
+
+    let decl = StaticServerDecl {
+        name: "alpha".to_string(),
+        tools: vec![StaticToolDecl {
+            name: "tool_a".to_string(),
+            description: "A tool".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+        }],
+        resources: vec![],
+    };
+    guard.upsert_server(decl).unwrap();
+
+    assert!(matches!(guard.check("tool_a"), TopologyVerdict::Known { .. }));
+}
+
+#[test]
+fn test_guard_upsert_server_new_server() {
+    let guard = TopologyGuard::new();
+    guard.load(make_test_topology());
+
+    // Existing tool should be known (ambiguous since both fs and git have read_file)
+    assert!(matches!(guard.check("commit"), TopologyVerdict::Known { .. }));
+
+    // New server's tool should be unknown
+    assert!(matches!(guard.check("new_tool"), TopologyVerdict::Unknown { .. }));
+
+    // Upsert a new server
+    let decl = StaticServerDecl {
+        name: "new_server".to_string(),
+        tools: vec![StaticToolDecl {
+            name: "new_tool".to_string(),
+            description: "A new tool".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+        }],
+        resources: vec![],
+    };
+    guard.upsert_server(decl).unwrap();
+
+    // Both old and new tools should be known
+    assert!(matches!(guard.check("commit"), TopologyVerdict::Known { .. }));
+    assert!(matches!(guard.check("new_tool"), TopologyVerdict::Known { .. }));
+}
+
+#[test]
+fn test_guard_upsert_server_replace_existing() {
+    let guard = TopologyGuard::new();
+    guard.load(make_test_topology());
+
+    // Verify fs server has write_file (unique to fs)
+    assert!(matches!(guard.check("write_file"), TopologyVerdict::Known { .. }));
+
+    // Replace fs server with different tools
+    let decl = StaticServerDecl {
+        name: "fs".to_string(),
+        tools: vec![StaticToolDecl {
+            name: "new_fs_tool".to_string(),
+            description: "Replaced tool".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+        }],
+        resources: vec![],
+    };
+    guard.upsert_server(decl).unwrap();
+
+    // Old fs tool should be gone, new one should be known
+    assert!(matches!(guard.check("write_file"), TopologyVerdict::Unknown { .. }));
+    assert!(matches!(guard.check("new_fs_tool"), TopologyVerdict::Known { .. }));
+    // Git server preserved
+    assert!(matches!(guard.check("commit"), TopologyVerdict::Known { .. }));
+}
+
+#[test]
+fn test_guard_upsert_server_preserves_other_servers() {
+    let guard = TopologyGuard::new();
+    guard.load(make_test_topology());
+
+    let before = guard.current().unwrap();
+    let before_count = before.server_count();
+
+    // Add a third server
+    let decl = StaticServerDecl {
+        name: "third".to_string(),
+        tools: vec![StaticToolDecl {
+            name: "third_tool".to_string(),
+            description: "Third tool".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+        }],
+        resources: vec![],
+    };
+    guard.upsert_server(decl).unwrap();
+
+    let after = guard.current().unwrap();
+    assert_eq!(after.server_count(), before_count + 1);
+
+    // All original tools still work
+    assert!(matches!(guard.check("write_file"), TopologyVerdict::Known { .. }));
+    assert!(matches!(guard.check("commit"), TopologyVerdict::Known { .. }));
+    assert!(matches!(guard.check("third_tool"), TopologyVerdict::Known { .. }));
+}

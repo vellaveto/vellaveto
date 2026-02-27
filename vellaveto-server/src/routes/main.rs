@@ -491,6 +491,25 @@ pub fn build_router(state: AppState) -> Router {
             get(super::discovery::discovery_tools),
         )
         // ═══════════════════════════════════════════════════════════════════
+        // Topology Management (live topology graph inspection + control)
+        // ═══════════════════════════════════════════════════════════════════
+        .route(
+            "/api/topology",
+            get(super::topology::topology_snapshot),
+        )
+        .route(
+            "/api/topology/status",
+            get(super::topology::topology_status),
+        )
+        .route(
+            "/api/topology/recrawl",
+            post(super::topology::topology_recrawl),
+        )
+        .route(
+            "/api/topology/servers/{name}",
+            delete(super::topology::topology_remove_server),
+        )
+        // ═══════════════════════════════════════════════════════════════════
         // Phase 35.3: Model Projector
         // ═══════════════════════════════════════════════════════════════════
         .route(

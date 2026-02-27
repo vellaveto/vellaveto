@@ -991,6 +991,12 @@ pub struct AppState {
     /// before policy evaluation. None when topology crawling is disabled.
     pub topology_guard: Option<Arc<vellaveto_discovery::guard::TopologyGuard>>,
 
+    /// Static probe backing the topology crawler. Shared with relay for live updates.
+    pub topology_probe: Option<Arc<vellaveto_discovery::crawler::StaticProbe>>,
+
+    /// Trigger handle for requesting immediate re-crawls (e.g., from REST API).
+    pub recrawl_trigger: Option<Arc<tokio::sync::Notify>>,
+
     // ═══════════════════════════════════════════════════════════════════
     // Phase 34: Tool Discovery Service
     // ═══════════════════════════════════════════════════════════════════

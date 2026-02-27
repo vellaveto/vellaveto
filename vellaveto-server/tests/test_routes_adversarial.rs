@@ -122,6 +122,8 @@ fn make_state() -> (AppState, TempDir) {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     (state, tmp)
 }
@@ -217,6 +219,8 @@ fn make_empty_state() -> (AppState, TempDir) {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     (state, tmp)
 }
@@ -696,6 +700,8 @@ priority = 1
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -858,6 +864,8 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     let app = routes::build_router(state);
 
@@ -1141,6 +1149,8 @@ async fn test_find004_metrics_require_auth_true_blocks_unauthenticated() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     let app = routes::build_router(state);
 
@@ -1247,6 +1257,8 @@ async fn test_find004_metrics_require_auth_false_allows_unauthenticated() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     let app = routes::build_router(state);
 

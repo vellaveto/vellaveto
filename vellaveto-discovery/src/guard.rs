@@ -6,7 +6,8 @@
 
 use std::sync::{Arc, RwLock};
 
-use crate::topology::TopologyGraph;
+use crate::error::DiscoveryError;
+use crate::topology::{StaticServerDecl, TopologyGraph};
 
 /// Pre-policy topology verification result.
 #[derive(Debug, Clone)]
@@ -167,6 +168,30 @@ impl TopologyGuard {
         if let Ok(mut guard) = self.topology.write() {
             *guard = None;
         }
+    }
+
+    /// Incrementally upsert a single server into the topology.
+    ///
+    /// Reads the current topology, extracts static declarations, replaces or
+    /// adds the target server, rebuilds the graph, and hot-swaps it in.
+    /// If no topology is loaded, creates a new one from the single server.
+    pub fn upsert_server(&self, decl: StaticServerDecl) -> Result<(), DiscoveryError> {
+        let current = self.current();
+        let mut decls = match current {
+            Some(ref topo) => topo.to_static(),
+            None => Vec::new(),
+        };
+
+        // Replace existing or append
+        if let Some(existing) = decls.iter_mut().find(|s| s.name == decl.name) {
+            *existing = decl;
+        } else {
+            decls.push(decl);
+        }
+
+        let new_topology = TopologyGraph::from_static(decls)?;
+        self.update(new_topology);
+        Ok(())
     }
 }
 

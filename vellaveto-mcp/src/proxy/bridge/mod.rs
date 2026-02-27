@@ -173,6 +173,16 @@ pub struct ProxyBridge {
     /// block the response (advisory, not security-critical).
     #[cfg(feature = "discovery")]
     discovery_engine: Option<Arc<crate::discovery::DiscoveryEngine>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Topology Guard Integration (live topology updates from relay)
+    // ═══════════════════════════════════════════════════════════════════
+    /// Topology guard for pre-policy tool call filtering.
+    /// When set, `tools/list` responses are parsed and upserted into the
+    /// guard for incremental topology updates. Advisory only — upsert
+    /// failures are logged but don't block the response.
+    #[cfg(feature = "discovery")]
+    topology_guard: Option<Arc<vellaveto_discovery::guard::TopologyGuard>>,
 }
 
 impl ProxyBridge {
@@ -226,6 +236,9 @@ impl ProxyBridge {
             // R227: Discovery engine (default: disabled)
             #[cfg(feature = "discovery")]
             discovery_engine: None,
+            // Topology guard (default: disabled)
+            #[cfg(feature = "discovery")]
+            topology_guard: None,
         }
     }
 }

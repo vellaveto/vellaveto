@@ -124,6 +124,8 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
     (state, tmp)
 }
@@ -531,6 +533,8 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         staging_snapshot: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

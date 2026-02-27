@@ -300,6 +300,14 @@ async fn main() -> Result<()> {
         bridge = bridge.with_shadow_agent(Arc::new(detector));
     }
 
+    // Wire topology guard into ProxyBridge for live topology updates from tools/list.
+    #[cfg(feature = "discovery")]
+    if policy_config.topology.enabled {
+        let guard = Arc::new(vellaveto_discovery::guard::TopologyGuard::new());
+        bridge = bridge.with_topology_guard(Arc::clone(&guard));
+        tracing::info!("Topology guard: ENABLED (stdio proxy)");
+    }
+
     tracing::info!("Request timeout: {}s, trace: {}", cli.timeout, cli.trace);
 
     // Run the proxy

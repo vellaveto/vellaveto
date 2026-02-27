@@ -580,6 +580,66 @@ impl TopologyGraph {
         names
     }
 
+    /// Reconstitute [`StaticServerDecl`] list from graph nodes.
+    ///
+    /// Iterates server nodes and collects their owned tools and resources.
+    /// Useful for incremental merge operations (read → modify → rebuild).
+    pub fn to_static(&self) -> Vec<StaticServerDecl> {
+        let mut decls = Vec::new();
+        for server_name in self.server_names() {
+            let tools: Vec<StaticToolDecl> = self
+                .server_tools(&server_name)
+                .into_iter()
+                .filter_map(|node| {
+                    if let TopologyNode::Tool {
+                        name,
+                        description,
+                        input_schema,
+                        ..
+                    } = node
+                    {
+                        Some(StaticToolDecl {
+                            name: name.clone(),
+                            description: description.clone(),
+                            input_schema: input_schema.clone(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            let resources: Vec<StaticResourceDecl> = self
+                .server_resources(&server_name)
+                .into_iter()
+                .filter_map(|node| {
+                    if let TopologyNode::Resource {
+                        uri_template,
+                        name,
+                        mime_type,
+                        ..
+                    } = node
+                    {
+                        Some(StaticResourceDecl {
+                            uri_template: uri_template.clone(),
+                            name: name.clone(),
+                            mime_type: mime_type.clone(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            decls.push(StaticServerDecl {
+                name: server_name,
+                tools,
+                resources,
+            });
+        }
+        decls
+    }
+
     /// When this topology was crawled.
     pub fn crawled_at(&self) -> SystemTime {
         self.crawled_at

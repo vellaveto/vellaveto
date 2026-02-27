@@ -10,12 +10,17 @@ repository.workspace = true
 name = "vellaveto-proxy"
 path = "src/main.rs"
 
+[features]
+default = []
+discovery = ["vellaveto-discovery", "vellaveto-mcp/discovery"]
+
 [dependencies]
 vellaveto-types = { path = "../vellaveto-types" }
 vellaveto-engine = { path = "../vellaveto-engine" }
 vellaveto-audit = { path = "../vellaveto-audit" }
 vellaveto-config = { path = "../vellaveto-config" }
 vellaveto-mcp = { path = "../vellaveto-mcp" }
+vellaveto-discovery = { path = "../vellaveto-discovery", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

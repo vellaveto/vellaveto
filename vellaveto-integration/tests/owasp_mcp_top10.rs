@@ -958,6 +958,8 @@ mod owasp_mcp07_auth {
             staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
             usage_tracker: None,
             topology_guard: None,
+            topology_probe: None,
+            recrawl_trigger: None,
         };
         (state, tmp)
     }
@@ -1418,6 +1420,8 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
             staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
             usage_tracker: None,
             topology_guard: None,
+            topology_probe: None,
+            recrawl_trigger: None,
         };
 
         let app = routes::build_router(state);
@@ -1730,6 +1734,8 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1993,6 +1999,8 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         staging_snapshot: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
         usage_tracker: None,
         topology_guard: None,
+        topology_probe: None,
+        recrawl_trigger: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
