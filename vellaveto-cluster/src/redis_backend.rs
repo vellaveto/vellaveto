@@ -175,6 +175,26 @@ impl RedisBackend {
     ///
     /// Returns `ClusterError::Connection` if the pool cannot be created.
     pub fn new(redis_url: &str, pool_size: usize, key_prefix: &str) -> Result<Self, ClusterError> {
+        // SECURITY (R228-A2A-3): Validate key_prefix to prevent control char injection
+        // into Redis keys and unbounded key lengths.
+        const MAX_KEY_PREFIX_LEN: usize = 128;
+        if key_prefix.is_empty() {
+            return Err(ClusterError::Validation(
+                "Redis key_prefix must not be empty".to_string(),
+            ));
+        }
+        if key_prefix.len() > MAX_KEY_PREFIX_LEN {
+            return Err(ClusterError::Validation(format!(
+                "Redis key_prefix length {} exceeds maximum {}",
+                key_prefix.len(),
+                MAX_KEY_PREFIX_LEN
+            )));
+        }
+        if key_prefix.chars().any(|c| c.is_control()) {
+            return Err(ClusterError::Validation(
+                "Redis key_prefix must not contain control characters".to_string(),
+            ));
+        }
         let cfg = PoolConfig::from_url(redis_url);
         let pool = cfg
             .builder()

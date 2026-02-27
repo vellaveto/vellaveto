@@ -557,6 +557,17 @@ impl NhiConfig {
             ));
         }
 
+        // SECURITY (R228-A2A-5): rotation_warning_hours bound. The field is u64 but is
+        // cast to i64 for chrono::Duration::hours(). Values > i64::MAX / 3600 would overflow.
+        // Cap at 8760 (1 year) which is generous for any credential rotation use case.
+        const MAX_ROTATION_WARNING_HOURS: u64 = 8760;
+        if self.rotation_warning_hours > MAX_ROTATION_WARNING_HOURS {
+            return Err(format!(
+                "nhi.rotation_warning_hours must be <= {}, got {}",
+                MAX_ROTATION_WARNING_HOURS, self.rotation_warning_hours
+            ));
+        }
+
         // Vec bounds
         if self.attestation_types.len() > MAX_NHI_ATTESTATION_TYPES {
             return Err(format!(

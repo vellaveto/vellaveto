@@ -389,7 +389,12 @@ impl AgentCardSignatureVerifier {
         // Check card hash if required
         if self.config.require_card_hash_match {
             let computed_hash = compute_card_hash(card_json);
-            if !constant_time_eq(computed_hash.as_bytes(), claims.card_hash.as_bytes()) {
+            // SECURITY (R228-A2A-12): Normalize both hashes to lowercase before
+            // comparison. compute_card_hash returns lowercase hex, but external
+            // issuers may encode card_hash in claims as uppercase hex. Without
+            // normalization, valid cards from uppercase-encoding issuers are rejected.
+            let claims_hash_lower = claims.card_hash.to_ascii_lowercase();
+            if !constant_time_eq(computed_hash.as_bytes(), claims_hash_lower.as_bytes()) {
                 self.increment_failures();
                 return Err(A2aError::AgentCardInvalid(
                     "card hash does not match claims".to_string(),
@@ -398,7 +403,11 @@ impl AgentCardSignatureVerifier {
         }
 
         // Check verification cache
-        let cache_key = format!("{}:{}", claims.card_hash, claims.iss);
+        // SECURITY (R228-A2A-1): Include kid in cache key. Without kid, a cached
+        // verification for one key would be reused when the issuer rotates keys,
+        // allowing a stale/compromised key to pass verification via cache hit.
+        let kid_component = claims.kid.as_deref().unwrap_or("");
+        let cache_key = format!("{}:{}:{}", claims.card_hash, claims.iss, kid_component);
         if self.check_cache(&cache_key) {
             return Ok(());
         }
@@ -469,10 +478,18 @@ impl AgentCardSignatureVerifier {
 
     /// Check if a token's lifetime is within the configured bounds.
     fn check_token_lifetime(&self, claims: &AgentCardClaims) -> Result<(), A2aError> {
+        // SECURITY (R228-A2A-2): Fail-closed on system clock error instead of
+        // defaulting to epoch 0. With unwrap_or(0), all tokens would be rejected
+        // as "iat in the future" — fail-closed but with misleading diagnostics.
+        // Explicit error provides actionable information.
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
-            .unwrap_or(0);
+            .map_err(|_| {
+                A2aError::AgentCardInvalid(
+                    "system clock error: cannot determine current time".to_string(),
+                )
+            })?;
 
         let skew = self.config.clock_skew_secs;
 
