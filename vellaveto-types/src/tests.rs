@@ -7868,6 +7868,34 @@ fn test_ssrf_nat64_cgnat() {
 }
 
 // ═══════════════════════════════════════════════════
+// R230-TYP-1/TYP-2: IPv6 and IPv4 multicast SSRF blocked
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_ssrf_ipv6_multicast_blocked() {
+    // R230-TYP-1: ff00::/8 multicast must be blocked
+    let result = validate_url_no_ssrf("http://[ff02::1]/path");
+    assert!(result.is_err(), "IPv6 all-nodes multicast should be rejected");
+    let result = validate_url_no_ssrf("http://[ff05::1]/path");
+    assert!(result.is_err(), "IPv6 site-local multicast should be rejected");
+    let result = validate_url_no_ssrf("http://[ff08::1]/path");
+    assert!(result.is_err(), "IPv6 org-scope multicast should be rejected");
+    let result = validate_url_no_ssrf("http://[ff0e::1]/path");
+    assert!(result.is_err(), "IPv6 global-scope multicast should be rejected");
+}
+
+#[test]
+fn test_ssrf_ipv4_multicast_blocked() {
+    // R230-TYP-2: 224.0.0.0/4 multicast must be blocked
+    let result = validate_url_no_ssrf("http://224.0.0.1/path");
+    assert!(result.is_err(), "IPv4 all-hosts multicast should be rejected");
+    let result = validate_url_no_ssrf("http://239.255.255.255/path");
+    assert!(result.is_err(), "IPv4 admin-scoped multicast should be rejected");
+    let result = validate_url_no_ssrf("http://232.1.2.3/path");
+    assert!(result.is_err(), "IPv4 SSM multicast should be rejected");
+}
+
+// ═══════════════════════════════════════════════════
 // FIND-R116-TE-002: resolved_ips control/format character validation
 // ═══════════════════════════════════════════════════
 

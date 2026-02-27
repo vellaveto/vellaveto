@@ -448,43 +448,85 @@ impl ClusterBackend for RedisBackend {
 
         let mut conn = self.get_conn().await?;
 
-        // SECURITY (FIND-R111-002): The check-then-SET-EX sequence below is not
-        // fully atomic (TOCTOU limitation). Two concurrent callers can both see
-        // the dedup key as absent and both proceed to create a new approval.
-        // The consequence is that up to N concurrent calls can create N duplicate
-        // approvals instead of deduplicating to one. This is accepted as a
-        // bounded, benign race (the human reviewer will see duplicates but safety
-        // is not compromised). A fully atomic solution would require a Lua script
-        // or Redis SETNX + WATCH transaction; the added complexity is not
-        // warranted for the current use case where concurrent duplicates are rare.
-        //
-        // Note: the `SET_EX` call at the end IS atomic (it sets value + TTL in
-        // a single command), so the dedup key itself is written atomically once
-        // the race window is past.
+        // R230-CLUS-1: Atomic dedup via SET NX EX (eliminates TOCTOU race).
+        // Previously used GET-then-SET which allowed concurrent callers to both
+        // see the dedup key as absent and create duplicate approvals.
+        // Now uses SET NX EX to atomically claim the dedup slot.
         let dedup_redis_key = self.dedup_key(&dedup_hash);
-        let existing_id: Option<String> = conn
-            .get(&dedup_redis_key)
-            .await
-            .map_err(|e| ClusterError::Connection(format!("Redis GET dedup failed: {}", e)))?;
 
-        if let Some(ref eid) = existing_id {
-            // Verify the referenced approval is still pending
-            let existing_json: Option<String> =
-                conn.get(self.approval_key(eid)).await.map_err(|e| {
-                    ClusterError::Connection(format!("Redis GET approval failed: {}", e))
+        // Attempt atomic claim: SET key value NX EX ttl
+        // Returns true if key was set (slot claimed), false if key already exists.
+        let claimed: bool = redis::cmd("SET")
+            .arg(&dedup_redis_key)
+            .arg(&id)
+            .arg("NX")
+            .arg("EX")
+            .arg(self.default_ttl_secs)
+            .query_async::<Option<String>>(&mut conn)
+            .await
+            .map(|r| r.is_some()) // SET NX returns "OK" on success, nil on key-exists
+            .map_err(|e| {
+                ClusterError::Connection(format!("Redis SET NX dedup failed: {}", e))
+            })?;
+
+        if !claimed {
+            // Dedup key exists — check if the referenced approval is still pending
+            let existing_id: Option<String> = conn
+                .get(&dedup_redis_key)
+                .await
+                .map_err(|e| {
+                    ClusterError::Connection(format!("Redis GET dedup failed: {}", e))
                 })?;
-            if let Some(ref json_str) = existing_json {
-                if let Ok(existing) = serde_json::from_str::<PendingApproval>(json_str) {
-                    if existing.status == ApprovalStatus::Pending {
-                        return Ok(eid.clone());
+            if let Some(ref eid) = existing_id {
+                let existing_json: Option<String> =
+                    conn.get(self.approval_key(eid)).await.map_err(|e| {
+                        ClusterError::Connection(format!("Redis GET approval failed: {}", e))
+                    })?;
+                if let Some(ref json_str) = existing_json {
+                    if let Ok(existing) = serde_json::from_str::<PendingApproval>(json_str) {
+                        if existing.status == ApprovalStatus::Pending {
+                            return Ok(eid.clone());
+                        }
                     }
                 }
+                // Stale dedup — remove and retry creation via recursion-free path:
+                // Delete the stale key, then atomically claim again.
+                let _: () = conn
+                    .del(&dedup_redis_key)
+                    .await
+                    .map_err(|e| {
+                        ClusterError::Connection(format!("Redis DEL dedup failed: {}", e))
+                    })?;
+                // Re-attempt atomic claim after stale removal
+                let reclaimed: bool = redis::cmd("SET")
+                    .arg(&dedup_redis_key)
+                    .arg(&id)
+                    .arg("NX")
+                    .arg("EX")
+                    .arg(self.default_ttl_secs)
+                    .query_async::<Option<String>>(&mut conn)
+                    .await
+                    .map(|r| r.is_some())
+                    .map_err(|e| {
+                        ClusterError::Connection(format!(
+                            "Redis SET NX dedup retry failed: {}",
+                            e
+                        ))
+                    })?;
+                if !reclaimed {
+                    // Another caller won the race after stale removal — re-check
+                    let new_eid: Option<String> = conn
+                        .get(&dedup_redis_key)
+                        .await
+                        .map_err(|e| {
+                            ClusterError::Connection(format!("Redis GET dedup failed: {}", e))
+                        })?;
+                    if let Some(eid) = new_eid {
+                        return Ok(eid);
+                    }
+                    // Key vanished between SET NX and GET — create new below
+                }
             }
-            // Stale dedup — remove it and continue to create new
-            let _: () = conn
-                .del(&dedup_redis_key)
-                .await
-                .map_err(|e| ClusterError::Connection(format!("Redis DEL dedup failed: {}", e)))?;
         }
 
         // Check capacity
@@ -493,6 +535,11 @@ impl ClusterBackend for RedisBackend {
             .await
             .map_err(|e| ClusterError::Connection(format!("Redis ZCARD failed: {}", e)))?;
         if pending_count >= self.max_pending {
+            // Clean up the dedup key we claimed since we can't create the approval
+            let _: () = conn
+                .del(&dedup_redis_key)
+                .await
+                .unwrap_or(()); // Best-effort cleanup
             return Err(ClusterError::CapacityExceeded(self.max_pending));
         }
 
@@ -509,12 +556,6 @@ impl ClusterBackend for RedisBackend {
             .zadd(self.pending_set_key(), &id, expiry_ts)
             .await
             .map_err(|e| ClusterError::Connection(format!("Redis ZADD pending failed: {}", e)))?;
-
-        // Set dedup key with TTL matching the approval TTL
-        let _: () = conn
-            .set_ex(&dedup_redis_key, &id, self.default_ttl_secs)
-            .await
-            .map_err(|e| ClusterError::Connection(format!("Redis SET dedup failed: {}", e)))?;
 
         Ok(id)
     }

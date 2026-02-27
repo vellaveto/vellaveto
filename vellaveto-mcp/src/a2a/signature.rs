@@ -470,10 +470,19 @@ impl AgentCardSignatureVerifier {
             A2aError::AgentCardInvalid("signature verifier internal error".to_string())
         })?;
 
-        // Try the specific key first, then fall through to issuer match
-        let matching_key = keys
-            .get(key_id)
-            .or_else(|| keys.values().find(|k| k.issuer == claims.iss));
+        // SECURITY (R230-A2A-1): When kid is explicitly specified, ONLY look up
+        // by kid. Do NOT fall back to issuer-based search. The fallback allowed a
+        // compromised key (kid="k1") to verify cards claiming kid="k2" for the same
+        // issuer, bypassing key-specific revocation.
+        // Only fall back to issuer-based lookup when kid is absent (uses iss as key_id).
+        let matching_key = if claims.kid.is_some() {
+            // kid specified → exact key_id match only, no fallback
+            keys.get(key_id)
+        } else {
+            // kid absent → key_id == iss, try exact match then issuer scan
+            keys.get(key_id)
+                .or_else(|| keys.values().find(|k| k.issuer == claims.iss))
+        };
 
         let signing_key = matching_key.ok_or_else(|| {
             self.increment_failures();
@@ -1124,6 +1133,68 @@ mod tests {
 
         let result = verifier.verify_card(card_json, &signature, &claims);
         assert!(result.is_err());
+    }
+
+    // ── R230-A2A-1: Fallback key match must not cross kid boundaries ──
+
+    #[test]
+    fn test_r230_kid_specified_no_fallback_to_issuer_match() {
+        // When kid is explicitly set, a key with the same issuer but different
+        // key_id must NOT be used for verification (no fallback).
+        let (sk1, vk1) = test_keypair();
+        let (_, _vk2) = test_keypair();
+        let verifier = AgentCardSignatureVerifier::new(SignatureEnforcementConfig::default());
+
+        // Register key with key_id "key-actual"
+        let key1 = AgentSigningKey::new("key-actual", vk1.as_bytes(), "https://issuer.example.com")
+            .unwrap();
+        verifier.add_trusted_key(key1).unwrap();
+
+        let card_json = br#"{"name":"test-agent","version":"1.0"}"#;
+        let signature = sign_card(&sk1, card_json);
+
+        // Claims specify kid="key-WRONG" (not "key-actual")
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let claims = AgentCardClaims {
+            iss: "https://issuer.example.com".to_string(),
+            sub: "https://agent.example.com".to_string(),
+            iat: now,
+            exp: now + 3600,
+            kid: Some("key-WRONG".to_string()),
+            card_hash: compute_card_hash(card_json),
+        };
+
+        // Must fail: kid is specified but doesn't match any registered key,
+        // and R230-A2A-1 prevents fallback to issuer-based lookup.
+        let result = verifier.verify_card(card_json, &signature, &claims);
+        assert!(result.is_err(), "Expected error when kid doesn't match any key");
+        assert!(
+            result.unwrap_err().to_string().contains("no trusted key"),
+            "Should report no trusted key found"
+        );
+    }
+
+    #[test]
+    fn test_r230_kid_absent_allows_issuer_fallback() {
+        // When kid is NOT set, fallback to issuer-based lookup is allowed.
+        let (sk1, vk1) = test_keypair();
+        let verifier = AgentCardSignatureVerifier::new(SignatureEnforcementConfig::default());
+
+        let key1 = AgentSigningKey::new("internal-key-1", vk1.as_bytes(), "https://issuer.example.com")
+            .unwrap();
+        verifier.add_trusted_key(key1).unwrap();
+
+        let card_json = br#"{"name":"test-agent","version":"1.0"}"#;
+        let signature = sign_card(&sk1, card_json);
+
+        // Claims with NO kid — should fall back to issuer-based lookup
+        let claims = make_claims(card_json, "https://issuer.example.com");
+
+        let result = verifier.verify_card(card_json, &signature, &claims);
+        assert!(result.is_ok(), "Should succeed via issuer fallback when kid absent");
     }
 
     // ── Debug output ────────────────────────────────────────────────────

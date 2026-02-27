@@ -128,6 +128,10 @@ fn is_ssrf_private_ipv4(ip: &std::net::Ipv4Addr) -> bool {
         || (o[0] == 100 && (o[1] & 0xC0) == 64)
         // R229-TYP-3: Benchmarking range (198.18.0.0/15, RFC 2544)
         || (o[0] == 198 && (o[1] == 18 || o[1] == 19))
+        // R230-TYP-2: Multicast range (224.0.0.0/4, RFC 5771)
+        // Includes all-hosts (224.0.0.1), all-routers (224.0.0.2), and SSM (232.0.0.0/8).
+        // No legitimate webhook target uses multicast.
+        || (o[0] >= 224 && o[0] <= 239)
         // R229-TYP-3: Reserved range (240.0.0.0/4, RFC 1112 §4)
         || o[0] >= 240
         || ip.is_broadcast()
@@ -207,7 +211,11 @@ pub fn validate_url_no_ssrf(url: &str) -> Result<(), String> {
         let is_private = ip6.is_loopback()
             || ip6.is_unspecified()
             || (segs[0] & 0xfe00) == 0xfc00
-            || (segs[0] & 0xffc0) == 0xfe80;
+            || (segs[0] & 0xffc0) == 0xfe80
+            // R230-TYP-1: IPv6 multicast (ff00::/8, RFC 4291 §2.7).
+            // Includes link-local multicast (ff02::), site-local (ff05::),
+            // and organization-scope (ff08::). No legitimate webhook target.
+            || (segs[0] & 0xff00) == 0xff00;
         if is_private {
             return Err(format!(
                 "must not target private/internal IPv6 ranges, got '{}'",

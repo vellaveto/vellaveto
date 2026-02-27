@@ -154,9 +154,22 @@ impl SamlState {
             .descendants()
             .filter(|node| node.has_tag_name((XMLDSIG_NS, "X509Certificate")))
         {
-            if let Some(text) = node.text() {
-                certificates.push(decode_base64(text.trim(), "SAML metadata certificate")?);
+            // R230-SRV-1: Fail-closed on empty/missing certificate text.
+            // Previously silently skipped, masking metadata corruption.
+            let text = node.text().ok_or_else(|| {
+                IamError::Saml(
+                    "SAML metadata X509Certificate element has no text content (fail-closed)"
+                        .to_string(),
+                )
+            })?;
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                return Err(IamError::Saml(
+                    "SAML metadata X509Certificate element has empty content (fail-closed)"
+                        .to_string(),
+                ));
             }
+            certificates.push(decode_base64(trimmed, "SAML metadata certificate")?);
         }
         if certificates.is_empty() {
             return Err(IamError::Saml(
@@ -695,6 +708,27 @@ impl IamState {
         flow_nonce: &str,
     ) -> Result<RoleClaims, IamError> {
         let header = decode_header(id_token).map_err(|e| IamError::InvalidToken(e.to_string()))?;
+        // R230-SRV-2: Algorithm whitelist (RFC 8725 §3.1).
+        // Reject weak or unexpected algorithms from the JWT header.
+        // HS256/384/512 are excluded to prevent symmetric key confusion when
+        // the IdP uses asymmetric keys (the server's JWKS only has public keys).
+        let allowed_algs = [
+            Algorithm::RS256,
+            Algorithm::RS384,
+            Algorithm::RS512,
+            Algorithm::ES256,
+            Algorithm::ES384,
+            Algorithm::PS256,
+            Algorithm::PS384,
+            Algorithm::PS512,
+            Algorithm::EdDSA,
+        ];
+        if !allowed_algs.contains(&header.alg) {
+            return Err(IamError::InvalidToken(format!(
+                "JWT algorithm {:?} is not in the allowed set (fail-closed)",
+                header.alg
+            )));
+        }
         let decoding_key = self.decoding_key(header.kid.as_deref(), header.alg).await?;
         let mut validation = Validation::new(header.alg);
         if let Some(issuer) = &self.config.oidc.issuer_url {
@@ -2885,6 +2919,63 @@ mod tests {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    // R230-SRV-2: OIDC algorithm confusion protection
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_r230_find_key_in_jwks_requires_alg() {
+        use jsonwebtoken::jwk::{Jwk, CommonParameters, KeyAlgorithm, AlgorithmParameters, RSAKeyParameters};
+        // Key WITHOUT alg field should NOT match any algorithm
+        let key_no_alg = Jwk {
+            common: CommonParameters {
+                public_key_use: None,
+                key_operations: None,
+                key_algorithm: None, // Missing alg
+                key_id: Some("kid-1".to_string()),
+                x509_url: None,
+                x509_chain: None,
+                x509_sha1_fingerprint: None,
+                x509_sha256_fingerprint: None,
+            },
+            algorithm: AlgorithmParameters::RSA(RSAKeyParameters {
+                key_type: jsonwebtoken::jwk::RSAKeyType::RSA,
+                n: "test_n".to_string(),
+                e: "AQAB".to_string(),
+            }),
+        };
+        let jwks = JwkSet { keys: vec![key_no_alg] };
+        // Should return None because key has no alg (R230-SRV-2 fail-closed)
+        let result = find_key_in_jwks(&jwks, "kid-1", &Algorithm::RS256);
+        assert!(result.is_none(), "Key without alg must not match (algorithm confusion prevention)");
+    }
+
+    #[test]
+    fn test_r230_find_key_in_jwks_matching_alg_works() {
+        use jsonwebtoken::jwk::{Jwk, CommonParameters, KeyAlgorithm, AlgorithmParameters, RSAKeyParameters};
+        let key_with_alg = Jwk {
+            common: CommonParameters {
+                public_key_use: None,
+                key_operations: None,
+                key_algorithm: Some(KeyAlgorithm::RS256), // Explicit alg
+                key_id: Some("kid-2".to_string()),
+                x509_url: None,
+                x509_chain: None,
+                x509_sha1_fingerprint: None,
+                x509_sha256_fingerprint: None,
+            },
+            algorithm: AlgorithmParameters::RSA(RSAKeyParameters {
+                key_type: jsonwebtoken::jwk::RSAKeyType::RSA,
+                n: "test_n".to_string(),
+                e: "AQAB".to_string(),
+            }),
+        };
+        let jwks = JwkSet { keys: vec![key_with_alg] };
+        // Wrong algorithm should not match
+        let result = find_key_in_jwks(&jwks, "kid-2", &Algorithm::ES256);
+        assert!(result.is_none(), "Mismatched alg must not match");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // M2M Config Validation Tests
     // ═══════════════════════════════════════════════════════════════
 
@@ -3094,8 +3185,18 @@ fn find_key_in_jwks(jwks: &JwkSet, kid: &str, alg: &Algorithm) -> Option<Decodin
                 _ => continue,
             }
         }
-        if let Some(ref key_alg) = key.common.key_algorithm {
-            if key_algorithm_to_algorithm(key_alg).as_ref() != Some(alg) {
+        // R230-SRV-2: Require alg field in JWKS keys (RFC 8725 §3.1).
+        // Previously, keys without `alg` matched ANY requested algorithm,
+        // enabling algorithm confusion attacks (e.g., RSA key used with HS256).
+        // Fail-closed: keys without explicit alg are skipped.
+        match &key.common.key_algorithm {
+            Some(key_alg) => {
+                if key_algorithm_to_algorithm(key_alg).as_ref() != Some(alg) {
+                    continue;
+                }
+            }
+            None => {
+                // No alg specified → skip this key (fail-closed)
                 continue;
             }
         }

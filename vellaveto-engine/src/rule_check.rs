@@ -20,6 +20,12 @@ impl PolicyEngine {
             None => return None,
         };
 
+        // R230-ENG-1: Parity with legacy check_path_rules_legacy —
+        // early return when both allowed and blocked are empty.
+        if rules.allowed.is_empty() && rules.blocked.is_empty() {
+            return None;
+        }
+
         if action.target_paths.is_empty() {
             // SECURITY (R28-ENG-1): When an allowlist is configured but no
             // target paths were extracted, fail-closed. The absence of paths

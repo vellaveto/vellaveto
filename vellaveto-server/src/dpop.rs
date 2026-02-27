@@ -479,10 +479,10 @@ impl DpopVerifier {
             });
         }
 
-        // Verify HTTP URI (compare without query/fragment)
-        let proof_uri = claims.htu.split('?').next().unwrap_or(&claims.htu);
-        let request_uri = http_uri.split('?').next().unwrap_or(http_uri);
-        if proof_uri != request_uri {
+        // R230-MCP-2: Normalize HTU before comparison (RFC 9449 §4.3).
+        // Strip query and fragment, normalize scheme+host case per RFC 3986 §6.2.2.1.
+        // Previously only stripped query with split('?'), missing fragment and case.
+        if !dpop_htu_match(&claims.htu, http_uri) {
             self.increment_failures();
             return Err(DpopError::HttpUriMismatch);
         }
@@ -824,6 +824,47 @@ pub fn compute_jwk_thumbprint(jwk: &serde_json::Value) -> Result<String, DpopErr
     Ok(URL_SAFE_NO_PAD.encode(hash))
 }
 
+/// Compare DPoP `htu` claim against the request URI per RFC 9449 §4.3.
+///
+/// Strips query and fragment from both, normalizes scheme+host case per
+/// RFC 3986 §6.2.2.1 (scheme and host are case-insensitive).
+fn dpop_htu_match(htu: &str, request_uri: &str) -> bool {
+    // Strip query (?...) and fragment (#...)
+    fn strip_qf(uri: &str) -> &str {
+        let end = uri.find(['?', '#']).unwrap_or(uri.len());
+        &uri[..end]
+    }
+    let a = strip_qf(htu);
+    let b = strip_qf(request_uri);
+    // Normalize: scheme and host are case-insensitive (RFC 3986 §6.2.2.1)
+    // Find the end of scheme+authority for case-insensitive comparison
+    fn split_at_path(uri: &str) -> (&str, &str) {
+        // SECURITY (R230): Case-insensitive scheme prefix matching (RFC 3986 §3.1).
+        let lower = uri.to_ascii_lowercase();
+        let scheme_rest = if lower.starts_with("https://") {
+            Some(8usize)
+        } else if lower.starts_with("http://") {
+            Some(7usize)
+        } else {
+            None
+        };
+        if let Some(scheme_len) = scheme_rest {
+            let rest = &uri[scheme_len..];
+            // Find end of authority (first '/' after scheme)
+            if let Some(slash) = rest.find('/') {
+                (&uri[..scheme_len + slash], &uri[scheme_len + slash..])
+            } else {
+                (uri, "")
+            }
+        } else {
+            (uri, "")
+        }
+    }
+    let (a_auth, a_path) = split_at_path(a);
+    let (b_auth, b_path) = split_at_path(b);
+    a_auth.eq_ignore_ascii_case(b_auth) && a_path == b_path
+}
+
 /// Generate a cryptographically random nonce string.
 fn generate_nonce() -> String {
     let mut bytes = [0u8; 32];
@@ -1045,6 +1086,49 @@ mod tests {
         let result =
             verifier.verify_proof(&proof, "POST", "https://different.example.com", None, None);
         assert!(matches!(result, Err(DpopError::HttpUriMismatch)));
+    }
+
+    // ── R230-MCP-2: HTU normalization ──────────────────────────────────
+
+    #[test]
+    fn test_dpop_htu_match_strips_query_and_fragment() {
+        assert!(dpop_htu_match(
+            "https://example.com/api",
+            "https://example.com/api?foo=bar"
+        ));
+        assert!(dpop_htu_match(
+            "https://example.com/api?a=1",
+            "https://example.com/api#frag"
+        ));
+        assert!(dpop_htu_match(
+            "https://example.com/api",
+            "https://example.com/api#section"
+        ));
+    }
+
+    #[test]
+    fn test_dpop_htu_match_case_insensitive_scheme_host() {
+        assert!(dpop_htu_match(
+            "HTTPS://EXAMPLE.COM/api/v1",
+            "https://example.com/api/v1"
+        ));
+        assert!(dpop_htu_match(
+            "https://Example.COM/api/v1",
+            "https://example.com/api/v1"
+        ));
+        // Path IS case-sensitive
+        assert!(!dpop_htu_match(
+            "https://example.com/API/V1",
+            "https://example.com/api/v1"
+        ));
+    }
+
+    #[test]
+    fn test_dpop_htu_match_different_paths_rejected() {
+        assert!(!dpop_htu_match(
+            "https://example.com/api/v1",
+            "https://example.com/api/v2"
+        ));
     }
 
     // ── Proof verification: replay detection ────────────────────────────
