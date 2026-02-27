@@ -300,8 +300,10 @@ impl DecisionCache {
         CacheKey {
             tool_hash: Self::hash_str(&crate::normalize::normalize_full(&action.tool)),
             function_hash: Self::hash_str(&crate::normalize::normalize_full(&action.function)),
-            paths_hash: Self::hash_sorted_strs(&action.target_paths),
-            domains_hash: Self::hash_sorted_strs(&action.target_domains),
+            // SECURITY (R229-ENG-1): Normalize paths and domains before hashing so that
+            // case/Unicode variants of the same logical target share a cache entry.
+            paths_hash: Self::hash_sorted_normalized_strs(&action.target_paths),
+            domains_hash: Self::hash_sorted_normalized_strs(&action.target_domains),
             resolved_ips_hash: Self::hash_sorted_strs(&action.resolved_ips),
             identity_hash: Self::hash_identity(context),
         }
@@ -317,13 +319,32 @@ impl DecisionCache {
     /// Hash a sorted slice of strings for order-independent comparison.
     ///
     /// Sorts a clone of the slice so that `["a", "b"]` and `["b", "a"]`
-    /// produce the same hash.
+    /// produce the same hash. Used for resolved_ips which are already canonical.
     fn hash_sorted_strs(strs: &[String]) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         let mut sorted: Vec<&str> = strs.iter().map(|s| s.as_str()).collect();
         sorted.sort_unstable();
         sorted.len().hash(&mut hasher);
         for s in &sorted {
+            s.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    /// Hash a sorted slice of strings after normalizing each entry.
+    ///
+    /// SECURITY (R229-ENG-1): target_paths and target_domains must be normalized
+    /// before hashing to prevent cache pollution — e.g., "/TMP/FOO" and "/tmp/foo"
+    /// must produce the same cache key since the engine evaluates them identically.
+    fn hash_sorted_normalized_strs(strs: &[String]) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut normalized: Vec<String> = strs
+            .iter()
+            .map(|s| crate::normalize::normalize_full(s))
+            .collect();
+        normalized.sort_unstable();
+        normalized.len().hash(&mut hasher);
+        for s in &normalized {
             s.hash(&mut hasher);
         }
         hasher.finish()

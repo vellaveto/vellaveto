@@ -550,13 +550,18 @@ impl CascadingBreaker {
             .write()
             .map_err(|_| CascadingError::LockPoisoned("pipelines write lock".to_string()))?;
 
-        // Bound tracked pipelines.
+        // SECURITY (R229-ENG-1): Fail-closed on capacity exhaustion.
+        // Previously returned Ok(()) which silently dropped events, allowing
+        // an attacker to fill with dummy pipeline IDs then operate undetected.
         if !pipelines.contains_key(pipeline_id) && pipelines.len() >= MAX_TRACKED_PIPELINES {
             tracing::warn!(
                 max = MAX_TRACKED_PIPELINES,
-                "Cascading pipeline tracker at capacity, skipping event"
+                "Cascading pipeline tracker at capacity — denying new pipeline"
             );
-            return Ok(());
+            return Err(CascadingError::ChainDepthExceeded {
+                current: u32::try_from(pipelines.len()).unwrap_or(u32::MAX),
+                max: u32::try_from(MAX_TRACKED_PIPELINES).unwrap_or(u32::MAX),
+            });
         }
 
         let now = Self::now_secs();

@@ -520,7 +520,14 @@ impl AbacEntity {
                 ));
             }
             // Bound serialized value size to prevent memory amplification.
-            let val_size = serde_json::to_string(value).map(|s| s.len()).unwrap_or(0);
+            // SECURITY (R229-TYP-2): Fail-closed — serialization failure rejects the entity
+            // instead of defaulting to 0 which silently bypasses the size check.
+            let val_size = serde_json::to_string(value).map(|s| s.len()).map_err(|e| {
+                format!(
+                    "AbacEntity '{}::{}' attribute '{}' value failed to serialize: {}",
+                    self.entity_type, self.id, key, e,
+                )
+            })?;
             if val_size > Self::MAX_ATTR_VALUE_SIZE {
                 return Err(format!(
                     "AbacEntity '{}::{}' attribute '{}' value size {} exceeds max {}",

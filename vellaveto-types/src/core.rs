@@ -123,6 +123,10 @@ fn is_ssrf_private_ipv4(ip: &std::net::Ipv4Addr) -> bool {
         || o[0] == 0
         // IMP-R122-006: CGNAT range (100.64.0.0/10, RFC 6598)
         || (o[0] == 100 && (o[1] & 0xC0) == 64)
+        // R229-TYP-3: Benchmarking range (198.18.0.0/15, RFC 2544)
+        || (o[0] == 198 && (o[1] == 18 || o[1] == 19))
+        // R229-TYP-3: Reserved range (240.0.0.0/4, RFC 1112 §4)
+        || o[0] >= 240
         || ip.is_broadcast()
 }
 
@@ -846,6 +850,23 @@ impl Policy {
                     pr.blocked.len()
                 ));
             }
+            // SECURITY (R229-TYP-1): Per-entry content validation for path rules.
+            for (i, entry) in pr.allowed.iter().enumerate() {
+                if has_dangerous_chars(entry) {
+                    return Err(format!(
+                        "Policy '{}' path_rules.allowed[{}] contains control or format characters",
+                        self.id, i,
+                    ));
+                }
+            }
+            for (i, entry) in pr.blocked.iter().enumerate() {
+                if has_dangerous_chars(entry) {
+                    return Err(format!(
+                        "Policy '{}' path_rules.blocked[{}] contains control or format characters",
+                        self.id, i,
+                    ));
+                }
+            }
         }
         if let Some(ref nr) = self.network_rules {
             if nr.allowed_domains.len() > MAX_DOMAIN_RULES {
@@ -864,6 +885,23 @@ impl Policy {
                     nr.blocked_domains.len()
                 ));
             }
+            // SECURITY (R229-TYP-1): Per-entry content validation for domain rules.
+            for (i, entry) in nr.allowed_domains.iter().enumerate() {
+                if has_dangerous_chars(entry) {
+                    return Err(format!(
+                        "Policy '{}' network_rules.allowed_domains[{}] contains control or format characters",
+                        self.id, i,
+                    ));
+                }
+            }
+            for (i, entry) in nr.blocked_domains.iter().enumerate() {
+                if has_dangerous_chars(entry) {
+                    return Err(format!(
+                        "Policy '{}' network_rules.blocked_domains[{}] contains control or format characters",
+                        self.id, i,
+                    ));
+                }
+            }
             if let Some(ref ip) = nr.ip_rules {
                 if ip.blocked_cidrs.len() > MAX_CIDR_RULES {
                     return Err(format!(
@@ -880,6 +918,23 @@ impl Policy {
                         MAX_CIDR_RULES,
                         ip.allowed_cidrs.len()
                     ));
+                }
+                // SECURITY (R229-TYP-1): Per-entry content validation for CIDR rules.
+                for (i, entry) in ip.blocked_cidrs.iter().enumerate() {
+                    if has_dangerous_chars(entry) {
+                        return Err(format!(
+                            "Policy '{}' ip_rules.blocked_cidrs[{}] contains control or format characters",
+                            self.id, i,
+                        ));
+                    }
+                }
+                for (i, entry) in ip.allowed_cidrs.iter().enumerate() {
+                    if has_dangerous_chars(entry) {
+                        return Err(format!(
+                            "Policy '{}' ip_rules.allowed_cidrs[{}] contains control or format characters",
+                            self.id, i,
+                        ));
+                    }
                 }
             }
         }

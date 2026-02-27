@@ -313,6 +313,9 @@ pub enum CollusionType {
     /// a time window, indicating "salami slicing" or progressive boundary pushing.
     /// (Straiker — agent hijacking via gradual drift)
     ConstraintDrift,
+    /// R229: Tracker capacity exhaustion — an attacker may have filled the tracker
+    /// with dummy agent IDs to evade detection. This is a fail-closed alert.
+    CapacityExhaustion,
 }
 
 /// Severity of a collusion alert.
@@ -643,6 +646,30 @@ impl CollusionDetector {
         entropy
     }
 
+    /// SECURITY (R229-ENG-2): Build a capacity-exhaustion alert for fail-closed behavior.
+    fn capacity_alert(tracker_name: &str, max: usize) -> CollusionAlert {
+        CollusionAlert {
+            collusion_type: CollusionType::CapacityExhaustion,
+            severity: CollusionSeverity::High,
+            agent_ids: Vec::new(),
+            target: tracker_name.to_string(),
+            description: format!(
+                "{} tracker at capacity ({}) — possible evasion attack",
+                tracker_name, max
+            ),
+            detected_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            evidence: CollusionEvidence {
+                entropy_values: None,
+                access_timestamps: None,
+                sync_score: None,
+                observation_count: u32::try_from(max).unwrap_or(u32::MAX),
+            },
+        }
+    }
+
     /// Analyze parameter data for steganographic channels.
     ///
     /// Records the entropy observation and returns an alert if the agent
@@ -677,13 +704,14 @@ impl CollusionDetector {
             .write()
             .map_err(|_| CollusionError::LockPoisoned("entropy_profiles write lock".to_string()))?;
 
-        // SECURITY (Trap 3): Bound the number of tracked agents.
+        // SECURITY (R229-ENG-2): Fail-closed on capacity exhaustion.
+        // Previously returned Ok(None) which silently skipped, allowing evasion.
         if !profiles.contains_key(agent_id) && profiles.len() >= MAX_TRACKED_AGENTS {
             tracing::warn!(
                 max = MAX_TRACKED_AGENTS,
-                "Collusion entropy profiles at capacity, skipping new agent"
+                "Collusion entropy profiles at capacity — returning alert"
             );
-            return Ok(None);
+            return Ok(Some(Self::capacity_alert("entropy_profiles", MAX_TRACKED_AGENTS)));
         }
 
         let profile = profiles
@@ -790,13 +818,13 @@ impl CollusionDetector {
             .write()
             .map_err(|_| CollusionError::LockPoisoned("resource_events write lock".to_string()))?;
 
-        // SECURITY (Trap 3): Bound tracked resources.
+        // SECURITY (R229-ENG-2): Fail-closed on capacity exhaustion.
         if !events.contains_key(resource) && events.len() >= MAX_TRACKED_RESOURCES {
             tracing::warn!(
                 max = MAX_TRACKED_RESOURCES,
-                "Collusion resource tracking at capacity, skipping new resource"
+                "Collusion resource tracking at capacity — returning alert"
             );
-            return Ok(None);
+            return Ok(Some(Self::capacity_alert("resource_tracking", MAX_TRACKED_RESOURCES)));
         }
 
         let event_queue = events
@@ -863,7 +891,8 @@ impl CollusionDetector {
                     entropy_values: None,
                     access_timestamps: Some(timestamps_in_window),
                     sync_score: None,
-                    observation_count: distinct_agents.len() as u32,
+                    // SECURITY (R229-ENG-3): Safe cast with fail-closed fallback.
+                    observation_count: u32::try_from(distinct_agents.len()).unwrap_or(u32::MAX),
                 },
             };
 
@@ -910,13 +939,13 @@ impl CollusionDetector {
             .write()
             .map_err(|_| CollusionError::LockPoisoned("timing_profiles write lock".to_string()))?;
 
-        // SECURITY (Trap 3): Bound tracked agents.
+        // SECURITY (R229-ENG-2): Fail-closed on capacity exhaustion.
         if !profiles.contains_key(agent_id) && profiles.len() >= MAX_TRACKED_AGENTS {
             tracing::warn!(
                 max = MAX_TRACKED_AGENTS,
-                "Collusion timing profiles at capacity, skipping new agent"
+                "Collusion timing profiles at capacity — returning alert"
             );
-            return Ok(None);
+            return Ok(Some(Self::capacity_alert("timing_profiles", MAX_TRACKED_AGENTS)));
         }
 
         let profile = profiles
@@ -1112,13 +1141,13 @@ impl CollusionDetector {
             .write()
             .map_err(|_| CollusionError::LockPoisoned("denial_events write lock".to_string()))?;
 
-        // SECURITY (Trap 3): Bound tracked agents.
+        // SECURITY (R229-ENG-2): Fail-closed on capacity exhaustion.
         if !denials.contains_key(agent_id) && denials.len() >= MAX_RECON_TRACKED_AGENTS {
             tracing::warn!(
                 max = MAX_RECON_TRACKED_AGENTS,
-                "Reconnaissance denial tracking at capacity, skipping new agent"
+                "Reconnaissance denial tracking at capacity — returning alert"
             );
-            return Ok(None);
+            return Ok(Some(Self::capacity_alert("recon_tracking", MAX_RECON_TRACKED_AGENTS)));
         }
 
         let events = denials
@@ -1156,7 +1185,8 @@ impl CollusionDetector {
             }
         }
 
-        let distinct_count = distinct_tools.len() as u32;
+        // SECURITY (R229-ENG-3): Safe cast with fail-closed fallback.
+        let distinct_count = u32::try_from(distinct_tools.len()).unwrap_or(u32::MAX);
         if distinct_count >= self.config.recon_denial_threshold {
             let now = Self::now_secs();
 
@@ -1237,13 +1267,13 @@ impl CollusionDetector {
             .write()
             .map_err(|_| CollusionError::LockPoisoned("drift_profiles write lock".to_string()))?;
 
-        // SECURITY (Trap 3): Bound tracked agents.
+        // SECURITY (R229-ENG-2): Fail-closed on capacity exhaustion.
         if !profiles.contains_key(agent_id) && profiles.len() >= MAX_DRIFT_TRACKED_AGENTS {
             tracing::warn!(
                 max = MAX_DRIFT_TRACKED_AGENTS,
-                "Drift tracking at capacity, skipping new agent"
+                "Drift tracking at capacity — returning alert"
             );
-            return Ok(None);
+            return Ok(Some(Self::capacity_alert("drift_tracking", MAX_DRIFT_TRACKED_AGENTS)));
         }
 
         let profile = profiles

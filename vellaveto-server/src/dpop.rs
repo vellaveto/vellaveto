@@ -167,7 +167,11 @@ pub enum DpopError {
 /// DPoP proof header (JOSE header).
 ///
 /// Per RFC 9449 Section 4.2: the header MUST contain `typ`, `alg`, and `jwk`.
+// SECURITY (R229-SRV-4): deny_unknown_fields per project hardening policy.
+// RFC 7515 allows additional JOSE header fields (kid, x5c, etc.) but we restrict
+// to the minimum required set for DPoP. Clients must use exactly typ, alg, jwk.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DpopHeader {
     /// Token type — MUST be "dpop+jwt".
     pub typ: String,
@@ -238,12 +242,24 @@ impl DpopClaims {
                     "nonce exceeds maximum length".to_string(),
                 ));
             }
+            // SECURITY (R229-SRV-2): nonce flows into HashMap keys and audit logs.
+            if has_dangerous_chars(nonce) {
+                return Err(DpopError::ValidationFailed(
+                    "nonce contains dangerous characters".to_string(),
+                ));
+            }
         }
         if let Some(ref ath) = self.ath {
             // Base64url-encoded SHA-256 = 43 chars
             if ath.len() > 128 {
                 return Err(DpopError::ValidationFailed(
                     "ath exceeds maximum length".to_string(),
+                ));
+            }
+            // SECURITY (R229-SRV-2): ath flows into string comparisons and logs.
+            if has_dangerous_chars(ath) {
+                return Err(DpopError::ValidationFailed(
+                    "ath contains dangerous characters".to_string(),
                 ));
             }
         }
@@ -367,8 +383,12 @@ impl DpopVerifier {
         access_token: Option<&str>,
         expected_thumbprint: Option<&str>,
     ) -> Result<DpopProofResult, DpopError> {
-        self.verification_count
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // SECURITY (R229-SRV-3): Saturating add per project Trap 9.
+        let _ = self.verification_count.fetch_update(
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+            |v| Some(v.saturating_add(1)),
+        );
 
         if !self.config.enabled {
             return Ok(DpopProofResult {
@@ -684,8 +704,12 @@ impl DpopVerifier {
 
     /// Increment the failure counter.
     fn increment_failures(&self) {
-        self.failure_count
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // SECURITY (R229-SRV-3): Saturating add per project Trap 9.
+        let _ = self.failure_count.fetch_update(
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+            |v| Some(v.saturating_add(1)),
+        );
     }
 
     /// Get the total number of verifications attempted.
@@ -752,22 +776,43 @@ pub fn compute_jwk_thumbprint(jwk: &serde_json::Value) -> Result<String, DpopErr
         .and_then(|v| v.as_str())
         .ok_or_else(|| DpopError::MalformedProof("JWK missing 'kty' field".to_string()))?;
 
+    // SECURITY (R229-SRV-1): Validate JWK member values contain no JSON-breaking
+    // characters (double quotes, backslashes) before interpolation into canonical form.
+    // Without this, an attacker can inject arbitrary JSON structure via format string,
+    // producing a controlled thumbprint that enables DPoP token binding bypass.
+    fn validate_jwk_member(value: &str, field: &str) -> Result<(), DpopError> {
+        if value.contains('"') || value.contains('\\') {
+            return Err(DpopError::MalformedProof(format!(
+                "JWK '{}' contains invalid characters",
+                field
+            )));
+        }
+        Ok(())
+    }
+
     // Build the canonical representation per RFC 7638 Section 3.2
     let canonical = match kty {
         "EC" => {
             let crv = jwk.get("crv").and_then(|v| v.as_str()).unwrap_or("");
             let x = jwk.get("x").and_then(|v| v.as_str()).unwrap_or("");
             let y = jwk.get("y").and_then(|v| v.as_str()).unwrap_or("");
+            validate_jwk_member(crv, "crv")?;
+            validate_jwk_member(x, "x")?;
+            validate_jwk_member(y, "y")?;
             format!(r#"{{"crv":"{}","kty":"EC","x":"{}","y":"{}"}}"#, crv, x, y)
         }
         "RSA" => {
             let e = jwk.get("e").and_then(|v| v.as_str()).unwrap_or("");
             let n = jwk.get("n").and_then(|v| v.as_str()).unwrap_or("");
+            validate_jwk_member(e, "e")?;
+            validate_jwk_member(n, "n")?;
             format!(r#"{{"e":"{}","kty":"RSA","n":"{}"}}"#, e, n)
         }
         "OKP" => {
             let crv = jwk.get("crv").and_then(|v| v.as_str()).unwrap_or("");
             let x = jwk.get("x").and_then(|v| v.as_str()).unwrap_or("");
+            validate_jwk_member(crv, "crv")?;
+            validate_jwk_member(x, "x")?;
             format!(r#"{{"crv":"{}","kty":"OKP","x":"{}"}}"#, crv, x)
         }
         other => {
