@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **R227: Code Quality + Discovery Engine Wiring + Threat Hardening (8 items, 30 new tests)**
+  Code quality fixes, production wiring of discovery engine, and 4 new threat defenses informed by Feb 2026 MCP CVE wave and Adversa AI research.
+  - **Sprint 1 — Clippy Warnings (3 items):**
+    - `is_multiple_of()` in `vellaveto-types/src/time_util.rs` (replaces manual `%` checks)
+    - `result.clamp(0.0, 1.0)` in `vellaveto-engine/src/coverage.rs` (replaces manual if/else chain)
+    - Removed `let_and_return` binding in `vellaveto-mcp/src/inspection/dlp.rs`
+  - **Sprint 2 — R24-MCP-1 Discovery Engine Wiring (1 item):**
+    - **R24-MCP-1 (HIGH):** Discovery engine `ingest_tools_list()` now called in production from `handle_tools_list_response()`. Previously only exercised in unit tests. Tools from `tools/list` responses are indexed for intent-based discovery search. Feature-gated behind `discovery` feature flag. Server name captured from initialize response for server_id attribution.
+  - **Sprint 3 — Threat Hardening (4 items):**
+    - **ROT13 decode pass** (`vellaveto-mcp/src/inspection/injection.rs`): Defends against compound obfuscation (ROT13 + Unicode, ROT13 + leetspeak) that bypasses single-layer detection. Wired into both `inspect_for_injection()` and `InjectionScanner::inspect()` after leetspeak pass. Self-inverse, 4-alpha-char threshold to avoid false positives. 7 tests.
+    - **Per-tool sampling rate limiting** (`vellaveto-config/src/mcp_protocol.rs`, `vellaveto-mcp/src/proxy/bridge/relay.rs`): Prevents a single tool from draining compute via repeated `sampling/createMessage` invocations (Adversa AI research). Sliding-window counter per tool name (`max_per_tool`: 50, `per_tool_window_secs`: 60). Tool attributed from most recently dispatched pending request. 3 tests.
+    - **Tool capability drift detection** (`vellaveto-config/src/governance.rs`, `vellaveto-mcp/src/proxy/bridge/relay.rs`): `governance.block_tool_drift` (default false) blocks tools on ANY schema change, not just major changes. Defends against gradual capability expansion where tools incrementally broaden parameters/descriptions. Extends existing `SchemaLineageTracker`. 2 tests.
+    - **Imperative instruction detection** (`vellaveto-mcp/src/inspection/tool_description.rs`): Detects LLM-targeting imperative patterns in tool descriptions ("you must", "always return", "never refuse", "ignore your", etc.). Threshold: 2+ distinct patterns = flagged. Defends against MCP-ITP direct instruction injection. 4 tests.
+  - **Additional hardening (from concurrent agents):**
+    - **R227-AUD-1:** PQC rotation manifest verification strips `pqc_signature`, `pqc_verifying_key`, `signature_version` fields before Ed25519 digest computation.
+    - **R227-AUD-2:** Audit chain `verify_chain` rejects non-UTC timestamps.
+    - **R227-SRV-1:** DPoP `allow_unverified_proofs` documentation clarified as fail-closed by default.
+  - 30 new tests. **8,538 Rust tests passing, 0 failures, 0 clippy warnings.**
+
 - **Adversarial Audit Round 226 (23 findings — 4 CRITICAL, 6 HIGH, 8 MEDIUM, 5 LOW):**
   Full-codebase adversarial security audit across engine, MCP, server, audit, A2A, config, and types crates. 13 real findings fixed, 10 triaged as false positives (already defended).
   - **Sprint 1 — 4 CRITICAL + 3 HIGH:**
