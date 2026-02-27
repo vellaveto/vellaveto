@@ -51,6 +51,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Adversarial Audit Round 230 (10 findings — 4 HIGH, 3 MEDIUM, 1 LOW + 3 threat intel):**
+  Full-codebase adversarial audit + threat intelligence sweep. Transport parity gaps in extension/task handlers, signup key persistence, JSON-RPC smuggling defense.
+  - **Sprint 1 — 4 HIGH + 1 P0 threat intel:**
+    - **R230-RELAY-1 (HIGH):** Extension method handler missing injection scanning — `handle_extension_method` had DLP + memory poisoning but no Aho-Corasick injection scan. Parity with `handle_tool_call`. (`vellaveto-mcp/src/proxy/bridge/relay.rs`)
+    - **R230-RELAY-2 (HIGH):** Extension method handler missing circuit breaker — cascading failures not prevented for `x-` extension methods. Added circuit breaker check parity with tool calls.
+    - **R230-RELAY-3 (HIGH):** Task request handler missing injection scanning — `handle_task_request` forwarded parameters without injection scan. Added parity with `handle_tool_call`.
+    - **R230-SRV-1 (HIGH):** Signup API key generated but hash never persisted — returned key unverifiable for per-tenant auth. Fixed: SHA-256 hash stored in tenant metadata.
+    - **TI-2026-002 (P0):** Sampling/createMessage system prompt not scanned for injection — malicious MCP server can inject hidden instructions via `systemPrompt` field. Added full injection pipeline scan on sampling params.
+  - **Sprint 2 — 3 MEDIUM + 2 P1 threat intel:**
+    - **R230-RELAY-4 (MEDIUM):** Resource read handler missing injection scan on URI.
+    - **R230-RELAY-5 (MEDIUM):** Extension method handler missing shadow agent detection.
+    - **R230-ENG-1 (MEDIUM):** 2 remaining `as u32` casts in collusion → `u32::try_from().unwrap_or(u32::MAX)`.
+    - **R230-SRV-2 (LOW):** Tenant ID 24-bit suffix → 64-bit (collision resistance).
+    - **TI-2026-001 (P1):** JSON-RPC key case-folding smuggle defense (CVE-2026-27896) — reject `"Method"`, `"PARAMS"` etc. at framing layer. (`vellaveto-mcp/src/framing.rs`)
+    - **TI-2026-004 (P1):** Tool output error message social engineering patterns (CyberArk "Poison Everywhere") — 10 new patterns: `provide contents of`, `try using the`, `provide your api key`, etc.
+    - DPoP `htu` case-insensitive scheme matching fix (RFC 3986 §3.1).
+  - **21 new tests. 8,677 Rust tests passing, 0 failures, 0 warnings.**
+
 - **Adversarial Audit Round 229 (9 adversarial + additional hardening):**
   Full-codebase adversarial security audit with parallel threat intelligence sweep (9 CVEs, Promptware Kill Chain, Parasitic Toolchain research).
   - **Key adversarial findings fixed:**
