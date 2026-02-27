@@ -287,16 +287,21 @@ fn split_statements(text: &str) -> Result<Vec<RawStatement>, CedarImportError> {
 }
 
 /// Strip single-line `//` comments from a line.
+///
+/// SECURITY (R230-TYP-5): Handles backslash-escaped quotes (`\"`) inside
+/// string literals to prevent premature string termination.
 fn strip_line_comments(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut in_string = false;
     let mut prev_slash = false;
+    let mut prev_backslash = false;
 
     for ch in text.chars() {
         if in_string {
-            if ch == '"' {
+            if ch == '"' && !prev_backslash {
                 in_string = false;
             }
+            prev_backslash = ch == '\\' && !prev_backslash;
             result.push(ch);
             prev_slash = false;
             continue;
@@ -312,6 +317,7 @@ fn strip_line_comments(text: &str) -> String {
 
         if ch == '"' {
             in_string = true;
+            prev_backslash = false;
         }
 
         prev_slash = ch == '/';

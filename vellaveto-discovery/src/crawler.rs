@@ -365,6 +365,15 @@ impl StaticProbe {
             if let Some(existing) = servers.iter_mut().find(|s| s.name == decl.name) {
                 *existing = decl;
             } else {
+                // SECURITY (R230-DISC-4): Bound server list to MAX_SERVERS.
+                if servers.len() >= crate::topology::MAX_SERVERS {
+                    tracing::warn!(
+                        max = crate::topology::MAX_SERVERS,
+                        "StaticProbe at capacity, rejecting new server '{}'",
+                        decl.name
+                    );
+                    return;
+                }
                 servers.push(decl);
             }
         }

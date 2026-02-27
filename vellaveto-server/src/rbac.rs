@@ -708,6 +708,18 @@ pub fn endpoint_permission(method: &axum::http::Method, path: &str) -> Option<Pe
         // Dashboard
         (_, p) if p.starts_with("/dashboard") => Some(Permission::DashboardAccess),
 
+        // SECURITY (R230-SRV-1): Explicit topology endpoint permissions.
+        (&Method::GET, "/api/topology") => Some(Permission::MetricsRead),
+        (&Method::GET, "/api/topology/status") => Some(Permission::MetricsRead),
+        (&Method::POST, "/api/topology/recrawl") => Some(Permission::ConfigReload),
+        (_, p) if p.starts_with("/api/topology/servers/") && method == Method::DELETE => {
+            Some(Permission::ConfigReload)
+        }
+
+        // Discovery endpoints
+        (&Method::GET, p) if p.starts_with("/api/discovery/") => Some(Permission::ToolRegistryRead),
+        (&Method::POST, p) if p.starts_with("/api/discovery/") => Some(Permission::ToolRegistryWrite),
+
         // Default: require admin for unknown endpoints (fail-closed)
         _ => Some(Permission::ConfigReload),
     }

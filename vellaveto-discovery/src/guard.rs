@@ -172,13 +172,16 @@ impl TopologyGuard {
 
     /// Incrementally upsert a single server into the topology.
     ///
-    /// Reads the current topology, extracts static declarations, replaces or
-    /// adds the target server, rebuilds the graph, and hot-swaps it in.
+    /// Holds the write lock for the entire read-modify-write cycle to prevent
+    /// TOCTOU race conditions (R230-DISC-1).
     /// If no topology is loaded, creates a new one from the single server.
     pub fn upsert_server(&self, decl: StaticServerDecl) -> Result<(), DiscoveryError> {
-        let current = self.current();
-        let mut decls = match current {
-            Some(ref topo) => topo.to_static(),
+        let mut guard = self.topology.write().map_err(|_| {
+            DiscoveryError::GraphError("TopologyGuard RwLock poisoned during upsert".to_string())
+        })?;
+
+        let mut decls = match guard.as_ref() {
+            Some(topo) => topo.to_static(),
             None => Vec::new(),
         };
 
@@ -190,7 +193,7 @@ impl TopologyGuard {
         }
 
         let new_topology = TopologyGraph::from_static(decls)?;
-        self.update(new_topology);
+        *guard = Some(Arc::new(new_topology));
         Ok(())
     }
 }

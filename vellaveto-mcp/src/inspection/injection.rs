@@ -1141,14 +1141,18 @@ fn decode_rot13(text: &str) -> Option<String> {
         return None;
     }
 
-    // SECURITY (R228-INJ-1): Skip ROT13 decoding when the text contains common
-    // English stop words. ROT13-encoded text would not contain "the", "and", etc.
-    // This avoids a full Aho-Corasick scan on every normal English response,
-    // reducing false positive risk and computational overhead.
-    for stop in ROT13_STOP_WORDS {
-        if text.contains(stop) {
-            return None;
-        }
+    // SECURITY (R228-INJ-1, R230-MCP-2): Skip ROT13 decoding only when the text
+    // has a high density of stop words, indicating natural English. A single stop word
+    // is not sufficient — an attacker can embed one stop word alongside ROT13-encoded
+    // injection payloads to bypass detection.
+    let word_count = text.split_whitespace().count().max(1);
+    let stop_word_count = ROT13_STOP_WORDS
+        .iter()
+        .filter(|stop| text.contains(**stop))
+        .count();
+    // Skip only if >30% of estimated words are stop words (natural English threshold)
+    if stop_word_count > 0 && stop_word_count * 10 > word_count * 3 {
+        return None;
     }
 
     let mut decoded = String::with_capacity(text.len());

@@ -256,12 +256,14 @@ impl RecrawlScheduler {
                 });
 
                 if failures >= self.config.max_consecutive_failures {
+                    // SECURITY (R230-DISC-5): Retain stale topology instead of clearing.
+                    // Clearing triggers bypass mode, which an attacker can force via
+                    // deliberate crawl failures. Stale data is safer than no data.
                     tracing::error!(
                         failures = failures,
                         max = self.config.max_consecutive_failures,
-                        "Max consecutive crawl failures reached — clearing topology (bypass mode)"
+                        "Max consecutive crawl failures reached — retaining stale topology (NOT clearing)"
                     );
-                    self.guard.clear();
                 }
 
                 Err(err)

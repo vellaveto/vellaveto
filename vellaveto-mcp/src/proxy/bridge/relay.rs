@@ -3687,6 +3687,19 @@ fn build_server_decl_from_tools_list(
         .and_then(|v| v.as_array())
         .ok_or_else(|| "tools/list result missing 'tools' array".to_string())?;
 
+    // SECURITY (R230-DISC-2): Validate tool count, name length, description length,
+    // and input_schema size against topology constants to prevent untrusted data
+    // from consuming unbounded memory.
+    const MAX_INPUT_SCHEMA_SIZE: usize = 1_048_576; // 1 MB
+
+    if tools_array.len() > vellaveto_discovery::topology::MAX_TOOLS_PER_SERVER {
+        return Err(format!(
+            "tools/list returned {} tools, exceeds max {}",
+            tools_array.len(),
+            vellaveto_discovery::topology::MAX_TOOLS_PER_SERVER
+        ));
+    }
+
     let mut tools = Vec::with_capacity(tools_array.len());
     for tool_value in tools_array {
         let name = tool_value
@@ -3697,15 +3710,39 @@ fn build_server_decl_from_tools_list(
         if name.is_empty() {
             continue; // Skip tools with missing/empty names
         }
+        if name.len() > vellaveto_discovery::topology::MAX_TOOL_NAME_LEN {
+            tracing::warn!(
+                tool = %name.chars().take(64).collect::<String>(),
+                "Skipping tool with name exceeding max length"
+            );
+            continue;
+        }
         let description = tool_value
             .get("description")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+        // R230-DISC-2: Truncate oversized descriptions
+        let description = if description.len() > vellaveto_discovery::topology::MAX_TOOL_DESCRIPTION_LEN {
+            tracing::warn!(tool = %name, "Truncating oversized tool description");
+            description
+                .chars()
+                .take(vellaveto_discovery::topology::MAX_TOOL_DESCRIPTION_LEN)
+                .collect()
+        } else {
+            description
+        };
         let input_schema = tool_value
             .get("inputSchema")
             .cloned()
             .unwrap_or(serde_json::json!({}));
+        // R230-DISC-8: Reject oversized input schemas
+        if let Ok(schema_json) = serde_json::to_string(&input_schema) {
+            if schema_json.len() > MAX_INPUT_SCHEMA_SIZE {
+                tracing::warn!(tool = %name, size = schema_json.len(), "Skipping tool with oversized inputSchema");
+                continue;
+            }
+        }
 
         tools.push(vellaveto_discovery::topology::StaticToolDecl {
             name,

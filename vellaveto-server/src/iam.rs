@@ -494,6 +494,8 @@ pub struct IamState {
     m2m_signing_secret: Option<Vec<u8>>,
     /// Cache for CIMD (Client ID Metadata Documents).
     cimd_cache: DashMap<String, CachedClientMetadata>,
+    /// SECURITY (R230-SRV-2): SAML assertion ID replay cache (assertion_id -> seen_at).
+    saml_assertion_ids: DashMap<String, std::time::Instant>,
 }
 
 impl IamState {
@@ -538,12 +540,13 @@ impl IamState {
         // Load M2M JWT signing secret from environment if M2M is enabled.
         let m2m_signing_secret = if config.m2m.enabled {
             let secret = env::var(M2M_JWT_SECRET_ENV).ok().map(|s| s.into_bytes());
+            // SECURITY (R230-SRV-5): Enforce minimum secret length (fail-closed).
             if let Some(ref s) = secret {
                 if s.len() < MIN_M2M_JWT_SECRET_LEN {
-                    warn!(
-                        "M2M JWT secret from {} is shorter than {} bytes",
-                        M2M_JWT_SECRET_ENV, MIN_M2M_JWT_SECRET_LEN
-                    );
+                    return Err(IamError::M2mTokenGeneration(format!(
+                        "{} must be at least {} bytes, got {}",
+                        M2M_JWT_SECRET_ENV, MIN_M2M_JWT_SECRET_LEN, s.len()
+                    )));
                 }
             }
             secret
@@ -563,6 +566,7 @@ impl IamState {
             _scim_task: scim_task,
             m2m_signing_secret,
             cimd_cache: DashMap::new(),
+            saml_assertion_ids: DashMap::new(),
         })
     }
 
@@ -591,6 +595,7 @@ impl IamState {
             _scim_task: None,
             m2m_signing_secret: secret,
             cimd_cache: DashMap::new(),
+            saml_assertion_ids: DashMap::new(),
         }
     }
 
@@ -1452,6 +1457,53 @@ pub async fn saml_acs(
             }),
         )
     })?;
+
+    // SECURITY (R230-SRV-2): SAML assertion ID replay prevention.
+    // Extract the Assertion ID and reject if it has been seen before.
+    {
+        const SAML_ASSERTION_NS: &str = "urn:oasis:names:tc:SAML:2.0:assertion";
+        const MAX_SAML_ASSERTION_CACHE: usize = 100_000;
+        const SAML_ASSERTION_TTL_SECS: u64 = 3600; // 1 hour
+
+        if let Some(assertion_node) = document
+            .descendants()
+            .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "Assertion")))
+        {
+            if let Some(assertion_id) = assertion_node.attribute("ID") {
+                if !assertion_id.is_empty() {
+                    let now = std::time::Instant::now();
+                    // Evict expired entries periodically
+                    if iam.saml_assertion_ids.len() > MAX_SAML_ASSERTION_CACHE / 2 {
+                        iam.saml_assertion_ids.retain(|_, seen_at| {
+                            now.duration_since(*seen_at).as_secs() < SAML_ASSERTION_TTL_SECS
+                        });
+                    }
+                    if iam.saml_assertion_ids.len() >= MAX_SAML_ASSERTION_CACHE {
+                        return Err((
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            Json(ErrorResponse {
+                                error: "SAML assertion cache at capacity".to_string(),
+                            }),
+                        ));
+                    }
+                    // Check for replay
+                    if iam
+                        .saml_assertion_ids
+                        .insert(assertion_id.to_string(), now)
+                        .is_some()
+                    {
+                        return Err((
+                            StatusCode::UNAUTHORIZED,
+                            Json(ErrorResponse {
+                                error: "SAML assertion replay detected".to_string(),
+                            }),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
     let session = iam.create_session(claims, vec![]);
     let cookie = iam
         .session_cookie_header(&session.id, Some(iam.config.session.max_age_secs))
@@ -1603,6 +1655,15 @@ impl OidcDiscovery {
             .error_for_status()
             .map_err(|e| e.to_string())?;
         let metadata: OidcDiscoveryMetadata = response.json().await.map_err(|e| e.to_string())?;
+
+        // SECURITY (R230-SRV-6): Validate discovered endpoints against SSRF.
+        validate_url_no_ssrf(&metadata.token_endpoint)
+            .map_err(|e| format!("OIDC token_endpoint SSRF blocked: {e}"))?;
+        validate_url_no_ssrf(&metadata.jwks_uri)
+            .map_err(|e| format!("OIDC jwks_uri SSRF blocked: {e}"))?;
+        validate_url_no_ssrf(&metadata.authorization_endpoint)
+            .map_err(|e| format!("OIDC authorization_endpoint SSRF blocked: {e}"))?;
+
         Ok(Self {
             authorization_endpoint: metadata.authorization_endpoint,
             token_endpoint: metadata.token_endpoint,

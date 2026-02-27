@@ -32,8 +32,20 @@ pub async fn topology_snapshot(
         )
     })?;
 
+    // SECURITY (R230-SRV-3): Cap snapshot response to prevent DoS via large topologies.
+    const MAX_SNAPSHOT_NODES: usize = 5_000;
+
     match guard.current() {
         Some(topology) => {
+            if topology.node_count() > MAX_SNAPSHOT_NODES {
+                return Ok(Json(json!({
+                    "status": "truncated",
+                    "message": "Topology too large for full snapshot. Use /api/topology/status for summary.",
+                    "node_count": topology.node_count(),
+                    "edge_count": topology.edge_count(),
+                    "server_count": topology.server_count(),
+                })));
+            }
             let snapshot = topology.to_snapshot();
             Ok(Json(
                 serde_json::to_value(snapshot).unwrap_or(json!({"error": "serialization failed"})),
@@ -112,6 +124,9 @@ pub async fn topology_recrawl(
 
     trigger.notify_one();
 
+    // SECURITY (R230-SRV-4): Audit-log mutating topology actions.
+    tracing::info!(action = "topology_recrawl", "Topology re-crawl triggered via REST API");
+
     Ok(Json(json!({
         "status": "recrawl_triggered",
         "message": "Re-crawl has been triggered. Check /api/topology/status for updated state."
@@ -137,7 +152,20 @@ pub async fn topology_remove_server(
         )
     })?;
 
+    // SECURITY (R230-SRV-8): Reject path traversal characters in server name.
+    if name.contains("..") || name.contains('/') || name.contains('\\') {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "server name contains invalid characters".to_string(),
+            }),
+        ));
+    }
+
     let removed = probe.remove_server(&name);
+
+    // SECURITY (R230-SRV-4): Audit-log mutating topology actions.
+    tracing::info!(action = "topology_remove_server", server = %name, removed = removed, "Server removal requested via REST API");
 
     if !removed {
         return Err((

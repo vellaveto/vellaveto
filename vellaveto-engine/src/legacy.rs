@@ -461,12 +461,16 @@ impl PolicyEngine {
             });
         }
 
-        // Size protection
+        // SECURITY (R230-ENG-1): Use canonical MAX_CONDITIONS_SIZE, matching compiled path.
         let size = conditions.to_string().len();
-        if size > 100_000 {
+        if size > vellaveto_types::MAX_CONDITIONS_SIZE {
             return Err(EngineError::InvalidCondition {
                 policy_id: policy.id.clone(),
-                reason: format!("Condition JSON too large: {} bytes (max 100000)", size),
+                reason: format!(
+                    "Condition JSON too large: {} bytes (max {})",
+                    size,
+                    vellaveto_types::MAX_CONDITIONS_SIZE
+                ),
             });
         }
 

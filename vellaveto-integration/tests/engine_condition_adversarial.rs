@@ -223,55 +223,58 @@ fn condition_depth_mixed_object_array_11_is_rejected() {
 }
 
 // ═══════════════════════════════════════════
-// CONDITION SIZE LIMIT (>100KB)
+// CONDITION SIZE LIMIT (MAX_CONDITIONS_SIZE = 65,536)
+// R230-ENG-1: Legacy path now uses canonical MAX_CONDITIONS_SIZE.
 // ═══════════════════════════════════════════
 
 #[test]
-fn condition_just_under_100kb_is_accepted() {
+fn condition_just_under_max_size_is_accepted() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
 
-    // Build a flat object with many keys, staying under 100KB
+    // Build a flat object with many keys, staying under 65,536 bytes
     let mut obj = serde_json::Map::new();
     // Each key-value pair: "k_XXXX": "v" ~= 12 bytes in JSON
-    // 7000 * ~14 = ~98KB
-    for i in 0..7000 {
+    // 4500 * ~14 = ~63KB (under 65,536)
+    for i in 0..4500 {
         obj.insert(format!("k_{:04}", i), json!("v"));
     }
     let conditions = serde_json::Value::Object(obj);
     let size = conditions.to_string().len();
     assert!(
-        size < 100_000,
-        "precondition: size {} should be < 100000",
-        size
+        size < vellaveto_types::MAX_CONDITIONS_SIZE,
+        "precondition: size {} should be < {}",
+        size,
+        vellaveto_types::MAX_CONDITIONS_SIZE,
     );
 
     let policies = vec![conditional_policy("*", 10, conditions)];
     let result = engine.evaluate_action(&action, &policies);
-    assert!(result.is_ok(), "conditions under 100KB should be accepted");
+    assert!(result.is_ok(), "conditions under MAX_CONDITIONS_SIZE should be accepted");
 }
 
 #[test]
-fn condition_over_100kb_is_rejected() {
+fn condition_over_max_size_is_rejected() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
 
-    // Build a flat object that exceeds 100KB
+    // Build a flat object that exceeds MAX_CONDITIONS_SIZE (65,536)
     let mut obj = serde_json::Map::new();
-    for i in 0..10000 {
+    for i in 0..5500 {
         obj.insert(format!("key_{:05}", i), json!("value_padding_data"));
     }
     let conditions = serde_json::Value::Object(obj);
     let size = conditions.to_string().len();
     assert!(
-        size > 100_000,
-        "precondition: size {} should be > 100000",
-        size
+        size > vellaveto_types::MAX_CONDITIONS_SIZE,
+        "precondition: size {} should be > {}",
+        size,
+        vellaveto_types::MAX_CONDITIONS_SIZE,
     );
 
     let policies = vec![conditional_policy("*", 10, conditions)];
     let result = engine.evaluate_action(&action, &policies);
-    assert!(result.is_err(), "conditions over 100KB should be rejected");
+    assert!(result.is_err(), "conditions over MAX_CONDITIONS_SIZE should be rejected");
     let err_msg = format!("{}", result.unwrap_err());
     assert!(
         err_msg.contains("too large"),
