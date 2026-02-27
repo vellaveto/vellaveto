@@ -88,15 +88,20 @@ pub fn normalize_homoglyphs(s: &str) -> String {
             // Greek lowercase confusables
             // ═══════════════════════════════════════════════════════════════
             '\u{03B1}' => 'a', // alpha -> a
+            '\u{03B2}' => 'b', // R228-INJ-2: beta -> b (mirrors uppercase Beta mapping)
             '\u{03B5}' => 'e', // epsilon -> e
+            '\u{03B7}' => 'h', // R228-INJ-2: eta -> h (mirrors uppercase Eta mapping)
             '\u{03B9}' => 'i', // iota -> i
             '\u{03BA}' => 'k', // kappa -> k
+            '\u{03BC}' => 'm', // R228-INJ-2: mu -> m (mirrors uppercase Mu mapping)
             '\u{03BD}' => 'v', // nu -> v (visually similar)
             '\u{03BF}' => 'o', // omicron -> o
             '\u{03C1}' => 'p', // rho -> p
             '\u{03C4}' => 't', // tau -> t
             '\u{03C5}' => 'u', // upsilon -> u
             '\u{03C7}' => 'x', // chi -> x
+            '\u{03C9}' => 'w', // R228-INJ-2: omega -> w (visual similarity)
+            '\u{03B6}' => 'z', // R228-INJ-2: zeta -> z (mirrors uppercase Zeta mapping)
 
             // ═══════════════════════════════════════════════════════════════
             // Greek uppercase confusables

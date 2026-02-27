@@ -178,17 +178,39 @@ fn collect_schema_defaults(schema: &Value, texts: &mut Vec<String>, depth: usize
             collect_schema_defaults(prop_schema, texts, depth + 1);
         }
     }
-    for keyword in &["items", "additionalProperties", "not"] {
+    for keyword in &["items", "additionalProperties", "not", "if", "then", "else", "contains"] {
         if let Some(sub) = schema.get(keyword) {
             if sub.is_object() {
                 collect_schema_defaults(sub, texts, depth + 1);
             }
         }
     }
-    for keyword in &["allOf", "anyOf", "oneOf"] {
+    for keyword in &["allOf", "anyOf", "oneOf", "prefixItems"] {
         if let Some(arr) = schema.get(keyword).and_then(|v| v.as_array()) {
             for sub in arr {
                 collect_schema_defaults(sub, texts, depth + 1);
+            }
+        }
+    }
+    // SECURITY (R228-ELIC-1): Scan patternProperties and dependentSchemas for defaults.
+    // These schema keywords can hold nested schemas with injection-bearing default values.
+    // Parity with R41 elicitation description scanning.
+    for keyword in &["patternProperties", "dependentSchemas"] {
+        if let Some(obj) = schema.get(keyword).and_then(|v| v.as_object()) {
+            for sub in obj.values() {
+                if sub.is_object() {
+                    collect_schema_defaults(sub, texts, depth + 1);
+                }
+            }
+        }
+    }
+    // Scan $defs/definitions for embedded defaults
+    for keyword in &["$defs", "definitions"] {
+        if let Some(obj) = schema.get(keyword).and_then(|v| v.as_object()) {
+            for sub in obj.values() {
+                if sub.is_object() {
+                    collect_schema_defaults(sub, texts, depth + 1);
+                }
             }
         }
     }
