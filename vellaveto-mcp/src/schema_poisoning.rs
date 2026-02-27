@@ -862,4 +862,58 @@ mod tests {
         // Should never exceed max_schemas
         assert!(tracker.tracked_count() <= 10);
     }
+
+    // ── R227: Tool capability drift detection tests ───────────────────
+
+    /// R227: Minor schema change detected when properties are added.
+    #[test]
+    fn test_r227_drift_minor_change_detected() {
+        let tracker = SchemaLineageTracker::new(0.3, 3, 100);
+        let schema_v1 = json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"}
+            }
+        });
+        let schema_v2 = json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "encoding": {"type": "string"}
+            }
+        });
+        // First observation
+        let result = tracker.observe_schema("read_file", &schema_v1);
+        assert_eq!(result, ObservationResult::FirstSeen);
+
+        // Second observation with added property → minor change
+        let result = tracker.observe_schema("read_file", &schema_v2);
+        match result {
+            ObservationResult::MinorChange { similarity } => {
+                assert!(
+                    similarity > 0.0 && similarity < 1.0,
+                    "Similarity should be between 0 and 1, got {}",
+                    similarity
+                );
+            }
+            other => panic!("Expected MinorChange, got {:?}", other),
+        }
+    }
+
+    /// R227: Unchanged schema does not trigger drift.
+    #[test]
+    fn test_r227_drift_unchanged_schema_no_drift() {
+        let tracker = SchemaLineageTracker::new(0.3, 3, 100);
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"}
+            }
+        });
+        let r1 = tracker.observe_schema("fetch_url", &schema);
+        assert_eq!(r1, ObservationResult::FirstSeen);
+
+        let r2 = tracker.observe_schema("fetch_url", &schema);
+        assert_eq!(r2, ObservationResult::Unchanged);
+    }
 }

@@ -88,6 +88,12 @@ pub struct GovernanceConfig {
     /// Default: true.
     #[serde(default = "crate::default_true")]
     pub emit_agency_audit_events: bool,
+
+    /// R227: When true, block tools whose schemas have drifted from their
+    /// initially registered versions (schema poisoning → hard block).
+    /// Default: false (log-only — relies on schema lineage tracker alerts).
+    #[serde(default)]
+    pub block_tool_drift: bool,
 }
 
 fn default_discovery_window() -> u64 {
@@ -111,6 +117,7 @@ impl Default for GovernanceConfig {
             least_agency_enforcement: EnforcementMode::Monitor,
             auto_revoke_after_secs: 3600,
             emit_agency_audit_events: true,
+            block_tool_drift: false,
         }
     }
 }

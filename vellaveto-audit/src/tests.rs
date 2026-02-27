@@ -4958,3 +4958,61 @@ async fn test_pqc_rotation_manifest_ed25519_error_message() {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════
+// R227-AUD-2: UTC timestamp enforcement in verify_chain
+// ═══════════════════════════════════════════════════
+
+/// R227-AUD-2: verify_chain rejects non-UTC timestamps.
+#[tokio::test]
+async fn test_r227_verify_chain_rejects_non_utc_timestamp() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path.clone());
+
+    // Log a valid entry, then manually inject a non-UTC entry
+    let action = test_action();
+    logger
+        .log_entry(&action, &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
+
+    // Read the valid entry and create a tampered one with non-UTC timestamp
+    let content = tokio::fs::read_to_string(&log_path).await.unwrap();
+    let mut entry: serde_json::Value = serde_json::from_str(content.lines().next().unwrap()).unwrap();
+    // Change timestamp to use +05:30 offset instead of Z
+    entry["timestamp"] = serde_json::Value::String("2026-02-27T10:00:00+05:30".to_string());
+    // Clear hash chain so we test timestamp validation
+    entry.as_object_mut().unwrap().remove("entry_hash");
+    entry.as_object_mut().unwrap().remove("prev_hash");
+
+    let tampered = format!("{}\n{}\n",
+        content.lines().next().unwrap(),
+        serde_json::to_string(&entry).unwrap()
+    );
+    tokio::fs::write(&log_path, tampered).await.unwrap();
+
+    let verification = logger.verify_chain().await.unwrap();
+    assert!(!verification.valid, "Non-UTC timestamp should fail verification");
+    assert_eq!(verification.first_broken_at, Some(1));
+}
+
+/// R227-AUD-2: verify_chain accepts UTC timestamps (ends with Z).
+#[tokio::test]
+async fn test_r227_verify_chain_accepts_utc_timestamp() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path);
+
+    let action = test_action();
+    for _ in 0..3 {
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+    }
+
+    let verification = logger.verify_chain().await.unwrap();
+    assert!(verification.valid, "UTC timestamps should pass verification");
+    assert_eq!(verification.entries_checked, 3);
+}

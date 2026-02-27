@@ -379,8 +379,7 @@ pub fn detect_url_data_exfiltration(url: &str) -> Option<DlpFinding> {
         .unwrap_or("");
     // Skip the authority (host:port), only check path segments
     if let Some(path_part) = path.split('/').nth(1).map(|_| {
-        let after_authority = path.find('/').map(|i| &path[i..]).unwrap_or("");
-        after_authority
+        path.find('/').map(|i| &path[i..]).unwrap_or("")
     }) {
         for segment in path_part.split('/') {
             let decoded = percent_encoding::percent_decode_str(segment).decode_utf8_lossy();

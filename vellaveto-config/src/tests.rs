@@ -3403,6 +3403,7 @@ fn test_governance_config_serde_roundtrip() {
         least_agency_enforcement: vellaveto_types::EnforcementMode::Enforce,
         auto_revoke_after_secs: 7200,
         emit_agency_audit_events: false,
+        ..GovernanceConfig::default()
     };
     let json = serde_json::to_string(&config).unwrap();
     let parsed: GovernanceConfig = serde_json::from_str(&json).unwrap();
@@ -8057,6 +8058,7 @@ fn test_sampling_config_validate_empty_allowed_model() {
         allowed_models: vec!["claude-3-opus".to_string(), "".to_string()],
         block_if_contains_tool_output: true,
         max_per_session: 10,
+        ..Default::default()
     };
     let result = cfg.validate();
     assert!(result.is_err(), "should reject empty allowed_models entry");
@@ -8073,6 +8075,7 @@ fn test_sampling_config_validate_control_chars_in_allowed_model() {
         allowed_models: vec!["claude\x07-3".to_string()],
         block_if_contains_tool_output: true,
         max_per_session: 10,
+        ..Default::default()
     };
     let result = cfg.validate();
     assert!(
@@ -8092,6 +8095,7 @@ fn test_sampling_config_validate_oversized_allowed_model() {
         allowed_models: vec!["x".repeat(crate::mcp_protocol::MAX_ALLOWED_MODEL_LENGTH + 1)],
         block_if_contains_tool_output: true,
         max_per_session: 10,
+        ..Default::default()
     };
     let result = cfg.validate();
     assert!(
@@ -8111,6 +8115,7 @@ fn test_sampling_config_validate_valid_allowed_models() {
         allowed_models: vec!["claude-3-opus".to_string(), "gpt-4".to_string()],
         block_if_contains_tool_output: true,
         max_per_session: 10,
+        ..Default::default()
     };
     assert!(
         cfg.validate().is_ok(),

@@ -186,13 +186,7 @@ fn safe_divide_f64(numerator: f64, denominator: f64) -> f64 {
     if result.is_nan() || result.is_infinite() {
         return 0.0;
     }
-    if result < 0.0 {
-        0.0
-    } else if result > 1.0 {
-        1.0
-    } else {
-        result
-    }
+    result.clamp(0.0, 1.0)
 }
 
 #[cfg(test)]

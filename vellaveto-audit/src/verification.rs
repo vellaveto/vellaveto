@@ -207,9 +207,26 @@ impl AuditLogger {
         let mut prev_timestamp: Option<&str> = None;
 
         for (i, entry) in entries.iter().enumerate() {
-            // SECURITY (R226-CROSS-1): Verify timestamp ordering.
-            // ISO 8601 timestamps are lexicographically orderable when in UTC,
-            // so string comparison is sufficient for monotonicity checks.
+            // SECURITY (R226-CROSS-1, R227-AUD-2): Verify timestamp ordering.
+            // ISO 8601 timestamps are lexicographically orderable ONLY when in UTC.
+            // Non-UTC offsets (e.g., +05:30) break lexicographic ordering, so we
+            // reject any timestamp that is not UTC (fail-closed).
+            // Accept both 'Z' and '+00:00' as valid UTC representations.
+            let is_utc = entry.timestamp.ends_with('Z')
+                || entry.timestamp.ends_with('z')
+                || entry.timestamp.ends_with("+00:00");
+            if !is_utc {
+                tracing::warn!(
+                    entry_index = i,
+                    timestamp = %entry.timestamp,
+                    "Audit entry timestamp not in UTC (must end with Z or +00:00)"
+                );
+                return Ok(ChainVerification {
+                    valid: false,
+                    entries_checked: i + 1,
+                    first_broken_at: Some(i),
+                });
+            }
             if let Some(prev_ts) = prev_timestamp {
                 if entry.timestamp.as_str() < prev_ts {
                     tracing::warn!(

@@ -155,6 +155,24 @@ pub struct ProxyBridge {
     /// SECURITY (FIND-R78-001): When true, validate tool names against MCP spec
     /// format before evaluation. Parity with HTTP/WebSocket/gRPC proxy modes.
     strict_tool_name_validation: bool,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // R227: Tool Capability Drift Detection
+    // ═══════════════════════════════════════════════════════════════════
+    /// When true, tools whose schemas have drifted from their initially
+    /// registered versions are blocked (added to flagged_tools).
+    /// Default: false (log-only — schema lineage tracker already emits alerts).
+    block_tool_drift: bool,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // R227: Discovery Engine Integration (R24-MCP-1)
+    // ═══════════════════════════════════════════════════════════════════
+    /// Discovery engine for tool metadata indexing and intent-based search.
+    /// When set, tools from `tools/list` responses are automatically indexed
+    /// for later discovery queries. Indexing failures are logged but don't
+    /// block the response (advisory, not security-critical).
+    #[cfg(feature = "discovery")]
+    discovery_engine: Option<Arc<crate::discovery::DiscoveryEngine>>,
 }
 
 impl ProxyBridge {
@@ -203,6 +221,11 @@ impl ProxyBridge {
             abac_engine: None,
             // Phase 30: MCP 2025-11-25 tool name validation (default: disabled)
             strict_tool_name_validation: false,
+            // R227: Tool drift blocking (default: disabled)
+            block_tool_drift: false,
+            // R227: Discovery engine (default: disabled)
+            #[cfg(feature = "discovery")]
+            discovery_engine: None,
         }
     }
 }

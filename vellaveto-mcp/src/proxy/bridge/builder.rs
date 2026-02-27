@@ -281,4 +281,32 @@ impl ProxyBridge {
         self.strict_tool_name_validation = enabled;
         self
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // R227: Tool Capability Drift Detection
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// When true, tools whose schemas have drifted from their initially
+    /// registered versions are blocked (flagged as rug-pulled).
+    /// Default: false (log-only).
+    pub fn with_block_tool_drift(mut self, block: bool) -> Self {
+        self.block_tool_drift = block;
+        self
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // R227: Discovery Engine Integration (R24-MCP-1)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Set the discovery engine for tool metadata indexing.
+    /// When set, tools from `tools/list` responses are automatically indexed
+    /// for later discovery/search queries via natural language.
+    #[cfg(feature = "discovery")]
+    pub fn with_discovery_engine(
+        mut self,
+        engine: Arc<crate::discovery::DiscoveryEngine>,
+    ) -> Self {
+        self.discovery_engine = Some(engine);
+        self
+    }
 }

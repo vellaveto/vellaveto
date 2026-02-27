@@ -265,8 +265,13 @@ pub struct DpopConfig {
     pub clock_skew_secs: u64,
     /// JTI replay window in seconds.
     pub jti_window_secs: u64,
-    /// Temporary compatibility switch for environments that still use
-    /// unsigned synthetic proofs. MUST remain false in production.
+    /// SECURITY (R227-SRV-1): JOSE signature verification is fail-closed.
+    /// When `false` (default), ALL DPoP proofs are rejected because
+    /// cryptographic signature verification is not yet wired. This is
+    /// intentional — accepting unverified proofs would let attackers
+    /// forge sender-constrained tokens. Set to `true` ONLY in test
+    /// environments. Production deployments should leave DPoP disabled
+    /// (`enabled: false`) until JOSE verification is implemented.
     pub allow_unverified_proofs: bool,
 }
 

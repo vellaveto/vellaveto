@@ -60,7 +60,7 @@ pub fn parse_iso8601_secs(ts: &str) -> Result<u64, String> {
     // SECURITY (R226-TYP-1): Validate day against actual month length, including
     // leap year support. Previously accepted Feb 31, Apr 31, etc., enabling
     // credential expiry bypass via artificially large timestamps.
-    let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    let is_leap = (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400);
     let max_day: u64 = match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,

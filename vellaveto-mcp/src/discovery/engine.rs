@@ -879,4 +879,90 @@ mod tests {
         let stats = engine.index_stats().unwrap();
         assert_eq!(stats.total_tools, 5);
     }
+
+    // ── R227: Production wiring integration tests ─────────────────────
+
+    /// R227: Verify that tools ingested from a JSON-RPC result payload
+    /// (as extracted from `msg.get("result")` in `handle_tools_list_response`)
+    /// appear in discovery search results.
+    #[test]
+    fn test_ingest_from_jsonrpc_result_searchable() {
+        let engine = DiscoveryEngine::new(test_config());
+        // Simulate the result payload extracted from a JSON-RPC response
+        let result_payload = json!({
+            "tools": [
+                {
+                    "name": "kubernetes_deploy",
+                    "description": "Deploy a containerized application to a Kubernetes cluster",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "image": {"type": "string"},
+                            "namespace": {"type": "string"}
+                        }
+                    }
+                },
+                {
+                    "name": "slack_notify",
+                    "description": "Send a notification message to a Slack channel",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "channel": {"type": "string"},
+                            "message": {"type": "string"}
+                        }
+                    }
+                }
+            ]
+        });
+        let count = engine
+            .ingest_tools_list("my_mcp_server", &result_payload)
+            .unwrap();
+        assert_eq!(count, 2);
+
+        // Verify tools are discoverable via search
+        let result = engine
+            .discover("deploy kubernetes", 5, None, &|_| true)
+            .unwrap();
+        assert!(
+            !result.tools.is_empty(),
+            "kubernetes_deploy should be discoverable"
+        );
+        assert!(
+            result
+                .tools
+                .iter()
+                .any(|t| t.metadata.name == "kubernetes_deploy"),
+            "Expected kubernetes_deploy in results"
+        );
+
+        // Verify server_id is set correctly
+        let meta = engine
+            .index()
+            .get("my_mcp_server:kubernetes_deploy")
+            .unwrap();
+        assert!(meta.is_some());
+        assert_eq!(meta.unwrap().server_id, "my_mcp_server");
+    }
+
+    /// R227: Multiple ingest calls from different servers should accumulate.
+    #[test]
+    fn test_ingest_multiple_servers_accumulates() {
+        let engine = DiscoveryEngine::new(test_config());
+        let server_a = json!({
+            "tools": [{"name": "tool_a", "description": "Server A tool"}]
+        });
+        let server_b = json!({
+            "tools": [{"name": "tool_b", "description": "Server B tool"}]
+        });
+        engine.ingest_tools_list("server_a", &server_a).unwrap();
+        engine.ingest_tools_list("server_b", &server_b).unwrap();
+        assert_eq!(engine.index_stats().unwrap().total_tools, 2);
+
+        // Both tools discoverable
+        let meta_a = engine.index().get("server_a:tool_a").unwrap();
+        let meta_b = engine.index().get("server_b:tool_b").unwrap();
+        assert!(meta_a.is_some());
+        assert!(meta_b.is_some());
+    }
 }

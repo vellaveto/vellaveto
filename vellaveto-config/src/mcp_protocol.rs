@@ -127,10 +127,27 @@ pub struct SamplingConfig {
     /// elicitation which has `max_per_session`.
     #[serde(default = "default_max_sampling")]
     pub max_per_session: u32,
+    /// R227: Maximum sampling requests per tool within the rate window.
+    /// Prevents a single tool from draining compute via repeated sampling.
+    /// Default: 50. Set to 0 to disable per-tool rate limiting.
+    #[serde(default = "default_max_sampling_per_tool")]
+    pub max_per_tool: u32,
+    /// R227: Time window (seconds) for per-tool sampling rate limiting.
+    /// Default: 60.
+    #[serde(default = "default_sampling_per_tool_window")]
+    pub per_tool_window_secs: u64,
 }
 
 fn default_max_sampling() -> u32 {
     10
+}
+
+fn default_max_sampling_per_tool() -> u32 {
+    50
+}
+
+fn default_sampling_per_tool_window() -> u64 {
+    60
 }
 
 impl Default for SamplingConfig {
@@ -140,6 +157,8 @@ impl Default for SamplingConfig {
             allowed_models: Vec::new(),
             block_if_contains_tool_output: true,
             max_per_session: default_max_sampling(),
+            max_per_tool: default_max_sampling_per_tool(),
+            per_tool_window_secs: default_sampling_per_tool_window(),
         }
     }
 }
@@ -182,6 +201,13 @@ impl SamplingConfig {
                     i
                 ));
             }
+        }
+        // R227: Validate per-tool window is reasonable (max 1 hour).
+        if self.per_tool_window_secs > 3600 {
+            return Err(format!(
+                "sampling.per_tool_window_secs {} exceeds max 3600",
+                self.per_tool_window_secs
+            ));
         }
         Ok(())
     }

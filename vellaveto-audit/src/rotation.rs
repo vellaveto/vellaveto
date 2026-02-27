@@ -444,11 +444,18 @@ impl AuditLogger {
                     }
                 }
 
-                // Reconstruct the unsigned entry for signature verification
+                // SECURITY (R227-AUD-1): Reconstruct the unsigned entry for signature
+                // verification. Must strip ALL signature fields (Ed25519 AND PQC) to
+                // match the unsigned content that was originally signed. Without this,
+                // an attacker can inject PQC fields that change the digest, causing
+                // Ed25519-only verification to fail or accept forged entries.
                 let mut unsigned = entry.clone();
                 if let Some(obj) = unsigned.as_object_mut() {
                     obj.remove("signature");
                     obj.remove("verifying_key");
+                    obj.remove("pqc_signature");
+                    obj.remove("pqc_verifying_key");
+                    obj.remove("signature_version");
                 }
                 // SECURITY (R33-SUP-1): Fail-closed on malformed signatures.
                 // Previously, failures in canonical_json, hex::decode, try_from,

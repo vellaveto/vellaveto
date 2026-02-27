@@ -153,7 +153,7 @@ struct PendingRequest {
 ///
 /// Groups all per-session mutable variables that are threaded through
 /// the handler methods during the bidirectional message relay.
-struct RelayState {
+pub(super) struct RelayState {
     /// Pending request IDs for timeout detection and circuit breaker recording.
     /// Key: serialized JSON-RPC id, Value: PendingRequest.
     pending_requests: HashMap<String, PendingRequest>,
@@ -183,10 +183,15 @@ struct RelayState {
     /// SECURITY (FIND-R46-013): Cached agent_id from environment variable.
     /// Set once at relay start from `VELLAVETO_AGENT_ID` env var.
     agent_id: Option<String>,
+    /// R227: Server name from initialize response for discovery engine.
+    server_name: Option<String>,
+    /// R227: Per-tool sampling call timestamps for rate limiting.
+    /// Key: tool name, Value: timestamps of sampling calls within the window.
+    sampling_per_tool: HashMap<String, VecDeque<Instant>>,
 }
 
 impl RelayState {
-    fn new(flagged_tools: HashSet<String>) -> Self {
+    pub(super) fn new(flagged_tools: HashSet<String>) -> Self {
         // SECURITY (FIND-R46-013): Read agent_id from environment variable.
         // In stdio proxy mode, there is no OAuth/HTTP header to extract an agent_id
         // from, so we allow operators to set it via VELLAVETO_AGENT_ID.
@@ -240,7 +245,56 @@ impl RelayState {
             elicitation_count: 0,
             sampling_count: 0,
             agent_id,
+            server_name: None,
+            sampling_per_tool: HashMap::new(),
         }
+    }
+
+    /// R227: Get the most recently dispatched tool name from pending requests.
+    /// Used to attribute sampling/elicitation calls to the tool that triggered them.
+    fn current_tool_name(&self) -> Option<&str> {
+        self.pending_requests
+            .values()
+            .max_by_key(|pr| pr.sent_at)
+            .map(|pr| pr.tool_name.as_str())
+    }
+
+    /// R227: Check per-tool sampling rate limit. Returns Ok(()) if allowed,
+    /// Err(reason) if the tool has exceeded its sampling budget.
+    pub(super) fn check_per_tool_sampling_limit(
+        &mut self,
+        tool_name: &str,
+        max_per_tool: u32,
+        window_secs: u64,
+    ) -> Result<(), String> {
+        if max_per_tool == 0 {
+            return Ok(()); // Per-tool limiting disabled
+        }
+
+        let now = Instant::now();
+        let window = Duration::from_secs(window_secs);
+        let entry = self
+            .sampling_per_tool
+            .entry(tool_name.to_string())
+            .or_default();
+
+        // Prune expired entries
+        while entry.front().is_some_and(|&t| now.duration_since(t) > window) {
+            entry.pop_front();
+        }
+
+        if entry.len() >= max_per_tool as usize {
+            return Err(format!(
+                "per-tool sampling rate limit exceeded for '{}' ({}/{} in {}s window)",
+                vellaveto_types::sanitize_for_log(tool_name, 64),
+                entry.len(),
+                max_per_tool,
+                window_secs
+            ));
+        }
+
+        entry.push_back(now);
+        Ok(())
     }
 
     /// Build an EvaluationContext from the current session state.
@@ -1375,6 +1429,43 @@ impl ProxyBridge {
         );
         match verdict {
             crate::elicitation::SamplingVerdict::Allow => {
+                // R227: Per-tool sampling rate limit check.
+                // Attribute sampling to the most recently dispatched tool.
+                let tool_name = state
+                    .current_tool_name()
+                    .unwrap_or("unknown")
+                    .to_string();
+                if let Err(reason) = state.check_per_tool_sampling_limit(
+                    &tool_name,
+                    self.sampling_config.max_per_tool,
+                    self.sampling_config.per_tool_window_secs,
+                ) {
+                    let response = make_denial_response(&id, &reason);
+                    let action = vellaveto_types::Action::new(
+                        "vellaveto",
+                        "sampling_blocked",
+                        json!({"reason": &reason, "tool": &tool_name}),
+                    );
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Deny {
+                                reason: reason.clone(),
+                            },
+                            json!({"source": "proxy", "event": "sampling_per_tool_rate_limit"}),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Audit log failed: {}", e);
+                    }
+                    tracing::warn!("Blocked sampling/createMessage: {}", reason);
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+
                 // SECURITY (FIND-R125-001): Saturating add prevents
                 // panic from overflow-checks in release profile.
                 state.sampling_count = state.sampling_count.saturating_add(1);
@@ -1382,7 +1473,7 @@ impl ProxyBridge {
                 let action = vellaveto_types::Action::new(
                     "vellaveto",
                     "sampling_allowed",
-                    json!({"source": "proxy", "count": state.sampling_count}),
+                    json!({"source": "proxy", "count": state.sampling_count, "tool": &tool_name}),
                 );
                 if let Err(e) = self
                     .audit
@@ -2776,6 +2867,19 @@ impl ProxyBridge {
                             safe_ver
                         );
                         state.negotiated_protocol_version = Some(safe_ver.clone());
+
+                        // R227: Capture server name for discovery engine indexing.
+                        if let Some(name) = msg
+                            .get("result")
+                            .and_then(|r| r.get("serverInfo"))
+                            .and_then(|s| s.get("name"))
+                            .and_then(|n| n.as_str())
+                        {
+                            const MAX_SERVER_NAME_LEN: usize = 128;
+                            let safe_name = vellaveto_types::sanitize_for_log(name, MAX_SERVER_NAME_LEN);
+                            state.server_name = Some(safe_name);
+                        }
+
                         let action = vellaveto_types::Action::new(
                             "vellaveto",
                             "protocol_version",
@@ -3364,9 +3468,78 @@ impl ProxyBridge {
                                     name,
                                     similarity
                                 );
+                                // R227: When block_tool_drift is enabled, ANY schema change
+                                // (even minor) blocks the tool. This defends against gradual
+                                // capability expansion where a tool incrementally adds
+                                // parameters or broadens descriptions.
+                                if self.block_tool_drift {
+                                    tracing::warn!(
+                                        "SECURITY: Tool drift blocked for '{}': schema changed (similarity={:.2})",
+                                        name, similarity
+                                    );
+                                    let action = vellaveto_types::Action::new(
+                                        "vellaveto",
+                                        "tool_drift_blocked",
+                                        json!({
+                                            "tool": name,
+                                            "similarity": similarity,
+                                        }),
+                                    );
+                                    if let Err(e) = self
+                                        .audit
+                                        .log_entry(
+                                            &action,
+                                            &Verdict::Deny {
+                                                reason: format!(
+                                                    "Tool '{}' schema drifted (similarity={:.2})",
+                                                    name, similarity
+                                                ),
+                                            },
+                                            json!({
+                                                "source": "proxy",
+                                                "event": "tool_drift_blocked",
+                                            }),
+                                        )
+                                        .await
+                                    {
+                                        tracing::warn!("Failed to audit tool drift: {}", e);
+                                    }
+                                    state.flag_tool(name.to_string());
+                                    self.persist_flagged_tool(name, "tool_drift").await;
+                                }
                             }
                             _ => {}
                         }
+                    }
+                }
+            }
+        }
+
+        // R227 (R24-MCP-1): Ingest tools into discovery engine for intent-based search.
+        // This runs after all security checks (injection, manifest, schema poisoning)
+        // to avoid indexing tools that were flagged by earlier phases.
+        #[cfg(feature = "discovery")]
+        if let Some(ref discovery_engine) = self.discovery_engine {
+            let server_id = state
+                .server_name
+                .as_deref()
+                .unwrap_or("stdio");
+            if let Some(result_value) = msg.get("result") {
+                match discovery_engine.ingest_tools_list(server_id, result_value) {
+                    Ok(count) => {
+                        tracing::debug!(
+                            server_id = server_id,
+                            count = count,
+                            "Discovery engine ingested tools from tools/list response"
+                        );
+                    }
+                    Err(e) => {
+                        // Advisory only — don't block the response on indexing failure.
+                        tracing::warn!(
+                            server_id = server_id,
+                            error = %e,
+                            "Discovery engine failed to ingest tools/list response"
+                        );
                     }
                 }
             }

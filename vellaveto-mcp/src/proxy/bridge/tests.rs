@@ -1734,3 +1734,80 @@ fn test_extract_agent_id_max_length_accepted() {
     let result = ProxyBridge::extract_agent_id(&msg);
     assert_eq!(result, Some(id));
 }
+
+// ── R227: Per-tool sampling rate limit tests ──────────────────────
+
+/// R227: Per-tool sampling rate limit is enforced when limit exceeded.
+#[test]
+fn test_r227_per_tool_sampling_rate_limit_exceeded() {
+    use super::relay::RelayState;
+    use std::collections::HashSet;
+
+    let mut state = RelayState::new(HashSet::new());
+    let max_per_tool = 3;
+    let window_secs = 60;
+
+    // First 3 calls succeed
+    for i in 0..3 {
+        assert!(
+            state
+                .check_per_tool_sampling_limit("tool_a", max_per_tool, window_secs)
+                .is_ok(),
+            "Call {} should be allowed",
+            i + 1
+        );
+    }
+
+    // 4th call should be denied
+    let result = state.check_per_tool_sampling_limit("tool_a", max_per_tool, window_secs);
+    assert!(result.is_err(), "4th call should exceed rate limit");
+    assert!(
+        result.unwrap_err().contains("per-tool sampling rate limit"),
+        "Error should mention per-tool rate limit"
+    );
+}
+
+/// R227: Different tools are rate-limited independently.
+#[test]
+fn test_r227_per_tool_sampling_rate_limit_independent_tools() {
+    use super::relay::RelayState;
+    use std::collections::HashSet;
+
+    let mut state = RelayState::new(HashSet::new());
+    let max_per_tool = 2;
+    let window_secs = 60;
+
+    // Exhaust tool_a's budget
+    assert!(state
+        .check_per_tool_sampling_limit("tool_a", max_per_tool, window_secs)
+        .is_ok());
+    assert!(state
+        .check_per_tool_sampling_limit("tool_a", max_per_tool, window_secs)
+        .is_ok());
+    assert!(state
+        .check_per_tool_sampling_limit("tool_a", max_per_tool, window_secs)
+        .is_err());
+
+    // tool_b should still be allowed
+    assert!(
+        state
+            .check_per_tool_sampling_limit("tool_b", max_per_tool, window_secs)
+            .is_ok(),
+        "tool_b should not be affected by tool_a's rate limit"
+    );
+}
+
+/// R227: Per-tool rate limit disabled when max_per_tool is 0.
+#[test]
+fn test_r227_per_tool_sampling_disabled_when_zero() {
+    use super::relay::RelayState;
+    use std::collections::HashSet;
+
+    let mut state = RelayState::new(HashSet::new());
+    // max_per_tool = 0 should disable per-tool limiting
+    for _ in 0..100 {
+        assert!(state
+            .check_per_tool_sampling_limit("tool_a", 0, 60)
+            .is_ok());
+    }
+}
