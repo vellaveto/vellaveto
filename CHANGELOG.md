@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Adversarial Audit Round 228 (18 findings fixed across 4 sprints):**
+  Full-codebase adversarial security audit across 6 parallel agents (engine, MCP, server, audit+proxy, types+config, A2A+cluster). 18 findings fixed.
+  - **Sprint 1 — Engine + Types foundations (5 HIGH + 2 MEDIUM):**
+    - **R228-ENG-1/2 (HIGH):** `normalize_homoglyphs` → `normalize_full` (NFKC + lowercase + homoglyphs) across 5 engine files (~30 callsites): legacy.rs, abac.rs, traced.rs, circuit_breaker.rs, deputy.rs.
+    - **R228-ENG-4 (HIGH):** Cache key uses `normalize_full()` instead of `to_lowercase()`.
+    - **R228-ENG-7 (MEDIUM):** AdaptiveRateLimiter bounded at 100K tracked entities.
+    - **R228-TYP-1 (HIGH):** 14 missing Unicode Cf (format) characters added to `is_unicode_format_char`: Arabic (U+0600-0605, U+061C, U+06DD, U+070F, U+0890-0891, U+08E2), Kaithi (U+110BD, U+110CD), Musical (U+1D173-1D17A).
+    - **R228-TYP-2 (HIGH):** AbacEntity length bounds (entity_type 256, id 512, attr keys 256, values 64KB).
+    - **R228-TYP-3 (MEDIUM):** Trailing DNS dot stripped before loopback SSRF check (`localhost.` bypass).
+  - **Sprint 2 — Server + IAM + Cedar (3 HIGH + 3 MEDIUM):**
+    - **R228-SRV-1 (HIGH):** DPoP nonce consumed on first use (RFC 9449 §8 single-use).
+    - **R228-SRV-2 (HIGH):** SAML Destination attribute required (SAML 2.0 §3.2.2 fail-closed).
+    - **R228-CFG-1 (HIGH):** Cedar import calls `Policy::validate()` on each imported policy.
+    - **R228-SRV-3 (MEDIUM):** OIDC error parameter sanitized (ASCII printable, max 128 chars).
+    - **R228-SRV-4 (MEDIUM):** M2M scope error genericized (no scope name echo).
+    - **R228-SRV-5 (MEDIUM):** X-Tenant-ID only accepted from trusted proxies.
+  - **Sprint 3 — A2A + Cluster + Config (2 HIGH + 3 MEDIUM):**
+    - **R228-A2A-1 (HIGH):** Cache key includes kid to prevent stale key verification on JWK rotation.
+    - **R228-A2A-2 (HIGH):** SystemTime::now() returns explicit error instead of unwrap_or(0).
+    - **R228-A2A-3 (MEDIUM):** Redis key_prefix validated (control chars, length, empty).
+    - **R228-A2A-5 (MEDIUM):** rotation_warning_hours bounded at 8760 (prevents i64 overflow).
+    - **R228-A2A-12 (MEDIUM):** card_hash comparison normalizes to lowercase hex.
+  - **Sprint 4 — MCP Inspection (1 HIGH + 1 MEDIUM):**
+    - **R228-INJ-2 (HIGH):** 5 missing Greek lowercase confusables (β→b, η→h, μ→m, ω→w, ζ→z).
+    - **R228-ELIC-1 (MEDIUM):** `collect_schema_defaults` scans if/then/else, contains, prefixItems, patternProperties, dependentSchemas, $defs/definitions.
+  - **8,546 Rust tests passing, 0 failures.**
+
 - **Adversarial Audit Round 227 (31 findings — 3 CRITICAL, 9 HIGH, 13 MEDIUM, 6 LOW):**
   Full-codebase adversarial security audit across 6 parallel agents (engine, MCP, server, audit+proxy, types+config, A2A+cluster). 10 real findings fixed across 3 sprints, 21 triaged as false positives.
   - **Sprint 1 — 3 CRITICALs + 2 HIGHs:**
