@@ -136,6 +136,17 @@ pub struct SamplingConfig {
     /// Default: 60.
     #[serde(default = "default_sampling_per_tool_window")]
     pub per_tool_window_secs: u64,
+    /// R232/TI-2026-030: Allowed `includeContext` values for sampling requests.
+    /// Controls what conversation context a server can request via sampling.
+    /// Default: `["none"]` (most restrictive). Valid values: "none", "thisServer", "allServers".
+    /// SECURITY: `allServers` allows cross-server data exfiltration — only enable if trusted.
+    #[serde(default = "default_allowed_include_context")]
+    pub allowed_include_context: Vec<String>,
+    /// R232/TI-2026-030: Maximum tokens allowed in a sampling request.
+    /// Caps `maxTokens` to prevent compute resource draining.
+    /// Default: 4096. Set to 0 to disable the cap.
+    #[serde(default = "default_max_sampling_tokens")]
+    pub max_tokens: u32,
 }
 
 fn default_max_sampling() -> u32 {
@@ -150,6 +161,14 @@ fn default_sampling_per_tool_window() -> u64 {
     60
 }
 
+fn default_allowed_include_context() -> Vec<String> {
+    vec!["none".to_string()]
+}
+
+fn default_max_sampling_tokens() -> u32 {
+    4096
+}
+
 impl Default for SamplingConfig {
     fn default() -> Self {
         Self {
@@ -159,6 +178,8 @@ impl Default for SamplingConfig {
             max_per_session: default_max_sampling(),
             max_per_tool: default_max_sampling_per_tool(),
             per_tool_window_secs: default_sampling_per_tool_window(),
+            allowed_include_context: default_allowed_include_context(),
+            max_tokens: default_max_sampling_tokens(),
         }
     }
 }
@@ -208,6 +229,27 @@ impl SamplingConfig {
                 "sampling.per_tool_window_secs {} exceeds max 3600",
                 self.per_tool_window_secs
             ));
+        }
+        // R232/TI-2026-030: Validate allowed_include_context values.
+        const VALID_INCLUDE_CONTEXT: &[&str] = &["none", "thisServer", "allServers"];
+        if self.allowed_include_context.is_empty() {
+            return Err(
+                "sampling.allowed_include_context must have at least one entry".to_string(),
+            );
+        }
+        if self.allowed_include_context.len() > 3 {
+            return Err(format!(
+                "sampling.allowed_include_context has {} entries, max is 3",
+                self.allowed_include_context.len()
+            ));
+        }
+        for (i, val) in self.allowed_include_context.iter().enumerate() {
+            if !VALID_INCLUDE_CONTEXT.contains(&val.as_str()) {
+                return Err(format!(
+                    "sampling.allowed_include_context[{}] '{}' is not valid (must be one of: none, thisServer, allServers)",
+                    i, val
+                ));
+            }
         }
         Ok(())
     }

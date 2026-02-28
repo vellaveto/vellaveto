@@ -178,7 +178,15 @@ fn collect_schema_defaults(schema: &Value, texts: &mut Vec<String>, depth: usize
             collect_schema_defaults(prop_schema, texts, depth + 1);
         }
     }
-    for keyword in &["items", "additionalProperties", "not", "if", "then", "else", "contains"] {
+    for keyword in &[
+        "items",
+        "additionalProperties",
+        "not",
+        "if",
+        "then",
+        "else",
+        "contains",
+    ] {
         if let Some(sub) = schema.get(keyword) {
             if sub.is_object() {
                 collect_schema_defaults(sub, texts, depth + 1);
@@ -450,6 +458,34 @@ pub fn inspect_sampling(
                 // (which may not be on the allowed list) be used instead.
                 return SamplingVerdict::Deny {
                     reason: "no model specified but allowed_models is configured".to_string(),
+                };
+            }
+        }
+    }
+
+    // R232/TI-2026-030: Validate `includeContext` parameter.
+    // A malicious server can set `includeContext: "allServers"` to harvest conversation
+    // context from other MCP servers, turning sampling into cross-server data exfiltration.
+    if let Some(include_ctx) = params.get("includeContext").and_then(|v| v.as_str()) {
+        if !config.allowed_include_context.iter().any(|a| a == include_ctx) {
+            return SamplingVerdict::Deny {
+                reason: format!(
+                    "sampling includeContext '{}' not in allowed list",
+                    include_ctx
+                ),
+            };
+        }
+    }
+
+    // R232/TI-2026-030: Cap `maxTokens` to prevent compute resource draining.
+    if config.max_tokens > 0 {
+        if let Some(requested_tokens) = params.get("maxTokens").and_then(|v| v.as_u64()) {
+            if requested_tokens > u64::from(config.max_tokens) {
+                return SamplingVerdict::Deny {
+                    reason: format!(
+                        "sampling maxTokens {} exceeds limit {}",
+                        requested_tokens, config.max_tokens
+                    ),
                 };
             }
         }
@@ -1946,6 +1982,97 @@ mod tests {
         assert!(
             matches!(verdict, ElicitationVerdict::Allow),
             "Clean elicitation with normal title must be allowed"
+        );
+    }
+
+    // ── R232/TI-2026-030: Sampling includeContext + maxTokens enforcement ──
+
+    #[test]
+    fn test_r232_sampling_include_context_all_servers_denied() {
+        let config = vellaveto_config::SamplingConfig {
+            enabled: true,
+            allowed_include_context: vec!["none".to_string()],
+            ..Default::default()
+        };
+        let params = serde_json::json!({
+            "messages": [{"role": "user", "content": {"type": "text", "text": "hello"}}],
+            "includeContext": "allServers"
+        });
+        let verdict = inspect_sampling(&params, &config, 0);
+        assert!(
+            matches!(verdict, SamplingVerdict::Deny { .. }),
+            "allServers must be denied when only 'none' is allowed"
+        );
+    }
+
+    #[test]
+    fn test_r232_sampling_include_context_this_server_allowed() {
+        let config = vellaveto_config::SamplingConfig {
+            enabled: true,
+            allowed_include_context: vec!["none".to_string(), "thisServer".to_string()],
+            ..Default::default()
+        };
+        let params = serde_json::json!({
+            "messages": [{"role": "user", "content": {"type": "text", "text": "hello"}}],
+            "includeContext": "thisServer"
+        });
+        let verdict = inspect_sampling(&params, &config, 0);
+        assert!(
+            matches!(verdict, SamplingVerdict::Allow),
+            "thisServer must be allowed when configured"
+        );
+    }
+
+    #[test]
+    fn test_r232_sampling_max_tokens_exceeded_denied() {
+        let config = vellaveto_config::SamplingConfig {
+            enabled: true,
+            max_tokens: 4096,
+            ..Default::default()
+        };
+        let params = serde_json::json!({
+            "messages": [{"role": "user", "content": {"type": "text", "text": "hello"}}],
+            "maxTokens": 100000
+        });
+        let verdict = inspect_sampling(&params, &config, 0);
+        assert!(
+            matches!(verdict, SamplingVerdict::Deny { .. }),
+            "maxTokens exceeding limit must be denied"
+        );
+    }
+
+    #[test]
+    fn test_r232_sampling_max_tokens_within_limit_allowed() {
+        let config = vellaveto_config::SamplingConfig {
+            enabled: true,
+            max_tokens: 4096,
+            ..Default::default()
+        };
+        let params = serde_json::json!({
+            "messages": [{"role": "user", "content": {"type": "text", "text": "hello"}}],
+            "maxTokens": 2048
+        });
+        let verdict = inspect_sampling(&params, &config, 0);
+        assert!(
+            matches!(verdict, SamplingVerdict::Allow),
+            "maxTokens within limit must be allowed"
+        );
+    }
+
+    #[test]
+    fn test_r232_sampling_no_include_context_allowed() {
+        // When includeContext is not specified, should be allowed (default)
+        let config = vellaveto_config::SamplingConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        let params = serde_json::json!({
+            "messages": [{"role": "user", "content": {"type": "text", "text": "hello"}}]
+        });
+        let verdict = inspect_sampling(&params, &config, 0);
+        assert!(
+            matches!(verdict, SamplingVerdict::Allow),
+            "Omitted includeContext must be allowed"
         );
     }
 }
