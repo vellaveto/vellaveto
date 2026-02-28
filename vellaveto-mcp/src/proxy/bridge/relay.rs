@@ -291,7 +291,10 @@ impl RelayState {
             .or_default();
 
         // Prune expired entries
-        while entry.front().is_some_and(|&t| now.duration_since(t) > window) {
+        while entry
+            .front()
+            .is_some_and(|&t| now.duration_since(t) > window)
+        {
             entry.pop_front();
         }
 
@@ -1248,6 +1251,85 @@ impl ProxyBridge {
             agent: agent_writer,
             child: child_stdin,
         } = io;
+        // SECURITY (R231-RELAY-2): Circuit breaker check for resource reads.
+        let cb_key = format!("resource:{}", uri);
+        if let Some(ref cb) = self.circuit_breaker {
+            if let Err(reason) = cb.can_proceed(&cb_key) {
+                let safe_uri = vellaveto_types::sanitize_for_log(&uri, 512);
+                tracing::warn!(
+                    "SECURITY: Circuit breaker blocking resource '{}': {}",
+                    safe_uri,
+                    reason
+                );
+                let action = extract_resource_action(&uri);
+                let verdict = Verdict::Deny {
+                    reason: reason.clone(),
+                };
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({"source": "proxy", "event": "circuit_breaker_blocked_resource", "uri": uri}),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit circuit breaker resource block: {}", e);
+                }
+                let response = make_denial_response(&id, &reason);
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+                return Ok(());
+            }
+        }
+
+        // SECURITY (R231-RELAY-2): Shadow agent detection for resource reads.
+        if let Some(ref detector) = self.shadow_agent {
+            let fingerprint = Self::extract_fingerprint_from_meta(&msg);
+            if fingerprint.is_populated() {
+                if let Some(claimed_id) = Self::extract_agent_id(&msg) {
+                    if let Err(alert) = detector.detect_shadow(&claimed_id, &fingerprint) {
+                        tracing::warn!(
+                            "SECURITY: Shadow agent detected in resource read - claimed '{}'",
+                            claimed_id
+                        );
+                        let action = extract_resource_action(&uri);
+                        let reason = format!(
+                            "Shadow agent detected: claimed identity '{}' does not match fingerprint",
+                            claimed_id
+                        );
+                        let verdict = Verdict::Deny {
+                            reason: reason.clone(),
+                        };
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &action,
+                                &verdict,
+                                json!({
+                                    "source": "proxy",
+                                    "event": "shadow_agent_detected_resource",
+                                    "claimed_id": claimed_id,
+                                    "expected_summary": alert.expected_fingerprint.summary(),
+                                    "actual_summary": alert.actual_fingerprint.summary(),
+                                    "severity": format!("{:?}", alert.severity),
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit shadow agent resource: {}", e);
+                        }
+                        let response = make_denial_response(&id, &reason);
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
         // SECURITY: DLP scan the resource URI for embedded secrets.
         let uri_as_json = json!({"uri": uri});
         let dlp_findings = scan_parameters_for_secrets(&uri_as_json);
@@ -1360,19 +1442,18 @@ impl ProxyBridge {
         // Parity with handle_tool_call (line 869).
         if !self.injection_disabled {
             let synthetic_msg = json!({"method": "resources/read", "params": {"uri": &uri}});
-            let injection_matches: Vec<String> =
-                if let Some(ref scanner) = self.injection_scanner {
-                    scanner
-                        .scan_notification(&synthetic_msg)
-                        .into_iter()
-                        .map(|s| s.to_string())
-                        .collect()
-                } else {
-                    scan_notification_for_injection(&synthetic_msg)
-                        .into_iter()
-                        .map(|s| s.to_string())
-                        .collect()
-                };
+            let injection_matches: Vec<String> = if let Some(ref scanner) = self.injection_scanner {
+                scanner
+                    .scan_notification(&synthetic_msg)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            } else {
+                scan_notification_for_injection(&synthetic_msg)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            };
             if !injection_matches.is_empty() {
                 let safe_uri = vellaveto_types::sanitize_for_log(&uri, 512);
                 tracing::warn!(
@@ -1511,16 +1592,16 @@ impl ProxyBridge {
             crate::elicitation::SamplingVerdict::Allow => {
                 // R227: Per-tool sampling rate limit check.
                 // Attribute sampling to the most recently dispatched tool.
-                let tool_name = state
-                    .current_tool_name()
-                    .unwrap_or("unknown")
-                    .to_string();
+                let tool_name = state.current_tool_name().unwrap_or("unknown").to_string();
                 if let Err(reason) = state.check_per_tool_sampling_limit(
                     &tool_name,
                     self.sampling_config.max_per_tool,
                     self.sampling_config.per_tool_window_secs,
                 ) {
-                    let response = make_denial_response(&id, &reason);
+                    // R231-PROXY-2: Log detailed rate-limit reason server-side; send generic to agent.
+                    tracing::debug!(reason = %reason, "Sampling rate limit exceeded");
+                    let response =
+                        make_denial_response(&id, "Request blocked: security policy violation");
                     let action = vellaveto_types::Action::new(
                         "vellaveto",
                         "sampling_blocked",
@@ -1642,7 +1723,10 @@ impl ProxyBridge {
                     .map_err(ProxyError::Framing)?;
             }
             crate::elicitation::SamplingVerdict::Deny { reason } => {
-                let response = make_denial_response(&id, &reason);
+                // R231-PROXY-2: Log detailed reason server-side; send generic to agent.
+                tracing::debug!(reason = %reason, "Sampling denied by policy");
+                let response =
+                    make_denial_response(&id, "Request blocked: security policy violation");
                 let action = vellaveto_types::Action::new(
                     "vellaveto",
                     "sampling_blocked",
@@ -1706,6 +1790,87 @@ impl ProxyBridge {
                 {
                     tracing::warn!("Audit log failed for elicitation allow: {}", e);
                 }
+
+                // SECURITY (R231-RELAY-1): DLP scan elicitation parameters.
+                // Parity with sampling handler DLP scanning.
+                let dlp_findings = scan_parameters_for_secrets(&params);
+                if !dlp_findings.is_empty() {
+                    tracing::warn!(
+                        "SECURITY: DLP alert in elicitation parameters: {:?}",
+                        dlp_findings.iter().map(|f| &f.pattern_name).collect::<Vec<_>>()
+                    );
+                    let dlp_action = vellaveto_types::Action::new(
+                        "vellaveto",
+                        "elicitation_dlp_blocked",
+                        json!({"source": "proxy"}),
+                    );
+                    let patterns: Vec<String> = dlp_findings
+                        .iter()
+                        .map(|f| format!("{} at {}", f.pattern_name, f.location))
+                        .collect();
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &dlp_action,
+                            &Verdict::Deny { reason: format!("DLP: secrets in elicitation: {:?}", patterns) },
+                            json!({"source": "proxy", "event": "dlp_elicitation_blocked", "findings": patterns}),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit elicitation DLP: {}", e);
+                    }
+                    let response = make_denial_response(&id, "Request blocked: security policy violation");
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+
+                // SECURITY (R231-RELAY-1): Injection scan elicitation content.
+                if !self.injection_disabled {
+                    let synthetic_msg = json!({"method": "elicitation/create", "params": params});
+                    let injection_matches: Vec<String> =
+                        if let Some(ref scanner) = self.injection_scanner {
+                            scanner.scan_notification(&synthetic_msg).into_iter().map(|s| s.to_string()).collect()
+                        } else {
+                            scan_notification_for_injection(&synthetic_msg).into_iter().map(|s| s.to_string()).collect()
+                        };
+                    if !injection_matches.is_empty() {
+                        tracing::warn!(
+                            "SECURITY: Injection detected in elicitation: {:?}",
+                            injection_matches
+                        );
+                        let inj_action = vellaveto_types::Action::new(
+                            "vellaveto",
+                            "elicitation_injection_detected",
+                            json!({"source": "proxy"}),
+                        );
+                        let inj_verdict = if self.injection_blocking {
+                            Verdict::Deny { reason: format!("Injection in elicitation: {:?}", injection_matches) }
+                        } else {
+                            Verdict::Allow
+                        };
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &inj_action,
+                                &inj_verdict,
+                                json!({"source": "proxy", "event": "elicitation_injection_detected", "patterns": injection_matches}),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit elicitation injection: {}", e);
+                        }
+                        if self.injection_blocking {
+                            let response = make_denial_response(&id, "Request blocked: security policy violation");
+                            write_message(agent_writer, &response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
+                        }
+                    }
+                }
+
                 write_message(agent_writer, msg)
                     .await
                     .map_err(ProxyError::Framing)?;
@@ -1764,6 +1929,84 @@ impl ProxyBridge {
             safe_task_method,
             safe_task_id
         );
+
+        // SECURITY (R231-RELAY-2): Circuit breaker check for task requests.
+        let cb_key = format!("task:{}", safe_task_method);
+        if let Some(ref cb) = self.circuit_breaker {
+            if let Err(reason) = cb.can_proceed(&cb_key) {
+                tracing::warn!(
+                    "SECURITY: Circuit breaker blocking task '{}': {}",
+                    safe_task_method,
+                    reason
+                );
+                let action = extract_task_action(&task_method, task_id.as_deref());
+                let verdict = Verdict::Deny {
+                    reason: reason.clone(),
+                };
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({"source": "proxy", "event": "circuit_breaker_blocked_task", "task_method": task_method}),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit circuit breaker task block: {}", e);
+                }
+                let response = make_denial_response(&id, &reason);
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+                return Ok(());
+            }
+        }
+
+        // SECURITY (R231-RELAY-2): Shadow agent detection for task requests.
+        if let Some(ref detector) = self.shadow_agent {
+            let fingerprint = Self::extract_fingerprint_from_meta(&msg);
+            if fingerprint.is_populated() {
+                if let Some(claimed_id) = Self::extract_agent_id(&msg) {
+                    if let Err(alert) = detector.detect_shadow(&claimed_id, &fingerprint) {
+                        tracing::warn!(
+                            "SECURITY: Shadow agent detected in task request - claimed '{}'",
+                            claimed_id
+                        );
+                        let action = extract_task_action(&task_method, task_id.as_deref());
+                        let reason = format!(
+                            "Shadow agent detected: claimed identity '{}' does not match fingerprint",
+                            claimed_id
+                        );
+                        let verdict = Verdict::Deny {
+                            reason: reason.clone(),
+                        };
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &action,
+                                &verdict,
+                                json!({
+                                    "source": "proxy",
+                                    "event": "shadow_agent_detected_task",
+                                    "claimed_id": claimed_id,
+                                    "expected_summary": alert.expected_fingerprint.summary(),
+                                    "actual_summary": alert.actual_fingerprint.summary(),
+                                    "severity": format!("{:?}", alert.severity),
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit shadow agent task: {}", e);
+                        }
+                        let response = make_denial_response(&id, &reason);
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
 
         // R4-1: DLP scan task request parameters for secret exfiltration.
         let task_params = msg.get("params").cloned().unwrap_or(json!({}));
@@ -1876,19 +2119,18 @@ impl ProxyBridge {
                 "method": task_method,
                 "params": task_params,
             });
-            let injection_matches: Vec<String> =
-                if let Some(ref scanner) = self.injection_scanner {
-                    scanner
-                        .scan_notification(&synthetic_msg)
-                        .into_iter()
-                        .map(|s| s.to_string())
-                        .collect()
-                } else {
-                    scan_notification_for_injection(&synthetic_msg)
-                        .into_iter()
-                        .map(|s| s.to_string())
-                        .collect()
-                };
+            let injection_matches: Vec<String> = if let Some(ref scanner) = self.injection_scanner {
+                scanner
+                    .scan_notification(&synthetic_msg)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            } else {
+                scan_notification_for_injection(&synthetic_msg)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            };
             if !injection_matches.is_empty() {
                 let task_action = extract_task_action(&task_method, task_id.as_deref());
                 tracing::warn!(
@@ -1980,7 +2222,12 @@ impl ProxyBridge {
                             {
                                 tracing::warn!("Audit log failed for ABAC deny: {}", e);
                             }
-                            let response = make_denial_response(&id, &reason);
+                            // R231-PROXY-1: Log detailed reason server-side; send generic to agent.
+                            tracing::debug!(reason = %reason, "Task ABAC deny");
+                            let response = make_denial_response(
+                                &id,
+                                "Request blocked: security policy violation",
+                            );
                             write_message(agent_writer, &response)
                                 .await
                                 .map_err(ProxyError::Framing)?;
@@ -2063,7 +2310,10 @@ impl ProxyBridge {
                     Verdict::RequireApproval { reason } => reason.clone(),
                     other => format!("Denied by policy: {:?}", other),
                 };
-                let response = make_denial_response(&id, &reason);
+                // R231-PROXY-1: Log detailed reason server-side; send generic to agent.
+                tracing::debug!(reason = %reason, "Task request denied");
+                let response =
+                    make_denial_response(&id, "Request blocked: security policy violation");
                 if let Err(e) = self
                     .audit
                     .log_entry(
@@ -2334,7 +2584,12 @@ impl ProxyBridge {
                             {
                                 tracing::warn!("Audit log failed for ABAC deny: {}", e);
                             }
-                            let response = make_denial_response(&id, &reason);
+                            // R231-PROXY-1: Log detailed reason server-side; send generic to agent.
+                            tracing::debug!(reason = %reason, "Extension ABAC deny");
+                            let response = make_denial_response(
+                                &id,
+                                "Request blocked: security policy violation",
+                            );
                             write_message(agent_writer, &response)
                                 .await
                                 .map_err(ProxyError::Framing)?;
@@ -2447,10 +2702,7 @@ impl ProxyBridge {
                             )
                             .await
                         {
-                            tracing::warn!(
-                                "Failed to audit extension injection finding: {}",
-                                e
-                            );
+                            tracing::warn!("Failed to audit extension injection finding: {}", e);
                         }
                         if self.injection_blocking {
                             let response = make_denial_response(
@@ -2551,7 +2803,10 @@ impl ProxyBridge {
                     Verdict::RequireApproval { reason } => reason.clone(),
                     other => format!("Denied by policy: {:?}", other),
                 };
-                let response = make_denial_response(&id, &reason);
+                // R231-PROXY-1: Log detailed reason server-side; send generic to agent.
+                tracing::debug!(reason = %reason, "Extension method denied");
+                let response =
+                    make_denial_response(&id, "Request blocked: security policy violation");
                 if let Err(e) = self
                     .audit
                     .log_entry(
@@ -3257,7 +3512,8 @@ impl ProxyBridge {
                             .and_then(|n| n.as_str())
                         {
                             const MAX_SERVER_NAME_LEN: usize = 128;
-                            let safe_name = vellaveto_types::sanitize_for_log(name, MAX_SERVER_NAME_LEN);
+                            let safe_name =
+                                vellaveto_types::sanitize_for_log(name, MAX_SERVER_NAME_LEN);
                             state.server_name = Some(safe_name);
                         }
 
@@ -3901,10 +4157,7 @@ impl ProxyBridge {
         // to avoid indexing tools that were flagged by earlier phases.
         #[cfg(feature = "discovery")]
         if let Some(ref discovery_engine) = self.discovery_engine {
-            let server_id = state
-                .server_name
-                .as_deref()
-                .unwrap_or("stdio");
+            let server_id = state.server_name.as_deref().unwrap_or("stdio");
             if let Some(result_value) = msg.get("result") {
                 match discovery_engine.ingest_tools_list(server_id, result_value) {
                     Ok(count) => {
@@ -3931,10 +4184,7 @@ impl ProxyBridge {
         #[cfg(feature = "discovery")]
         if let Some(ref topology_guard) = self.topology_guard {
             if let Some(result_value) = msg.get("result") {
-                let server_id = state
-                    .server_name
-                    .as_deref()
-                    .unwrap_or("stdio");
+                let server_id = state.server_name.as_deref().unwrap_or("stdio");
                 match build_server_decl_from_tools_list(server_id, result_value) {
                     Ok(decl) => {
                         if let Err(e) = topology_guard.upsert_server(decl) {
@@ -4092,15 +4342,16 @@ fn build_server_decl_from_tools_list(
             .unwrap_or("")
             .to_string();
         // R230-DISC-2: Truncate oversized descriptions
-        let description = if description.len() > vellaveto_discovery::topology::MAX_TOOL_DESCRIPTION_LEN {
-            tracing::warn!(tool = %name, "Truncating oversized tool description");
-            description
-                .chars()
-                .take(vellaveto_discovery::topology::MAX_TOOL_DESCRIPTION_LEN)
-                .collect()
-        } else {
-            description
-        };
+        let description =
+            if description.len() > vellaveto_discovery::topology::MAX_TOOL_DESCRIPTION_LEN {
+                tracing::warn!(tool = %name, "Truncating oversized tool description");
+                description
+                    .chars()
+                    .take(vellaveto_discovery::topology::MAX_TOOL_DESCRIPTION_LEN)
+                    .collect()
+            } else {
+                description
+            };
         let input_schema = tool_value
             .get("inputSchema")
             .cloned()

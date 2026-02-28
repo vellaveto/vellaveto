@@ -292,6 +292,14 @@ impl CollusionConfig {
                 "drift_min_actions must be > 0".to_string(),
             ));
         }
+        // SECURITY (R231-COLL-1): Zero min_entropy_observations makes the
+        // `high_entropy_count >= 0` check always true, flooding
+        // SteganographicChannel alerts on every single call.
+        if self.min_entropy_observations == 0 {
+            return Err(CollusionError::InvalidConfig(
+                "min_entropy_observations must be > 0".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -716,7 +724,10 @@ impl CollusionDetector {
                 max = MAX_TRACKED_AGENTS,
                 "Collusion entropy profiles at capacity — returning alert"
             );
-            return Ok(Some(Self::capacity_alert("entropy_profiles", MAX_TRACKED_AGENTS)));
+            return Ok(Some(Self::capacity_alert(
+                "entropy_profiles",
+                MAX_TRACKED_AGENTS,
+            )));
         }
 
         let profile = profiles
@@ -829,7 +840,10 @@ impl CollusionDetector {
                 max = MAX_TRACKED_RESOURCES,
                 "Collusion resource tracking at capacity — returning alert"
             );
-            return Ok(Some(Self::capacity_alert("resource_tracking", MAX_TRACKED_RESOURCES)));
+            return Ok(Some(Self::capacity_alert(
+                "resource_tracking",
+                MAX_TRACKED_RESOURCES,
+            )));
         }
 
         let event_queue = events
@@ -950,7 +964,10 @@ impl CollusionDetector {
                 max = MAX_TRACKED_AGENTS,
                 "Collusion timing profiles at capacity — returning alert"
             );
-            return Ok(Some(Self::capacity_alert("timing_profiles", MAX_TRACKED_AGENTS)));
+            return Ok(Some(Self::capacity_alert(
+                "timing_profiles",
+                MAX_TRACKED_AGENTS,
+            )));
         }
 
         let profile = profiles
@@ -1152,7 +1169,10 @@ impl CollusionDetector {
                 max = MAX_RECON_TRACKED_AGENTS,
                 "Reconnaissance denial tracking at capacity — returning alert"
             );
-            return Ok(Some(Self::capacity_alert("recon_tracking", MAX_RECON_TRACKED_AGENTS)));
+            return Ok(Some(Self::capacity_alert(
+                "recon_tracking",
+                MAX_RECON_TRACKED_AGENTS,
+            )));
         }
 
         let events = denials
@@ -1278,7 +1298,10 @@ impl CollusionDetector {
                 max = MAX_DRIFT_TRACKED_AGENTS,
                 "Drift tracking at capacity — returning alert"
             );
-            return Ok(Some(Self::capacity_alert("drift_tracking", MAX_DRIFT_TRACKED_AGENTS)));
+            return Ok(Some(Self::capacity_alert(
+                "drift_tracking",
+                MAX_DRIFT_TRACKED_AGENTS,
+            )));
         }
 
         let profile = profiles
@@ -1464,6 +1487,28 @@ mod tests {
         let mut cfg = default_config();
         cfg.min_coordinated_agents = 1;
         assert!(cfg.validate().is_err());
+    }
+
+    /// R231-COLL-1: Zero min_entropy_observations causes alert flooding.
+    #[test]
+    fn test_config_validate_zero_min_entropy_observations_rejected() {
+        let mut cfg = default_config();
+        cfg.min_entropy_observations = 0;
+        let err = cfg.validate().unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("min_entropy_observations must be > 0"),
+            "Expected min_entropy_observations error, got: {}",
+            err,
+        );
+    }
+
+    /// R231-COLL-1: Non-zero min_entropy_observations accepted.
+    #[test]
+    fn test_config_validate_nonzero_min_entropy_observations_ok() {
+        let mut cfg = default_config();
+        cfg.min_entropy_observations = 1;
+        assert!(cfg.validate().is_ok());
     }
 
     // ────────────────────────────────────────────────

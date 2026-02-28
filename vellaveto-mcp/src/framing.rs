@@ -64,12 +64,22 @@ pub async fn read_message<R: tokio::io::AsyncRead + Unpin>(
         // that case-folds to a JSON-RPC 2.0 key but is not exact-case.
         if let Some(obj) = value.as_object() {
             for key in obj.keys() {
-                let lower = key.to_ascii_lowercase();
+                // SECURITY (R231/TI-2026-002): Go's encoding/json folds not
+                // only ASCII case but also Unicode confusables U+017F (ſ→s)
+                // and U+212A (K→k). Normalize both before matching.
+                let normalized: String = key
+                    .chars()
+                    .map(|c| match c {
+                        '\u{017F}' => 's', // Latin small letter long s
+                        '\u{212A}' => 'k', // Kelvin sign
+                        other => other.to_ascii_lowercase(),
+                    })
+                    .collect();
                 let is_jsonrpc_key = matches!(
-                    lower.as_str(),
+                    normalized.as_str(),
                     "jsonrpc" | "method" | "params" | "id" | "result" | "error"
                 );
-                if is_jsonrpc_key && key.as_str() != lower.as_str() {
+                if is_jsonrpc_key && key.as_str() != normalized.as_str() {
                     return Err(FramingError::CaseFoldingSmuggle(key.clone()));
                 }
             }
@@ -654,6 +664,52 @@ mod tests {
         assert!(
             result.is_ok(),
             "Custom keys with mixed case should pass: {:?}",
+            result
+        );
+    }
+
+    /// TI-2026-002: U+017F (Latin small letter long s) folds to 's' —
+    /// "param\u{017F}" → "params" smuggles a JSON-RPC key.
+    #[tokio::test]
+    async fn test_r231_unicode_confusable_long_s_smuggle() {
+        let data = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"param\u{017F}\":{}}";
+        let input = format!("{}\n", data);
+        let cursor = Cursor::new(input.into_bytes());
+        let mut reader = BufReader::new(cursor);
+        let result = read_message(&mut reader).await;
+        assert!(
+            matches!(result, Err(FramingError::CaseFoldingSmuggle(_))),
+            "U+017F in 'param\u{017F}' should be rejected: {:?}",
+            result
+        );
+    }
+
+    /// TI-2026-002: U+212A (Kelvin sign) in non-JSON-RPC key passes.
+    #[tokio::test]
+    async fn test_r231_unicode_confusable_kelvin_non_jsonrpc_passes() {
+        let data = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"temp\u{212A}ey\":1}";
+        let input = format!("{}\n", data);
+        let cursor = Cursor::new(input.into_bytes());
+        let mut reader = BufReader::new(cursor);
+        let result = read_message(&mut reader).await;
+        assert!(
+            result.is_ok(),
+            "Kelvin sign in non-JSON-RPC key should pass: {:?}",
+            result
+        );
+    }
+
+    /// TI-2026-002: U+017F smuggling "result" detected.
+    #[tokio::test]
+    async fn test_r231_unicode_confusable_long_s_result_smuggle() {
+        let data = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"re\u{017F}ult\":{}}";
+        let input = format!("{}\n", data);
+        let cursor = Cursor::new(input.into_bytes());
+        let mut reader = BufReader::new(cursor);
+        let result = read_message(&mut reader).await;
+        assert!(
+            matches!(result, Err(FramingError::CaseFoldingSmuggle(_))),
+            "U+017F smuggling 'result' should be rejected: {:?}",
             result
         );
     }

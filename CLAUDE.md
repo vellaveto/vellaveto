@@ -1,11 +1,11 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v6.0.0-dev (Phases 1–66 complete, 230 audit rounds)
+> **State:** v6.0.0-dev (Phases 1–66 complete, 231 audit rounds)
 > **Version:** 6.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 8,707 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
-> **Updated:** 2026-02-27
+> **Tests:** 8,756 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
+> **Updated:** 2026-02-28
 
 ---
 
@@ -173,6 +173,8 @@ All phases implemented, tested, and hardened through 230 audit rounds. Details i
 **R228 adversarial audit (Feb 2026):** 11 findings (1 CRITICAL, 3 HIGH, 4 MEDIUM, 3 LOW). API key auth bypass via RBAC JWT passthrough (Bearer prefix validation), base64-encoded injection bypass (LLMs decode base64 inline), schema poisoning actual similarity vs decayed trust_score, ROT13 natural-language false-positive suppression, URL exfiltration extended to ftp/ftps/protocol-relative, cache key DNS rebinding fix (resolved_ips_hash), elicitation title injection scanning, UTC timestamp suffix normalization, sampling_per_tool capacity bound. 38 new tests.
 
 **R229 adversarial audit (Feb 2026):** 9 findings (3 HIGH, 4 MEDIUM, 2 LOW). JWK thumbprint JSON injection guard (DPoP token binding bypass), cascading pipeline tracker fail-closed on capacity exhaustion, collusion detection 5x fail-closed on capacity (CapacityExhaustion alert type), DPoP nonce/ath dangerous char validation, DPoP counters saturating_add, DpopHeader deny_unknown_fields, collusion usize→u32 safe cast. SAML SubjectConfirmation hardening. 10 new tests.
+
+**R231 adversarial audit + threat intelligence (Feb 2026):** 21 findings (7 adversarial + 14 threat intel). Elicitation handler DLP + injection scanning parity (R231-RELAY-1), resource read + task request circuit breaker + shadow agent detection (R231-RELAY-2), `min_entropy_observations=0` alert flood fix (R231-COLL-1), topology snapshot serialization fail-closed (R231-SRV-2), topology server name echo sanitization (R231-SRV-3), Unicode confusable JSON-RPC key smuggling defense for U+017F/U+212A (TI-2026-002), memory persistence poisoning patterns (TI-2026-004), viral agent loop patterns (TI-2026-005), Log-To-Leak justification-framed injection patterns (TI-2026-003), MetaBreak special token detection (TI-2026-010), parameter name exfiltration detection (TI-2026-006), sharded exfiltration tracker (TI-2026-001), SAML metadata URL scheme + SSRF validation (TI-2026-007). 49 new tests.
 
 ---
 

@@ -4,10 +4,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     Json,
 };
-use base64::{
-    engine::general_purpose::URL_SAFE_NO_PAD,
-    Engine,
-};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use flate2::read::{DeflateDecoder, ZlibDecoder};
@@ -107,16 +104,28 @@ impl SamlState {
             .idp_metadata_url
             .as_ref()
             .ok_or_else(|| IamError::Saml("iam.saml.idp_metadata_url is required".to_string()))?;
-        let body = client
+        // R231-SRV-9: Enforce maximum response body size for SAML metadata.
+        const MAX_SAML_METADATA_SIZE: usize = 1_048_576; // 1 MB
+        let response = client
             .get(metadata_url)
             .send()
             .await
             .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {}", e)))?
             .error_for_status()
-            .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {}", e)))?
-            .text()
+            .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {}", e)))?;
+        let bytes = response
+            .bytes()
             .await
             .map_err(|e| IamError::Saml(format!("Failed to read SAML metadata: {}", e)))?;
+        if bytes.len() > MAX_SAML_METADATA_SIZE {
+            return Err(IamError::Saml(format!(
+                "SAML metadata exceeds maximum size ({} > {})",
+                bytes.len(),
+                MAX_SAML_METADATA_SIZE
+            )));
+        }
+        let body = String::from_utf8(bytes.to_vec())
+            .map_err(|_| IamError::Saml("SAML metadata is not valid UTF-8".to_string()))?;
         let document = Document::parse(&body)
             .map_err(|e| IamError::Saml(format!("Invalid SAML metadata XML: {}", e)))?;
         Self::from_document(document, config)
@@ -280,9 +289,7 @@ impl SamlState {
             .descendants()
             .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "Conditions")))
             .ok_or_else(|| {
-                IamError::Saml(
-                    "SAML Conditions element missing (fail-closed)".to_string(),
-                )
+                IamError::Saml("SAML Conditions element missing (fail-closed)".to_string())
             })?;
         let now = Utc::now();
         if let Some(not_before) = conditions.attribute("NotBefore") {
@@ -337,9 +344,7 @@ impl SamlState {
             .descendants()
             .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "SubjectConfirmation")))
             .ok_or_else(|| {
-                IamError::Saml(
-                    "SAML SubjectConfirmation element missing (fail-closed)".to_string(),
-                )
+                IamError::Saml("SAML SubjectConfirmation element missing (fail-closed)".to_string())
             })?;
         // Require bearer method.
         let method = confirmation.attribute("Method").unwrap_or("");
@@ -558,7 +563,9 @@ impl IamState {
                 if s.len() < MIN_M2M_JWT_SECRET_LEN {
                     return Err(IamError::M2mTokenGeneration(format!(
                         "{} must be at least {} bytes, got {}",
-                        M2M_JWT_SECRET_ENV, MIN_M2M_JWT_SECRET_LEN, s.len()
+                        M2M_JWT_SECRET_ENV,
+                        MIN_M2M_JWT_SECRET_LEN,
+                        s.len()
                     )));
                 }
             }
@@ -842,7 +849,11 @@ impl IamState {
         response.json::<JwkSet>().await
     }
 
-    pub fn create_session(&self, claims: RoleClaims, scopes: Vec<String>) -> IamSession {
+    pub fn create_session(
+        &self,
+        claims: RoleClaims,
+        scopes: Vec<String>,
+    ) -> Result<IamSession, IamError> {
         let role = claims.effective_role().unwrap_or(Role::Viewer);
         let now = Instant::now();
         let session = IamSession {
@@ -854,16 +865,17 @@ impl IamState {
             last_activity: now,
         };
         // SECURITY (R229-SRV-6): Bound session count to prevent memory exhaustion.
+        // R231-SRV-7: Return error instead of unstored session.
         if self.sessions.len() >= Self::MAX_SESSIONS {
             tracing::warn!(
                 max = Self::MAX_SESSIONS,
                 "Session capacity reached, rejecting new session creation"
             );
-            return session;
+            return Err(IamError::SessionCapacityExceeded);
         }
         self.sessions.insert(session.id.clone(), session.clone());
         self.trim_sessions_for_subject(session.subject.as_deref());
-        session
+        Ok(session)
     }
 
     fn trim_sessions_for_subject(&self, subject: Option<&str>) {
@@ -1361,7 +1373,14 @@ pub async fn callback(
             )
         })?;
     let scopes = parse_scope_list(tokens.scope.as_deref());
-    let session = iam.create_session(claims, scopes);
+    let session = iam.create_session(claims, scopes).map_err(|_| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "Session capacity exceeded".to_string(),
+            }),
+        )
+    })?;
     let cookie = iam
         .session_cookie_header(&session.id, Some(iam.config.session.max_age_secs))
         .map_err(|e| {
@@ -1538,7 +1557,14 @@ pub async fn saml_acs(
         }
     }
 
-    let session = iam.create_session(claims, vec![]);
+    let session = iam.create_session(claims, vec![]).map_err(|_| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "Session capacity exceeded".to_string(),
+            }),
+        )
+    })?;
     let cookie = iam
         .session_cookie_header(&session.id, Some(iam.config.session.max_age_secs))
         .map_err(|e| {
@@ -1751,6 +1777,8 @@ pub enum IamError {
     CimdFetch(String),
     #[error("CIMD validation failed: {0}")]
     CimdValidation(String),
+    #[error("Session capacity exceeded")]
+    SessionCapacityExceeded,
 }
 
 #[derive(Deserialize)]
@@ -1800,6 +1828,23 @@ fn parse_scope_list(scope: Option<&str>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// R231-SRV-5: Escape attribute values per Exclusive XML Canonicalization 1.0 §2.3.
+fn c14n_escape_attr_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '"' => out.push_str("&quot;"),
+            '\t' => out.push_str("&#x9;"),
+            '\n' => out.push_str("&#xA;"),
+            '\r' => out.push_str("&#xD;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 fn canonicalize_node(node: Node, skip_signature: bool) -> String {
     let mut output = String::new();
     output.push('<');
@@ -1816,7 +1861,10 @@ fn canonicalize_node(node: Node, skip_signature: bool) -> String {
         output.push_str(&attribute_name(attr));
         output.push('=');
         output.push('"');
-        output.push_str(attr.value());
+        // R231-SRV-5: C14N requires XML-escaping attribute values.
+        // roxmltree returns decoded values, so we must re-escape per
+        // Exclusive XML Canonicalization 1.0 §2.3.
+        output.push_str(&c14n_escape_attr_value(attr.value()));
         output.push('"');
     }
     output.push('>');
@@ -1941,8 +1989,8 @@ fn decode_saml_response(encoded: &str) -> Result<String, IamError> {
     }
     // SECURITY (R229-SRV-3): Bound decompression via take() to prevent decompression bombs.
     let mut buffer = String::new();
-    let mut zlib_decoder = ZlibDecoder::new(Cursor::new(decoded.clone()))
-        .take(MAX_SAML_DECOMPRESSED_SIZE);
+    let mut zlib_decoder =
+        ZlibDecoder::new(Cursor::new(decoded.clone())).take(MAX_SAML_DECOMPRESSED_SIZE);
     if zlib_decoder.read_to_string(&mut buffer).is_ok() {
         if buffer.len() as u64 >= MAX_SAML_DECOMPRESSED_SIZE {
             return Err(IamError::Saml(
@@ -1952,8 +2000,8 @@ fn decode_saml_response(encoded: &str) -> Result<String, IamError> {
         return Ok(buffer);
     }
     buffer.clear();
-    let mut deflate_decoder = DeflateDecoder::new(Cursor::new(decoded))
-        .take(MAX_SAML_DECOMPRESSED_SIZE);
+    let mut deflate_decoder =
+        DeflateDecoder::new(Cursor::new(decoded)).take(MAX_SAML_DECOMPRESSED_SIZE);
     deflate_decoder
         .read_to_string(&mut buffer)
         .map_err(|e| IamError::Saml(format!("Failed to decompress SAML response: {}", e)))?;
@@ -2449,11 +2497,17 @@ mod tests {
         let padded = STANDARD.encode(b"test cert data");
         assert!(decode_base64(&padded, "test").is_ok());
         let unpadded = padded.trim_end_matches('=').to_string();
-        assert!(decode_base64(&unpadded, "test").is_ok(), "Should accept unpadded base64");
+        assert!(
+            decode_base64(&unpadded, "test").is_ok(),
+            "Should accept unpadded base64"
+        );
         let payload = "<Response>test</Response>";
         let encoded = STANDARD.encode(payload);
         let unpadded_resp = encoded.trim_end_matches('=').to_string();
-        assert!(decode_saml_response(&unpadded_resp).is_ok(), "Should accept unpadded SAML response");
+        assert!(
+            decode_saml_response(&unpadded_resp).is_ok(),
+            "Should accept unpadded SAML response"
+        );
     }
 
     #[test]
@@ -2643,7 +2697,7 @@ mod tests {
         config.oidc.enabled = true;
         config.session.idle_timeout_secs = 1;
         let iam = IamState::new_for_test(config);
-        let session = iam.create_session(role_claims("alice", "admin"), vec![]);
+        let session = iam.create_session(role_claims("alice", "admin"), vec![]).unwrap();
         {
             let mut entry = iam.sessions.get_mut(&session.id).unwrap();
             entry.last_activity = StdInstant::now() - StdDuration::from_secs(2);
@@ -2657,9 +2711,9 @@ mod tests {
         config.oidc.enabled = true;
         config.session.max_sessions_per_principal = 2;
         let iam = IamState::new_for_test(config);
-        let s1 = iam.create_session(role_claims("bob", "operator"), vec![]);
-        let s2 = iam.create_session(role_claims("bob", "operator"), vec![]);
-        let s3 = iam.create_session(role_claims("bob", "operator"), vec![]);
+        let s1 = iam.create_session(role_claims("bob", "operator"), vec![]).unwrap();
+        let s2 = iam.create_session(role_claims("bob", "operator"), vec![]).unwrap();
+        let s3 = iam.create_session(role_claims("bob", "operator"), vec![]).unwrap();
         assert!(iam.find_session(&s1.id).is_none());
         assert!(iam.find_session(&s2.id).is_some());
         assert!(iam.find_session(&s3.id).is_some());
@@ -2959,7 +3013,9 @@ mod tests {
 
     #[test]
     fn test_r230_find_key_in_jwks_requires_alg() {
-        use jsonwebtoken::jwk::{Jwk, CommonParameters, KeyAlgorithm, AlgorithmParameters, RSAKeyParameters};
+        use jsonwebtoken::jwk::{
+            AlgorithmParameters, CommonParameters, Jwk, KeyAlgorithm, RSAKeyParameters,
+        };
         // Key WITHOUT alg field should NOT match any algorithm
         let key_no_alg = Jwk {
             common: CommonParameters {
@@ -2978,15 +3034,22 @@ mod tests {
                 e: "AQAB".to_string(),
             }),
         };
-        let jwks = JwkSet { keys: vec![key_no_alg] };
+        let jwks = JwkSet {
+            keys: vec![key_no_alg],
+        };
         // Should return None because key has no alg (R230-SRV-2 fail-closed)
         let result = find_key_in_jwks(&jwks, "kid-1", &Algorithm::RS256);
-        assert!(result.is_none(), "Key without alg must not match (algorithm confusion prevention)");
+        assert!(
+            result.is_none(),
+            "Key without alg must not match (algorithm confusion prevention)"
+        );
     }
 
     #[test]
     fn test_r230_find_key_in_jwks_matching_alg_works() {
-        use jsonwebtoken::jwk::{Jwk, CommonParameters, KeyAlgorithm, AlgorithmParameters, RSAKeyParameters};
+        use jsonwebtoken::jwk::{
+            AlgorithmParameters, CommonParameters, Jwk, KeyAlgorithm, RSAKeyParameters,
+        };
         let key_with_alg = Jwk {
             common: CommonParameters {
                 public_key_use: None,
@@ -3004,7 +3067,9 @@ mod tests {
                 e: "AQAB".to_string(),
             }),
         };
-        let jwks = JwkSet { keys: vec![key_with_alg] };
+        let jwks = JwkSet {
+            keys: vec![key_with_alg],
+        };
         // Wrong algorithm should not match
         let result = find_key_in_jwks(&jwks, "kid-2", &Algorithm::ES256);
         assert!(result.is_none(), "Mismatched alg must not match");

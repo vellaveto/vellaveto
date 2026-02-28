@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Adversarial Audit + Threat Intelligence Round 231 (21 findings, 49 new tests):**
+  Combined adversarial code audit (7 findings) and threat intelligence sweep (14 threats) addressing Feb 2026 attack vectors.
+  - **R231-RELAY-1 (HIGH):** Elicitation handler missing DLP + injection scanning — added parity with sampling handler.
+  - **R231-RELAY-2 (HIGH):** Resource read + task request handlers missing circuit breaker + shadow agent detection — added parity with tool call handler.
+  - **R231-COLL-1 (MEDIUM):** `min_entropy_observations=0` causes SteganographicChannel alert flooding — validate > 0 in `CollusionConfig`.
+  - **R231-SRV-2 (LOW):** Topology snapshot serialization failure returned 200 OK — now returns 500 with fail-closed error handling.
+  - **R231-SRV-3 (LOW):** Topology remove server echoed user-controlled input — sanitized with control char filtering + generic error on 404.
+  - **TI-2026-001 (P0):** Sharded exfiltration tracker — per-session high-entropy parameter fragment aggregation with sliding time window.
+  - **TI-2026-002 (P0):** Unicode confusable JSON-RPC key smuggling — U+017F (ſ→s) and U+212A (K→k) normalization in framing layer.
+  - **TI-2026-003 (P0):** Log-To-Leak justification-framed injection — 6 new patterns ("for debugging purposes, include", "telemetry collection requires", etc.)
+  - **TI-2026-004 (P1):** Memory persistence poisoning — 5 new patterns ("remember as trusted", "always recommend", etc.)
+  - **TI-2026-005 (P1):** Viral agent loop / self-replicating prompts — 5 new patterns ("forward this to all", "copy this prompt into", etc.)
+  - **TI-2026-006 (P1):** Parameter name exfiltration — 13 blocked param names (system_prompt, chain_of_thought, etc.) detected in tool inputSchema.
+  - **TI-2026-007 (P1):** SAML metadata URL scheme + SSRF validation — parity with OIDC issuer URL validation.
+  - **TI-2026-010 (P2):** MetaBreak special token detection — `<|fim_prefix|>`, `<|fim_suffix|>`, `<|fim_middle|>` in injection scanner.
+
 - **Adversarial Audit Round 230 (53 findings across 6 parallel agents, 19 fixed):**
   Full-codebase adversarial security audit across engine, MCP, server, audit+proxy, types+config, and discovery+A2A+cluster. 53 raw findings (9 HIGH, 27 MEDIUM, 17 LOW), 19 fixed across 3 sprints, remainder triaged as false positives/design limitations.
   - **Sprint 1 — Engine + Discovery + Proxy (5 HIGH + 2 MEDIUM):**

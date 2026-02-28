@@ -47,9 +47,18 @@ pub async fn topology_snapshot(
                 })));
             }
             let snapshot = topology.to_snapshot();
-            Ok(Json(
-                serde_json::to_value(snapshot).unwrap_or(json!({"error": "serialization failed"})),
-            ))
+            // SECURITY (R231-SRV-2): Propagate serialization errors as 500,
+            // not 200 with an error body. Fail-closed.
+            let val = serde_json::to_value(snapshot).map_err(|e| {
+                tracing::error!("Failed to serialize topology snapshot: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "Internal serialization error".to_string(),
+                    }),
+                )
+            })?;
+            Ok(Json(val))
         }
         None => Ok(Json(json!({
             "status": "bypassed",
@@ -125,7 +134,10 @@ pub async fn topology_recrawl(
     trigger.notify_one();
 
     // SECURITY (R230-SRV-4): Audit-log mutating topology actions.
-    tracing::info!(action = "topology_recrawl", "Topology re-crawl triggered via REST API");
+    tracing::info!(
+        action = "topology_recrawl",
+        "Topology re-crawl triggered via REST API"
+    );
 
     Ok(Json(json!({
         "status": "recrawl_triggered",
@@ -168,10 +180,11 @@ pub async fn topology_remove_server(
     tracing::info!(action = "topology_remove_server", server = %name, removed = removed, "Server removal requested via REST API");
 
     if !removed {
+        // SECURITY (R231-SRV-3): Do not echo user-controlled input in error responses.
         return Err((
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: format!("Server '{}' not found in topology probe", name),
+                error: "Server not found in topology probe".to_string(),
             }),
         ));
     }
@@ -181,9 +194,12 @@ pub async fn topology_remove_server(
         trigger.notify_one();
     }
 
+    // SECURITY (R231-SRV-3): Sanitize server name before echoing in response.
+    let safe_name: String = name.chars().filter(|c| !c.is_control()).take(256).collect();
+
     Ok(Json(json!({
         "status": "removed",
-        "server": name,
+        "server": safe_name,
         "message": "Server removed from probe. Re-crawl triggered."
     })))
 }

@@ -385,9 +385,11 @@ pub fn detect_url_data_exfiltration(url: &str) -> Option<DlpFinding> {
         .and_then(|p| p.split('/').nth(1).map(|_| p))
         .unwrap_or("");
     // Skip the authority (host:port), only check path segments
-    if let Some(path_part) = path.split('/').nth(1).map(|_| {
-        path.find('/').map(|i| &path[i..]).unwrap_or("")
-    }) {
+    if let Some(path_part) = path
+        .split('/')
+        .nth(1)
+        .map(|_| path.find('/').map(|i| &path[i..]).unwrap_or(""))
+    {
         for segment in path_part.split('/') {
             let decoded = percent_encoding::percent_decode_str(segment).decode_utf8_lossy();
             if is_suspicious_url_segment(&decoded) {
@@ -1039,6 +1041,175 @@ pub fn scan_text_for_secrets(text: &str, location: &str) -> Vec<DlpFinding> {
     }
 
     findings
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// R231/TI-2026-001: Sharded Exfiltration Tracker
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Maximum recorded fragments to prevent unbounded memory growth.
+const MAX_EXFIL_FRAGMENTS: usize = 500;
+
+/// Default window in seconds for sharded exfiltration detection.
+const DEFAULT_EXFIL_WINDOW_SECS: u64 = 300;
+
+/// Default cumulative high-entropy byte threshold.
+const DEFAULT_EXFIL_BYTE_THRESHOLD: usize = 256;
+
+/// Entropy threshold (bits/byte) for individual parameter values.
+const FRAGMENT_ENTROPY_THRESHOLD: f64 = 4.0;
+
+/// Minimum fragment length to consider for entropy analysis.
+const MIN_FRAGMENT_LEN: usize = 16;
+
+/// Per-session tracker for sharded exfiltration detection.
+///
+/// Attackers can split secrets across multiple small tool call parameters
+/// to evade per-request DLP regex matching. This tracker records
+/// high-entropy parameter fragments within a time window and alerts when
+/// the cumulative suspicious byte count exceeds a configurable threshold.
+///
+/// # SECURITY (R231/TI-2026-001)
+/// Addresses HiddenLayer research on sharded secret exfiltration via
+/// MCP tool parameters (Feb 2026).
+pub struct ShardedExfilTracker {
+    fragments: std::collections::VecDeque<(u64, usize)>,
+    window_secs: u64,
+    byte_threshold: usize,
+    enabled: bool,
+}
+
+impl ShardedExfilTracker {
+    /// Create a new tracker with default settings.
+    pub fn new() -> Self {
+        Self {
+            fragments: std::collections::VecDeque::new(),
+            window_secs: DEFAULT_EXFIL_WINDOW_SECS,
+            byte_threshold: DEFAULT_EXFIL_BYTE_THRESHOLD,
+            enabled: true,
+        }
+    }
+
+    /// Create a disabled tracker (no-op).
+    pub fn disabled() -> Self {
+        Self {
+            fragments: std::collections::VecDeque::new(),
+            window_secs: DEFAULT_EXFIL_WINDOW_SECS,
+            byte_threshold: DEFAULT_EXFIL_BYTE_THRESHOLD,
+            enabled: false,
+        }
+    }
+
+    /// Create with custom thresholds.
+    pub fn with_config(window_secs: u64, byte_threshold: usize) -> Self {
+        Self {
+            fragments: std::collections::VecDeque::new(),
+            window_secs: window_secs.max(1),
+            byte_threshold: byte_threshold.max(1),
+            enabled: true,
+        }
+    }
+
+    /// Record parameter values from a tool call. Extracts high-entropy
+    /// string fragments and records their byte counts.
+    ///
+    /// Returns the number of suspicious fragments found in this call.
+    pub fn record_parameters(&mut self, params: &serde_json::Value) -> usize {
+        if !self.enabled {
+            return 0;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        let mut count = 0usize;
+        self.scan_value(params, now, &mut count, 0);
+        count
+    }
+
+    fn scan_value(&mut self, value: &serde_json::Value, now: u64, count: &mut usize, depth: usize) {
+        if depth > 16 {
+            return;
+        }
+        match value {
+            serde_json::Value::String(s) => {
+                if s.len() >= MIN_FRAGMENT_LEN {
+                    let entropy = shannon_entropy(s.as_bytes());
+                    if entropy > FRAGMENT_ENTROPY_THRESHOLD {
+                        if self.fragments.len() >= MAX_EXFIL_FRAGMENTS {
+                            self.fragments.pop_front();
+                        }
+                        self.fragments.push_back((now, s.len()));
+                        *count = count.saturating_add(1);
+                    }
+                }
+            }
+            serde_json::Value::Object(map) => {
+                for v in map.values() {
+                    self.scan_value(v, now, count, depth.saturating_add(1));
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                for v in arr.iter().take(1000) {
+                    self.scan_value(v, now, count, depth.saturating_add(1));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Evict entries outside the time window and check if cumulative
+    /// high-entropy bytes exceed the threshold.
+    ///
+    /// Returns `Some(cumulative_bytes)` if the threshold is exceeded.
+    pub fn check_exfiltration(&mut self) -> Option<usize> {
+        if !self.enabled {
+            return None;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let cutoff = now.saturating_sub(self.window_secs);
+
+        // Evict old entries
+        while let Some(&(ts, _)) = self.fragments.front() {
+            if ts < cutoff {
+                self.fragments.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        let total: usize = self
+            .fragments
+            .iter()
+            .map(|&(_, bytes)| bytes)
+            .fold(0usize, |acc, b| acc.saturating_add(b));
+
+        if total >= self.byte_threshold {
+            Some(total)
+        } else {
+            None
+        }
+    }
+
+    /// Returns whether tracking is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Returns the current fragment count in the window.
+    pub fn fragment_count(&self) -> usize {
+        self.fragments.len()
+    }
+}
+
+impl Default for ShardedExfilTracker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -2541,6 +2712,90 @@ mod tests {
             entropy < 2.0,
             "Simple repeated pattern should have low entropy, got {}",
             entropy
+        );
+    }
+
+    // ── R231/TI-2026-001: Sharded exfiltration tracker tests ──
+
+    #[test]
+    fn test_r231_sharded_exfil_below_threshold_no_alert() {
+        let mut tracker = ShardedExfilTracker::with_config(300, 256);
+        // Single small high-entropy fragment (< threshold)
+        let params = json!({"data": "aK9xZ2wQ7rT5mN3jL8"});
+        tracker.record_parameters(&params);
+        assert!(
+            tracker.check_exfiltration().is_none(),
+            "Below threshold should not alert"
+        );
+    }
+
+    #[test]
+    fn test_r231_sharded_exfil_above_threshold_alerts() {
+        // Use a low threshold so test data reliably exceeds it
+        let mut tracker = ShardedExfilTracker::with_config(300, 80);
+        // Base64-like strings with high character diversity (> 4.0 bits/byte entropy)
+        let shards = [
+            "aK9xZ2wQ7rT5mN3jL8vB4pY6cF1sD0hG",
+            "bR8yW3eU6tI5oP2aS9dF4gH7jK1lZ0xC",
+            "cV7mN4bX2qW8eR5tY1uI6oP3aS9dF0gH",
+        ];
+        for shard in &shards {
+            let params = json!({"shard": shard});
+            tracker.record_parameters(&params);
+        }
+        let result = tracker.check_exfiltration();
+        assert!(
+            result.is_some(),
+            "Cumulative high-entropy data above threshold should alert, count={}",
+            tracker.fragment_count()
+        );
+    }
+
+    #[test]
+    fn test_r231_sharded_exfil_low_entropy_not_counted() {
+        let mut tracker = ShardedExfilTracker::with_config(300, 50);
+        // Low-entropy data (repeated chars)
+        let params = json!({"data": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"});
+        tracker.record_parameters(&params);
+        tracker.record_parameters(&params);
+        tracker.record_parameters(&params);
+        assert!(
+            tracker.check_exfiltration().is_none(),
+            "Low-entropy data should not trigger sharded exfil"
+        );
+    }
+
+    #[test]
+    fn test_r231_sharded_exfil_disabled_no_tracking() {
+        let mut tracker = ShardedExfilTracker::disabled();
+        let params = json!({"secret": "aK9xZ2wQ7rT5mN3jL8vB4pY6cF1sD0hGbR8yW3eU6"});
+        tracker.record_parameters(&params);
+        assert!(tracker.check_exfiltration().is_none());
+        assert_eq!(tracker.fragment_count(), 0);
+    }
+
+    #[test]
+    fn test_r231_sharded_exfil_fragment_count_bounded() {
+        let mut tracker = ShardedExfilTracker::with_config(300, 1_000_000);
+        for i in 0u32..600 {
+            // Generate unique high-entropy strings
+            let data: String = (0..20)
+                .map(|j| {
+                    let v = ((i.wrapping_mul(31).wrapping_add(j * 7)) % 62) as u8;
+                    match v {
+                        0..=9 => (b'0' + v) as char,
+                        10..=35 => (b'a' + v - 10) as char,
+                        _ => (b'A' + v - 36) as char,
+                    }
+                })
+                .collect();
+            let params = json!({"shard": data});
+            tracker.record_parameters(&params);
+        }
+        assert!(
+            tracker.fragment_count() <= 500,
+            "Fragment count should be bounded, got {}",
+            tracker.fragment_count()
         );
     }
 }
