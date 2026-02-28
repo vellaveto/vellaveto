@@ -123,8 +123,9 @@ jobs:
           # Scan library source for .unwrap() and .expect() calls.
           # Excludes: main.rs, tests.rs, *_tests.rs (test modules),
           # #[cfg(test)] blocks, and doc comments (//! and ///).
-          HITS=$(find vellaveto-*/src/ -name '*.rs' -not -name 'main.rs' -not -name 'tests.rs' -not -name '*_tests.rs' \
-            | xargs awk 'FNR==1 { skip=0 }
+          # shellcheck disable=SC2016
+          HITS=$(find vellaveto-*/src/ -name '*.rs' -not -name 'main.rs' -not -name 'tests.rs' -not -name '*_tests.rs' -print0 \
+            | xargs -0 awk 'FNR==1 { skip=0 }
               /^#\[cfg\(test\)\]/ { skip=1 }
               skip==0 && /^[[:space:]]*(\/\/!|\/\/\/)/ { next }
               skip==0 && /\.unwrap\(\)/ { printf "%s:%d: %s\n", FILENAME, FNR, $0; found=1 }
@@ -140,8 +141,9 @@ jobs:
           # Scan library source for panic! in non-test code paths.
           # Excludes: main.rs, tests.rs, *_tests.rs, #[cfg(test)] sections,
           # and comment/doc-comment lines.
-          HITS=$(find vellaveto-*/src/ -name '*.rs' -not -name 'main.rs' -not -name 'tests.rs' -not -name '*_tests.rs' \
-            | xargs awk 'FNR==1 { skip=0 }
+          # shellcheck disable=SC2016
+          HITS=$(find vellaveto-*/src/ -name '*.rs' -not -name 'main.rs' -not -name 'tests.rs' -not -name '*_tests.rs' -print0 \
+            | xargs -0 awk 'FNR==1 { skip=0 }
               /^#\[cfg\(test\)\]/ { skip=1 }
               skip==0 && /^[[:space:]]*\/\// { next }
               skip==0 && /panic!\(/ { printf "%s:%d: %s\n", FILENAME, FNR, $0; found=1 }
@@ -154,6 +156,7 @@ jobs:
       - name: Reject unwrap()/expect()/panic! in build.rs
         run: |
           # Treat build scripts like runtime code: no panic-prone helpers.
+          # shellcheck disable=SC2016
           HITS=$(find vellaveto-*/ -maxdepth 1 -name 'build.rs' -print0 \
             | xargs -0 -r awk '
               /^[[:space:]]*\/\// { next }
@@ -439,11 +442,11 @@ jobs:
 
             size=$(stat --printf="%s" "$bin")
             if [ "$size" -gt "$max_bytes" ]; then
-              echo "::error::$bin is $(($size / 1024 / 1024))MB — exceeds 50MB limit"
+              echo "::error::$bin is $((size / 1024 / 1024))MB — exceeds 50MB limit"
               exit 1
             fi
 
-            echo "$bin: $(($size / 1024 / 1024))MB — OK"
+            echo "$bin: $((size / 1024 / 1024))MB — OK"
           done
 
   # ───────────────────────────────────────────────────────
