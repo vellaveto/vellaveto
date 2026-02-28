@@ -102,4 +102,4 @@ client := vellaveto.NewClient("http://localhost:3000",
 
 ## License
 
-AGPL-3.0 — see [LICENSING.md](../../LICENSING.md)
+See [LICENSE](LICENSE) and [LICENSING.md](../../LICENSING.md)

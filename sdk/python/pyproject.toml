@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vellaveto-sdk"
-version = "3.0.0"
-description = "Python SDK for Vellaveto MCP Firewall - AI agent security policy enforcement"
+version = "6.0.0"
+description = "Python SDK for the Vellaveto agentic security control plane"
 readme = "README.md"
-license = "AGPL-3.0-only"
+license = { file = "LICENSE" }
 requires-python = ">=3.9"
 authors = [
     { name = "Paolo Vella", email = "paolovella1993@gmail.com" }
@@ -21,13 +21,12 @@ keywords = [
     "langchain",
     "langgraph",
     "agent",
-    "firewall",
+    "gateway",
     "policy",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU Affero General Public License v3",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",

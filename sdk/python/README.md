@@ -303,4 +303,4 @@ ruff check vellaveto
 
 ## License
 
-AGPL-3.0 (dual license available) - see [LICENSING.md](../../LICENSING.md) for details.
+See [LICENSE](LICENSE) and [LICENSING.md](../../LICENSING.md) for package and repository licensing details.

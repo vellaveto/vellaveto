@@ -1,6 +1,6 @@
 {
   "name": "create-vellaveto",
-  "version": "4.0.7",
+  "version": "6.0.0",
   "description": "Setup wizard for Vellaveto — MCP Policy Gateway",
   "type": "module",
   "bin": {
@@ -17,7 +17,7 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "license": "AGPL-3.0",
+  "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
     "url": "https://github.com/paolovella/vellaveto.git",

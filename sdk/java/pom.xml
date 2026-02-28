@@ -6,7 +6,7 @@
 
     <groupId>com.vellaveto</groupId>
     <artifactId>vellaveto-java-sdk</artifactId>
-    <version>0.1.0</version>
+    <version>6.0.0</version>
     <packaging>jar</packaging>
 
     <name>Vellaveto Java SDK</name>
@@ -15,8 +15,8 @@
 
     <licenses>
         <license>
-            <name>AGPL-3.0</name>
-            <url>https://www.gnu.org/licenses/agpl-3.0.html</url>
+            <name>See LICENSING.md (multi-license model)</name>
+            <url>https://github.com/paolovella/vellaveto/blob/main/LICENSING.md</url>
         </license>
     </licenses>
 
