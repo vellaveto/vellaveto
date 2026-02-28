@@ -18,17 +18,15 @@ Example:
 """
 
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, TypedDict, Annotated
+from typing import Any, Callable, Dict, List, Optional, TypedDict
 
 from vellaveto.client import VellavetoClient, PolicyDenied, ApprovalRequired
-from vellaveto.types import EvaluationContext, EvaluationResult, Verdict
+from vellaveto.types import EvaluationContext, Verdict
 
 logger = logging.getLogger(__name__)
 
 # Check for LangGraph availability
 try:
-    from langgraph.graph import StateGraph
     from langgraph.prebuilt import ToolNode
     HAS_LANGGRAPH = True
 except ImportError:
@@ -73,7 +71,7 @@ def create_vellaveto_node(
     client: VellavetoClient,
     on_deny: str = "block",
     on_approval_required: str = "block",
-) -> callable:
+) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
     """
     Create a LangGraph node for Vellaveto policy evaluation.
 
@@ -204,7 +202,7 @@ def create_vellaveto_tool_node(
     tools: List[Any],
     session_id: Optional[str] = None,
     agent_id: Optional[str] = None,
-) -> callable:
+) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
     """
     Create a LangGraph tool node with built-in Vellaveto evaluation.
 
