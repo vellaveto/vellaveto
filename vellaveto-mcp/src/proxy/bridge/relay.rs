@@ -1237,14 +1237,22 @@ impl ProxyBridge {
                 };
 
                 // Consumer shield: stylometric normalization (after PII sanitization)
-                // Advisory: normalization failure is not a privacy risk, forward original
+                // SECURITY: Fail-closed — if normalization fails, writing style fingerprint
+                // could identify the user. Block the request rather than leak style.
                 #[cfg(feature = "consumer-shield")]
                 let msg = if let Some(ref normalizer) = self.shield_stylometric {
                     match normalizer.normalize_json(&msg) {
                         Ok(normalized) => normalized,
                         Err(e) => {
-                            tracing::warn!("Shield stylometric normalize failed: {} — forwarding sanitized", e);
-                            msg
+                            tracing::error!("Shield stylometric normalize FAILED (fail-closed): {} — blocking request", e);
+                            let error_response = make_denial_response(
+                                &id,
+                                "Shield stylometric normalization failed — request blocked to prevent fingerprinting",
+                            );
+                            write_message(agent_writer, &error_response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
                         }
                     }
                 } else {
