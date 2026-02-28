@@ -28,6 +28,11 @@ credential_pool_size = 50
 replenish_threshold = 10
 credential_epoch_interval = 100
 
+# ── Stylometric Fingerprint Resistance ───────────────────────────
+# "none" = disabled, "level1" = whitespace/punctuation/emoji,
+# "level2" = level1 + filler word removal
+stylometric_level = "none"
+
 # Optional: Add custom PII patterns beyond the built-in set
 # [[shield.custom_pii_patterns]]
 # name = "employee_id"

@@ -300,6 +300,23 @@ async fn main() -> Result<()> {
         bridge = bridge.with_injection_disabled(true);
     }
 
+    // Set up stylometric normalizer
+    let _stylometric_normalizer = if policy_config.shield.enabled {
+        let level = match policy_config.shield.stylometric_level.as_str() {
+            "level1" => vellaveto_mcp_shield::NormalizationLevel::Level1,
+            "level2" => vellaveto_mcp_shield::NormalizationLevel::Level2,
+            _ => vellaveto_mcp_shield::NormalizationLevel::None,
+        };
+        if level != vellaveto_mcp_shield::NormalizationLevel::None {
+            tracing::info!("Stylometric normalizer: {:?}", level);
+            Some(vellaveto_mcp_shield::StylometricNormalizer::new(level))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     // Set up credential vault for session unlinkability
     let _credential_vault = if policy_config.shield.enabled
         && policy_config.shield.session_unlinkability

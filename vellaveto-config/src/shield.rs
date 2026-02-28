@@ -114,6 +114,12 @@ pub struct ShieldConfig {
     /// Default: 100.
     #[serde(default = "default_credential_epoch_interval")]
     pub credential_epoch_interval: u64,
+
+    /// Stylometric normalization level.
+    /// "none" = disabled, "level1" = whitespace/punctuation/emoji, "level2" = level1 + filler words.
+    /// Default: "none".
+    #[serde(default = "default_stylometric_level")]
+    pub stylometric_level: String,
 }
 
 fn default_audit_mode() -> String {
@@ -148,6 +154,10 @@ fn default_credential_epoch_interval() -> u64 {
     100
 }
 
+fn default_stylometric_level() -> String {
+    "none".to_string()
+}
+
 impl Default for ShieldConfig {
     fn default() -> Self {
         Self {
@@ -166,6 +176,7 @@ impl Default for ShieldConfig {
             credential_pool_size: default_credential_pool_size(),
             replenish_threshold: default_replenish_threshold(),
             credential_epoch_interval: default_credential_epoch_interval(),
+            stylometric_level: default_stylometric_level(),
         }
     }
 }
@@ -247,6 +258,20 @@ impl ShieldConfig {
             ));
         }
 
+        // Validate stylometric level
+        if has_dangerous_chars(&self.stylometric_level) {
+            return Err("stylometric_level contains dangerous characters".to_string());
+        }
+        match self.stylometric_level.as_str() {
+            "none" | "level1" | "level2" => {}
+            other => {
+                return Err(format!(
+                    "invalid stylometric_level '{}': must be 'none', 'level1', or 'level2'",
+                    other
+                ));
+            }
+        }
+
         // Validate custom PII patterns
         if self.custom_pii_patterns.len() > MAX_SHIELD_CUSTOM_PII_PATTERNS {
             return Err(format!(
@@ -319,6 +344,7 @@ mod tests {
         assert_eq!(config.credential_pool_size, 50);
         assert_eq!(config.replenish_threshold, 10);
         assert_eq!(config.credential_epoch_interval, 100);
+        assert_eq!(config.stylometric_level, "none");
     }
 
     #[test]
