@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Vellaveto — Runtime Security for AI Agents</title>
-<meta name="description" content="MCP firewall for AI agent tool calls. Intercept, evaluate, enforce, and audit every action your agents take. EU AI Act compliant.">
+<title>Vellaveto — Agentic Security Control Plane</title>
+<meta name="description" content="Agentic security control plane for MCP and AI agent tool calls. Govern identity, policy, discovery, and audit with an MCP-native gateway.">
 <style>
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   :root{
@@ -141,9 +141,9 @@
 <!-- Hero -->
 <section class="hero">
   <div class="wrap">
-    <h1><span>Vellaveto</span> &mdash; Runtime Security for AI Agents</h1>
-    <p class="tagline">The MCP firewall that intercepts, evaluates, and enforces policy on every AI agent tool call.</p>
-    <p class="compliance">EU AI Act compliant before August 2, 2026</p>
+    <h1><span>Security control plane</span> for MCP and agent tool access</h1>
+    <p class="tagline">Govern identity, policy, discovery, and audit with an MCP-native gateway that enforces every tool invocation before execution.</p>
+    <p class="compliance">MCP-native gateway &middot; topology inventory &middot; identity-aware policy &middot; 9,000+ tests</p>
     <div class="install" id="install">
       <span class="label">Quick start</span>
       <code>docker run -p 3000:3000 ghcr.io/paolovella/vellaveto:latest</code>
@@ -156,24 +156,24 @@
 <!-- What it does -->
 <section id="features">
   <div class="wrap">
-    <h2 class="section-title">What it does</h2>
-    <p class="section-sub">Four pillars of runtime protection for autonomous AI systems.</p>
+    <h2 class="section-title">What It Does</h2>
+    <p class="section-sub">Four layers of the Vellaveto agentic security control plane.</p>
     <div class="pillars-grid">
       <div class="pillar">
-        <h3>Intercept</h3>
-        <p>Sits between your AI agent and its tools. Every MCP call passes through Vellaveto before execution.</p>
-      </div>
-      <div class="pillar">
-        <h3>Evaluate</h3>
-        <p>Policy engine scores each request against configurable rules &mdash; scope, sensitivity, blast radius.</p>
+        <h3>Govern</h3>
+        <p>Centralize policy, approvals, tenant controls, and access decisions instead of scattering guardrails across SDKs and apps.</p>
       </div>
       <div class="pillar">
         <h3>Enforce</h3>
-        <p>Allow, deny, or require human approval in real time. No tool call runs without clearance.</p>
+        <p>Run inline on stdio, HTTP, WebSocket, and gRPC paths so tool calls are evaluated before they reach a live system.</p>
       </div>
       <div class="pillar">
-        <h3>Audit</h3>
-        <p>Full structured logs of every decision. Tamper-evident trail for compliance and forensics.</p>
+        <h3>Discover</h3>
+        <p>Inventory MCP servers, track topology drift, and fail closed on unknown or ambiguous tools before they slip into production.</p>
+      </div>
+      <div class="pillar">
+        <h3>Prove</h3>
+        <p>Produce tamper-evident audit, SIEM-ready telemetry, and evidence artifacts for incident response, compliance, and forensics.</p>
       </div>
     </div>
   </div>
@@ -236,20 +236,20 @@
     <h2 class="section-title">By the numbers</h2>
     <div class="stats-grid">
       <div class="stat">
+        <div class="num">9,000+</div>
+        <div class="desc">Total tests passing</div>
+      </div>
+      <div class="stat">
+        <div class="num">231</div>
+        <div class="desc">Adversarial audit rounds</div>
+      </div>
+      <div class="stat">
         <div class="num">&lt;5ms</div>
         <div class="desc">P99 evaluation latency</div>
       </div>
       <div class="stat">
-        <div class="num">4,892+</div>
-        <div class="desc">Tests passing</div>
-      </div>
-      <div class="stat">
-        <div class="num">Rust</div>
-        <div class="desc">Memory-safe, zero-cost abstractions</div>
-      </div>
-      <div class="stat">
-        <div class="num">AGPL-3.0</div>
-        <div class="desc">Open source license</div>
+        <div class="num">38</div>
+        <div class="desc">Formally verified properties</div>
       </div>
     </div>
   </div>
@@ -261,11 +261,11 @@
 <section>
   <div class="wrap" style="text-align:center">
     <h2 class="section-title">Get started</h2>
-    <p class="section-sub">Explore the source, read the docs, or review the license.</p>
+    <p class="section-sub">Explore the source, review the docs, or compare deployment paths.</p>
     <div class="links-row">
       <a href="https://github.com/paolovella/vellaveto" class="btn btn-primary">GitHub Repository</a>
       <a href="https://github.com/paolovella/vellaveto/tree/main/docs" class="btn btn-outline">Documentation</a>
-      <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSING.md" class="btn btn-outline">Licensing</a>
+      <a href="/pricing" class="btn btn-outline">Pricing</a>
     </div>
   </div>
 </section>
@@ -274,7 +274,7 @@
 <footer>
   <div class="wrap">
     <p>Built by <strong>Paolo Vella</strong> &mdash; <a href="mailto:paolovella1993@gmail.com">paolovella1993@gmail.com</a></p>
-    <p class="copy">Vellaveto is licensed under AGPL-3.0. Commercial licenses available.</p>
+    <p class="copy">Vellaveto uses multi-tier open-core licensing. See LICENSING.md for current terms.</p>
   </div>
 </footer>
 

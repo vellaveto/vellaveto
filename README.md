@@ -1,10 +1,10 @@
 <div align="center">
   <h1 align="center">VellaVeto</h1>
   <p align="center">
-    <strong>Runtime security engine for AI agent tool calls</strong>
+    <strong>Agentic security control plane for MCP and AI agent tool calls</strong>
   </p>
   <p align="center">
-    Intercept &middot; Evaluate &middot; Enforce &middot; Audit
+    Govern &middot; Enforce &middot; Discover &middot; Audit
   </p>
   <p align="center">
     <a href="https://github.com/paolovella/vellaveto/releases"><img src="https://img.shields.io/badge/version-6.0.0--dev-blue.svg" alt="Version 6.0.0-dev"></a>
@@ -28,7 +28,9 @@
 
 ---
 
-VellaVeto is a lightweight, high-performance firewall that sits between AI agents and their tools. It intercepts [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a tamper-evident audit trail with SHA-256 hash chains and Ed25519 checkpoint signatures.
+VellaVeto is a security-first control plane for agentic systems. It combines an [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) policy gateway, centralized governance APIs, topology discovery, and a tamper-evident audit trail so teams can control how AI agents use tools across local and deployed environments.
+
+Deploy it as a stdio or HTTP gateway, run it as a multi-tenant control plane, extend policy with Cedar-compatible rules and Wasm plugins, and ship verifiable evidence through audit, compliance, and incident workflows.
 
 **Core guarantees:**
 - **Complete mediation** — request and response paths evaluated before tool execution and before model return
@@ -40,16 +42,16 @@ VellaVeto is a lightweight, high-performance firewall that sits between AI agent
 
 - **Consumer Shield** (Phase 67) — New deployment mode for consumer AI interactions. PII sanitization, encrypted local audit, session isolation, warrant canary. [Details](CHANGELOG.md)
 - **Three-tier licensing** — MPL-2.0 (core + consumer), Apache-2.0 (canary + benchmark), BUSL-1.1 (enterprise, converts to MPL-2.0 after 3 years). [Details](LICENSING.md)
-- **230+ adversarial audit rounds** — 1,550+ findings resolved across engine, MCP, server, audit, proxy, and discovery
+- **231 adversarial audit rounds** — 1,550+ findings resolved across engine, MCP, server, audit, proxy, and discovery
 - **9,000+ tests passing** across Rust, Python, Go, TypeScript, Java + 24 fuzz targets
 
 See [CHANGELOG.md](CHANGELOG.md) for full history.
 
 ## Why VellaVeto?
 
-AI agents with tool access can read files, make HTTP requests, execute commands, and modify data. Without guardrails, a prompt injection or misbehaving agent can exfiltrate credentials, call unauthorized APIs, execute destructive commands, bypass restrictions via Unicode tricks or path traversal, launder data through tool responses, or impersonate tools via name squatting.
+AI agents with tool access can read files, make HTTP requests, execute commands, modify data, and trigger long-running workflows across multiple services. Without centralized controls, a prompt injection or misbehaving agent can exfiltrate credentials, call unauthorized APIs, bypass restrictions via Unicode tricks or path traversal, impersonate tools, or drift into unsafe cross-tool behavior that no single SDK sees.
 
-VellaVeto enforces security policies on every tool call before it reaches the tool server, scans every response before it reaches the model, and logs every decision to a tamper-evident audit trail. Trust math, not promises.
+VellaVeto gives you one place to enforce policy, govern identity, inventory tools, approve risky actions, and audit every decision. The gateway mediates each tool call before execution, the control plane manages policy and runtime state, and the evidence layer turns security decisions into traceable records. Trust math, not promises.
 
 ## Quick Start
 
@@ -175,7 +177,7 @@ Lower crates never depend on higher crates. `vellaveto-operator` is standalone (
 
 ## Security
 
-VellaVeto has undergone **230+ rounds of adversarial security auditing** covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
+VellaVeto has undergone **231 rounds of adversarial security auditing** covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
 
 - **Fail-closed everywhere** — empty policy sets, missing parameters, lock poisoning, capacity exhaustion, and evaluation errors all produce `Deny`
 - **Zero `unwrap()` in library code** — all error paths return typed errors; panics reserved for tests only

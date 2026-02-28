@@ -1,4 +1,4 @@
-// Package vellaveto provides a Go client for the Vellaveto MCP Tool Firewall API.
+// Package vellaveto provides a Go client for the Vellaveto agentic security control plane API.
 package vellaveto
 
 import (

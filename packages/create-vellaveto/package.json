@@ -1,7 +1,7 @@
 {
   "name": "create-vellaveto",
   "version": "4.0.7",
-  "description": "Setup wizard for Vellaveto — MCP Tool Firewall",
+  "description": "Setup wizard for Vellaveto — MCP Policy Gateway",
   "type": "module",
   "bin": {
     "create-vellaveto": "./dist/index.js"
@@ -27,7 +27,7 @@
     "vellaveto",
     "mcp",
     "security",
-    "firewall",
+    "gateway",
     "setup",
     "create"
   ],

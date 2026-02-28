@@ -1,6 +1,6 @@
 # Vellaveto Go SDK
 
-Go client for the [Vellaveto](https://github.com/paolovella/vellaveto) MCP Tool Firewall API.
+Go client for the [Vellaveto](https://github.com/paolovella/vellaveto) agentic security control plane API.
 
 **Zero dependencies** — uses only the Go standard library.
 

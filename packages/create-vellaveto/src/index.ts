@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * create-vellaveto — CLI setup wizard for Vellaveto MCP Tool Firewall
+ * create-vellaveto — CLI setup wizard for the Vellaveto MCP policy gateway
  *
  * Usage:
  *   npx create-vellaveto                  Interactive wizard (creates ./vellaveto/)
@@ -17,7 +17,7 @@ function printHelp(): void {
   console.log(`
 create-vellaveto v${VERSION}
 
-Setup wizard for Vellaveto — MCP Tool Firewall
+Setup wizard for Vellaveto — MCP policy gateway
 
 Usage:
   npx create-vellaveto [project-directory]

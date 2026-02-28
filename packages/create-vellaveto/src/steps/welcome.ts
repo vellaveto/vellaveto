@@ -11,7 +11,7 @@ export async function welcomeStep(
 
   p.note(
     "This wizard generates configuration files for Vellaveto,\n" +
-      "the MCP Tool Firewall. No server required — just answer\n" +
+      "the MCP policy gateway. No server required — just answer\n" +
       "a few questions and we'll create everything you need.",
     "Welcome",
   );

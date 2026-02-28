@@ -1,23 +1,23 @@
 # Vellaveto Roadmap
 
 > **Version:** 6.0.0-dev
-> **Updated:** 2026-02-26
-> **Current:** 8,228 Rust + 59 React + 12 Terraform, 433 Python, 127 Go, 119 TypeScript | 225 audit rounds | 67 phases complete
+> **Updated:** 2026-02-28
+> **Current:** 8,790 Rust tests passing | 231 audit rounds | 72 phases complete
 > **Strategic position:** Agentic Security Control Plane & Policy Gateway
-> **License:** AGPL-3.0 (core) + Commercial Enterprise
+> **Licensing:** Multi-tier open-core (see LICENSING.md)
 
 ---
 
 ## Executive Summary
 
-Vellaveto is an **Agentic Security Control Plane** — the platform through which enterprises govern, observe, and secure every AI agent tool call. Built on the most comprehensive open-source MCP runtime security engine (full MCP 2025-11-25 compliance, 4 transport layers, Cedar-style ABAC, formal verification, zero-knowledge audit trails), the roadmap extends into centralized multi-tenant governance, enterprise IAM, and commercial packaging.
+Vellaveto is an **Agentic Security Control Plane** — the platform through which enterprises govern, observe, and secure every AI agent tool call. Built on a security-first MCP runtime engine (full MCP 2025-11-25 compliance, 4 transport layers, Cedar-style ABAC, formal verification, zero-knowledge audit trails), the roadmap extends into centralized multi-tenant governance, enterprise IAM, and commercial packaging.
 
 **Market signals driving the roadmap:**
 1. **Enterprises need centralized agent governance** — the explosion of AI agents (LangChain, CrewAI, AutoGen, Google ADK, OpenAI Agents SDK) demands a unified control plane
 2. **Regulatory acceleration** — EU AI Act (Aug 2026), DORA, NIS2, ISO 42001
 3. **Nascent competitive landscape** — MintMCP, TrueFoundry, Lunar.dev, Microsoft MCP Gateway, AWS AgentCore entering; none offer enterprise-grade policy management + admin UI + compliance packs
 4. **Italy-first GTM** — UniCredit, Intesa Sanpaolo, Generali, Enel are early adopters under heavy regulatory pressure (Banca d'Italia + DORA + NIS2)
-5. **Open-core monetization** — AGPL-3.0 core engine + Commercial Enterprise license
+5. **Multi-tier monetization** — open-core distribution plus commercial control-plane packaging
 
 ---
 
@@ -58,10 +58,17 @@ Q2 2026 (Done):  Phase 63 — Performance & Data Structure Optimization    [P3] 
                   Phase 65 — A2A Protocol Hardening & MCP Registry        [P3] ✅
                   Phase 66 — Formal Verification Expansion                [P3] ✅
 
+Q2 2026 (Done):  Phase 67 — Consumer Shield + Multi-Tier Licensing       [P3] ✅
+                  Phase 68 — Runtime Analytics & Insights                 [P2] ✅
+                  Phase 70 — Bulk Policy Operations                       [P2] ✅
+                  Phase 71 — Adaptive Rate Limiting                       [P2] ✅
+                  Phase 72 — Policy Coverage Analysis                     [P2] ✅
+
 Q2 2026 (Done):  Phase 55 — Performance & Scale Validation              [P3] ✅
 ```
 
 ---
+*Phase numbering is historical and non-contiguous; this summary only lists documented delivered phases in the active workspace.*
 
 ---
 
@@ -140,7 +147,7 @@ Q2 2026 (Done):  Phase 55 — Performance & Scale Validation              [P3] �
 - TLA+: CascadingFailure (5 safety + 2 liveness properties)
 - Kani: 5 proof harnesses (fail-closed, path normalization, saturating arithmetic)
 
-**Delivered:** 8,208 Rust tests passing, 11 compliance frameworks, 8 SDK integrations, 33 TLA+ properties + 5 Kani harnesses
+**Delivered at Phase 66 close:** 8,208 Rust tests passing, 11 compliance frameworks, 8 SDK integrations, 33 TLA+ properties + 5 Kani harnesses
 
 ---
 
@@ -155,7 +162,44 @@ Q2 2026 (Done):  Phase 55 — Performance & Scale Validation              [P3] �
 - Chaos testing: policy reload, corrupt audit recovery, concurrent compilation, edge-case inputs
 - Benchmark report published (`docs/BENCHMARK_REPORT.md`)
 
-**Delivered:** 15 Criterion throughput benchmarks, 16 integration stress/chaos tests, k6 load test scripts, benchmark report. 8,229 Rust tests passing.
+**Delivered at Phase 55 close:** 15 Criterion throughput benchmarks, 16 integration stress/chaos tests, k6 load test scripts, benchmark report. 8,229 Rust tests passing.
+
+---
+
+## Phases 67–72: Control Plane Operations & Analytics ✅
+
+*Consumer privacy, analytics, policy import/export, adaptive throttling, and coverage visibility.*
+
+### Phase 67: Consumer Shield + Multi-Tier Licensing (P3) ✅
+- Consumer shield deployment mode for user-facing AI interactions
+- Bidirectional PII sanitization, encrypted local audit, session isolation, and warrant canary verification
+- New `vellaveto-mcp-shield`, `vellaveto-shield`, `vellaveto-canary`, and `vellaveto-http-proxy-shield` surfaces
+- Multi-tier licensing model documented in `LICENSING.md`
+
+### Live Topology Management (Delivered) ✅
+- Topology discovery wired into runtime lifecycle with `StaticProbe`, `TopologyCrawler`, and `RecrawlScheduler`
+- Relay interception now learns from `tools/list` responses and incrementally updates topology state
+- Runtime endpoints expose topology snapshots, status, recrawl, and server removal
+
+### Phase 68: Runtime Analytics & Insights (P2) ✅
+- Audit analytics engine for summary metrics, time-series trends, and per-policy effectiveness reporting
+- Bounded aggregation with fail-closed handling for attacker-controlled labels and high-cardinality inputs
+- Analytics surface shipped in `vellaveto-audit` as a reusable control-plane building block
+
+### Phase 70: Bulk Policy Operations (P2) ✅
+- Validated bulk policy import from JSON with per-policy findings
+- Export to JSON and TOML for policy portability and admin-console workflows
+- Import bounds for payload size, batch size, duplicate IDs, empty fields, and priority validation
+
+### Phase 71: Adaptive Rate Limiting (P2) ✅
+- Per-entity rate limiting with allow, throttle, and deny outcomes
+- Anomaly-triggered rate reduction with automatic recovery windows
+- Capacity bounds and configuration validation to keep rate controls fail-closed
+
+### Phase 72: Policy Coverage Analysis (P2) ✅
+- Coverage analysis for active vs dead policies
+- Uncovered-tool reporting for traffic that does not match a policy
+- Coverage scores for policy-set effectiveness and tool coverage
 
 ---
 
@@ -182,11 +226,16 @@ Phase 63 (Performance)     ──── ✅ complete ─────────
 Phase 64 (Cedar Compat)    ──── ✅ complete ─────────────────────────────────┤
 Phase 65 (A2A Hardening)   ──── ✅ complete ─────────────────────────────────┤
 Phase 66 (Formal Verif.)   ──── ✅ complete ─────────────────────────────────┤
+Phase 67 (Consumer Shield) ──── ✅ complete ─────────────────────────────────┤
+Phase 68 (Analytics)       ──── ✅ complete ─────────────────────────────────┤
+Phase 70 (Bulk Ops)        ──── ✅ complete ─────────────────────────────────┤
+Phase 71 (Adaptive Rate)   ──── ✅ complete ─────────────────────────────────┤
+Phase 72 (Coverage)        ──── ✅ complete ─────────────────────────────────┤
                                                                             │
 Phase 55 (Scale)           ──── ✅ complete ─────────────────────────────────┘
 ```
 
-**All phases complete.** 67 phases delivered across core engine, security, compliance, SDKs, infrastructure, and performance validation.
+**All documented delivered phases complete.** 72 phases delivered across core engine, security, compliance, SDKs, control-plane operations, and performance validation.
 
 ---
 
@@ -205,7 +254,7 @@ Phase 55 (Scale)           ──── ✅ complete ─────────
 | Formal Verification | TLA+ + Alloy + Kani (33 props + 5 harnesses) | None | None | None | None |
 | zk-SNARK Audit | Pedersen + Groth16 | None | None | None | None |
 | Observability | OTel GenAI + OCSF + OTLP | Basic | Basic | CloudWatch | CloudWatch |
-| Open Source | AGPL-3.0 (core) | Commercial | Commercial | MIT | Commercial |
+| Licensing | Multi-tier (see LICENSING.md) | Commercial | Commercial | MIT | Commercial |
 | SDKs | 8 frameworks (Python/TS/Go/Java + Claude/Strands/MS) | Python | Python | None | Python |
 | A2A Security | Enforced Ed25519 signing | None | None | None | None |
 | Self-Service Signup | API + marketplace | SaaS only | SaaS only | Portal | Console |
@@ -218,9 +267,9 @@ Phase 55 (Scale)           ──── ✅ complete ─────────
 
 | Tier | Price | Tenants | Evals/Day | Features |
 |------|-------|---------|-----------|----------|
-| **Community** | Free (AGPL-3.0) | 1 | 10,000 | Full engine, CLI, file audit, SDKs |
-| **Pro** | EUR 499/mo | 5 | 100,000 | + PostgreSQL audit, admin console, email support |
-| **Enterprise** | Custom | Unlimited | Unlimited | + SSO/SAML, RBAC, compliance packs, K8s operator, SLA, Terraform |
+| **Community** | Free (open-core) | 1 | 10,000 | Core gateway, CLI, file audit, SDKs, local deployments |
+| **Pro** | EUR 499/mo | 5 | 100,000 | + Admin console, topology inventory, OTLP/OCSF export, priority support |
+| **Enterprise** | Custom | Unlimited | Unlimited | + SSO/SAML, RBAC, compliance packs, Helm/Terraform, K8s operator, SLA |
 
 ---
 
