@@ -2,6 +2,7 @@
 //! encrypted local audit, and credential-based session unlinkability
 //! for consumer AI interactions.
 
+pub mod context_isolation;
 pub mod credential_vault;
 pub mod crypto;
 pub mod error;
@@ -13,6 +14,7 @@ pub mod session_unlinker;
 #[cfg(test)]
 mod tests;
 
+pub use context_isolation::ContextIsolator;
 pub use credential_vault::CredentialVault;
 pub use crypto::EncryptedAuditStore;
 pub use error::ShieldError;

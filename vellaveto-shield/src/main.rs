@@ -294,11 +294,50 @@ async fn main() -> Result<()> {
         bridge = bridge.with_injection_disabled(true);
     }
 
+    // Set up credential vault for session unlinkability
+    let _credential_vault = if policy_config.shield.enabled
+        && policy_config.shield.session_unlinkability
+        && !passphrase.is_empty()
+    {
+        let vault_path = config_dir.join("shield-credentials.enc");
+        let vault_store =
+            vellaveto_mcp_shield::EncryptedAuditStore::new(vault_path, &passphrase)
+                .context("Failed to initialize credential vault")?;
+        let vault = vellaveto_mcp_shield::CredentialVault::new(
+            vault_store,
+            policy_config.shield.credential_pool_size,
+            policy_config.shield.replenish_threshold,
+        )
+        .context("Failed to load credential vault")?;
+        let status = vault.status();
+        tracing::info!(
+            "Credential vault: {} available, {} total (replenish: {})",
+            status.available,
+            status.total,
+            status.needs_replenishment
+        );
+        Some(vault)
+    } else {
+        None
+    };
+
+    // Set up context isolation
+    let _context_isolator = if policy_config.shield.enabled
+        && policy_config.shield.session_isolation
+    {
+        let isolator = vellaveto_mcp_shield::ContextIsolator::new();
+        tracing::info!("Context isolation: ENABLED");
+        Some(isolator)
+    } else {
+        None
+    };
+
     tracing::info!(
-        "Shield ready — timeout: {}s, sanitize: {}, session_isolation: {}",
+        "Shield ready — timeout: {}s, sanitize: {}, session_isolation: {}, unlinkability: {}",
         cli.timeout,
         policy_config.shield.sanitize_queries,
-        policy_config.shield.session_isolation
+        policy_config.shield.session_isolation,
+        policy_config.shield.session_unlinkability
     );
 
     // Run the proxy

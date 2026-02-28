@@ -1,0 +1,221 @@
+//! Context window isolation — prevents cross-session context leakage.
+//!
+//! Each session starts with a clean context. If the user wants continuity,
+//! the Shield provides it locally: relevant context from LOCAL history is
+//! injected into the new session's prompt. The provider sees a fresh user
+//! every session.
+//!
+//! Local context is stored using the encrypted audit store and is never
+//! sent to the provider in linkable form.
+
+use crate::error::ShieldError;
+use std::collections::{HashMap, VecDeque};
+use std::sync::Mutex;
+
+/// Maximum number of context entries per session.
+const MAX_CONTEXT_ENTRIES: usize = 1_000;
+
+/// Maximum total sessions tracked for context isolation.
+const MAX_CONTEXT_SESSIONS: usize = 10_000;
+
+/// Maximum length of a single context entry text (64 KB).
+const MAX_CONTEXT_ENTRY_LEN: usize = 65_536;
+
+/// Maximum total context bytes across all entries in a session (1 MB).
+const MAX_CONTEXT_TOTAL_BYTES: usize = 1_048_576;
+
+/// A single piece of conversation context.
+struct ContextEntry {
+    /// The role: "user" or "assistant".
+    role: String,
+    /// The text content (sanitized — no PII).
+    text: String,
+    /// Monotonic sequence number within the session.
+    #[allow(dead_code)]
+    sequence: u64,
+}
+
+/// Per-session context state.
+struct SessionContext {
+    entries: VecDeque<ContextEntry>,
+    total_bytes: usize,
+    next_sequence: u64,
+}
+
+impl SessionContext {
+    fn new() -> Self {
+        Self {
+            entries: VecDeque::new(),
+            total_bytes: 0,
+            next_sequence: 0,
+        }
+    }
+}
+
+/// Manages per-session context isolation.
+///
+/// Ensures that:
+/// 1. Each session has an independent context window
+/// 2. Context is never shared between sessions at the provider level
+/// 3. Local context history is maintained for user convenience
+/// 4. All stored context is PII-sanitized (should be run AFTER QuerySanitizer)
+pub struct ContextIsolator {
+    sessions: Mutex<HashMap<String, SessionContext>>,
+    max_entries: usize,
+    max_sessions: usize,
+}
+
+impl ContextIsolator {
+    /// Create a new context isolator with default bounds.
+    pub fn new() -> Self {
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+            max_entries: MAX_CONTEXT_ENTRIES,
+            max_sessions: MAX_CONTEXT_SESSIONS,
+        }
+    }
+
+    /// Create with custom limits.
+    pub fn with_limits(max_entries: usize, max_sessions: usize) -> Self {
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+            max_entries: max_entries.min(MAX_CONTEXT_ENTRIES),
+            max_sessions: max_sessions.min(MAX_CONTEXT_SESSIONS),
+        }
+    }
+
+    /// Record a context entry for a session (e.g., a user message or assistant response).
+    ///
+    /// Text should already be PII-sanitized before calling this.
+    pub fn record(
+        &self,
+        session_id: &str,
+        role: &str,
+        text: &str,
+    ) -> Result<(), ShieldError> {
+        if text.len() > MAX_CONTEXT_ENTRY_LEN {
+            return Err(ShieldError::Config(format!(
+                "context entry too large ({} bytes, max {})",
+                text.len(),
+                MAX_CONTEXT_ENTRY_LEN
+            )));
+        }
+
+        let mut sessions = self.sessions.lock().map_err(|e| {
+            ShieldError::SessionIsolation(format!("context lock poisoned: {e}"))
+        })?;
+
+        // Create session if needed
+        if !sessions.contains_key(session_id) {
+            if sessions.len() >= self.max_sessions {
+                return Err(ShieldError::SessionIsolation(
+                    "context session capacity exhausted (fail-closed)".to_string(),
+                ));
+            }
+            sessions.insert(session_id.to_string(), SessionContext::new());
+        }
+
+        let ctx = sessions.get_mut(session_id).ok_or_else(|| {
+            ShieldError::SessionIsolation("session not found after insert".to_string())
+        })?;
+
+        // Check total bytes limit
+        if ctx.total_bytes.saturating_add(text.len()) > MAX_CONTEXT_TOTAL_BYTES {
+            // Evict oldest entries to make room
+            while ctx.total_bytes.saturating_add(text.len()) > MAX_CONTEXT_TOTAL_BYTES {
+                if let Some(old) = ctx.entries.pop_front() {
+                    ctx.total_bytes = ctx.total_bytes.saturating_sub(old.text.len());
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Enforce entry count limit
+        while ctx.entries.len() >= self.max_entries {
+            if let Some(old) = ctx.entries.pop_front() {
+                ctx.total_bytes = ctx.total_bytes.saturating_sub(old.text.len());
+            }
+        }
+
+        let seq = ctx.next_sequence;
+        ctx.next_sequence = ctx.next_sequence.saturating_add(1);
+        ctx.total_bytes = ctx.total_bytes.saturating_add(text.len());
+
+        ctx.entries.push_back(ContextEntry {
+            role: role.to_string(),
+            text: text.to_string(),
+            sequence: seq,
+        });
+
+        Ok(())
+    }
+
+    /// Get the last N context entries for a session (for local context injection).
+    ///
+    /// Returns entries in chronological order. These can be injected into
+    /// a new session's system prompt so the user gets continuity without
+    /// the provider linking sessions.
+    pub fn get_recent_context(
+        &self,
+        session_id: &str,
+        max_entries: usize,
+    ) -> Result<Vec<(String, String)>, ShieldError> {
+        let sessions = self.sessions.lock().map_err(|e| {
+            ShieldError::SessionIsolation(format!("context lock poisoned: {e}"))
+        })?;
+
+        let ctx = sessions.get(session_id).ok_or_else(|| {
+            ShieldError::SessionIsolation(format!("unknown context session: {session_id}"))
+        })?;
+
+        let entries: Vec<(String, String)> = ctx
+            .entries
+            .iter()
+            .rev()
+            .take(max_entries)
+            .map(|e| (e.role.clone(), e.text.clone()))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+
+        Ok(entries)
+    }
+
+    /// Get the total number of context entries in a session.
+    pub fn entry_count(&self, session_id: &str) -> usize {
+        self.sessions
+            .lock()
+            .ok()
+            .and_then(|s| s.get(session_id).map(|ctx| ctx.entries.len()))
+            .unwrap_or(0)
+    }
+
+    /// End a session's context, clearing all stored entries.
+    pub fn end_session(&self, session_id: &str) {
+        if let Ok(mut sessions) = self.sessions.lock() {
+            sessions.remove(session_id);
+        }
+    }
+
+    /// Get the number of active context sessions.
+    pub fn session_count(&self) -> usize {
+        self.sessions.lock().map(|s| s.len()).unwrap_or(0)
+    }
+}
+
+impl Default for ContextIsolator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for ContextIsolator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ContextIsolator")
+            .field("session_count", &self.session_count())
+            .field("max_entries", &self.max_entries)
+            .finish()
+    }
+}

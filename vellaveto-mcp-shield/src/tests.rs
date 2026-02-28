@@ -707,6 +707,96 @@ fn test_shield_config_zero_epoch_interval_rejected() {
 }
 
 #[test]
+// ═══════════════════════════════════════════════════════════════════
+// ContextIsolator Tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_context_record_and_retrieve() {
+    let ctx = ContextIsolator::new();
+    ctx.record("s1", "user", "What is the weather?").unwrap();
+    ctx.record("s1", "assistant", "It's sunny today.").unwrap();
+
+    let entries = ctx.get_recent_context("s1", 10).unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0], ("user".to_string(), "What is the weather?".to_string()));
+    assert_eq!(entries[1], ("assistant".to_string(), "It's sunny today.".to_string()));
+}
+
+#[test]
+fn test_context_session_isolation() {
+    let ctx = ContextIsolator::new();
+    ctx.record("s1", "user", "Session 1 context").unwrap();
+    ctx.record("s2", "user", "Session 2 context").unwrap();
+
+    let s1 = ctx.get_recent_context("s1", 10).unwrap();
+    let s2 = ctx.get_recent_context("s2", 10).unwrap();
+
+    assert_eq!(s1.len(), 1);
+    assert_eq!(s2.len(), 1);
+    assert_eq!(s1[0].1, "Session 1 context");
+    assert_eq!(s2[0].1, "Session 2 context");
+}
+
+#[test]
+fn test_context_entry_limit_evicts_oldest() {
+    let ctx = ContextIsolator::with_limits(3, 100);
+    ctx.record("s1", "user", "first").unwrap();
+    ctx.record("s1", "user", "second").unwrap();
+    ctx.record("s1", "user", "third").unwrap();
+    ctx.record("s1", "user", "fourth").unwrap(); // should evict "first"
+
+    let entries = ctx.get_recent_context("s1", 10).unwrap();
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries[0].1, "second");
+}
+
+#[test]
+fn test_context_session_capacity_fail_closed() {
+    let ctx = ContextIsolator::with_limits(100, 2);
+    ctx.record("s1", "user", "ok").unwrap();
+    ctx.record("s2", "user", "ok").unwrap();
+    let result = ctx.record("s3", "user", "fail");
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("capacity exhausted"));
+}
+
+#[test]
+fn test_context_end_session_clears() {
+    let ctx = ContextIsolator::new();
+    ctx.record("s1", "user", "data").unwrap();
+    assert_eq!(ctx.session_count(), 1);
+    ctx.end_session("s1");
+    assert_eq!(ctx.session_count(), 0);
+}
+
+#[test]
+fn test_context_oversized_entry_rejected() {
+    let ctx = ContextIsolator::new();
+    let huge = "x".repeat(65_537); // MAX_CONTEXT_ENTRY_LEN + 1
+    let result = ctx.record("s1", "user", &huge);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_context_recent_returns_last_n() {
+    let ctx = ContextIsolator::new();
+    for i in 0..10 {
+        ctx.record("s1", "user", &format!("msg-{}", i)).unwrap();
+    }
+    let recent = ctx.get_recent_context("s1", 3).unwrap();
+    assert_eq!(recent.len(), 3);
+    assert_eq!(recent[0].1, "msg-7");
+    assert_eq!(recent[2].1, "msg-9");
+}
+
+#[test]
+fn test_context_unknown_session_error() {
+    let ctx = ContextIsolator::new();
+    let result = ctx.get_recent_context("nonexistent", 10);
+    assert!(result.is_err());
+}
+
 fn test_shield_config_serde_roundtrip_with_credentials() {
     let mut config = vellaveto_config::ShieldConfig::default();
     config.session_unlinkability = true;
