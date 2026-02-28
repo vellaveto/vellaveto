@@ -803,6 +803,123 @@ fn test_context_unknown_session_error() {
     assert!(result.is_err());
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// StylometricNormalizer Tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_stylometric_none_passthrough() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::None);
+    let input = "Hello!!!  world...  🎉";
+    assert_eq!(norm.normalize(input).unwrap(), input);
+}
+
+#[test]
+fn test_stylometric_level1_whitespace() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level1);
+    let result = norm.normalize("Hello   world    test").unwrap();
+    assert_eq!(result, "Hello world test");
+}
+
+#[test]
+fn test_stylometric_level1_repeated_punctuation() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level1);
+    assert_eq!(norm.normalize("wow!!!").unwrap(), "wow!");
+    assert_eq!(norm.normalize("really???").unwrap(), "really?");
+}
+
+#[test]
+fn test_stylometric_level1_ellipsis() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level1);
+    assert_eq!(norm.normalize("hmm....").unwrap(), "hmm...");
+    assert_eq!(norm.normalize("wait\u{2026}").unwrap(), "wait...");
+    // Single dot preserved
+    assert_eq!(norm.normalize("end.").unwrap(), "end.");
+}
+
+#[test]
+fn test_stylometric_level1_emoji_stripped() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level1);
+    let result = norm.normalize("Great job! 🎉🚀👍").unwrap();
+    assert_eq!(result, "Great job!");
+}
+
+#[test]
+fn test_stylometric_level1_smart_quotes() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level1);
+    let result = norm.normalize("\u{201C}Hello\u{201D} he said").unwrap();
+    assert_eq!(result, "\"Hello\" he said");
+}
+
+#[test]
+fn test_stylometric_level1_dashes() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level1);
+    // em dash
+    let result = norm.normalize("word\u{2014}another").unwrap();
+    assert_eq!(result, "word-another");
+    // en dash
+    let result = norm.normalize("pages 1\u{2013}10").unwrap();
+    assert_eq!(result, "pages 1-10");
+}
+
+#[test]
+fn test_stylometric_level2_filler_words() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level2);
+    let result = norm.normalize("I just really want to basically understand").unwrap();
+    assert!(!result.contains("just"));
+    assert!(!result.contains("really"));
+    assert!(!result.contains("basically"));
+    assert!(result.contains("want"));
+    assert!(result.contains("understand"));
+}
+
+#[test]
+fn test_stylometric_level2_multiword_filler() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level2);
+    let result = norm.normalize("I kind of want to sort of understand this, you know").unwrap();
+    assert!(!result.contains("kind of"));
+    assert!(!result.contains("sort of"));
+}
+
+#[test]
+fn test_stylometric_level2_preserves_semantics() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level2);
+    let result = norm.normalize("What is the capital of France?").unwrap();
+    // No fillers to remove — should be essentially unchanged
+    assert!(result.contains("capital"));
+    assert!(result.contains("France"));
+}
+
+#[test]
+fn test_stylometric_oversized_input_rejected() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level1);
+    let huge = "x".repeat(1_048_577);
+    assert!(norm.normalize(&huge).is_err());
+}
+
+#[test]
+fn test_stylometric_combined_normalization() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level2);
+    let input = "Wow!!!  I\u{2019}m  just  basically  saying\u{2026}\u{2026}  it\u{2019}s  really  great  🎉🎉";
+    let result = norm.normalize(input).unwrap();
+
+    // Multiple ! → single
+    assert!(!result.contains("!!!"));
+    // Smart quotes → ASCII
+    assert!(!result.contains('\u{2019}'));
+    // Emoji stripped
+    assert!(!result.contains('🎉'));
+    // Fillers removed
+    assert!(!result.contains("just"));
+    assert!(!result.contains("basically"));
+    assert!(!result.contains("really"));
+    // Multiple spaces collapsed
+    assert!(!result.contains("  "));
+    // Semantic content preserved
+    assert!(result.contains("Wow"));
+    assert!(result.contains("great"));
+}
+
 fn test_shield_config_serde_roundtrip_with_credentials() {
     let mut config = vellaveto_config::ShieldConfig::default();
     config.session_unlinkability = true;

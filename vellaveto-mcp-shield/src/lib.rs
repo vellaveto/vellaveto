@@ -16,6 +16,7 @@ pub mod local_audit;
 pub mod sanitizer;
 pub mod session_isolator;
 pub mod session_unlinker;
+pub mod stylometric;
 
 #[cfg(test)]
 mod tests;
@@ -28,3 +29,4 @@ pub use local_audit::LocalAuditManager;
 pub use sanitizer::QuerySanitizer;
 pub use session_isolator::SessionIsolator;
 pub use session_unlinker::SessionUnlinker;
+pub use stylometric::{NormalizationLevel, StylometricNormalizer};
