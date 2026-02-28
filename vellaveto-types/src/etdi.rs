@@ -71,7 +71,20 @@ fn is_valid_iso8601_basic(s: &str) -> bool {
     if !(1..=12).contains(&month) {
         return false;
     }
-    if !(1..=31).contains(&day) {
+    // R231-TYP-1: Calendar-aware day-of-month validation.
+    let max_day = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400) {
+                29
+            } else {
+                28
+            }
+        }
+        _ => return false,
+    };
+    if !(1..=max_day).contains(&day) {
         return false;
     }
     if hour > 23 {
@@ -758,5 +771,63 @@ impl VersionDriftAlert {
             blocking,
             detected_at: detected_at.into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_r231_iso8601_rejects_feb_31() {
+        assert!(!is_valid_iso8601_basic("2026-02-31T00:00:00Z"));
+    }
+
+    #[test]
+    fn test_r231_iso8601_rejects_feb_30_non_leap() {
+        assert!(!is_valid_iso8601_basic("2025-02-30T00:00:00Z"));
+    }
+
+    #[test]
+    fn test_r231_iso8601_rejects_feb_29_non_leap() {
+        assert!(!is_valid_iso8601_basic("2025-02-29T00:00:00Z"));
+    }
+
+    #[test]
+    fn test_r231_iso8601_accepts_feb_29_leap() {
+        assert!(is_valid_iso8601_basic("2024-02-29T00:00:00Z"));
+    }
+
+    #[test]
+    fn test_r231_iso8601_accepts_feb_28_non_leap() {
+        assert!(is_valid_iso8601_basic("2025-02-28T12:30:45Z"));
+    }
+
+    #[test]
+    fn test_r231_iso8601_rejects_apr_31() {
+        assert!(!is_valid_iso8601_basic("2026-04-31T00:00:00Z"));
+    }
+
+    #[test]
+    fn test_r231_iso8601_accepts_apr_30() {
+        assert!(is_valid_iso8601_basic("2026-04-30T00:00:00Z"));
+    }
+
+    #[test]
+    fn test_r231_iso8601_rejects_jun_31() {
+        assert!(!is_valid_iso8601_basic("2026-06-31T10:00:00Z"));
+    }
+
+    #[test]
+    fn test_r231_iso8601_accepts_jan_31() {
+        assert!(is_valid_iso8601_basic("2026-01-31T23:59:59Z"));
+    }
+
+    #[test]
+    fn test_r231_iso8601_century_leap_year() {
+        // 2000 is divisible by 400 → leap
+        assert!(is_valid_iso8601_basic("2000-02-29T00:00:00Z"));
+        // 1900 is divisible by 100 but not 400 → NOT leap
+        // But year < 1970 is rejected separately
     }
 }

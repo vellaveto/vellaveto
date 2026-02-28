@@ -353,8 +353,8 @@ fn empty_required_array_allows() {
 }
 
 #[test]
-fn non_array_forbidden_parameters_is_silently_ignored() {
-    // If forbidden_parameters is not an array, `as_array()` returns None  skip
+fn non_array_forbidden_parameters_denied_fail_closed() {
+    // R231-ENG-3: If forbidden_parameters is not an array, fail-closed (Deny)
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({"force": true}));
     let policies = vec![conditional_policy(
@@ -366,8 +366,11 @@ fn non_array_forbidden_parameters_is_silently_ignored() {
         }),
     )];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
-    // Silently ignored → no denial → Allow
-    assert!(matches!(verdict, Verdict::Allow));
+    // R231-ENG-3: Non-array forbidden_parameters → fail-closed Deny
+    assert!(matches!(verdict, Verdict::Deny { .. }));
+    if let Verdict::Deny { reason } = &verdict {
+        assert!(reason.contains("Malformed forbidden_parameters"));
+    }
 }
 
 #[test]

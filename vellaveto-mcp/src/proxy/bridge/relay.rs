@@ -1627,6 +1627,73 @@ impl ProxyBridge {
                     return Ok(());
                 }
 
+                // R231-PROXY-4: DLP scan sampling request for secrets (transport parity).
+                // A malicious server can embed API keys or credentials in sampling
+                // messages. This mirrors notification DLP scanning (line ~3333).
+                if self.response_dlp_enabled {
+                    let synthetic_msg = json!({
+                        "method": "sampling/createMessage",
+                        "params": params,
+                    });
+                    let dlp_findings = scan_notification_for_secrets(&synthetic_msg);
+                    if !dlp_findings.is_empty() {
+                        let patterns: Vec<String> = dlp_findings
+                            .iter()
+                            .map(|f| format!("{} at {}", f.pattern_name, f.location))
+                            .collect();
+                        tracing::warn!(
+                            "SECURITY: DLP alert in sampling/createMessage from tool '{}': {:?}",
+                            tool_name,
+                            patterns
+                        );
+                        let action = vellaveto_types::Action::new(
+                            "vellaveto",
+                            "sampling_dlp_secret_detected",
+                            json!({
+                                "findings": patterns,
+                                "tool": &tool_name,
+                            }),
+                        );
+                        let verdict = if self.response_dlp_blocking {
+                            Verdict::Deny {
+                                reason: format!(
+                                    "Sampling blocked: secrets detected ({:?})",
+                                    patterns
+                                ),
+                            }
+                        } else {
+                            Verdict::Allow
+                        };
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &action,
+                                &verdict,
+                                json!({
+                                    "source": "proxy",
+                                    "event": "sampling_dlp_secret_detected",
+                                    "tool": &tool_name,
+                                    "findings": patterns,
+                                    "blocked": self.response_dlp_blocking,
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit sampling DLP: {}", e);
+                        }
+                        if self.response_dlp_blocking {
+                            let response = make_denial_response(
+                                &id,
+                                "Request blocked: security policy violation",
+                            );
+                            write_message(agent_writer, &response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
+                        }
+                    }
+                }
+
                 // SECURITY (TI-2026-002): Injection scan sampling system prompt
                 // and messages. A malicious MCP server can inject hidden instructions
                 // via sampling/createMessage to hijack the LLM or exfiltrate data.

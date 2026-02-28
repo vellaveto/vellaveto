@@ -176,14 +176,20 @@ impl PolicyEngine {
                     Ok(true) => {
                         tracing::debug!(path = %normalized, pattern = %pattern, policy = %policy.name, "Path blocked (legacy)");
                         return Ok(Some(Verdict::Deny {
-                            reason: format!("Path '{}' blocked by policy '{}'", normalized, policy.name),
+                            reason: format!(
+                                "Path '{}' blocked by policy '{}'",
+                                normalized, policy.name
+                            ),
                         }));
                     }
                     Ok(false) => {}
                     Err(e) => {
                         tracing::debug!(pattern = %pattern, policy = %policy.name, error = %e, "Invalid glob (legacy)");
                         return Ok(Some(Verdict::Deny {
-                            reason: format!("Path rule error in policy '{}' (fail-closed)", policy.name),
+                            reason: format!(
+                                "Path rule error in policy '{}' (fail-closed)",
+                                policy.name
+                            ),
                         }));
                     }
                 }
@@ -480,6 +486,7 @@ impl PolicyEngine {
         }
 
         // Check forbidden parameters
+        // R231-ENG-3: Fail-closed if value is present but not an array.
         if let Some(forbidden) = conditions.get("forbidden_parameters") {
             if let Some(forbidden_arr) = forbidden.as_array() {
                 for param in forbidden_arr {
@@ -494,10 +501,19 @@ impl PolicyEngine {
                         }
                     }
                 }
+            } else {
+                tracing::warn!(policy = %policy.name, "forbidden_parameters is not an array — fail-closed");
+                return Ok(Some(Verdict::Deny {
+                    reason: format!(
+                        "Malformed forbidden_parameters in policy '{}' (fail-closed)",
+                        policy.name
+                    ),
+                }));
             }
         }
 
         // Check required parameters
+        // R231-ENG-3: Fail-closed if value is present but not an array.
         if let Some(required) = conditions.get("required_parameters") {
             if let Some(required_arr) = required.as_array() {
                 for param in required_arr {
@@ -512,6 +528,14 @@ impl PolicyEngine {
                         }
                     }
                 }
+            } else {
+                tracing::warn!(policy = %policy.name, "required_parameters is not an array — fail-closed");
+                return Ok(Some(Verdict::Deny {
+                    reason: format!(
+                        "Malformed required_parameters in policy '{}' (fail-closed)",
+                        policy.name
+                    ),
+                }));
             }
         }
 

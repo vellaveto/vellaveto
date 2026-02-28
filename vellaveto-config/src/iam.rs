@@ -244,6 +244,14 @@ impl OidcConfig {
             "iam.oidc.issuer_url is required when oidc.enabled is true".to_string()
         })?;
         ensure_safe_str("iam.oidc.issuer_url", issuer, MAX_OIDC_URL_LEN)?;
+        // R231-CFG-3: Enforce https:// scheme at config validation (defense-in-depth).
+        // Runtime also checks in OidcDiscovery::fetch(), but fail-closed demands
+        // rejection at load time so admins discover misconfig before first request.
+        if !self.allow_insecure_issuer && !issuer.starts_with("https://") {
+            return Err(
+                "iam.oidc.issuer_url must use https:// scheme (set allow_insecure_issuer=true for testing)".to_string()
+            );
+        }
 
         let client_id = self.client_id.as_ref().ok_or_else(|| {
             "iam.oidc.client_id is required when oidc.enabled is true".to_string()
@@ -742,6 +750,58 @@ mod tests {
             debug_output.contains("None"),
             "Debug output should show None for absent bearer_token: {}",
             debug_output
+        );
+    }
+
+    // R231-CFG-3: OIDC issuer_url scheme enforcement
+    #[test]
+    fn test_oidc_http_issuer_rejected_by_default() {
+        let config = OidcConfig {
+            enabled: true,
+            issuer_url: Some("http://example.com".to_string()),
+            client_id: Some("client-id".to_string()),
+            client_secret: Some("secret".to_string()),
+            redirect_uri: Some("https://app.example.com/callback".to_string()),
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err(), "http:// issuer should be rejected");
+        assert!(
+            result.unwrap_err().contains("https://"),
+            "Error should mention https:// requirement"
+        );
+    }
+
+    #[test]
+    fn test_oidc_https_issuer_accepted() {
+        let config = OidcConfig {
+            enabled: true,
+            issuer_url: Some("https://example.com".to_string()),
+            client_id: Some("client-id".to_string()),
+            client_secret: Some("secret".to_string()),
+            redirect_uri: Some("https://app.example.com/callback".to_string()),
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_ok(), "https:// issuer should be accepted: {:?}", result);
+    }
+
+    #[test]
+    fn test_oidc_http_issuer_allowed_when_insecure_flag() {
+        let config = OidcConfig {
+            enabled: true,
+            issuer_url: Some("http://localhost:8080".to_string()),
+            client_id: Some("client-id".to_string()),
+            client_secret: Some("secret".to_string()),
+            redirect_uri: Some("https://app.example.com/callback".to_string()),
+            allow_insecure_issuer: true,
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(
+            result.is_ok(),
+            "http:// issuer should be allowed with allow_insecure_issuer=true: {:?}",
+            result
         );
     }
 }

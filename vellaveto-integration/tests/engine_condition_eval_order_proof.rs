@@ -209,18 +209,17 @@ fn require_approval_integer_one_fails_closed() {
 // ════════════════════════════
 
 #[test]
-fn forbidden_parameters_as_string_is_ignored() {
+fn forbidden_parameters_as_string_denied_fail_closed() {
+    // R231-ENG-3: Non-array forbidden_parameters → fail-closed Deny
     let engine = PolicyEngine::new(false);
     let action = make_action(json!({"danger": true}));
-    // forbidden_parameters is a string, not array — as_array() returns None
     let policies = cond(json!({
         "forbidden_parameters": "danger"
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(
-        result,
-        Verdict::Allow,
-        "Non-array forbidden_parameters should be silently skipped"
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Non-array forbidden_parameters should fail-closed (Deny)"
     );
 }
 
@@ -229,18 +228,17 @@ fn forbidden_parameters_as_string_is_ignored() {
 // ═════════════════════════════
 
 #[test]
-fn required_parameters_as_object_is_ignored() {
+fn required_parameters_as_object_denied_fail_closed() {
+    // R231-ENG-3: Non-array required_parameters → fail-closed Deny
     let engine = PolicyEngine::new(false);
-    let action = make_action(json!({})); // missing everything
-                                         // required_parameters is an object, not array
+    let action = make_action(json!({}));
     let policies = cond(json!({
         "required_parameters": {"key": "token"}
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(
-        result,
-        Verdict::Allow,
-        "Non-array required_parameters should be silently skipped"
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Non-array required_parameters should fail-closed (Deny)"
     );
 }
 

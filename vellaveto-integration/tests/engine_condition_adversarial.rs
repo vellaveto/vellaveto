@@ -250,7 +250,10 @@ fn condition_just_under_max_size_is_accepted() {
 
     let policies = vec![conditional_policy("*", 10, conditions)];
     let result = engine.evaluate_action(&action, &policies);
-    assert!(result.is_ok(), "conditions under MAX_CONDITIONS_SIZE should be accepted");
+    assert!(
+        result.is_ok(),
+        "conditions under MAX_CONDITIONS_SIZE should be accepted"
+    );
 }
 
 #[test]
@@ -274,7 +277,10 @@ fn condition_over_max_size_is_rejected() {
 
     let policies = vec![conditional_policy("*", 10, conditions)];
     let result = engine.evaluate_action(&action, &policies);
-    assert!(result.is_err(), "conditions over MAX_CONDITIONS_SIZE should be rejected");
+    assert!(
+        result.is_err(),
+        "conditions over MAX_CONDITIONS_SIZE should be rejected"
+    );
     let err_msg = format!("{}", result.unwrap_err());
     assert!(
         err_msg.contains("too large"),
@@ -541,9 +547,8 @@ fn require_approval_as_integer_fails_closed() {
 // ═══════════════════════════════════════════
 
 #[test]
-fn forbidden_parameters_as_string_instead_of_array_is_ignored() {
-    // forbidden_parameters should be an array. If it's a string, `as_array()` returns None,
-    // so the check is skipped entirely → Allow.
+fn forbidden_parameters_as_string_instead_of_array_denied_fail_closed() {
+    // R231-ENG-3: forbidden_parameters as string (not array) → fail-closed Deny.
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({"force": true}));
     let policies = vec![conditional_policy(
@@ -553,10 +558,9 @@ fn forbidden_parameters_as_string_instead_of_array_is_ignored() {
     )];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(
-        result,
-        Verdict::Allow,
-        "forbidden_parameters as string should be silently ignored"
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "forbidden_parameters as string should fail-closed (Deny)"
     );
 }
 
@@ -580,7 +584,8 @@ fn forbidden_parameters_with_non_string_elements_are_skipped() {
 }
 
 #[test]
-fn required_parameters_as_object_instead_of_array_is_ignored() {
+fn required_parameters_as_object_instead_of_array_denied_fail_closed() {
+    // R231-ENG-3: required_parameters as object (not array) → fail-closed Deny.
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
     let policies = vec![conditional_policy(
@@ -590,10 +595,9 @@ fn required_parameters_as_object_instead_of_array_is_ignored() {
     )];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(
-        result,
-        Verdict::Allow,
-        "required_parameters as object should be silently ignored"
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "required_parameters as object should fail-closed (Deny)"
     );
 }
 

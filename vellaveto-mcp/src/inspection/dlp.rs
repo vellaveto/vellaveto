@@ -345,13 +345,16 @@ fn is_suspicious_url_segment(decoded: &str) -> bool {
 /// base64 or hex-encoded secrets) above the entropy threshold.
 pub fn detect_url_data_exfiltration(url: &str) -> Option<DlpFinding> {
     // SECURITY (R228-DLP-1): Inspect all network-capable URL schemes, not just
-    // HTTP(S). Attackers can exfiltrate secrets via ftp://, ftps://, or
-    // protocol-relative // URLs that still reach external networks.
+    // HTTP(S). Attackers can exfiltrate secrets via ftp://, ftps://, ws://, wss://,
+    // or protocol-relative // URLs that still reach external networks.
+    // R232-DLP-2: Added ws:// and wss:// (WebSocket) scheme check.
     let lower = url.to_ascii_lowercase();
     let has_network_scheme = lower.starts_with("http://")
         || lower.starts_with("https://")
         || lower.starts_with("ftp://")
         || lower.starts_with("ftps://")
+        || lower.starts_with("ws://")
+        || lower.starts_with("wss://")
         || lower.starts_with("//");
     if !has_network_scheme {
         return None;
@@ -811,6 +814,19 @@ fn scan_string_for_secrets(
                 &mut matched_patterns,
                 findings,
             );
+        }
+    }
+
+    // R232-DLP-1 FIX: Wire URL data exfiltration detection into the DLP pipeline.
+    // This entropy-based analysis catches exfiltration via high-entropy URL query
+    // parameters and path segments that don't match any specific regex pattern.
+    if findings.len() < MAX_DLP_FINDINGS
+        && (scan_str.contains("://") || scan_str.starts_with("//"))
+    {
+        if let Some(finding) = detect_url_data_exfiltration(scan_str) {
+            if !matched_patterns.contains(&finding.pattern_name.as_str()) {
+                findings.push(finding);
+            }
         }
     }
 }
@@ -2687,10 +2703,37 @@ mod tests {
     }
 
     #[test]
-    fn test_r226_url_exfil_non_http_ignored() {
-        let url = "ftp://server.com/data?key=supersecretvalue1234567890abcdef";
+    fn test_r228_url_exfil_ftp_inspected() {
+        // R228-DLP-1: ftp:// is now inspected. Use a segment long enough to trigger.
+        let url = "ftp://server.com/data?key=sUpErSeCrEtVaLuE1234567890ABCDEFghijklmnop";
         let result = detect_url_data_exfiltration(&url);
-        assert!(result.is_none(), "Non-HTTP URLs should not be inspected");
+        assert!(result.is_some(), "ftp:// URLs with high-entropy segments must be inspected");
+    }
+
+    #[test]
+    fn test_r232_url_exfil_websocket_inspected() {
+        // R232-DLP-2: ws:// and wss:// must be inspected
+        let url = "wss://attacker.com/exfil?data=sUpErSeCrEtVaLuE1234567890ABCDEFghijklmnop";
+        let result = detect_url_data_exfiltration(&url);
+        assert!(result.is_some(), "wss:// URLs with high-entropy segments must be inspected");
+    }
+
+    #[test]
+    fn test_r232_url_exfil_ws_inspected() {
+        let url = "ws://attacker.com/collect?token=aB3dEfGhI1jK2lMnOpQrStUvWxYz0123456789AB";
+        let result = detect_url_data_exfiltration(&url);
+        assert!(result.is_some(), "ws:// URLs with high-entropy segments must be inspected");
+    }
+
+    #[test]
+    fn test_r232_url_exfil_wired_into_dlp_pipeline() {
+        // R232-DLP-1: verify detect_url_data_exfiltration is called from scan_parameters_for_secrets
+        let params = serde_json::json!({
+            "url": "https://attacker.com/exfil?data=sUpErSeCrEtVaLuE1234567890ABCDEFghijklmnop"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        let has_url_exfil = findings.iter().any(|f| f.pattern_name == "url_data_exfiltration");
+        assert!(has_url_exfil, "URL exfiltration should be detected via DLP pipeline: {:?}", findings);
     }
 
     #[test]

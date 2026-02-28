@@ -304,6 +304,8 @@ impl RedisBackend {
         requested_by: Option<&str>,
     ) -> Result<String, ClusterError> {
         use sha2::{Digest, Sha256};
+        use unicode_normalization::UnicodeNormalization;
+        use vellaveto_types::unicode::normalize_homoglyphs;
 
         let mut sorted_ips = action.resolved_ips.clone();
         sorted_ips.sort();
@@ -312,9 +314,16 @@ impl RedisBackend {
         let mut sorted_domains = action.target_domains.clone();
         sorted_domains.sort();
 
+        // R231-CLUS-1: Normalize tool and function names with NFKC + homoglyph
+        // mapping to prevent dedup bypass via Unicode confusables.
+        let tool_normalized: String =
+            normalize_homoglyphs(&action.tool.nfkc().collect::<String>().to_lowercase());
+        let function_normalized: String =
+            normalize_homoglyphs(&action.function.nfkc().collect::<String>().to_lowercase());
+
         let canonical = serde_json::json!({
-            "tool": action.tool,
-            "function": action.function,
+            "tool": tool_normalized,
+            "function": function_normalized,
             "parameters": action.parameters,
             "target_paths": sorted_paths,
             "target_domains": sorted_domains,
@@ -465,18 +474,14 @@ impl ClusterBackend for RedisBackend {
             .query_async::<Option<String>>(&mut conn)
             .await
             .map(|r| r.is_some()) // SET NX returns "OK" on success, nil on key-exists
-            .map_err(|e| {
-                ClusterError::Connection(format!("Redis SET NX dedup failed: {}", e))
-            })?;
+            .map_err(|e| ClusterError::Connection(format!("Redis SET NX dedup failed: {}", e)))?;
 
         if !claimed {
             // Dedup key exists — check if the referenced approval is still pending
             let existing_id: Option<String> = conn
                 .get(&dedup_redis_key)
                 .await
-                .map_err(|e| {
-                    ClusterError::Connection(format!("Redis GET dedup failed: {}", e))
-                })?;
+                .map_err(|e| ClusterError::Connection(format!("Redis GET dedup failed: {}", e)))?;
             if let Some(ref eid) = existing_id {
                 let existing_json: Option<String> =
                     conn.get(self.approval_key(eid)).await.map_err(|e| {
@@ -491,12 +496,9 @@ impl ClusterBackend for RedisBackend {
                 }
                 // Stale dedup — remove and retry creation via recursion-free path:
                 // Delete the stale key, then atomically claim again.
-                let _: () = conn
-                    .del(&dedup_redis_key)
-                    .await
-                    .map_err(|e| {
-                        ClusterError::Connection(format!("Redis DEL dedup failed: {}", e))
-                    })?;
+                let _: () = conn.del(&dedup_redis_key).await.map_err(|e| {
+                    ClusterError::Connection(format!("Redis DEL dedup failed: {}", e))
+                })?;
                 // Re-attempt atomic claim after stale removal
                 let reclaimed: bool = redis::cmd("SET")
                     .arg(&dedup_redis_key)
@@ -508,17 +510,12 @@ impl ClusterBackend for RedisBackend {
                     .await
                     .map(|r| r.is_some())
                     .map_err(|e| {
-                        ClusterError::Connection(format!(
-                            "Redis SET NX dedup retry failed: {}",
-                            e
-                        ))
+                        ClusterError::Connection(format!("Redis SET NX dedup retry failed: {}", e))
                     })?;
                 if !reclaimed {
                     // Another caller won the race after stale removal — re-check
-                    let new_eid: Option<String> = conn
-                        .get(&dedup_redis_key)
-                        .await
-                        .map_err(|e| {
+                    let new_eid: Option<String> =
+                        conn.get(&dedup_redis_key).await.map_err(|e| {
                             ClusterError::Connection(format!("Redis GET dedup failed: {}", e))
                         })?;
                     if let Some(eid) = new_eid {
@@ -536,10 +533,7 @@ impl ClusterBackend for RedisBackend {
             .map_err(|e| ClusterError::Connection(format!("Redis ZCARD failed: {}", e)))?;
         if pending_count >= self.max_pending {
             // Clean up the dedup key we claimed since we can't create the approval
-            let _: () = conn
-                .del(&dedup_redis_key)
-                .await
-                .unwrap_or(()); // Best-effort cleanup
+            let _: () = conn.del(&dedup_redis_key).await.unwrap_or(()); // Best-effort cleanup
             return Err(ClusterError::CapacityExceeded(self.max_pending));
         }
 

@@ -238,7 +238,8 @@ fn unknown_condition_keys_silently_allow() {
 /// Conditions with non-standard types for known keys.
 /// forbidden_parameters as a string instead of array → silently skipped.
 #[test]
-fn forbidden_parameters_as_string_silently_skipped() {
+fn forbidden_parameters_as_string_denied_fail_closed() {
+    // R231-ENG-3: Non-array forbidden_parameters → fail-closed Deny
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({"danger": true}));
     let policies = vec![conditional_policy(
@@ -249,16 +250,15 @@ fn forbidden_parameters_as_string_silently_skipped() {
         }),
     )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    // Source: forbidden.as_array() returns None for string → skips check
     assert!(
-        matches!(result, Verdict::Allow),
-        "String forbidden_parameters should be silently skipped (as_array returns None)"
+        matches!(result, Verdict::Deny { .. }),
+        "String forbidden_parameters should fail-closed (Deny)"
     );
 }
 
-/// required_parameters as an object instead of array → silently skipped.
+/// R231-ENG-3: required_parameters as an object instead of array → fail-closed Deny.
 #[test]
-fn required_parameters_as_object_silently_skipped() {
+fn required_parameters_as_object_denied_fail_closed() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({})); // missing everything
     let policies = vec![conditional_policy(
@@ -270,8 +270,8 @@ fn required_parameters_as_object_silently_skipped() {
     )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
-        matches!(result, Verdict::Allow),
-        "Object required_parameters should be silently skipped"
+        matches!(result, Verdict::Deny { .. }),
+        "Object required_parameters should fail-closed (Deny)"
     );
 }
 

@@ -532,6 +532,11 @@ fn split_conditions(body: &str) -> Vec<&str> {
     let mut i = 0;
 
     while i < len {
+        // R231-TYP-2: Handle backslash-escaped quotes inside string literals.
+        if in_string && bytes[i] == b'\\' {
+            i = i.saturating_add(2);
+            continue;
+        }
         if bytes[i] == b'"' {
             in_string = !in_string;
             i = i.saturating_add(1);
@@ -1308,5 +1313,30 @@ mod tests {
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
         assert!(msg.contains("too many conditions"));
+    }
+
+    #[test]
+    fn test_r231_split_conditions_escaped_quotes() {
+        // R231-TYP-2: Backslash-escaped quotes inside string literals must not
+        // be treated as string delimiters.
+        let body = r#"resource.path like "foo\"bar" && resource.tool == "test""#;
+        let parts = split_conditions(body);
+        assert_eq!(parts.len(), 2, "Should split into 2 conditions");
+        assert!(parts[0].contains(r#"foo\"bar"#));
+        assert!(parts[1].contains("test"));
+    }
+
+    #[test]
+    fn test_r231_split_conditions_no_escaped_quotes() {
+        let body = r#"resource.tool == "read" && resource.path like "/tmp/*""#;
+        let parts = split_conditions(body);
+        assert_eq!(parts.len(), 2);
+    }
+
+    #[test]
+    fn test_r231_split_conditions_multiple_escaped_quotes() {
+        let body = r#"resource.path like "a\"b\"c" && resource.tool == "x""#;
+        let parts = split_conditions(body);
+        assert_eq!(parts.len(), 2, "Multiple escaped quotes in one string");
     }
 }

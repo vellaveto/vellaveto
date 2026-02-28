@@ -7875,24 +7875,102 @@ fn test_ssrf_nat64_cgnat() {
 fn test_ssrf_ipv6_multicast_blocked() {
     // R230-TYP-1: ff00::/8 multicast must be blocked
     let result = validate_url_no_ssrf("http://[ff02::1]/path");
-    assert!(result.is_err(), "IPv6 all-nodes multicast should be rejected");
+    assert!(
+        result.is_err(),
+        "IPv6 all-nodes multicast should be rejected"
+    );
     let result = validate_url_no_ssrf("http://[ff05::1]/path");
-    assert!(result.is_err(), "IPv6 site-local multicast should be rejected");
+    assert!(
+        result.is_err(),
+        "IPv6 site-local multicast should be rejected"
+    );
     let result = validate_url_no_ssrf("http://[ff08::1]/path");
-    assert!(result.is_err(), "IPv6 org-scope multicast should be rejected");
+    assert!(
+        result.is_err(),
+        "IPv6 org-scope multicast should be rejected"
+    );
     let result = validate_url_no_ssrf("http://[ff0e::1]/path");
-    assert!(result.is_err(), "IPv6 global-scope multicast should be rejected");
+    assert!(
+        result.is_err(),
+        "IPv6 global-scope multicast should be rejected"
+    );
 }
 
 #[test]
 fn test_ssrf_ipv4_multicast_blocked() {
     // R230-TYP-2: 224.0.0.0/4 multicast must be blocked
     let result = validate_url_no_ssrf("http://224.0.0.1/path");
-    assert!(result.is_err(), "IPv4 all-hosts multicast should be rejected");
+    assert!(
+        result.is_err(),
+        "IPv4 all-hosts multicast should be rejected"
+    );
     let result = validate_url_no_ssrf("http://239.255.255.255/path");
-    assert!(result.is_err(), "IPv4 admin-scoped multicast should be rejected");
+    assert!(
+        result.is_err(),
+        "IPv4 admin-scoped multicast should be rejected"
+    );
     let result = validate_url_no_ssrf("http://232.1.2.3/path");
     assert!(result.is_err(), "IPv4 SSM multicast should be rejected");
+}
+
+// ═══════════════════════════════════════════════════
+// R231-TYP-6: Percent-encoded SSRF bypass
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_ssrf_percent_encoded_metadata_ip_rejected() {
+    // R231-TYP-6: %31%36%39.%32%35%34.%31%36%39.%32%35%34 = 169.254.169.254
+    let result = validate_url_no_ssrf(
+        "http://%31%36%39.%32%35%34.%31%36%39.%32%35%34/latest/meta-data/",
+    );
+    assert!(
+        result.is_err(),
+        "Percent-encoded metadata IP (169.254.169.254) must be rejected"
+    );
+}
+
+#[test]
+fn test_ssrf_percent_encoded_localhost_rejected() {
+    // R231-TYP-6: %6c%6f%63%61%6c%68%6f%73%74 = localhost
+    let result =
+        validate_url_no_ssrf("http://%6c%6f%63%61%6c%68%6f%73%74/secret");
+    assert!(
+        result.is_err(),
+        "Percent-encoded 'localhost' must be rejected"
+    );
+}
+
+#[test]
+fn test_ssrf_percent_encoded_private_ip_rejected() {
+    // R231-TYP-6: %31%30.%30.%30.%31 = 10.0.0.1
+    let result =
+        validate_url_no_ssrf("http://%31%30.%30.%30.%31/internal");
+    assert!(
+        result.is_err(),
+        "Percent-encoded private IP (10.0.0.1) must be rejected"
+    );
+}
+
+#[test]
+fn test_ssrf_percent_encoded_127_rejected() {
+    // R231-TYP-6: %31%32%37.%30.%30.%31 = 127.0.0.1
+    let result =
+        validate_url_no_ssrf("http://%31%32%37.%30.%30.%31/");
+    assert!(
+        result.is_err(),
+        "Percent-encoded loopback (127.0.0.1) must be rejected"
+    );
+}
+
+#[test]
+fn test_ssrf_percent_encoded_public_ip_allowed() {
+    // R231-TYP-6: %38.%38.%38.%38 = 8.8.8.8 — public, should be allowed.
+    let result =
+        validate_url_no_ssrf("http://%38.%38.%38.%38/ok");
+    assert!(
+        result.is_ok(),
+        "Percent-encoded public IP (8.8.8.8) should be allowed"
+    );
 }
 
 // ═══════════════════════════════════════════════════

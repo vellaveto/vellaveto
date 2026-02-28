@@ -137,6 +137,40 @@ fn is_ssrf_private_ipv4(ip: &std::net::Ipv4Addr) -> bool {
         || ip.is_broadcast()
 }
 
+/// R231-TYP-6: Percent-decode a host string for SSRF checks.
+/// Decodes %XX sequences so that encoded IPs (e.g., %31%36%39.%32%35%34...)
+/// are resolved to their literal form before validation.
+fn percent_decode_host(host: &str) -> String {
+    let bytes = host.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = (
+                hex_digit(bytes[i + 1]),
+                hex_digit(bytes[i + 2]),
+            ) {
+                out.push(hi << 4 | lo);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8(out).unwrap_or_else(|_| host.to_string())
+}
+
+/// Convert an ASCII hex digit to its numeric value.
+fn hex_digit(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
 /// Validate a URL against SSRF vectors.
 ///
 /// Rejects localhost, loopback, link-local, and private IP ranges in the
@@ -183,6 +217,11 @@ pub fn validate_url_no_ssrf(url: &str) -> Result<(), String> {
     if host.is_empty() {
         return Err("has no host".to_string());
     }
+
+    // R231-TYP-6: Percent-decode host before SSRF checks.
+    // Without this, an attacker can encode the IP (e.g., %31%36%39.%32%35%34...)
+    // to bypass private/metadata IP detection.
+    let host = percent_decode_host(&host);
 
     // SECURITY (R228-TYP-3): Strip trailing DNS dot before loopback check.
     // RFC 1034 §3.1 permits FQDN trailing dots; "localhost." resolves to 127.0.0.1.

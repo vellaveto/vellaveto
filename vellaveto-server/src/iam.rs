@@ -235,10 +235,11 @@ impl SamlState {
             .and_then(|node| node.attribute("Value"))
             .ok_or_else(|| IamError::Saml("SAML StatusCode missing".to_string()))?;
         if status_value != SAML_STATUS_SUCCESS {
-            return Err(IamError::Saml(format!(
-                "SAML response status is not Success: {}",
-                status_value
-            )));
+            // R231-SRV-8: Redact status code — leaks IdP business logic (NoAuthnContext, Responder, etc.)
+            tracing::debug!(status = %status_value, "SAML response status is not Success");
+            return Err(IamError::Saml(
+                "SAML response validation failed".to_string(),
+            ));
         }
         Ok(())
     }
@@ -300,7 +301,15 @@ impl SamlState {
                 ));
             }
         }
-        if let Some(not_on_or_after) = conditions.attribute("NotOnOrAfter") {
+        // R232-SAML-2: NotOnOrAfter is now required (fail-closed).
+        // Without it, an attacker who strips this attribute creates an assertion
+        // that never expires.
+        let not_on_or_after = conditions.attribute("NotOnOrAfter").ok_or_else(|| {
+            IamError::Saml(
+                "SAML Conditions missing required NotOnOrAfter (fail-closed)".to_string(),
+            )
+        })?;
+        {
             let timestamp = parse_saml_timestamp(not_on_or_after)?;
             if now >= timestamp {
                 return Err(IamError::Saml(
@@ -318,10 +327,11 @@ impl SamlState {
             .filter_map(|node| node.text())
             .any(|value| value == self.entity_id);
         if !audience_found {
-            return Err(IamError::Saml(format!(
-                "SAML AudienceRestriction does not include {}",
-                self.entity_id
-            )));
+            // R231-SRV-8: Redact entity_id — leaks SP identifier (federation enumeration).
+            tracing::debug!("SAML AudienceRestriction does not include configured entity_id");
+            return Err(IamError::Saml(
+                "SAML audience validation failed".to_string(),
+            ));
         }
         Ok(())
     }
@@ -362,16 +372,28 @@ impl SamlState {
                     "SAML SubjectConfirmationData missing for bearer assertion".to_string(),
                 )
             })?;
-        // Validate Recipient matches our ACS URL.
-        if let Some(recipient) = data.attribute("Recipient") {
-            if recipient != self.acs_url {
-                return Err(IamError::Saml(
-                    "SAML SubjectConfirmationData Recipient mismatch".to_string(),
-                ));
-            }
+        // R232-SAML-1: Require Recipient (fail-closed per SAML 2.0 Profile §4.1.4.2).
+        // Without Recipient, the assertion can be replayed to any Service Provider.
+        let recipient = data.attribute("Recipient").ok_or_else(|| {
+            IamError::Saml(
+                "SAML SubjectConfirmationData missing required Recipient (fail-closed)"
+                    .to_string(),
+            )
+        })?;
+        if recipient != self.acs_url {
+            return Err(IamError::Saml(
+                "SAML SubjectConfirmationData Recipient mismatch".to_string(),
+            ));
         }
-        // Validate NotOnOrAfter hasn't passed.
-        if let Some(not_on_or_after) = data.attribute("NotOnOrAfter") {
+        // R232-SAML-1: Require NotOnOrAfter (fail-closed).
+        // Without NotOnOrAfter, the assertion never expires.
+        let not_on_or_after = data.attribute("NotOnOrAfter").ok_or_else(|| {
+            IamError::Saml(
+                "SAML SubjectConfirmationData missing required NotOnOrAfter (fail-closed)"
+                    .to_string(),
+            )
+        })?;
+        {
             let timestamp = parse_saml_timestamp(not_on_or_after)?;
             let now = Utc::now();
             if now >= timestamp {
@@ -478,8 +500,9 @@ impl SamlState {
         let signature_bytes = decode_base64(signature_value.trim(), "Signature value")?;
         let canonical_signed_info = canonicalize_node(signed_info, false);
         for cert in &self.certificates {
+            // R231-SRV-8: Redact X.509 parse errors — leaks cert chain internals.
             let (_, parsed) = X509Certificate::from_der(cert)
-                .map_err(|e| IamError::Saml(format!("Invalid metadata certificate: {}", e)))?;
+                .map_err(|_e| IamError::Saml("Certificate validation failed".to_string()))?;
             let spki = parsed.tbs_certificate.subject_pki;
             let verifier =
                 signature::UnparsedPublicKey::new(signature_alg, spki.subject_public_key.data);
@@ -1486,27 +1509,32 @@ pub async fn saml_acs(
             }),
         )
     })?;
+    // R231-SRV-8: Redact SAML processing errors from HTTP responses.
+    // Log detailed errors server-side; return generic messages to client.
     let xml = decode_saml_response(&form.saml_response).map_err(|e| {
+        tracing::debug!("SAML decode error: {}", e);
         (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: e.to_string(),
+                error: "SAML response processing failed".to_string(),
             }),
         )
     })?;
     let document = Document::parse(&xml).map_err(|e| {
+        tracing::debug!("SAML XML parse error: {}", e);
         (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("Invalid SAML XML: {}", e),
+                error: "SAML response processing failed".to_string(),
             }),
         )
     })?;
     let claims = saml_state.extract_claims(&document).map_err(|e| {
+        tracing::debug!("SAML claim extraction error: {}", e);
         (
             StatusCode::UNAUTHORIZED,
             Json(ErrorResponse {
-                error: e.to_string(),
+                error: "SAML authentication failed".to_string(),
             }),
         )
     })?;
@@ -1916,10 +1944,10 @@ fn map_digest_algorithm(uri: &str) -> Result<&'static digest::Algorithm, IamErro
         "http://www.w3.org/2001/04/xmlenc#sha256" => Ok(&digest::SHA256),
         "http://www.w3.org/2001/04/xmlenc#sha384" => Ok(&digest::SHA384),
         "http://www.w3.org/2001/04/xmlenc#sha512" => Ok(&digest::SHA512),
-        _ => Err(IamError::Saml(format!(
-            "Unsupported SAML digest algorithm {}",
-            uri
-        ))),
+        // R231-SRV-8: Redact algorithm URI — enables algorithm confusion attacks.
+        _ => Err(IamError::Saml(
+            "Unsupported digest algorithm".to_string(),
+        )),
     }
 }
 
@@ -1938,17 +1966,18 @@ fn map_signature_algorithm(
         | "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512" => {
             Ok(&signature::RSA_PKCS1_1024_8192_SHA512_FOR_LEGACY_USE_ONLY)
         }
-        _ => Err(IamError::Saml(format!(
-            "Unsupported SAML signature algorithm {}",
-            uri
-        ))),
+        // R231-SRV-8: Redact algorithm URI — enables algorithm confusion attacks.
+        _ => Err(IamError::Saml(
+            "Unsupported signature algorithm".to_string(),
+        )),
     }
 }
 
 fn parse_saml_timestamp(value: &str) -> Result<DateTime<Utc>, IamError> {
     DateTime::parse_from_rfc3339(value)
         .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|e| IamError::Saml(format!("Invalid SAML timestamp '{}': {}", value, e)))
+        // R231-SRV-8: Redact timestamp value and parse error — enables timestamp fuzzing.
+        .map_err(|_e| IamError::Saml("Invalid SAML timestamp format".to_string()))
 }
 
 /// R230-SRV-5: Padding-indifferent base64 for SAML interoperability.
@@ -1960,7 +1989,8 @@ fn decode_base64(value: &str, context: &str) -> Result<Vec<u8>, IamError> {
     );
     PAD_INDIFFERENT
         .decode(value)
-        .map_err(|e| IamError::Saml(format!("{}: {}", context, e)))
+        // R231-SRV-8: Redact base64 decode error context — leaks implementation details.
+        .map_err(|_e| IamError::Saml(format!("{}: decode failed", context)))
 }
 
 /// Maximum decompressed SAML response size (10 MB).
