@@ -83,10 +83,11 @@ version = 2
 # default — it catches most license files while avoiding false positives.
 confidence-threshold = 0.8
 # Allowed licenses. This list is intentionally conservative.
-# Every addition must be reviewed for compatibility with AGPL-3.0-only.
+# Every addition must be reviewed for compatibility with the project licenses.
 allow = [
-  # Project license
+  # Project licenses
   "AGPL-3.0-only",
+  "BUSL-1.1",
   # Permissive licenses compatible with AGPL-3.0
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",

@@ -3,7 +3,7 @@
 > **Project:** Vellaveto — MCP Tool Firewall
 > **State:** v6.0.0-dev (Phases 1–67 complete, 232 audit rounds)
 > **Version:** 6.0.0-dev
-> **License:** Three-tier: MPL-2.0 / Apache-2.0 / AGPL-3.0 (see LICENSING.md)
+> **License:** Three-tier: MPL-2.0 / Apache-2.0 / BUSL-1.1 (see LICENSING.md)
 > **Tests:** 8,790 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
 > **Updated:** 2026-02-28
 

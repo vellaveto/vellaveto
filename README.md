@@ -9,7 +9,7 @@
   <p align="center">
     <a href="https://github.com/paolovella/vellaveto/releases"><img src="https://img.shields.io/badge/version-6.0.0--dev-blue.svg" alt="Version 6.0.0-dev"></a>
     <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
-    <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-MPL--2.0_/_Apache--2.0_/_AGPL--3.0-blue.svg" alt="License: Three-tier"></a>
+    <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-MPL--2.0_/_Apache--2.0_/_BUSL--1.1-blue.svg" alt="License: Three-tier"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
     <img src="https://img.shields.io/badge/tests-8%2C790_passing-brightgreen.svg" alt="Tests: 8,790 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
@@ -39,7 +39,7 @@ VellaVeto is a lightweight, high-performance firewall that sits between AI agent
 ## What's New
 
 - **Consumer Shield** (Phase 67) — New deployment mode for consumer AI interactions. PII sanitization, encrypted local audit, session isolation, warrant canary. [Details](CHANGELOG.md)
-- **Three-tier licensing** — MPL-2.0 (core + consumer), Apache-2.0 (canary + benchmark), AGPL-3.0 (enterprise). [Details](LICENSING.md)
+- **Three-tier licensing** — MPL-2.0 (core + consumer), Apache-2.0 (canary + benchmark), BUSL-1.1 (enterprise, converts to MPL-2.0 after 3 years). [Details](LICENSING.md)
 - **232 adversarial audit rounds** — 1,550+ findings resolved across engine, MCP, server, audit, proxy, and discovery
 - **8,790 tests passing** across Rust, Python, Go, TypeScript, Java + 24 fuzz targets
 
@@ -275,9 +275,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development rules and commit format.
 |---|---|---|
 | Core + Consumer | MPL-2.0 | types, engine, audit, config, canonical, discovery, approval, proxy, mcp-shield, shield |
 | Canary + Benchmark | Apache-2.0 | canary, mcpsec |
-| Enterprise | AGPL-3.0 | server, http-proxy, mcp, cluster, operator, integration |
+| Enterprise | BUSL-1.1 → MPL-2.0 | server, http-proxy, mcp, cluster, operator, integration |
 
-See [LICENSING.md](LICENSING.md) for full details. For proprietary use or managed service offerings, contact **paolovella1993@gmail.com**.
+Enterprise crates are free for production use at ≤3 nodes / ≤25 endpoints. Each version converts to MPL-2.0 after 3 years. See [LICENSING.md](LICENSING.md) for full details. For managed service offerings or above-threshold deployments, contact **paolovella1993@gmail.com**.
 
 ## References
 

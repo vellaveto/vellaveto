@@ -1,8 +1,14 @@
 Vellaveto — Runtime Security Engine for AI Agent Tool Calls
 Copyright 2026 Paolo Vella
 
-This product is licensed under the GNU Affero General Public License v3.0.
-A commercial license is also available. See LICENSING.md for details.
+This product uses a three-tier license model:
+  - Core and Consumer Shield crates: Mozilla Public License 2.0
+  - Canary and Benchmark crates: Apache License 2.0
+  - Enterprise crates: Business Source License 1.1
+    (converts to MPL-2.0 after 3 years per version)
+
+See LICENSING.md for the complete license map.
+See LICENSE-BSL-1.1, LICENSE-MPL-2.0, and LICENSE-APACHE-2.0 for full texts.
 
 This project includes software developed by third parties.
 See individual crate licenses via `cargo license`.

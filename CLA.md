@@ -22,7 +22,7 @@ You accept and agree to the following terms and conditions for your present and 
 
 Subject to the terms and conditions of this Agreement, You hereby grant to the Maintainer and to recipients of software distributed by the Maintainer a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare derivative works of, publicly display, publicly perform, sublicense, and distribute Your Contributions and such derivative works.
 
-**Dual-licensing clause:** This grant specifically includes the right for the Maintainer to sublicense Your Contributions under any license, including proprietary and commercial licenses, in addition to the AGPL-3.0 license under which the Project is primarily distributed. This enables the Maintainer to offer the Project under a dual-licensing model (AGPL-3.0 + commercial license) without requiring individual contributor approval for each commercial license granted.
+**Multi-licensing clause:** This grant specifically includes the right for the Maintainer to sublicense Your Contributions under any license, including proprietary and commercial licenses, in addition to the licenses under which the Project is distributed (currently MPL-2.0, Apache-2.0, and BUSL-1.1 as described in LICENSING.md). This enables the Maintainer to offer the Project under its multi-tier licensing model without requiring individual contributor approval for each license tier.
 
 ---
 
@@ -85,5 +85,5 @@ Alternatively, you may sign by sending an email to **paolovella1993@gmail.com** 
 
 **Project:** Vellaveto — MCP Tool Firewall
 **Maintainer:** Paolo Vella
-**License:** AGPL-3.0-only (with commercial dual-licensing)
+**License:** Three-tier (MPL-2.0 / Apache-2.0 / BUSL-1.1) with commercial licensing
 **Contact:** paolovella1993@gmail.com

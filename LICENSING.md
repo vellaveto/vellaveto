@@ -31,50 +31,73 @@ and state changes, but there is no copyleft obligation.
 
 Full text: [LICENSE-APACHE-2.0](LICENSE-APACHE-2.0)
 
-### Tier 3: AGPL-3.0-only (GNU Affero General Public License v3.0)
+### Tier 3: BUSL-1.1 (Business Source License 1.1)
 
 **Crates:** `vellaveto-server`, `vellaveto-http-proxy`, `vellaveto-mcp`,
 `vellaveto-cluster`, `vellaveto-operator`, `vellaveto-integration`
 
-**What this means:** Strong copyleft. If you modify these crates and make them
-available over a network (e.g., as a hosted service), you must make the
-complete source code of your modified version available under AGPL-3.0.
+**Non-crate assets:** `admin-console/`, `helm/`, `terraform-provider-vellaveto/`,
+`docker-compose.yml`, `Dockerfile`
 
-Full text: [LICENSE](LICENSE)
+**What this means:**
+
+- You can read, audit, build, test, and modify this code freely.
+- **Non-production use** is always free (development, testing, staging,
+  evaluation, benchmarking, research, security auditing).
+- **Production use** is free if your deployment uses ≤3 cluster nodes AND
+  ≤25 monitored MCP endpoints.
+- **Production use** requires a commercial license if you exceed those
+  thresholds OR offer VellaVeto as a managed/hosted service.
+- **Consumer Shield deployments** on end-user devices are always free,
+  regardless of scale.
+- After **3 years**, each version converts automatically to MPL-2.0 —
+  the same license as the core engine.
+
+**Why BSL, not AGPL?** AGPL prevents cloud provider freeloading but doesn't
+generate revenue below the compliance pain threshold. BSL creates a clear
+line: small teams and individuals use everything free, enterprises above the
+threshold pay, and all code is fully auditable at all times. The 3-year
+conversion to MPL-2.0 guarantees the code becomes fully free software on a
+fixed schedule.
+
+Full text: [LICENSE-BSL-1.1](LICENSE-BSL-1.1)
 
 ### Combined Binary Note
 
-The `vellaveto-shield` binary links `vellaveto-mcp` (AGPL-3.0). While the
-shield-specific crates (`vellaveto-mcp-shield`, `vellaveto-canary`) are
-MPL-2.0/Apache-2.0, the combined binary distributes as AGPL-3.0 due to
-AGPL linking requirements. A future sprint may extract a minimal MPL-2.0
-relay to remove this dependency.
+The `vellaveto-shield` binary links `vellaveto-mcp` (BUSL-1.1). However,
+the BSL Additional Use Grant explicitly permits Consumer Shield deployments
+on end-user devices without a commercial license. The shield-specific crates
+(`vellaveto-mcp-shield`, `vellaveto-canary`) remain MPL-2.0/Apache-2.0.
 
 ## Commercial License
 
-For organizations that cannot comply with the AGPL-3.0 or MPL-2.0 — for
-example, if you want to embed Vellaveto in proprietary software or offer it
-as a managed service without open-sourcing your modifications — a commercial
-license is available.
+For organizations that need to exceed the BSL production thresholds or offer
+VellaVeto as a managed service — a commercial license is available.
 
 Contact: **paolovella1993@gmail.com**
 
-The commercial license removes all copyleft obligations and includes:
-- Permission to use Vellaveto in proprietary products and services
+The commercial license removes all usage restrictions and includes:
+- Permission to use VellaVeto in proprietary products and services at any scale
+- Permission to offer VellaVeto as a managed/hosted service
 - Permission to modify without source disclosure requirements
 - Priority support and security advisory access
 
 ## Why This Structure?
 
 1. **Consumer Shield is accessible.** MPL-2.0 lets individual users and small
-   companies embed the shield in their own tools without AGPL obligations.
-2. **Improvements flow back.** AGPL ensures that modifications to the server
-   and protocol layers benefit everyone.
-3. **Vendor-neutral tools are open.** Apache-2.0 for benchmark and canary
+   companies embed the shield in their own tools without copyleft obligations.
+2. **Small teams use everything free.** BSL with concrete thresholds (3 nodes /
+   25 endpoints) means startups and small companies get the full enterprise
+   stack at zero cost.
+3. **Code is always auditable.** Unlike proprietary alternatives, every line of
+   VellaVeto source is available for security review, modification, and
+   contribution.
+4. **Everything becomes free software.** The 3-year conversion to MPL-2.0
+   guarantees that no version of VellaVeto is permanently restricted.
+5. **Vendor-neutral tools are open.** Apache-2.0 for benchmark and canary
    tools encourages broad adoption and trust.
-4. **The project is sustainable.** Organizations that build commercial products
-   on Vellaveto contribute either code (via copyleft) or funding (via
-   commercial license).
+6. **The project is sustainable.** Organizations that deploy at scale
+   contribute funding, while the code remains fully transparent.
 
 ## Contributing
 
