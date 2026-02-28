@@ -85,6 +85,29 @@ pub struct ShieldConfig {
     /// Maximum history entries per session.
     #[serde(default = "default_max_history_per_session")]
     pub max_history_per_session: usize,
+
+    /// Whether session unlinkability is enabled (credential rotation per session).
+    #[serde(default = "default_true")]
+    pub session_unlinkability: bool,
+
+    /// Number of blind credentials to pre-generate in the local vault.
+    /// Each new session consumes one credential.
+    /// Default: 50. When available count drops below `replenish_threshold`,
+    /// background replenishment starts.
+    #[serde(default = "default_credential_pool_size")]
+    pub credential_pool_size: usize,
+
+    /// When available credentials drop below this count, trigger replenishment.
+    /// Default: 10.
+    #[serde(default = "default_replenish_threshold")]
+    pub replenish_threshold: usize,
+
+    /// Credential epoch rotation interval (abstract counter, not seconds).
+    /// Provider issues credentials tagged with an epoch. Credentials from
+    /// past epochs are expired during vault cleanup.
+    /// Default: 100.
+    #[serde(default = "default_credential_epoch_interval")]
+    pub credential_epoch_interval: u64,
 }
 
 fn default_audit_mode() -> String {
@@ -107,6 +130,18 @@ fn default_max_history_per_session() -> usize {
     10_000
 }
 
+fn default_credential_pool_size() -> usize {
+    50
+}
+
+fn default_replenish_threshold() -> usize {
+    10
+}
+
+fn default_credential_epoch_interval() -> u64 {
+    100
+}
+
 impl Default for ShieldConfig {
     fn default() -> Self {
         Self {
@@ -121,6 +156,10 @@ impl Default for ShieldConfig {
             max_pii_mappings: default_max_pii_mappings(),
             max_sessions: default_max_sessions(),
             max_history_per_session: default_max_history_per_session(),
+            session_unlinkability: true,
+            credential_pool_size: default_credential_pool_size(),
+            replenish_threshold: default_replenish_threshold(),
+            credential_epoch_interval: default_credential_epoch_interval(),
         }
     }
 }
@@ -172,6 +211,33 @@ impl ShieldConfig {
             return Err(format!(
                 "max_pii_mappings {} exceeds maximum {}",
                 self.max_pii_mappings, MAX_SHIELD_PII_MAPPINGS
+            ));
+        }
+
+        // Validate credential pool config
+        if self.credential_pool_size == 0 {
+            return Err("credential_pool_size must be > 0".to_string());
+        }
+        if self.credential_pool_size > vellaveto_types::MAX_CREDENTIAL_POOL_SIZE {
+            return Err(format!(
+                "credential_pool_size {} exceeds maximum {}",
+                self.credential_pool_size,
+                vellaveto_types::MAX_CREDENTIAL_POOL_SIZE
+            ));
+        }
+        if self.replenish_threshold >= self.credential_pool_size {
+            return Err(format!(
+                "replenish_threshold ({}) must be less than credential_pool_size ({})",
+                self.replenish_threshold, self.credential_pool_size
+            ));
+        }
+        if self.credential_epoch_interval == 0 {
+            return Err("credential_epoch_interval must be > 0".to_string());
+        }
+        if self.credential_epoch_interval > vellaveto_types::MAX_CREDENTIAL_EPOCH {
+            return Err(format!(
+                "credential_epoch_interval {} exceeds maximum",
+                self.credential_epoch_interval
             ));
         }
 
@@ -243,6 +309,10 @@ mod tests {
         assert_eq!(config.max_pii_mappings, 50_000);
         assert_eq!(config.max_sessions, 1_000);
         assert_eq!(config.max_history_per_session, 10_000);
+        assert!(config.session_unlinkability);
+        assert_eq!(config.credential_pool_size, 50);
+        assert_eq!(config.replenish_threshold, 10);
+        assert_eq!(config.credential_epoch_interval, 100);
     }
 
     #[test]

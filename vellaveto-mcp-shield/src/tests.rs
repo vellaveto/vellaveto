@@ -295,3 +295,425 @@ async fn test_local_audit_read_decrypts() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0]["event"], "test_event");
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// BlindCredential Type Tests
+// ═══════════════════════════════════════════════════════════════════
+
+fn make_test_credential(epoch: u64) -> vellaveto_types::BlindCredential {
+    vellaveto_types::BlindCredential {
+        credential: vec![1, 2, 3, 4],
+        signature: vec![5, 6, 7, 8],
+        provider_key_id: "test-key-001".to_string(),
+        issued_epoch: epoch,
+        credential_type: vellaveto_types::CredentialType::Subscriber,
+    }
+}
+
+#[test]
+fn test_blind_credential_validate_valid() {
+    let cred = make_test_credential(42);
+    assert!(cred.validate().is_ok());
+}
+
+#[test]
+fn test_blind_credential_validate_empty_credential() {
+    let mut cred = make_test_credential(0);
+    cred.credential = Vec::new();
+    assert!(cred.validate().unwrap_err().contains("credential must not be empty"));
+}
+
+#[test]
+fn test_blind_credential_validate_empty_signature() {
+    let mut cred = make_test_credential(0);
+    cred.signature = Vec::new();
+    assert!(cred.validate().unwrap_err().contains("signature must not be empty"));
+}
+
+#[test]
+fn test_blind_credential_validate_oversized_credential() {
+    let mut cred = make_test_credential(0);
+    cred.credential = vec![0u8; vellaveto_types::MAX_CREDENTIAL_LEN + 1];
+    assert!(cred.validate().unwrap_err().contains("exceeds maximum"));
+}
+
+#[test]
+fn test_blind_credential_validate_oversized_signature() {
+    let mut cred = make_test_credential(0);
+    cred.signature = vec![0u8; vellaveto_types::MAX_SIGNATURE_LEN + 1];
+    assert!(cred.validate().unwrap_err().contains("exceeds maximum"));
+}
+
+#[test]
+fn test_blind_credential_validate_empty_key_id() {
+    let mut cred = make_test_credential(0);
+    cred.provider_key_id = String::new();
+    assert!(cred.validate().unwrap_err().contains("provider_key_id must not be empty"));
+}
+
+#[test]
+fn test_blind_credential_validate_dangerous_key_id() {
+    let mut cred = make_test_credential(0);
+    cred.provider_key_id = "key\u{200B}id".to_string(); // zero-width space
+    assert!(cred.validate().unwrap_err().contains("dangerous characters"));
+}
+
+#[test]
+fn test_blind_credential_validate_oversized_key_id() {
+    let mut cred = make_test_credential(0);
+    cred.provider_key_id = "k".repeat(vellaveto_types::MAX_PROVIDER_KEY_ID_LEN + 1);
+    assert!(cred.validate().unwrap_err().contains("exceeds maximum"));
+}
+
+#[test]
+fn test_blind_credential_validate_epoch_overflow() {
+    let mut cred = make_test_credential(0);
+    cred.issued_epoch = vellaveto_types::MAX_CREDENTIAL_EPOCH + 1;
+    assert!(cred.validate().unwrap_err().contains("issued_epoch"));
+}
+
+#[test]
+fn test_blind_credential_debug_redacts_secrets() {
+    let cred = make_test_credential(42);
+    let debug_str = format!("{:?}", cred);
+    assert!(debug_str.contains("REDACTED"));
+    assert!(!debug_str.contains("[1, 2, 3, 4]"));
+    assert!(!debug_str.contains("[5, 6, 7, 8]"));
+    assert!(debug_str.contains("test-key-001")); // key_id is NOT secret
+}
+
+#[test]
+fn test_blind_credential_serde_roundtrip() {
+    let cred = make_test_credential(99);
+    let json = serde_json::to_string(&cred).unwrap();
+    let parsed: vellaveto_types::BlindCredential = serde_json::from_str(&json).unwrap();
+    assert_eq!(cred, parsed);
+}
+
+#[test]
+fn test_blind_credential_deny_unknown_fields() {
+    let json = r#"{
+        "credential": [1,2,3],
+        "signature": [4,5,6],
+        "provider_key_id": "key",
+        "issued_epoch": 0,
+        "credential_type": "subscriber",
+        "unknown_field": true
+    }"#;
+    let result: Result<vellaveto_types::BlindCredential, _> = serde_json::from_str(json);
+    assert!(result.is_err());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CredentialVault Tests
+// ═══════════════════════════════════════════════════════════════════
+
+fn make_test_vault(pool_size: usize, threshold: usize) -> (CredentialVault, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("vault.enc");
+    let store = EncryptedAuditStore::new(path, "test-passphrase").unwrap();
+    let vault = CredentialVault::new(store, pool_size, threshold).unwrap();
+    (vault, dir)
+}
+
+#[test]
+fn test_vault_add_and_consume() {
+    let (vault, _dir) = make_test_vault(10, 3);
+    vault.add_credential(make_test_credential(1)).unwrap();
+
+    let status = vault.status();
+    assert_eq!(status.total, 1);
+    assert_eq!(status.available, 1);
+
+    let (cred, idx) = vault.consume_credential().unwrap();
+    assert_eq!(cred.issued_epoch, 1);
+
+    let status = vault.status();
+    assert_eq!(status.available, 0);
+    assert_eq!(status.active, 1);
+
+    vault.mark_consumed(idx).unwrap();
+    let status = vault.status();
+    assert_eq!(status.consumed, 1);
+    assert_eq!(status.active, 0);
+}
+
+#[test]
+fn test_vault_consume_empty_fail_closed() {
+    let (vault, _dir) = make_test_vault(10, 3);
+    let result = vault.consume_credential();
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_vault_needs_replenishment() {
+    let (vault, _dir) = make_test_vault(10, 3);
+    // Empty vault → needs replenishment
+    assert!(vault.status().needs_replenishment);
+
+    // Add 3 credentials → still below threshold? No, 3 == threshold, not below
+    for i in 0..3 {
+        vault.add_credential(make_test_credential(i)).unwrap();
+    }
+    assert!(!vault.status().needs_replenishment);
+
+    // Consume 1 → 2 available, below threshold of 3
+    vault.consume_credential().unwrap();
+    assert!(vault.status().needs_replenishment);
+}
+
+#[test]
+fn test_vault_expire_old_epochs() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    vault.add_credential(make_test_credential(1)).unwrap();
+    vault.add_credential(make_test_credential(2)).unwrap();
+    vault.add_credential(make_test_credential(5)).unwrap();
+
+    // Expire everything before epoch 3
+    let expired = vault.expire_old_epochs(3).unwrap();
+    assert_eq!(expired, 2);
+    assert_eq!(vault.available_count(), 1); // Only epoch 5 remains
+
+    // Epoch in status updated
+    assert_eq!(vault.status().current_epoch, 5);
+}
+
+#[test]
+fn test_vault_invalid_credential_rejected() {
+    let (vault, _dir) = make_test_vault(10, 3);
+    let mut bad = make_test_credential(1);
+    bad.credential = Vec::new(); // invalid
+    let result = vault.add_credential(bad);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_vault_mark_consumed_out_of_bounds() {
+    let (vault, _dir) = make_test_vault(10, 3);
+    let result = vault.mark_consumed(999);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_vault_debug_no_secrets() {
+    let (vault, _dir) = make_test_vault(10, 3);
+    vault.add_credential(make_test_credential(1)).unwrap();
+    let debug_str = format!("{:?}", vault);
+    assert!(debug_str.contains("CredentialVault"));
+    assert!(debug_str.contains("available"));
+    // Should not contain raw credential bytes
+    assert!(!debug_str.contains("[1, 2, 3, 4]"));
+}
+
+#[test]
+fn test_vault_persistence_across_instances() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("vault.enc");
+
+    // Create vault and add credentials
+    {
+        let store = EncryptedAuditStore::new(path.clone(), "test-pass").unwrap();
+        let vault = CredentialVault::new(store, 10, 3).unwrap();
+        vault.add_credential(make_test_credential(1)).unwrap();
+        vault.add_credential(make_test_credential(2)).unwrap();
+    }
+
+    // Re-open with same passphrase — credentials should be loaded
+    {
+        let store = EncryptedAuditStore::new(path, "test-pass").unwrap();
+        let vault = CredentialVault::new(store, 10, 3).unwrap();
+        assert_eq!(vault.status().total, 2);
+        assert_eq!(vault.available_count(), 2);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SessionUnlinker Tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_unlinker_start_session() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    vault.add_credential(make_test_credential(1)).unwrap();
+
+    let unlinker = SessionUnlinker::new();
+    let cred = unlinker.start_session("session-1", &vault).unwrap();
+    assert_eq!(cred.issued_epoch, 1);
+    assert_eq!(unlinker.active_session_count(), 1);
+    assert!(unlinker.is_session_active("session-1"));
+}
+
+#[test]
+fn test_unlinker_end_session() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    vault.add_credential(make_test_credential(1)).unwrap();
+
+    let unlinker = SessionUnlinker::new();
+    unlinker.start_session("session-1", &vault).unwrap();
+    unlinker.end_session("session-1", &vault).unwrap();
+
+    assert_eq!(unlinker.active_session_count(), 0);
+    assert!(!unlinker.is_session_active("session-1"));
+    assert_eq!(vault.status().consumed, 1);
+}
+
+#[test]
+fn test_unlinker_no_credentials_fail_closed() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    let unlinker = SessionUnlinker::new();
+    let result = unlinker.start_session("session-1", &vault);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_unlinker_duplicate_session_rejected() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    vault.add_credential(make_test_credential(1)).unwrap();
+    vault.add_credential(make_test_credential(2)).unwrap();
+
+    let unlinker = SessionUnlinker::new();
+    unlinker.start_session("session-1", &vault).unwrap();
+    let result = unlinker.start_session("session-1", &vault);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("already active"));
+}
+
+#[test]
+fn test_unlinker_capacity_exhaustion_fail_closed() {
+    let (vault, _dir) = make_test_vault(100, 1);
+    for i in 0..5 {
+        vault.add_credential(make_test_credential(i as u64)).unwrap();
+    }
+
+    let unlinker = SessionUnlinker::with_max_sessions(3);
+    unlinker.start_session("s1", &vault).unwrap();
+    unlinker.start_session("s2", &vault).unwrap();
+    unlinker.start_session("s3", &vault).unwrap();
+
+    let result = unlinker.start_session("s4", &vault);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("capacity exhausted"));
+}
+
+#[test]
+fn test_unlinker_get_session_credential() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    vault.add_credential(make_test_credential(42)).unwrap();
+
+    let unlinker = SessionUnlinker::new();
+    let original = unlinker.start_session("s1", &vault).unwrap();
+    let retrieved = unlinker.get_session_credential("s1").unwrap();
+    assert_eq!(original, retrieved);
+}
+
+#[test]
+fn test_unlinker_get_binding() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    vault.add_credential(make_test_credential(1)).unwrap();
+
+    let unlinker = SessionUnlinker::new();
+    unlinker.start_session("s1", &vault).unwrap();
+
+    let binding = unlinker.get_binding("s1").unwrap();
+    assert_eq!(binding.session_id, "s1");
+    assert_eq!(binding.binding_sequence, 0);
+}
+
+#[test]
+fn test_unlinker_monotonic_sequence() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    for i in 0..3 {
+        vault.add_credential(make_test_credential(i)).unwrap();
+    }
+
+    let unlinker = SessionUnlinker::new();
+    unlinker.start_session("s1", &vault).unwrap();
+    unlinker.start_session("s2", &vault).unwrap();
+    unlinker.start_session("s3", &vault).unwrap();
+
+    let b1 = unlinker.get_binding("s1").unwrap();
+    let b2 = unlinker.get_binding("s2").unwrap();
+    let b3 = unlinker.get_binding("s3").unwrap();
+    assert!(b1.binding_sequence < b2.binding_sequence);
+    assert!(b2.binding_sequence < b3.binding_sequence);
+}
+
+#[test]
+fn test_unlinker_dangerous_session_id_rejected() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    vault.add_credential(make_test_credential(1)).unwrap();
+
+    let unlinker = SessionUnlinker::new();
+    let result = unlinker.start_session("session\u{200B}id", &vault);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("dangerous"));
+}
+
+#[test]
+fn test_unlinker_unknown_session_end_rejected() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    let unlinker = SessionUnlinker::new();
+    let result = unlinker.end_session("nonexistent", &vault);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_unlinker_independent_credentials_per_session() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    vault.add_credential(make_test_credential(1)).unwrap();
+    vault.add_credential(make_test_credential(2)).unwrap();
+
+    let unlinker = SessionUnlinker::new();
+    let cred1 = unlinker.start_session("s1", &vault).unwrap();
+    let cred2 = unlinker.start_session("s2", &vault).unwrap();
+
+    // Each session gets a different credential (unlinkable)
+    assert_ne!(cred1.issued_epoch, cred2.issued_epoch);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ShieldConfig Credential Extensions Tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_shield_config_credential_defaults() {
+    let config = vellaveto_config::ShieldConfig::default();
+    assert!(config.session_unlinkability);
+    assert_eq!(config.credential_pool_size, 50);
+    assert_eq!(config.replenish_threshold, 10);
+    assert_eq!(config.credential_epoch_interval, 100);
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_shield_config_zero_pool_rejected() {
+    let mut config = vellaveto_config::ShieldConfig::default();
+    config.credential_pool_size = 0;
+    assert!(config.validate().unwrap_err().contains("credential_pool_size"));
+}
+
+#[test]
+fn test_shield_config_threshold_ge_pool_rejected() {
+    let mut config = vellaveto_config::ShieldConfig::default();
+    config.replenish_threshold = 50; // equal to pool_size
+    assert!(config.validate().unwrap_err().contains("replenish_threshold"));
+}
+
+#[test]
+fn test_shield_config_zero_epoch_interval_rejected() {
+    let mut config = vellaveto_config::ShieldConfig::default();
+    config.credential_epoch_interval = 0;
+    assert!(config.validate().unwrap_err().contains("credential_epoch_interval"));
+}
+
+#[test]
+fn test_shield_config_serde_roundtrip_with_credentials() {
+    let mut config = vellaveto_config::ShieldConfig::default();
+    config.session_unlinkability = true;
+    config.credential_pool_size = 100;
+    config.replenish_threshold = 20;
+    config.credential_epoch_interval = 200;
+    let json_str = serde_json::to_string(&config).unwrap();
+    let parsed: vellaveto_config::ShieldConfig = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(config, parsed);
+}

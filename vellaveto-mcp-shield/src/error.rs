@@ -28,6 +28,9 @@ pub enum ShieldError {
     #[error("config error: {0}")]
     Config(String),
 
+    #[error("credential vault error: {0}")]
+    CredentialVault(String),
+
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }
