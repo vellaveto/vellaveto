@@ -3,7 +3,7 @@ name = "vellaveto-approval"
 version = "3.0.0"
 description = "Human-in-the-loop approval workflow with deduplication"
 edition = "2021"
-license.workspace = true
+license = "MPL-2.0"
 repository.workspace = true
 
 [dependencies]

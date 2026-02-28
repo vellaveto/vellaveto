@@ -17,6 +17,10 @@ members = [
     "vellaveto-http-proxy",
     "vellaveto-operator",
     "mcpsec",
+    "vellaveto-mcp-shield",
+    "vellaveto-http-proxy-shield",
+    "vellaveto-canary",
+    "vellaveto-shield",
 ]
 
 [workspace.package]

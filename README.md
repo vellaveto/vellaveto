@@ -11,7 +11,7 @@
     <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-8%2C681_passing-brightgreen.svg" alt="Tests: 8,681 passing">
+    <img src="https://img.shields.io/badge/tests-8%2C747_passing-brightgreen.svg" alt="Tests: 8,747 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-231_rounds%2C_1550%2B_findings-informational.svg" alt="Adversarial Testing: 231 rounds, 1550+ findings"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
@@ -44,15 +44,16 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>6.0.0-dev</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>8,681 Rust + 433 Python + 127 Go + 119 TypeScript + 120 Java tests (+ 24 fuzz targets), 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>8,747 Rust + 433 Python + 127 Go + 119 TypeScript + 120 Java tests (+ 24 fuzz targets), 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
-<tr><td>📄 <strong>License</strong></td><td>AGPL-3.0 (dual license available)</td></tr>
+<tr><td>📄 <strong>License</strong></td><td>Three-tier: MPL-2.0 / Apache-2.0 / AGPL-3.0 (see <a href="LICENSING.md">LICENSING.md</a>)</td></tr>
 </table>
 
-## Recent Updates (2026-02-27)
+## Recent Updates (2026-02-28)
 
+- **Consumer Shield Sprint 1 (Phase 67)** — New deployment mode for consumer AI interactions. Bidirectional PII sanitization (`QuerySanitizer`), encrypted local audit (XChaCha20-Poly1305 + Argon2id), session isolation (`SessionIsolator`), warrant canary verification (`vellaveto-canary`). 4 new crates (`vellaveto-mcp-shield`, `vellaveto-canary`, `vellaveto-http-proxy-shield`, `vellaveto-shield`). License restructured to three tiers (MPL-2.0 / Apache-2.0 / AGPL-3.0). 40 new tests, 8,747 Rust tests passing.
 - **Adversarial Audit Round 230 (53 findings)** — 6-agent parallel audit: 9 HIGH (topology TOCTOU race, audit chain fail-open, SAML assertion replay, OIDC SSRF, RBAC gaps), 27 MEDIUM (ROT13 bypass, variation selectors, Cedar parser escape, conditions size divergence), 17 LOW. 19 fixes across 3 sprints, 34 triaged. 8,681 Rust tests passing.
 - **Topology Runtime Wiring** — `StaticProbe` (in-memory `McpServerProbe` for relay-fed data), `TopologyGuard::upsert_server()` for incremental updates, `RecrawlScheduler` background task with graceful shutdown, relay intercept in `handle_tools_list_response`, 4 REST endpoints (`/api/topology`, `/api/topology/status`, `/api/topology/recrawl`, `/api/topology/servers/:name`). 25 new tests.
 - **Topology Discovery (`vellaveto-discovery`)** — New crate implementing ActionEngine-inspired topology crawling for MCP tool calls. `TopologyGraph` (petgraph DiGraph mapping servers → tools → resources), `TopologyGuard` pre-policy filter with fail-closed unknown tool denial and Levenshtein suggestions, MCP server crawler, data-flow inference, topology diff, re-crawl scheduler. Feature-gated engine integration: unknown tools denied before policy evaluation. `TopologyConfig` with 10 validated fields. ~100 unit tests + 10 integration tests.
@@ -694,6 +695,24 @@ Features:
 - Persists flagged tools across restarts (JSONL)
 - Detects child process crashes and flushes pending requests with errors
 - Configurable request timeout (`--timeout 30`)
+
+### 🛡️ Consumer Shield (MCP Interaction Firewall)
+
+Wraps a local MCP server like `vellaveto-proxy`, but adds bidirectional PII sanitization — strips personal data before it reaches the AI provider, restores it on the way back. All interactions are encrypted locally.
+
+```bash
+vellaveto-shield --config policy.toml --passphrase "your-secret" -- /path/to/mcp-server
+```
+
+Features:
+- Bidirectional PII sanitization (email, SSN, credit card, phone + custom patterns)
+- Encrypted local audit trail (XChaCha20-Poly1305 + Argon2id key derivation)
+- Per-session PII isolation (cross-session leakage prevention)
+- Merkle tree proofs for audit integrity
+- Warrant canary verification
+- Fail-closed on capacity exhaustion (50K PII mappings, 1K sessions)
+
+See [`examples/presets/consumer-shield.toml`](examples/presets/consumer-shield.toml) for configuration.
 
 ### 🔄 Streamable HTTP Reverse Proxy
 

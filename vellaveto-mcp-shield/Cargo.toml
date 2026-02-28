@@ -1,0 +1,29 @@
+[package]
+name = "vellaveto-mcp-shield"
+version = "0.1.0"
+description = "Consumer shield: bidirectional PII sanitization, session isolation, encrypted local audit"
+edition = "2021"
+license = "MPL-2.0"
+repository.workspace = true
+
+[dependencies]
+vellaveto-types = { path = "../vellaveto-types" }
+vellaveto-audit = { path = "../vellaveto-audit" }
+vellaveto-config = { path = "../vellaveto-config" }
+chacha20poly1305 = "0.10"
+argon2 = { workspace = true }
+sha2 = "0.10"
+hex = "0.4"
+rand = "0.8"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+regex = "1"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+
+[dev-dependencies]
+tempfile = "3.0"

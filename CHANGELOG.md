@@ -78,6 +78,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Consumer Shield Sprint 1 + License Restructuring (Phase 67):**
+  Consumer AI interaction firewall — bidirectional PII sanitization, encrypted local audit, session isolation, and warrant canary verification. Also restructures licensing from monolithic AGPL-3.0 to three tiers.
+  - **License restructuring:** MPL-2.0 for 8 core crates (types, engine, audit, canonical, config, discovery, approval, proxy), Apache-2.0 for canary crate, AGPL-3.0 retained for server/integration/operator. New `LICENSE-MPL-2.0` and `LICENSE-APACHE-2.0` files, `LICENSING.md` rewritten for three-tier model.
+  - **`vellaveto-mcp-shield` (NEW, MPL-2.0):** Core shield logic — `QuerySanitizer` (bidirectional PII mapping with `[PII_{CAT}_{SEQ:06}]` placeholders, fail-closed at 50K mappings), `SessionIsolator` (per-session PII isolation with bounded history), `EncryptedAuditStore` (XChaCha20-Poly1305 + Argon2id KDF), `LocalAuditManager` (encrypted audit with Merkle proofs). 24 tests.
+  - **`vellaveto-canary` (NEW, Apache-2.0):** Warrant canary — `create_canary()` / `verify_canary()` with Ed25519 signatures, expiration checking, tamper detection. 6 tests.
+  - **`vellaveto-http-proxy-shield` (NEW, MPL-2.0):** Stub for Sprint 2+ (traffic padding, request splitting).
+  - **`vellaveto-shield` (NEW, MPL-2.0 binary):** Consumer shield binary — CLI with passphrase prompting, encrypted audit, canary verification, supply chain verification, ProxyBridge with shield sanitizer.
+  - **Shield config:** `ShieldConfig` added to `PolicyConfig` (11 fields: enabled, audit_mode, sanitize/desanitize toggles, session isolation, Merkle proofs, ZK commitments, custom PII patterns, capacity bounds). 7 config tests.
+  - **PiiScanner extension:** `find_matches()` method returning match spans with categories for bidirectional mapping. 3 audit tests.
+  - **Feature gate:** `consumer-shield` feature in `vellaveto-mcp` with outbound sanitize and inbound desanitize hooks in ProxyBridge relay.
+  - **Preset:** `examples/presets/consumer-shield.toml` template.
+  - 40 new tests. **8,747 Rust tests passing, 0 failures, 0 warnings.**
+
 - **Topology Runtime Wiring (TopologyCrawler + RecrawlScheduler):**
   Wire the discovery crate's topology pipeline into the server lifecycle for live topology management.
   - **`StaticProbe`** — In-memory `McpServerProbe` implementation backed by `RwLock<Vec<StaticServerDecl>>`, fed by relay-intercepted `tools/list` responses. Supports `upsert_server()` and `remove_server()` for dynamic updates.

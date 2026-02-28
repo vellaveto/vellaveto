@@ -1194,6 +1194,21 @@ impl ProxyBridge {
                 // PendingRequest — parity with passthrough handler (line ~2057).
                 let truncated_tool: String = tool_name.chars().take(256).collect();
                 state.track_pending_request(&id, truncated_tool, eval_trace);
+
+                // Consumer shield: sanitize outbound request parameters
+                #[cfg(feature = "consumer-shield")]
+                let msg = if let Some(ref sanitizer) = self.shield_sanitizer {
+                    match sanitizer.sanitize_json(&msg) {
+                        Ok(sanitized) => sanitized,
+                        Err(e) => {
+                            tracing::warn!("Shield sanitize failed: {} — forwarding original", e);
+                            msg
+                        }
+                    }
+                } else {
+                    msg
+                };
+
                 write_message(child_stdin, &msg)
                     .await
                     .map_err(ProxyError::Framing)?;
@@ -3283,6 +3298,19 @@ impl ProxyBridge {
                 return write_message(agent_writer, &msg)
                     .await
                     .map_err(ProxyError::Framing);
+            }
+        }
+
+        // Consumer shield: desanitize inbound response content
+        #[cfg(feature = "consumer-shield")]
+        if let Some(ref sanitizer) = self.shield_sanitizer {
+            if msg.get("result").is_some() || msg.get("error").is_some() {
+                match sanitizer.desanitize_json(&msg) {
+                    Ok(desanitized) => msg = desanitized,
+                    Err(e) => {
+                        tracing::warn!("Shield desanitize failed: {} — forwarding original", e);
+                    }
+                }
             }
         }
 

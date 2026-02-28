@@ -1,30 +1,27 @@
 [package]
-name = "vellaveto-proxy"
-version = "3.0.0"
-description = "MCP stdio proxy for command-line tool integration"
+name = "vellaveto-shield"
+version = "0.1.0"
+description = "Consumer AI shield: bidirectional PII sanitization with encrypted local audit"
 edition = "2021"
 license = "MPL-2.0"
 repository.workspace = true
 
 [[bin]]
-name = "vellaveto-proxy"
+name = "vellaveto-shield"
 path = "src/main.rs"
-
-[features]
-default = []
-discovery = ["vellaveto-discovery", "vellaveto-mcp/discovery"]
 
 [dependencies]
 vellaveto-types = { path = "../vellaveto-types" }
 vellaveto-engine = { path = "../vellaveto-engine" }
 vellaveto-audit = { path = "../vellaveto-audit" }
 vellaveto-config = { path = "../vellaveto-config" }
-vellaveto-mcp = { path = "../vellaveto-mcp" }
-vellaveto-discovery = { path = "../vellaveto-discovery", optional = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
+vellaveto-mcp = { path = "../vellaveto-mcp", features = ["consumer-shield"] }
+vellaveto-mcp-shield = { path = "../vellaveto-mcp-shield" }
+vellaveto-canary = { path = "../vellaveto-canary" }
+clap = { version = "4", features = ["derive"] }
 tokio = { workspace = true }
 anyhow = { workspace = true }
-clap = { version = "4", features = ["derive"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rpassword = "7"
+serde_json = { workspace = true }

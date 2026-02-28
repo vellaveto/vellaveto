@@ -1,11 +1,11 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v6.0.0-dev (Phases 1–66 complete, 231 audit rounds)
+> **State:** v6.0.0-dev (Phases 1–67 complete, 231 audit rounds)
 > **Version:** 6.0.0-dev
-> **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 8,707 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
-> **Updated:** 2026-02-27
+> **License:** Three-tier: MPL-2.0 / Apache-2.0 / AGPL-3.0 (see LICENSING.md)
+> **Tests:** 8,747 Rust + 59 React + 12 Terraform + 433 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
+> **Updated:** 2026-02-28
 
 ---
 
@@ -51,12 +51,16 @@ vellaveto-audit          (types, engine)
 vellaveto-approval       (types)
        |
 vellaveto-mcp            (types, engine, audit, approval, config)
+vellaveto-mcp-shield     (types, audit, config — consumer shield logic, MPL-2.0)
        |
 vellaveto-cluster        (types, config, approval)
        |
 vellaveto-server         (all above, discovery)
 vellaveto-http-proxy     (all above)
 vellaveto-proxy          (all above, stdio mode)
+vellaveto-shield         (mcp, mcp-shield, canary — consumer shield binary, MPL-2.0)
+vellaveto-http-proxy-shield (stub — Sprint 2+, MPL-2.0)
+vellaveto-canary         (standalone — ed25519-dalek, Apache-2.0)
 vellaveto-integration    (all above, test only)
 vellaveto-operator       (standalone — kube-rs, no internal deps)
 ```
@@ -133,6 +137,18 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Re-crawl scheduler | `vellaveto-discovery/src/schedule.rs` |
 | Serialization (JSON/bincode) | `vellaveto-discovery/src/serialize.rs` |
 | Tests (~100) | `vellaveto-discovery/tests/*.rs` |
+| **vellaveto-mcp-shield** | |
+| Shield error types | `vellaveto-mcp-shield/src/error.rs` |
+| QuerySanitizer (bidirectional PII) | `vellaveto-mcp-shield/src/sanitizer.rs` |
+| SessionIsolator (per-session PII) | `vellaveto-mcp-shield/src/session_isolator.rs` |
+| EncryptedAuditStore (XChaCha20-Poly1305) | `vellaveto-mcp-shield/src/crypto.rs` |
+| LocalAuditManager (encrypted + Merkle) | `vellaveto-mcp-shield/src/local_audit.rs` |
+| Tests (~24) | `vellaveto-mcp-shield/src/tests.rs` |
+| **vellaveto-canary** | |
+| WarrantCanary + create/verify | `vellaveto-canary/src/lib.rs` |
+| Tests (~6) | `vellaveto-canary/src/tests.rs` |
+| **vellaveto-shield** | |
+| Consumer shield binary | `vellaveto-shield/src/main.rs` |
 | **Other** | |
 | Stdio proxy | `vellaveto-proxy/src/main.rs` |
 | Cluster (leader election, service discovery) | `vellaveto-cluster/src/*.rs` |
@@ -154,9 +170,9 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All phases implemented, tested, and hardened through 230 audit rounds. Details in CHANGELOG.md.
+All phases implemented, tested, and hardened through 231 audit rounds. Details in CHANGELOG.md.
 
-**Core:** Policy evaluation (glob/regex/domain), path traversal protection, DNS rebinding, context-aware policies, decision cache (LRU+TTL), Wasm policy plugins (Wasmtime with fuel metering) | **Discovery:** Topology graph (petgraph DiGraph mapping MCP servers→tools→resources), TopologyGuard pre-policy filter (fail-closed, unknown tool denial with Levenshtein suggestions), MCP server crawler, StaticProbe (relay-fed in-memory probe), data-flow inference, topology diff, re-crawl scheduler with graceful shutdown, JSON/bincode serialization, feature-gated engine integration (`discovery` feature on vellaveto-engine), TopologyConfig (10 fields with validation), REST API (`/api/topology/*`), relay intercept for live `tools/list` topology updates | **Audit:** Tamper-evident logging (SHA-256, Merkle, Ed25519), export (CEF/JSONL/webhook/syslog/OCSF), PostgreSQL dual-write, ZK proofs (Pedersen + Groth16) | **Security:** Injection (Aho-Corasick + NFKC), DLP (5-layer decode), tool squatting, memory poisoning, behavioral anomaly, multimodal injection, multi-agent collusion detection, cascading failure circuit breakers, NHI identity lifecycle (ephemeral creds, rotation enforcement) | **Auth:** OAuth 2.1/JWT/JWKS, ABAC forbid-overrides, capability delegation, least-agency, DPoP (RFC 9449) token binding | **Enterprise IAM:** OIDC (Okta/AzureAD/Keycloak), SAML 2.0, RBAC (4 roles, 14 perms), session management, SCIM 2.0 | **Transport:** HTTP, stdio, WebSocket, gRPC, MCP gateway, smart fallback | **MCP:** 2025-11-25 spec (Tasks primitive, CIMD, XAA, M2M auth, step-up authorization) | **Compliance:** EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, OWASP ASI, OWASP MCP Top 10, DORA, NIS2, Singapore MGF, NIST AI 600-1, CSA ATF, evidence packs, cross-regulation incident reporting | **Infra:** K8s operator (3 CRDs), multi-tenancy, policy lifecycle (Draft→Active), setup wizard | **Admin Console:** React SPA (10 pages), OIDC+API-key auth, RBAC navigation, dark theme, 59 vitest tests | **SDKs:** Python (sync+async, LangChain/LangGraph/CrewAI/Google ADK/OpenAI Agents/Composio/Claude Agent/Strands/MS Agents), TypeScript, Go, Java (120 tests) | **DevEx:** VS Code extension (validation, completions, snippets, simulator), execution graph SVG export | **Terraform:** Provider with policy resource + data sources (health, policies) | **Billing:** Per-tenant metering (atomic counters), quota enforcement, Stripe/Paddle webhooks, tiered licensing | **Marketplace:** Self-service signup (POST /api/signup), 11 policy preset templates, OpenAPI 3.0 spec (135+ endpoints), cloud deployment docs (AWS/Azure/GCP) | **PQC:** Hybrid Ed25519+ML-DSA-65 (FIPS 204) checkpoint/manifest signatures, backward-compatible, feature-gated | **Cedar:** Policy import/export for AWS AgentCore/CNCF Cedar interoperability | **A2A Hardening:** Agent Card Ed25519 signature enforcement, MCP Registry integration, DPoP token binding | **Formal:** TLA+ (policy engine, ABAC, workflow, task lifecycle, cascading failure), Alloy (capability delegation), Kani (5 proof harnesses)
+**Core:** Policy evaluation (glob/regex/domain), path traversal protection, DNS rebinding, context-aware policies, decision cache (LRU+TTL), Wasm policy plugins (Wasmtime with fuel metering) | **Discovery:** Topology graph (petgraph DiGraph mapping MCP servers→tools→resources), TopologyGuard pre-policy filter (fail-closed, unknown tool denial with Levenshtein suggestions), MCP server crawler, StaticProbe (relay-fed in-memory probe), data-flow inference, topology diff, re-crawl scheduler with graceful shutdown, JSON/bincode serialization, feature-gated engine integration (`discovery` feature on vellaveto-engine), TopologyConfig (10 fields with validation), REST API (`/api/topology/*`), relay intercept for live `tools/list` topology updates | **Consumer Shield:** Bidirectional PII sanitization (QuerySanitizer with `[PII_{CAT}_{SEQ}]` placeholders), encrypted local audit (XChaCha20-Poly1305 + Argon2id), per-session isolation (SessionIsolator), Merkle proof generation, warrant canary (Ed25519 signed, Apache-2.0), consumer shield binary (`vellaveto-shield`), feature-gated ProxyBridge integration (`consumer-shield`), ShieldConfig (11 fields with validation) | **Audit:** Tamper-evident logging (SHA-256, Merkle, Ed25519), export (CEF/JSONL/webhook/syslog/OCSF), PostgreSQL dual-write, ZK proofs (Pedersen + Groth16) | **Security:** Injection (Aho-Corasick + NFKC), DLP (5-layer decode), tool squatting, memory poisoning, behavioral anomaly, multimodal injection, multi-agent collusion detection, cascading failure circuit breakers, NHI identity lifecycle (ephemeral creds, rotation enforcement) | **Auth:** OAuth 2.1/JWT/JWKS, ABAC forbid-overrides, capability delegation, least-agency, DPoP (RFC 9449) token binding | **Enterprise IAM:** OIDC (Okta/AzureAD/Keycloak), SAML 2.0, RBAC (4 roles, 14 perms), session management, SCIM 2.0 | **Transport:** HTTP, stdio, WebSocket, gRPC, MCP gateway, smart fallback | **MCP:** 2025-11-25 spec (Tasks primitive, CIMD, XAA, M2M auth, step-up authorization) | **Compliance:** EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, OWASP ASI, OWASP MCP Top 10, DORA, NIS2, Singapore MGF, NIST AI 600-1, CSA ATF, evidence packs, cross-regulation incident reporting | **Infra:** K8s operator (3 CRDs), multi-tenancy, policy lifecycle (Draft→Active), setup wizard | **Admin Console:** React SPA (10 pages), OIDC+API-key auth, RBAC navigation, dark theme, 59 vitest tests | **SDKs:** Python (sync+async, LangChain/LangGraph/CrewAI/Google ADK/OpenAI Agents/Composio/Claude Agent/Strands/MS Agents), TypeScript, Go, Java (120 tests) | **DevEx:** VS Code extension (validation, completions, snippets, simulator), execution graph SVG export | **Terraform:** Provider with policy resource + data sources (health, policies) | **Billing:** Per-tenant metering (atomic counters), quota enforcement, Stripe/Paddle webhooks, tiered licensing | **Marketplace:** Self-service signup (POST /api/signup), 12 policy preset templates, OpenAPI 3.0 spec (135+ endpoints), cloud deployment docs (AWS/Azure/GCP) | **PQC:** Hybrid Ed25519+ML-DSA-65 (FIPS 204) checkpoint/manifest signatures, backward-compatible, feature-gated | **Cedar:** Policy import/export for AWS AgentCore/CNCF Cedar interoperability | **A2A Hardening:** Agent Card Ed25519 signature enforcement, MCP Registry integration, DPoP token binding | **Formal:** TLA+ (policy engine, ABAC, workflow, task lifecycle, cascading failure), Alloy (capability delegation), Kani (5 proof harnesses)
 
 **Adversarial hardening:** 230 audit rounds, 1000+ findings fixed. Key patterns enforced: `deny_unknown_fields` on all deserialized structs, `validate()` with bounded collections, `has_dangerous_chars()` on all external strings, custom `Debug` redacting secrets, `saturating_add` on all counters, transport parity across HTTP/WS/gRPC/stdio/SSE.
 

@@ -1308,6 +1308,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             policy_lifecycle: Default::default(),
             metering: Default::default(),
             topology: Default::default(),
+            shield: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

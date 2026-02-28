@@ -183,6 +183,15 @@ pub struct ProxyBridge {
     /// failures are logged but don't block the response.
     #[cfg(feature = "discovery")]
     topology_guard: Option<Arc<vellaveto_discovery::guard::TopologyGuard>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Consumer Shield: Bidirectional PII Sanitization
+    // ═══════════════════════════════════════════════════════════════════
+    /// When set, outbound requests are sanitized (PII replaced with
+    /// placeholders) and inbound responses are desanitized (placeholders
+    /// restored to original values). Enables privacy-preserving AI interactions.
+    #[cfg(feature = "consumer-shield")]
+    shield_sanitizer: Option<Arc<vellaveto_mcp_shield::QuerySanitizer>>,
 }
 
 impl ProxyBridge {
@@ -239,6 +248,9 @@ impl ProxyBridge {
             // Topology guard (default: disabled)
             #[cfg(feature = "discovery")]
             topology_guard: None,
+            // Consumer shield (default: disabled)
+            #[cfg(feature = "consumer-shield")]
+            shield_sanitizer: None,
         }
     }
 }
