@@ -9117,3 +9117,82 @@ max_versions_per_policy = 30
     assert_eq!(config.policy_lifecycle.max_versions_per_policy, 30);
     assert!(config.validate().is_ok());
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Consumer Shield Preset Tests (Phase 70)
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_consumer_shield_preset_parses() {
+    let toml_str = std::fs::read_to_string("../examples/presets/consumer-shield.toml")
+        .expect("consumer-shield.toml not found");
+    let config: crate::PolicyConfig =
+        toml::from_str(&toml_str).expect("consumer-shield.toml failed to parse");
+    assert!(config.shield.enabled);
+    assert_eq!(config.shield.audit_mode, "local");
+    assert!(config.shield.sanitize_queries);
+    assert!(config.shield.desanitize_responses);
+    assert!(config.shield.session_isolation);
+    assert!(config.shield.merkle_proofs);
+    assert!(config.shield.session_unlinkability);
+    assert_eq!(config.shield.credential_pool_size, 50);
+    assert_eq!(config.shield.replenish_threshold, 10);
+    assert_eq!(config.shield.credential_epoch_interval, 100);
+    assert_eq!(config.shield.stylometric_level, "none");
+    assert!(config.injection.enabled);
+    assert!(config.dlp.enabled);
+    assert!(config.sampling.enabled);
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_consumer_shield_preset_all_levels_valid() {
+    for level in &["none", "level1", "level2"] {
+        let toml_str = format!(
+            r#"
+[shield]
+enabled = true
+stylometric_level = "{level}"
+"#
+        );
+        let config: crate::PolicyConfig = toml::from_str(&toml_str).unwrap();
+        assert!(config.shield.validate().is_ok(), "level {level} should be valid");
+    }
+}
+
+#[test]
+fn test_consumer_shield_invalid_stylometric_level() {
+    let toml_str = r#"
+[shield]
+enabled = true
+stylometric_level = "level3"
+"#;
+    let config: crate::PolicyConfig = toml::from_str(toml_str).unwrap();
+    let result = config.shield.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("stylometric_level"));
+}
+
+#[test]
+fn test_consumer_shield_credential_bounds() {
+    // replenish_threshold must be < credential_pool_size
+    let toml_str = r#"
+[shield]
+enabled = true
+credential_pool_size = 10
+replenish_threshold = 10
+"#;
+    let config: crate::PolicyConfig = toml::from_str(toml_str).unwrap();
+    assert!(config.shield.validate().is_err());
+}
+
+#[test]
+fn test_consumer_shield_zero_epoch_rejected() {
+    let toml_str = r#"
+[shield]
+enabled = true
+credential_epoch_interval = 0
+"#;
+    let config: crate::PolicyConfig = toml::from_str(toml_str).unwrap();
+    assert!(config.shield.validate().is_err());
+}
