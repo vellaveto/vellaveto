@@ -1320,8 +1320,9 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_generic_api_key() {
+        let config = ["api_key=sk_live_", "1234567890ab", "cdefghij"].concat();
         let params = json!({
-            "config": ["api_key=sk_live_", "1234567890ab", "cdefghij"].concat()
+            "config": config
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect generic API key");
@@ -1379,8 +1380,9 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_slack_token() {
+        let webhook = ["xoxb-", "1234567890-", "abcdefghijklmnop"].concat();
         let params = json!({
-            "webhook": ["xoxb-", "1234567890-", "abcdefghijklmnop"].concat()
+            "webhook": webhook
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Slack token");
@@ -1389,8 +1391,9 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_stripe_live_secret_key() {
+        let payment = ["sk_live_", "4eC39HqLyjWDarjt", "T1zdp7dc"].concat();
         let params = json!({
-            "payment": ["sk_live_", "4eC39HqLyjWDarjt", "T1zdp7dc"].concat()
+            "payment": payment
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Stripe live secret key");
@@ -1399,8 +1402,9 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_stripe_test_publishable_key() {
+        let config = ["pk_test_", "TYooMQauvdEDq54N", "iTphI7jx"].concat();
         let params = json!({
-            "config": ["pk_test_", "TYooMQauvdEDq54N", "iTphI7jx"].concat()
+            "config": config
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(
@@ -1412,8 +1416,9 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_stripe_restricted_key() {
+        let key = ["rk_live_", "abcdefghijklmnop", "qrstuv"].concat();
         let params = json!({
-            "key": ["rk_live_", "abcdefghijklmnop", "qrstuv"].concat()
+            "key": key
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Stripe restricted key");
@@ -1422,8 +1427,9 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_gcp_api_key() {
+        let api_config = ["AIzaSy", "DaGmWKa4JsXZ-HjGw", "7ISLn_3namBGewQe"].concat();
         let params = json!({
-            "api_config": ["AIzaSy", "DaGmWKa4JsXZ-HjGw", "7ISLn_3namBGewQe"].concat()
+            "api_config": api_config
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect GCP API key");
@@ -1432,12 +1438,14 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_azure_connection_string() {
+        let connection = [
+            "AccountKey=",
+            "lJzRc1YdHaAA2KCNJJ1tkYwF/+mKK6Yg",
+            "w0NGe170Mc6MHMiGWBDAfwLkCz45TFnBLlOWUIlIHSln+AStoHIYXQ==",
+        ]
+        .concat();
         let params = json!({
-            "connection": [
-                "AccountKey=",
-                "lJzRc1YdHaAA2KCNJJ1tkYwF/+mKK6Yg",
-                "w0NGe170Mc6MHMiGWBDAfwLkCz45TFnBLlOWUIlIHSln+AStoHIYXQ=="
-            ].concat()
+            "connection": connection
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(
@@ -1451,8 +1459,14 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_azure_shared_access_key() {
+        let config = [
+            "SharedAccessKey=",
+            "aB1cD2eF3gH4iJ5kL6mN7oP8",
+            "qR9sT0uV1wX2yZ3aB4=",
+        ]
+        .concat();
         let params = json!({
-            "config": ["SharedAccessKey=", "aB1cD2eF3gH4iJ5kL6mN7oP8", "qR9sT0uV1wX2yZ3aB4="].concat()
+            "config": config
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Azure SharedAccessKey");
@@ -1463,12 +1477,14 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_discord_bot_token() {
+        let bot_token = [
+            "MTAxNTYxMjE2MjI4MDI5NDkz.",
+            "G0WFAR.",
+            "xhGA5hGqLdFi3E6MRm0xN5W3sfwjde6AqfVabc",
+        ]
+        .concat();
         let params = json!({
-            "bot_token": [
-                "MTAxNTYxMjE2MjI4MDI5NDkz.",
-                "G0WFAR.",
-                "xhGA5hGqLdFi3E6MRm0xN5W3sfwjde6AqfVabc"
-            ].concat()
+            "bot_token": bot_token
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Discord bot token");
@@ -1477,8 +1493,9 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_twilio_api_key() {
+        let twilio_key = ["SK", "1234567890abcdef", "1234567890abcdef"].concat();
         let params = json!({
-            "twilio_key": ["SK", "1234567890abcdef", "1234567890abcdef"].concat()
+            "twilio_key": twilio_key
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Twilio API key");
@@ -1487,12 +1504,14 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_sendgrid_api_key() {
+        let mail_key = [
+            "SG.",
+            "ngeVfQFYQlKU0ufo8x5d1A.",
+            "TwL2iGABf9DHoTf-09kqeF8tAmbihYzrnopKc-1s5cr",
+        ]
+        .concat();
         let params = json!({
-            "mail_key": [
-                "SG.",
-                "ngeVfQFYQlKU0ufo8x5d1A.",
-                "TwL2iGABf9DHoTf-09kqeF8tAmbihYzrnopKc-1s5cr"
-            ].concat()
+            "mail_key": mail_key
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect SendGrid API key");
@@ -1503,8 +1522,9 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_npm_token() {
+        let registry_auth = ["npm_", "aBcDeFgHiJkLmNoPqRsT", "uVwXyZ0123456789"].concat();
         let params = json!({
-            "registry_auth": ["npm_", "aBcDeFgHiJkLmNoPqRsT", "uVwXyZ0123456789"].concat()
+            "registry_auth": registry_auth
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect npm token");
@@ -1513,12 +1533,14 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_pypi_token() {
+        let upload_token = [
+            "pypi-AgEIcHlwaS5vcmcCJGY1YTUzMjMwLWRkMzQtNGVhOC1iMGU1L",
+            "WUzMDJhZjE0YTdiOAACKlszLCJjMGU3OTk1NS01MjBhLTQ3ZmMtOGFmMS",
+            "1hODkyOWY3MDJiMTki",
+        ]
+        .concat();
         let params = json!({
-            "upload_token": [
-                "pypi-AgEIcHlwaS5vcmcCJGY1YTUzMjMwLWRkMzQtNGVhOC1iMGU1L",
-                "WUzMDJhZjE0YTdiOAACKlszLCJjMGU3OTk1NS01MjBhLTQ3ZmMtOGFmMS",
-                "1hODkyOWY3MDJiMTki"
-            ].concat()
+            "upload_token": upload_token
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect PyPI token");
@@ -1527,8 +1549,9 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_mailchimp_api_key() {
+        let mc_key = ["6dc7e3ef710b40e8", "889e959f9ad9a171", "-us21"].concat();
         let params = json!({
-            "mc_key": ["6dc7e3ef710b40e8", "889e959f9ad9a171", "-us21"].concat()
+            "mc_key": mc_key
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Mailchimp API key");
@@ -2686,8 +2709,9 @@ mod tests {
     #[test]
     fn test_r226_dlp_gcp_aiza_key() {
         // R226-DLP-1: AIza keys (now HIGH severity for Gemini API)
+        let key = ["AIzaSy", "A1234567890abcdef", "ghijklmnopqrstuvw"].concat();
         let params = json!({
-            "key": ["AIzaSy", "A1234567890abcdef", "ghijklmnopqrstuvw"].concat()
+            "key": key
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(
