@@ -22,6 +22,7 @@
 //! failures. The caller converts errors to `Deny` verdicts.
 
 use async_trait::async_trait;
+use deadpool_redis::redis;
 use deadpool_redis::redis::AsyncCommands;
 use deadpool_redis::{Config as PoolConfig, Pool, Runtime};
 use vellaveto_approval::{ApprovalStatus, PendingApproval};
@@ -482,7 +483,7 @@ impl ClusterBackend for RedisBackend {
             .arg(self.default_ttl_secs)
             .query_async::<Option<String>>(&mut conn)
             .await
-            .map(|r| r.is_some()) // SET NX returns "OK" on success, nil on key-exists
+            .map(|r: Option<String>| r.is_some()) // SET NX returns "OK" on success, nil on key-exists
             .map_err(|e| ClusterError::Connection(format!("Redis SET NX dedup failed: {}", e)))?;
 
         if !claimed {
@@ -517,7 +518,7 @@ impl ClusterBackend for RedisBackend {
                     .arg(self.default_ttl_secs)
                     .query_async::<Option<String>>(&mut conn)
                     .await
-                    .map(|r| r.is_some())
+                    .map(|r: Option<String>| r.is_some())
                     .map_err(|e| {
                         ClusterError::Connection(format!("Redis SET NX dedup retry failed: {}", e))
                     })?;

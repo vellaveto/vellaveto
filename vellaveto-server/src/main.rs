@@ -650,6 +650,7 @@ async fn cmd_serve(
     // compilation failure. The legacy evaluation path bypasses path_rules,
     // network_rules, and context_conditions — silently degrading to it would
     // drop all advanced security constraints. Matches vellaveto-http-proxy behavior.
+    #[allow(unused_mut)] // mut needed when `discovery` feature enables set_topology_guard
     let mut engine = match PolicyEngine::with_policies(false, &policies) {
         Ok(mut compiled) => {
             if let Some(max_iter) = policy_config.max_path_decode_iterations {
