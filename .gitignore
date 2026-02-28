@@ -8,6 +8,7 @@
 # Logs
 code-logs/
 *.log
+claude-*-log.md
 
 # Python cache
 .pytest_cache/
@@ -77,6 +78,9 @@ security-testing/
 
 # Downloaded tools / archives
 *.zip
+/dist/
+/vellaveto/
+/vellaveto-src/
 
 # OS
 .DS_Store
