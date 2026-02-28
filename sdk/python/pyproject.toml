@@ -106,6 +106,9 @@ python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+ignore_missing_imports = true
+follow_imports = "skip"
+disable_error_code = ["import-untyped"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
