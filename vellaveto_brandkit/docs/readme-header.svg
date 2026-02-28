@@ -19,7 +19,7 @@
   <line x1="27.65" y1="48" x2="68.35" y2="48" stroke="#32D1FF" stroke-width="8.9" stroke-linecap="round"/>
 </g>
 <!-- VellaVeto centered below logo -->
-<text x="600" y="145" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif" font-weight="900" font-size="48" fill="#E6EAF2" letter-spacing="-0.02em" text-anchor="middle">Vella<tspan fill="#C04BF0">Veto</tspan></text>
+<text x="592" y="145" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif" font-weight="900" font-size="48" fill="#E6EAF2" letter-spacing="-0.02em" text-anchor="middle">Vella<tspan fill="#C04BF0">Veto</tspan></text>
 <!-- Tagline -->
 <text x="600" y="185" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif" font-weight="400" font-size="19" fill="#9AA4B2" text-anchor="middle">Agentic security control plane for MCP and AI agent tool calls</text>
 <!-- Accent line -->
