@@ -112,6 +112,9 @@ fn make_state() -> (AppState, TempDir) {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -209,6 +212,9 @@ fn make_empty_state() -> (AppState, TempDir) {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -690,6 +696,9 @@ priority = 1
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -854,6 +863,9 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -1139,6 +1151,9 @@ async fn test_find004_metrics_require_auth_true_blocks_unauthenticated() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -1247,6 +1262,9 @@ async fn test_find004_metrics_require_auth_false_allows_unauthenticated() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),

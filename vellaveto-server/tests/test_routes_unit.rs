@@ -190,6 +190,9 @@ fn test_state() -> (AppState, TempDir) {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -607,6 +610,9 @@ async fn health_not_rate_limited() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -725,6 +731,9 @@ async fn rate_limit_429_includes_retry_after() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -937,6 +946,9 @@ async fn per_ip_rate_limit_throttles_single_ip() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -1097,6 +1109,9 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -1230,6 +1245,9 @@ async fn per_ip_health_exempt_from_rate_limit() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -1355,6 +1373,9 @@ async fn per_ip_rate_limit_ipv6_addresses() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -1515,6 +1536,9 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -1659,6 +1683,9 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -1802,6 +1829,9 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -1943,6 +1973,9 @@ async fn per_ip_rate_limit_429_response_body_format() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -2095,6 +2128,9 @@ async fn health_returns_degraded_when_cluster_unhealthy() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),

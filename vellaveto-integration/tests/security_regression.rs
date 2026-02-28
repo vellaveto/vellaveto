@@ -434,6 +434,9 @@ mod server_auth {
                 licensing_validation: vellaveto_config::LicenseValidation {
                     tier: vellaveto_config::LicenseTier::Community,
                     limits: vellaveto_config::LicenseTier::Community.limits(),
+                    customer_id: None,
+                    max_nodes: None,
+                    max_endpoints: None,
                     reason: "test default".to_string(),
                 },
             }),
@@ -625,6 +628,9 @@ mod server_auth {
                 licensing_validation: vellaveto_config::LicenseValidation {
                     tier: vellaveto_config::LicenseTier::Community,
                     limits: vellaveto_config::LicenseTier::Community.limits(),
+                    customer_id: None,
+                    max_nodes: None,
+                    max_endpoints: None,
                     reason: "test default".to_string(),
                 },
             }),
@@ -1282,6 +1288,9 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test default".to_string(),
             },
         }),
@@ -1439,6 +1448,9 @@ async fn finding_12_approval_creation_failure_denies_request() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test default".to_string(),
             },
         }),
@@ -1939,6 +1951,9 @@ async fn find_r46_it003_malformed_json_request_body_rejected() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test default".to_string(),
             },
         }),

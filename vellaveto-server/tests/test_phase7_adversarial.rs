@@ -113,6 +113,9 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -401,6 +404,9 @@ async fn regression_38_prometheus_metrics_rate_limited() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),

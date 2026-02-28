@@ -125,6 +125,9 @@ fn make_state() -> (AppState, TempDir) {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -222,6 +225,9 @@ fn make_empty_state() -> (AppState, TempDir) {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -1367,6 +1373,9 @@ priority = 1
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -1529,6 +1538,9 @@ fn make_approval_state() -> (AppState, TempDir) {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -2052,6 +2064,9 @@ fn make_authed_state() -> (AppState, TempDir) {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -2672,6 +2687,9 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -3420,6 +3438,9 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),

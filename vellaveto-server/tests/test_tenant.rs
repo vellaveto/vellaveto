@@ -145,6 +145,9 @@ fn test_state_with_tenants(
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),
@@ -1141,6 +1144,9 @@ async fn evaluate_non_default_tenant_does_not_see_other_tenant_policies() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test".to_string(),
             },
         }),

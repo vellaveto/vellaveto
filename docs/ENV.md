@@ -15,6 +15,8 @@ Environment variables override values set in the config file.
 | `VELLAVETO_NO_CANONICALIZE` | `false` | Disable JSON-RPC re-serialization before forwarding |
 | `VELLAVETO_TRUSTED_KEY` | *(none)* | Pin a trusted Ed25519 public key for checkpoint verification |
 | `VELLAVETO_AGENT_ID` | *(none)* | Agent identity for stdio proxy mode |
+| `VELLAVETO_LICENSE_KEY` | *(none)* | Ed25519-signed license key (overrides config file) |
+| `VELLAVETO_LICENSE_PUBLIC_KEY` | *(none)* | Hex-encoded Ed25519 public key (32 bytes = 64 hex chars) for license verification |
 | `RUST_LOG` | `info` | Log level filter (`tracing` / `env_logger` syntax) |
 
 ## Rate Limiting

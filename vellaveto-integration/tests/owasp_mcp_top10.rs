@@ -948,6 +948,9 @@ mod owasp_mcp07_auth {
                 licensing_validation: vellaveto_config::LicenseValidation {
                     tier: vellaveto_config::LicenseTier::Community,
                     limits: vellaveto_config::LicenseTier::Community.limits(),
+                    customer_id: None,
+                    max_nodes: None,
+                    max_endpoints: None,
                     reason: "test default".to_string(),
                 },
             }),
@@ -1410,6 +1413,9 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
                 licensing_validation: vellaveto_config::LicenseValidation {
                     tier: vellaveto_config::LicenseTier::Community,
                     limits: vellaveto_config::LicenseTier::Community.limits(),
+                    customer_id: None,
+                    max_nodes: None,
+                    max_endpoints: None,
                     reason: "test default".to_string(),
                 },
             }),
@@ -1724,6 +1730,9 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test default".to_string(),
             },
         }),
@@ -1989,6 +1998,9 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
             licensing_validation: vellaveto_config::LicenseValidation {
                 tier: vellaveto_config::LicenseTier::Community,
                 limits: vellaveto_config::LicenseTier::Community.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "test default".to_string(),
             },
         }),

@@ -496,6 +496,9 @@ fn current_unix_timestamp_secs() -> Option<u64> {
 pub struct LicenseInfoResponse {
     pub tier: String,
     pub limits: vellaveto_config::TierLimits,
+    pub customer_id: Option<String>,
+    pub max_nodes: Option<u32>,
+    pub max_endpoints: Option<u32>,
     pub reason: String,
 }
 
@@ -508,6 +511,9 @@ pub async fn license_info(State(state): State<AppState>) -> Json<LicenseInfoResp
     Json(LicenseInfoResponse {
         tier: validation.tier.to_string(),
         limits: validation.limits,
+        customer_id: validation.customer_id,
+        max_nodes: validation.max_nodes,
+        max_endpoints: validation.max_endpoints,
         reason: validation.reason,
     })
 }

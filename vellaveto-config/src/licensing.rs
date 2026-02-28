@@ -4,16 +4,37 @@
 //
 // Copyright 2026 Paolo Vella
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// LICENSING — Tier configuration, limits, and license key validation
-// ═══════════════════════════════════════════════════════════════════════════════
+// =============================================================================
+// LICENSING — Tier configuration, limits, and Ed25519 license key validation
+// =============================================================================
+//
+// License key format (v2, Ed25519):
+//   VLV-{TIER}-{EXPIRY}-{CUSTOMER_ID}-{MAX_NODES}-{MAX_ENDPOINTS}.{SIG_HEX}
+//
+// The payload (everything before the '.') is signed with the licensor's Ed25519
+// private key. The binary embeds only the public key for verification.
+// No shared secret is distributed to customers.
+//
+// Migration from v1 (HMAC-SHA256):
+//   Old format: VLV-{TIER}-{EXPIRY}-{HMAC_HEX}
+//   Old keys will fail validation (no '.' separator) and fall back to Community.
+//   Customers must obtain new Ed25519-signed keys from the licensor.
 
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
-use tracing;
 
-const MAX_LICENSE_KEY_LEN: usize = 256;
-const MAX_HMAC_SECRET_LEN: usize = 128;
+/// Maximum total length of a license key string.
+/// Payload (~120 chars max) + '.' + 128 hex chars signature = ~250 max.
+const MAX_LICENSE_KEY_LEN: usize = 512;
+
+/// Ed25519 public key is 32 bytes = 64 hex characters.
+const EXPECTED_PUBLIC_KEY_HEX_LEN: usize = 64;
+
+/// Ed25519 signature is 64 bytes = 128 hex characters.
+const EXPECTED_SIGNATURE_HEX_LEN: usize = 128;
+
+/// Maximum length for the customer ID field in a license key.
+const MAX_CUSTOMER_ID_LEN: usize = 64;
 
 /// License tier determining feature limits.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -163,7 +184,24 @@ impl std::fmt::Debug for LicensingConfig {
 pub struct LicenseValidation {
     pub tier: LicenseTier,
     pub limits: TierLimits,
+    /// Customer identifier from the license key (None for Community/override).
+    pub customer_id: Option<String>,
+    /// Maximum cluster nodes permitted by this license.
+    pub max_nodes: Option<u32>,
+    /// Maximum managed MCP endpoints permitted by this license.
+    pub max_endpoints: Option<u32>,
     pub reason: String,
+}
+
+fn community(reason: &str) -> LicenseValidation {
+    LicenseValidation {
+        tier: LicenseTier::Community,
+        limits: LicenseTier::Community.limits(),
+        customer_id: None,
+        max_nodes: None,
+        max_endpoints: None,
+        reason: reason.to_string(),
+    }
 }
 
 impl LicensingConfig {
@@ -191,12 +229,19 @@ impl LicensingConfig {
     }
 
     /// Resolve the effective license tier. Fail-closed to Community.
+    ///
+    /// Verification uses Ed25519 asymmetric signatures. The public key is
+    /// loaded from `VELLAVETO_LICENSE_PUBLIC_KEY` (hex-encoded, 64 chars).
+    /// No shared secret is required on the customer's side.
     pub fn resolve(&self) -> LicenseValidation {
         if let Some(tier) = self.tier_override {
             tracing::warn!(tier = %tier, "License tier override active — bypasses key validation");
             return LicenseValidation {
                 tier,
                 limits: tier.limits(),
+                customer_id: None,
+                max_nodes: None,
+                max_endpoints: None,
                 reason: "tier_override in config".to_string(),
             };
         }
@@ -209,97 +254,141 @@ impl LicensingConfig {
             Some(k) if !k.is_empty() => k,
             _ => {
                 tracing::info!("No license key provided, defaulting to Community tier");
-                return LicenseValidation {
-                    tier: LicenseTier::Community,
-                    limits: LicenseTier::Community.limits(),
-                    reason: "no license key".to_string(),
-                };
+                return community("no license key");
             }
         };
 
         if key.len() > MAX_LICENSE_KEY_LEN {
             tracing::warn!("License key exceeds maximum length, defaulting to Community tier");
-            return LicenseValidation {
-                tier: LicenseTier::Community,
-                limits: LicenseTier::Community.limits(),
-                reason: "key too long".to_string(),
-            };
+            return community("key too long");
         }
 
-        // SECURITY (P2-3): Validate env-var key against control characters,
+        // SECURITY: Validate env-var key against control characters,
         // matching the same check performed on config-file keys in validate().
         if key
             .bytes()
             .any(|b| b < 0x20 || b == 0x7F || (0x80..=0x9F).contains(&b))
         {
             tracing::warn!("License key contains control characters, defaulting to Community tier");
-            return LicenseValidation {
-                tier: LicenseTier::Community,
-                limits: LicenseTier::Community.limits(),
-                reason: "key contains control characters".to_string(),
-            };
+            return community("key contains control characters");
         }
 
-        let secret = match std::env::var("VELLAVETO_LICENSE_SECRET") {
-            Ok(s) if !s.is_empty() && s.len() <= MAX_HMAC_SECRET_LEN => s,
-            Ok(s) if s.is_empty() => {
-                tracing::warn!("VELLAVETO_LICENSE_SECRET is empty");
-                return LicenseValidation {
-                    tier: LicenseTier::Community,
-                    limits: LicenseTier::Community.limits(),
-                    reason: "empty license secret".to_string(),
-                };
-            }
-            Ok(_) => {
-                tracing::warn!("VELLAVETO_LICENSE_SECRET exceeds maximum length");
-                return LicenseValidation {
-                    tier: LicenseTier::Community,
-                    limits: LicenseTier::Community.limits(),
-                    reason: "license secret too long".to_string(),
-                };
-            }
-            Err(_) => {
-                tracing::warn!("VELLAVETO_LICENSE_SECRET not set");
-                return LicenseValidation {
-                    tier: LicenseTier::Community,
-                    limits: LicenseTier::Community.limits(),
-                    reason: "no license secret".to_string(),
-                };
+        let verifying_key = match load_verifying_key() {
+            Some(vk) => vk,
+            None => {
+                tracing::warn!(
+                    "VELLAVETO_LICENSE_PUBLIC_KEY not set or invalid, defaulting to Community tier"
+                );
+                return community("no license public key");
             }
         };
 
-        validate_license_key(&key, &secret)
+        validate_license_key(&key, &verifying_key)
     }
 }
 
-fn validate_license_key(key: &str, secret: &str) -> LicenseValidation {
-    let community = || LicenseValidation {
-        tier: LicenseTier::Community,
-        limits: LicenseTier::Community.limits(),
-        reason: "invalid license key".to_string(),
+/// Load the Ed25519 verifying key from `VELLAVETO_LICENSE_PUBLIC_KEY` env var.
+///
+/// The env var must contain exactly 64 hex characters (32 bytes).
+/// Returns None on any error (fail-closed).
+fn load_verifying_key() -> Option<VerifyingKey> {
+    let hex_key = std::env::var("VELLAVETO_LICENSE_PUBLIC_KEY").ok()?;
+
+    if hex_key.len() != EXPECTED_PUBLIC_KEY_HEX_LEN {
+        tracing::warn!(
+            len = hex_key.len(),
+            expected = EXPECTED_PUBLIC_KEY_HEX_LEN,
+            "VELLAVETO_LICENSE_PUBLIC_KEY has wrong length"
+        );
+        return None;
+    }
+
+    // Reject non-hex characters early.
+    if !hex_key.bytes().all(|b| b.is_ascii_hexdigit()) {
+        tracing::warn!("VELLAVETO_LICENSE_PUBLIC_KEY contains non-hex characters");
+        return None;
+    }
+
+    let bytes = hex::decode(&hex_key).ok()?;
+    let key_bytes: [u8; 32] = bytes.try_into().ok()?;
+    VerifyingKey::from_bytes(&key_bytes).ok()
+}
+
+/// Validate an Ed25519-signed license key.
+///
+/// Key format: `VLV-{TIER}-{EXPIRY}-{CUSTOMER_ID}-{MAX_NODES}-{MAX_ENDPOINTS}.{SIG_HEX}`
+///
+/// SECURITY: Fail-closed — any parse or verification error returns Community tier.
+/// Ed25519 verify is internally constant-time.
+fn validate_license_key(key: &str, verifying_key: &VerifyingKey) -> LicenseValidation {
+    // Split payload from signature at the last '.'
+    let (payload, sig_hex) = match key.rsplit_once('.') {
+        Some(parts) => parts,
+        None => return community("invalid license key"),
     };
 
-    let parts: Vec<&str> = key.split('-').collect();
-    if parts.len() != 4 || parts[0] != "VLV" {
-        return community();
+    // Ed25519 signature is 64 bytes = 128 hex characters.
+    if sig_hex.len() != EXPECTED_SIGNATURE_HEX_LEN {
+        return community("invalid license key");
+    }
+
+    let sig_bytes = match hex::decode(sig_hex) {
+        Ok(b) => b,
+        Err(_) => return community("invalid license key"),
+    };
+
+    let signature = match Signature::from_slice(&sig_bytes) {
+        Ok(s) => s,
+        Err(_) => return community("invalid license key"),
+    };
+
+    // Parse payload: VLV-{TIER}-{EXPIRY}-{CUSTOMER_ID}-{MAX_NODES}-{MAX_ENDPOINTS}
+    let parts: Vec<&str> = payload.split('-').collect();
+    if parts.len() != 6 || parts[0] != "VLV" {
+        return community("invalid license key");
     }
 
     let tier = match LicenseTier::from_key_segment(parts[1]) {
         Some(t) => t,
-        None => return community(),
+        None => return community("invalid license key"),
     };
 
     let expiry: u64 = match parts[2].parse() {
         Ok(e) => e,
-        Err(_) => return community(),
+        Err(_) => return community("invalid license key"),
     };
 
-    // SECURITY (P2-4): HMAC-SHA256 hex is always 64 chars. Reject early
-    // to avoid unnecessary allocation in to_ascii_lowercase().
-    if parts[3].len() != 64 {
-        return community();
+    let customer_id = parts[3];
+    if customer_id.is_empty() || customer_id.len() > MAX_CUSTOMER_ID_LEN {
+        return community("invalid license key");
+    }
+    // SECURITY: Only allow alphanumeric + underscore in customer ID to prevent
+    // injection via crafted identifiers in logs, configs, or API responses.
+    if !customer_id
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
+        return community("invalid license key");
     }
 
+    let max_nodes: u32 = match parts[4].parse() {
+        Ok(n) => n,
+        Err(_) => return community("invalid license key"),
+    };
+
+    let max_endpoints: u32 = match parts[5].parse() {
+        Ok(e) => e,
+        Err(_) => return community("invalid license key"),
+    };
+
+    // SECURITY: Verify Ed25519 signature over the payload.
+    // ed25519-dalek::verify is internally constant-time.
+    if verifying_key.verify(payload.as_bytes(), &signature).is_err() {
+        return community("invalid license key");
+    }
+
+    // Check expiry after signature verification to avoid timing oracle on
+    // unsigned payloads.
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -309,165 +398,208 @@ fn validate_license_key(key: &str, secret: &str) -> LicenseValidation {
         });
 
     if now >= expiry {
-        return LicenseValidation {
-            tier: LicenseTier::Community,
-            limits: LicenseTier::Community.limits(),
-            reason: "license key expired".to_string(),
-        };
+        return community("license key expired");
     }
 
-    let message = format!("VLV-{}-{}", parts[1], parts[2]);
-    let expected_hmac = compute_hmac_sha256(secret.as_bytes(), message.as_bytes());
-    let provided_hmac = parts[3].to_ascii_lowercase();
-
-    if !constant_time_eq(expected_hmac.as_bytes(), provided_hmac.as_bytes()) {
-        return community();
-    }
-
-    tracing::info!(tier = %tier, expiry, "License key validated successfully");
+    tracing::info!(
+        tier = %tier,
+        customer_id,
+        expiry,
+        max_nodes,
+        max_endpoints,
+        "License key validated successfully"
+    );
     LicenseValidation {
         tier,
         limits: tier.limits(),
+        customer_id: Some(customer_id.to_string()),
+        max_nodes: Some(max_nodes),
+        max_endpoints: Some(max_endpoints),
         reason: "valid license key".to_string(),
     }
 }
 
-/// Compute HMAC-SHA256 using SHA-256 directly (no extra deps).
-pub(crate) fn compute_hmac_sha256(key: &[u8], message: &[u8]) -> String {
-    use sha2::Digest;
-    const BLOCK_SIZE: usize = 64;
+// =============================================================================
+// TESTS
+// =============================================================================
 
-    let mut k_prime = [0u8; BLOCK_SIZE];
-    if key.len() > BLOCK_SIZE {
-        let hash = Sha256::digest(key);
-        k_prime[..32].copy_from_slice(&hash);
-    } else {
-        k_prime[..key.len()].copy_from_slice(key);
-    }
-
-    let mut inner_hasher = Sha256::new();
-    let mut inner_key_pad = [0u8; BLOCK_SIZE];
-    for i in 0..BLOCK_SIZE {
-        inner_key_pad[i] = k_prime[i] ^ 0x36;
-    }
-    inner_hasher.update(inner_key_pad);
-    inner_hasher.update(message);
-    let inner_hash = inner_hasher.finalize();
-
-    let mut outer_hasher = Sha256::new();
-    let mut outer_key_pad = [0u8; BLOCK_SIZE];
-    for i in 0..BLOCK_SIZE {
-        outer_key_pad[i] = k_prime[i] ^ 0x5c;
-    }
-    outer_hasher.update(outer_key_pad);
-    outer_hasher.update(inner_hash);
-    hex::encode(outer_hasher.finalize())
-}
-
-/// Constant-time byte comparison.
-///
-/// SECURITY: Uses `std::hint::black_box` to prevent the compiler from
-/// optimizing the accumulator loop into an early-exit comparison.
-pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    std::hint::black_box(diff) == 0
-}
-
-/// Generate a license key for a given tier and expiry (test utility).
 #[cfg(test)]
-fn generate_license_key(tier: LicenseTier, expiry_epoch: u64, secret: &str) -> String {
-    let tier_segment = tier.as_key_segment();
-    let message = format!("VLV-{}-{}", tier_segment, expiry_epoch);
-    let hmac = compute_hmac_sha256(secret.as_bytes(), message.as_bytes());
-    format!("{}-{}", message, hmac)
+use ed25519_dalek::SigningKey;
+
+/// Generate an Ed25519-signed license key (test/tooling utility).
+#[cfg(test)]
+fn generate_license_key(
+    tier: LicenseTier,
+    expiry_epoch: u64,
+    customer_id: &str,
+    max_nodes: u32,
+    max_endpoints: u32,
+    signing_key: &SigningKey,
+) -> String {
+    use ed25519_dalek::Signer;
+
+    let payload = format!(
+        "VLV-{}-{}-{}-{}-{}",
+        tier.as_key_segment(),
+        expiry_epoch,
+        customer_id,
+        max_nodes,
+        max_endpoints,
+    );
+    let signature = signing_key.sign(payload.as_bytes());
+    format!("{}.{}", payload, hex::encode(signature.to_bytes()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const TEST_SECRET: &str = "test-secret-for-unit-tests-only";
+    fn test_keypair() -> (SigningKey, VerifyingKey) {
+        // Deterministic test keypair from fixed seed.
+        let seed: [u8; 32] = [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+            0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c,
+            0x1d, 0x1e, 0x1f, 0x20,
+        ];
+        let signing_key = SigningKey::from_bytes(&seed);
+        let verifying_key = signing_key.verifying_key();
+        (signing_key, verifying_key)
+    }
+
+    fn future_expiry() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() + 86400 * 365)
+            .unwrap_or(0)
+    }
 
     #[test]
     fn test_generate_and_validate_pro_key() {
-        let expiry = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() + 86400 * 365)
-            .unwrap_or(0);
-        let key = generate_license_key(LicenseTier::Pro, expiry, TEST_SECRET);
-        let result = validate_license_key(&key, TEST_SECRET);
+        let (sk, vk) = test_keypair();
+        let expiry = future_expiry();
+        let key = generate_license_key(LicenseTier::Pro, expiry, "CUST_001", 3, 25, &sk);
+        let result = validate_license_key(&key, &vk);
         assert_eq!(result.tier, LicenseTier::Pro);
+        assert_eq!(result.customer_id.as_deref(), Some("CUST_001"));
+        assert_eq!(result.max_nodes, Some(3));
+        assert_eq!(result.max_endpoints, Some(25));
     }
 
     #[test]
     fn test_generate_and_validate_all_tiers() {
-        let expiry = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() + 86400 * 365)
-            .unwrap_or(0);
+        let (sk, vk) = test_keypair();
+        let expiry = future_expiry();
         for tier in [
             LicenseTier::Community,
             LicenseTier::Pro,
             LicenseTier::Business,
             LicenseTier::Enterprise,
         ] {
-            let key = generate_license_key(tier, expiry, TEST_SECRET);
-            let result = validate_license_key(&key, TEST_SECRET);
+            let key = generate_license_key(tier, expiry, "TEST", 10, 100, &sk);
+            let result = validate_license_key(&key, &vk);
             assert_eq!(result.tier, tier);
         }
     }
 
     #[test]
     fn test_expired_key_returns_community() {
-        let key = generate_license_key(LicenseTier::Enterprise, 1_000_000, TEST_SECRET);
-        let result = validate_license_key(&key, TEST_SECRET);
+        let (sk, vk) = test_keypair();
+        let key = generate_license_key(LicenseTier::Enterprise, 1_000_000, "CUST", 10, 100, &sk);
+        let result = validate_license_key(&key, &vk);
         assert_eq!(result.tier, LicenseTier::Community);
         assert_eq!(result.reason, "license key expired");
     }
 
     #[test]
-    fn test_wrong_secret_returns_community() {
-        let expiry = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() + 86400 * 365)
-            .unwrap_or(0);
-        let key = generate_license_key(LicenseTier::Enterprise, expiry, TEST_SECRET);
-        let result = validate_license_key(&key, "wrong-secret");
+    fn test_wrong_key_returns_community() {
+        let (sk, _vk) = test_keypair();
+        let expiry = future_expiry();
+        let key = generate_license_key(LicenseTier::Enterprise, expiry, "CUST", 10, 100, &sk);
+
+        // Verify against a different public key
+        let other_seed: [u8; 32] = [0xFFu8; 32];
+        let other_vk = SigningKey::from_bytes(&other_seed).verifying_key();
+        let result = validate_license_key(&key, &other_vk);
         assert_eq!(result.tier, LicenseTier::Community);
+        assert_eq!(result.reason, "invalid license key");
     }
 
     #[test]
     fn test_tampered_tier_returns_community() {
-        let expiry = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() + 86400 * 365)
-            .unwrap_or(0);
-        let key = generate_license_key(LicenseTier::Community, expiry, TEST_SECRET);
+        let (sk, vk) = test_keypair();
+        let expiry = future_expiry();
+        let key = generate_license_key(LicenseTier::Community, expiry, "CUST", 3, 25, &sk);
+        // Tamper the tier segment — signature will not match.
         let tampered = key.replace("VLV-COM-", "VLV-ENT-");
-        let result = validate_license_key(&tampered, TEST_SECRET);
+        let result = validate_license_key(&tampered, &vk);
+        assert_eq!(result.tier, LicenseTier::Community);
+        assert_eq!(result.reason, "invalid license key");
+    }
+
+    #[test]
+    fn test_tampered_nodes_returns_community() {
+        let (sk, vk) = test_keypair();
+        let expiry = future_expiry();
+        let key = generate_license_key(LicenseTier::Enterprise, expiry, "CUST", 3, 25, &sk);
+        // Tamper max_nodes from 3 to 999 — signature will not match.
+        let tampered = key.replace("-3-25.", "-999-25.");
+        let result = validate_license_key(&tampered, &vk);
+        assert_eq!(result.tier, LicenseTier::Community);
+    }
+
+    #[test]
+    fn test_tampered_customer_id_returns_community() {
+        let (sk, vk) = test_keypair();
+        let expiry = future_expiry();
+        let key = generate_license_key(LicenseTier::Enterprise, expiry, "LEGIT", 3, 25, &sk);
+        let tampered = key.replace("-LEGIT-", "-PIRATE-");
+        let result = validate_license_key(&tampered, &vk);
         assert_eq!(result.tier, LicenseTier::Community);
     }
 
     #[test]
     fn test_malformed_key_returns_community() {
+        let (_sk, vk) = test_keypair();
         for key in [
             "",
             "not-a-key",
             "VLV",
             "VLV-PRO",
             "VLV-PRO-123",
-            "VLV-UNKNOWN-123-abc",
-            "XXX-PRO-123-abc",
+            "VLV-UNKNOWN-123-abc.deadbeef",
+            "XXX-PRO-123-CID-3-25.deadbeef",
+            // Old v1 format (no '.' separator)
+            "VLV-PRO-123-abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567",
         ] {
-            let result = validate_license_key(key, TEST_SECRET);
-            assert_eq!(result.tier, LicenseTier::Community);
+            let result = validate_license_key(key, &vk);
+            assert_eq!(result.tier, LicenseTier::Community, "key={key:?}");
         }
+    }
+
+    #[test]
+    fn test_customer_id_validation() {
+        let (sk, vk) = test_keypair();
+        let expiry = future_expiry();
+
+        // Empty customer ID — manually craft since generate_license_key won't
+        let payload = format!("VLV-ENT-{expiry}--3-25");
+        let sig = {
+            use ed25519_dalek::Signer;
+            sk.sign(payload.as_bytes())
+        };
+        let key = format!("{}.{}", payload, hex::encode(sig.to_bytes()));
+        let result = validate_license_key(&key, &vk);
+        assert_eq!(result.tier, LicenseTier::Community);
+
+        // Customer ID with special chars
+        let payload = format!("VLV-ENT-{expiry}-CUST@EVIL-3-25");
+        let sig = {
+            use ed25519_dalek::Signer;
+            sk.sign(payload.as_bytes())
+        };
+        let key = format!("{}.{}", payload, hex::encode(sig.to_bytes()));
+        let result = validate_license_key(&key, &vk);
+        assert_eq!(result.tier, LicenseTier::Community);
     }
 
     #[test]
@@ -493,15 +625,6 @@ mod tests {
     }
 
     #[test]
-    fn test_hmac_sha256_known_vector() {
-        let hmac = compute_hmac_sha256(b"Jefe", b"what do ya want for nothing?");
-        assert_eq!(
-            hmac,
-            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
-        );
-    }
-
-    #[test]
     fn test_tier_override_takes_precedence() {
         let config = LicensingConfig {
             license_key: Some("invalid".to_string()),
@@ -518,9 +641,39 @@ mod tests {
         assert_eq!(result.tier, LicenseTier::Community);
     }
 
-    // ═══════════════════════════════════════════════════
+    #[test]
+    fn test_ed25519_signature_is_deterministic() {
+        let (sk, _vk) = test_keypair();
+        let key1 = generate_license_key(LicenseTier::Pro, 9999999999, "C1", 3, 25, &sk);
+        let key2 = generate_license_key(LicenseTier::Pro, 9999999999, "C1", 3, 25, &sk);
+        assert_eq!(key1, key2);
+    }
+
+    #[test]
+    fn test_deployment_limits_in_validation() {
+        let (sk, vk) = test_keypair();
+        let expiry = future_expiry();
+        let key = generate_license_key(LicenseTier::Business, expiry, "ACME_CORP", 5, 50, &sk);
+        let result = validate_license_key(&key, &vk);
+        assert_eq!(result.tier, LicenseTier::Business);
+        assert_eq!(result.max_nodes, Some(5));
+        assert_eq!(result.max_endpoints, Some(50));
+        assert_eq!(result.customer_id.as_deref(), Some("ACME_CORP"));
+    }
+
+    #[test]
+    fn test_v1_hmac_key_fails_gracefully() {
+        let (_sk, vk) = test_keypair();
+        // Old v1 format: VLV-{TIER}-{EXPIRY}-{HMAC_HEX} (no '.' separator)
+        let old_key = "VLV-ENT-1740000000-a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
+        let result = validate_license_key(old_key, &vk);
+        assert_eq!(result.tier, LicenseTier::Community);
+        assert_eq!(result.reason, "invalid license key");
+    }
+
+    // =============================================================================
     // LicensingConfig::validate() tests
-    // ═══════════════════════════════════════════════════
+    // =============================================================================
 
     #[test]
     fn test_licensing_config_validate_ok() {
@@ -531,7 +684,7 @@ mod tests {
     #[test]
     fn test_licensing_config_validate_ok_with_key() {
         let config = LicensingConfig {
-            license_key: Some("VLV-PRO-12345-abcdef".to_string()),
+            license_key: Some("VLV-PRO-12345-CID-3-25.abcdef".to_string()),
             tier_override: None,
         };
         assert!(config.validate().is_ok());
@@ -596,8 +749,78 @@ mod tests {
 
     #[test]
     fn test_oversized_key_returns_community() {
+        let (_sk, vk) = test_keypair();
         let key = "K".repeat(MAX_LICENSE_KEY_LEN + 1);
-        let result = validate_license_key(&key, TEST_SECRET);
+        let result = validate_license_key(&key, &vk);
+        assert_eq!(result.tier, LicenseTier::Community);
+    }
+
+    #[test]
+    fn test_load_verifying_key_wrong_length() {
+        // Temporarily set env var with wrong length
+        std::env::set_var("VELLAVETO_LICENSE_PUBLIC_KEY", "aabbcc");
+        let result = load_verifying_key();
+        assert!(result.is_none());
+        std::env::remove_var("VELLAVETO_LICENSE_PUBLIC_KEY");
+    }
+
+    #[test]
+    fn test_load_verifying_key_non_hex() {
+        std::env::set_var(
+            "VELLAVETO_LICENSE_PUBLIC_KEY",
+            "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+        );
+        let result = load_verifying_key();
+        assert!(result.is_none());
+        std::env::remove_var("VELLAVETO_LICENSE_PUBLIC_KEY");
+    }
+
+    #[test]
+    fn test_load_verifying_key_valid() {
+        let (_sk, vk) = test_keypair();
+        let hex_key = hex::encode(vk.as_bytes());
+        std::env::set_var("VELLAVETO_LICENSE_PUBLIC_KEY", &hex_key);
+        let result = load_verifying_key();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().as_bytes(), vk.as_bytes());
+        std::env::remove_var("VELLAVETO_LICENSE_PUBLIC_KEY");
+    }
+
+    #[test]
+    fn test_signature_truncation_rejected() {
+        let (sk, vk) = test_keypair();
+        let expiry = future_expiry();
+        let key = generate_license_key(LicenseTier::Pro, expiry, "CUST", 3, 25, &sk);
+        // Truncate the signature
+        let truncated = &key[..key.len() - 10];
+        let result = validate_license_key(truncated, &vk);
+        assert_eq!(result.tier, LicenseTier::Community);
+    }
+
+    #[test]
+    fn test_zero_nodes_and_endpoints_valid() {
+        let (sk, vk) = test_keypair();
+        let expiry = future_expiry();
+        let key = generate_license_key(LicenseTier::Community, expiry, "FREE_USER", 0, 0, &sk);
+        let result = validate_license_key(&key, &vk);
+        assert_eq!(result.tier, LicenseTier::Community);
+        assert_eq!(result.max_nodes, Some(0));
+        assert_eq!(result.max_endpoints, Some(0));
+    }
+
+    #[test]
+    fn test_customer_id_max_length() {
+        let (sk, vk) = test_keypair();
+        let expiry = future_expiry();
+        let cid = "A".repeat(MAX_CUSTOMER_ID_LEN);
+        let key = generate_license_key(LicenseTier::Pro, expiry, &cid, 3, 25, &sk);
+        let result = validate_license_key(&key, &vk);
+        assert_eq!(result.tier, LicenseTier::Pro);
+
+        // One char over max
+        let cid_over = "A".repeat(MAX_CUSTOMER_ID_LEN + 1);
+        let key = generate_license_key(LicenseTier::Pro, expiry, &cid_over, 3, 25, &sk);
+        let result = validate_license_key(&key, &vk);
         assert_eq!(result.tier, LicenseTier::Community);
     }
 }
