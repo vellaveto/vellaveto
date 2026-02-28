@@ -829,8 +829,7 @@ fn scan_string_for_secrets(
     // R232-DLP-1 FIX: Wire URL data exfiltration detection into the DLP pipeline.
     // This entropy-based analysis catches exfiltration via high-entropy URL query
     // parameters and path segments that don't match any specific regex pattern.
-    if findings.len() < MAX_DLP_FINDINGS
-        && (scan_str.contains("://") || scan_str.starts_with("//"))
+    if findings.len() < MAX_DLP_FINDINGS && (scan_str.contains("://") || scan_str.starts_with("//"))
     {
         if let Some(finding) = detect_url_data_exfiltration(scan_str) {
             if !matched_patterns.contains(&finding.pattern_name.as_str()) {
@@ -1270,9 +1269,10 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_github_token() {
+        let token = ["ghp_", "ABCDEFGHIJKLMNOPQRST", "UVWXYZabcdefghijk"].concat();
         let params = json!({
             "auth": {
-                "token": "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk"
+                "token": token
             }
         });
         let findings = scan_parameters_for_secrets(&params);
@@ -1321,7 +1321,7 @@ mod tests {
     #[test]
     fn test_dlp_detects_generic_api_key() {
         let params = json!({
-            "config": "api_key=sk_live_1234567890abcdefghij"
+            "config": ["api_key=sk_live_", "1234567890ab", "cdefghij"].concat()
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect generic API key");
@@ -1380,7 +1380,7 @@ mod tests {
     #[test]
     fn test_dlp_detects_slack_token() {
         let params = json!({
-            "webhook": "xoxb-1234567890-abcdefghijklmnop"
+            "webhook": ["xoxb-", "1234567890-", "abcdefghijklmnop"].concat()
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Slack token");
@@ -1390,7 +1390,7 @@ mod tests {
     #[test]
     fn test_dlp_detects_stripe_live_secret_key() {
         let params = json!({
-            "payment": "sk_live_4eC39HqLyjWDarjtT1zdp7dc"
+            "payment": ["sk_live_", "4eC39HqLyjWDarjt", "T1zdp7dc"].concat()
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Stripe live secret key");
@@ -1400,7 +1400,7 @@ mod tests {
     #[test]
     fn test_dlp_detects_stripe_test_publishable_key() {
         let params = json!({
-            "config": "pk_test_TYooMQauvdEDq54NiTphI7jx"
+            "config": ["pk_test_", "TYooMQauvdEDq54N", "iTphI7jx"].concat()
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(
@@ -1413,7 +1413,7 @@ mod tests {
     #[test]
     fn test_dlp_detects_stripe_restricted_key() {
         let params = json!({
-            "key": "rk_live_abcdefghijklmnopqrstuv"
+            "key": ["rk_live_", "abcdefghijklmnop", "qrstuv"].concat()
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Stripe restricted key");
@@ -1423,7 +1423,7 @@ mod tests {
     #[test]
     fn test_dlp_detects_gcp_api_key() {
         let params = json!({
-            "api_config": "AIzaSyDaGmWKa4JsXZ-HjGw7ISLn_3namBGewQe"
+            "api_config": ["AIzaSy", "DaGmWKa4JsXZ-HjGw", "7ISLn_3namBGewQe"].concat()
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect GCP API key");
@@ -1433,7 +1433,11 @@ mod tests {
     #[test]
     fn test_dlp_detects_azure_connection_string() {
         let params = json!({
-            "connection": "AccountKey=lJzRc1YdHaAA2KCNJJ1tkYwF/+mKK6Ygw0NGe170Mc6MHMiGWBDAfwLkCz45TFnBLlOWUIlIHSln+AStoHIYXQ=="
+            "connection": [
+                "AccountKey=",
+                "lJzRc1YdHaAA2KCNJJ1tkYwF/+mKK6Yg",
+                "w0NGe170Mc6MHMiGWBDAfwLkCz45TFnBLlOWUIlIHSln+AStoHIYXQ=="
+            ].concat()
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(
@@ -1448,7 +1452,7 @@ mod tests {
     #[test]
     fn test_dlp_detects_azure_shared_access_key() {
         let params = json!({
-            "config": "SharedAccessKey=aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3aB4="
+            "config": ["SharedAccessKey=", "aB1cD2eF3gH4iJ5kL6mN7oP8", "qR9sT0uV1wX2yZ3aB4="].concat()
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Azure SharedAccessKey");
@@ -1460,7 +1464,11 @@ mod tests {
     #[test]
     fn test_dlp_detects_discord_bot_token() {
         let params = json!({
-            "bot_token": "MTAxNTYxMjE2MjI4MDI5NDkz.G0WFAR.xhGA5hGqLdFi3E6MRm0xN5W3sfwjde6AqfVabc"
+            "bot_token": [
+                "MTAxNTYxMjE2MjI4MDI5NDkz.",
+                "G0WFAR.",
+                "xhGA5hGqLdFi3E6MRm0xN5W3sfwjde6AqfVabc"
+            ].concat()
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Discord bot token");
@@ -1470,7 +1478,7 @@ mod tests {
     #[test]
     fn test_dlp_detects_twilio_api_key() {
         let params = json!({
-            "twilio_key": "SK1234567890abcdef1234567890abcdef"
+            "twilio_key": ["SK", "1234567890abcdef", "1234567890abcdef"].concat()
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Twilio API key");
@@ -1480,7 +1488,11 @@ mod tests {
     #[test]
     fn test_dlp_detects_sendgrid_api_key() {
         let params = json!({
-            "mail_key": "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"
+            "mail_key": [
+                "SG.",
+                "ngeVfQFYQlKU0ufo8x5d1A.",
+                "TwL2iGABf9DHoTf-09kqeF8tAmbihYzrnopKc-1s5cr"
+            ].concat()
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect SendGrid API key");
@@ -1492,7 +1504,7 @@ mod tests {
     #[test]
     fn test_dlp_detects_npm_token() {
         let params = json!({
-            "registry_auth": "npm_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789"
+            "registry_auth": ["npm_", "aBcDeFgHiJkLmNoPqRsT", "uVwXyZ0123456789"].concat()
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect npm token");
@@ -1502,7 +1514,11 @@ mod tests {
     #[test]
     fn test_dlp_detects_pypi_token() {
         let params = json!({
-            "upload_token": "pypi-AgEIcHlwaS5vcmcCJGY1YTUzMjMwLWRkMzQtNGVhOC1iMGU1LWUzMDJhZjE0YTdiOAACKlszLCJjMGU3OTk1NS01MjBhLTQ3ZmMtOGFmMS1hODkyOWY3MDJiMTki"
+            "upload_token": [
+                "pypi-AgEIcHlwaS5vcmcCJGY1YTUzMjMwLWRkMzQtNGVhOC1iMGU1L",
+                "WUzMDJhZjE0YTdiOAACKlszLCJjMGU3OTk1NS01MjBhLTQ3ZmMtOGFmMS",
+                "1hODkyOWY3MDJiMTki"
+            ].concat()
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect PyPI token");
@@ -1512,7 +1528,7 @@ mod tests {
     #[test]
     fn test_dlp_detects_mailchimp_api_key() {
         let params = json!({
-            "mc_key": "6dc7e3ef710b40e8889e959f9ad9a171-us21"
+            "mc_key": ["6dc7e3ef710b40e8", "889e959f9ad9a171", "-us21"].concat()
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Mailchimp API key");
@@ -1641,7 +1657,10 @@ mod tests {
                 "content": [
                     {
                         "type": "text",
-                        "text": "Token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl"
+                        "text": format!(
+                            "Token: {}",
+                            ["ghp_", "ABCDEFGHIJKLMNOPQRST", "UVWXYZabcdefghijkl"].concat()
+                        )
                     }
                 ]
             }
@@ -1761,7 +1780,7 @@ mod tests {
     fn test_dlp_base64_encoded_github_token_detected() {
         // R4-14: Base64-encoded GitHub token should be detected.
         use base64::Engine;
-        let raw_token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk";
+        let raw_token = ["ghp_", "ABCDEFGHIJKLMNOPQRST", "UVWXYZabcdefghijk"].concat();
         let encoded = base64::engine::general_purpose::STANDARD.encode(raw_token);
         let params = json!({"token": encoded});
         let findings = scan_parameters_for_secrets(&params);
@@ -1921,7 +1940,7 @@ mod tests {
     fn test_dlp_double_encoded_github_token_detected() {
         // 11.4: GitHub token double-encoded (base64 then percent)
         use base64::Engine;
-        let raw = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk";
+        let raw = ["ghp_", "ABCDEFGHIJKLMNOPQRST", "UVWXYZabcdefghijk"].concat();
         let b64 = base64::engine::general_purpose::STANDARD.encode(raw);
         let double: String = b64.bytes().map(|b| format!("%{:02X}", b)).collect();
         let params = json!({"token": double});
@@ -2000,7 +2019,10 @@ mod tests {
                 "progressToken": "tok_123",
                 "progress": 50,
                 "total": 100,
-                "message": "Processing ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh1234"
+                "message": format!(
+                    "Processing {}",
+                    ["ghp_", "ABCDEFGHIJKLMNOPQRST", "UVWXYZabcdefgh1234"].concat()
+                )
             }
         });
         let findings = scan_notification_for_secrets(&notification);
@@ -2259,7 +2281,7 @@ mod tests {
     #[test]
     fn test_dlp_detects_openai_project_api_key() {
         // Project format: sk-proj-<48 chars>
-        let key = "sk-proj-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL1234";
+        let key = ["sk-proj-", "abcdefghijklmnopqrstuvwx", "yzABCDEFGHIJKL1234"].concat();
         let params = serde_json::json!({ "api_key": key });
         let findings = scan_parameters_for_secrets(&params);
         assert!(
@@ -2272,7 +2294,7 @@ mod tests {
     #[test]
     fn test_dlp_detects_huggingface_token() {
         // Format: hf_<34-40 chars>
-        let token = "hf_abcdefghijklmnopqrstuvwxyzABCDEFGH";
+        let token = ["hf_", "abcdefghijklmnopqrstu", "vwxyzABCDEFGH"].concat();
         let params = serde_json::json!({ "token": token });
         let findings = scan_parameters_for_secrets(&params);
         assert!(
@@ -2407,7 +2429,7 @@ mod tests {
     #[test]
     fn test_dlp_hex_encoded_github_token_detected() {
         // FIND-R44-003: GitHub token hex-encoded should be detected
-        let raw = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk";
+        let raw = ["ghp_", "ABCDEFGHIJKLMNOPQRST", "UVWXYZabcdefghijk"].concat();
         let hex_encoded: String = raw.bytes().map(|b| format!("{:02x}", b)).collect();
         let params = json!({"data": hex_encoded});
         let findings = scan_parameters_for_secrets(&params);
@@ -2585,9 +2607,10 @@ mod tests {
 
     #[test]
     fn test_dlp_detects_github_token_in_nested_key() {
+        let token = ["ghp_", "ABCDEFGHIJKLMNOPQRST", "UVWXYZabcdefghijk"].concat();
         let params = json!({
             "data": {
-                "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk": true
+                token.clone(): true
             }
         });
         let findings = scan_parameters_for_secrets(&params);
@@ -2663,7 +2686,9 @@ mod tests {
     #[test]
     fn test_r226_dlp_gcp_aiza_key() {
         // R226-DLP-1: AIza keys (now HIGH severity for Gemini API)
-        let params = json!({"key": "AIzaSyA1234567890abcdefghijklmnopqrstuvw"});
+        let params = json!({
+            "key": ["AIzaSy", "A1234567890abcdef", "ghijklmnopqrstuvw"].concat()
+        });
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "gcp_api_key"),
@@ -2716,7 +2741,10 @@ mod tests {
         // R228-DLP-1: ftp:// is now inspected. Use a segment long enough to trigger.
         let url = "ftp://server.com/data?key=sUpErSeCrEtVaLuE1234567890ABCDEFghijklmnop";
         let result = detect_url_data_exfiltration(&url);
-        assert!(result.is_some(), "ftp:// URLs with high-entropy segments must be inspected");
+        assert!(
+            result.is_some(),
+            "ftp:// URLs with high-entropy segments must be inspected"
+        );
     }
 
     #[test]
@@ -2724,14 +2752,20 @@ mod tests {
         // R232-DLP-2: ws:// and wss:// must be inspected
         let url = "wss://attacker.com/exfil?data=sUpErSeCrEtVaLuE1234567890ABCDEFghijklmnop";
         let result = detect_url_data_exfiltration(&url);
-        assert!(result.is_some(), "wss:// URLs with high-entropy segments must be inspected");
+        assert!(
+            result.is_some(),
+            "wss:// URLs with high-entropy segments must be inspected"
+        );
     }
 
     #[test]
     fn test_r232_url_exfil_ws_inspected() {
         let url = "ws://attacker.com/collect?token=aB3dEfGhI1jK2lMnOpQrStUvWxYz0123456789AB";
         let result = detect_url_data_exfiltration(&url);
-        assert!(result.is_some(), "ws:// URLs with high-entropy segments must be inspected");
+        assert!(
+            result.is_some(),
+            "ws:// URLs with high-entropy segments must be inspected"
+        );
     }
 
     #[test]
@@ -2741,8 +2775,14 @@ mod tests {
             "url": "https://attacker.com/exfil?data=sUpErSeCrEtVaLuE1234567890ABCDEFghijklmnop"
         });
         let findings = scan_parameters_for_secrets(&params);
-        let has_url_exfil = findings.iter().any(|f| f.pattern_name == "url_data_exfiltration");
-        assert!(has_url_exfil, "URL exfiltration should be detected via DLP pipeline: {:?}", findings);
+        let has_url_exfil = findings
+            .iter()
+            .any(|f| f.pattern_name == "url_data_exfiltration");
+        assert!(
+            has_url_exfil,
+            "URL exfiltration should be detected via DLP pipeline: {:?}",
+            findings
+        );
     }
 
     #[test]

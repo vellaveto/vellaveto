@@ -60,7 +60,7 @@ jobs:
       pages: write
       id-token: write
     # Requires GitHub Pages to be enabled: Settings > Pages > Source: GitHub Actions
-    if: github.repository == 'vellaveto/vellaveto'
+    if: github.repository == 'vellaveto/vellaveto' && vars.ENABLE_GITHUB_PAGES == 'true'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
