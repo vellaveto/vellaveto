@@ -3,23 +3,23 @@
 <section id="compliance">
   <div class="wrap">
     <h2 class="section-title">Control Mapping</h2>
-    <p class="section-sub">Security controls mapped to major frameworks; validation remains deployment-specific.</p>
+    <p class="section-sub">Security controls mapped to 12 regulatory and industry frameworks. Validation remains deployment-specific.</p>
     <div class="badges-grid">
-      <div class="card badge-card badge-purple">
+      <div class="card badge-card badge-magenta">
         <div class="badge-header">
           <svg class="badge-check" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           <div class="badge-title">EU AI Act</div>
         </div>
         <div class="badge-status">Control Mapping</div>
-        <p>Art 50 transparency marking, Art 10 data governance, Art 12 record-keeping, Art 14 human oversight.</p>
+        <p>Art 50 transparency, Art 10 data governance, Art 12 record-keeping, Art 14 human oversight, Art 9 risk management.</p>
       </div>
-      <div class="card badge-card badge-teal">
+      <div class="card badge-card badge-cyan">
         <div class="badge-header">
           <svg class="badge-check" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           <div class="badge-title">NIS2</div>
         </div>
         <div class="badge-status">Operational Controls</div>
-        <p>Incident reporting templates (24h/72h/1M), supply chain security, access control, continuous monitoring.</p>
+        <p>Incident reporting (24h/72h/1M), supply chain security, access control, continuous monitoring.</p>
       </div>
       <div class="card badge-card badge-amber">
         <div class="badge-header">
@@ -35,7 +35,7 @@
           <div class="badge-title">ISO 42001</div>
         </div>
         <div class="badge-status">Mapped</div>
-        <p>AI management system controls mapped to Vellaveto features.</p>
+        <p>AI management system controls mapped to policy engine, monitoring, and improvement evidence.</p>
       </div>
       <div class="card badge-card badge-rose">
         <div class="badge-header">
@@ -43,40 +43,66 @@
           <div class="badge-title">SOC 2 Type II</div>
         </div>
         <div class="badge-status">Evidence Inputs</div>
-        <p>Automated access review reports, CC6 evidence, trust services criteria mapping.</p>
+        <p>Automated CC6 access review reports, trust services criteria mapping, HTML and JSON export.</p>
       </div>
-      <div class="card badge-card badge-accent">
+      <div class="card badge-card badge-magenta">
         <div class="badge-header">
           <svg class="badge-check" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          <div class="badge-title">OWASP Top 10</div>
+          <div class="badge-title">OWASP Agentic</div>
+        </div>
+        <div class="badge-status">ASI01&ndash;ASI10</div>
+        <p>All 10 risks covered: injection, tool poisoning, insecure output, rug pull, memory poisoning, and more.</p>
+      </div>
+      <div class="card badge-card badge-cyan">
+        <div class="badge-header">
+          <svg class="badge-check" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <div class="badge-title">OWASP MCP Top 10</div>
         </div>
         <div class="badge-status">Coverage Map</div>
-        <p>Controls and detections are mapped across ASI01-ASI10; coverage still depends on deployment and policy configuration.</p>
+        <p>MCP-specific risks: tool poisoning, prompt injection, supply chain, data exfiltration, and 6 more.</p>
       </div>
+      <div class="card badge-card badge-amber">
+        <div class="badge-header">
+          <svg class="badge-check" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <div class="badge-title">CoSAI + Adversa</div>
+        </div>
+        <div class="badge-status">Full Coverage</div>
+        <p>38/38 CoSAI controls implemented. 25/25 Adversa TOP 25. 7-framework gap analysis with remediation.</p>
+      </div>
+      <div class="card badge-card badge-emerald">
+        <div class="badge-header">
+          <svg class="badge-check" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <div class="badge-title">NIST AI 600-1</div>
+        </div>
+        <div class="badge-status">Mapped</div>
+        <p>Foundational AI risk framework controls mapped to policy engine features and audit evidence.</p>
+      </div>
+    </div>
+    <div class="compliance-cta">
+      <a href="/compliance" class="btn btn-outline">View detailed compliance mapping &rarr;</a>
     </div>
   </div>
 </section>
 
 <style>
-  .badges-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+  .badges-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
     gap:1.25rem;margin-top:2rem}
   .badge-card{padding:1.5rem;border-left:3px solid var(--border)}
   .badge-header{display:flex;align-items:center;gap:.5rem;margin-bottom:.25rem}
   .badge-check{flex-shrink:0}
-  .badge-purple{border-left-color:var(--purple)}
-  .badge-purple .badge-check{color:var(--purple)}
-  .badge-teal{border-left-color:var(--teal)}
-  .badge-teal .badge-check{color:var(--teal)}
+  .badge-magenta{border-left-color:var(--magenta)}
+  .badge-magenta .badge-check{color:var(--magenta)}
+  .badge-cyan{border-left-color:var(--cyan)}
+  .badge-cyan .badge-check{color:var(--cyan)}
   .badge-amber{border-left-color:var(--amber)}
   .badge-amber .badge-check{color:var(--amber)}
   .badge-emerald{border-left-color:var(--emerald)}
   .badge-emerald .badge-check{color:var(--emerald)}
   .badge-rose{border-left-color:var(--rose)}
   .badge-rose .badge-check{color:var(--rose)}
-  .badge-accent{border-left-color:var(--accent)}
-  .badge-accent .badge-check{color:var(--accent)}
-  .badge-title{font-size:1.1rem;font-weight:700;color:var(--text)}
-  .badge-status{font-size:.75rem;font-weight:600;color:var(--teal);
+  .badge-title{font-size:1.05rem;font-weight:700;color:var(--text)}
+  .badge-status{font-size:.7rem;font-weight:600;color:var(--magenta);
     text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem}
-  .badge-card p{font-size:.85rem;color:var(--muted);line-height:1.6}
+  .badge-card p{font-size:.825rem;color:var(--muted);line-height:1.6}
+  .compliance-cta{text-align:center;margin-top:2rem}
 </style>

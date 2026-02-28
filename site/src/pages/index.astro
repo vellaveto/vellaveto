@@ -2,19 +2,25 @@
 import Base from '../layouts/Base.astro';
 import Hero from '../components/Hero.astro';
 import Features from '../components/Features.astro';
+import Shield from '../components/Shield.astro';
+import Ecosystem from '../components/Ecosystem.astro';
 import Compliance from '../components/Compliance.astro';
 import CodeExample from '../components/CodeExample.astro';
 import Audience from '../components/Audience.astro';
 import Stats from '../components/Stats.astro';
 ---
-<Base title="Vellaveto — Agentic Security Control Plane">
+<Base title="VellaVeto — Agentic Security Control Plane">
   <Hero />
   <hr class="divider" />
   <Features />
   <hr class="divider" />
-  <Compliance />
+  <Shield />
+  <hr class="divider" />
+  <Ecosystem />
   <hr class="divider" />
   <CodeExample />
+  <hr class="divider" />
+  <Compliance />
   <hr class="divider" />
   <Audience />
   <hr class="divider" />
@@ -23,7 +29,7 @@ import Stats from '../components/Stats.astro';
   <section>
     <div class="wrap" style="text-align:center">
       <h2 class="section-title">Get started</h2>
-      <p class="section-sub">Explore the source, review the docs, or compare deployment paths.</p>
+      <p class="section-sub" style="margin-left:auto;margin-right:auto">Explore the source, review the docs, or compare deployment paths.</p>
       <div class="links-row">
         <a href="https://github.com/vellaveto/vellaveto" class="btn btn-primary" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
         <a href="https://github.com/vellaveto/vellaveto/tree/main/docs" class="btn btn-outline" target="_blank" rel="noopener noreferrer">Documentation</a>

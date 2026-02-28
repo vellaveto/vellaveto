@@ -1,24 +1,19 @@
 <div align="center">
-  <img src="vellaveto_brandkit/docs/readme-header.png" alt="Vellaveto" width="720">
+  <br>
+  <img src="vellaveto_brandkit/docs/readme-header.png" alt="VellaVeto — Agentic Security Control Plane" width="720">
   <br><br>
-  <p align="center">
-    <strong>Agentic security control plane for MCP and AI agent tool calls</strong>
-  </p>
-  <p align="center">
-    Govern &middot; Enforce &middot; Discover &middot; Prove
-  </p>
-  <p align="center">
+  <p>
     <a href="https://github.com/vellaveto/vellaveto/releases"><img src="https://img.shields.io/badge/version-6.0.0-blue.svg" alt="Version 6.0.0"></a>
     <a href="https://github.com/vellaveto/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/vellaveto/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-MPL--2.0_/_Apache--2.0_/_BUSL--1.1-blue.svg" alt="License: Three-tier"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-9%2C000%2B_passing-brightgreen.svg" alt="Tests: 9,000+ passing">
+    <img src="https://img.shields.io/badge/tests-9%2C600%2B_passing-brightgreen.svg" alt="Tests: 9,600+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
     <a href="https://www.bestpractices.dev/projects/12042"><img src="https://www.bestpractices.dev/projects/12042/badge" alt="OpenSSF Best Practices"></a>
   </p>
-  <p align="center">
+  <p>
     <a href="#quick-start">Quick Start</a> &middot;
     <a href="#architecture">Architecture</a> &middot;
     <a href="#key-capabilities">Capabilities</a> &middot;
@@ -47,8 +42,8 @@ The v6 foundation is complete. The next planning cycle focuses on turning that s
 - **v6 foundation complete** — Phases 36-72 are shipped across runtime enforcement, IAM, discovery, analytics, compliance, and deployment surfaces. [Roadmap reset](ROADMAP.md)
 - **Consumer Shield** (Phase 67) — New deployment mode for consumer AI interactions. PII sanitization, encrypted local audit, session isolation, warrant canary. [Details](CHANGELOG.md)
 - **Three-tier licensing** — MPL-2.0 (core + consumer), Apache-2.0 (canary + benchmark), BUSL-1.1 (enterprise, converts to MPL-2.0 after 3 years). [Details](LICENSING.md)
-- **231 adversarial audit rounds** — 1,550+ findings resolved across engine, MCP, server, audit, proxy, and discovery
-- **9,000+ tests passing** across Rust, Python, Go, TypeScript, Java + 24 fuzz targets
+- **232 adversarial audit rounds** — 1,550+ findings resolved across engine, MCP, server, audit, proxy, and discovery
+- **9,600+ tests passing** across Rust, Python, Go, TypeScript, Java, Terraform, React, shell + 24 fuzz targets
 
 See [CHANGELOG.md](CHANGELOG.md) for full history.
 
@@ -197,7 +192,7 @@ Lower crates never depend on higher crates. `vellaveto-operator` is standalone (
 
 ## Security
 
-VellaVeto has undergone **231 rounds of adversarial security auditing** covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
+VellaVeto has undergone **232 rounds of adversarial security auditing** covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
 
 - **Fail-closed everywhere** — empty policy sets, missing parameters, lock poisoning, capacity exhaustion, and evaluation errors all produce `Deny`
 - **Zero `unwrap()` in library code** — all error paths return typed errors; panics reserved for tests only

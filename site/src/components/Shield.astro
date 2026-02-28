@@ -1,0 +1,83 @@
+---
+---
+<section id="shield">
+  <div class="wrap">
+    <div class="shield-layout">
+      <div class="shield-content">
+        <div class="shield-badge">Consumer Shield &mdash; MPL-2.0</div>
+        <h2 class="section-title">Privacy-preserving proxy for end users</h2>
+        <p class="section-sub">A standalone binary that sits between you and AI services. Always free, regardless of scale.</p>
+        <ul class="shield-features">
+          <li>
+            <strong>PII sanitization</strong>
+            <span>Bidirectional scrubbing of queries and responses with reversible <code>[PII_EMAIL_1]</code> placeholders</span>
+          </li>
+          <li>
+            <strong>Encrypted local audit</strong>
+            <span>XChaCha20-Poly1305 encrypted, Argon2id-derived keys, Merkle proof generation for verification</span>
+          </li>
+          <li>
+            <strong>Session isolation</strong>
+            <span>Per-session PII tracking with bounded history prevents cross-session data leakage</span>
+          </li>
+          <li>
+            <strong>Warrant canary</strong>
+            <span>Ed25519-signed canary with expiration checking, Apache-2.0 licensed for independent verification</span>
+          </li>
+        </ul>
+        <div class="shield-install">
+          <code>cargo install vellaveto-shield</code>
+        </div>
+      </div>
+      <div class="shield-visual">
+        <div class="shield-diagram">
+          <div class="shield-node shield-you">You</div>
+          <div class="shield-arrow">&darr;</div>
+          <div class="shield-node shield-proxy">Consumer Shield</div>
+          <div class="shield-arrow">&darr;</div>
+          <div class="shield-node shield-ai">AI Service</div>
+          <div class="shield-label">PII stripped before send, restored after response</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  #shield{position:relative;overflow:hidden}
+  #shield::before{content:'';position:absolute;inset:0;
+    background:linear-gradient(135deg,rgba(192,75,240,.04),rgba(50,209,255,.04));
+    pointer-events:none}
+  .shield-layout{display:grid;grid-template-columns:1fr 320px;gap:3rem;align-items:center;
+    position:relative;z-index:1}
+  .shield-badge{display:inline-block;padding:.3rem .75rem;border-radius:1rem;
+    font-size:.7rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+    background:rgba(52,211,153,.12);color:var(--emerald);margin-bottom:1rem}
+  .shield-features{list-style:none;margin-top:1.5rem}
+  .shield-features li{padding:.75rem 0;border-bottom:1px solid var(--border)}
+  .shield-features li:last-child{border-bottom:none}
+  .shield-features strong{display:block;font-size:.9rem;color:var(--text);margin-bottom:.15rem}
+  .shield-features span{font-size:.825rem;color:var(--muted);line-height:1.5}
+  .shield-features code{background:var(--surface);padding:.1rem .4rem;border-radius:.25rem;
+    font-family:var(--mono);font-size:.75rem;color:var(--cyan)}
+  .shield-install{margin-top:1.5rem;background:var(--surface);border:1px solid var(--border);
+    border-radius:.5rem;padding:.75rem 1rem;font-family:var(--mono);font-size:.85rem}
+  .shield-install code{color:var(--cyan)}
+
+  .shield-visual{display:flex;justify-content:center}
+  .shield-diagram{display:flex;flex-direction:column;align-items:center;gap:.5rem;
+    background:var(--surface);border:1px solid var(--border);border-radius:.75rem;
+    padding:2rem;width:100%}
+  .shield-node{padding:.75rem 1.5rem;border-radius:.5rem;font-weight:600;
+    font-size:.85rem;text-align:center;width:100%;max-width:200px}
+  .shield-you{background:var(--surface-raised);border:1px solid var(--border);color:var(--text)}
+  .shield-proxy{background:rgba(192,75,240,.1);border:2px solid var(--magenta);color:var(--magenta)}
+  .shield-ai{background:var(--surface-raised);border:1px solid var(--border);color:var(--muted)}
+  .shield-arrow{color:var(--cyan);font-size:1.25rem;font-weight:700}
+  .shield-label{font-size:.7rem;color:var(--muted);text-align:center;margin-top:.75rem;
+    font-style:italic;max-width:220px}
+
+  @media(max-width:768px){
+    .shield-layout{grid-template-columns:1fr;gap:2rem}
+  }
+</style>

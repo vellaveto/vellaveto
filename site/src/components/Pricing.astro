@@ -3,18 +3,18 @@
 <section id="pricing">
   <div class="wrap">
     <h2 class="section-title">Adoption Plans</h2>
-    <p class="section-sub">Start with the gateway and core policies, then expand into full control-plane governance as usage grows.</p>
+    <p class="section-sub">Three-tier open-core licensing. Core engine is MPL-2.0. Consumer Shield is always free.</p>
     <div class="pricing-grid">
       <div class="card price-card">
         <div class="tier">Community</div>
         <div class="price gradient-text">Free</div>
         <div class="period">forever</div>
         <ul>
-          <li>5 MCP servers</li>
-          <li>3 users</li>
+          <li>5 MCP servers, 3 users</li>
           <li>Core gateway + policy engine</li>
           <li>Audit logging</li>
-          <li>Multi-tier licensing</li>
+          <li>Consumer Shield (unlimited)</li>
+          <li>BSL-1.1 &rarr; MPL-2.0 after 3 years</li>
         </ul>
         <a href="https://github.com/vellaveto/vellaveto" class="btn btn-outline" target="_blank" rel="noopener noreferrer">Get Started</a>
       </div>
@@ -25,10 +25,10 @@
           <div class="price gradient-text">$149</div>
           <div class="period">/month</div>
           <ul>
-            <li>25 MCP servers</li>
-            <li>20 users</li>
+            <li>25 MCP servers, 20 users</li>
             <li>Control-plane APIs + SIEM export</li>
             <li>OIDC single sign-on</li>
+            <li>Topology discovery + inventory</li>
             <li>Priority support</li>
           </ul>
           <a href="&#109;&#97;&#105;&#108;&#116;&#111;&#58;paolovella1993&#64;gmail&#46;com" class="btn btn-primary featured-cta">Contact for Access</a>
@@ -40,12 +40,27 @@
         <div class="period">annual</div>
         <ul>
           <li>Unlimited servers &amp; users</li>
-          <li>SAML + OIDC SSO</li>
+          <li>SAML + OIDC + SCIM SSO</li>
           <li>Multi-tenant control plane</li>
-          <li>HA clustering</li>
-          <li>Dedicated support</li>
+          <li>HA clustering + Helm/Terraform</li>
+          <li>Compliance evidence packs</li>
         </ul>
         <a href="&#109;&#97;&#105;&#108;&#116;&#111;&#58;paolovella1993&#64;gmail&#46;com" class="btn btn-outline">Contact Sales</a>
+      </div>
+    </div>
+
+    <div class="license-strip">
+      <div class="license-item">
+        <strong>MPL-2.0</strong>
+        <span>Core engine, types, discovery, consumer shield</span>
+      </div>
+      <div class="license-item">
+        <strong>Apache-2.0</strong>
+        <span>Warrant canary, benchmark tools</span>
+      </div>
+      <div class="license-item">
+        <strong>BSL-1.1</strong>
+        <span>Server, cluster, operator &mdash; converts to MPL-2.0 after 3 years</span>
       </div>
     </div>
   </div>
@@ -61,17 +76,24 @@
   .featured-wrap:hover{transform:translateY(-4px);box-shadow:var(--shadow-lg)}
   .price-card-inner{background:var(--surface-raised);border-radius:calc(.75rem - 1px);
     padding:2rem 1.5rem;text-align:center;position:relative}
-  .popular-badge{background:var(--grad);color:#0a0e17;font-size:.7rem;font-weight:700;
+  .popular-badge{background:var(--grad);color:#0B1020;font-size:.7rem;font-weight:700;
     padding:.25rem .75rem;border-radius:1rem;white-space:nowrap;
     display:inline-block;margin-bottom:1rem}
-  .featured-cta:hover{box-shadow:0 0 24px rgba(14,165,233,.35)}
-  .tier{font-size:.85rem;font-weight:600;color:var(--teal);
+  .featured-cta:hover{box-shadow:0 0 24px rgba(192,75,240,.35)}
+  .tier{font-size:.85rem;font-weight:600;color:var(--magenta);
     text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem}
   .price{font-size:2.5rem;font-weight:800}
   .period{font-size:.8rem;color:var(--muted);margin-bottom:1.5rem}
   .price-card ul,.price-card-inner ul{list-style:none;margin-bottom:1.5rem;text-align:left}
-  .price-card li,.price-card-inner li{padding:.35rem 0;font-size:.875rem;color:var(--muted);
+  .price-card li,.price-card-inner li{padding:.35rem 0;font-size:.85rem;color:var(--muted);
     border-bottom:1px solid var(--border)}
   .price-card li:last-child,.price-card-inner li:last-child{border-bottom:none}
-  .price-card li::before,.price-card-inner li::before{content:'\2713 ';color:var(--teal);font-weight:700}
+  .price-card li::before,.price-card-inner li::before{content:'\2713 ';color:var(--magenta);font-weight:700}
+
+  .license-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:1rem;margin-top:2.5rem}
+  .license-item{background:var(--surface);border:1px solid var(--border);border-radius:.5rem;
+    padding:1rem 1.25rem;text-align:center}
+  .license-item strong{display:block;font-size:.9rem;color:var(--cyan);margin-bottom:.25rem}
+  .license-item span{font-size:.75rem;color:var(--muted)}
 </style>

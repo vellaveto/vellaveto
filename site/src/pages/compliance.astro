@@ -1,18 +1,24 @@
 ---
 import Base from '../layouts/Base.astro';
 ---
-<Base title="Compliance — Vellaveto" description="How Vellaveto maps to EU AI Act, NIS2 (D.Lgs. 138/2024), DORA, SOC 2, ISO 42001, and OWASP Top 10 for Agentic Applications.">
+<Base title="Compliance — VellaVeto" description="How VellaVeto maps to EU AI Act, NIS2, DORA, SOC 2, ISO 42001, OWASP Top 10 Agentic, OWASP MCP Top 10, CoSAI, Adversa, NIST AI 600-1, Singapore MGF, and CSA ATF.">
   <section class="page-hero">
     <div class="wrap">
       <h1>Compliance Mapping</h1>
-      <p class="section-sub">Detailed mapping of Vellaveto features to European regulatory requirements.</p>
+      <p class="section-sub" style="margin-left:auto;margin-right:auto;text-align:center">Controls mapped to 12 regulatory and industry frameworks. Cross-regulation incident reporting engine included.</p>
       <div class="framework-pills">
-        <span class="pill pill-purple">EU AI Act</span>
-        <span class="pill pill-teal">NIS2</span>
+        <span class="pill pill-magenta">EU AI Act</span>
+        <span class="pill pill-cyan">NIS2</span>
         <span class="pill pill-amber">DORA</span>
         <span class="pill pill-emerald">ISO 42001</span>
         <span class="pill pill-rose">SOC 2</span>
-        <span class="pill pill-accent">OWASP</span>
+        <span class="pill pill-magenta">OWASP Agentic</span>
+        <span class="pill pill-cyan">OWASP MCP</span>
+        <span class="pill pill-amber">CoSAI</span>
+        <span class="pill pill-emerald">Adversa</span>
+        <span class="pill pill-rose">NIST AI 600-1</span>
+        <span class="pill pill-magenta">Singapore MGF</span>
+        <span class="pill pill-cyan">CSA ATF</span>
       </div>
     </div>
   </section>
@@ -27,7 +33,7 @@ import Base from '../layouts/Base.astro';
       <div class="compliance-table">
         <table>
           <thead>
-            <tr><th>Article</th><th>Requirement</th><th>Vellaveto Feature</th></tr>
+            <tr><th>Article</th><th>Requirement</th><th>VellaVeto Feature</th></tr>
           </thead>
           <tbody>
             <tr>
@@ -43,17 +49,17 @@ import Base from '../layouts/Base.astro';
             <tr>
               <td>Art 12</td>
               <td>Record-keeping and traceability</td>
-              <td>Tamper-evident audit: SHA-256 chains, Merkle proofs, Ed25519 checkpoints</td>
+              <td>Tamper-evident audit: SHA-256 chains, Merkle proofs, Ed25519+ML-DSA-65 checkpoints</td>
             </tr>
             <tr>
               <td>Art 14</td>
               <td>Human oversight</td>
-              <td>RequireApproval verdict, human-in-the-loop workflow with timeout</td>
+              <td>RequireApproval verdict, human-in-the-loop workflow with timeout and escalation</td>
             </tr>
             <tr>
               <td>Art 9</td>
               <td>Risk management system</td>
-              <td>Policy engine with risk scoring, ABAC, behavioral anomaly detection</td>
+              <td>Policy engine with risk scoring, ABAC, behavioral anomaly detection, circuit breakers</td>
             </tr>
           </tbody>
         </table>
@@ -71,32 +77,32 @@ import Base from '../layouts/Base.astro';
       <div class="compliance-table">
         <table>
           <thead>
-            <tr><th>Requirement</th><th>Vellaveto Feature</th></tr>
+            <tr><th>Requirement</th><th>VellaVeto Feature</th></tr>
           </thead>
           <tbody>
             <tr>
               <td>Incident notification (24h pre-notifica, 72h notifica, 1M relazione)</td>
-              <td>Incident reporting templates and audit evidence export</td>
+              <td>Cross-regulation incident reporting with automated timeline generation</td>
             </tr>
             <tr>
               <td>Supply chain security</td>
-              <td>ETDI cryptographic tool verification, version pinning, attestation chains</td>
+              <td>ETDI cryptographic tool verification, version pinning, SANDWORM hardening preset</td>
             </tr>
             <tr>
               <td>Access control and identity management</td>
-              <td>ABAC, RBAC, NHI lifecycle, delegation chains, SSO (OIDC/SAML)</td>
+              <td>ABAC, RBAC (4 roles, 14 permissions), NHI lifecycle, OIDC/SAML/SCIM SSO</td>
             </tr>
             <tr>
               <td>Continuous monitoring and logging</td>
-              <td>Real-time audit, SIEM export (CEF/syslog/webhook), anomaly detection</td>
+              <td>Real-time audit, SIEM export (CEF/syslog/OCSF/webhook), anomaly detection</td>
             </tr>
             <tr>
               <td>Risk assessment</td>
-              <td>Policy simulation, gap analysis (7 frameworks), compliance evidence</td>
+              <td>Policy simulation, 7-framework gap analysis, evidence pack generation</td>
             </tr>
             <tr>
               <td>Business continuity</td>
-              <td>HA clustering, leader election, cross-transport smart fallback</td>
+              <td>HA clustering, leader election, cascading failure circuit breakers, smart fallback</td>
             </tr>
           </tbody>
         </table>
@@ -114,7 +120,7 @@ import Base from '../layouts/Base.astro';
       <div class="compliance-table">
         <table>
           <thead>
-            <tr><th>Chapter</th><th>Requirement</th><th>Vellaveto Feature</th></tr>
+            <tr><th>Chapter</th><th>Requirement</th><th>VellaVeto Feature</th></tr>
           </thead>
           <tbody>
             <tr>
@@ -125,12 +131,12 @@ import Base from '../layouts/Base.astro';
             <tr>
               <td>Ch III</td>
               <td>ICT incident management</td>
-              <td>Structured audit events, incident workflow, automated classification</td>
+              <td>Structured audit events, incident workflow, automated classification and timelines</td>
             </tr>
             <tr>
               <td>Ch V</td>
               <td>ICT third-party risk</td>
-              <td>Supply chain verification, tool registry trust scoring, vendor attestation</td>
+              <td>Supply chain verification, tool registry trust scoring, ETDI attestation chains</td>
             </tr>
           </tbody>
         </table>
@@ -140,14 +146,14 @@ import Base from '../layouts/Base.astro';
 
   <hr class="divider" />
 
-  <!-- SOC 2 + ISO + OWASP -->
+  <!-- Additional Frameworks -->
   <section>
     <div class="wrap">
       <h2 class="section-title">Additional Frameworks</h2>
       <div class="frameworks-grid">
         <div class="card fw-card">
           <h3>SOC 2 Type II</h3>
-          <p>Automated access review reports with CC6 evidence generation. Trust services criteria mapped to Vellaveto controls. HTML and JSON report export.</p>
+          <p>Automated access review reports with CC6 evidence generation. Trust services criteria mapped to VellaVeto controls. HTML and JSON report export.</p>
         </div>
         <div class="card fw-card">
           <h3>ISO 42001</h3>
@@ -158,8 +164,48 @@ import Base from '../layouts/Base.astro';
           <p>All 10 risks mitigated: prompt injection (ASI01), tool poisoning (ASI02), insecure output (ASI03), rug pull (ASI04), memory poisoning (ASI05), and more.</p>
         </div>
         <div class="card fw-card">
-          <h3>CoSAI Landscape</h3>
-          <p>38/38 CoSAI controls implemented. Adversa TOP 25: 25/25. 7-framework gap analysis with remediation guidance.</p>
+          <h3>OWASP MCP Top 10</h3>
+          <p>MCP-specific security registry covering tool poisoning, prompt injection, supply chain, data exfiltration, and 6 additional risk categories.</p>
+        </div>
+        <div class="card fw-card">
+          <h3>CoSAI + Adversa</h3>
+          <p>38/38 CoSAI controls implemented. Adversa TOP 25: 25/25. 7-framework gap analysis with remediation guidance and evidence mapping.</p>
+        </div>
+        <div class="card fw-card">
+          <h3>NIST AI 600-1</h3>
+          <p>Foundational AI risk framework controls mapped to policy engine, audit, and governance features. Evidence pack generation for audit cycles.</p>
+        </div>
+        <div class="card fw-card">
+          <h3>Singapore MGF</h3>
+          <p>Model Governance Framework controls covering accountability, transparency, and AI governance requirements for APAC-regulated deployments.</p>
+        </div>
+        <div class="card fw-card">
+          <h3>CSA ATF</h3>
+          <p>Cloud Security Alliance AI Threat Framework controls mapped to VellaVeto security capabilities and audit evidence.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider" />
+
+  <!-- Incident Reporting -->
+  <section>
+    <div class="wrap">
+      <h2 class="section-title">Cross-Regulation Incident Reporting</h2>
+      <p class="section-sub">A single incident maps automatically to the notification timelines and requirements of every applicable framework.</p>
+      <div class="incident-grid">
+        <div class="incident-card">
+          <div class="incident-time">24h</div>
+          <div class="incident-label">NIS2 pre-notification</div>
+        </div>
+        <div class="incident-card">
+          <div class="incident-time">72h</div>
+          <div class="incident-label">NIS2 full notification + DORA classification</div>
+        </div>
+        <div class="incident-card">
+          <div class="incident-time">1 month</div>
+          <div class="incident-label">NIS2 final report + EU AI Act risk review</div>
         </div>
       </div>
     </div>
@@ -170,9 +216,9 @@ import Base from '../layouts/Base.astro';
   <section>
     <div class="wrap" style="text-align:center">
       <h2 class="section-title">Need a compliance assessment?</h2>
-      <p class="section-sub">Our Compliance-as-a-Service offering provides auditor-ready evidence packages.</p>
+      <p class="section-sub" style="margin-left:auto;margin-right:auto">Evidence packs, gap analysis, and auditor-ready documentation for your framework requirements.</p>
       <div class="links-row">
-        <a href="/pricing#enterprise-pricing" class="btn btn-primary">View Enterprise Pricing</a>
+        <a href="/pricing" class="btn btn-primary">View Pricing</a>
         <a href="&#109;&#97;&#105;&#108;&#116;&#111;&#58;paolovella1993&#64;gmail&#46;com" class="btn btn-outline">Contact Us</a>
       </div>
     </div>
@@ -183,8 +229,8 @@ import Base from '../layouts/Base.astro';
   .page-hero{padding:8rem 0 3rem;text-align:center;position:relative;overflow:hidden}
   .page-hero::before{content:'';position:absolute;inset:0;
     background:
-      radial-gradient(ellipse 50% 40% at 30% 30%,rgba(167,139,250,.1),transparent),
-      radial-gradient(ellipse 50% 40% at 70% 70%,rgba(20,184,166,.08),transparent);
+      radial-gradient(ellipse 50% 40% at 30% 30%,rgba(192,75,240,.08),transparent),
+      radial-gradient(ellipse 50% 40% at 70% 70%,rgba(50,209,255,.06),transparent);
     pointer-events:none}
   .page-hero .wrap{position:relative;z-index:1}
   .page-hero h1{font-size:2.5rem;font-weight:800;
@@ -193,27 +239,34 @@ import Base from '../layouts/Base.astro';
 
   .framework-pills{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center;margin-top:1.25rem}
   .pill{display:inline-block;padding:.3rem .75rem;border-radius:1rem;
-    font-size:.75rem;font-weight:600;letter-spacing:.03em}
-  .pill-purple{background:rgba(167,139,250,.15);color:var(--purple)}
-  .pill-teal{background:rgba(20,184,166,.15);color:var(--teal)}
-  .pill-amber{background:rgba(251,191,36,.15);color:var(--amber)}
-  .pill-emerald{background:rgba(52,211,153,.15);color:var(--emerald)}
-  .pill-rose{background:rgba(251,113,133,.15);color:var(--rose)}
-  .pill-accent{background:rgba(56,189,248,.15);color:var(--accent)}
+    font-size:.7rem;font-weight:600;letter-spacing:.03em}
+  .pill-magenta{background:rgba(192,75,240,.12);color:var(--magenta)}
+  .pill-cyan{background:rgba(50,209,255,.12);color:var(--cyan)}
+  .pill-amber{background:rgba(251,191,36,.12);color:var(--amber)}
+  .pill-emerald{background:rgba(52,211,153,.12);color:var(--emerald)}
+  .pill-rose{background:rgba(251,113,133,.12);color:var(--rose)}
 
   .compliance-table{overflow-x:auto;margin-top:1.5rem}
   .compliance-table table{width:100%;border-collapse:collapse;font-size:.85rem}
   .compliance-table thead{background:var(--surface)}
-  .compliance-table th{padding:.75rem 1rem;color:var(--accent);font-weight:600;
+  .compliance-table th{padding:.75rem 1rem;color:var(--magenta);font-weight:600;
     border-bottom:2px solid var(--border);text-align:left;white-space:nowrap}
   .compliance-table td{padding:.6rem 1rem;border-bottom:1px solid var(--border);
     color:var(--muted);vertical-align:top}
   .compliance-table td:first-child{color:var(--text);font-weight:500;white-space:nowrap}
-  .compliance-table tr:hover td{background:rgba(56,189,248,.03)}
+  .compliance-table tr:hover td{background:rgba(192,75,240,.02)}
 
   .frameworks-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
     gap:1.25rem;margin-top:2rem}
   .fw-card{padding:1.5rem}
-  .fw-card h3{font-size:1rem;font-weight:700;color:var(--accent);margin-bottom:.5rem}
+  .fw-card h3{font-size:1rem;font-weight:700;color:var(--cyan);margin-bottom:.5rem}
   .fw-card p{font-size:.85rem;color:var(--muted);line-height:1.6}
+
+  .incident-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:1rem;margin-top:2rem}
+  .incident-card{background:var(--surface);border:1px solid var(--border);border-radius:.5rem;
+    padding:1.5rem;text-align:center;border-top:3px solid var(--magenta)}
+  .incident-time{font-size:1.75rem;font-weight:800;
+    background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .incident-label{font-size:.8rem;color:var(--muted);margin-top:.5rem;line-height:1.4}
 </style>

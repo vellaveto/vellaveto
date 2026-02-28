@@ -1,0 +1,95 @@
+---
+---
+<section id="ecosystem">
+  <div class="wrap">
+    <h2 class="section-title">Ecosystem</h2>
+    <p class="section-sub">SDKs, developer tools, and infrastructure integrations ship alongside the gateway.</p>
+    <div class="eco-grid">
+      <div class="card eco-card">
+        <div class="eco-icon icon-magenta">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        </div>
+        <h3>SDKs</h3>
+        <p>Python (sync + async), TypeScript, Go, and Java. Built-in integrations for LangChain, CrewAI, OpenAI Agents, Google ADK, Claude Agent, and more.</p>
+        <div class="eco-tags">
+          <span class="eco-tag">Python &middot; 433 tests</span>
+          <span class="eco-tag">TypeScript &middot; 119</span>
+          <span class="eco-tag">Go &middot; 127</span>
+          <span class="eco-tag">Java &middot; 120</span>
+        </div>
+      </div>
+      <div class="card eco-card">
+        <div class="eco-icon icon-cyan">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </div>
+        <h3>Admin Console</h3>
+        <p>React SPA with policy management, audit viewer, topology dashboard, identity management, and approval workflows. OIDC + API-key auth with RBAC navigation.</p>
+        <div class="eco-tags">
+          <span class="eco-tag">10 pages</span>
+          <span class="eco-tag">Dark theme</span>
+          <span class="eco-tag">59 tests</span>
+        </div>
+      </div>
+      <div class="card eco-card">
+        <div class="eco-icon icon-magenta">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        </div>
+        <h3>VS Code Extension</h3>
+        <p>Policy validation on save, IntelliSense completions, error diagnostics, TOML snippets, and built-in policy simulator. Available as <code>vellaveto-policy</code>.</p>
+        <div class="eco-tags">
+          <span class="eco-tag">Validation</span>
+          <span class="eco-tag">Completions</span>
+          <span class="eco-tag">Simulator</span>
+        </div>
+      </div>
+      <div class="card eco-card">
+        <div class="eco-icon icon-cyan">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+        </div>
+        <h3>Infrastructure</h3>
+        <p>Terraform provider with policy resources and data sources. Kubernetes operator with 3 CRDs (Policy, Gateway, Tenant). Helm chart for production deployment.</p>
+        <div class="eco-tags">
+          <span class="eco-tag">Terraform</span>
+          <span class="eco-tag">K8s Operator</span>
+          <span class="eco-tag">Helm</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="deploy-strip">
+      <h3>Six deployment modes</h3>
+      <div class="deploy-modes">
+        <span class="deploy-mode">HTTP API Server</span>
+        <span class="deploy-mode">MCP Stdio Proxy</span>
+        <span class="deploy-mode">HTTP Reverse Proxy</span>
+        <span class="deploy-mode">WebSocket Proxy</span>
+        <span class="deploy-mode">gRPC Proxy</span>
+        <span class="deploy-mode">Consumer Shield</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .eco-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+    gap:1.5rem;margin-top:2.5rem}
+  .eco-card{padding:1.75rem}
+  .eco-icon{width:44px;height:44px;display:flex;align-items:center;justify-content:center;
+    border-radius:.5rem;margin-bottom:1rem;transition:all .2s}
+  .eco-card h3{font-size:1rem;font-weight:700;color:var(--text);margin-bottom:.5rem}
+  .eco-card p{font-size:.85rem;color:var(--muted);line-height:1.6;margin-bottom:.75rem}
+  .eco-card code{background:var(--surface);padding:.1rem .35rem;border-radius:.2rem;
+    font-family:var(--mono);font-size:.75rem;color:var(--cyan)}
+  .eco-tags{display:flex;flex-wrap:wrap;gap:.35rem}
+  .eco-tag{display:inline-block;padding:.2rem .5rem;border-radius:.25rem;
+    font-size:.7rem;font-weight:500;background:var(--surface);
+    border:1px solid var(--border);color:var(--muted)}
+
+  .deploy-strip{margin-top:2.5rem;background:var(--surface);border:1px solid var(--border);
+    border-radius:.75rem;padding:1.75rem;text-align:center}
+  .deploy-strip h3{font-size:1rem;font-weight:700;color:var(--text);margin-bottom:1rem}
+  .deploy-modes{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center}
+  .deploy-mode{display:inline-block;padding:.4rem .85rem;border-radius:.375rem;
+    font-size:.8rem;font-weight:500;background:rgba(192,75,240,.08);
+    border:1px solid rgba(192,75,240,.2);color:var(--magenta)}
+</style>

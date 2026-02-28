@@ -3,7 +3,7 @@
 <section>
   <div class="wrap">
     <h2 class="section-title">Try it</h2>
-    <p class="section-sub">Evaluate a tool call with a single request.</p>
+    <p class="section-sub">Evaluate a tool call against your policy with a single request.</p>
     <div class="terminal-container">
       <div class="terminal-panel">
         <div class="terminal-chrome">
@@ -53,21 +53,19 @@
   .terminal-panel{border-radius:.75rem;overflow:hidden;
     border:1px solid var(--border);box-shadow:var(--shadow-md)}
   .terminal-chrome{display:flex;align-items:center;gap:.5rem;
-    padding:.6rem 1rem;background:#161b22;border-bottom:1px solid var(--border);
-    background-size:200% auto;animation:shimmer 3s linear infinite;
-    background-image:linear-gradient(90deg,#161b22 0%,#1c2230 50%,#161b22 100%)}
+    padding:.6rem 1rem;background:#0e1420;border-bottom:1px solid var(--border)}
   .dot{width:10px;height:10px;border-radius:50%}
   .dot-red{background:#ff5f57}
   .dot-yellow{background:#febc2e}
   .dot-green{background:#28c840}
   .terminal-title{font-size:.7rem;color:var(--muted);margin-left:.5rem;
     font-family:var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
-  .terminal-body{background:#0d1117;padding:1.25rem 1.5rem;
+  .terminal-body{background:#0B1020;padding:1.25rem 1.5rem;
     font-family:var(--mono);font-size:.8rem;line-height:1.8;color:#c9d1d9}
   .comment{color:#6e7681}
   .str{color:#a5d6ff}
   .key{color:#7ee787}
-  .cmd{color:#f0883e}
+  .cmd{color:var(--magenta)}
   .deny{color:var(--rose);font-weight:700}
   .num-val{color:var(--amber)}
   @media(max-width:700px){

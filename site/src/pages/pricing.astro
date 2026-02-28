@@ -3,11 +3,11 @@ import Base from '../layouts/Base.astro';
 import Pricing from '../components/Pricing.astro';
 import EnterprisePricing from '../components/EnterprisePricing.astro';
 ---
-<Base title="Pricing — Vellaveto" description="Vellaveto pricing plans for teams adopting the MCP gateway and enterprises deploying the full agentic security control plane.">
+<Base title="Pricing — VellaVeto" description="VellaVeto pricing plans for teams adopting the MCP gateway and enterprises deploying the full agentic security control plane.">
   <section class="page-hero">
     <div class="wrap">
       <h1>Pricing</h1>
-      <p class="section-sub">Two tracks: fast adoption for teams and deeper control-plane deployments for regulated environments.</p>
+      <p class="section-sub" style="margin-left:auto;margin-right:auto;text-align:center">Two tracks: fast adoption for teams and deeper control-plane deployments for regulated environments.</p>
     </div>
   </section>
   <hr class="divider" />
@@ -33,6 +33,7 @@ import EnterprisePricing from '../components/EnterprisePricing.astro';
             <tr><td>MCP Servers</td><td>5</td><td>25</td><td>100</td><td>Unlimited</td></tr>
             <tr><td>Users</td><td>3</td><td>20</td><td>Unlimited</td><td>Unlimited</td></tr>
             <tr><td>Policy Engine</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+            <tr><td>Consumer Shield</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
             <tr><td>Topology Inventory</td><td>&mdash;</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
             <tr><td>Audit Logging</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
             <tr><td>SIEM Export</td><td>&mdash;</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
@@ -41,6 +42,7 @@ import EnterprisePricing from '../components/EnterprisePricing.astro';
             <tr><td>SSO (SAML)</td><td>&mdash;</td><td>&mdash;</td><td>Yes</td><td>Yes</td></tr>
             <tr><td>RBAC</td><td>&mdash;</td><td>&mdash;</td><td>Yes</td><td>Yes</td></tr>
             <tr><td>Multi-tenancy</td><td>&mdash;</td><td>&mdash;</td><td>Yes</td><td>Yes</td></tr>
+            <tr><td>Wasm Policy Plugins</td><td>&mdash;</td><td>&mdash;</td><td>Yes</td><td>Yes</td></tr>
             <tr><td>HA Clustering</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>Yes</td></tr>
             <tr><td>Helm / Terraform</td><td>&mdash;</td><td>&mdash;</td><td>Yes</td><td>Yes</td></tr>
             <tr><td>Compliance Reports</td><td>&mdash;</td><td>&mdash;</td><td>Yes</td><td>Yes</td></tr>
@@ -57,8 +59,8 @@ import EnterprisePricing from '../components/EnterprisePricing.astro';
   .page-hero{padding:8rem 0 3rem;text-align:center;position:relative;overflow:hidden}
   .page-hero::before{content:'';position:absolute;inset:0;
     background:
-      radial-gradient(ellipse 50% 40% at 30% 30%,rgba(167,139,250,.1),transparent),
-      radial-gradient(ellipse 50% 40% at 70% 70%,rgba(20,184,166,.08),transparent);
+      radial-gradient(ellipse 50% 40% at 30% 30%,rgba(192,75,240,.08),transparent),
+      radial-gradient(ellipse 50% 40% at 70% 70%,rgba(50,209,255,.06),transparent);
     pointer-events:none}
   .page-hero .wrap{position:relative;z-index:1}
   .page-hero h1{font-size:2.5rem;font-weight:800;
@@ -67,9 +69,9 @@ import EnterprisePricing from '../components/EnterprisePricing.astro';
   .table-wrap{overflow-x:auto;margin-top:2rem}
   table{width:100%;border-collapse:collapse;text-align:center;font-size:.85rem}
   thead{background:var(--surface)}
-  th{padding:.75rem 1rem;color:var(--accent);font-weight:600;
+  th{padding:.75rem 1rem;color:var(--magenta);font-weight:600;
     border-bottom:2px solid var(--border);white-space:nowrap}
   td{padding:.6rem 1rem;border-bottom:1px solid var(--border);color:var(--muted)}
-  tr:hover td{background:rgba(56,189,248,.03)}
+  tr:hover td{background:rgba(192,75,240,.02)}
   td:first-child{text-align:left;color:var(--text);font-weight:500}
 </style>

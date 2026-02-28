@@ -2,13 +2,14 @@
 ---
 <section class="hero">
   <div class="wrap">
-    <h1 class="hero-h1"><span>Security control plane</span> for MCP and agent tool access</h1>
-    <p class="tagline">Govern identity, policy, discovery, and audit with an MCP-native gateway that enforces every tool invocation before execution.</p>
+    <div class="hero-badge">MCP 2025-11-25 compliant</div>
+    <h1 class="hero-h1"><span class="gradient-text">Security control plane</span> for AI agent tool calls</h1>
+    <p class="tagline">Intercept, evaluate, and audit every MCP tool invocation before execution. Fail-closed policy engine, topology discovery, identity-aware ABAC, and tamper-evident audit — deployed as a gateway between your agents and their tools.</p>
     <div class="hero-ctas">
       <a href="#install" class="btn btn-primary">Get Started</a>
       <a href="https://github.com/vellaveto/vellaveto" class="btn btn-outline" target="_blank" rel="noopener noreferrer">View on GitHub</a>
     </div>
-    <p class="trust-strip">MCP-native gateway &middot; topology inventory &middot; identity-aware policy &middot; 9,000+ tests</p>
+    <p class="trust-strip">9,600+ tests &middot; 232 adversarial audit rounds &middot; &lt;5ms P99 latency &middot; 38 formally verified properties</p>
     <div class="install" id="install">
       <span class="label">Quick start</span>
       <code>docker run -p 3000:3000 ghcr.io/vellaveto/vellaveto:latest</code>
@@ -20,32 +21,34 @@
   .hero{padding:9rem 0 5rem;text-align:center;position:relative;overflow:hidden}
   .hero::before{content:'';position:absolute;inset:0;
     background:
-      radial-gradient(ellipse 60% 50% at 20% 20%,rgba(167,139,250,.15),transparent),
-      radial-gradient(ellipse 60% 50% at 80% 80%,rgba(20,184,166,.12),transparent);
+      radial-gradient(ellipse 60% 50% at 20% 20%,rgba(192,75,240,.12),transparent),
+      radial-gradient(ellipse 60% 50% at 80% 80%,rgba(50,209,255,.08),transparent);
     pointer-events:none}
   .hero::after{content:'';position:absolute;inset:0;
     background-image:radial-gradient(circle 1px at center,rgba(255,255,255,.03) 1px,transparent 1px);
     background-size:40px 40px;pointer-events:none}
   .hero .wrap{position:relative;z-index:1}
-  .hero-h1{font-size:clamp(2rem,5vw,3.25rem);font-weight:800;
+  .hero-badge{display:inline-block;padding:.3rem .85rem;border-radius:1rem;
+    font-size:.75rem;font-weight:600;letter-spacing:.03em;
+    background:rgba(192,75,240,.12);color:var(--magenta);
+    margin-bottom:1.25rem;animation:fadeInUp .6s ease both}
+  .hero-h1{font-size:clamp(2rem,5vw,3.25rem);font-weight:900;
     line-height:1.15;margin-bottom:1rem;
-    animation:fadeInUp .6s ease both}
-  .hero-h1 span{background:var(--grad);-webkit-background-clip:text;
-    -webkit-text-fill-color:transparent}
-  .tagline{font-size:1.125rem;color:var(--muted);margin-bottom:1.5rem;
-    max-width:600px;margin-left:auto;margin-right:auto;
+    animation:fadeInUp .6s ease .05s both}
+  .tagline{font-size:1.05rem;color:var(--muted);margin-bottom:1.5rem;
+    max-width:680px;margin-left:auto;margin-right:auto;line-height:1.7;
     animation:fadeInUp .6s ease .1s both}
   .hero-ctas{display:flex;gap:1rem;justify-content:center;margin-bottom:1.5rem;
     animation:fadeInUp .6s ease .2s both}
-  .trust-strip{font-size:.85rem;color:var(--muted);margin-bottom:2.5rem;
+  .trust-strip{font-size:.8rem;color:var(--muted);margin-bottom:2.5rem;
     animation:fadeInUp .6s ease .3s both}
   .install{background:var(--surface);border:1px solid var(--border);
     border-radius:.5rem;padding:1rem 1.25rem;max-width:640px;margin:0 auto;
     display:flex;align-items:center;justify-content:space-between;gap:1rem;
-    font-family:var(--mono);font-size:.875rem;overflow-x:auto;
+    font-family:var(--mono);font-size:.85rem;overflow-x:auto;
     box-shadow:var(--shadow-md);
     animation:fadeInUp .6s ease .4s both}
-  .install code{white-space:nowrap;color:var(--accent)}
+  .install code{white-space:nowrap;color:var(--cyan)}
   .label{color:var(--muted);font-size:.75rem;font-family:var(--sans);flex-shrink:0}
   @media(max-width:600px){
     .hero{padding:7rem 0 3.5rem}
