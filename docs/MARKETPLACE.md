@@ -119,8 +119,8 @@ aws ecs create-service \
 ```yaml
 # marketplace-integration.yaml
 product:
-  title: "Vellaveto — MCP Tool Firewall"
-  short_description: "Runtime security for AI agent tool calls"
+  title: "Vellaveto — Agentic Security Control Plane"
+  short_description: "Security-first control plane for MCP and AI agent tool calls"
   categories:
     - Security
     - AI/ML
@@ -173,7 +173,7 @@ az containerapp create \
   --name vellaveto-server \
   --resource-group vellaveto-rg \
   --environment vellaveto-env \
-  --image ghcr.io/vellaveto/server:latest \
+  --image ghcr.io/paolovella/vellaveto:6.0.0 \
   --target-port 3000 \
   --ingress external \
   --min-replicas 2 \
@@ -194,8 +194,8 @@ az containerapp create \
 ```yaml
 # azure-marketplace-offer.yaml
 offer:
-  id: vellaveto-mcp-firewall
-  display_name: "Vellaveto — MCP Tool Firewall"
+  id: vellaveto-agentic-control-plane
+  display_name: "Vellaveto — Agentic Security Control Plane"
   publisher: vellaveto
   categories:
     - security
@@ -249,7 +249,7 @@ offer:
 ```bash
 # Deploy to Cloud Run (Milan region)
 gcloud run deploy vellaveto-server \
-  --image ghcr.io/vellaveto/server:latest \
+  --image ghcr.io/paolovella/vellaveto:6.0.0 \
   --platform managed \
   --region europe-west8 \
   --port 3000 \
@@ -267,9 +267,9 @@ gcloud run deploy vellaveto-server \
 ```yaml
 # gcp-marketplace-listing.yaml
 product:
-  name: vellaveto-mcp-firewall
-  title: "Vellaveto — MCP Tool Firewall"
-  description: "Runtime security engine for AI agent tool calls"
+  name: vellaveto-agentic-control-plane
+  title: "Vellaveto — Agentic Security Control Plane"
+  description: "Security-first control plane for MCP and AI agent tool calls"
   icon: gs://vellaveto-assets/icon-512.png
 
   pricing:
@@ -339,7 +339,7 @@ Content-Type: application/json
   "plan": "starter",
   "server_url": "https://vellaveto.example.com",
   "next_steps": [
-    "1. Install an SDK: pip install vellaveto / npm install @vellaveto/sdk",
+    "1. Install an SDK: pip install vellaveto-sdk / npm install @vellaveto-sdk/typescript",
     "2. Configure: VELLAVETO_URL=https://... VELLAVETO_API_KEY=<key> VELLAVETO_TENANT_ID=acme-corp-a1b2c3",
     "3. Create a policy config — see examples/presets/ for templates",
     "4. Start the proxy: vellaveto serve --config your-policy.toml",
@@ -375,7 +375,7 @@ print(result.verdict)  # Allow / Deny / RequireApproval
 
 **TypeScript:**
 ```typescript
-import { VellavetoClient } from '@vellaveto/sdk';
+import { VellavetoClient } from '@vellaveto-sdk/typescript';
 
 const client = new VellavetoClient({
   baseUrl: 'https://vellaveto.example.com',

@@ -4,10 +4,10 @@
     <strong>Agentic security control plane for MCP and AI agent tool calls</strong>
   </p>
   <p align="center">
-    Govern &middot; Enforce &middot; Discover &middot; Audit
+    Govern &middot; Enforce &middot; Discover &middot; Prove
   </p>
   <p align="center">
-    <a href="https://github.com/paolovella/vellaveto/releases"><img src="https://img.shields.io/badge/version-6.0.0--dev-blue.svg" alt="Version 6.0.0-dev"></a>
+    <a href="https://github.com/paolovella/vellaveto/releases"><img src="https://img.shields.io/badge/version-6.0.0-blue.svg" alt="Version 6.0.0"></a>
     <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-MPL--2.0_/_Apache--2.0_/_BUSL--1.1-blue.svg" alt="License: Three-tier"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
@@ -150,37 +150,38 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md) for framework integration guides (A
 
 ```mermaid
 graph TD
-    subgraph "Consumer Shield — MPL-2.0"
-        VS[vellaveto-shield] --> MS[vellaveto-mcp-shield]
-        VS --> VC[vellaveto-canary]
-    end
-
-    subgraph "Core Engine — MPL-2.0"
+    subgraph "Policy Core"
         VT[vellaveto-types] --> VCfg[vellaveto-config]
         VT --> VCan[vellaveto-canonical]
         VT --> VE[vellaveto-engine]
         VT --> VDisc[vellaveto-discovery]
         VE --> VA[vellaveto-audit]
-        VA --> VMCP[vellaveto-mcp]
+        VE --> VAppr[vellaveto-approval]
     end
 
-    subgraph "Enterprise — BUSL-1.1"
-        VMCP --> VServer[vellaveto-server]
+    subgraph "Gateway & Control Plane"
+        VA --> VMCP[vellaveto-mcp]
+        VCfg --> VP[vellaveto-proxy]
+        VMCP --> VP
         VMCP --> VHP[vellaveto-http-proxy]
-        VMCP --> VP[vellaveto-proxy]
+        VMCP --> VServer[vellaveto-server]
         VCfg --> VCluster[vellaveto-cluster]
         VCluster --> VOp[vellaveto-operator]
     end
 
-    subgraph "Benchmark — Apache-2.0"
+    subgraph "Consumer & Ecosystem"
+        VS[vellaveto-shield] --> MS[vellaveto-mcp-shield]
+        VS --> HS[vellaveto-http-proxy-shield]
+        VS --> VC[vellaveto-canary]
         MCPSEC[mcpsec]
     end
 
     MS --> VMCP
+    HS --> VHP
     VC --> VA
 ```
 
-Lower crates never depend on higher crates. `vellaveto-operator` is standalone (kube-rs, no internal deps). See [CLAUDE.md](CLAUDE.md) for the full crate dependency graph.
+Lower crates never depend on higher crates. `vellaveto-operator` is standalone (kube-rs, no internal deps). License tiers are documented separately in [LICENSING.md](LICENSING.md). See [CLAUDE.md](CLAUDE.md) for the full crate dependency graph.
 
 ## Key Capabilities
 

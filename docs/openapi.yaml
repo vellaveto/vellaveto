@@ -1,11 +1,11 @@
 openapi: "3.0.3"
 info:
-  title: Vellaveto — MCP Tool Firewall API
+  title: Vellaveto Control Plane API
   description: |
-    Runtime security engine for AI agent tool calls. Intercepts MCP
-    (Model Context Protocol) and function-calling requests, enforces
-    security policies on paths/domains/actions, and maintains a
-    tamper-evident audit trail.
+    Security-first control plane for MCP and AI agent tool calls.
+    Intercepts MCP (Model Context Protocol) and function-calling
+    requests, enforces policy on paths/domains/actions, and maintains
+    a tamper-evident audit trail.
 
     ## Authentication
 
@@ -27,10 +27,10 @@ info:
     - **readonly** — moderate (default 200 req/s)
 
     HTTP 429 is returned when limits are exceeded.
-  version: 5.0.0
+  version: 6.0.0
   license:
-    name: AGPL-3.0
-    url: https://www.gnu.org/licenses/agpl-3.0.html
+    name: "See LICENSING.md (multi-license model)"
+    url: https://github.com/paolovella/vellaveto/blob/main/LICENSING.md
   contact:
     name: Vellaveto
     url: https://github.com/paolovella/vellaveto

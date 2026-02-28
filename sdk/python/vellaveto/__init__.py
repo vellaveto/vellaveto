@@ -1,8 +1,8 @@
 """
-Vellaveto MCP Firewall - Python SDK
+Vellaveto agentic security control plane - Python SDK
 
 Provides native integration with LangChain, LangGraph, and direct API access
-for AI agent security policy enforcement.
+for MCP and AI agent tool-call policy enforcement.
 
 Example:
     from vellaveto import VellavetoClient
@@ -31,7 +31,7 @@ try:
 except ImportError:
     ComposioGuard = None  # type: ignore[assignment,misc]
 
-__version__ = "2.2.1"
+__version__ = "6.0.0"
 __all__ = [
     "VellavetoClient",
     "VellavetoError",

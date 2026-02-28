@@ -173,10 +173,10 @@ client = VellavetoClient(url="https://vellaveto.internal:3000", api_key="sk_..."
 
 ```bash
 # Java (Gradle)
-implementation 'com.vellaveto:vellaveto-sdk:3.0.0'
+implementation 'com.vellaveto:vellaveto-sdk:6.0.0'
 
 # TypeScript (npm)
-npm install @vellaveto/sdk
+npm install @vellaveto-sdk/typescript
 
 # Go
 go get github.com/paolovella/vellaveto/sdk/go

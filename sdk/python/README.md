@@ -1,6 +1,6 @@
 # Vellaveto Python SDK
 
-Python SDK for the [Vellaveto MCP Firewall](https://github.com/paolovella/vellaveto) - AI agent security policy enforcement.
+Python SDK for the [Vellaveto agentic security control plane](https://github.com/paolovella/vellaveto).
 
 ## Installation
 

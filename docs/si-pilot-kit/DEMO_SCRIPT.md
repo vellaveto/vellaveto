@@ -179,7 +179,7 @@ curl -s http://localhost:3000/api/zk/status | jq .
 ```
 
 **Talking points:**
-- 8 compliance frameworks: DORA, NIS2, EU AI Act, ISO 42001, SOC 2, CoSAI, Adversa, OWASP ASI
+- 11 mapped frameworks: DORA, NIS2, EU AI Act, ISO 42001, SOC 2, CoSAI, Adversa, OWASP ASI, Singapore MGF, NIST AI 600-1, CSA ATF
 - Evidence packs exportable for auditors
 - Zero-knowledge proofs for tamper-evident audit without revealing content
 - Merkle tree chain verification
@@ -189,11 +189,11 @@ curl -s http://localhost:3000/api/zk/status | jq .
 ## Closing (2 min)
 
 **Key differentiators:**
-1. **Only MCP-native firewall** with 4 transport layers
+1. **Security-first MCP-native control plane** with 4 transport layers
 2. **Deepest compliance coverage** — DORA + NIS2 (unique for EU market)
 3. **Zero-knowledge audit** — Pedersen + Groth16 proofs
 4. **Formal verification** — TLA+ and Alloy proofs
-5. **Open core** — AGPL-3.0 engine, commercial enterprise features
+5. **Multi-tier open core** — MPL-2.0 core, Apache-2.0 benchmark/canary, BUSL-1.1 enterprise
 
 **Next steps:**
 - Define pilot scope (3-5 agent workloads)

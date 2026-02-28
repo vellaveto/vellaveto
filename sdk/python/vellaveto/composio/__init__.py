@@ -1,5 +1,5 @@
 """
-Composio integration for Vellaveto MCP Firewall.
+Composio integration for the Vellaveto agentic security control plane.
 
 Provides modifier factories and a high-level ``ComposioGuard`` for
 enforcing Vellaveto security policies on Composio tool calls.  Works

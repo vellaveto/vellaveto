@@ -1,6 +1,6 @@
 # Vellaveto Deployment Guide
 
-This guide covers deploying Vellaveto in production environments using Docker, Kubernetes (Helm), or bare metal installations.
+This guide covers deploying the Vellaveto gateway and control plane in production environments using Docker, Kubernetes (Helm), or bare metal installations.
 
 ## Table of Contents
 
@@ -205,7 +205,7 @@ replicaCount: 3
 
 image:
   repository: ghcr.io/paolovella/vellaveto
-  tag: "1.0.0"
+  tag: "6.0.0"
   pullPolicy: IfNotPresent
 
 # Resource limits
@@ -350,7 +350,7 @@ metadata:
   namespace: vellaveto
 spec:
   replicas: 3
-  image: ghcr.io/paolovella/vellaveto:4.0.0
+  image: ghcr.io/paolovella/vellaveto:6.0.0
   config:
     security_mode: strict
     audit_enabled: true
@@ -467,7 +467,7 @@ Create `/etc/systemd/system/vellaveto.service`:
 
 ```ini
 [Unit]
-Description=Vellaveto MCP Tool Firewall
+Description=Vellaveto Agentic Security Control Plane
 Documentation=https://github.com/paolovella/vellaveto
 After=network-online.target
 Wants=network-online.target
