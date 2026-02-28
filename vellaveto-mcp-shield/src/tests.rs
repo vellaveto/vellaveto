@@ -542,8 +542,8 @@ fn test_unlinker_start_session() {
     let (vault, _dir) = make_test_vault(10, 1);
     vault.add_credential(make_test_credential(1)).unwrap();
 
-    let unlinker = SessionUnlinker::new();
-    let cred = unlinker.start_session("session-1", &vault).unwrap();
+    let unlinker = SessionUnlinker::new(vault);
+    let cred = unlinker.start_session("session-1").unwrap();
     assert_eq!(cred.issued_epoch, 1);
     assert_eq!(unlinker.active_session_count(), 1);
     assert!(unlinker.is_session_active("session-1"));
@@ -554,20 +554,20 @@ fn test_unlinker_end_session() {
     let (vault, _dir) = make_test_vault(10, 1);
     vault.add_credential(make_test_credential(1)).unwrap();
 
-    let unlinker = SessionUnlinker::new();
-    unlinker.start_session("session-1", &vault).unwrap();
-    unlinker.end_session("session-1", &vault).unwrap();
+    let unlinker = SessionUnlinker::new(vault);
+    unlinker.start_session("session-1").unwrap();
+    unlinker.end_session("session-1").unwrap();
 
     assert_eq!(unlinker.active_session_count(), 0);
     assert!(!unlinker.is_session_active("session-1"));
-    assert_eq!(vault.status().consumed, 1);
+    assert_eq!(unlinker.vault().status().consumed, 1);
 }
 
 #[test]
 fn test_unlinker_no_credentials_fail_closed() {
     let (vault, _dir) = make_test_vault(10, 1);
-    let unlinker = SessionUnlinker::new();
-    let result = unlinker.start_session("session-1", &vault);
+    let unlinker = SessionUnlinker::new(vault);
+    let result = unlinker.start_session("session-1");
     assert!(result.is_err());
 }
 
@@ -577,9 +577,9 @@ fn test_unlinker_duplicate_session_rejected() {
     vault.add_credential(make_test_credential(1)).unwrap();
     vault.add_credential(make_test_credential(2)).unwrap();
 
-    let unlinker = SessionUnlinker::new();
-    unlinker.start_session("session-1", &vault).unwrap();
-    let result = unlinker.start_session("session-1", &vault);
+    let unlinker = SessionUnlinker::new(vault);
+    unlinker.start_session("session-1").unwrap();
+    let result = unlinker.start_session("session-1");
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("already active"));
 }
@@ -591,12 +591,12 @@ fn test_unlinker_capacity_exhaustion_fail_closed() {
         vault.add_credential(make_test_credential(i as u64)).unwrap();
     }
 
-    let unlinker = SessionUnlinker::with_max_sessions(3);
-    unlinker.start_session("s1", &vault).unwrap();
-    unlinker.start_session("s2", &vault).unwrap();
-    unlinker.start_session("s3", &vault).unwrap();
+    let unlinker = SessionUnlinker::with_max_sessions(vault, 3);
+    unlinker.start_session("s1").unwrap();
+    unlinker.start_session("s2").unwrap();
+    unlinker.start_session("s3").unwrap();
 
-    let result = unlinker.start_session("s4", &vault);
+    let result = unlinker.start_session("s4");
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("capacity exhausted"));
 }
@@ -606,8 +606,8 @@ fn test_unlinker_get_session_credential() {
     let (vault, _dir) = make_test_vault(10, 1);
     vault.add_credential(make_test_credential(42)).unwrap();
 
-    let unlinker = SessionUnlinker::new();
-    let original = unlinker.start_session("s1", &vault).unwrap();
+    let unlinker = SessionUnlinker::new(vault);
+    let original = unlinker.start_session("s1").unwrap();
     let retrieved = unlinker.get_session_credential("s1").unwrap();
     assert_eq!(original, retrieved);
 }
@@ -617,8 +617,8 @@ fn test_unlinker_get_binding() {
     let (vault, _dir) = make_test_vault(10, 1);
     vault.add_credential(make_test_credential(1)).unwrap();
 
-    let unlinker = SessionUnlinker::new();
-    unlinker.start_session("s1", &vault).unwrap();
+    let unlinker = SessionUnlinker::new(vault);
+    unlinker.start_session("s1").unwrap();
 
     let binding = unlinker.get_binding("s1").unwrap();
     assert_eq!(binding.session_id, "s1");
@@ -632,10 +632,10 @@ fn test_unlinker_monotonic_sequence() {
         vault.add_credential(make_test_credential(i)).unwrap();
     }
 
-    let unlinker = SessionUnlinker::new();
-    unlinker.start_session("s1", &vault).unwrap();
-    unlinker.start_session("s2", &vault).unwrap();
-    unlinker.start_session("s3", &vault).unwrap();
+    let unlinker = SessionUnlinker::new(vault);
+    unlinker.start_session("s1").unwrap();
+    unlinker.start_session("s2").unwrap();
+    unlinker.start_session("s3").unwrap();
 
     let b1 = unlinker.get_binding("s1").unwrap();
     let b2 = unlinker.get_binding("s2").unwrap();
@@ -649,8 +649,8 @@ fn test_unlinker_dangerous_session_id_rejected() {
     let (vault, _dir) = make_test_vault(10, 1);
     vault.add_credential(make_test_credential(1)).unwrap();
 
-    let unlinker = SessionUnlinker::new();
-    let result = unlinker.start_session("session\u{200B}id", &vault);
+    let unlinker = SessionUnlinker::new(vault);
+    let result = unlinker.start_session("session\u{200B}id");
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("dangerous"));
 }
@@ -658,8 +658,8 @@ fn test_unlinker_dangerous_session_id_rejected() {
 #[test]
 fn test_unlinker_unknown_session_end_rejected() {
     let (vault, _dir) = make_test_vault(10, 1);
-    let unlinker = SessionUnlinker::new();
-    let result = unlinker.end_session("nonexistent", &vault);
+    let unlinker = SessionUnlinker::new(vault);
+    let result = unlinker.end_session("nonexistent");
     assert!(result.is_err());
 }
 
@@ -669,9 +669,9 @@ fn test_unlinker_independent_credentials_per_session() {
     vault.add_credential(make_test_credential(1)).unwrap();
     vault.add_credential(make_test_credential(2)).unwrap();
 
-    let unlinker = SessionUnlinker::new();
-    let cred1 = unlinker.start_session("s1", &vault).unwrap();
-    let cred2 = unlinker.start_session("s2", &vault).unwrap();
+    let unlinker = SessionUnlinker::new(vault);
+    let cred1 = unlinker.start_session("s1").unwrap();
+    let cred2 = unlinker.start_session("s2").unwrap();
 
     // Each session gets a different credential (unlinkable)
     assert_ne!(cred1.issued_epoch, cred2.issued_epoch);
@@ -929,4 +929,193 @@ fn test_shield_config_serde_roundtrip_with_credentials() {
     let json_str = serde_json::to_string(&config).unwrap();
     let parsed: vellaveto_config::ShieldConfig = serde_json::from_str(&json_str).unwrap();
     assert_eq!(config, parsed);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// StylometricNormalizer JSON Tests (Sprint 4)
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_stylometric_normalize_json_strings() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level1);
+    let input = serde_json::json!({
+        "method": "tools/call",
+        "params": {
+            "name": "search",
+            "arguments": {
+                "query": "Hello!!!  world  🎉",
+                "count": 5
+            }
+        }
+    });
+    let result = norm.normalize_json(&input).unwrap();
+    assert_eq!(
+        result["params"]["arguments"]["query"].as_str().unwrap(),
+        "Hello! world"
+    );
+    // Non-string values preserved
+    assert_eq!(result["params"]["arguments"]["count"], 5);
+    // Keys preserved
+    assert!(result["params"]["name"].as_str().is_some());
+}
+
+#[test]
+fn test_stylometric_normalize_json_array() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level2);
+    let input = serde_json::json!(["I   basically   want", "really   good", 42]);
+    let result = norm.normalize_json(&input).unwrap();
+    let s0 = result[0].as_str().unwrap();
+    assert!(!s0.contains("basically"));
+    assert!(!s0.contains("  "));
+    assert_eq!(result[2], 42);
+}
+
+#[test]
+fn test_stylometric_normalize_json_depth_limit() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level1);
+    // Build deeply nested JSON
+    let mut val = serde_json::json!("leaf");
+    for _ in 0..25 {
+        val = serde_json::json!({"inner": val});
+    }
+    let result = norm.normalize_json(&val);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_stylometric_normalize_json_none_passthrough() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::None);
+    let input = serde_json::json!({"text": "Hello!!!  🎉"});
+    let result = norm.normalize_json(&input).unwrap();
+    assert_eq!(result["text"].as_str().unwrap(), "Hello!!!  🎉");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ContextIsolator JSON Recording Tests (Sprint 4)
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_context_record_json_response_tool_result() {
+    let ctx = ContextIsolator::new();
+    let msg = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "content": [
+                {"type": "text", "text": "Paris is the capital of France."}
+            ]
+        }
+    });
+    ctx.record_json_response("s1", &msg).unwrap();
+    let recent = ctx.get_recent_context("s1", 10).unwrap();
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0].0, "assistant");
+    assert!(recent[0].1.contains("Paris"));
+}
+
+#[test]
+fn test_context_record_json_response_error() {
+    let ctx = ContextIsolator::new();
+    let msg = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+            "code": -32000,
+            "message": "Tool execution failed"
+        }
+    });
+    ctx.record_json_response("s1", &msg).unwrap();
+    let recent = ctx.get_recent_context("s1", 10).unwrap();
+    assert_eq!(recent.len(), 1);
+    assert!(recent[0].1.contains("Tool execution failed"));
+}
+
+#[test]
+fn test_context_record_json_response_no_result_skipped() {
+    let ctx = ContextIsolator::new();
+    let msg = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/progress"
+    });
+    ctx.record_json_response("s1", &msg).unwrap();
+    assert_eq!(ctx.entry_count("s1"), 0);
+}
+
+#[test]
+fn test_context_record_json_request() {
+    let ctx = ContextIsolator::new();
+    let msg = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "search",
+            "arguments": {"query": "capital of France"}
+        }
+    });
+    ctx.record_json_request("s1", &msg).unwrap();
+    let recent = ctx.get_recent_context("s1", 10).unwrap();
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0].0, "user");
+    assert!(recent[0].1.contains("tools/call"));
+}
+
+#[test]
+fn test_context_json_bidirectional_recording() {
+    let ctx = ContextIsolator::new();
+
+    // Record outbound request
+    let req = serde_json::json!({
+        "method": "tools/call",
+        "params": {"name": "search", "arguments": {"q": "test"}}
+    });
+    ctx.record_json_request("s1", &req).unwrap();
+
+    // Record inbound response
+    let resp = serde_json::json!({
+        "id": 1,
+        "result": {"content": [{"type": "text", "text": "search result"}]}
+    });
+    ctx.record_json_response("s1", &resp).unwrap();
+
+    let recent = ctx.get_recent_context("s1", 10).unwrap();
+    assert_eq!(recent.len(), 2);
+    assert_eq!(recent[0].0, "user");
+    assert_eq!(recent[1].0, "assistant");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SessionUnlinker Vault Ownership Tests (Sprint 4)
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_unlinker_vault_accessor() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    vault.add_credential(make_test_credential(1)).unwrap();
+
+    let unlinker = SessionUnlinker::new(vault);
+    let status = unlinker.vault().status();
+    assert_eq!(status.total, 1);
+    assert_eq!(status.available, 1);
+}
+
+#[test]
+fn test_unlinker_vault_status_after_session() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    vault.add_credential(make_test_credential(1)).unwrap();
+    vault.add_credential(make_test_credential(2)).unwrap();
+
+    let unlinker = SessionUnlinker::new(vault);
+    unlinker.start_session("s1").unwrap();
+
+    // One credential consumed (active), one still available
+    let status = unlinker.vault().status();
+    assert_eq!(status.available, 1);
+    assert_eq!(status.active, 1);
+
+    // End session marks consumed
+    unlinker.end_session("s1").unwrap();
+    let status = unlinker.vault().status();
+    assert_eq!(status.consumed, 1);
+    assert_eq!(status.active, 0);
 }

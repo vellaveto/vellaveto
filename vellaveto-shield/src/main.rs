@@ -300,8 +300,8 @@ async fn main() -> Result<()> {
         bridge = bridge.with_injection_disabled(true);
     }
 
-    // Set up stylometric normalizer
-    let _stylometric_normalizer = if policy_config.shield.enabled {
+    // Set up stylometric normalizer and wire into bridge
+    if policy_config.shield.enabled {
         let level = match policy_config.shield.stylometric_level.as_str() {
             "level1" => vellaveto_mcp_shield::NormalizationLevel::Level1,
             "level2" => vellaveto_mcp_shield::NormalizationLevel::Level2,
@@ -309,16 +309,13 @@ async fn main() -> Result<()> {
         };
         if level != vellaveto_mcp_shield::NormalizationLevel::None {
             tracing::info!("Stylometric normalizer: {:?}", level);
-            Some(vellaveto_mcp_shield::StylometricNormalizer::new(level))
-        } else {
-            None
+            let normalizer = Arc::new(vellaveto_mcp_shield::StylometricNormalizer::new(level));
+            bridge = bridge.with_shield_stylometric(normalizer);
         }
-    } else {
-        None
-    };
+    }
 
-    // Set up credential vault for session unlinkability
-    let _credential_vault = if policy_config.shield.enabled
+    // Set up credential vault + session unlinker and wire into bridge
+    if policy_config.shield.enabled
         && policy_config.shield.session_unlinkability
         && !passphrase.is_empty()
     {
@@ -339,21 +336,17 @@ async fn main() -> Result<()> {
             status.total,
             status.needs_replenishment
         );
-        Some(vault)
-    } else {
-        None
-    };
+        let unlinker = vellaveto_mcp_shield::SessionUnlinker::new(vault);
+        let unlinker = Arc::new(tokio::sync::Mutex::new(unlinker));
+        bridge = bridge.with_session_unlinker(unlinker);
+    }
 
-    // Set up context isolation
-    let _context_isolator = if policy_config.shield.enabled
-        && policy_config.shield.session_isolation
-    {
-        let isolator = vellaveto_mcp_shield::ContextIsolator::new();
+    // Set up context isolation and wire into bridge
+    if policy_config.shield.enabled && policy_config.shield.session_isolation {
+        let isolator = Arc::new(vellaveto_mcp_shield::ContextIsolator::new());
         tracing::info!("Context isolation: ENABLED");
-        Some(isolator)
-    } else {
-        None
-    };
+        bridge = bridge.with_context_isolator(isolator);
+    }
 
     tracing::info!(
         "Shield ready — timeout: {}s, sanitize: {}, session_isolation: {}, unlinkability: {}",

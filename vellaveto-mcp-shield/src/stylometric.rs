@@ -59,6 +59,9 @@ const FILLER_WORDS: &[&str] = &[
 /// Maximum input length for stylometric processing (1 MB).
 const MAX_INPUT_LEN: usize = 1_048_576;
 
+/// Maximum JSON recursion depth for `normalize_json`.
+const MAX_JSON_DEPTH: usize = 20;
+
 /// Stylometric normalizer that strips writing style fingerprints.
 pub struct StylometricNormalizer {
     level: NormalizationLevel,
@@ -90,6 +93,53 @@ impl StylometricNormalizer {
     /// Get the normalization level.
     pub fn level(&self) -> NormalizationLevel {
         self.level
+    }
+
+    /// Recursively normalize all string values in a JSON value.
+    ///
+    /// Applies stylometric normalization to every string leaf in the JSON tree,
+    /// preserving structure and non-string values. Bounded to `MAX_JSON_DEPTH`
+    /// to prevent stack overflow from deeply nested payloads.
+    pub fn normalize_json(
+        &self,
+        value: &serde_json::Value,
+    ) -> Result<serde_json::Value, ShieldError> {
+        self.walk_json(value, 0)
+    }
+
+    /// Recursive JSON walker for stylometric normalization.
+    fn walk_json(
+        &self,
+        value: &serde_json::Value,
+        depth: usize,
+    ) -> Result<serde_json::Value, ShieldError> {
+        if depth > MAX_JSON_DEPTH {
+            return Err(ShieldError::Sanitization(
+                "JSON recursion depth exceeded during stylometric normalization".to_string(),
+            ));
+        }
+
+        match value {
+            serde_json::Value::String(s) => {
+                let normalized = self.normalize(s)?;
+                Ok(serde_json::Value::String(normalized))
+            }
+            serde_json::Value::Array(arr) => {
+                let mut result = Vec::with_capacity(arr.len());
+                for item in arr {
+                    result.push(self.walk_json(item, depth + 1)?);
+                }
+                Ok(serde_json::Value::Array(result))
+            }
+            serde_json::Value::Object(map) => {
+                let mut result = serde_json::Map::new();
+                for (key, val) in map {
+                    result.insert(key.clone(), self.walk_json(val, depth + 1)?);
+                }
+                Ok(serde_json::Value::Object(result))
+            }
+            other => Ok(other.clone()),
+        }
     }
 }
 

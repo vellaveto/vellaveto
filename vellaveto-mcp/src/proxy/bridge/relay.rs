@@ -1218,6 +1218,46 @@ impl ProxyBridge {
                     msg
                 };
 
+                // Consumer shield: stylometric normalization (after PII sanitization)
+                #[cfg(feature = "consumer-shield")]
+                let msg = if let Some(ref normalizer) = self.shield_stylometric {
+                    match normalizer.normalize_json(&msg) {
+                        Ok(normalized) => normalized,
+                        Err(e) => {
+                            tracing::warn!("Shield stylometric normalize failed: {} — forwarding original", e);
+                            msg
+                        }
+                    }
+                } else {
+                    msg
+                };
+
+                // Consumer shield: record outbound context for session isolation
+                #[cfg(feature = "consumer-shield")]
+                if let Some(ref isolator) = self.shield_context_isolator {
+                    let session_id = state.agent_id.as_deref().unwrap_or("default");
+                    if let Err(e) = isolator.record_json_request(session_id, &msg) {
+                        tracing::debug!("Shield context record (outbound) failed: {}", e);
+                    }
+                }
+
+                // Consumer shield: consume credential on first tool call per session
+                #[cfg(feature = "consumer-shield")]
+                if let Some(ref unlinker) = self.shield_session_unlinker {
+                    let session_id = state.agent_id.as_deref().unwrap_or("default").to_string();
+                    let unlinker_guard = unlinker.lock().await;
+                    if unlinker_guard.get_session_credential(&session_id).is_err() {
+                        match unlinker_guard.start_session(&session_id) {
+                            Ok(_credential) => {
+                                tracing::debug!("Shield session started with fresh credential: {}", session_id);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Shield session start failed: {} — continuing without credential", e);
+                            }
+                        }
+                    }
+                }
+
                 write_message(child_stdin, &msg)
                     .await
                     .map_err(ProxyError::Framing)?;
@@ -3320,6 +3360,15 @@ impl ProxyBridge {
                         tracing::warn!("Shield desanitize failed: {} — forwarding original", e);
                     }
                 }
+            }
+        }
+
+        // Consumer shield: record inbound context for session isolation (after desanitize)
+        #[cfg(feature = "consumer-shield")]
+        if let Some(ref isolator) = self.shield_context_isolator {
+            let session_id = state.agent_id.as_deref().unwrap_or("default");
+            if let Err(e) = isolator.record_json_response(session_id, &msg) {
+                tracing::debug!("Shield context record (inbound) failed: {}", e);
             }
         }
 

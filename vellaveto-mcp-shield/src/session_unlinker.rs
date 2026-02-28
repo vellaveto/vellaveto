@@ -31,6 +31,8 @@ pub struct SessionUnlinker {
     sequence: Mutex<u64>,
     /// Maximum concurrent sessions.
     max_sessions: usize,
+    /// Credential vault for consuming/marking credentials.
+    vault: CredentialVault,
 }
 
 /// Internal binding state.
@@ -41,22 +43,29 @@ struct SessionBinding {
 }
 
 impl SessionUnlinker {
-    /// Create a new session unlinker.
-    pub fn new() -> Self {
+    /// Create a new session unlinker with an owned credential vault.
+    pub fn new(vault: CredentialVault) -> Self {
         Self {
             bindings: Mutex::new(HashMap::new()),
             sequence: Mutex::new(0),
             max_sessions: MAX_UNLINKED_SESSIONS,
+            vault,
         }
     }
 
     /// Create with custom session limit.
-    pub fn with_max_sessions(max_sessions: usize) -> Self {
+    pub fn with_max_sessions(vault: CredentialVault, max_sessions: usize) -> Self {
         Self {
             bindings: Mutex::new(HashMap::new()),
             sequence: Mutex::new(0),
             max_sessions: max_sessions.min(MAX_UNLINKED_SESSIONS),
+            vault,
         }
+    }
+
+    /// Get a reference to the underlying credential vault.
+    pub fn vault(&self) -> &CredentialVault {
+        &self.vault
     }
 
     /// Start a new unlinkable session by consuming a credential from the vault.
@@ -66,7 +75,6 @@ impl SessionUnlinker {
     pub fn start_session(
         &self,
         session_id: &str,
-        vault: &CredentialVault,
     ) -> Result<BlindCredential, ShieldError> {
         if vellaveto_types::has_dangerous_chars(session_id) {
             return Err(ShieldError::SessionIsolation(
@@ -92,7 +100,7 @@ impl SessionUnlinker {
         }
 
         // Consume a credential from the vault
-        let (credential, vault_index) = vault.consume_credential()?;
+        let (credential, vault_index) = self.vault.consume_credential()?;
 
         // Assign monotonic sequence number
         let seq = {
@@ -120,7 +128,6 @@ impl SessionUnlinker {
     pub fn end_session(
         &self,
         session_id: &str,
-        vault: &CredentialVault,
     ) -> Result<(), ShieldError> {
         let mut bindings = self.bindings.lock().map_err(|e| {
             ShieldError::SessionIsolation(format!("bindings lock poisoned: {e}"))
@@ -130,7 +137,7 @@ impl SessionUnlinker {
             ShieldError::SessionIsolation(format!("unknown session: {session_id}"))
         })?;
 
-        vault.mark_consumed(binding.vault_index)
+        self.vault.mark_consumed(binding.vault_index)
     }
 
     /// Get the credential for an active session.
@@ -183,12 +190,6 @@ impl SessionUnlinker {
             .lock()
             .map(|b| b.contains_key(session_id))
             .unwrap_or(false)
-    }
-}
-
-impl Default for SessionUnlinker {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

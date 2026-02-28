@@ -209,6 +209,90 @@ impl ContextIsolator {
     pub fn session_count(&self) -> usize {
         self.sessions.lock().map(|s| s.len()).unwrap_or(0)
     }
+
+    /// Record context from a JSON-RPC response message.
+    ///
+    /// Extracts text content from the response result/error and records it.
+    /// Only processes responses with `result` or `error` fields.
+    pub fn record_json_response(
+        &self,
+        session_id: &str,
+        msg: &serde_json::Value,
+    ) -> Result<(), ShieldError> {
+        // Extract text from result.content[].text or error.message
+        let text = if let Some(result) = msg.get("result") {
+            extract_text_from_result(result)
+        } else if let Some(error) = msg.get("error") {
+            error
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("")
+                .to_string()
+        } else {
+            return Ok(());
+        };
+
+        if text.is_empty() {
+            return Ok(());
+        }
+
+        self.record(session_id, "assistant", &text)
+    }
+
+    /// Record context from a JSON-RPC request message (user side).
+    ///
+    /// Extracts the tool name and arguments as context.
+    pub fn record_json_request(
+        &self,
+        session_id: &str,
+        msg: &serde_json::Value,
+    ) -> Result<(), ShieldError> {
+        let method = msg
+            .get("method")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown");
+        let params = msg
+            .get("params")
+            .and_then(|p| serde_json::to_string(p).ok())
+            .unwrap_or_default();
+
+        // Truncate params to avoid huge context entries
+        let truncated: String = params.chars().take(4096).collect();
+        let text = format!("[{method}] {truncated}");
+
+        self.record(session_id, "user", &text)
+    }
+}
+
+/// Extract text content from a JSON-RPC result value.
+///
+/// Handles common MCP response formats:
+/// - `result.content[].text` (tool call results)
+/// - `result.text` (simple text responses)
+/// - `result` as string directly
+fn extract_text_from_result(result: &serde_json::Value) -> String {
+    // Try result.content[].text (MCP tool result format)
+    if let Some(content) = result.get("content").and_then(|c| c.as_array()) {
+        let texts: Vec<&str> = content
+            .iter()
+            .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
+            .collect();
+        if !texts.is_empty() {
+            return texts.join("\n");
+        }
+    }
+
+    // Try result.text
+    if let Some(text) = result.get("text").and_then(|t| t.as_str()) {
+        return text.to_string();
+    }
+
+    // Try result as string directly
+    if let Some(s) = result.as_str() {
+        return s.to_string();
+    }
+
+    String::new()
 }
 
 impl Default for ContextIsolator {

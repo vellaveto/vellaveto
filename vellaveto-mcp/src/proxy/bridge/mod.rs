@@ -201,6 +201,31 @@ pub struct ProxyBridge {
     /// restored to original values). Enables privacy-preserving AI interactions.
     #[cfg(feature = "consumer-shield")]
     shield_sanitizer: Option<Arc<vellaveto_mcp_shield::QuerySanitizer>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Consumer Shield: Stylometric Fingerprint Resistance
+    // ═══════════════════════════════════════════════════════════════════
+    /// When set, outbound requests are normalized to strip writing style
+    /// fingerprints (whitespace patterns, punctuation, emoji, filler words).
+    /// Applied AFTER PII sanitization to prevent stylometric analysis.
+    #[cfg(feature = "consumer-shield")]
+    shield_stylometric: Option<Arc<vellaveto_mcp_shield::StylometricNormalizer>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Consumer Shield: Context Isolation
+    // ═══════════════════════════════════════════════════════════════════
+    /// When set, tracks per-session context windows. Context from one
+    /// session is never leaked to another at the provider level.
+    #[cfg(feature = "consumer-shield")]
+    shield_context_isolator: Option<Arc<vellaveto_mcp_shield::ContextIsolator>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Consumer Shield: Session Unlinkability
+    // ═══════════════════════════════════════════════════════════════════
+    /// When set, each session consumes a fresh blind credential from the
+    /// vault. The provider cannot correlate sessions to the same user.
+    #[cfg(feature = "consumer-shield")]
+    shield_session_unlinker: Option<Arc<tokio::sync::Mutex<vellaveto_mcp_shield::SessionUnlinker>>>,
 }
 
 impl ProxyBridge {
@@ -260,6 +285,12 @@ impl ProxyBridge {
             // Consumer shield (default: disabled)
             #[cfg(feature = "consumer-shield")]
             shield_sanitizer: None,
+            #[cfg(feature = "consumer-shield")]
+            shield_stylometric: None,
+            #[cfg(feature = "consumer-shield")]
+            shield_context_isolator: None,
+            #[cfg(feature = "consumer-shield")]
+            shield_session_unlinker: None,
         }
     }
 }

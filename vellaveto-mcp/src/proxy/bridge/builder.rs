@@ -350,4 +350,40 @@ impl ProxyBridge {
         self.shield_sanitizer = Some(sanitizer);
         self
     }
+
+    /// Set the stylometric normalizer for writing style fingerprint resistance.
+    /// Applied AFTER PII sanitization on outbound requests. Strips whitespace
+    /// patterns, punctuation idiosyncrasies, emoji, and filler words.
+    #[cfg(feature = "consumer-shield")]
+    pub fn with_shield_stylometric(
+        mut self,
+        normalizer: Arc<vellaveto_mcp_shield::StylometricNormalizer>,
+    ) -> Self {
+        self.shield_stylometric = Some(normalizer);
+        self
+    }
+
+    /// Set the context isolator for per-session context window management.
+    /// Records conversation context per session; prevents cross-session
+    /// context leakage at the provider level.
+    #[cfg(feature = "consumer-shield")]
+    pub fn with_context_isolator(
+        mut self,
+        isolator: Arc<vellaveto_mcp_shield::ContextIsolator>,
+    ) -> Self {
+        self.shield_context_isolator = Some(isolator);
+        self
+    }
+
+    /// Set the session unlinker for credential-based session unlinkability.
+    /// Each session consumes a fresh blind credential so the provider cannot
+    /// correlate sessions to the same user.
+    #[cfg(feature = "consumer-shield")]
+    pub fn with_session_unlinker(
+        mut self,
+        unlinker: Arc<tokio::sync::Mutex<vellaveto_mcp_shield::SessionUnlinker>>,
+    ) -> Self {
+        self.shield_session_unlinker = Some(unlinker);
+        self
+    }
 }
