@@ -712,7 +712,6 @@ fn test_shield_config_zero_epoch_interval_rejected() {
     assert!(config.validate().unwrap_err().contains("credential_epoch_interval"));
 }
 
-#[test]
 // ═══════════════════════════════════════════════════════════════════
 // ContextIsolator Tests
 // ═══════════════════════════════════════════════════════════════════
@@ -920,6 +919,7 @@ fn test_stylometric_combined_normalization() {
     assert!(result.contains("great"));
 }
 
+#[test]
 fn test_shield_config_serde_roundtrip_with_credentials() {
     let mut config = vellaveto_config::ShieldConfig::default();
     config.session_unlinkability = true;

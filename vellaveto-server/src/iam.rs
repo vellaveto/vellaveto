@@ -3025,7 +3025,7 @@ mod tests {
 
     #[test]
     fn test_r230_find_key_in_jwks_requires_alg() {
-        use jsonwebtoken::jwk::{Jwk, CommonParameters, KeyAlgorithm, AlgorithmParameters, RSAKeyParameters};
+        use jsonwebtoken::jwk::{AlgorithmParameters, CommonParameters, Jwk, RSAKeyParameters};
         // Key WITHOUT alg field should NOT match any algorithm
         let key_no_alg = Jwk {
             common: CommonParameters {

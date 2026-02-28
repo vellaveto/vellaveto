@@ -26,14 +26,20 @@ COPY vellaveto-engine/Cargo.toml vellaveto-engine/
 COPY vellaveto-audit/Cargo.toml vellaveto-audit/
 COPY vellaveto-config/Cargo.toml vellaveto-config/
 COPY vellaveto-canonical/Cargo.toml vellaveto-canonical/
+COPY vellaveto-discovery/Cargo.toml vellaveto-discovery/
 COPY vellaveto-mcp/Cargo.toml vellaveto-mcp/
 COPY vellaveto-approval/Cargo.toml vellaveto-approval/
 COPY vellaveto-cluster/Cargo.toml vellaveto-cluster/
 COPY vellaveto-server/Cargo.toml vellaveto-server/
 COPY vellaveto-http-proxy/Cargo.toml vellaveto-http-proxy/
 COPY vellaveto-proxy/Cargo.toml vellaveto-proxy/
+COPY vellaveto-operator/Cargo.toml vellaveto-operator/
 COPY vellaveto-integration/Cargo.toml vellaveto-integration/
 COPY mcpsec/Cargo.toml mcpsec/
+COPY vellaveto-mcp-shield/Cargo.toml vellaveto-mcp-shield/
+COPY vellaveto-http-proxy-shield/Cargo.toml vellaveto-http-proxy-shield/
+COPY vellaveto-canary/Cargo.toml vellaveto-canary/
+COPY vellaveto-shield/Cargo.toml vellaveto-shield/
 COPY vellaveto-engine/benches vellaveto-engine/benches/
 COPY vellaveto-audit/benches vellaveto-audit/benches/
 COPY vellaveto-mcp/benches vellaveto-mcp/benches/
@@ -41,23 +47,31 @@ COPY vellaveto-http-proxy/benches vellaveto-http-proxy/benches/
 
 # Create dummy src files for dependency caching
 RUN mkdir -p vellaveto-types/src vellaveto-engine/src vellaveto-audit/src \
-    vellaveto-config/src vellaveto-canonical/src vellaveto-mcp/src \
-    vellaveto-approval/src vellaveto-cluster/src vellaveto-server/src \
-    vellaveto-http-proxy/src vellaveto-proxy/src vellaveto-integration/src \
-    mcpsec/src \
+    vellaveto-config/src vellaveto-canonical/src vellaveto-discovery/src \
+    vellaveto-mcp/src vellaveto-approval/src vellaveto-cluster/src \
+    vellaveto-server/src vellaveto-http-proxy/src vellaveto-proxy/src \
+    vellaveto-operator/src vellaveto-integration/src mcpsec/src \
+    vellaveto-mcp-shield/src vellaveto-http-proxy-shield/src \
+    vellaveto-canary/src vellaveto-shield/src \
     && echo "pub fn dummy() {}" > vellaveto-types/src/lib.rs \
     && echo "pub fn dummy() {}" > vellaveto-engine/src/lib.rs \
     && echo "pub fn dummy() {}" > vellaveto-audit/src/lib.rs \
     && echo "pub fn dummy() {}" > vellaveto-config/src/lib.rs \
     && echo "pub fn dummy() {}" > vellaveto-canonical/src/lib.rs \
+    && echo "pub fn dummy() {}" > vellaveto-discovery/src/lib.rs \
     && echo "pub fn dummy() {}" > vellaveto-mcp/src/lib.rs \
     && echo "pub fn dummy() {}" > vellaveto-approval/src/lib.rs \
     && echo "pub fn dummy() {}" > vellaveto-cluster/src/lib.rs \
     && echo "fn main() {}" > vellaveto-server/src/main.rs \
     && echo "fn main() {}" > vellaveto-http-proxy/src/main.rs \
     && echo "fn main() {}" > vellaveto-proxy/src/main.rs \
+    && echo "fn main() {}" > vellaveto-operator/src/main.rs \
     && echo "" > vellaveto-integration/src/lib.rs \
-    && echo "fn main() {}" > mcpsec/src/main.rs
+    && echo "fn main() {}" > mcpsec/src/main.rs \
+    && echo "pub fn dummy() {}" > vellaveto-mcp-shield/src/lib.rs \
+    && echo "pub fn dummy() {}" > vellaveto-http-proxy-shield/src/lib.rs \
+    && echo "pub fn dummy() {}" > vellaveto-canary/src/lib.rs \
+    && echo "fn main() {}" > vellaveto-shield/src/main.rs
 
 # Build dependencies only (for layer caching)
 RUN cargo build --release --target x86_64-unknown-linux-musl \
@@ -71,6 +85,7 @@ COPY vellaveto-audit/src vellaveto-audit/src/
 COPY vellaveto-audit/benches vellaveto-audit/benches/
 COPY vellaveto-config/src vellaveto-config/src/
 COPY vellaveto-canonical/src vellaveto-canonical/src/
+COPY vellaveto-discovery/src vellaveto-discovery/src/
 COPY vellaveto-mcp/src vellaveto-mcp/src/
 COPY vellaveto-mcp/benches vellaveto-mcp/benches/
 COPY vellaveto-approval/src vellaveto-approval/src/
@@ -79,7 +94,12 @@ COPY vellaveto-server/src vellaveto-server/src/
 COPY vellaveto-http-proxy/src vellaveto-http-proxy/src/
 COPY vellaveto-http-proxy/benches vellaveto-http-proxy/benches/
 COPY vellaveto-proxy/src vellaveto-proxy/src/
+COPY vellaveto-operator/src vellaveto-operator/src/
 COPY mcpsec/src mcpsec/src/
+COPY vellaveto-mcp-shield/src vellaveto-mcp-shield/src/
+COPY vellaveto-http-proxy-shield/src vellaveto-http-proxy-shield/src/
+COPY vellaveto-canary/src vellaveto-canary/src/
+COPY vellaveto-shield/src vellaveto-shield/src/
 
 # Touch source files to invalidate cache
 RUN find . -name "*.rs" -exec touch {} \;
