@@ -346,8 +346,10 @@ mod tests {
 
     #[test]
     fn test_shield_invalid_audit_mode() {
-        let mut config = ShieldConfig::default();
-        config.audit_mode = "invalid".to_string();
+        let config = ShieldConfig {
+            audit_mode: "invalid".to_string(),
+            ..ShieldConfig::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("audit_mode"));
@@ -355,8 +357,10 @@ mod tests {
 
     #[test]
     fn test_shield_zero_sessions_rejected() {
-        let mut config = ShieldConfig::default();
-        config.max_sessions = 0;
+        let config = ShieldConfig {
+            max_sessions: 0,
+            ..ShieldConfig::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("max_sessions"));
@@ -364,8 +368,10 @@ mod tests {
 
     #[test]
     fn test_shield_dangerous_chars_rejected() {
-        let mut config = ShieldConfig::default();
-        config.audit_mode = "local\u{200B}".to_string();
+        let config = ShieldConfig {
+            audit_mode: "local\u{200B}".to_string(),
+            ..ShieldConfig::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("dangerous"));

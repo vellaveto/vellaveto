@@ -4897,8 +4897,8 @@ async fn test_pqc_ed25519_error_message_format() {
     let content = tokio::fs::read_to_string(&cp_path).await.unwrap();
     let mut cp: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
     let sig = cp["signature"].as_str().unwrap().to_string();
-    let tampered_sig = if sig.starts_with('a') {
-        format!("b{}", &sig[1..])
+    let tampered_sig = if let Some(stripped) = sig.strip_prefix('a') {
+        format!("b{}", stripped)
     } else {
         format!("a{}", &sig[1..])
     };
@@ -4943,8 +4943,8 @@ async fn test_pqc_rotation_manifest_ed25519_error_message() {
         if let Some(first_line) = content.lines().next() {
             let mut entry: serde_json::Value = serde_json::from_str(first_line).unwrap();
             if let Some(sig) = entry.get("signature").and_then(|v| v.as_str()) {
-                let tampered_sig = if sig.starts_with('a') {
-                    format!("b{}", &sig[1..])
+                let tampered_sig = if let Some(stripped) = sig.strip_prefix('a') {
+                    format!("b{}", stripped)
                 } else {
                     format!("a{}", &sig[1..])
                 };

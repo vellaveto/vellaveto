@@ -2741,7 +2741,7 @@ mod tests {
     #[test]
     fn test_r226_url_exfil_normal_url_no_false_positive() {
         let url = "https://api.example.com/v1/files?path=/home/user/docs&format=json";
-        let result = detect_url_data_exfiltration(&url);
+        let result = detect_url_data_exfiltration(url);
         assert!(
             result.is_none(),
             "Normal URL with short/low-entropy params must not trigger"
@@ -2764,7 +2764,7 @@ mod tests {
     fn test_r228_url_exfil_ftp_inspected() {
         // R228-DLP-1: ftp:// is now inspected. Use a segment long enough to trigger.
         let url = "ftp://server.com/data?key=sUpErSeCrEtVaLuE1234567890ABCDEFghijklmnop";
-        let result = detect_url_data_exfiltration(&url);
+        let result = detect_url_data_exfiltration(url);
         assert!(
             result.is_some(),
             "ftp:// URLs with high-entropy segments must be inspected"
@@ -2775,7 +2775,7 @@ mod tests {
     fn test_r232_url_exfil_websocket_inspected() {
         // R232-DLP-2: ws:// and wss:// must be inspected
         let url = "wss://attacker.com/exfil?data=sUpErSeCrEtVaLuE1234567890ABCDEFghijklmnop";
-        let result = detect_url_data_exfiltration(&url);
+        let result = detect_url_data_exfiltration(url);
         assert!(
             result.is_some(),
             "wss:// URLs with high-entropy segments must be inspected"
@@ -2785,7 +2785,7 @@ mod tests {
     #[test]
     fn test_r232_url_exfil_ws_inspected() {
         let url = "ws://attacker.com/collect?token=aB3dEfGhI1jK2lMnOpQrStUvWxYz0123456789AB";
-        let result = detect_url_data_exfiltration(&url);
+        let result = detect_url_data_exfiltration(url);
         assert!(
             result.is_some(),
             "ws:// URLs with high-entropy segments must be inspected"

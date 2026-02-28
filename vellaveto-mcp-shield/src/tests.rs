@@ -731,8 +731,10 @@ fn test_shield_config_credential_defaults() {
 
 #[test]
 fn test_shield_config_zero_pool_rejected() {
-    let mut config = vellaveto_config::ShieldConfig::default();
-    config.credential_pool_size = 0;
+    let config = vellaveto_config::ShieldConfig {
+        credential_pool_size: 0,
+        ..vellaveto_config::ShieldConfig::default()
+    };
     assert!(config
         .validate()
         .unwrap_err()
@@ -741,8 +743,10 @@ fn test_shield_config_zero_pool_rejected() {
 
 #[test]
 fn test_shield_config_threshold_ge_pool_rejected() {
-    let mut config = vellaveto_config::ShieldConfig::default();
-    config.replenish_threshold = 50; // equal to pool_size
+    let config = vellaveto_config::ShieldConfig {
+        replenish_threshold: 50, // equal to pool_size
+        ..vellaveto_config::ShieldConfig::default()
+    };
     assert!(config
         .validate()
         .unwrap_err()
@@ -751,8 +755,10 @@ fn test_shield_config_threshold_ge_pool_rejected() {
 
 #[test]
 fn test_shield_config_zero_epoch_interval_rejected() {
-    let mut config = vellaveto_config::ShieldConfig::default();
-    config.credential_epoch_interval = 0;
+    let config = vellaveto_config::ShieldConfig {
+        credential_epoch_interval: 0,
+        ..vellaveto_config::ShieldConfig::default()
+    };
     assert!(config
         .validate()
         .unwrap_err()
@@ -981,11 +987,13 @@ fn test_stylometric_combined_normalization() {
 
 #[test]
 fn test_shield_config_serde_roundtrip_with_credentials() {
-    let mut config = vellaveto_config::ShieldConfig::default();
-    config.session_unlinkability = true;
-    config.credential_pool_size = 100;
-    config.replenish_threshold = 20;
-    config.credential_epoch_interval = 200;
+    let config = vellaveto_config::ShieldConfig {
+        session_unlinkability: true,
+        credential_pool_size: 100,
+        replenish_threshold: 20,
+        credential_epoch_interval: 200,
+        ..vellaveto_config::ShieldConfig::default()
+    };
     let json_str = serde_json::to_string(&config).unwrap();
     let parsed: vellaveto_config::ShieldConfig = serde_json::from_str(&json_str).unwrap();
     assert_eq!(config, parsed);

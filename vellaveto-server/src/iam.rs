@@ -2387,6 +2387,7 @@ pub fn build_step_up_response(
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use base64::engine::general_purpose::STANDARD;
@@ -2611,7 +2612,6 @@ mod tests {
             .replace("{acs}", &saml_state.acs_url)
             .replace("{role_attr}", &saml_state.role_attribute)
             .replace("{role_value}", TEST_ROLE_VALUE)
-            .replace("{signed_info}", "{signed_info}")
             .replace("{signature}", SIGNATURE_PLACEHOLDER);
         let assertion_for_digest = assertion_template
             .replace("{signed_info}", SIGNED_INFO_TEMPLATE)
