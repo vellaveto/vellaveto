@@ -280,9 +280,14 @@ async fn main() -> Result<()> {
 
     // Wire DLP scanning
     let dlp_config = &policy_config.dlp;
-    bridge = bridge.with_response_dlp_enabled(dlp_config.enabled);
+    bridge = bridge
+        .with_response_dlp_enabled(dlp_config.enabled)
+        .with_response_dlp_blocking(dlp_config.block_on_finding);
     if dlp_config.enabled {
-        tracing::info!("DLP scanning: ENABLED");
+        tracing::info!(
+            "DLP scanning: ENABLED (blocking: {})",
+            dlp_config.block_on_finding
+        );
     }
 
     // Wire sampling controls
@@ -298,6 +303,7 @@ async fn main() -> Result<()> {
     // Wire injection scanner from config
     let injection_config = &policy_config.injection;
     if injection_config.enabled {
+        bridge = bridge.with_injection_blocking(injection_config.block_on_injection);
         if !injection_config.extra_patterns.is_empty()
             || !injection_config.disabled_patterns.is_empty()
         {
@@ -308,6 +314,10 @@ async fn main() -> Result<()> {
                 bridge = bridge.with_injection_scanner(scanner);
             }
         }
+        tracing::info!(
+            "Injection scanning: ENABLED (blocking: {})",
+            injection_config.block_on_injection
+        );
     } else {
         bridge = bridge.with_injection_disabled(true);
     }
