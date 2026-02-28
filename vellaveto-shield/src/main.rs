@@ -278,6 +278,18 @@ async fn main() -> Result<()> {
     let timeout = std::time::Duration::from_secs(cli.timeout);
     let mut bridge = ProxyBridge::new(engine, policies, audit).with_timeout(timeout);
 
+    // Wire DLP scanning
+    let dlp_config = &policy_config.dlp;
+    bridge = bridge.with_response_dlp_enabled(dlp_config.enabled);
+    if dlp_config.enabled {
+        tracing::info!("DLP scanning: ENABLED");
+    }
+
+    // Wire sampling controls
+    bridge = bridge
+        .with_sampling_config(policy_config.sampling.clone())
+        .with_elicitation_config(policy_config.elicitation.clone());
+
     // Wire shield sanitizer
     if let Some(sanitizer) = shield_sanitizer {
         bridge = bridge.with_shield_sanitizer(sanitizer);
