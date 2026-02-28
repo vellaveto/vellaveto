@@ -433,7 +433,10 @@ impl AgentCardSignatureVerifier {
         // verification for one key would be reused when the issuer rotates keys,
         // allowing a stale/compromised key to pass verification via cache hit.
         let kid_component = claims.kid.as_deref().unwrap_or("");
-        let cache_key = format!("{}:{}:{}", claims.card_hash, claims.iss, kid_component);
+        // SECURITY (R231-A2A-1): Include exp claim in cache key. Without exp,
+        // a cached verification result outlasts the token's intended lifetime,
+        // allowing expired cards to pass verification via cache hit.
+        let cache_key = format!("{}:{}:{}:{}", claims.card_hash, claims.iss, kid_component, claims.exp);
         if self.check_cache(&cache_key) {
             return Ok(());
         }

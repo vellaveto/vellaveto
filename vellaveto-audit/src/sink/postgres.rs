@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS vellaveto_audit_entries (
     verdict_json     JSONB NOT NULL,
     metadata         JSONB NOT NULL DEFAULT '{}',
     entry_hash       TEXT NOT NULL,
-    prev_hash        TEXT NOT NULL,
+    prev_hash        TEXT,
     commitment       TEXT,
     tenant_id        TEXT,
     inserted_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -107,16 +107,34 @@ impl SamlState {
             .idp_metadata_url
             .as_ref()
             .ok_or_else(|| IamError::Saml("iam.saml.idp_metadata_url is required".to_string()))?;
-        let body = client
+        // SECURITY (R231-SRV-2): Validate SAML metadata URL against SSRF
+        // (loopback, link-local, cloud metadata IPs) before fetching.
+        validate_url_no_ssrf(metadata_url)
+            .map_err(|e| IamError::Saml(format!("SAML metadata URL SSRF blocked: {e}")))?;
+        // SECURITY (R231-SRV-6): Bound SAML metadata response size + timeout
+        // to prevent memory exhaustion and startup hang.
+        const MAX_SAML_METADATA_SIZE: u64 = 2 * 1024 * 1024; // 2 MB
+        let response = client
             .get(metadata_url)
+            .timeout(Duration::from_secs(30))
             .send()
             .await
             .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {}", e)))?
             .error_for_status()
-            .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {}", e)))?
-            .text()
+            .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {}", e)))?;
+        let content_length = response.content_length().unwrap_or(0);
+        if content_length > MAX_SAML_METADATA_SIZE {
+            return Err(IamError::Saml("SAML metadata response too large".to_string()));
+        }
+        let body_bytes = response
+            .bytes()
             .await
             .map_err(|e| IamError::Saml(format!("Failed to read SAML metadata: {}", e)))?;
+        if body_bytes.len() as u64 > MAX_SAML_METADATA_SIZE {
+            return Err(IamError::Saml("SAML metadata body too large".to_string()));
+        }
+        let body = String::from_utf8(body_bytes.to_vec())
+            .map_err(|e| IamError::Saml(format!("SAML metadata is not valid UTF-8: {}", e)))?;
         let document = Document::parse(&body)
             .map_err(|e| IamError::Saml(format!("Invalid SAML metadata XML: {}", e)))?;
         Self::from_document(document, config)
@@ -539,6 +557,10 @@ impl IamState {
                 .endpoint
                 .clone()
                 .ok_or_else(|| IamError::Scim("iam.scim.endpoint missing".to_string()))?;
+            // SECURITY (R231-SRV-1): Validate SCIM endpoint URL against SSRF
+            // (loopback, link-local, cloud metadata IPs) before periodic fetch.
+            validate_url_no_ssrf(&endpoint)
+                .map_err(|e| IamError::Scim(format!("SCIM endpoint SSRF blocked: {e}")))?;
             let token = resolve_scim_token(&config.scim)?;
             Some(spawn_scim_sync(
                 http.clone(),
@@ -842,7 +864,7 @@ impl IamState {
         response.json::<JwkSet>().await
     }
 
-    pub fn create_session(&self, claims: RoleClaims, scopes: Vec<String>) -> IamSession {
+    pub fn create_session(&self, claims: RoleClaims, scopes: Vec<String>) -> Result<IamSession, IamError> {
         let role = claims.effective_role().unwrap_or(Role::Viewer);
         let now = Instant::now();
         let session = IamSession {
@@ -853,17 +875,19 @@ impl IamState {
             expires_at: now + Duration::from_secs(self.config.session.max_age_secs),
             last_activity: now,
         };
-        // SECURITY (R229-SRV-6): Bound session count to prevent memory exhaustion.
+        // SECURITY (R231-SRV-3): Return error when capacity reached instead of
+        // returning a phantom session. Without this, the cookie is set for an
+        // uninserted session, causing a confusing login loop.
         if self.sessions.len() >= Self::MAX_SESSIONS {
             tracing::warn!(
                 max = Self::MAX_SESSIONS,
                 "Session capacity reached, rejecting new session creation"
             );
-            return session;
+            return Err(IamError::Session("Session capacity reached — try again later".to_string()));
         }
         self.sessions.insert(session.id.clone(), session.clone());
         self.trim_sessions_for_subject(session.subject.as_deref());
-        session
+        Ok(session)
     }
 
     fn trim_sessions_for_subject(&self, subject: Option<&str>) {
@@ -1255,7 +1279,9 @@ pub struct CallbackParams {
     pub error: Option<String>,
 }
 
+// SECURITY (R231-SRV-9): Added deny_unknown_fields for project-wide consistency.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SamlAcsForm {
     #[serde(rename = "SAMLResponse")]
     pub saml_response: String,
@@ -1361,7 +1387,14 @@ pub async fn callback(
             )
         })?;
     let scopes = parse_scope_list(tokens.scope.as_deref());
-    let session = iam.create_session(claims, scopes);
+    let session = iam.create_session(claims, scopes).map_err(|e| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
     let cookie = iam
         .session_cookie_header(&session.id, Some(iam.config.session.max_age_secs))
         .map_err(|e| {
@@ -1538,7 +1571,14 @@ pub async fn saml_acs(
         }
     }
 
-    let session = iam.create_session(claims, vec![]);
+    let session = iam.create_session(claims, vec![]).map_err(|e| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
     let cookie = iam
         .session_cookie_header(&session.id, Some(iam.config.session.max_age_secs))
         .map_err(|e| {
@@ -1751,6 +1791,8 @@ pub enum IamError {
     CimdFetch(String),
     #[error("CIMD validation failed: {0}")]
     CimdValidation(String),
+    #[error("Session error: {0}")]
+    Session(String),
 }
 
 #[derive(Deserialize)]
@@ -2060,7 +2102,9 @@ impl std::fmt::Display for M2mTokenResponse {
 }
 
 /// Request body for the M2M token endpoint.
-#[derive(Debug, Deserialize)]
+///
+/// SECURITY (R231-SRV-4): Custom Debug impl redacts client_secret.
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct M2mTokenRequest {
     /// Must be "client_credentials".
@@ -2072,6 +2116,17 @@ pub struct M2mTokenRequest {
     /// Optional space-separated scopes to request.
     #[serde(default)]
     pub scope: Option<String>,
+}
+
+impl std::fmt::Debug for M2mTokenRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("M2mTokenRequest")
+            .field("grant_type", &self.grant_type)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"[REDACTED]")
+            .field("scope", &self.scope)
+            .finish()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2643,7 +2698,7 @@ mod tests {
         config.oidc.enabled = true;
         config.session.idle_timeout_secs = 1;
         let iam = IamState::new_for_test(config);
-        let session = iam.create_session(role_claims("alice", "admin"), vec![]);
+        let session = iam.create_session(role_claims("alice", "admin"), vec![]).unwrap();
         {
             let mut entry = iam.sessions.get_mut(&session.id).unwrap();
             entry.last_activity = StdInstant::now() - StdDuration::from_secs(2);
@@ -2657,9 +2712,9 @@ mod tests {
         config.oidc.enabled = true;
         config.session.max_sessions_per_principal = 2;
         let iam = IamState::new_for_test(config);
-        let s1 = iam.create_session(role_claims("bob", "operator"), vec![]);
-        let s2 = iam.create_session(role_claims("bob", "operator"), vec![]);
-        let s3 = iam.create_session(role_claims("bob", "operator"), vec![]);
+        let s1 = iam.create_session(role_claims("bob", "operator"), vec![]).unwrap();
+        let s2 = iam.create_session(role_claims("bob", "operator"), vec![]).unwrap();
+        let s3 = iam.create_session(role_claims("bob", "operator"), vec![]).unwrap();
         assert!(iam.find_session(&s1.id).is_none());
         assert!(iam.find_session(&s2.id).is_some());
         assert!(iam.find_session(&s3.id).is_some());
@@ -3166,6 +3221,9 @@ async fn fetch_scim_user_count(
     endpoint: &str,
     token: &str,
 ) -> Result<usize, String> {
+    // SECURITY (R231-SRV-5): Bound SCIM response size and add timeout
+    // to prevent memory exhaustion from a malicious SCIM endpoint.
+    const MAX_SCIM_RESPONSE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
     let response = client
         .get(endpoint)
         .header(reqwest_header::AUTHORIZATION, format!("Bearer {}", token))
@@ -3173,14 +3231,31 @@ async fn fetch_scim_user_count(
             reqwest_header::ACCEPT,
             "application/scim+json, application/json",
         )
+        .timeout(Duration::from_secs(30))
         .send()
         .await
         .map_err(|e| format!("SCIM request failed: {}", e))?
         .error_for_status()
         .map_err(|e| format!("SCIM endpoint error: {}", e))?;
-    let payload = response
-        .json::<Value>()
+    let content_length = response.content_length().unwrap_or(0);
+    if content_length > MAX_SCIM_RESPONSE_SIZE {
+        return Err(format!(
+            "SCIM response too large: {} bytes (max {})",
+            content_length, MAX_SCIM_RESPONSE_SIZE
+        ));
+    }
+    let body = response
+        .bytes()
         .await
+        .map_err(|e| format!("SCIM response read failed: {}", e))?;
+    if body.len() as u64 > MAX_SCIM_RESPONSE_SIZE {
+        return Err(format!(
+            "SCIM response body too large: {} bytes (max {})",
+            body.len(),
+            MAX_SCIM_RESPONSE_SIZE
+        ));
+    }
+    let payload: Value = serde_json::from_slice(&body)
         .map_err(|e| format!("SCIM response decode failed: {}", e))?;
     Ok(extract_scim_user_count(&payload))
 }

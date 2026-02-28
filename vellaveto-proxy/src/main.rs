@@ -132,11 +132,14 @@ async fn main() -> Result<()> {
         .env_clear();
 
     // Forward only minimal required environment variables
-    for key in &["PATH", "HOME", "USER", "LANG", "TERM", "TMPDIR", "TZ"] {
+    for key in &["PATH", "HOME", "USER", "LANG", "TERM", "TMPDIR"] {
         if let Ok(val) = std::env::var(key) {
             cmd.env(key, val);
         }
     }
+    // SECURITY (R231-PROXY-1): Force UTC timezone for child process to ensure
+    // consistent timestamp behavior regardless of parent's TZ setting.
+    cmd.env("TZ", "UTC");
 
     let mut child = cmd.spawn().context(format!(
         "Failed to spawn child MCP server: {}",

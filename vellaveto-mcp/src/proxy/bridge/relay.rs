@@ -1546,6 +1546,47 @@ impl ProxyBridge {
                     return Ok(());
                 }
 
+                // SECURITY (R231-MCP-2): DLP scan sampling request parameters
+                // before forwarding. Sampling messages must not leak secrets.
+                let dlp_findings = scan_parameters_for_secrets(&params);
+                if !dlp_findings.is_empty() {
+                    let patterns: Vec<String> = dlp_findings
+                        .iter()
+                        .map(|f| format!("{} at {}", f.pattern_name, f.location))
+                        .collect();
+                    tracing::warn!(
+                        "SECURITY: DLP alert in sampling request: {:?}",
+                        patterns
+                    );
+                    let dlp_action = vellaveto_types::Action::new(
+                        "vellaveto",
+                        "sampling_dlp_blocked",
+                        json!({"findings": patterns, "tool": &tool_name}),
+                    );
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &dlp_action,
+                            &Verdict::Deny {
+                                reason: format!(
+                                    "Sampling blocked: secrets detected in request ({:?})",
+                                    patterns
+                                ),
+                            },
+                            json!({"source": "proxy", "event": "sampling_dlp_blocked"}),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit sampling DLP finding: {}", e);
+                    }
+                    let response =
+                        make_denial_response(&id, "Request blocked: security policy violation");
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+
                 // SECURITY (TI-2026-002): Injection scan sampling system prompt
                 // and messages. A malicious MCP server can inject hidden instructions
                 // via sampling/createMessage to hijack the LLM or exfiltrate data.
@@ -1686,6 +1727,48 @@ impl ProxyBridge {
         );
         match verdict {
             crate::elicitation::ElicitationVerdict::Allow => {
+                // SECURITY (R231-MCP-3): DLP scan elicitation request parameters
+                // before forwarding. Elicitations must not leak secrets via
+                // title, message, or schema default values.
+                let dlp_findings = scan_parameters_for_secrets(&params);
+                if !dlp_findings.is_empty() {
+                    let patterns: Vec<String> = dlp_findings
+                        .iter()
+                        .map(|f| format!("{} at {}", f.pattern_name, f.location))
+                        .collect();
+                    tracing::warn!(
+                        "SECURITY: DLP alert in elicitation request: {:?}",
+                        patterns
+                    );
+                    let dlp_action = vellaveto_types::Action::new(
+                        "vellaveto",
+                        "elicitation_dlp_blocked",
+                        json!({"findings": patterns}),
+                    );
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &dlp_action,
+                            &Verdict::Deny {
+                                reason: format!(
+                                    "Elicitation blocked: secrets detected ({:?})",
+                                    patterns
+                                ),
+                            },
+                            json!({"source": "proxy", "event": "elicitation_dlp_blocked"}),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit elicitation DLP: {}", e);
+                    }
+                    let response =
+                        make_denial_response(&id, "Request blocked: security policy violation");
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+
                 // SECURITY (R28-MCP-8): Saturating add prevents
                 // panic from overflow-checks in release profile.
                 state.elicitation_count = state.elicitation_count.saturating_add(1);
@@ -2394,12 +2477,12 @@ impl ProxyBridge {
                     return Ok(());
                 }
 
-                // SECURITY (R230-RELAY-1): Injection scan extension method parameters.
-                // Transport parity with handle_tool_call (line 869).
+                // SECURITY (R231-MCP-1): Injection scanning for extension method
+                // parameters — parity with tool calls, passthrough, and notifications.
                 if !self.injection_disabled {
                     let synthetic_msg = json!({
-                        "method": method,
-                        "params": params,
+                        "method": safe_ext_method,
+                        "params": params.clone(),
                     });
                     let injection_matches: Vec<String> =
                         if let Some(ref scanner) = self.injection_scanner {

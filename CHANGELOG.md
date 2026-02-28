@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Adversarial Audit Round 231 (52 findings across 6 parallel agents, 31 fixed):**
+  Full-codebase adversarial security audit across engine, MCP, server, audit+proxy, types+config, and discovery+A2A+cluster. 52 raw findings (8 HIGH, 22 MEDIUM, 22 LOW), 31 fixed across 4 sprints, remainder triaged as design decisions/theoretical/feature requests.
+  - **Sprint 1 — HIGHs (8 fixes):**
+    - **R231-SRV-1 (HIGH):** SCIM provisioning endpoint SSRF — added `validate_url_no_ssrf()` before `spawn_scim_sync`.
+    - **R231-SRV-2 (HIGH):** SAML metadata URL SSRF — added `validate_url_no_ssrf()` in `SamlState::new()`.
+    - **R231-AUD-1 (HIGH):** PostgreSQL `prev_hash` column NOT NULL prevents genesis row — changed to nullable `TEXT`.
+    - **R231-DISC-4 (HIGH):** `from_snapshot()` unbounded edge count — added `MAX_SNAPSHOT_EDGES` (100K) check.
+    - **R231-MCP-1 (HIGH):** Extension method injection scanning — added `scan_notification_for_injection()` after DLP check in `handle_extension_method`.
+    - **R231-MCP-2 (HIGH):** Sampling DLP + injection scanning — added DLP and injection scanning before forwarding in `handle_sampling_request`.
+    - **R231-TYP-4 (HIGH):** Cherokee→Latin confusables — added 12 mappings (U+13AA→'g', U+13B3→'w', U+13CB→'h', etc.).
+    - **R231-TYP-8 (HIGH):** Cyrillic Palochka confusables — added U+04C0→'i' and U+04CF→'l' mappings.
+  - **Sprint 2 — MEDIUMs part 1 (13 fixes):**
+    - **R231-ENG-1 (MEDIUM):** Path normalization `decode_utf8_lossy` → strict `decode_utf8` with fail-closed error.
+    - **R231-ENG-2 (MEDIUM):** ResourceIndicator matching without normalization — added `normalize_full()` before matching.
+    - **R231-ENG-3 (MEDIUM):** Context conditions received un-normalized tool names — added `normalize_full()` in `lib.rs` and `traced.rs`.
+    - **R231-ENG-4 (MEDIUM):** Collusion detector HashMap keys not normalized — added `normalize_full()` to all 4 recording methods.
+    - **R231-SRV-3 (MEDIUM):** Phantom session on `create_session()` failure — changed return type to `Result<IamSession, IamError>` (fail-closed).
+    - **R231-SRV-4 (MEDIUM):** `M2mTokenRequest` `derive(Debug)` leaks `client_secret` — custom `Debug` impl with `[REDACTED]`.
+    - **R231-SRV-5 (MEDIUM):** SCIM response unbounded — added `MAX_SCIM_RESPONSE_SIZE` (10MB), 30s timeout, `bytes()` check.
+    - **R231-SRV-6 (MEDIUM):** SAML metadata response unbounded — added `MAX_SAML_METADATA_SIZE` (2MB), 30s timeout, `bytes()` check.
+    - **R231-AUD-2 (MEDIUM):** PostgreSQL ILIKE backslash escape — added `replace('\\', "\\\\")` before `%` and `_` escaping.
+    - **R231-AUD-3 (MEDIUM):** OCSF sequence 0 omitted — removed conditional, always include sequence field.
+    - **R231-AUD-4 (MEDIUM):** `OcsfEvent` missing `deny_unknown_fields` — added serde attribute.
+    - **R231-MCP-3 (MEDIUM):** Elicitation DLP scanning — added `scan_parameters_for_secrets()` before forwarding.
+    - **R231-MCP-4 (MEDIUM):** Wildcard model pattern matching — replaced exact comparison with prefix/suffix wildcard-aware matching.
+  - **Sprint 3 — MEDIUMs part 2 (6 fixes):**
+    - **R231-DISC-1 (MEDIUM):** Tool description and URI template unbounded — added `MAX_TOOL_DESCRIPTION_LEN` and `MAX_URI_TEMPLATE_LEN` enforcement.
+    - **R231-DISC-2 (MEDIUM):** Resource name validation missing — added length, dangerous chars, and URI template length checks.
+    - **R231-DISC-3 (MEDIUM):** Inference engine unbounded edge generation — added `MAX_INFERRED_EDGES` (50K) cap with labeled break.
+    - **R231-DISC-6 (MEDIUM):** Topology diff ignores DataFlow edges — added `added_data_flow_edges`/`removed_data_flow_edges` to `TopologyDiff`.
+    - **R231-DISC-7 (MEDIUM):** Server names with `::` separator collision — added `contains("::")` rejection.
+    - **R231-A2A-1 (MEDIUM):** Signature cache key missing `exp` claim — added `claims.exp` to cache key for expiration-aware caching.
+  - **Sprint 4 — LOWs (4 fixes):**
+    - **R231-SRV-8 (LOW):** Signup email `is_control()` too permissive — changed to `is_unsafe_char()`.
+    - **R231-SRV-9 (LOW):** `SamlAcsForm` missing `deny_unknown_fields` — added serde attribute.
+    - **R231-ENG-6 (LOW):** Workflow template log injection — added `sanitize_for_log()` for `current_tool`.
+    - **R231-PROXY-1 (LOW):** Proxy TZ environment variable forwarding — removed TZ from forwarded list, set explicit `UTC`.
+  - **False positives (21):** Design decisions (error type unions, sampling response limits, resource_indicator enforcement level), theoretical concerns (SAML audience restriction, DLP false positive rate), feature requests (SCIM pagination, audit log rotation), and documentation-only items triaged as acceptable risk or mitigated by defense-in-depth.
+  - **8,681 Rust tests passing, 0 failures.**
+
 - **Adversarial Audit Round 230 (53 findings across 6 parallel agents, 19 fixed):**
   Full-codebase adversarial security audit across engine, MCP, server, audit+proxy, types+config, and discovery+A2A+cluster. 53 raw findings (9 HIGH, 27 MEDIUM, 17 LOW), 19 fixed across 3 sprints, remainder triaged as false positives/design limitations.
   - **Sprint 1 — Engine + Discovery + Proxy (5 HIGH + 2 MEDIUM):**

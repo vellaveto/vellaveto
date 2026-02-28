@@ -91,6 +91,17 @@ impl TopologyGraph {
 
     /// Reconstruct a topology from a snapshot.
     pub fn from_snapshot(snapshot: TopologySnapshot) -> Result<Self, crate::error::DiscoveryError> {
+        // SECURITY (R231-DISC-4): Bound edge count from untrusted snapshots to prevent
+        // OOM from crafted JSON with millions of edges between valid nodes.
+        const MAX_SNAPSHOT_EDGES: usize = 100_000;
+        if snapshot.edges.len() > MAX_SNAPSHOT_EDGES {
+            return Err(crate::error::DiscoveryError::ValidationError(format!(
+                "Snapshot edge count {} exceeds maximum {}",
+                snapshot.edges.len(),
+                MAX_SNAPSHOT_EDGES
+            )));
+        }
+
         // Build static server declarations from nodes
         let mut servers: HashMap<String, StaticServerDecl> = HashMap::new();
 

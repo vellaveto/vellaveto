@@ -475,9 +475,13 @@ impl PolicyEngine {
 
                     match resource {
                         Some(res) => {
+                            // SECURITY (R231-ENG-2): Normalize resource claim via
+                            // normalize_full() before matching, consistent with all
+                            // other context conditions (AgentId, CapabilityRequired, etc.).
+                            let res_norm = crate::normalize::normalize_full(res);
                             // Check if resource matches any allowed pattern
                             if !allowed_resources.is_empty() {
-                                let matches = allowed_resources.iter().any(|p| p.matches(res));
+                                let matches = allowed_resources.iter().any(|p| p.matches_normalized(&res_norm));
                                 if !matches {
                                     // SECURITY (FIND-R215-001): Sanitize JWT claim value
                                     // before interpolation into denial reason to prevent
@@ -1077,9 +1081,11 @@ impl PolicyEngine {
                                     reason: deny_reason.clone(),
                                 });
                             }
+                            // SECURITY (R231-ENG-6): Sanitize current_tool before
+                            // logging to prevent log injection via control/format chars.
                             tracing::warn!(
                                 policy = %cp.policy.name,
-                                tool = %current_tool,
+                                tool = %vellaveto_types::sanitize_for_log(current_tool, 128),
                                 "workflow template violation (warn mode): {}",
                                 deny_reason
                             );

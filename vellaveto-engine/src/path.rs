@@ -75,7 +75,18 @@ pub fn normalize_path_bounded(raw: &str, max_iterations: u32) -> Result<String, 
     let mut current = Cow::Borrowed(raw);
     let mut iterations = 0u32;
     loop {
-        let decoded = percent_encoding::percent_decode_str(&current).decode_utf8_lossy();
+        // SECURITY (R231-ENG-1): Use strict UTF-8 decode instead of lossy.
+        // Lossy decode replaces invalid bytes with U+FFFD, creating a normalization
+        // differential vs domain code (which uses strict decode). Invalid UTF-8 in
+        // paths should be rejected fail-closed, not silently transformed.
+        let decoded = match percent_encoding::percent_decode_str(&current).decode_utf8() {
+            Ok(d) => d,
+            Err(_) => {
+                return Err(EngineError::PathNormalization {
+                    reason: "decoded path contains invalid UTF-8".to_string(),
+                });
+            }
+        };
         if decoded.contains('\0') {
             return Err(EngineError::PathNormalization {
                 reason: "decoded path contains null byte".to_string(),

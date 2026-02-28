@@ -221,6 +221,8 @@ impl RecrawlScheduler {
                         modified_tools: Vec::new(),
                         added_resources: Vec::new(),
                         removed_resources: Vec::new(),
+                        added_data_flow_edges: Vec::new(),
+                        removed_data_flow_edges: Vec::new(),
                         timestamp: std::time::SystemTime::now(),
                     }
                 };

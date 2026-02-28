@@ -131,7 +131,10 @@ pub async fn signup(
             }),
         ));
     }
-    if email.chars().any(|c| c.is_control()) {
+    // SECURITY (R231-SRV-8): Use is_unsafe_char (control + Unicode format chars)
+    // consistent with org_name validation. Prevents invisible Unicode characters
+    // in email addresses that create confusable identities.
+    if email.chars().any(crate::routes::is_unsafe_char) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {

@@ -818,13 +818,21 @@ impl CollusionDetector {
         Self::validate_resource_key(resource)?;
         Self::validate_tool_name(tool)?;
 
+        // SECURITY (R231-ENG-4): Normalize agent_id, resource, and tool via
+        // normalize_full() before using as HashMap keys. Without this, homoglyph
+        // variants of the same logical entity are tracked separately, defeating
+        // coordinated access detection (e.g., Cyrillic 'а' vs Latin 'a').
+        let agent_id = crate::normalize::normalize_full(agent_id);
+        let resource = crate::normalize::normalize_full(resource);
+        let tool = crate::normalize::normalize_full(tool);
+
         let mut events = self
             .resource_events
             .write()
             .map_err(|_| CollusionError::LockPoisoned("resource_events write lock".to_string()))?;
 
         // SECURITY (R229-ENG-2): Fail-closed on capacity exhaustion.
-        if !events.contains_key(resource) && events.len() >= MAX_TRACKED_RESOURCES {
+        if !events.contains_key(resource.as_str()) && events.len() >= MAX_TRACKED_RESOURCES {
             tracing::warn!(
                 max = MAX_TRACKED_RESOURCES,
                 "Collusion resource tracking at capacity — returning alert"
@@ -938,6 +946,8 @@ impl CollusionDetector {
             return Ok(None);
         }
         Self::validate_agent_id(agent_id)?;
+        // SECURITY (R231-ENG-4): Normalize agent_id for consistent tracking.
+        let agent_id = crate::normalize::normalize_full(agent_id);
 
         let mut profiles = self
             .timing_profiles
@@ -945,7 +955,7 @@ impl CollusionDetector {
             .map_err(|_| CollusionError::LockPoisoned("timing_profiles write lock".to_string()))?;
 
         // SECURITY (R229-ENG-2): Fail-closed on capacity exhaustion.
-        if !profiles.contains_key(agent_id) && profiles.len() >= MAX_TRACKED_AGENTS {
+        if !profiles.contains_key(agent_id.as_str()) && profiles.len() >= MAX_TRACKED_AGENTS {
             tracing::warn!(
                 max = MAX_TRACKED_AGENTS,
                 "Collusion timing profiles at capacity — returning alert"
@@ -973,7 +983,7 @@ impl CollusionDetector {
         let mut max_sync_score = 0.0_f64;
 
         for (other_id, other_profile) in profiles.iter() {
-            if other_id == agent_id || other_profile.timestamps.len() < 10 {
+            if *other_id == agent_id || other_profile.timestamps.len() < 10 {
                 continue;
             }
             let score = Self::compute_sync_score(&agent_timestamps, &other_profile.timestamps);
@@ -1140,6 +1150,9 @@ impl CollusionDetector {
         }
         Self::validate_agent_id(agent_id)?;
         Self::validate_tool_name(tool)?;
+        // SECURITY (R231-ENG-4): Normalize for consistent tracking.
+        let agent_id = crate::normalize::normalize_full(agent_id);
+        let tool = crate::normalize::normalize_full(tool);
 
         let mut denials = self
             .denial_events
@@ -1147,7 +1160,7 @@ impl CollusionDetector {
             .map_err(|_| CollusionError::LockPoisoned("denial_events write lock".to_string()))?;
 
         // SECURITY (R229-ENG-2): Fail-closed on capacity exhaustion.
-        if !denials.contains_key(agent_id) && denials.len() >= MAX_RECON_TRACKED_AGENTS {
+        if !denials.contains_key(agent_id.as_str()) && denials.len() >= MAX_RECON_TRACKED_AGENTS {
             tracing::warn!(
                 max = MAX_RECON_TRACKED_AGENTS,
                 "Reconnaissance denial tracking at capacity — returning alert"
@@ -1266,6 +1279,8 @@ impl CollusionDetector {
             return Ok(None);
         }
         Self::validate_agent_id(agent_id)?;
+        // SECURITY (R231-ENG-4): Normalize for consistent tracking.
+        let agent_id = crate::normalize::normalize_full(agent_id);
 
         let mut profiles = self
             .drift_profiles
@@ -1273,7 +1288,7 @@ impl CollusionDetector {
             .map_err(|_| CollusionError::LockPoisoned("drift_profiles write lock".to_string()))?;
 
         // SECURITY (R229-ENG-2): Fail-closed on capacity exhaustion.
-        if !profiles.contains_key(agent_id) && profiles.len() >= MAX_DRIFT_TRACKED_AGENTS {
+        if !profiles.contains_key(agent_id.as_str()) && profiles.len() >= MAX_DRIFT_TRACKED_AGENTS {
             tracing::warn!(
                 max = MAX_DRIFT_TRACKED_AGENTS,
                 "Drift tracking at capacity — returning alert"

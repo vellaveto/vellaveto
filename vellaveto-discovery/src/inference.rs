@@ -123,8 +123,11 @@ impl InferenceEngine {
             .collect();
 
         // Compare all pairs (source → target)
+        // SECURITY (R231-DISC-3): Cap total inferred edges to prevent O(N^2)
+        // amplification with many tools having similar descriptions/params.
+        const MAX_INFERRED_EDGES: usize = 50_000;
         let mut edges_to_add = Vec::new();
-        for (source_qualified, source) in &tools {
+        'outer: for (source_qualified, source) in &tools {
             for (target_qualified, target) in &tools {
                 // No self-edges
                 if source_qualified == target_qualified {
@@ -141,6 +144,13 @@ impl InferenceEngine {
                             m.confidence,
                             m.reason,
                         ));
+                        if edges_to_add.len() >= MAX_INFERRED_EDGES {
+                            tracing::warn!(
+                                max = MAX_INFERRED_EDGES,
+                                "Inference edge cap reached — stopping pair comparison"
+                            );
+                            break 'outer;
+                        }
                     }
                 }
             }

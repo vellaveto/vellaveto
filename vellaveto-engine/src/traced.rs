@@ -340,7 +340,10 @@ impl PolicyEngine {
         if !cp.context_conditions.is_empty() {
             match context {
                 Some(ctx) => {
-                    if let Some(denial) = self.check_context_conditions(ctx, cp, &action.tool) {
+                    // SECURITY (R231-ENG-3): Normalize tool name before context
+                    // conditions (mirrors lib.rs).
+                    let norm_tool = crate::normalize::normalize_full(&action.tool);
+                    if let Some(denial) = self.check_context_conditions(ctx, cp, &norm_tool) {
                         return Ok((Some(denial), Vec::new()));
                     }
                 }
