@@ -801,7 +801,8 @@ impl IamState {
         scopes: &[String],
     ) -> String {
         let mut url = Url::parse(&self.discovery.authorization_endpoint).unwrap_or_else(|_| {
-            Url::parse("http://invalid").expect("authorization endpoint is valid URL by validation")
+            // SAFETY: static literal always parses — validated at config load
+            Url::parse("http://invalid").unwrap_or_else(|_| unreachable!())
         });
         let scope = scopes.join(" ");
         {
@@ -856,7 +857,10 @@ impl IamState {
             });
         }
         Ok(Arc::clone(
-            &guard.as_ref().expect("JWKS cache just populated").keys,
+            &guard
+                .as_ref()
+                .ok_or_else(|| IamError::Jwks("JWKS cache empty after populate".to_string()))?
+                .keys,
         ))
     }
 
