@@ -1204,35 +1204,8 @@ impl ProxyBridge {
                 let truncated_tool: String = tool_name.chars().take(256).collect();
                 state.track_pending_request(&id, truncated_tool, eval_trace);
 
-                // Consumer shield: sanitize outbound request parameters
-                #[cfg(feature = "consumer-shield")]
-                let msg = if let Some(ref sanitizer) = self.shield_sanitizer {
-                    match sanitizer.sanitize_json(&msg) {
-                        Ok(sanitized) => sanitized,
-                        Err(e) => {
-                            tracing::warn!("Shield sanitize failed: {} — forwarding original", e);
-                            msg
-                        }
-                    }
-                } else {
-                    msg
-                };
-
-                // Consumer shield: stylometric normalization (after PII sanitization)
-                #[cfg(feature = "consumer-shield")]
-                let msg = if let Some(ref normalizer) = self.shield_stylometric {
-                    match normalizer.normalize_json(&msg) {
-                        Ok(normalized) => normalized,
-                        Err(e) => {
-                            tracing::warn!("Shield stylometric normalize failed: {} — forwarding original", e);
-                            msg
-                        }
-                    }
-                } else {
-                    msg
-                };
-
-                // Consumer shield: record outbound context for session isolation
+                // Consumer shield: record outbound context BEFORE sanitization
+                // (so the user's local context preserves original text, not PII placeholders)
                 #[cfg(feature = "consumer-shield")]
                 if let Some(ref isolator) = self.shield_context_isolator {
                     let session_id = state.agent_id.as_deref().unwrap_or("default");
@@ -1240,6 +1213,43 @@ impl ProxyBridge {
                         tracing::debug!("Shield context record (outbound) failed: {}", e);
                     }
                 }
+
+                // Consumer shield: sanitize outbound request parameters
+                // SECURITY: Fail-closed — if sanitization fails, PII must not leak to provider.
+                #[cfg(feature = "consumer-shield")]
+                let msg = if let Some(ref sanitizer) = self.shield_sanitizer {
+                    match sanitizer.sanitize_json(&msg) {
+                        Ok(sanitized) => sanitized,
+                        Err(e) => {
+                            tracing::error!("Shield sanitize FAILED (fail-closed): {} — blocking request", e);
+                            let error_response = make_denial_response(
+                                &id,
+                                "Shield PII sanitization failed — request blocked to prevent data leakage",
+                            );
+                            write_message(agent_writer, &error_response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
+                        }
+                    }
+                } else {
+                    msg
+                };
+
+                // Consumer shield: stylometric normalization (after PII sanitization)
+                // Advisory: normalization failure is not a privacy risk, forward original
+                #[cfg(feature = "consumer-shield")]
+                let msg = if let Some(ref normalizer) = self.shield_stylometric {
+                    match normalizer.normalize_json(&msg) {
+                        Ok(normalized) => normalized,
+                        Err(e) => {
+                            tracing::warn!("Shield stylometric normalize failed: {} — forwarding sanitized", e);
+                            msg
+                        }
+                    }
+                } else {
+                    msg
+                };
 
                 // Consumer shield: consume credential on first tool call per session
                 #[cfg(feature = "consumer-shield")]
