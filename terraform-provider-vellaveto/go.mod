@@ -1,4 +1,4 @@
-module github.com/paolovella/vellaveto/terraform-provider-vellaveto
+module github.com/vellaveto/vellaveto/terraform-provider-vellaveto
 
 go 1.25.7
 

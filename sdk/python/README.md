@@ -1,6 +1,6 @@
 # Vellaveto Python SDK
 
-Python SDK for the [Vellaveto agentic security control plane](https://github.com/paolovella/vellaveto).
+Python SDK for the [Vellaveto agentic security control plane](https://github.com/vellaveto/vellaveto).
 
 ## Installation
 

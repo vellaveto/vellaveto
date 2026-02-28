@@ -26,20 +26,20 @@ export function generateSnippet(language: SdkLanguage, apiKey: string): string {
 export function installCommand(language: SdkLanguage): string {
   switch (language) {
     case "python":
-      return "pip install vellaveto";
+      return "pip install vellaveto-sdk";
     case "typescript":
-      return "npm install vellaveto";
+      return "npm install @vellaveto-sdk/typescript";
     case "go":
-      return "go get github.com/paolovella/vellaveto/sdk/go";
+      return "go get github.com/vellaveto/vellaveto/sdk/go";
     case "java":
-      return "<!-- Add to pom.xml -->\n<dependency>\n  <groupId>io.vellaveto</groupId>\n  <artifactId>vellaveto-sdk</artifactId>\n  <version>4.0.0</version>\n</dependency>";
+      return "<!-- Add to pom.xml -->\n<dependency>\n  <groupId>com.vellaveto</groupId>\n  <artifactId>vellaveto-java-sdk</artifactId>\n  <version>6.0.0</version>\n</dependency>";
     case "skip":
       return "";
   }
 }
 
 function pythonSnippet(apiKey: string): string {
-  return `from vellaveto import VellavetoClient
+  return `from vellaveto import VellavetoClient, Verdict
 
 client = VellavetoClient(
     url="http://localhost:${DEFAULT_PORT}",
@@ -52,17 +52,17 @@ result = client.evaluate(
     parameters={"path": "/etc/passwd"},
 )
 
-if result.verdict == "Allow":
+if result.verdict == Verdict.ALLOW:
     print("Action allowed")
-elif result.verdict == "Deny":
+elif result.verdict == Verdict.DENY:
     print(f"Action denied: {result.reason}")
-elif result.verdict == "RequireApproval":
+elif result.verdict == Verdict.REQUIRE_APPROVAL:
     print(f"Approval required: {result.reason}")
 `;
 }
 
 function typescriptSnippet(apiKey: string): string {
-  return `import { VellavetoClient } from "vellaveto";
+  return `import { VellavetoClient, Verdict } from "@vellaveto-sdk/typescript";
 
 const client = new VellavetoClient({
   baseUrl: "http://localhost:${DEFAULT_PORT}",
@@ -75,11 +75,11 @@ const result = await client.evaluate({
   parameters: { path: "/etc/passwd" },
 });
 
-if (result.verdict === "Allow") {
+if (result.verdict === Verdict.Allow) {
   console.log("Action allowed");
-} else if (result.verdict === "Deny") {
+} else if (result.verdict === Verdict.Deny) {
   console.log(\`Action denied: \${result.reason}\`);
-} else if (result.verdict === "RequireApproval") {
+} else if (result.verdict === Verdict.RequireApproval) {
   console.log(\`Approval required: \${result.reason}\`);
 }
 `;
@@ -93,7 +93,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/paolovella/vellaveto/sdk/go/vellaveto"
+	vellaveto "github.com/vellaveto/vellaveto/sdk/go"
 )
 
 func main() {
@@ -102,23 +102,23 @@ func main() {
 		vellaveto.WithAPIKey("${apiKey}"),
 	)
 
-	result, err := client.Evaluate(context.Background(), &vellaveto.Action{
+	result, err := client.Evaluate(context.Background(), vellaveto.Action{
 		Tool:     "filesystem",
 		Function: "read_file",
 		Parameters: map[string]any{
 			"path": "/etc/passwd",
 		},
-	})
+	}, nil, false)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	switch result.Verdict {
-	case "Allow":
+	case vellaveto.VerdictAllow:
 		fmt.Println("Action allowed")
-	case "Deny":
+	case vellaveto.VerdictDeny:
 		fmt.Printf("Action denied: %s\\n", result.Reason)
-	case "RequireApproval":
+	case vellaveto.VerdictRequireApproval:
 		fmt.Printf("Approval required: %s\\n", result.Reason)
 	}
 }
@@ -126,9 +126,9 @@ func main() {
 }
 
 function javaSnippet(apiKey: string): string {
-  return `import io.vellaveto.VellavetoClient;
-import io.vellaveto.model.Action;
-import io.vellaveto.model.EvaluationResult;
+  return `import com.vellaveto.Action;
+import com.vellaveto.EvaluationResult;
+import com.vellaveto.VellavetoClient;
 
 import java.util.Map;
 
@@ -138,16 +138,15 @@ public class Example {
             .apiKey("${apiKey}")
             .build();
 
-        EvaluationResult result = client.evaluate(Action.builder()
-            .tool("filesystem")
+        EvaluationResult result = client.evaluate(Action.builder("filesystem")
             .function("read_file")
             .parameters(Map.of("path", "/etc/passwd"))
-            .build());
+            .build(), null, false);
 
         switch (result.getVerdict()) {
-            case "Allow" -> System.out.println("Action allowed");
-            case "Deny" -> System.out.println("Action denied: " + result.getReason());
-            case "RequireApproval" -> System.out.println("Approval required: " + result.getReason());
+            case ALLOW -> System.out.println("Action allowed");
+            case DENY -> System.out.println("Action denied: " + result.getReason());
+            case REQUIRE_APPROVAL -> System.out.println("Approval required: " + result.getReason());
         }
     }
 }

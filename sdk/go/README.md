@@ -1,13 +1,13 @@
 # Vellaveto Go SDK
 
-Go client for the [Vellaveto](https://github.com/paolovella/vellaveto) agentic security control plane API.
+Go client for the [Vellaveto](https://github.com/vellaveto/vellaveto) agentic security control plane API.
 
 **Zero dependencies** — uses only the Go standard library.
 
 ## Installation
 
 ```bash
-go get github.com/paolovella/vellaveto/sdk/go
+go get github.com/vellaveto/vellaveto/sdk/go
 ```
 
 ## Quick Start
@@ -20,7 +20,7 @@ import (
     "fmt"
     "log"
 
-    vellaveto "github.com/paolovella/vellaveto/sdk/go"
+    vellaveto "github.com/vellaveto/vellaveto/sdk/go"
 )
 
 func main() {

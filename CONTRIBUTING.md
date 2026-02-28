@@ -21,7 +21,7 @@ you agree to the terms in [LICENSING.md](LICENSING.md) and [CLA.md](CLA.md).
 ## Getting Started
 
 ```bash
-git clone https://github.com/paolovella/vellaveto.git
+git clone https://github.com/vellaveto/vellaveto.git
 cd vellaveto
 cargo check --workspace
 cargo test --workspace

@@ -10,12 +10,12 @@ This playbook verifies release integrity using:
 
 - `gh` CLI authenticated to GitHub
 - `curl`, `jq`, `sha256sum`, `tar`
-- read access to `paolovella/vellaveto` releases
+- read access to `vellaveto/vellaveto` releases
 
 ## 1) Download release assets
 
 ```bash
-REPO="paolovella/vellaveto"
+REPO="vellaveto/vellaveto"
 TAG="${1:-$(gh release list -R "$REPO" --limit 1 --json tagName --jq '.[0].tagName')}"
 
 mkdir -p verify-release
@@ -62,7 +62,7 @@ Expected outcome:
 ## 4) Verify provenance attestations
 
 ```bash
-REPO="paolovella/vellaveto"
+REPO="vellaveto/vellaveto"
 TAG="${TAG#refs/tags/}"
 
 for artifact in extracted/vellaveto extracted/vellaveto-proxy extracted/vellaveto-http-proxy; do

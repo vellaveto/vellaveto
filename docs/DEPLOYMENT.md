@@ -52,7 +52,7 @@ The fastest way to get Vellaveto running:
 
 ```bash
 # Using Docker
-docker run -p 3000:3000 ghcr.io/paolovella/vellaveto:latest
+docker run -p 3000:3000 ghcr.io/vellaveto/vellaveto:latest
 
 # Test the health endpoint
 curl http://localhost:3000/health
@@ -68,13 +68,13 @@ curl http://localhost:3000/health
 
 ```bash
 # Pull the latest image
-docker pull ghcr.io/paolovella/vellaveto:latest
+docker pull ghcr.io/vellaveto/vellaveto:latest
 
 # Run with default configuration
 docker run -d \
   --name vellaveto \
   -p 3000:3000 \
-  ghcr.io/paolovella/vellaveto:latest
+  ghcr.io/vellaveto/vellaveto:latest
 
 # Run with custom configuration
 docker run -d \
@@ -83,14 +83,14 @@ docker run -d \
   -v /path/to/config.toml:/etc/vellaveto/config.toml:ro \
   -v /path/to/policies:/etc/vellaveto/policies:ro \
   -v vellaveto-data:/var/lib/vellaveto \
-  ghcr.io/paolovella/vellaveto:latest
+  ghcr.io/vellaveto/vellaveto:latest
 ```
 
 #### Build from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/paolovella/vellaveto.git
+git clone https://github.com/vellaveto/vellaveto.git
 cd vellaveto
 
 # Build the Docker image
@@ -112,7 +112,7 @@ version: "3.8"
 
 services:
   vellaveto:
-    image: ghcr.io/paolovella/vellaveto:latest
+    image: ghcr.io/vellaveto/vellaveto:latest
     container_name: vellaveto
     ports:
       - "3000:3000"
@@ -149,7 +149,7 @@ version: "3.8"
 
 services:
   vellaveto:
-    image: ghcr.io/paolovella/vellaveto:latest
+    image: ghcr.io/vellaveto/vellaveto:latest
     ports:
       - "3000:3000"
     volumes:
@@ -204,7 +204,7 @@ Create a `values-production.yaml`:
 replicaCount: 3
 
 image:
-  repository: ghcr.io/paolovella/vellaveto
+  repository: ghcr.io/vellaveto/vellaveto
   tag: "6.0.0"
   pullPolicy: IfNotPresent
 
@@ -350,7 +350,7 @@ metadata:
   namespace: vellaveto
 spec:
   replicas: 3
-  image: ghcr.io/paolovella/vellaveto:6.0.0
+  image: ghcr.io/vellaveto/vellaveto:6.0.0
   config:
     security_mode: strict
     audit_enabled: true
@@ -426,7 +426,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
 # Clone and build
-git clone https://github.com/paolovella/vellaveto.git
+git clone https://github.com/vellaveto/vellaveto.git
 cd vellaveto
 
 # Build release binaries
@@ -468,7 +468,7 @@ Create `/etc/systemd/system/vellaveto.service`:
 ```ini
 [Unit]
 Description=Vellaveto Agentic Security Control Plane
-Documentation=https://github.com/paolovella/vellaveto
+Documentation=https://github.com/vellaveto/vellaveto
 After=network-online.target
 Wants=network-online.target
 
@@ -537,7 +537,7 @@ Create `/etc/systemd/system/vellaveto-http-proxy.service`:
 ```ini
 [Unit]
 Description=Vellaveto HTTP Proxy
-Documentation=https://github.com/paolovella/vellaveto
+Documentation=https://github.com/vellaveto/vellaveto
 After=network-online.target vellaveto.service
 Wants=network-online.target
 

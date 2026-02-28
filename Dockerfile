@@ -5,10 +5,10 @@
 # Builds optimized production binaries for the MCP firewall
 #
 # Zero-config usage (deny-by-default policy baked in):
-#   docker run -p 3000:3000 ghcr.io/paolovella/vellaveto:latest
+#   docker run -p 3000:3000 ghcr.io/vellaveto/vellaveto:latest
 #
 # With custom policy:
-#   docker run -p 3000:3000 -v ./policy.toml:/etc/vellaveto/config.toml:ro ghcr.io/paolovella/vellaveto:latest
+#   docker run -p 3000:3000 -v ./policy.toml:/etc/vellaveto/config.toml:ro ghcr.io/vellaveto/vellaveto:latest
 
 # Build stage: Compile Rust binaries with musl for static linking
 FROM rust:1.93-alpine AS builder
@@ -97,7 +97,7 @@ FROM alpine:3.21
 
 LABEL org.opencontainers.image.title="Vellaveto" \
       org.opencontainers.image.description="Runtime security engine for AI agent tool calls" \
-      org.opencontainers.image.source="https://github.com/paolovella/vellaveto" \
+      org.opencontainers.image.source="https://github.com/vellaveto/vellaveto" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.vendor="Paolo Vella"
 

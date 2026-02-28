@@ -31,7 +31,7 @@ function generateSetupScript(state: WizardState): string {
 set -euo pipefail
 
 VERSION="${VERSION}"
-REPO="paolovella/vellaveto"
+REPO="vellaveto/vellaveto"
 INSTALL_DIR="./bin"
 SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 

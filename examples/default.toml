@@ -1,10 +1,10 @@
 # Vellaveto Default Policy — Deny-by-default with common safe patterns
 #
 # Baked into the Docker image for zero-config usage:
-#   docker run -p 3000:3000 ghcr.io/paolovella/vellaveto:latest
+#   docker run -p 3000:3000 ghcr.io/vellaveto/vellaveto:latest
 #
 # Override by mounting your own config:
-#   docker run -p 3000:3000 -v ./policy.toml:/etc/vellaveto/config.toml:ro ghcr.io/paolovella/vellaveto:latest
+#   docker run -p 3000:3000 -v ./policy.toml:/etc/vellaveto/config.toml:ro ghcr.io/vellaveto/vellaveto:latest
 
 # --- Priority 300: Block credential and secret file access ---
 [[policies]]

@@ -7,8 +7,8 @@
     Govern &middot; Enforce &middot; Discover &middot; Prove
   </p>
   <p align="center">
-    <a href="https://github.com/paolovella/vellaveto/releases"><img src="https://img.shields.io/badge/version-6.0.0-blue.svg" alt="Version 6.0.0"></a>
-    <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+    <a href="https://github.com/vellaveto/vellaveto/releases"><img src="https://img.shields.io/badge/version-6.0.0-blue.svg" alt="Version 6.0.0"></a>
+    <a href="https://github.com/vellaveto/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/vellaveto/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-MPL--2.0_/_Apache--2.0_/_BUSL--1.1-blue.svg" alt="License: Three-tier"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
     <img src="https://img.shields.io/badge/tests-9%2C000%2B_passing-brightgreen.svg" alt="Tests: 9,000+ passing">
@@ -99,10 +99,10 @@ VELLAVETO_API_KEY=$(openssl rand -hex 32) vellaveto-http-proxy \
 ### Docker
 
 ```bash
-docker pull ghcr.io/paolovella/vellaveto:latest
+docker pull ghcr.io/vellaveto/vellaveto:latest
 docker run -p 3000:3000 \
   -v /path/to/config.toml:/etc/vellaveto/config.toml:ro \
-  ghcr.io/paolovella/vellaveto:latest
+  ghcr.io/vellaveto/vellaveto:latest
 ```
 
 ### Minimal Policy (deny-by-default)

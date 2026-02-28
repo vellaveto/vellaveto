@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "MCP Security Benchmark Framework — vendor-neutral security evaluation for MCP gateways"
-repository = "https://github.com/paolovella/vellaveto"
+repository = "https://github.com/vellaveto/vellaveto"
 readme = "README.md"
 
 [[bin]]
