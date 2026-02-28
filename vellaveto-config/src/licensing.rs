@@ -759,9 +759,13 @@ mod tests {
         assert_eq!(result.tier, LicenseTier::Community);
     }
 
+    // These tests mutate the VELLAVETO_LICENSE_PUBLIC_KEY env var and must not
+    // run in parallel — serialize them behind a shared mutex.
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_load_verifying_key_wrong_length() {
-        // Temporarily set env var with wrong length
+        let _lock = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("VELLAVETO_LICENSE_PUBLIC_KEY", "aabbcc");
         let result = load_verifying_key();
         assert!(result.is_none());
@@ -770,6 +774,7 @@ mod tests {
 
     #[test]
     fn test_load_verifying_key_non_hex() {
+        let _lock = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var(
             "VELLAVETO_LICENSE_PUBLIC_KEY",
             "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
@@ -781,6 +786,7 @@ mod tests {
 
     #[test]
     fn test_load_verifying_key_valid() {
+        let _lock = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let (_sk, vk) = test_keypair();
         let hex_key = hex::encode(vk.as_bytes());
         std::env::set_var("VELLAVETO_LICENSE_PUBLIC_KEY", &hex_key);
