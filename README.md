@@ -1,5 +1,6 @@
 <div align="center">
-  <h1 align="center">VellaVeto</h1>
+  <img src="vellaveto_brandkit/docs/readme-header.png" alt="Vellaveto" width="720">
+  <br><br>
   <p align="center">
     <strong>Agentic security control plane for MCP and AI agent tool calls</strong>
   </p>

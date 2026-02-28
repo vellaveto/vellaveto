@@ -4,6 +4,7 @@
   "description": "Policy validation, completions, and simulator for the Vellaveto agentic security control plane",
   "version": "6.0.0",
   "publisher": "vellaveto",
+  "icon": "icon.png",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",

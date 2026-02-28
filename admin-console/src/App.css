@@ -79,6 +79,16 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sidebar-logo {
+  flex-shrink: 0;
+}
+
 .sidebar-title {
   font-size: 20px;
   font-weight: 700;

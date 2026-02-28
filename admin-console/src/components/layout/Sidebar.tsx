@@ -54,8 +54,13 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h1 className="sidebar-title">Vellaveto</h1>
-        <span className="sidebar-subtitle">Admin Console</span>
+        <div className="sidebar-brand">
+          <img src="/favicon.svg" alt="Vellaveto" width={28} height={28} className="sidebar-logo" />
+          <div>
+            <h1 className="sidebar-title">Vellaveto</h1>
+            <span className="sidebar-subtitle">Admin Console</span>
+          </div>
+        </div>
       </div>
       <nav className="sidebar-nav">
         {navItems

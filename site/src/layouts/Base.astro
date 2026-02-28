@@ -14,18 +14,21 @@ const { title, description = 'Agentic security control plane for MCP and AI agen
   <title>{title}</title>
   <meta name="description" content={description}>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'">
   <meta property="og:title" content={title}>
   <meta property="og:description" content={description}>
   <meta property="og:type" content="website">
-  <meta name="twitter:card" content="summary">
+  <meta property="og:image" content="/og-card.png">
+  <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content={title}>
   <meta name="twitter:description" content={description}>
+  <meta name="twitter:image" content="/og-card.png">
 </head>
 <body>
   <nav aria-label="Main navigation">
     <div class="wrap">
-      <a href="/" class="logo">VELLAVETO</a>
+      <a href="/" class="logo"><img src="/favicon.svg" alt="" width="24" height="24" class="logo-icon">VELLAVETO</a>
       <div class="nav-links">
         <a href="/#features">Features</a>
         <a href="/pricing">Pricing</a>
@@ -87,9 +90,10 @@ const { title, description = 'Agentic security control plane for MCP and AI agen
     height:1px;background:var(--grad);opacity:.5}
   nav .wrap{display:flex;align-items:center;justify-content:space-between;
     height:3.5rem}
-  .logo{font-weight:700;font-size:1.1rem;letter-spacing:.04em;
+  .logo{display:flex;align-items:center;gap:.5rem;font-weight:700;font-size:1.1rem;letter-spacing:.04em;
     background:var(--grad);-webkit-background-clip:text;
     -webkit-text-fill-color:transparent}
+  .logo-icon{-webkit-text-fill-color:initial;flex-shrink:0}
   .nav-links{display:flex;align-items:center}
   .nav-links a{margin-left:1.5rem;font-size:.875rem;color:var(--muted)}
   .nav-links a:hover{color:var(--text)}
