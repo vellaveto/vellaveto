@@ -141,6 +141,30 @@ pub fn normalize_homoglyphs(s: &str) -> String {
             '\u{FF3F}' => '_', // Fullwidth underscore -> _
 
             // ═══════════════════════════════════════════════════════════════
+            // R231-TYP-8: Cyrillic Extended-B Palochka (visually identical to I/l)
+            // ═══════════════════════════════════════════════════════════════
+            '\u{04C0}' => 'i', // Cyrillic Palochka (uppercase) -> i
+            '\u{04CF}' => 'l', // Cyrillic Small Palochka -> l
+
+            // ═══════════════════════════════════════════════════════════════
+            // R231-TYP-4: Cherokee script confusables
+            // Per Unicode TR39 confusables.txt — Cherokee syllabary letters
+            // that are visually identical to Latin letters in most fonts.
+            // ═══════════════════════════════════════════════════════════════
+            '\u{13AA}' => 'g', // Cherokee GO -> G
+            '\u{13B3}' => 'w', // Cherokee LA -> W
+            '\u{13CB}' => 'h', // Cherokee MI -> H (Ꮋ)
+            '\u{13A1}' => 'e', // Cherokee E -> E (Ꭱ)
+            '\u{13A2}' => 'r', // Cherokee I -> R (Ꭲ, visual in serif fonts)
+            '\u{13DA}' => 's', // Cherokee DU -> S (Ꮪ, visual similarity)
+            '\u{13E4}' => 't', // Cherokee TA -> T (Ꮤ)
+            '\u{13AC}' => 'h', // Cherokee HA -> H (Ꭼ, visual in some fonts)
+            '\u{13D9}' => 'v', // Cherokee DO -> V (Ꮩ)
+            '\u{13CF}' => 'b', // Cherokee SI -> b (Ꮟ, reversed visual)
+            '\u{13D2}' => 'p', // Cherokee TLI -> P (Ꮲ)
+            '\u{13A0}' => 'd', // Cherokee A -> D (Ꭰ)
+
+            // ═══════════════════════════════════════════════════════════════
             // Other common confusables
             // ═══════════════════════════════════════════════════════════════
             '\u{0131}' => 'i', // dotless i -> i

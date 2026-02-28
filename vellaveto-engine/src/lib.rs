@@ -756,7 +756,12 @@ impl PolicyEngine {
         if !cp.context_conditions.is_empty() {
             match context {
                 Some(ctx) => {
-                    if let Some(denial) = self.check_context_conditions(ctx, cp, &action.tool) {
+                    // SECURITY (R231-ENG-3): Normalize tool name before passing to
+                    // context conditions, consistent with policy matching which uses
+                    // normalize_full(). Prevents future context conditions from
+                    // receiving raw attacker-controlled tool names.
+                    let norm_tool = crate::normalize::normalize_full(&action.tool);
+                    if let Some(denial) = self.check_context_conditions(ctx, cp, &norm_tool) {
                         return Ok(Some(denial));
                     }
                 }

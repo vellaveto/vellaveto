@@ -20,6 +20,7 @@ discovery = ["vellaveto-discovery"]
 projector = []
 multimodal = ["image"]
 fips = ["p256"]
+consumer-shield = ["vellaveto-mcp-shield"]
 
 [dependencies]
 vellaveto-types = { path = "../vellaveto-types" }
@@ -67,6 +68,9 @@ flate2 = "1.1"
 
 # FIPS 140-3 compliance mode (Phase 23.3)
 p256 = { version = "0.13", features = ["ecdsa"], optional = true }
+
+# Consumer shield (bidirectional PII sanitization)
+vellaveto-mcp-shield = { path = "../vellaveto-mcp-shield", optional = true }
 
 [dev-dependencies]
 proptest = "1.4"

@@ -212,6 +212,19 @@ fn luhn_check(digits: &str) -> bool {
     sum.is_multiple_of(10)
 }
 
+/// A detected PII match with position, text, and category information.
+#[derive(Debug, Clone)]
+pub struct PiiMatch {
+    /// Start byte offset in the input string.
+    pub start: usize,
+    /// End byte offset in the input string (exclusive).
+    pub end: usize,
+    /// The matched text.
+    pub text: String,
+    /// PII category (e.g., "email", "ssn", "credit_card").
+    pub category: String,
+}
+
 /// Configurable PII scanner with both built-in and custom patterns.
 ///
 /// Constructed once at startup with optional custom patterns. Invalid custom
@@ -284,6 +297,44 @@ impl PiiScanner {
         }
 
         result
+    }
+
+    /// Find all PII matches in the input, returning spans with categories.
+    ///
+    /// Results are sorted by position (start byte offset). For credit card
+    /// patterns, a Luhn check post-filter is applied — only valid card numbers
+    /// are included.
+    pub fn find_matches(&self, input: &str) -> Vec<PiiMatch> {
+        let mut matches = Vec::new();
+
+        for named in &self.default_patterns {
+            for m in named.regex.find_iter(input) {
+                if named.luhn_postfilter && !luhn_check(m.as_str()) {
+                    continue;
+                }
+                matches.push(PiiMatch {
+                    start: m.start(),
+                    end: m.end(),
+                    text: m.as_str().to_string(),
+                    category: named.name.to_string(),
+                });
+            }
+        }
+
+        for (name, re) in &self.custom_patterns {
+            for m in re.find_iter(input) {
+                matches.push(PiiMatch {
+                    start: m.start(),
+                    end: m.end(),
+                    text: m.as_str().to_string(),
+                    category: name.clone(),
+                });
+            }
+        }
+
+        // Sort by position for deterministic replacement order
+        matches.sort_by_key(|m| m.start);
+        matches
     }
 
     /// Check if any PII pattern matches the input string.
@@ -592,5 +643,48 @@ mod tests {
         assert!(s.has_pii("4111111111111111"));
         // Invalid Luhn number — should NOT be flagged as PII
         assert!(!s.has_pii("1234567890123456"));
+    }
+
+    // ── find_matches tests ──────────────────────────────────────
+
+    #[test]
+    fn test_find_matches_email_span() {
+        let s = scanner();
+        let matches = s.find_matches("Contact user@example.com for info");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].text, "user@example.com");
+        assert_eq!(matches[0].category, "email");
+        assert_eq!(matches[0].start, 8);
+        assert_eq!(matches[0].end, 24);
+    }
+
+    #[test]
+    fn test_find_matches_multiple_categories() {
+        let s = scanner();
+        let matches = s.find_matches("Email user@example.com SSN 123-45-6789");
+        assert!(matches.len() >= 2);
+        let categories: Vec<&str> = matches.iter().map(|m| m.category.as_str()).collect();
+        assert!(categories.contains(&"email"));
+        assert!(categories.contains(&"ssn"));
+    }
+
+    #[test]
+    fn test_find_matches_luhn_filter() {
+        let s = scanner();
+        // Invalid Luhn — should NOT appear in matches
+        let matches = s.find_matches("Ref: 1234567890123456");
+        let cc_matches: Vec<_> = matches
+            .iter()
+            .filter(|m| m.category == "credit_card")
+            .collect();
+        assert!(cc_matches.is_empty(), "Invalid Luhn should be filtered out");
+
+        // Valid Luhn — should appear
+        let matches = s.find_matches("Card: 4111111111111111");
+        let cc_matches: Vec<_> = matches
+            .iter()
+            .filter(|m| m.category == "credit_card")
+            .collect();
+        assert!(!cc_matches.is_empty(), "Valid Luhn should be included");
     }
 }

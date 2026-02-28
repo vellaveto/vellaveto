@@ -425,7 +425,18 @@ pub fn inspect_sampling(
         let model_name = extract_model_name(params);
         match model_name {
             Some(model) => {
-                if !config.allowed_models.iter().any(|a| a == &model) {
+                // SECURITY (R231-MCP-4): Use wildcard-aware matching consistent
+                // with SamplingDetector::validate_model(). Exact comparison would
+                // silently reject wildcard patterns like "claude-3-*".
+                if !config.allowed_models.iter().any(|pattern| {
+                    if let Some(star_pos) = pattern.find('*') {
+                        let prefix = &pattern[..star_pos];
+                        let suffix = &pattern[star_pos + 1..];
+                        model.starts_with(prefix) && model.ends_with(suffix)
+                    } else {
+                        pattern == &model
+                    }
+                }) {
                     return SamplingVerdict::Deny {
                         reason: format!("model '{model}' not in allowed list"),
                     };

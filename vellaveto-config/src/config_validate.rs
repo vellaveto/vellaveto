@@ -1688,6 +1688,11 @@ impl PolicyConfig {
             .validate()
             .map_err(|e| format!("metering: {e}"))?;
 
+        // Consumer shield configuration bounds
+        self.shield
+            .validate()
+            .map_err(|e| format!("shield: {e}"))?;
+
         Ok(())
     }
 

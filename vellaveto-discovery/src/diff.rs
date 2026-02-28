@@ -7,7 +7,8 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
 
-use crate::topology::{TopologyGraph, TopologyNode};
+use crate::topology::{TopologyEdge, TopologyGraph, TopologyNode};
+use petgraph::visit::EdgeRef;
 
 /// A qualified tool reference (server::tool).
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash)]
@@ -50,6 +51,10 @@ pub struct TopologyDiff {
     pub added_resources: Vec<String>,
     /// Resources that were removed.
     pub removed_resources: Vec<String>,
+    /// SECURITY (R231-DISC-6): DataFlow edges that were added.
+    pub added_data_flow_edges: Vec<(String, String)>,
+    /// DataFlow edges that were removed.
+    pub removed_data_flow_edges: Vec<(String, String)>,
     /// When this diff was computed.
     pub timestamp: SystemTime,
 }
@@ -64,6 +69,8 @@ impl TopologyDiff {
             && self.modified_tools.is_empty()
             && self.added_resources.is_empty()
             && self.removed_resources.is_empty()
+            && self.added_data_flow_edges.is_empty()
+            && self.removed_data_flow_edges.is_empty()
     }
 
     /// Returns true if any tools or servers were removed.
@@ -102,6 +109,12 @@ impl TopologyDiff {
         }
         if !self.removed_resources.is_empty() {
             parts.push(format!("-{} resources", self.removed_resources.len()));
+        }
+        if !self.added_data_flow_edges.is_empty() {
+            parts.push(format!("+{} data flows", self.added_data_flow_edges.len()));
+        }
+        if !self.removed_data_flow_edges.is_empty() {
+            parts.push(format!("-{} data flows", self.removed_data_flow_edges.len()));
         }
 
         if parts.is_empty() {
@@ -174,6 +187,18 @@ impl TopologyGraph {
         let removed_resources: Vec<String> =
             old_resources.difference(&new_resources).cloned().collect();
 
+        // SECURITY (R231-DISC-6): Track DataFlow edge changes.
+        let old_data_flows = collect_data_flow_edges(self);
+        let new_data_flows = collect_data_flow_edges(newer);
+        let added_data_flow_edges: Vec<(String, String)> = new_data_flows
+            .difference(&old_data_flows)
+            .cloned()
+            .collect();
+        let removed_data_flow_edges: Vec<(String, String)> = old_data_flows
+            .difference(&new_data_flows)
+            .cloned()
+            .collect();
+
         TopologyDiff {
             added_servers,
             removed_servers,
@@ -182,6 +207,8 @@ impl TopologyGraph {
             modified_tools,
             added_resources,
             removed_resources,
+            added_data_flow_edges,
+            removed_data_flow_edges,
             timestamp: SystemTime::now(),
         }
     }
@@ -213,6 +240,26 @@ fn build_tool_map(graph: &TopologyGraph) -> HashMap<&str, (&str, &serde_json::Va
         }
     }
     map
+}
+
+/// Collect all DataFlow edges as (source_qualified, target_qualified) pairs.
+fn collect_data_flow_edges(graph: &TopologyGraph) -> HashSet<(String, String)> {
+    let reverse_index: HashMap<petgraph::graph::NodeIndex, &str> = graph
+        .name_index()
+        .iter()
+        .map(|(name, idx)| (*idx, name.as_str()))
+        .collect();
+    let mut edges = HashSet::new();
+    for edge in graph.graph().edge_references() {
+        if matches!(edge.weight(), TopologyEdge::DataFlow { .. }) {
+            if let (Some(&src), Some(&tgt)) =
+                (reverse_index.get(&edge.source()), reverse_index.get(&edge.target()))
+            {
+                edges.insert((src.to_string(), tgt.to_string()));
+            }
+        }
+    }
+    edges
 }
 
 /// Parse a qualified name "server::tool" into a QualifiedTool.

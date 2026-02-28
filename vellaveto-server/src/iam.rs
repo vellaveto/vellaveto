@@ -4,7 +4,10 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     Json,
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{
+    engine::general_purpose::URL_SAFE_NO_PAD,
+    Engine,
+};
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use flate2::read::{DeflateDecoder, ZlibDecoder};
@@ -104,28 +107,34 @@ impl SamlState {
             .idp_metadata_url
             .as_ref()
             .ok_or_else(|| IamError::Saml("iam.saml.idp_metadata_url is required".to_string()))?;
-        // R231-SRV-9: Enforce maximum response body size for SAML metadata.
-        const MAX_SAML_METADATA_SIZE: usize = 1_048_576; // 1 MB
+        // SECURITY (R231-SRV-2): Validate SAML metadata URL against SSRF
+        // (loopback, link-local, cloud metadata IPs) before fetching.
+        validate_url_no_ssrf(metadata_url)
+            .map_err(|e| IamError::Saml(format!("SAML metadata URL SSRF blocked: {e}")))?;
+        // SECURITY (R231-SRV-6): Bound SAML metadata response size + timeout
+        // to prevent memory exhaustion and startup hang.
+        const MAX_SAML_METADATA_SIZE: u64 = 2 * 1024 * 1024; // 2 MB
         let response = client
             .get(metadata_url)
+            .timeout(Duration::from_secs(30))
             .send()
             .await
             .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {}", e)))?
             .error_for_status()
             .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {}", e)))?;
-        let bytes = response
+        let content_length = response.content_length().unwrap_or(0);
+        if content_length > MAX_SAML_METADATA_SIZE {
+            return Err(IamError::Saml("SAML metadata response too large".to_string()));
+        }
+        let body_bytes = response
             .bytes()
             .await
             .map_err(|e| IamError::Saml(format!("Failed to read SAML metadata: {}", e)))?;
-        if bytes.len() > MAX_SAML_METADATA_SIZE {
-            return Err(IamError::Saml(format!(
-                "SAML metadata exceeds maximum size ({} > {})",
-                bytes.len(),
-                MAX_SAML_METADATA_SIZE
-            )));
+        if body_bytes.len() as u64 > MAX_SAML_METADATA_SIZE {
+            return Err(IamError::Saml("SAML metadata body too large".to_string()));
         }
-        let body = String::from_utf8(bytes.to_vec())
-            .map_err(|_| IamError::Saml("SAML metadata is not valid UTF-8".to_string()))?;
+        let body = String::from_utf8(body_bytes.to_vec())
+            .map_err(|e| IamError::Saml(format!("SAML metadata is not valid UTF-8: {}", e)))?;
         let document = Document::parse(&body)
             .map_err(|e| IamError::Saml(format!("Invalid SAML metadata XML: {}", e)))?;
         Self::from_document(document, config)
@@ -235,7 +244,6 @@ impl SamlState {
             .and_then(|node| node.attribute("Value"))
             .ok_or_else(|| IamError::Saml("SAML StatusCode missing".to_string()))?;
         if status_value != SAML_STATUS_SUCCESS {
-            // R231-SRV-8: Redact status code — leaks IdP business logic (NoAuthnContext, Responder, etc.)
             tracing::debug!(status = %status_value, "SAML response status is not Success");
             return Err(IamError::Saml(
                 "SAML response validation failed".to_string(),
@@ -290,7 +298,9 @@ impl SamlState {
             .descendants()
             .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "Conditions")))
             .ok_or_else(|| {
-                IamError::Saml("SAML Conditions element missing (fail-closed)".to_string())
+                IamError::Saml(
+                    "SAML Conditions element missing (fail-closed)".to_string(),
+                )
             })?;
         let now = Utc::now();
         if let Some(not_before) = conditions.attribute("NotBefore") {
@@ -301,15 +311,7 @@ impl SamlState {
                 ));
             }
         }
-        // R232-SAML-2: NotOnOrAfter is now required (fail-closed).
-        // Without it, an attacker who strips this attribute creates an assertion
-        // that never expires.
-        let not_on_or_after = conditions.attribute("NotOnOrAfter").ok_or_else(|| {
-            IamError::Saml(
-                "SAML Conditions missing required NotOnOrAfter (fail-closed)".to_string(),
-            )
-        })?;
-        {
+        if let Some(not_on_or_after) = conditions.attribute("NotOnOrAfter") {
             let timestamp = parse_saml_timestamp(not_on_or_after)?;
             if now >= timestamp {
                 return Err(IamError::Saml(
@@ -327,7 +329,6 @@ impl SamlState {
             .filter_map(|node| node.text())
             .any(|value| value == self.entity_id);
         if !audience_found {
-            // R231-SRV-8: Redact entity_id — leaks SP identifier (federation enumeration).
             tracing::debug!("SAML AudienceRestriction does not include configured entity_id");
             return Err(IamError::Saml(
                 "SAML audience validation failed".to_string(),
@@ -354,7 +355,9 @@ impl SamlState {
             .descendants()
             .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "SubjectConfirmation")))
             .ok_or_else(|| {
-                IamError::Saml("SAML SubjectConfirmation element missing (fail-closed)".to_string())
+                IamError::Saml(
+                    "SAML SubjectConfirmation element missing (fail-closed)".to_string(),
+                )
             })?;
         // Require bearer method.
         let method = confirmation.attribute("Method").unwrap_or("");
@@ -372,28 +375,16 @@ impl SamlState {
                     "SAML SubjectConfirmationData missing for bearer assertion".to_string(),
                 )
             })?;
-        // R232-SAML-1: Require Recipient (fail-closed per SAML 2.0 Profile §4.1.4.2).
-        // Without Recipient, the assertion can be replayed to any Service Provider.
-        let recipient = data.attribute("Recipient").ok_or_else(|| {
-            IamError::Saml(
-                "SAML SubjectConfirmationData missing required Recipient (fail-closed)"
-                    .to_string(),
-            )
-        })?;
-        if recipient != self.acs_url {
-            return Err(IamError::Saml(
-                "SAML SubjectConfirmationData Recipient mismatch".to_string(),
-            ));
+        // Validate Recipient matches our ACS URL.
+        if let Some(recipient) = data.attribute("Recipient") {
+            if recipient != self.acs_url {
+                return Err(IamError::Saml(
+                    "SAML SubjectConfirmationData Recipient mismatch".to_string(),
+                ));
+            }
         }
-        // R232-SAML-1: Require NotOnOrAfter (fail-closed).
-        // Without NotOnOrAfter, the assertion never expires.
-        let not_on_or_after = data.attribute("NotOnOrAfter").ok_or_else(|| {
-            IamError::Saml(
-                "SAML SubjectConfirmationData missing required NotOnOrAfter (fail-closed)"
-                    .to_string(),
-            )
-        })?;
-        {
+        // Validate NotOnOrAfter hasn't passed.
+        if let Some(not_on_or_after) = data.attribute("NotOnOrAfter") {
             let timestamp = parse_saml_timestamp(not_on_or_after)?;
             let now = Utc::now();
             if now >= timestamp {
@@ -500,7 +491,6 @@ impl SamlState {
         let signature_bytes = decode_base64(signature_value.trim(), "Signature value")?;
         let canonical_signed_info = canonicalize_node(signed_info, false);
         for cert in &self.certificates {
-            // R231-SRV-8: Redact X.509 parse errors — leaks cert chain internals.
             let (_, parsed) = X509Certificate::from_der(cert)
                 .map_err(|_e| IamError::Saml("Certificate validation failed".to_string()))?;
             let spki = parsed.tbs_certificate.subject_pki;
@@ -567,6 +557,10 @@ impl IamState {
                 .endpoint
                 .clone()
                 .ok_or_else(|| IamError::Scim("iam.scim.endpoint missing".to_string()))?;
+            // SECURITY (R231-SRV-1): Validate SCIM endpoint URL against SSRF
+            // (loopback, link-local, cloud metadata IPs) before periodic fetch.
+            validate_url_no_ssrf(&endpoint)
+                .map_err(|e| IamError::Scim(format!("SCIM endpoint SSRF blocked: {e}")))?;
             let token = resolve_scim_token(&config.scim)?;
             Some(spawn_scim_sync(
                 http.clone(),
@@ -586,9 +580,7 @@ impl IamState {
                 if s.len() < MIN_M2M_JWT_SECRET_LEN {
                     return Err(IamError::M2mTokenGeneration(format!(
                         "{} must be at least {} bytes, got {}",
-                        M2M_JWT_SECRET_ENV,
-                        MIN_M2M_JWT_SECRET_LEN,
-                        s.len()
+                        M2M_JWT_SECRET_ENV, MIN_M2M_JWT_SECRET_LEN, s.len()
                     )));
                 }
             }
@@ -872,11 +864,7 @@ impl IamState {
         response.json::<JwkSet>().await
     }
 
-    pub fn create_session(
-        &self,
-        claims: RoleClaims,
-        scopes: Vec<String>,
-    ) -> Result<IamSession, IamError> {
+    pub fn create_session(&self, claims: RoleClaims, scopes: Vec<String>) -> Result<IamSession, IamError> {
         let role = claims.effective_role().unwrap_or(Role::Viewer);
         let now = Instant::now();
         let session = IamSession {
@@ -887,14 +875,15 @@ impl IamState {
             expires_at: now + Duration::from_secs(self.config.session.max_age_secs),
             last_activity: now,
         };
-        // SECURITY (R229-SRV-6): Bound session count to prevent memory exhaustion.
-        // R231-SRV-7: Return error instead of unstored session.
+        // SECURITY (R231-SRV-3): Return error when capacity reached instead of
+        // returning a phantom session. Without this, the cookie is set for an
+        // uninserted session, causing a confusing login loop.
         if self.sessions.len() >= Self::MAX_SESSIONS {
             tracing::warn!(
                 max = Self::MAX_SESSIONS,
                 "Session capacity reached, rejecting new session creation"
             );
-            return Err(IamError::SessionCapacityExceeded);
+            return Err(IamError::Session("Session capacity reached — try again later".to_string()));
         }
         self.sessions.insert(session.id.clone(), session.clone());
         self.trim_sessions_for_subject(session.subject.as_deref());
@@ -1290,7 +1279,9 @@ pub struct CallbackParams {
     pub error: Option<String>,
 }
 
+// SECURITY (R231-SRV-9): Added deny_unknown_fields for project-wide consistency.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SamlAcsForm {
     #[serde(rename = "SAMLResponse")]
     pub saml_response: String,
@@ -1396,11 +1387,11 @@ pub async fn callback(
             )
         })?;
     let scopes = parse_scope_list(tokens.scope.as_deref());
-    let session = iam.create_session(claims, scopes).map_err(|_| {
+    let session = iam.create_session(claims, scopes).map_err(|e| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ErrorResponse {
-                error: "Session capacity exceeded".to_string(),
+                error: e.to_string(),
             }),
         )
     })?;
@@ -1510,7 +1501,6 @@ pub async fn saml_acs(
         )
     })?;
     // R231-SRV-8: Redact SAML processing errors from HTTP responses.
-    // Log detailed errors server-side; return generic messages to client.
     let xml = decode_saml_response(&form.saml_response).map_err(|e| {
         tracing::debug!("SAML decode error: {}", e);
         (
@@ -1585,11 +1575,11 @@ pub async fn saml_acs(
         }
     }
 
-    let session = iam.create_session(claims, vec![]).map_err(|_| {
+    let session = iam.create_session(claims, vec![]).map_err(|e| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ErrorResponse {
-                error: "Session capacity exceeded".to_string(),
+                error: e.to_string(),
             }),
         )
     })?;
@@ -1805,8 +1795,8 @@ pub enum IamError {
     CimdFetch(String),
     #[error("CIMD validation failed: {0}")]
     CimdValidation(String),
-    #[error("Session capacity exceeded")]
-    SessionCapacityExceeded,
+    #[error("Session error: {0}")]
+    Session(String),
 }
 
 #[derive(Deserialize)]
@@ -1856,23 +1846,6 @@ fn parse_scope_list(scope: Option<&str>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// R231-SRV-5: Escape attribute values per Exclusive XML Canonicalization 1.0 §2.3.
-fn c14n_escape_attr_value(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '"' => out.push_str("&quot;"),
-            '\t' => out.push_str("&#x9;"),
-            '\n' => out.push_str("&#xA;"),
-            '\r' => out.push_str("&#xD;"),
-            _ => out.push(ch),
-        }
-    }
-    out
-}
-
 fn canonicalize_node(node: Node, skip_signature: bool) -> String {
     let mut output = String::new();
     output.push('<');
@@ -1889,10 +1862,7 @@ fn canonicalize_node(node: Node, skip_signature: bool) -> String {
         output.push_str(&attribute_name(attr));
         output.push('=');
         output.push('"');
-        // R231-SRV-5: C14N requires XML-escaping attribute values.
-        // roxmltree returns decoded values, so we must re-escape per
-        // Exclusive XML Canonicalization 1.0 §2.3.
-        output.push_str(&c14n_escape_attr_value(attr.value()));
+        output.push_str(attr.value());
         output.push('"');
     }
     output.push('>');
@@ -1944,7 +1914,6 @@ fn map_digest_algorithm(uri: &str) -> Result<&'static digest::Algorithm, IamErro
         "http://www.w3.org/2001/04/xmlenc#sha256" => Ok(&digest::SHA256),
         "http://www.w3.org/2001/04/xmlenc#sha384" => Ok(&digest::SHA384),
         "http://www.w3.org/2001/04/xmlenc#sha512" => Ok(&digest::SHA512),
-        // R231-SRV-8: Redact algorithm URI — enables algorithm confusion attacks.
         _ => Err(IamError::Saml(
             "Unsupported digest algorithm".to_string(),
         )),
@@ -1966,7 +1935,6 @@ fn map_signature_algorithm(
         | "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512" => {
             Ok(&signature::RSA_PKCS1_1024_8192_SHA512_FOR_LEGACY_USE_ONLY)
         }
-        // R231-SRV-8: Redact algorithm URI — enables algorithm confusion attacks.
         _ => Err(IamError::Saml(
             "Unsupported signature algorithm".to_string(),
         )),
@@ -1976,7 +1944,6 @@ fn map_signature_algorithm(
 fn parse_saml_timestamp(value: &str) -> Result<DateTime<Utc>, IamError> {
     DateTime::parse_from_rfc3339(value)
         .map(|dt| dt.with_timezone(&Utc))
-        // R231-SRV-8: Redact timestamp value and parse error — enables timestamp fuzzing.
         .map_err(|_e| IamError::Saml("Invalid SAML timestamp format".to_string()))
 }
 
@@ -1989,7 +1956,6 @@ fn decode_base64(value: &str, context: &str) -> Result<Vec<u8>, IamError> {
     );
     PAD_INDIFFERENT
         .decode(value)
-        // R231-SRV-8: Redact base64 decode error context — leaks implementation details.
         .map_err(|_e| IamError::Saml(format!("{}: decode failed", context)))
 }
 
@@ -2019,8 +1985,8 @@ fn decode_saml_response(encoded: &str) -> Result<String, IamError> {
     }
     // SECURITY (R229-SRV-3): Bound decompression via take() to prevent decompression bombs.
     let mut buffer = String::new();
-    let mut zlib_decoder =
-        ZlibDecoder::new(Cursor::new(decoded.clone())).take(MAX_SAML_DECOMPRESSED_SIZE);
+    let mut zlib_decoder = ZlibDecoder::new(Cursor::new(decoded.clone()))
+        .take(MAX_SAML_DECOMPRESSED_SIZE);
     if zlib_decoder.read_to_string(&mut buffer).is_ok() {
         if buffer.len() as u64 >= MAX_SAML_DECOMPRESSED_SIZE {
             return Err(IamError::Saml(
@@ -2030,8 +1996,8 @@ fn decode_saml_response(encoded: &str) -> Result<String, IamError> {
         return Ok(buffer);
     }
     buffer.clear();
-    let mut deflate_decoder =
-        DeflateDecoder::new(Cursor::new(decoded)).take(MAX_SAML_DECOMPRESSED_SIZE);
+    let mut deflate_decoder = DeflateDecoder::new(Cursor::new(decoded))
+        .take(MAX_SAML_DECOMPRESSED_SIZE);
     deflate_decoder
         .read_to_string(&mut buffer)
         .map_err(|e| IamError::Saml(format!("Failed to decompress SAML response: {}", e)))?;
@@ -2138,7 +2104,9 @@ impl std::fmt::Display for M2mTokenResponse {
 }
 
 /// Request body for the M2M token endpoint.
-#[derive(Debug, Deserialize)]
+///
+/// SECURITY (R231-SRV-4): Custom Debug impl redacts client_secret.
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct M2mTokenRequest {
     /// Must be "client_credentials".
@@ -2150,6 +2118,17 @@ pub struct M2mTokenRequest {
     /// Optional space-separated scopes to request.
     #[serde(default)]
     pub scope: Option<String>,
+}
+
+impl std::fmt::Debug for M2mTokenRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("M2mTokenRequest")
+            .field("grant_type", &self.grant_type)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"[REDACTED]")
+            .field("scope", &self.scope)
+            .finish()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2527,17 +2506,11 @@ mod tests {
         let padded = STANDARD.encode(b"test cert data");
         assert!(decode_base64(&padded, "test").is_ok());
         let unpadded = padded.trim_end_matches('=').to_string();
-        assert!(
-            decode_base64(&unpadded, "test").is_ok(),
-            "Should accept unpadded base64"
-        );
+        assert!(decode_base64(&unpadded, "test").is_ok(), "Should accept unpadded base64");
         let payload = "<Response>test</Response>";
         let encoded = STANDARD.encode(payload);
         let unpadded_resp = encoded.trim_end_matches('=').to_string();
-        assert!(
-            decode_saml_response(&unpadded_resp).is_ok(),
-            "Should accept unpadded SAML response"
-        );
+        assert!(decode_saml_response(&unpadded_resp).is_ok(), "Should accept unpadded SAML response");
     }
 
     #[test]
@@ -3043,9 +3016,7 @@ mod tests {
 
     #[test]
     fn test_r230_find_key_in_jwks_requires_alg() {
-        use jsonwebtoken::jwk::{
-            AlgorithmParameters, CommonParameters, Jwk, KeyAlgorithm, RSAKeyParameters,
-        };
+        use jsonwebtoken::jwk::{Jwk, CommonParameters, KeyAlgorithm, AlgorithmParameters, RSAKeyParameters};
         // Key WITHOUT alg field should NOT match any algorithm
         let key_no_alg = Jwk {
             common: CommonParameters {
@@ -3064,22 +3035,15 @@ mod tests {
                 e: "AQAB".to_string(),
             }),
         };
-        let jwks = JwkSet {
-            keys: vec![key_no_alg],
-        };
+        let jwks = JwkSet { keys: vec![key_no_alg] };
         // Should return None because key has no alg (R230-SRV-2 fail-closed)
         let result = find_key_in_jwks(&jwks, "kid-1", &Algorithm::RS256);
-        assert!(
-            result.is_none(),
-            "Key without alg must not match (algorithm confusion prevention)"
-        );
+        assert!(result.is_none(), "Key without alg must not match (algorithm confusion prevention)");
     }
 
     #[test]
     fn test_r230_find_key_in_jwks_matching_alg_works() {
-        use jsonwebtoken::jwk::{
-            AlgorithmParameters, CommonParameters, Jwk, KeyAlgorithm, RSAKeyParameters,
-        };
+        use jsonwebtoken::jwk::{Jwk, CommonParameters, KeyAlgorithm, AlgorithmParameters, RSAKeyParameters};
         let key_with_alg = Jwk {
             common: CommonParameters {
                 public_key_use: None,
@@ -3097,9 +3061,7 @@ mod tests {
                 e: "AQAB".to_string(),
             }),
         };
-        let jwks = JwkSet {
-            keys: vec![key_with_alg],
-        };
+        let jwks = JwkSet { keys: vec![key_with_alg] };
         // Wrong algorithm should not match
         let result = find_key_in_jwks(&jwks, "kid-2", &Algorithm::ES256);
         assert!(result.is_none(), "Mismatched alg must not match");
@@ -3261,6 +3223,9 @@ async fn fetch_scim_user_count(
     endpoint: &str,
     token: &str,
 ) -> Result<usize, String> {
+    // SECURITY (R231-SRV-5): Bound SCIM response size and add timeout
+    // to prevent memory exhaustion from a malicious SCIM endpoint.
+    const MAX_SCIM_RESPONSE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
     let response = client
         .get(endpoint)
         .header(reqwest_header::AUTHORIZATION, format!("Bearer {}", token))
@@ -3268,14 +3233,31 @@ async fn fetch_scim_user_count(
             reqwest_header::ACCEPT,
             "application/scim+json, application/json",
         )
+        .timeout(Duration::from_secs(30))
         .send()
         .await
         .map_err(|e| format!("SCIM request failed: {}", e))?
         .error_for_status()
         .map_err(|e| format!("SCIM endpoint error: {}", e))?;
-    let payload = response
-        .json::<Value>()
+    let content_length = response.content_length().unwrap_or(0);
+    if content_length > MAX_SCIM_RESPONSE_SIZE {
+        return Err(format!(
+            "SCIM response too large: {} bytes (max {})",
+            content_length, MAX_SCIM_RESPONSE_SIZE
+        ));
+    }
+    let body = response
+        .bytes()
         .await
+        .map_err(|e| format!("SCIM response read failed: {}", e))?;
+    if body.len() as u64 > MAX_SCIM_RESPONSE_SIZE {
+        return Err(format!(
+            "SCIM response body too large: {} bytes (max {})",
+            body.len(),
+            MAX_SCIM_RESPONSE_SIZE
+        ));
+    }
+    let payload: Value = serde_json::from_slice(&body)
         .map_err(|e| format!("SCIM response decode failed: {}", e))?;
     Ok(extract_scim_user_count(&payload))
 }

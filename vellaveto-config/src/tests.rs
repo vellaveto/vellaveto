@@ -1132,6 +1132,7 @@ fn test_validate_rejects_too_many_policies() {
         metering: Default::default(),
         iam: Default::default(),
         topology: Default::default(),
+        shield: Default::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {

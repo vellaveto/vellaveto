@@ -1,0 +1,5 @@
+This crate is licensed under the Mozilla Public License, Version 2.0.
+See the LICENSE-MPL-2.0 file in the repository root for the full license text.
+
+NOTE: The compiled binary links vellaveto-mcp (AGPL-3.0), so the combined
+binary distributes under AGPL-3.0 terms. See LICENSING.md for details.

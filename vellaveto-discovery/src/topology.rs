@@ -273,6 +273,14 @@ impl TopologyGraph {
                     server_decl.name
                 )));
             }
+            // SECURITY (R231-DISC-7): Reject '::' in server names to prevent
+            // qualified name parsing ambiguity in guard and diff modules.
+            if server_decl.name.contains("::") {
+                return Err(DiscoveryError::ValidationError(format!(
+                    "Server name '{}' must not contain '::'",
+                    server_decl.name
+                )));
+            }
             if server_index.contains_key(&server_decl.name) {
                 return Err(DiscoveryError::ValidationError(format!(
                     "Duplicate server name: '{}'",
@@ -319,6 +327,16 @@ impl TopologyGraph {
                         tool_decl.name, server_decl.name
                     )));
                 }
+                // SECURITY (R231-DISC-1): Enforce description length bound to prevent
+                // O(N^2) amplification in inference engine token comparison.
+                if tool_decl.description.len() > MAX_TOOL_DESCRIPTION_LEN {
+                    return Err(DiscoveryError::ValidationError(format!(
+                        "Tool '{}' description length {} exceeds max {}",
+                        tool_decl.name,
+                        tool_decl.description.len(),
+                        MAX_TOOL_DESCRIPTION_LEN
+                    )));
+                }
 
                 let qualified = format!("{}::{}", server_decl.name, tool_decl.name);
                 if index.contains_key(&qualified) {
@@ -347,6 +365,31 @@ impl TopologyGraph {
                     return Err(DiscoveryError::ValidationError(format!(
                         "Resource name must not be empty on server '{}'",
                         server_decl.name
+                    )));
+                }
+                // SECURITY (R231-DISC-2): Validate resource name length and chars,
+                // mirroring tool name validation for consistency.
+                if resource_decl.name.len() > MAX_TOOL_NAME_LEN {
+                    return Err(DiscoveryError::ValidationError(format!(
+                        "Resource name '{}' length {} exceeds max {}",
+                        resource_decl.name,
+                        resource_decl.name.len(),
+                        MAX_TOOL_NAME_LEN
+                    )));
+                }
+                if vellaveto_types::has_dangerous_chars(&resource_decl.name) {
+                    return Err(DiscoveryError::ValidationError(format!(
+                        "Resource name '{}' on server '{}' contains control or format characters",
+                        resource_decl.name, server_decl.name
+                    )));
+                }
+                // SECURITY (R231-DISC-1): Enforce URI template length bound.
+                if resource_decl.uri_template.len() > MAX_URI_TEMPLATE_LEN {
+                    return Err(DiscoveryError::ValidationError(format!(
+                        "Resource '{}' URI template length {} exceeds max {}",
+                        resource_decl.name,
+                        resource_decl.uri_template.len(),
+                        MAX_URI_TEMPLATE_LEN
                     )));
                 }
 

@@ -44,7 +44,9 @@ const SCHEMA_VERSION: &str = "1.3.0";
 ///
 /// See <https://schema.ocsf.io/1.3.0/classes/authorization> for the full
 /// schema definition.
+// SECURITY (R231-AUD-4): Added deny_unknown_fields for project-wide consistency.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct OcsfEvent {
     /// OCSF class UID. Always 3002 (Authorization).
     pub class_uid: u32,
@@ -243,12 +245,13 @@ pub fn audit_entry_to_ocsf(entry: &AuditEntry) -> OcsfEvent {
             serde_json::Value::String(tenant.clone()),
         );
     }
-    if entry.sequence > 0 {
-        unmapped.insert(
-            "sequence".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(entry.sequence)),
-        );
-    }
+    // SECURITY (R231-AUD-3): Always include sequence number, including 0.
+    // The first entry (sequence 0) was previously excluded, creating an
+    // information asymmetry between OCSF and JSONL/CEF exports.
+    unmapped.insert(
+        "sequence".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(entry.sequence)),
+    );
 
     let verdict_desc = match &entry.verdict {
         Verdict::Allow => "Allow".to_string(),
@@ -582,12 +585,11 @@ mod tests {
 
         let event = audit_entry_to_ocsf(&entry);
 
-        // unmapped should be null (skipped in serialization)
-        assert!(
-            is_null_or_empty_object(&event.unmapped),
-            "unmapped should be null or empty when no extra fields, got: {:?}",
-            event.unmapped
-        );
+        // SECURITY (R231-AUD-3): Sequence is now always included (including 0),
+        // so unmapped should contain exactly {"sequence": 0}.
+        let obj = event.unmapped.as_object().expect("unmapped should be object");
+        assert_eq!(obj.len(), 1, "unmapped should contain only 'sequence' when defaults");
+        assert_eq!(obj.get("sequence").and_then(|v| v.as_u64()), Some(0));
     }
 
     #[test]

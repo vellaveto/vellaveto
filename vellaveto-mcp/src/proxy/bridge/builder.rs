@@ -325,4 +325,20 @@ impl ProxyBridge {
         self.topology_guard = Some(guard);
         self
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Consumer Shield: Bidirectional PII Sanitization
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Set the shield sanitizer for bidirectional PII sanitization.
+    /// When set, outbound request parameters are sanitized (PII replaced)
+    /// and inbound response content is desanitized (PII restored).
+    #[cfg(feature = "consumer-shield")]
+    pub fn with_shield_sanitizer(
+        mut self,
+        sanitizer: Arc<vellaveto_mcp_shield::QuerySanitizer>,
+    ) -> Self {
+        self.shield_sanitizer = Some(sanitizer);
+        self
+    }
 }

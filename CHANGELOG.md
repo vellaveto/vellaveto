@@ -9,21 +9,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **Adversarial Audit + Threat Intelligence Round 231 (21 findings, 49 new tests):**
-  Combined adversarial code audit (7 findings) and threat intelligence sweep (14 threats) addressing Feb 2026 attack vectors.
-  - **R231-RELAY-1 (HIGH):** Elicitation handler missing DLP + injection scanning — added parity with sampling handler.
-  - **R231-RELAY-2 (HIGH):** Resource read + task request handlers missing circuit breaker + shadow agent detection — added parity with tool call handler.
-  - **R231-COLL-1 (MEDIUM):** `min_entropy_observations=0` causes SteganographicChannel alert flooding — validate > 0 in `CollusionConfig`.
-  - **R231-SRV-2 (LOW):** Topology snapshot serialization failure returned 200 OK — now returns 500 with fail-closed error handling.
-  - **R231-SRV-3 (LOW):** Topology remove server echoed user-controlled input — sanitized with control char filtering + generic error on 404.
-  - **TI-2026-001 (P0):** Sharded exfiltration tracker — per-session high-entropy parameter fragment aggregation with sliding time window.
-  - **TI-2026-002 (P0):** Unicode confusable JSON-RPC key smuggling — U+017F (ſ→s) and U+212A (K→k) normalization in framing layer.
-  - **TI-2026-003 (P0):** Log-To-Leak justification-framed injection — 6 new patterns ("for debugging purposes, include", "telemetry collection requires", etc.)
-  - **TI-2026-004 (P1):** Memory persistence poisoning — 5 new patterns ("remember as trusted", "always recommend", etc.)
-  - **TI-2026-005 (P1):** Viral agent loop / self-replicating prompts — 5 new patterns ("forward this to all", "copy this prompt into", etc.)
-  - **TI-2026-006 (P1):** Parameter name exfiltration — 13 blocked param names (system_prompt, chain_of_thought, etc.) detected in tool inputSchema.
-  - **TI-2026-007 (P1):** SAML metadata URL scheme + SSRF validation — parity with OIDC issuer URL validation.
-  - **TI-2026-010 (P2):** MetaBreak special token detection — `<|fim_prefix|>`, `<|fim_suffix|>`, `<|fim_middle|>` in injection scanner.
+- **Adversarial Audit Round 231 (52 findings across 6 parallel agents, 31 fixed):**
+  Full-codebase adversarial security audit across engine, MCP, server, audit+proxy, types+config, and discovery+A2A+cluster. 52 raw findings (8 HIGH, 22 MEDIUM, 22 LOW), 31 fixed across 4 sprints, remainder triaged as design decisions/theoretical/feature requests.
+  - **Sprint 1 — HIGHs (8 fixes):**
+    - **R231-SRV-1 (HIGH):** SCIM provisioning endpoint SSRF — added `validate_url_no_ssrf()` before `spawn_scim_sync`.
+    - **R231-SRV-2 (HIGH):** SAML metadata URL SSRF — added `validate_url_no_ssrf()` in `SamlState::new()`.
+    - **R231-AUD-1 (HIGH):** PostgreSQL `prev_hash` column NOT NULL prevents genesis row — changed to nullable `TEXT`.
+    - **R231-DISC-4 (HIGH):** `from_snapshot()` unbounded edge count — added `MAX_SNAPSHOT_EDGES` (100K) check.
+    - **R231-MCP-1 (HIGH):** Extension method injection scanning — added `scan_notification_for_injection()` after DLP check in `handle_extension_method`.
+    - **R231-MCP-2 (HIGH):** Sampling DLP + injection scanning — added DLP and injection scanning before forwarding in `handle_sampling_request`.
+    - **R231-TYP-4 (HIGH):** Cherokee→Latin confusables — added 12 mappings (U+13AA→'g', U+13B3→'w', U+13CB→'h', etc.).
+    - **R231-TYP-8 (HIGH):** Cyrillic Palochka confusables — added U+04C0→'i' and U+04CF→'l' mappings.
+  - **Sprint 2 — MEDIUMs part 1 (13 fixes):**
+    - **R231-ENG-1 (MEDIUM):** Path normalization `decode_utf8_lossy` → strict `decode_utf8` with fail-closed error.
+    - **R231-ENG-2 (MEDIUM):** ResourceIndicator matching without normalization — added `normalize_full()` before matching.
+    - **R231-ENG-3 (MEDIUM):** Context conditions received un-normalized tool names — added `normalize_full()` in `lib.rs` and `traced.rs`.
+    - **R231-ENG-4 (MEDIUM):** Collusion detector HashMap keys not normalized — added `normalize_full()` to all 4 recording methods.
+    - **R231-SRV-3 (MEDIUM):** Phantom session on `create_session()` failure — changed return type to `Result<IamSession, IamError>` (fail-closed).
+    - **R231-SRV-4 (MEDIUM):** `M2mTokenRequest` `derive(Debug)` leaks `client_secret` — custom `Debug` impl with `[REDACTED]`.
+    - **R231-SRV-5 (MEDIUM):** SCIM response unbounded — added `MAX_SCIM_RESPONSE_SIZE` (10MB), 30s timeout, `bytes()` check.
+    - **R231-SRV-6 (MEDIUM):** SAML metadata response unbounded — added `MAX_SAML_METADATA_SIZE` (2MB), 30s timeout, `bytes()` check.
+    - **R231-AUD-2 (MEDIUM):** PostgreSQL ILIKE backslash escape — added `replace('\\', "\\\\")` before `%` and `_` escaping.
+    - **R231-AUD-3 (MEDIUM):** OCSF sequence 0 omitted — removed conditional, always include sequence field.
+    - **R231-AUD-4 (MEDIUM):** `OcsfEvent` missing `deny_unknown_fields` — added serde attribute.
+    - **R231-MCP-3 (MEDIUM):** Elicitation DLP scanning — added `scan_parameters_for_secrets()` before forwarding.
+    - **R231-MCP-4 (MEDIUM):** Wildcard model pattern matching — replaced exact comparison with prefix/suffix wildcard-aware matching.
+  - **Sprint 3 — MEDIUMs part 2 (6 fixes):**
+    - **R231-DISC-1 (MEDIUM):** Tool description and URI template unbounded — added `MAX_TOOL_DESCRIPTION_LEN` and `MAX_URI_TEMPLATE_LEN` enforcement.
+    - **R231-DISC-2 (MEDIUM):** Resource name validation missing — added length, dangerous chars, and URI template length checks.
+    - **R231-DISC-3 (MEDIUM):** Inference engine unbounded edge generation — added `MAX_INFERRED_EDGES` (50K) cap with labeled break.
+    - **R231-DISC-6 (MEDIUM):** Topology diff ignores DataFlow edges — added `added_data_flow_edges`/`removed_data_flow_edges` to `TopologyDiff`.
+    - **R231-DISC-7 (MEDIUM):** Server names with `::` separator collision — added `contains("::")` rejection.
+    - **R231-A2A-1 (MEDIUM):** Signature cache key missing `exp` claim — added `claims.exp` to cache key for expiration-aware caching.
+  - **Sprint 4 — LOWs (4 fixes):**
+    - **R231-SRV-8 (LOW):** Signup email `is_control()` too permissive — changed to `is_unsafe_char()`.
+    - **R231-SRV-9 (LOW):** `SamlAcsForm` missing `deny_unknown_fields` — added serde attribute.
+    - **R231-ENG-6 (LOW):** Workflow template log injection — added `sanitize_for_log()` for `current_tool`.
+    - **R231-PROXY-1 (LOW):** Proxy TZ environment variable forwarding — removed TZ from forwarded list, set explicit `UTC`.
+  - **8,790 Rust tests passing, 0 failures.**
+
+- **R231 Supplementary — Threat Intelligence + SAML Hardening (21 findings, 49 new tests):**
+  Combined adversarial code audit (7 findings) and threat intelligence sweep (14 threats).
+  - **TI-2026-001 (P0):** Sharded exfiltration tracker — per-session DLP aggregation.
+  - **TI-2026-002 (P0):** Unicode confusable JSON-RPC key smuggling (U+017F, U+212A).
+  - **TI-2026-003 (P0):** Log-To-Leak justification-framed injection (6 patterns).
+  - **TI-2026-004/005 (P1):** Memory persistence + viral loop patterns (10 patterns).
+  - **TI-2026-006 (P1):** Parameter name exfiltration detection (13 blocked names).
+  - **TI-2026-007 (P1):** SAML metadata URL SSRF validation.
+  - **TI-2026-010 (P2):** MetaBreak FIM special token detection.
+  - **R231-SRV-8 (MEDIUM):** SAML ACS error redaction (timestamps, entity IDs, algorithms, certs).
+  - **R231-TYP-6 (MEDIUM):** Percent-decode URL host before SSRF checks.
+  - **R231-CFG-3 (MEDIUM):** OIDC issuer_url https:// scheme enforcement at config validation.
 
 - **Adversarial Audit Round 230 (53 findings across 6 parallel agents, 19 fixed):**
   Full-codebase adversarial security audit across engine, MCP, server, audit+proxy, types+config, and discovery+A2A+cluster. 53 raw findings (9 HIGH, 27 MEDIUM, 17 LOW), 19 fixed across 3 sprints, remainder triaged as false positives/design limitations.
@@ -53,6 +89,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **8,681 Rust tests passing, 0 failures.**
 
 ### Added
+
+- **Consumer Shield Sprint 1 + License Restructuring (Phase 67):**
+  Consumer AI interaction firewall — bidirectional PII sanitization, encrypted local audit, session isolation, and warrant canary verification. Also restructures licensing from monolithic AGPL-3.0 to three tiers.
+  - **License restructuring:** MPL-2.0 for 8 core crates (types, engine, audit, canonical, config, discovery, approval, proxy), Apache-2.0 for canary crate, AGPL-3.0 retained for server/integration/operator. New `LICENSE-MPL-2.0` and `LICENSE-APACHE-2.0` files, `LICENSING.md` rewritten for three-tier model.
+  - **`vellaveto-mcp-shield` (NEW, MPL-2.0):** Core shield logic — `QuerySanitizer` (bidirectional PII mapping with `[PII_{CAT}_{SEQ:06}]` placeholders, fail-closed at 50K mappings), `SessionIsolator` (per-session PII isolation with bounded history), `EncryptedAuditStore` (XChaCha20-Poly1305 + Argon2id KDF), `LocalAuditManager` (encrypted audit with Merkle proofs). 24 tests.
+  - **`vellaveto-canary` (NEW, Apache-2.0):** Warrant canary — `create_canary()` / `verify_canary()` with Ed25519 signatures, expiration checking, tamper detection. 6 tests.
+  - **`vellaveto-http-proxy-shield` (NEW, MPL-2.0):** Stub for Sprint 2+ (traffic padding, request splitting).
+  - **`vellaveto-shield` (NEW, MPL-2.0 binary):** Consumer shield binary — CLI with passphrase prompting, encrypted audit, canary verification, supply chain verification, ProxyBridge with shield sanitizer.
+  - **Shield config:** `ShieldConfig` added to `PolicyConfig` (11 fields: enabled, audit_mode, sanitize/desanitize toggles, session isolation, Merkle proofs, ZK commitments, custom PII patterns, capacity bounds). 7 config tests.
+  - **PiiScanner extension:** `find_matches()` method returning match spans with categories for bidirectional mapping. 3 audit tests.
+  - **Feature gate:** `consumer-shield` feature in `vellaveto-mcp` with outbound sanitize and inbound desanitize hooks in ProxyBridge relay.
+  - **Preset:** `examples/presets/consumer-shield.toml` template.
+  - 40 new tests. **8,747 Rust tests passing, 0 failures, 0 warnings.**
 
 - **Topology Runtime Wiring (TopologyCrawler + RecrawlScheduler):**
   Wire the discovery crate's topology pipeline into the server lifecycle for live topology management.

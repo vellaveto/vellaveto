@@ -104,7 +104,7 @@ pub use observability::{
 pub use merkle::{MerkleProof, MerkleTree, MerkleVerification, ProofStep};
 
 // PII re-exports
-pub use pii::{validate_regex_safety, CustomPiiPattern, PiiScanner};
+pub use pii::{validate_regex_safety, CustomPiiPattern, PiiMatch, PiiScanner};
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 #[cfg(test)]

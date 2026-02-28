@@ -461,7 +461,9 @@ fn bind_params<'q>(
         query = query.bind(i64::try_from(to).unwrap_or(i64::MAX));
     }
     if let Some(ref text) = params.text_search {
-        let pattern = format!("%{}%", text.replace('%', "\\%").replace('_', "\\_"));
+        // SECURITY (R231-AUD-2): Escape backslash before % and _ to prevent
+        // ILIKE pattern injection via backslash as PostgreSQL's default escape char.
+        let pattern = format!("%{}%", text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
         query = query.bind(pattern);
     }
     // Phase 44: Tenant ID filter
@@ -504,7 +506,9 @@ fn bind_data_params<'q>(
         query = query.bind(i64::try_from(to).unwrap_or(i64::MAX));
     }
     if let Some(ref text) = params.text_search {
-        let pattern = format!("%{}%", text.replace('%', "\\%").replace('_', "\\_"));
+        // SECURITY (R231-AUD-2): Escape backslash before % and _ to prevent
+        // ILIKE pattern injection via backslash as PostgreSQL's default escape char.
+        let pattern = format!("%{}%", text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
         query = query.bind(pattern);
     }
     // Phase 44: Tenant ID filter

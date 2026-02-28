@@ -47,6 +47,7 @@ pub mod zk_audit;
 
 pub mod bulk;
 pub mod cedar;
+pub mod shield;
 
 #[cfg(test)]
 mod tests;
@@ -145,6 +146,7 @@ pub use projector::ProjectorConfig;
 pub use tool_registry::ToolRegistryConfig;
 pub use topology::TopologyConfig;
 pub use transport::TransportConfig;
+pub use shield::{ShieldConfig, ShieldCustomPiiPattern};
 pub use zk_audit::ZkAuditConfig;
 
 use serde::{Deserialize, Serialize};
@@ -579,6 +581,14 @@ pub struct PolicyConfig {
     /// graph used for pre-policy tool call filtering.
     #[serde(default)]
     pub topology: TopologyConfig,
+
+    // ═══════════════════════════════════════════════════
+    // CONSUMER SHIELD CONFIGURATION
+    // ═══════════════════════════════════════════════════
+    /// Consumer shield configuration for bidirectional PII sanitization,
+    /// session isolation, and encrypted local audit.
+    #[serde(default)]
+    pub shield: ShieldConfig,
 }
 
 impl PolicyConfig {

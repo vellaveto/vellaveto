@@ -3,7 +3,7 @@ name = "vellaveto-engine"
 version = "3.0.0"
 description = "Policy evaluation engine with glob, regex, and domain matching"
 edition = "2021"
-license.workspace = true
+license = "MPL-2.0"
 repository.workspace = true
 
 [features]

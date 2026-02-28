@@ -3,7 +3,7 @@ name = "vellaveto-proxy"
 version = "3.0.0"
 description = "MCP stdio proxy for command-line tool integration"
 edition = "2021"
-license.workspace = true
+license = "MPL-2.0"
 repository.workspace = true
 
 [[bin]]
