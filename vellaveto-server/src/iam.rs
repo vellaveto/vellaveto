@@ -13,10 +13,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     Json,
 };
-use base64::{
-    engine::general_purpose::URL_SAFE_NO_PAD,
-    Engine,
-};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use flate2::read::{DeflateDecoder, ZlibDecoder};
@@ -133,7 +130,9 @@ impl SamlState {
             .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {}", e)))?;
         let content_length = response.content_length().unwrap_or(0);
         if content_length > MAX_SAML_METADATA_SIZE {
-            return Err(IamError::Saml("SAML metadata response too large".to_string()));
+            return Err(IamError::Saml(
+                "SAML metadata response too large".to_string(),
+            ));
         }
         let body_bytes = response
             .bytes()
@@ -307,9 +306,7 @@ impl SamlState {
             .descendants()
             .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "Conditions")))
             .ok_or_else(|| {
-                IamError::Saml(
-                    "SAML Conditions element missing (fail-closed)".to_string(),
-                )
+                IamError::Saml("SAML Conditions element missing (fail-closed)".to_string())
             })?;
         let now = Utc::now();
         if let Some(not_before) = conditions.attribute("NotBefore") {
@@ -364,9 +361,7 @@ impl SamlState {
             .descendants()
             .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "SubjectConfirmation")))
             .ok_or_else(|| {
-                IamError::Saml(
-                    "SAML SubjectConfirmation element missing (fail-closed)".to_string(),
-                )
+                IamError::Saml("SAML SubjectConfirmation element missing (fail-closed)".to_string())
             })?;
         // Require bearer method.
         let method = confirmation.attribute("Method").unwrap_or("");
@@ -589,7 +584,9 @@ impl IamState {
                 if s.len() < MIN_M2M_JWT_SECRET_LEN {
                     return Err(IamError::M2mTokenGeneration(format!(
                         "{} must be at least {} bytes, got {}",
-                        M2M_JWT_SECRET_ENV, MIN_M2M_JWT_SECRET_LEN, s.len()
+                        M2M_JWT_SECRET_ENV,
+                        MIN_M2M_JWT_SECRET_LEN,
+                        s.len()
                     )));
                 }
             }
@@ -873,7 +870,11 @@ impl IamState {
         response.json::<JwkSet>().await
     }
 
-    pub fn create_session(&self, claims: RoleClaims, scopes: Vec<String>) -> Result<IamSession, IamError> {
+    pub fn create_session(
+        &self,
+        claims: RoleClaims,
+        scopes: Vec<String>,
+    ) -> Result<IamSession, IamError> {
         let role = claims.effective_role().unwrap_or(Role::Viewer);
         let now = Instant::now();
         let session = IamSession {
@@ -892,7 +893,9 @@ impl IamState {
                 max = Self::MAX_SESSIONS,
                 "Session capacity reached, rejecting new session creation"
             );
-            return Err(IamError::Session("Session capacity reached — try again later".to_string()));
+            return Err(IamError::Session(
+                "Session capacity reached — try again later".to_string(),
+            ));
         }
         self.sessions.insert(session.id.clone(), session.clone());
         self.trim_sessions_for_subject(session.subject.as_deref());
@@ -1923,9 +1926,7 @@ fn map_digest_algorithm(uri: &str) -> Result<&'static digest::Algorithm, IamErro
         "http://www.w3.org/2001/04/xmlenc#sha256" => Ok(&digest::SHA256),
         "http://www.w3.org/2001/04/xmlenc#sha384" => Ok(&digest::SHA384),
         "http://www.w3.org/2001/04/xmlenc#sha512" => Ok(&digest::SHA512),
-        _ => Err(IamError::Saml(
-            "Unsupported digest algorithm".to_string(),
-        )),
+        _ => Err(IamError::Saml("Unsupported digest algorithm".to_string())),
     }
 }
 
@@ -1994,8 +1995,8 @@ fn decode_saml_response(encoded: &str) -> Result<String, IamError> {
     }
     // SECURITY (R229-SRV-3): Bound decompression via take() to prevent decompression bombs.
     let mut buffer = String::new();
-    let mut zlib_decoder = ZlibDecoder::new(Cursor::new(decoded.clone()))
-        .take(MAX_SAML_DECOMPRESSED_SIZE);
+    let mut zlib_decoder =
+        ZlibDecoder::new(Cursor::new(decoded.clone())).take(MAX_SAML_DECOMPRESSED_SIZE);
     if zlib_decoder.read_to_string(&mut buffer).is_ok() {
         if buffer.len() as u64 >= MAX_SAML_DECOMPRESSED_SIZE {
             return Err(IamError::Saml(
@@ -2005,8 +2006,8 @@ fn decode_saml_response(encoded: &str) -> Result<String, IamError> {
         return Ok(buffer);
     }
     buffer.clear();
-    let mut deflate_decoder = DeflateDecoder::new(Cursor::new(decoded))
-        .take(MAX_SAML_DECOMPRESSED_SIZE);
+    let mut deflate_decoder =
+        DeflateDecoder::new(Cursor::new(decoded)).take(MAX_SAML_DECOMPRESSED_SIZE);
     deflate_decoder
         .read_to_string(&mut buffer)
         .map_err(|e| IamError::Saml(format!("Failed to decompress SAML response: {}", e)))?;
@@ -2515,11 +2516,17 @@ mod tests {
         let padded = STANDARD.encode(b"test cert data");
         assert!(decode_base64(&padded, "test").is_ok());
         let unpadded = padded.trim_end_matches('=').to_string();
-        assert!(decode_base64(&unpadded, "test").is_ok(), "Should accept unpadded base64");
+        assert!(
+            decode_base64(&unpadded, "test").is_ok(),
+            "Should accept unpadded base64"
+        );
         let payload = "<Response>test</Response>";
         let encoded = STANDARD.encode(payload);
         let unpadded_resp = encoded.trim_end_matches('=').to_string();
-        assert!(decode_saml_response(&unpadded_resp).is_ok(), "Should accept unpadded SAML response");
+        assert!(
+            decode_saml_response(&unpadded_resp).is_ok(),
+            "Should accept unpadded SAML response"
+        );
     }
 
     #[test]
@@ -2709,7 +2716,9 @@ mod tests {
         config.oidc.enabled = true;
         config.session.idle_timeout_secs = 1;
         let iam = IamState::new_for_test(config);
-        let session = iam.create_session(role_claims("alice", "admin"), vec![]).unwrap();
+        let session = iam
+            .create_session(role_claims("alice", "admin"), vec![])
+            .unwrap();
         {
             let mut entry = iam.sessions.get_mut(&session.id).unwrap();
             entry.last_activity = StdInstant::now() - StdDuration::from_secs(2);
@@ -2723,9 +2732,15 @@ mod tests {
         config.oidc.enabled = true;
         config.session.max_sessions_per_principal = 2;
         let iam = IamState::new_for_test(config);
-        let s1 = iam.create_session(role_claims("bob", "operator"), vec![]).unwrap();
-        let s2 = iam.create_session(role_claims("bob", "operator"), vec![]).unwrap();
-        let s3 = iam.create_session(role_claims("bob", "operator"), vec![]).unwrap();
+        let s1 = iam
+            .create_session(role_claims("bob", "operator"), vec![])
+            .unwrap();
+        let s2 = iam
+            .create_session(role_claims("bob", "operator"), vec![])
+            .unwrap();
+        let s3 = iam
+            .create_session(role_claims("bob", "operator"), vec![])
+            .unwrap();
         assert!(iam.find_session(&s1.id).is_none());
         assert!(iam.find_session(&s2.id).is_some());
         assert!(iam.find_session(&s3.id).is_some());
@@ -3044,15 +3059,22 @@ mod tests {
                 e: "AQAB".to_string(),
             }),
         };
-        let jwks = JwkSet { keys: vec![key_no_alg] };
+        let jwks = JwkSet {
+            keys: vec![key_no_alg],
+        };
         // Should return None because key has no alg (R230-SRV-2 fail-closed)
         let result = find_key_in_jwks(&jwks, "kid-1", &Algorithm::RS256);
-        assert!(result.is_none(), "Key without alg must not match (algorithm confusion prevention)");
+        assert!(
+            result.is_none(),
+            "Key without alg must not match (algorithm confusion prevention)"
+        );
     }
 
     #[test]
     fn test_r230_find_key_in_jwks_matching_alg_works() {
-        use jsonwebtoken::jwk::{Jwk, CommonParameters, KeyAlgorithm, AlgorithmParameters, RSAKeyParameters};
+        use jsonwebtoken::jwk::{
+            AlgorithmParameters, CommonParameters, Jwk, KeyAlgorithm, RSAKeyParameters,
+        };
         let key_with_alg = Jwk {
             common: CommonParameters {
                 public_key_use: None,
@@ -3070,7 +3092,9 @@ mod tests {
                 e: "AQAB".to_string(),
             }),
         };
-        let jwks = JwkSet { keys: vec![key_with_alg] };
+        let jwks = JwkSet {
+            keys: vec![key_with_alg],
+        };
         // Wrong algorithm should not match
         let result = find_key_in_jwks(&jwks, "kid-2", &Algorithm::ES256);
         assert!(result.is_none(), "Mismatched alg must not match");
@@ -3266,8 +3290,8 @@ async fn fetch_scim_user_count(
             MAX_SCIM_RESPONSE_SIZE
         ));
     }
-    let payload: Value = serde_json::from_slice(&body)
-        .map_err(|e| format!("SCIM response decode failed: {}", e))?;
+    let payload: Value =
+        serde_json::from_slice(&body).map_err(|e| format!("SCIM response decode failed: {}", e))?;
     Ok(extract_scim_user_count(&payload))
 }
 

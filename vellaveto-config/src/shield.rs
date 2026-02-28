@@ -283,10 +283,7 @@ impl ShieldConfig {
 
         for (i, pat) in self.custom_pii_patterns.iter().enumerate() {
             if pat.name.is_empty() {
-                return Err(format!(
-                    "custom_pii_patterns[{}].name must not be empty",
-                    i
-                ));
+                return Err(format!("custom_pii_patterns[{}].name must not be empty", i));
             }
             if pat.name.len() > MAX_SHIELD_PATTERN_NAME_LEN {
                 return Err(format!(

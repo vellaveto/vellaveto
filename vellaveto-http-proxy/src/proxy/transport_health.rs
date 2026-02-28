@@ -535,7 +535,9 @@ thread_local! {
 #[cfg(test)]
 fn advance_mock_time(secs: u64) {
     MOCK_NOW.with(|c| {
-        let current = c.get().expect("advance_mock_time called without MockTimeGuard");
+        let current = c
+            .get()
+            .expect("advance_mock_time called without MockTimeGuard");
         c.set(Some(current + secs));
     });
 }

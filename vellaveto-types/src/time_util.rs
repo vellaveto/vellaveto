@@ -203,10 +203,7 @@ mod tests {
     fn test_parse_iso8601_secs_rejects_feb_31() {
         let result = parse_iso8601_secs("2026-02-31T00:00:00Z");
         assert!(result.is_err());
-        assert!(
-            result.unwrap_err().contains("Day"),
-            "Must reject Feb 31"
-        );
+        assert!(result.unwrap_err().contains("Day"), "Must reject Feb 31");
     }
 
     /// R226-TYP-1: Feb 29 in non-leap year must be rejected.
