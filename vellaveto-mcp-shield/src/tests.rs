@@ -1119,3 +1119,244 @@ fn test_unlinker_vault_status_after_session() {
     assert_eq!(status.consumed, 1);
     assert_eq!(status.active, 0);
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Full Shield Pipeline Integration Tests (Sprint 4)
+// ═══════════════════════════════════════════════════════════════════
+
+/// Test the full outbound pipeline: PII sanitize → stylometric normalize.
+/// Verifies that PII is replaced AND writing style is stripped.
+#[test]
+fn test_pipeline_sanitize_then_stylometric() {
+    let sanitizer = QuerySanitizer::new(PiiScanner::default());
+    let normalizer = StylometricNormalizer::new(NormalizationLevel::Level2);
+
+    let input = serde_json::json!({
+        "method": "tools/call",
+        "params": {
+            "name": "search",
+            "arguments": {
+                "query": "I basically really want to find user@example.com!!!  🎉"
+            }
+        }
+    });
+
+    // Step 1: PII sanitization
+    let sanitized = sanitizer.sanitize_json(&input).unwrap();
+    let sanitized_query = sanitized["params"]["arguments"]["query"].as_str().unwrap();
+    assert!(!sanitized_query.contains("user@example.com"));
+    assert!(sanitized_query.contains("[PII_"));
+
+    // Step 2: Stylometric normalization
+    let normalized = normalizer.normalize_json(&sanitized).unwrap();
+    let normalized_query = normalized["params"]["arguments"]["query"].as_str().unwrap();
+    // Fillers removed
+    assert!(!normalized_query.contains("basically"));
+    assert!(!normalized_query.contains("really"));
+    // Repeated punctuation normalized
+    assert!(!normalized_query.contains("!!!"));
+    // Emoji stripped
+    assert!(!normalized_query.contains('🎉'));
+    // PII placeholder preserved through normalization
+    assert!(normalized_query.contains("[PII_"));
+    // Semantic content preserved
+    assert!(normalized_query.contains("want"));
+    assert!(normalized_query.contains("find"));
+}
+
+/// Test the full inbound pipeline: desanitize → context record.
+/// Verifies that PII is restored AND context is recorded.
+#[test]
+fn test_pipeline_desanitize_then_context_record() {
+    let sanitizer = QuerySanitizer::new(PiiScanner::default());
+    let context = ContextIsolator::new();
+
+    // Simulate outbound: sanitize via JSON (so the mapping is established)
+    let outbound = serde_json::json!({
+        "params": {
+            "arguments": {
+                "query": "Email user@example.com for details"
+            }
+        }
+    });
+    let sanitized = sanitizer.sanitize_json(&outbound).unwrap();
+    let sanitized_text = sanitized["params"]["arguments"]["query"].as_str().unwrap();
+    assert!(sanitized_text.contains("[PII_"));
+
+    // Extract the actual PII placeholder the sanitizer produced
+    let placeholder = sanitized_text
+        .split_whitespace()
+        .find(|s| s.starts_with("[PII_"))
+        .unwrap_or("[PII_EMAIL_000001]");
+
+    // Simulate inbound response using the actual placeholder
+    let response = serde_json::json!({
+        "id": 1,
+        "result": {
+            "content": [{
+                "type": "text",
+                "text": format!("Contact {} for more information", placeholder)
+            }]
+        }
+    });
+
+    // Step 1: Desanitize
+    let desanitized = sanitizer.desanitize_json(&response).unwrap();
+    let restored = desanitized["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(restored.contains("user@example.com"));
+    assert!(!restored.contains("[PII_"));
+
+    // Step 2: Record context (with desanitized response)
+    context.record_json_response("session-1", &desanitized).unwrap();
+    let entries = context.get_recent_context("session-1", 10).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].0, "assistant");
+    assert!(entries[0].1.contains("user@example.com"));
+}
+
+/// Test context isolation between sessions.
+/// Verifies that recording in one session doesn't affect another.
+#[test]
+fn test_pipeline_context_session_isolation() {
+    let context = ContextIsolator::new();
+
+    let req1 = serde_json::json!({"method": "tools/call", "params": {"name": "tool_a"}});
+    let req2 = serde_json::json!({"method": "tools/call", "params": {"name": "tool_b"}});
+
+    context.record_json_request("session-1", &req1).unwrap();
+    context.record_json_request("session-2", &req2).unwrap();
+
+    let ctx1 = context.get_recent_context("session-1", 10).unwrap();
+    let ctx2 = context.get_recent_context("session-2", 10).unwrap();
+
+    assert_eq!(ctx1.len(), 1);
+    assert_eq!(ctx2.len(), 1);
+    assert!(ctx1[0].1.contains("tool_a"));
+    assert!(ctx2[0].1.contains("tool_b"));
+    // No cross-session leakage
+    assert!(!ctx1[0].1.contains("tool_b"));
+    assert!(!ctx2[0].1.contains("tool_a"));
+}
+
+/// Test full session lifecycle: start → tool calls → end.
+/// Verifies credential consumption and vault state changes.
+#[test]
+fn test_pipeline_session_lifecycle() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    vault.add_credential(make_test_credential(1)).unwrap();
+    vault.add_credential(make_test_credential(2)).unwrap();
+
+    let context = ContextIsolator::new();
+    let unlinker = SessionUnlinker::new(vault);
+
+    // Start session
+    let cred = unlinker.start_session("s1").unwrap();
+    assert_eq!(cred.issued_epoch, 1);
+
+    // Simulate tool call context
+    let req = serde_json::json!({
+        "method": "tools/call",
+        "params": {"name": "search", "arguments": {"q": "test"}}
+    });
+    context.record_json_request("s1", &req).unwrap();
+
+    // Simulate response context
+    let resp = serde_json::json!({
+        "id": 1,
+        "result": {"content": [{"type": "text", "text": "result data"}]}
+    });
+    context.record_json_response("s1", &resp).unwrap();
+
+    // Verify context recorded
+    assert_eq!(context.entry_count("s1"), 2);
+
+    // End session
+    unlinker.end_session("s1").unwrap();
+    context.end_session("s1");
+
+    // Verify cleanup
+    assert!(!unlinker.is_session_active("s1"));
+    assert_eq!(context.entry_count("s1"), 0);
+    assert_eq!(unlinker.vault().status().consumed, 1);
+}
+
+/// Test that disabled stylometric normalizer passes through unchanged.
+#[test]
+fn test_pipeline_stylometric_disabled_passthrough() {
+    let normalizer = StylometricNormalizer::new(NormalizationLevel::None);
+    let input = serde_json::json!({
+        "params": {
+            "arguments": {
+                "text": "I basically really want this!!!  🎉"
+            }
+        }
+    });
+    let result = normalizer.normalize_json(&input).unwrap();
+    // Everything preserved when disabled
+    assert_eq!(
+        result["params"]["arguments"]["text"].as_str().unwrap(),
+        "I basically really want this!!!  🎉"
+    );
+}
+
+/// Test the complete roundtrip: sanitize → normalize → forward → desanitize.
+/// Verifies PII integrity through the full pipeline.
+#[test]
+fn test_pipeline_full_roundtrip_pii_integrity() {
+    let sanitizer = QuerySanitizer::new(PiiScanner::default());
+    let normalizer = StylometricNormalizer::new(NormalizationLevel::Level1);
+
+    // Outbound: user query with PII
+    let user_input = "Call admin@corp.com for details";
+    let sanitized = sanitizer.sanitize(user_input).unwrap();
+    assert!(!sanitized.contains("admin@corp.com"));
+    assert!(sanitized.contains("[PII_"));
+
+    // Stylometric normalize (shouldn't affect PII placeholders)
+    let normalized = normalizer.normalize(&sanitized).unwrap();
+    // PII placeholders have specific format — should survive normalization
+    assert!(normalized.contains("[PII_"));
+
+    // Extract the placeholder from the normalized text
+    let placeholder = normalized
+        .split_whitespace()
+        .find(|s| s.starts_with("[PII_"))
+        .unwrap();
+
+    // Simulate: provider responds with the placeholder
+    let provider_response = format!("Please contact {placeholder} for assistance");
+
+    // Inbound: desanitize
+    let desanitized = sanitizer.desanitize(&provider_response).unwrap();
+    // Original value restored
+    assert!(desanitized.contains("admin@corp.com"));
+    assert!(!desanitized.contains("[PII_"));
+}
+
+/// Test error path: sanitizer capacity exhausted doesn't break stylometric.
+#[test]
+fn test_pipeline_error_isolation() {
+    let normalizer = StylometricNormalizer::new(NormalizationLevel::Level1);
+
+    // Even if sanitizer fails (not tested here), stylometric should work
+    // independently on any JSON input
+    let input = serde_json::json!({"text": "hello   world!!!"});
+    let result = normalizer.normalize_json(&input).unwrap();
+    assert_eq!(result["text"].as_str().unwrap(), "hello world!");
+}
+
+/// Test that context isolator handles rapid session creation/teardown.
+#[test]
+fn test_pipeline_rapid_session_churn() {
+    let context = ContextIsolator::new();
+
+    for i in 0..100 {
+        let session_id = format!("session-{i}");
+        let req = serde_json::json!({"method": "tools/call", "params": {"name": "test"}});
+        context.record_json_request(&session_id, &req).unwrap();
+        context.end_session(&session_id);
+    }
+
+    // All sessions cleaned up
+    assert_eq!(context.session_count(), 0);
+}

@@ -57,6 +57,7 @@ pub mod etdi;
 pub mod exec_graph;
 pub mod federation;
 pub mod governance;
+pub mod inventory;
 mod main;
 pub mod memory;
 pub mod nhi;

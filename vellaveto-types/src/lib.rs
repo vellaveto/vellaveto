@@ -24,6 +24,7 @@ pub mod metering;
 pub mod minja;
 pub mod nhi;
 pub mod policy_lifecycle;
+pub mod posture;
 pub mod projector;
 pub mod shield;
 pub mod task;

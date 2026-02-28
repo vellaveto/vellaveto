@@ -21,6 +21,7 @@
     <a href="#quick-start">Quick Start</a> &middot;
     <a href="#architecture">Architecture</a> &middot;
     <a href="#key-capabilities">Capabilities</a> &middot;
+    <a href="#whats-next">What's Next</a> &middot;
     <a href="#security">Security</a> &middot;
     <a href="#documentation">Docs</a>
   </p>
@@ -32,6 +33,8 @@ VellaVeto is a security-first control plane for agentic systems. It combines an 
 
 Deploy it as a stdio or HTTP gateway, run it as a multi-tenant control plane, extend policy with Cedar-compatible rules and Wasm plugins, and ship verifiable evidence through audit, compliance, and incident workflows.
 
+The v6 foundation is complete. The next planning cycle focuses on turning that shipped platform into the default enterprise control plane for MCP and tool-calling agents through stronger registry trust, delegated identity, evidence automation, and easier managed onboarding. See [ROADMAP.md](ROADMAP.md).
+
 **Core guarantees:**
 - **Complete mediation** — request and response paths evaluated before tool execution and before model return
 - **Fail-closed** — no policy match, missing context, or evaluation error results in `Deny`
@@ -40,6 +43,7 @@ Deploy it as a stdio or HTTP gateway, run it as a multi-tenant control plane, ex
 
 ## What's New
 
+- **v6 foundation complete** — Phases 36-72 are shipped across runtime enforcement, IAM, discovery, analytics, compliance, and deployment surfaces. [Roadmap reset](ROADMAP.md)
 - **Consumer Shield** (Phase 67) — New deployment mode for consumer AI interactions. PII sanitization, encrypted local audit, session isolation, warrant canary. [Details](CHANGELOG.md)
 - **Three-tier licensing** — MPL-2.0 (core + consumer), Apache-2.0 (canary + benchmark), BUSL-1.1 (enterprise, converts to MPL-2.0 after 3 years). [Details](LICENSING.md)
 - **231 adversarial audit rounds** — 1,550+ findings resolved across engine, MCP, server, audit, proxy, and discovery
@@ -47,11 +51,25 @@ Deploy it as a stdio or HTTP gateway, run it as a multi-tenant control plane, ex
 
 See [CHANGELOG.md](CHANGELOG.md) for full history.
 
+## What's Next
+
+The next roadmap is not about adding more generic gateway features. The core runtime is already in place. The current planning cycle is aimed at the control-plane layer above the gateway.
+
+- **Verified registry and connector trust** — make the registry a runtime trust boundary, not just a catalog
+- **Delegated identity and access graph** — turn existing OIDC, SAML, DPoP, M2M, and step-up auth into one visible access plane
+- **Inventory and posture views** — turn topology, drift, and policy coverage into operator-facing exposure reporting
+- **Hosted onboarding and managed deployment paths** — reduce friction against managed MCP gateway competitors
+- **Evidence automation** — turn audit and control mapping into reusable customer-grade evidence packs
+
+The forward plan is documented in [ROADMAP.md](ROADMAP.md), covering planned phases 73-81.
+
 ## Why VellaVeto?
 
 AI agents with tool access can read files, make HTTP requests, execute commands, modify data, and trigger long-running workflows across multiple services. Without centralized controls, a prompt injection or misbehaving agent can exfiltrate credentials, call unauthorized APIs, bypass restrictions via Unicode tricks or path traversal, impersonate tools, or drift into unsafe cross-tool behavior that no single SDK sees.
 
 VellaVeto gives you one place to enforce policy, govern identity, inventory tools, approve risky actions, and audit every decision. The gateway mediates each tool call before execution, the control plane manages policy and runtime state, and the evidence layer turns security decisions into traceable records. Trust math, not promises.
+
+The four strategic moats for the next cycle are: identity, registry and inventory, evidence, and distribution.
 
 ## Quick Start
 

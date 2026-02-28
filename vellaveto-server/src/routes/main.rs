@@ -519,6 +519,25 @@ pub fn build_router(state: AppState) -> Router {
             delete(super::topology::topology_remove_server),
         )
         // ═══════════════════════════════════════════════════════════════════
+        // Phase 73: Inventory and Posture Views
+        // ═══════════════════════════════════════════════════════════════════
+        .route(
+            "/api/inventory/agents",
+            get(super::inventory::inventory_agents),
+        )
+        .route(
+            "/api/inventory/mcp-servers",
+            get(super::inventory::inventory_mcp_servers),
+        )
+        .route(
+            "/api/inventory/tools",
+            get(super::inventory::inventory_tools),
+        )
+        .route(
+            "/api/inventory/graph",
+            get(super::inventory::inventory_graph),
+        )
+        // ═══════════════════════════════════════════════════════════════════
         // Phase 35.3: Model Projector
         // ═══════════════════════════════════════════════════════════════════
         .route(
