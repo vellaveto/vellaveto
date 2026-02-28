@@ -1,3 +1,12 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+
 //! A8: Audit Tampering — 4 tests
 //!
 //! Tests the gateway's audit log integrity: hash chain verification,

@@ -1,3 +1,6 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+
 /** Shared API types matching the Vellaveto server's Rust serde output. */
 
 export type Verdict = "Allow" | { Deny: { reason: string } } | { RequireApproval: { reason: string } };

@@ -1,3 +1,6 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+
 import { LogOut, User } from "lucide-react";
 import { useAuth } from "../../auth/AuthProvider";
 

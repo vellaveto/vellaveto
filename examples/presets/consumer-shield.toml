@@ -20,6 +20,14 @@ max_pii_mappings = 50000
 max_sessions = 1000
 max_history_per_session = 10000
 
+# ── Session Unlinkability (Sprint 2) ─────────────────────────────
+# Each session consumes a fresh blind credential from the local vault.
+# Provider cannot correlate sessions to the same user.
+session_unlinkability = true
+credential_pool_size = 50
+replenish_threshold = 10
+credential_epoch_interval = 100
+
 # Optional: Add custom PII patterns beyond the built-in set
 # [[shield.custom_pii_patterns]]
 # name = "employee_id"
@@ -32,6 +40,12 @@ tool_pattern = "*"
 function_pattern = "*"
 policy_type = "Allow"
 priority = 0
+
+# ── Sampling Controls (R232) ─────────────────────────────────────
+[sampling]
+enabled = true
+allowed_include_context = ["none"]  # Deny cross-server context access
+max_tokens = 4096                   # Cap compute resource usage
 
 # ── Injection Scanning ────────────────────────────────────────────
 [injection]

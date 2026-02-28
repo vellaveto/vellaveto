@@ -1,3 +1,9 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// Copyright 2026 Paolo Vella
+
 //! PostgreSQL audit sink implementation (Phase 43).
 //!
 //! Uses an mpsc channel to decouple the log_entry() hot path from database I/O.

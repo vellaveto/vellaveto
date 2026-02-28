@@ -1,3 +1,9 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// Copyright 2026 Paolo Vella
+
 //! Behavioral anomaly detection for agent tool call patterns (P4.1 / OWASP ASI).
 //!
 //! Tracks per-agent tool call frequency using exponential moving average (EMA)

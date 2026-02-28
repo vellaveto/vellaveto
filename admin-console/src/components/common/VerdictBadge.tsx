@@ -1,3 +1,6 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+
 import type { Verdict } from "../../types/api";
 
 interface Props {

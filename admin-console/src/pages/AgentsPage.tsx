@@ -1,3 +1,6 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Users, Pause } from "lucide-react";
 import { DataTable, type Column } from "../components/common/DataTable";

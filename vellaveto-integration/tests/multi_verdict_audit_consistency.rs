@@ -1,3 +1,12 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this software is governed by the Business Source License
+// included in the LICENSE-BSL-1.1 file at the root of this repository.
+//
+// Change Date: Three years from the date of publication of this version.
+// Change License: MPL-2.0
+
 //! Verifies that every verdict the engine produces is faithfully recorded
 //! in the audit log, and that report statistics stay consistent under
 //! various policy configurations.

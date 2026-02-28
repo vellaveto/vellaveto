@@ -1,3 +1,12 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this software is governed by the Business Source License
+// included in the LICENSE-BSL-1.1 file at the root of this repository.
+//
+// Change Date: Three years from the date of publication of this version.
+// Change License: MPL-2.0
+
 //! Step-up authentication level tracking for MCP 2025-11-25.
 //!
 //! This module tracks authentication levels per session to support

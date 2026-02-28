@@ -1,3 +1,12 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+
 //! HTTP client that sends attack payloads to the gateway under test.
 
 use crate::attacks::{self, AttackTest};

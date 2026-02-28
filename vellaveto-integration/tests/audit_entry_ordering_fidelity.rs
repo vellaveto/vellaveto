@@ -1,3 +1,12 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this software is governed by the Business Source License
+// included in the LICENSE-BSL-1.1 file at the root of this repository.
+//
+// Change Date: Three years from the date of publication of this version.
+// Change License: MPL-2.0
+
 //! Tests that audit log entries preserve insertion order when loaded.
 //! Existing tests verify counts and ID uniqueness but never assert
 //! that entries[0] corresponds to the first write and entries[N-1]

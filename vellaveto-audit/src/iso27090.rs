@@ -1,3 +1,9 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// Copyright 2026 Paolo Vella
+
 //! ISO/IEC 27090 AI Cybersecurity preparation module.
 //!
 //! ISO/IEC 27090 is the emerging international standard for AI-specific cybersecurity

@@ -1,3 +1,6 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+
 // Package provider implements the Vellaveto Terraform provider.
 package provider
 

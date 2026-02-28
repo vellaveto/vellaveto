@@ -1,3 +1,6 @@
+# Copyright 2026 Paolo Vella
+# SPDX-License-Identifier: BUSL-1.1
+
 # Vellaveto Multi-Stage Dockerfile
 # Builds optimized production binaries for the MCP firewall
 #

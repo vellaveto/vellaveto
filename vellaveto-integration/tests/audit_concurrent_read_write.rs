@@ -1,3 +1,12 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this software is governed by the Business Source License
+// included in the LICENSE-BSL-1.1 file at the root of this repository.
+//
+// Change Date: Three years from the date of publication of this version.
+// Change License: MPL-2.0
+
 //! Tests concurrent read and write operations on the audit logger.
 //! Multiple tasks write while others simultaneously load entries
 //! and generate reports. This probes for file-locking issues.

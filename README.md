@@ -1,4 +1,4 @@
-<p align="center">
+<div align="center">
   <h1 align="center">VellaVeto</h1>
   <p align="center">
     <strong>Runtime security engine for AI agent tool calls</strong>
@@ -11,7 +11,7 @@
     <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-MPL--2.0_/_Apache--2.0_/_BUSL--1.1-blue.svg" alt="License: Three-tier"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-8%2C790_passing-brightgreen.svg" alt="Tests: 8,790 passing">
+    <img src="https://img.shields.io/badge/tests-9%2C000%2B_passing-brightgreen.svg" alt="Tests: 9,000+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
@@ -24,7 +24,7 @@
     <a href="#security">Security</a> &middot;
     <a href="#documentation">Docs</a>
   </p>
-</p>
+</div>
 
 ---
 
@@ -40,8 +40,8 @@ VellaVeto is a lightweight, high-performance firewall that sits between AI agent
 
 - **Consumer Shield** (Phase 67) — New deployment mode for consumer AI interactions. PII sanitization, encrypted local audit, session isolation, warrant canary. [Details](CHANGELOG.md)
 - **Three-tier licensing** — MPL-2.0 (core + consumer), Apache-2.0 (canary + benchmark), BUSL-1.1 (enterprise, converts to MPL-2.0 after 3 years). [Details](LICENSING.md)
-- **232 adversarial audit rounds** — 1,550+ findings resolved across engine, MCP, server, audit, proxy, and discovery
-- **8,790 tests passing** across Rust, Python, Go, TypeScript, Java + 24 fuzz targets
+- **230+ adversarial audit rounds** — 1,550+ findings resolved across engine, MCP, server, audit, proxy, and discovery
+- **9,000+ tests passing** across Rust, Python, Go, TypeScript, Java + 24 fuzz targets
 
 See [CHANGELOG.md](CHANGELOG.md) for full history.
 
@@ -144,7 +144,7 @@ graph TD
         VA --> VMCP[vellaveto-mcp]
     end
 
-    subgraph "Enterprise — AGPL-3.0"
+    subgraph "Enterprise — BUSL-1.1"
         VMCP --> VServer[vellaveto-server]
         VMCP --> VHP[vellaveto-http-proxy]
         VMCP --> VP[vellaveto-proxy]
@@ -175,7 +175,7 @@ Lower crates never depend on higher crates. `vellaveto-operator` is standalone (
 
 ## Security
 
-VellaVeto has undergone **232 rounds of adversarial security auditing** covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
+VellaVeto has undergone **230+ rounds of adversarial security auditing** covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
 
 - **Fail-closed everywhere** — empty policy sets, missing parameters, lock poisoning, capacity exhaustion, and evaluation errors all produce `Deny`
 - **Zero `unwrap()` in library code** — all error paths return typed errors; panics reserved for tests only

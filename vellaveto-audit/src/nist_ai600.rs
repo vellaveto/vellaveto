@@ -1,3 +1,9 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// Copyright 2026 Paolo Vella
+
 //! NIST AI 600-1 GenAI Profile compliance registry.
 //!
 //! Maps Vellaveto security capabilities to the 12 GenAI-specific risk areas

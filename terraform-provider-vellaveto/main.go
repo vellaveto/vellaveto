@@ -1,3 +1,6 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+
 // Terraform Provider for Vellaveto — manages policies, tenants, and discovery.
 package main
 

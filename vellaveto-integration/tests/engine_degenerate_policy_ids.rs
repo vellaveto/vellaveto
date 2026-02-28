@@ -1,3 +1,12 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this software is governed by the Business Source License
+// included in the LICENSE-BSL-1.1 file at the root of this repository.
+//
+// Change Date: Three years from the date of publication of this version.
+// Change License: MPL-2.0
+
 //! Tests for degenerate policy IDs that stress the split_once(':') parser.
 //! Specifically targets IDs that are just ":", just colons, or have
 //! unusual whitespace/unicode around the colon.

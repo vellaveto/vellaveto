@@ -1,3 +1,6 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { DataTable, type Column } from "./DataTable";

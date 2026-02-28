@@ -1,3 +1,6 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+
 import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, RefreshCw, Search, CheckCircle } from "lucide-react";

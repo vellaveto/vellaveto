@@ -1,3 +1,9 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// Copyright 2026 Paolo Vella
+
 //! Background scheduler for batch ZK proof generation (Phase 37.2).
 //!
 //! Periodically drains the witness store and generates Groth16 batch proofs.

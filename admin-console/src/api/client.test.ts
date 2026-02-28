@@ -1,3 +1,6 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { configure, getBaseUrl, ApiError } from "./client";
 import * as api from "./client";

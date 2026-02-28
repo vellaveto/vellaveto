@@ -1,3 +1,6 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+
 import { useQuery } from "@tanstack/react-query";
 import { Activity } from "lucide-react";
 import { StatusCard } from "../components/common/StatusCard";

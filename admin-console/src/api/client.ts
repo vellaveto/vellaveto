@@ -1,3 +1,6 @@
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: BUSL-1.1
+
 /**
  * Vellaveto API client — typed wrapper around fetch for all server endpoints.
  *

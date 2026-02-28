@@ -1,3 +1,9 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// Copyright 2026 Paolo Vella
+
 //! NIS2 (Network and Information Security Directive 2) compliance evidence generation.
 //!
 //! Registry mapping Vellaveto capabilities to NIS2 Art 21 risk management
