@@ -236,11 +236,7 @@ mod tests {
         // 2026-01-01T00:00:00Z actual Unix epoch = 1767225600
         let result = parse_iso8601_secs("2026-01-01T00:00:00Z").unwrap();
         let actual_epoch = 1767225600u64;
-        let diff = if result > actual_epoch {
-            result - actual_epoch
-        } else {
-            actual_epoch - result
-        };
+        let diff = result.abs_diff(actual_epoch);
         // Should be within 1 day of actual epoch (86400 seconds)
         assert!(
             diff < 86400,
