@@ -108,11 +108,9 @@ Proof.
       * (* c = ".." *)
         destruct (resolveComponents rest) as [| x xs] eqn:Hresolved.
         -- simpl. auto.
-        -- (* result is xs; derive contradiction via IH.
-              Rewrite IH so it speaks about (x :: xs) instead of
-              the now-destructed (resolveComponents rest). *)
-           intro Habs. rewrite Hresolved in IH.
-           apply IH. simpl. right. exact Habs.
+        -- (* result is xs; IH is now ~ In "." (x :: xs)
+              after destruct replaced resolveComponents rest *)
+           intro Habs. apply IH. simpl. right. exact Habs.
       * (* c <> "." and c <> ".." *)
         intro Habs. simpl in Habs. destruct Habs as [Heq | Hin].
         -- (* c = "." — contradicts Hc_dot *)
@@ -137,8 +135,7 @@ Proof.
       * (* c = ".." *)
         destruct (resolveComponents rest) as [| x xs] eqn:Hresolved.
         -- simpl. auto.
-        -- intro Habs. rewrite Hresolved in IH.
-           apply IH. simpl. right. exact Habs.
+        -- intro Habs. apply IH. simpl. right. exact Habs.
       * (* c <> "." and c <> ".." *)
         intro Habs. simpl in Habs. destruct Habs as [Heq | Hin].
         -- apply String.eqb_neq in Hc_dotdot. exact (Hc_dotdot Heq).
