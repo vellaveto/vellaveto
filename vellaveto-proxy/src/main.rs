@@ -175,7 +175,7 @@ async fn main() -> Result<()> {
         let pc = presets::load_preset(preset_name).map_err(|e| anyhow::anyhow!("{}", e))?;
         (pc, format!("preset: {}", preset_name))
     } else {
-        let pc = presets::default_config();
+        let pc = presets::default_config().map_err(|e| anyhow::anyhow!("{}", e))?;
         (pc, "built-in default".to_string())
     };
 

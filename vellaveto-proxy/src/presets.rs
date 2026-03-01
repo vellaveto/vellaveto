@@ -155,11 +155,10 @@ pub fn preset_toml(name: &str) -> Option<&'static str> {
 /// Load the built-in default configuration.
 ///
 /// This is used when no `--config` or `--preset` flag is provided.
-pub fn default_config() -> PolicyConfig {
-    // The default TOML is a compile-time constant. If it fails to parse,
-    // that's a bug in this file, not a user error.
+/// Returns `Err` only if the compile-time constant TOML is malformed (a build bug).
+pub fn default_config() -> Result<PolicyConfig, String> {
     PolicyConfig::from_toml(DEFAULT_CONFIG_TOML)
-        .expect("built-in default config TOML is invalid — this is a build bug")
+        .map_err(|e| format!("built-in default config is invalid (this is a bug): {}", e))
 }
 
 #[cfg(test)]
@@ -181,7 +180,7 @@ mod tests {
 
     #[test]
     fn test_default_config_parses() {
-        let config = default_config();
+        let config = default_config().expect("default config should parse");
         let policies = config.to_policies();
         assert!(
             policies.len() >= 2,
