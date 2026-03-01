@@ -1,7 +1,7 @@
 # Keeping CI Green
 
 > **Audience:** Claude Code instances, Bottega agents, and contributors.
-> **Last validated:** 2026-02-28 (all 16 CI jobs green).
+> **Last validated:** 2026-03-01 (all 17 CI jobs green).
 
 This document describes every CI gate, what breaks it, and how to stay green.
 
@@ -10,7 +10,7 @@ This document describes every CI gate, what breaks it, and how to stay green.
 ## CI Pipeline Overview
 
 The CI workflow (`.github/workflows/ci.yml`) runs on every push to `main` and
-every PR. It has **16 jobs** organized in dependency order:
+every PR. It has **17 jobs** organized in dependency order:
 
 ```
 actionlint-checksum ─┐
@@ -20,6 +20,7 @@ actionlint-checksum ─┐
                      │                ├─ Fuzz Targets      │
                      │                └─ Types Contract    │
 MSRV (1.88.0) ──────┘                                     │
+Coq Formal Proofs ────────────────────────────────────────┘
 Security Audit ────────────────────────────────────────────┘
 Supply Chain Audit ────────────────────────────────────────┘
 ```
@@ -163,7 +164,21 @@ code, verify with:
 cargo bench -p vellaveto-engine --bench evaluation --locked -- --quick
 ```
 
-### 10. Release Build
+### 10. Coq Formal Proofs
+
+Installs Coq via `apt`, runs `make` in `formal/coq/`, and rejects any
+`Admitted` or `admit` markers (incomplete proofs).
+
+**Local check:**
+```bash
+cd formal/coq && make
+grep -rn 'Admitted\|admit' Vellaveto/*.v  # should return nothing
+```
+
+**Common trap:** Adding a theorem with `Admitted.` as a placeholder and
+forgetting to complete the proof. CI enforces zero `Admitted`.
+
+### 11. Release Build
 
 `cargo build --release --workspace --locked` — fails if any binary exceeds 50MB.
 
@@ -199,6 +214,12 @@ cargo test --workspace --no-fail-fast --locked
 # 6. Feature gate spot-checks (catches the most common breaks)
 RUSTFLAGS=-Dwarnings cargo check -p vellaveto-server --features redis-backend --locked
 RUSTFLAGS=-Dwarnings cargo check -p vellaveto-server --no-default-features --features projector --locked
+
+# 7. Coq proofs (if coqc is installed)
+if command -v coqc &>/dev/null; then
+  (cd formal/coq && make)
+  ! grep -rn 'Admitted\|admit' formal/coq/Vellaveto/*.v
+fi
 ```
 
 ---

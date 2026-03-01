@@ -509,6 +509,39 @@ jobs:
         run: cargo semver-checks check-release --exclude mcpsec
 
   # ───────────────────────────────────────────────────────
+  # 10a. Coq formal verification
+  # ───────────────────────────────────────────────────────
+  coq-verification:
+    name: Coq Formal Proofs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install Coq
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends coq
+
+      - name: Build Coq proofs
+        working-directory: formal/coq
+        run: make
+
+      - name: Reject Admitted/admit in proofs
+        run: |
+          set -euo pipefail
+          HITS=$(grep -rn 'Admitted\|[^a-zA-Z]admit[^a-zA-Z]\|[^a-zA-Z]admit$' formal/coq/Vellaveto/*.v || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::Found Admitted/admit in Coq proofs (incomplete proofs):"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "All Coq proofs complete — no Admitted/admit found."
+
+  # ───────────────────────────────────────────────────────
   # 10. MSRV check (minimum supported Rust version)
   # ───────────────────────────────────────────────────────
   msrv-check:
