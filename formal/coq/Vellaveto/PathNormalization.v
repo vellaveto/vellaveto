@@ -108,16 +108,11 @@ Proof.
       * (* c = ".." *)
         destruct (resolveComponents rest) as [| x xs] eqn:Hresolved.
         -- simpl. auto.
-        -- simpl. intro Habs. destruct Habs as [Heq | Hin].
-           ++ (* x = "." — but x is in resolveComponents rest, so
-                 x = "." contradicts IH for the sublist *)
-              rewrite Hresolved in IH. simpl in IH.
-              apply IH. right. rewrite Heq. left. reflexivity.
-           ++ (* In "." xs — xs is tail of resolveComponents rest *)
-              rewrite Hresolved in IH. simpl in IH.
-              apply IH. right. right. exact Hin.
+        -- (* result is xs; derive contradiction via IH *)
+           intro Habs. apply IH.
+           rewrite Hresolved. simpl. right. exact Habs.
       * (* c <> "." and c <> ".." *)
-        simpl. intro Habs. destruct Habs as [Heq | Hin].
+        intro Habs. simpl in Habs. destruct Habs as [Heq | Hin].
         -- (* c = "." — contradicts Hc_dot *)
            apply String.eqb_neq in Hc_dot. exact (Hc_dot Heq).
         -- (* In "." (resolveComponents rest) — contradicts IH *)
@@ -140,13 +135,11 @@ Proof.
       * (* c = ".." *)
         destruct (resolveComponents rest) as [| x xs] eqn:Hresolved.
         -- simpl. auto.
-        -- simpl. intro Habs. destruct Habs as [Heq | Hin].
-           ++ rewrite Hresolved in IH. simpl in IH.
-              apply IH. right. rewrite Heq. left. reflexivity.
-           ++ rewrite Hresolved in IH. simpl in IH.
-              apply IH. right. right. exact Hin.
+        -- (* result is xs; derive contradiction via IH *)
+           intro Habs. apply IH.
+           rewrite Hresolved. simpl. right. exact Habs.
       * (* c <> "." and c <> ".." *)
-        simpl. intro Habs. destruct Habs as [Heq | Hin].
+        intro Habs. simpl in Habs. destruct Habs as [Heq | Hin].
         -- apply String.eqb_neq in Hc_dotdot. exact (Hc_dotdot Heq).
         -- exact (IH Hin).
 Qed.
@@ -164,14 +157,14 @@ Proof.
   - (* cons c rest *)
     simpl. destruct (String.eqb c ".") eqn:Hc_dot.
     + (* c = "." — contradicts Hd *)
-      exfalso. apply Hd. left. apply String.eqb_eq. exact Hc_dot.
+      exfalso. apply Hd. simpl. left. apply String.eqb_eq. exact Hc_dot.
     + destruct (String.eqb c "..") eqn:Hc_dotdot.
       * (* c = ".." — contradicts Hdd *)
-        exfalso. apply Hdd. left. apply String.eqb_eq. exact Hc_dotdot.
+        exfalso. apply Hdd. simpl. left. apply String.eqb_eq. exact Hc_dotdot.
       * (* c <> "." and c <> ".." *)
         f_equal. apply IH.
-        -- intro H. apply Hd. right. exact H.
-        -- intro H. apply Hdd. right. exact H.
+        -- intro H. apply Hd. simpl. right. exact H.
+        -- intro H. apply Hdd. simpl. right. exact H.
 Qed.
 
 (** [resolveComponents] is idempotent: applying it twice yields the
