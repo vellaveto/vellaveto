@@ -38,6 +38,19 @@ This guide covers security best practices and hardening configurations for produ
 
 ---
 
+## Committer Requirements
+
+All individuals with commit access to the Vellaveto repository must:
+
+1. **Enable two-factor authentication (2FA)** on their GitHub account using
+   FIDO2/WebAuthn security keys or TOTP authenticator apps.
+2. **Sign commits** with GPG or SSH keys when possible.
+3. **Never share credentials** or access tokens.
+
+GitHub's organization settings enforce 2FA for all members.
+
+---
+
 ## Security Principles
 
 Vellaveto follows these security principles:

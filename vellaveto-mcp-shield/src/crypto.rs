@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
 // Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: MPL-2.0
 
 //! Encrypted audit store using XChaCha20-Poly1305 with Argon2id key derivation.
 

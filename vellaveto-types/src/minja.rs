@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
 // Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: MPL-2.0
 
 //! Memory Injection Defense (MINJA) types — taint tracking, provenance,
 //! quarantine, namespace isolation, and memory security statistics.

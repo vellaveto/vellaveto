@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
 // Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: MPL-2.0
 
 //! Groth16 batch prover for audit chain proofs (Phase 37.2).
 //!

@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
 // Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: MPL-2.0
 
 //! Least-agency enforcement — tracks permission usage per agent session
 //! and detects unused permissions for scope narrowing recommendations.

@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
 // Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: MPL-2.0
 
 //! Integration tests for conditional policy evaluation.
 #![allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005

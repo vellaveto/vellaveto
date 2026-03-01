@@ -1,7 +1,7 @@
 # Keeping CI Green
 
 > **Audience:** Claude Code instances, Bottega agents, and contributors.
-> **Last validated:** 2026-03-01 (all 17 CI jobs green).
+> **Last validated:** 2026-03-01 (all 20 CI jobs green across 3 workflows).
 
 This document describes every CI gate, what breaks it, and how to stay green.
 
@@ -9,8 +9,9 @@ This document describes every CI gate, what breaks it, and how to stay green.
 
 ## CI Pipeline Overview
 
-The CI workflow (`.github/workflows/ci.yml`) runs on every push to `main` and
-every PR. It has **17 jobs** organized in dependency order:
+The main CI workflow (`.github/workflows/ci.yml`) runs on every push to `main`
+and every PR. Two additional workflows provide coverage and dynamic analysis.
+Total: **20 jobs** across 3 workflows.
 
 ```
 actionlint-checksum ─┐
@@ -181,6 +182,30 @@ forgetting to complete the proof. CI enforces zero `Admitted`.
 ### 11. Release Build
 
 `cargo build --release --workspace --locked` — fails if any binary exceeds 50MB.
+
+### 12. SPDX License Headers
+
+Added to the Check & Lint job. Scans all `vellaveto-*/src/*.rs` files for
+`SPDX-License-Identifier`. Any file missing the header fails the build.
+
+**Local check:**
+```bash
+find vellaveto-*/src/ -name '*.rs' -exec grep -L 'SPDX-License-Identifier' {} \;
+# Should return nothing
+```
+
+### 13. Coverage (coverage.yml)
+
+Separate workflow (`.github/workflows/coverage.yml`). Runs on push to main and
+PRs. Uses nightly Rust + `cargo-llvm-cov` to generate LCOV coverage, then
+uploads to Codecov. Currently `continue-on-error: true` (advisory).
+
+### 14. Fuzz CI (fuzz-ci.yml)
+
+Separate workflow (`.github/workflows/fuzz-ci.yml`). Runs weekly (Monday 04:00
+UTC) and on push to main. Runs 5 critical fuzz targets for 30 seconds each:
+`fuzz_injection_detection`, `fuzz_normalize_path`, `fuzz_extract_domain`,
+`fuzz_dlp_decoding`, `fuzz_policy_compilation`. Crash artifacts are uploaded.
 
 ---
 

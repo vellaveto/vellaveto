@@ -74,6 +74,33 @@ For maintainers cutting a new release:
 6. **Tag** — `git tag vX.Y.Z && git push --tags`
 7. **Verify** — CI builds release binaries, Docker image, GitHub Release automatically
 
+## Code Review Standards
+
+All pull requests must pass the following before merge:
+
+### CI Gates (Automated)
+- `cargo fmt --all -- --check` (formatting)
+- `cargo clippy --workspace --all-targets --locked -- -D warnings` (linting)
+- `cargo test --workspace --no-fail-fast --locked` (9,600+ tests)
+- unwrap/expect/panic scanner (no panics in library code)
+- SPDX license header check (all `.rs` files)
+- Feature matrix (5 feature combinations)
+- Coq formal proofs (zero `Admitted`)
+
+### Reviewer Checklist
+- [ ] Changes match the stated purpose (no scope creep)
+- [ ] New code has tests (unit at minimum, integration for features)
+- [ ] Error paths produce Deny, not Allow (fail-closed)
+- [ ] No secrets in code, logs, or error messages
+- [ ] Input validation on all external data (bounds, control chars, format)
+- [ ] Transport parity: if HTTP has the check, WebSocket/gRPC/stdio must too
+- [ ] SDK parity: changes to server format reflected in all 4 SDKs
+
+### Acceptance Criteria
+- All CI jobs green
+- At least 1 approval from a maintainer or trusted reviewer
+- No unresolved review comments
+
 ## Security
 
 If you discover a security vulnerability, please report it privately.

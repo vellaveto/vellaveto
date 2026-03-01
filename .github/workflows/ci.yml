@@ -169,6 +169,16 @@ jobs:
             exit 1
           }
 
+      - name: Require SPDX license headers
+        run: |
+          MISSING=$(find vellaveto-*/src/ -name '*.rs' -print0 \
+            | xargs -0 grep -rL 'SPDX-License-Identifier' || true)
+          if [ -n "$MISSING" ]; then
+            echo "::error::Files missing SPDX-License-Identifier header:"
+            echo "$MISSING"
+            exit 1
+          fi
+
   # ───────────────────────────────────────────────────────
   # 2. Vellaveto types contract gate
   # ───────────────────────────────────────────────────────

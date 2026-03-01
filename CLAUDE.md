@@ -170,6 +170,12 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | SI pilot kit | `docs/si-pilot-kit/` |
 | Cedar policy import/export | `vellaveto-config/src/cedar.rs` |
 | Formal verification (TLA+, Alloy, Kani, Lean 4, Coq) | `formal/` |
+| Coverage CI | `.github/workflows/coverage.yml` |
+| Fuzz CI (dynamic analysis) | `.github/workflows/fuzz-ci.yml` |
+| Reproducible builds docs | `docs/REPRODUCIBLE_BUILDS.md` |
+| Security review docs | `docs/SECURITY_REVIEW.md` |
+| Hardening docs | `docs/HARDENING.md` |
+| OpenSSF Gold self-assessment | `docs/OPENSSF_GOLD.md` |
 
 ---
 
@@ -196,6 +202,8 @@ All phases implemented, tested, and hardened through 231 audit rounds. Details i
 **R229 adversarial audit (Feb 2026):** 9 findings (3 HIGH, 4 MEDIUM, 2 LOW). JWK thumbprint JSON injection guard (DPoP token binding bypass), cascading pipeline tracker fail-closed on capacity exhaustion, collusion detection 5x fail-closed on capacity (CapacityExhaustion alert type), DPoP nonce/ath dangerous char validation, DPoP counters saturating_add, DpopHeader deny_unknown_fields, collusion usize→u32 safe cast. SAML SubjectConfirmation hardening. 10 new tests.
 
 **R231 adversarial audit + threat intelligence (Feb 2026):** 21 findings (7 adversarial + 14 threat intel). Elicitation handler DLP + injection scanning parity (R231-RELAY-1), resource read + task request circuit breaker + shadow agent detection (R231-RELAY-2), `min_entropy_observations=0` alert flood fix (R231-COLL-1), topology snapshot serialization fail-closed (R231-SRV-2), topology server name echo sanitization (R231-SRV-3), Unicode confusable JSON-RPC key smuggling defense for U+017F/U+212A (TI-2026-002), memory persistence poisoning patterns (TI-2026-004), viral agent loop patterns (TI-2026-005), Log-To-Leak justification-framed injection patterns (TI-2026-003), MetaBreak special token detection (TI-2026-010), parameter name exfiltration detection (TI-2026-006), sharded exfiltration tracker (TI-2026-001), SAML metadata URL scheme + SSRF validation (TI-2026-007). 49 new tests.
+
+**OpenSSF Gold Badge (Mar 2026):** SPDX license headers on all 211 `.rs` files (CI-enforced), coverage CI with cargo-llvm-cov + Codecov, dynamic analysis CI (5 fuzz targets × 30s weekly), reproducible builds (`-Ctrim-paths=all` via RUSTFLAGS), security review documentation (232 audit rounds), hardening documentation, code review standards in CONTRIBUTING.md, 2FA requirement in SECURITY.md, Gold self-assessment (`docs/OPENSSF_GOLD.md`).
 
 ---
 

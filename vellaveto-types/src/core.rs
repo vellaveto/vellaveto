@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
 // Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: MPL-2.0
 
 //! Core policy types — Action, Verdict, PolicyType, PathRules, NetworkRules,
 //! IpRules, Policy, evaluation trace types, and validation.
