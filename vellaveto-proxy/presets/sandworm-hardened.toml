@@ -1,0 +1,188 @@
+# Vellaveto Preset: SANDWORM-Hardened Configuration
+#
+# Maximum-security preset designed to defend against supply-chain worm attacks
+# that inject rogue MCP servers into AI coding assistant configurations.
+#
+# Threat model: SANDWORM_MODE (Feb 2026)
+#   - Typosquatted npm packages write rogue MCP servers to hidden paths
+#   - Injects mcpServers entries into Claude Code, Cursor, Continue, Windsurf configs
+#   - Embeds prompt injection at MCP protocol level to coerce secret exfiltration
+#   - Harvests LLM API keys from env vars and .env files
+#   - Propagates via stolen GitHub/npm tokens
+#
+# This preset enables ALL defensive layers with fail-closed defaults:
+#   1. Supply chain binary verification (SHA-256 hash allowlist)
+#   2. ETDI cryptographic tool signatures (Ed25519, required)
+#   3. Server registration enforcement (known_servers allowlist)
+#   4. Tool squatting + rug-pull detection
+#   5. Injection scanning (blocking mode)
+#   6. DLP credential scanning
+#   7. Shadow AI discovery (active enforcement)
+#
+# IMPORTANT: You MUST populate [supply_chain.allowed_servers] with the SHA-256
+# hashes of your legitimate MCP server binaries, and [governance.known_servers]
+# with your server IDs. Without these, all servers are blocked.
+#
+# Usage:
+#   vellaveto serve --config examples/presets/sandworm-hardened.toml --port 3000
+#
+# Generate a server hash:
+#   vellaveto hash /path/to/mcp-server-binary
+
+# ═══════════════════════════════════════════════════════════════════
+# 1. SUPPLY CHAIN: Binary hash verification
+# ═══════════════════════════════════════════════════════════════════
+
+[supply_chain]
+enabled = true
+validate_paths_on_load = true
+
+# Map of MCP server binary path -> expected SHA-256 hex digest.
+# Unlisted binaries are BLOCKED from spawning.
+#
+# Example:
+#   "/usr/local/bin/my-mcp-server" = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+[supply_chain.allowed_servers]
+# ADD YOUR SERVER HASHES HERE
+
+# ═══════════════════════════════════════════════════════════════════
+# 2. ETDI: Cryptographic tool definition signatures
+# ═══════════════════════════════════════════════════════════════════
+
+[etdi]
+enabled = true
+require_signatures = true
+signature_algorithm = "ed25519"
+
+[etdi.allowed_signers]
+# Add trusted signer fingerprints (SHA-256 hex of Ed25519 public key)
+# Example: fingerprints = ["a1b2c3d4..."]
+fingerprints = []
+# Add trusted SPIFFE workload identities
+# Example: spiffe_ids = ["spiffe://example.org/mcp-provider"]
+spiffe_ids = []
+
+[etdi.version_pinning]
+enabled = true
+enforcement = "block"
+auto_pin = true
+
+[etdi.attestation]
+enabled = true
+transparency_log = false
+
+# ═══════════════════════════════════════════════════════════════════
+# 3. GOVERNANCE: Server + agent registration enforcement
+# ═══════════════════════════════════════════════════════════════════
+
+[governance]
+shadow_ai_discovery = true
+require_agent_registration = true
+require_server_registration = true
+least_agency_enforcement = "enforce"
+auto_revoke_after_secs = 3600
+emit_agency_audit_events = true
+
+# Known legitimate MCP server IDs. Servers not in this list are BLOCKED.
+# ADD YOUR SERVER IDS HERE.
+known_servers = []
+
+# Approved tool names. Empty = all tools from known servers are allowed.
+# Uncomment and populate to restrict to specific tools:
+# approved_tools = ["read_file", "write_file", "edit_file", "bash"]
+
+# Registered agent identities. Unregistered agents are DENIED.
+# ADD YOUR AGENT IDS HERE.
+registered_agents = []
+
+# ═══════════════════════════════════════════════════════════════════
+# 4. POLICIES: Default-deny with credential protection
+# ═══════════════════════════════════════════════════════════════════
+
+# Block access to credential files and secret stores
+[[policies]]
+name = "Block credential files"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "sandworm:*:credential-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.aws/**",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.ssh/**",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gnupg/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env",                     on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env.*",                   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/credentials.json",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.yaml",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.json",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.config/claude/**",   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.cursor/**",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.continue/**",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.codeium/**",         on_match = "deny", on_missing = "skip" },
+]
+
+# Block network exfiltration to unknown domains
+[[policies]]
+name = "Block network exfiltration"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 250
+id = "sandworm:*:network-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "curl.*\\|.*sh",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "wget.*-O.*-.*\\|",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "curl.*--data.*@",            on_match = "deny", on_missing = "skip" },
+]
+
+# Block git hook manipulation (SANDWORM persistence mechanism)
+[[policies]]
+name = "Block git hook manipulation"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 200
+id = "sandworm:*:git-hook-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "**/.git/hooks/**",            on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+config.*core\\.hooksPath", on_match = "require_approval", on_missing = "skip" },
+]
+
+# Default deny — only explicitly allowed operations pass
+[[policies]]
+name = "Default deny"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 1
+id = "sandworm:*:default-deny"
+policy_type = "Deny"
+
+# ═══════════════════════════════════════════════════════════════════
+# 5. INJECTION DETECTION: Blocking mode
+# ═══════════════════════════════════════════════════════════════════
+
+[injection]
+enabled = true
+block_on_injection = true
+
+# ═══════════════════════════════════════════════════════════════════
+# 6. DLP: Credential leak prevention
+# ═══════════════════════════════════════════════════════════════════
+
+[dlp]
+enabled = true
+block_on_finding = true
+
+# ═══════════════════════════════════════════════════════════════════
+# 7. AUDIT: Full logging with PII redaction
+# ═══════════════════════════════════════════════════════════════════
+
+[audit]
+redaction_level = "KeysAndPatterns"

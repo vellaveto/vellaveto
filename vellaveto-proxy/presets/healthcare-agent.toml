@@ -1,0 +1,108 @@
+# Vellaveto Preset: Healthcare Agent
+#
+# For AI agents in healthcare environments (HIPAA-aligned controls).
+# Strict PII/PHI protection, approved EHR system access only,
+# all patient data modifications require human approval.
+#
+# Usage:
+#   vellaveto serve --config examples/presets/healthcare-agent.toml --port 3000
+
+# --- Block file system access ---
+[[policies]]
+name = "Block file access"
+tool_pattern = "file_*"
+function_pattern = "*"
+priority = 300
+id = "health:file:block"
+policy_type = "Deny"
+
+
+# --- Block data exfiltration domains ---
+[[policies]]
+name = "Block exfiltration"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "health:*:block-exfil"
+policy_type = "Deny"
+
+
+[policies.network_rules]
+blocked_domains = [
+  "*.pastebin.com",
+  "*.transfer.sh",
+  "*.file.io",
+  "*.dropbox.com",
+  "*.drive.google.com",
+]
+
+# --- Allow approved EHR systems ---
+[[policies]]
+name = "Allow EHR read access"
+tool_pattern = "ehr_*"
+function_pattern = "get*"
+priority = 200
+id = "health:ehr:allow-read"
+policy_type = "Allow"
+
+[policies.network_rules]
+allowed_domains = [
+  "*.epic.com",
+  "*.cerner.com",
+  "*.allscripts.com",
+  "*.meditech.com",
+]
+
+# --- Require approval for EHR modifications ---
+[[policies]]
+name = "Require approval for EHR writes"
+tool_pattern = "ehr_*"
+function_pattern = "update*"
+priority = 200
+id = "health:ehr:require-approval"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "require_approval"
+parameter_constraints = []
+
+# --- Allow medical reference databases ---
+[[policies]]
+name = "Allow medical references"
+tool_pattern = "search_*"
+function_pattern = "*"
+priority = 200
+id = "health:search:allow-refs"
+policy_type = "Allow"
+
+[policies.network_rules]
+allowed_domains = [
+  "pubmed.ncbi.nlm.nih.gov",
+  "*.uptodate.com",
+  "*.medlineplus.gov",
+  "api.fda.gov",
+]
+
+# --- Default deny ---
+[[policies]]
+name = "Default deny"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 0
+id = "health:*:default-deny"
+policy_type = "Deny"
+
+
+# --- Maximum detection with PHI protection ---
+[injection]
+enabled = true
+block_on_injection = true
+
+[dlp]
+enabled = true
+block_on_finding = true
+
+[compliance.eu_ai_act]
+enabled = true
+
+[compliance.soc2]
+enabled = true

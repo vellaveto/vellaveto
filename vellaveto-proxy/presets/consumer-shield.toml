@@ -1,0 +1,65 @@
+# Consumer Shield Preset
+#
+# Privacy-preserving proxy for consumer AI interactions.
+# Sanitizes PII from outbound queries, desanitizes responses,
+# and maintains an encrypted local audit trail.
+#
+# Usage:
+#   vellaveto-shield --config consumer-shield.toml -- /path/to/mcp-server
+
+# ── Shield Configuration ──────────────────────────────────────────
+[shield]
+enabled = true
+audit_mode = "local"
+sanitize_queries = true
+desanitize_responses = true
+session_isolation = true
+merkle_proofs = true
+zk_commitments = false
+max_pii_mappings = 50000
+max_sessions = 1000
+max_history_per_session = 10000
+
+# ── Session Unlinkability (Sprint 2) ─────────────────────────────
+# Each session consumes a fresh blind credential from the local vault.
+# Provider cannot correlate sessions to the same user.
+session_unlinkability = true
+credential_pool_size = 50
+replenish_threshold = 10
+credential_epoch_interval = 100
+
+# ── Stylometric Fingerprint Resistance ───────────────────────────
+# "none" = disabled, "level1" = whitespace/punctuation/emoji,
+# "level2" = level1 + filler word removal
+stylometric_level = "none"
+
+# Optional: Add custom PII patterns beyond the built-in set
+# [[shield.custom_pii_patterns]]
+# name = "employee_id"
+# pattern = "EMP-\\d{6}"
+
+# ── Basic Policy (allow all by default) ───────────────────────────
+[[policies]]
+name = "allow-all"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+priority = 0
+
+# ── Sampling Controls (R232) ─────────────────────────────────────
+[sampling]
+enabled = true
+allowed_include_context = ["none"]  # Deny cross-server context access
+max_tokens = 4096                   # Cap compute resource usage
+
+# ── Injection Scanning ────────────────────────────────────────────
+[injection]
+enabled = true
+
+# ── DLP (Data Loss Prevention) ────────────────────────────────────
+[dlp]
+enabled = true
+
+# ── Supply Chain Verification ─────────────────────────────────────
+[supply_chain]
+enabled = false

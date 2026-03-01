@@ -1,0 +1,65 @@
+# Vellaveto Preset: Developer Laptop Agent
+#
+# For AI coding assistants (Cursor, Windsurf, Claude Code, Copilot)
+# running on a developer's machine. Protects credential files and
+# prevents accidental network exfiltration while allowing normal
+# file operations within project directories.
+#
+# Usage:
+#   vellaveto serve --config examples/presets/dev-laptop.toml --port 3000
+
+# --- Block credential and secret files ---
+[[policies]]
+name = "Block credential files"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "dev:*:credential-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.aws/**",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.ssh/**",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gnupg/**",     on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env.*",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/credentials.json",   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.yaml",       on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block dangerous shell commands ---
+[[policies]]
+name = "Require approval for destructive commands"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 200
+id = "dev:*:dangerous-commands"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "rm\\s+-rf\\s+/",       on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+push\\s+--force", on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+reset\\s+--hard", on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "chmod\\s+-R\\s+777",    on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "curl.*\\|.*sh",         on_match = "deny", on_missing = "skip" },
+]
+
+# --- Allow all other tool calls ---
+[[policies]]
+name = "Default allow for dev"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 1
+id = "dev:*:default-allow"
+policy_type = "Allow"
+
+# --- Injection detection ---
+[injection]
+enabled = true
+block_on_injection = false
+
+# --- Audit ---
+[audit]
+redaction_level = "KeysAndPatterns"

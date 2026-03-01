@@ -1,0 +1,84 @@
+# Vellaveto Preset: Database Agent
+#
+# For AI agents that interact with databases (PostgreSQL, MySQL, MongoDB,
+# etc.). Prevents destructive DDL operations, restricts network access to
+# database hosts, and scans queries for injection patterns.
+#
+# Usage:
+#   vellaveto serve --config examples/presets/database-agent.toml --port 3000
+
+# --- Block credential file access ---
+[[policies]]
+name = "Block credential files"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "db:*:credential-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "**/.env",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.pgpass",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.my.cnf",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/credentials*",      on_match = "deny", on_missing = "skip" },
+]
+
+# --- Require approval for destructive SQL ---
+[[policies]]
+name = "Require approval for destructive operations"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 250
+id = "db:*:destructive-sql"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "(?i)DROP\\s+(TABLE|DATABASE|INDEX|VIEW)", on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "(?i)TRUNCATE\\s+",    on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "(?i)DELETE\\s+FROM\\s+\\S+\\s*;", on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "(?i)ALTER\\s+TABLE.*DROP", on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "(?i)GRANT\\s+ALL",    on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block data export to external domains ---
+[[policies]]
+name = "Block external network access"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 200
+id = "db:*:network-block"
+policy_type = "Allow"
+
+[policies.network_rules]
+allowed_domains = []
+blocked_domains = [
+  "pastebin.com",
+  "hastebin.com",
+  "transfer.sh",
+  "file.io",
+  "0x0.st",
+  "webhook.site",
+]
+
+[policies.network_rules.ip_rules]
+block_private = false
+
+# --- Default allow for queries ---
+[[policies]]
+name = "Default allow for database"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 1
+id = "db:*:default-allow"
+policy_type = "Allow"
+
+# --- DLP scanning (catch credential leaks in query results) ---
+[dlp]
+enabled = true
+block_on_finding = true
+
+# --- Audit ---
+[audit]
+redaction_level = "KeysAndPatterns"

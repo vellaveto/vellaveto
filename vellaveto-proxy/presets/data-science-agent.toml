@@ -1,0 +1,104 @@
+# Vellaveto Preset: Data Science Agent
+#
+# For AI agents running data analysis, ML model training, and notebook
+# execution. Allows read access to data directories and controlled write
+# access to output directories. Blocks system files and credentials.
+#
+# Usage:
+#   vellaveto serve --config examples/presets/data-science-agent.toml --port 3000
+
+# --- Block credential and system files ---
+[[policies]]
+name = "Block credentials"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "datasci:*:credential-block"
+policy_type = "Deny"
+
+
+[policies.path_rules]
+blocked = [
+  "/home/*/.aws/**",
+  "/home/*/.ssh/**",
+  "/home/*/.gnupg/**",
+  "**/.env",
+  "**/.env.*",
+  "**/secrets.*",
+  "/etc/shadow",
+  "/etc/passwd",
+]
+
+# --- Allow read access to data directories ---
+[[policies]]
+name = "Allow data read"
+tool_pattern = "file_read"
+function_pattern = "*"
+priority = 200
+id = "datasci:file_read:allow-data"
+policy_type = "Allow"
+
+[policies.path_rules]
+allowed = [
+  "/data/**",
+  "/datasets/**",
+  "/mnt/data/**",
+  "/home/*/projects/**",
+  "/home/*/notebooks/**",
+  "/tmp/**",
+]
+
+# --- Allow write to output directories ---
+[[policies]]
+name = "Allow output write"
+tool_pattern = "file_write"
+function_pattern = "*"
+priority = 200
+id = "datasci:file_write:allow-output"
+policy_type = "Allow"
+
+[policies.path_rules]
+allowed = [
+  "/output/**",
+  "/results/**",
+  "/home/*/projects/*/output/**",
+  "/tmp/**",
+]
+
+# --- Allow package registries and data sources ---
+[[policies]]
+name = "Allow data sources"
+tool_pattern = "web_*"
+function_pattern = "*"
+priority = 200
+id = "datasci:web:allow-data-sources"
+policy_type = "Allow"
+
+[policies.network_rules]
+allowed_domains = [
+  "pypi.org",
+  "*.anaconda.org",
+  "huggingface.co",
+  "*.kaggle.com",
+  "storage.googleapis.com",
+  "*.amazonaws.com",
+  "registry.npmjs.org",
+]
+
+# --- Default deny ---
+[[policies]]
+name = "Default deny"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 0
+id = "datasci:*:default-deny"
+policy_type = "Deny"
+
+
+[injection]
+enabled = true
+block_on_injection = true
+
+[dlp]
+enabled = true
+block_on_finding = true

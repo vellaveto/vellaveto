@@ -17,67 +17,67 @@ const PRESETS: &[(&str, &str, &str)] = &[
     (
         "dev-laptop",
         "Developer laptop — blocks credentials, detects injection",
-        include_str!("../../examples/presets/dev-laptop.toml"),
+        include_str!("../presets/dev-laptop.toml"),
     ),
     (
         "ci-agent",
         "CI/CD pipeline — strict network controls, blocking injection/DLP",
-        include_str!("../../examples/presets/ci-agent.toml"),
+        include_str!("../presets/ci-agent.toml"),
     ),
     (
         "browser-agent",
         "Browser automation — blocks malicious domains, restricts downloads",
-        include_str!("../../examples/presets/browser-agent.toml"),
+        include_str!("../presets/browser-agent.toml"),
     ),
     (
         "database-agent",
         "Database access — blocks destructive DDL, scans for credential leaks",
-        include_str!("../../examples/presets/database-agent.toml"),
+        include_str!("../presets/database-agent.toml"),
     ),
     (
         "api-gateway-agent",
         "API gateway — domain allowlisting, blocks internal networks",
-        include_str!("../../examples/presets/api-gateway-agent.toml"),
+        include_str!("../presets/api-gateway-agent.toml"),
     ),
     (
         "rag-agent",
         "RAG agent — vector DB access controls, response scanning",
-        include_str!("../../examples/presets/rag-agent.toml"),
+        include_str!("../presets/rag-agent.toml"),
     ),
     (
         "data-science-agent",
         "Data science — notebook/ML controls, data export restrictions",
-        include_str!("../../examples/presets/data-science-agent.toml"),
+        include_str!("../presets/data-science-agent.toml"),
     ),
     (
         "customer-support-agent",
         "Customer support — CRM/ticketing controls, PII redaction",
-        include_str!("../../examples/presets/customer-support-agent.toml"),
+        include_str!("../presets/customer-support-agent.toml"),
     ),
     (
         "devops-agent",
         "DevOps/infrastructure — Terraform/K8s controls, approval gates",
-        include_str!("../../examples/presets/devops-agent.toml"),
+        include_str!("../presets/devops-agent.toml"),
     ),
     (
         "financial-agent",
         "Financial services — DORA/NIS2 controls, strict audit",
-        include_str!("../../examples/presets/financial-agent.toml"),
+        include_str!("../presets/financial-agent.toml"),
     ),
     (
         "healthcare-agent",
         "Healthcare — HIPAA-aligned controls, PHI protection",
-        include_str!("../../examples/presets/healthcare-agent.toml"),
+        include_str!("../presets/healthcare-agent.toml"),
     ),
     (
         "sandworm-hardened",
         "Maximum security — all defensive layers, default deny",
-        include_str!("../../examples/presets/sandworm-hardened.toml"),
+        include_str!("../presets/sandworm-hardened.toml"),
     ),
     (
         "consumer-shield",
         "Consumer privacy — PII sanitization, encrypted audit",
-        include_str!("../../examples/presets/consumer-shield.toml"),
+        include_str!("../presets/consumer-shield.toml"),
     ),
 ];
 

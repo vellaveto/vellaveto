@@ -1,0 +1,82 @@
+# Vellaveto Preset: Customer Support Agent
+#
+# For AI agents handling customer inquiries with CRM, ticketing, and
+# knowledge base access. Strict DLP to prevent PII leakage. Read-only
+# access to customer data with approval gating for modifications.
+#
+# Usage:
+#   vellaveto serve --config examples/presets/customer-support-agent.toml --port 3000
+
+# --- Block all file system access ---
+[[policies]]
+name = "Block file system"
+tool_pattern = "file_*"
+function_pattern = "*"
+priority = 300
+id = "support:file:block-all"
+policy_type = "Deny"
+
+
+# --- Allow CRM read operations ---
+[[policies]]
+name = "Allow CRM read"
+tool_pattern = "crm_*"
+function_pattern = "get*"
+priority = 200
+id = "support:crm:allow-read"
+policy_type = "Allow"
+
+[policies.network_rules]
+allowed_domains = ["*.salesforce.com", "*.hubspot.com", "*.zendesk.com"]
+
+# --- Require approval for CRM writes ---
+[[policies]]
+name = "Require approval for CRM changes"
+tool_pattern = "crm_*"
+function_pattern = "update*"
+priority = 200
+id = "support:crm:require-approval"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "require_approval"
+parameter_constraints = []
+
+# --- Allow knowledge base search ---
+[[policies]]
+name = "Allow knowledge base"
+tool_pattern = "knowledge_*"
+function_pattern = "*"
+priority = 200
+id = "support:kb:allow"
+policy_type = "Allow"
+
+# --- Allow sending messages through approved channels ---
+[[policies]]
+name = "Allow approved messaging"
+tool_pattern = "message_*"
+function_pattern = "send"
+priority = 200
+id = "support:message:allow"
+policy_type = "Allow"
+
+[policies.network_rules]
+allowed_domains = ["*.slack.com", "*.intercom.io", "api.sendgrid.com"]
+
+# --- Default deny ---
+[[policies]]
+name = "Default deny"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 0
+id = "support:*:default-deny"
+policy_type = "Deny"
+
+
+# --- Enhanced DLP for PII protection ---
+[injection]
+enabled = true
+block_on_injection = true
+
+[dlp]
+enabled = true
+block_on_finding = true

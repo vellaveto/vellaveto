@@ -1,0 +1,120 @@
+# Vellaveto Preset: DevOps / Infrastructure Agent
+#
+# For AI agents managing infrastructure (Terraform, Ansible, K8s).
+# Read access to configs; destructive operations require human approval.
+# Blocks production environment modifications without approval.
+#
+# Usage:
+#   vellaveto serve --config examples/presets/devops-agent.toml --port 3000
+
+# --- Block direct production access ---
+[[policies]]
+name = "Block production modifications"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "devops:*:block-prod"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "environment", op = "exact",   value = "production", on_match = "require_approval", on_missing = "skip" },
+  { param = "namespace",   op = "exact",   value = "production", on_match = "require_approval", on_missing = "skip" },
+  { param = "*",           op = "glob",    pattern = "*prod*",   on_match = "require_approval", on_missing = "skip" },
+]
+
+# --- Allow config reads ---
+[[policies]]
+name = "Allow config reads"
+tool_pattern = "file_read"
+function_pattern = "*"
+priority = 200
+id = "devops:file_read:allow"
+policy_type = "Allow"
+
+[policies.path_rules]
+allowed = [
+  "/etc/**",
+  "/home/*/infrastructure/**",
+  "/home/*/terraform/**",
+  "/home/*/ansible/**",
+  "/tmp/**",
+]
+
+# --- Allow Terraform plan (not apply) ---
+[[policies]]
+name = "Allow Terraform plan"
+tool_pattern = "terraform"
+function_pattern = "plan"
+priority = 200
+id = "devops:terraform:allow-plan"
+policy_type = "Allow"
+
+# --- Require approval for Terraform apply ---
+[[policies]]
+name = "Require approval for Terraform apply"
+tool_pattern = "terraform"
+function_pattern = "apply"
+priority = 200
+id = "devops:terraform:require-apply"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "require_approval"
+parameter_constraints = []
+
+# --- Require approval for destructive K8s operations ---
+[[policies]]
+name = "Require approval for K8s destructive ops"
+tool_pattern = "kubectl"
+function_pattern = "delete"
+priority = 200
+id = "devops:kubectl:require-delete"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "require_approval"
+parameter_constraints = []
+
+# --- Allow K8s read operations ---
+[[policies]]
+name = "Allow K8s reads"
+tool_pattern = "kubectl"
+function_pattern = "get"
+priority = 200
+id = "devops:kubectl:allow-read"
+policy_type = "Allow"
+
+# --- Allow cloud provider APIs ---
+[[policies]]
+name = "Allow cloud APIs"
+tool_pattern = "cloud_*"
+function_pattern = "*"
+priority = 150
+id = "devops:cloud:allow"
+policy_type = "Allow"
+
+[policies.network_rules]
+allowed_domains = [
+  "*.amazonaws.com",
+  "*.azure.com",
+  "*.googleapis.com",
+  "*.hashicorp.com",
+  "registry.terraform.io",
+]
+
+# --- Default deny ---
+[[policies]]
+name = "Default deny"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 0
+id = "devops:*:default-deny"
+policy_type = "Deny"
+
+
+[injection]
+enabled = true
+block_on_injection = true
+
+[dlp]
+enabled = true
+block_on_finding = false

@@ -1,0 +1,110 @@
+# Vellaveto Preset: Financial / Banking Agent
+#
+# For AI agents in financial services (DORA/NIS2 regulated environments).
+# Maximum security: all writes require approval, strict DLP for PII/PCI,
+# network restricted to approved financial APIs only.
+#
+# Usage:
+#   vellaveto serve --config examples/presets/financial-agent.toml --port 3000
+
+# --- Block all file writes ---
+[[policies]]
+name = "Block file writes"
+tool_pattern = "file_write"
+function_pattern = "*"
+priority = 300
+id = "fin:file_write:block"
+policy_type = "Deny"
+
+
+# --- Block external data exfiltration ---
+[[policies]]
+name = "Block external uploads"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "fin:*:block-exfil"
+policy_type = "Deny"
+
+
+[policies.network_rules]
+blocked_domains = [
+  "*.pastebin.com",
+  "*.transfer.sh",
+  "*.file.io",
+  "*.wetransfer.com",
+  "*.dropbox.com",
+  "*.mega.nz",
+]
+
+# --- Allow approved financial APIs ---
+[[policies]]
+name = "Allow financial APIs"
+tool_pattern = "api_*"
+function_pattern = "*"
+priority = 200
+id = "fin:api:allow-financial"
+policy_type = "Allow"
+
+[policies.network_rules]
+allowed_domains = [
+  "*.bloomberg.com",
+  "*.refinitiv.com",
+  "*.swift.com",
+  "api.ecb.europa.eu",
+  "*.bankofitaly.it",
+  "*.consob.it",
+]
+
+# --- Allow read-only database queries ---
+[[policies]]
+name = "Allow read queries"
+tool_pattern = "database_*"
+function_pattern = "query"
+priority = 200
+id = "fin:db:allow-read"
+policy_type = "Allow"
+
+# --- Require approval for database modifications ---
+[[policies]]
+name = "Require approval for DB writes"
+tool_pattern = "database_*"
+function_pattern = "execute"
+priority = 200
+id = "fin:db:require-approval"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "require_approval"
+parameter_constraints = []
+
+# --- Default deny ---
+[[policies]]
+name = "Default deny"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 0
+id = "fin:*:default-deny"
+policy_type = "Deny"
+
+
+# --- Maximum detection settings ---
+[injection]
+enabled = true
+block_on_injection = true
+
+[dlp]
+enabled = true
+block_on_finding = true
+
+# --- DORA/NIS2 compliance ---
+[compliance.eu_ai_act]
+enabled = true
+
+[compliance.soc2]
+enabled = true
+
+[compliance.nis2]
+enabled = true
+
+[compliance.dora]
+enabled = true
