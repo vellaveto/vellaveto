@@ -277,11 +277,7 @@ impl CredentialVault {
     /// available, up to `pool_size`. Returns the number of credentials added.
     /// No-op if the vault already has enough available credentials.
     pub fn replenish(&self) -> Result<usize, ShieldError> {
-        let current_epoch = self
-            .current_epoch
-            .lock()
-            .map(|e| *e)
-            .unwrap_or(0);
+        let current_epoch = self.current_epoch.lock().map(|e| *e).unwrap_or(0);
 
         let mut added = 0usize;
         loop {

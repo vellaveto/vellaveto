@@ -3406,10 +3406,7 @@ impl ProxyBridge {
                     match sanitizer.desanitize_json(&msg) {
                         Ok(desanitized) => msg = desanitized,
                         Err(e) => {
-                            tracing::warn!(
-                                "Shield desanitize failed: {} — forwarding original",
-                                e
-                            );
+                            tracing::warn!("Shield desanitize failed: {} — forwarding original", e);
                         }
                     }
                 }

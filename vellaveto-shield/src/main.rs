@@ -307,8 +307,7 @@ async fn main() -> Result<()> {
     if let Some(sanitizer) = shield_sanitizer {
         bridge = bridge.with_shield_sanitizer(sanitizer);
     }
-    bridge = bridge
-        .with_shield_desanitize_responses(policy_config.shield.desanitize_responses);
+    bridge = bridge.with_shield_desanitize_responses(policy_config.shield.desanitize_responses);
 
     // Wire injection scanner from config
     let injection_config = &policy_config.injection;
@@ -372,10 +371,7 @@ async fn main() -> Result<()> {
         bridge = bridge.with_session_unlinker(unlinker.clone());
 
         // Spawn background credential replenishment task
-        let replenish_interval = policy_config
-            .shield
-            .credential_epoch_interval
-            .max(10);
+        let replenish_interval = policy_config.shield.credential_epoch_interval.max(10);
         let replenish_unlinker = unlinker.clone();
         tokio::spawn(async move {
             let mut interval =
