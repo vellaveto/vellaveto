@@ -14,13 +14,13 @@ path = "src/main.rs"
 zk-audit = ["vellaveto-mcp-shield/zk-audit"]
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types" }
-vellaveto-engine = { path = "../vellaveto-engine" }
-vellaveto-audit = { path = "../vellaveto-audit" }
-vellaveto-config = { path = "../vellaveto-config" }
-vellaveto-mcp = { path = "../vellaveto-mcp", features = ["consumer-shield"] }
-vellaveto-mcp-shield = { path = "../vellaveto-mcp-shield" }
-vellaveto-canary = { path = "../vellaveto-canary" }
+vellaveto-types = { path = "../vellaveto-types", version = "3.0.0" }
+vellaveto-engine = { path = "../vellaveto-engine", version = "3.0.0" }
+vellaveto-audit = { path = "../vellaveto-audit", version = "3.0.0" }
+vellaveto-config = { path = "../vellaveto-config", version = "3.0.0" }
+vellaveto-mcp = { path = "../vellaveto-mcp", version = "3.0.0", features = ["consumer-shield"] }
+vellaveto-mcp-shield = { path = "../vellaveto-mcp-shield", version = "0.1.0" }
+vellaveto-canary = { path = "../vellaveto-canary", version = "0.1.0" }
 clap = { version = "4", features = ["derive"] }
 tokio = { workspace = true }
 anyhow = { workspace = true }

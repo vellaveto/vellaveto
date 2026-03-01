@@ -19,15 +19,15 @@ projector = ["vellaveto-mcp/projector"]
 postgres-store = ["vellaveto-audit/postgres-store", "dep:sqlx"]
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types" }
-vellaveto-engine = { path = "../vellaveto-engine" }
-vellaveto-audit = { path = "../vellaveto-audit" }
-vellaveto-mcp = { path = "../vellaveto-mcp", features = ["discovery", "projector"] }
-vellaveto-canonical = { path = "../vellaveto-canonical" }
-vellaveto-config = { path = "../vellaveto-config" }
-vellaveto-approval = { path = "../vellaveto-approval" }
-vellaveto-cluster = { path = "../vellaveto-cluster" }
-vellaveto-discovery = { path = "../vellaveto-discovery" }
+vellaveto-types = { path = "../vellaveto-types", version = "3.0.0" }
+vellaveto-engine = { path = "../vellaveto-engine", version = "3.0.0" }
+vellaveto-audit = { path = "../vellaveto-audit", version = "3.0.0" }
+vellaveto-mcp = { path = "../vellaveto-mcp", version = "3.0.0", features = ["discovery", "projector"] }
+vellaveto-canonical = { path = "../vellaveto-canonical", version = "3.0.0" }
+vellaveto-config = { path = "../vellaveto-config", version = "3.0.0" }
+vellaveto-approval = { path = "../vellaveto-approval", version = "3.0.0" }
+vellaveto-cluster = { path = "../vellaveto-cluster", version = "3.0.0" }
+vellaveto-discovery = { path = "../vellaveto-discovery", version = "0.1.0" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

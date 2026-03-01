@@ -5,6 +5,7 @@ description = "Integration test suite for Vellaveto components"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
+publish = false
 
 [features]
 default = ["discovery"]

@@ -21,12 +21,12 @@ name = "vellaveto-http-proxy"
 path = "src/main.rs"
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types" }
-vellaveto-engine = { path = "../vellaveto-engine" }
-vellaveto-audit = { path = "../vellaveto-audit" }
-vellaveto-config = { path = "../vellaveto-config" }
-vellaveto-mcp = { path = "../vellaveto-mcp" }
-vellaveto-approval = { path = "../vellaveto-approval" }
+vellaveto-types = { path = "../vellaveto-types", version = "3.0.0" }
+vellaveto-engine = { path = "../vellaveto-engine", version = "3.0.0" }
+vellaveto-audit = { path = "../vellaveto-audit", version = "3.0.0" }
+vellaveto-config = { path = "../vellaveto-config", version = "3.0.0" }
+vellaveto-mcp = { path = "../vellaveto-mcp", version = "3.0.0" }
+vellaveto-approval = { path = "../vellaveto-approval", version = "3.0.0" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

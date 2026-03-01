@@ -11,9 +11,9 @@ default = []
 redis-backend = ["deadpool-redis", "dep:sha2", "dep:unicode-normalization", "dep:uuid"]
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types" }
-vellaveto-approval = { path = "../vellaveto-approval" }
-vellaveto-config = { path = "../vellaveto-config" }
+vellaveto-types = { path = "../vellaveto-types", version = "3.0.0" }
+vellaveto-approval = { path = "../vellaveto-approval", version = "3.0.0" }
+vellaveto-config = { path = "../vellaveto-config", version = "3.0.0" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
