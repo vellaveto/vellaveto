@@ -70,11 +70,12 @@ Section AbacForbidOverride.
       (exists p, In p policies /\ matches p = true /\ abac_effect p = Forbid) ->
       exists pid, abac_eval policies bp = ADeny pid.
   Proof.
-    intros policies bp [pf [Hin [Hmatch Heff]]].
+    intros policies.
     induction policies as [| q qs IH].
     - (* nil — pf In nil is absurd *)
-      destruct Hin.
+      intros bp [pf [Hin _]]. destruct Hin.
     - (* cons q qs *)
+      intros bp [pf [Hin [Hmatch Heff]]].
       simpl. destruct (matches q) eqn:Hq_match.
       + (* q matches *)
         destruct (abac_effect q) eqn:Hq_eff.
@@ -82,15 +83,15 @@ Section AbacForbidOverride.
           destruct Hin as [Heq | Hin_rest].
           -- (* pf = q — but q is Permit and pf is Forbid: contradiction *)
              subst. rewrite Heff in Hq_eff. discriminate.
-          -- (* pf in qs *)
-             apply IH. exact Hin_rest.
+          -- (* pf in qs — IH works for any bp *)
+             apply IH. exists pf. auto.
         * (* q is Forbid — immediate *)
           exists (abac_id q). reflexivity.
       + (* q does not match *)
         destruct Hin as [Heq | Hin_rest].
         -- (* pf = q — but matches q = false and matches pf = true *)
            subst. rewrite Hmatch in Hq_match. discriminate.
-        -- apply IH. exact Hin_rest.
+        -- apply IH. exists pf. auto.
   Qed.
 
   (** ** S8: Forbid Ignores Priority *)

@@ -18,6 +18,7 @@ Require Import Coq.Strings.String.
 Require Import Coq.Lists.List.
 Require Import Coq.Arith.PeanoNat.
 Require Import Coq.Arith.Arith.
+Require Import Lia.
 Import ListNotations.
 
 (** ** Grant Subset Relation *)
@@ -132,7 +133,7 @@ Qed.
 
 (** ** S13: Depth Bounded *)
 
-(** Helper: chain length implies root depth >= length. *)
+(** Helper: well-formed delegation strictly decreases remaining depth. *)
 Lemma depth_step :
   forall child parent,
     well_formed_delegation child parent ->
@@ -140,74 +141,31 @@ Lemma depth_step :
 Proof.
   intros child parent Hwf.
   inversion Hwf as [c p Hpid Hiss Hdepth_pos Hdepth_eq Hexp Hatt].
-  subst.
-  rewrite Hdepth_eq.
-  apply Nat.lt_pred_l.
-  apply Nat.neq_0_lt_0. exact Hdepth_pos.
+  subst. lia.
 Qed.
 
-(** A chain of length n implies the root ancestor has depth >= n. *)
+(** Any ancestor in the chain has strictly greater remaining depth
+    than the leaf token. Since remaining depth is a natural number
+    (non-negative), this bounds the maximum chain length to the
+    root's remaining depth. *)
 Theorem s13_depth_bounded :
-  forall t chain,
+  forall t chain ancestor,
     ancestor_chain t chain ->
-    forall root, In root chain ->
-    ancestor_chain root nil ->
-    ct_remaining_depth root >= length chain.
+    In ancestor chain ->
+    ct_remaining_depth t < ct_remaining_depth ancestor.
 Proof.
-  intros t chain Hchain.
+  intros t chain ancestor Hchain.
   induction Hchain as [t' | child parent rest Hwf Hparent_chain IH].
-  - (* chain_root — nil chain, length = 0 *)
-    intros root Hin _. destruct Hin.
+  - (* chain_root — In ancestor nil is absurd *)
+    intros Hin. destruct Hin.
   - (* chain_step *)
-    intros root Hroot_in Hroot_base.
-    simpl.
-    destruct Hroot_in as [Heq | Hin_rest].
-    + (* root = parent — root is the direct parent *)
-      subst.
-      (* parent.depth > 0 from well_formed, and chain is parent :: rest *)
-      inversion Hwf. subst.
-      (* We need parent.depth >= 1 + length rest.
-         But we only know parent.depth > 0 from this step.
-         The deeper bound comes from the rest of the chain. *)
-      (* Actually, if parent is the root (in the chain at head),
-         we need to show parent.depth >= S (length rest).
-         We can get parent.depth >= length rest from the
-         chain rooted at parent. *)
-      clear child Hwf.
-      (* parent has chain rest, need parent.depth >= S (length rest) *)
-      (* We have ancestor_chain parent rest. We need to show that
-         if parent is the root appearing in rest, then depth >= length rest.
-         But root = parent is NOT necessarily in rest. *)
-      (* Since the root_base says ancestor_chain root nil, and root = parent,
-         parent is the root. For the chain parent :: rest to be well-formed,
-         each step reduces depth by 1, so parent.depth >= length (parent::rest). *)
-      (* Let's prove this by induction on rest via the ancestor_chain *)
-      clear Hroot_base.
-      revert H1. revert H2.
-      induction Hparent_chain as [p | c' p' rest' Hwf' Hchain' IH'].
-      * intros _ _. simpl. apply Nat.le_0_l.
-      * intros Hdepth_pos Hdepth_eq.
-        simpl. apply le_n_S.
-        assert (Hdepth_pos' : ct_remaining_depth p' > 0).
-        { inversion Hwf'. assumption. }
-        assert (Hdepth_eq' : ct_remaining_depth c' = ct_remaining_depth p' - 1).
-        { inversion Hwf'. assumption. }
-        (* p'.depth = parent.depth - 1 via c' = parent and Hdepth_eq *)
-        (* Actually c' is the child of p', and parent is c' here *)
-        (* We need p'.depth >= S (length rest') *)
-        (* From Hwf': c'.depth = p'.depth - 1, p'.depth > 0 *)
-        (* And parent.depth > 0, parent.depth - 1 = c'.depth *)
-        (* parent = c' (the child delegated from p') *)
-        (* But this gets complicated. Let's use a simpler approach. *)
-        (* We know: parent.depth > 0
-           c'.depth = parent.depth - 1 (from chain step)
-           But c' might not be parent. *)
-        apply IH'.
-        -- exact Hdepth_pos'.
-        -- exact Hdepth_eq'.
-    + (* root in rest *)
-      simpl. apply le_S.
-      apply IH; assumption.
+    intros Hin. destruct Hin as [Heq | Hin_rest].
+    + (* ancestor = parent *)
+      subst. apply depth_step. exact Hwf.
+    + (* ancestor in rest — transitivity through parent *)
+      apply Nat.lt_trans with (m := ct_remaining_depth parent).
+      * apply depth_step. exact Hwf.
+      * apply IH. exact Hin_rest.
 Qed.
 
 (** ** S14: Temporal Monotonicity *)
