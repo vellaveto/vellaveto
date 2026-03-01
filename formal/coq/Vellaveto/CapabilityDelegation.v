@@ -114,7 +114,7 @@ Proof.
     intros ancestor Hin.
     destruct Hin as [Heq | Hin_rest].
     + (* ancestor = parent *)
-      subst.
+      subst ancestor.
       exists (parent :: rest). split.
       * constructor; assumption.
       * split.
