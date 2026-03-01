@@ -1,6 +1,6 @@
 # Formal Verification — Vellaveto MCP Policy Engine
 
-Formal specifications of Vellaveto's core security properties using TLA+ and Alloy.
+Formal specifications of Vellaveto's core security properties using TLA+, Alloy, Lean 4, Coq, and Kani.
 
 This is the first formal model of MCP policy enforcement in any framework,
 addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
@@ -18,8 +18,13 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `FailClosed.lean` | Lean 4 | S1, S5 | Fail-closed: no match → Deny; Allow requires matching Allow policy |
 | `PathNormalization.lean` | Lean 4 | — | Path normalization idempotence: `normalize(normalize(x)) = normalize(x)` |
 | `kani/proofs.rs` | Kani | K1–K5 | Bounded model checking of actual Rust implementation |
+| `FailClosed.v` | Coq | S1, S5 | Fail-closed: no match → Deny; Allow requires matching Allow policy |
+| `Determinism.v` | Coq | — | Policy evaluation determinism (same input → same verdict) |
+| `PathNormalization.v` | Coq | — | Path normalization idempotence: `normalize(normalize(x)) = normalize(x)` |
+| `AbacForbidOverride.v` | Coq | S7–S10 | ABAC forbid-overrides combining algorithm (first forbid wins) |
+| `CapabilityDelegation.v` | Coq | S11–S16 | Capability token delegation with monotonic attenuation |
 
-**33 verified properties total** (26 safety + 7 liveness) + **3 Lean 4 lemmas** + **5 Kani proof harnesses**.
+**33 verified properties total** (26 safety + 7 liveness) + **3 Lean 4 lemmas** + **15 Coq theorems** + **5 Kani proof harnesses**.
 
 ## Directory Structure
 
@@ -49,6 +54,16 @@ formal/
       Determinism.lean              ← Evaluation determinism proof
       FailClosed.lean               ← Fail-closed and S1/S5 proofs
       PathNormalization.lean        ← Path normalization idempotence
+  coq/
+    _CoqProject                      ← Build configuration (lists .v files)
+    Makefile                         ← coq_makefile wrapper
+    Vellaveto/
+      Types.v                        ← Shared types (Verdict, Policy, Action, ABAC, CapToken)
+      FailClosed.v                   ← Fail-closed and S1/S5 proofs (4 theorems)
+      Determinism.v                  ← Evaluation determinism proof (4 theorems)
+      PathNormalization.v            ← Path normalization idempotence (5 theorems)
+      AbacForbidOverride.v           ← ABAC forbid-override S7-S10 (4 theorems)
+      CapabilityDelegation.v         ← Capability delegation S11-S16 (6 theorems)
   kani/
     README.md                        ← Kani setup and usage guide
     proofs.rs                        ← Proof harnesses (5 properties)
@@ -71,6 +86,22 @@ Download from [alloytools.org](https://alloytools.org/download.html).
 Requirements:
 - Java 11+
 - `org.alloytools.alloy.dist.jar`
+
+### Coq
+
+Install via opam or nix:
+
+```bash
+# Via opam (recommended):
+opam install coq
+
+# Via nix:
+nix-shell -p coq
+```
+
+Requirements:
+- Coq 8.16+ (tested with 8.19)
+- `coq_makefile` (included with Coq)
 
 ## Running Verification
 
@@ -135,38 +166,48 @@ lake build
 Expected output: all three files type-check with no `sorry` markers
 and no warnings.
 
+### Coq Proofs (S1, S5, S7–S16, Determinism, Idempotence)
+
+```bash
+cd formal/coq
+make
+```
+
+Expected output: all 6 `.v` files compile cleanly with no `Admitted` markers.
+Verify: `grep -r "Admitted\|admit" Vellaveto/*.v` returns no matches.
+
 ## Property Catalog
 
 ### Policy Engine Safety (S1–S6)
 
 | ID | Property | Source | Spec Location |
 |----|----------|--------|---------------|
-| S1 | **Fail-closed:** no matching policy → Deny, never Allow | `vellaveto-engine/src/lib.rs:417-419` | `MCPPolicyEngine.tla:InvariantS1_FailClosed` |
+| S1 | **Fail-closed:** no matching policy → Deny, never Allow | `vellaveto-engine/src/lib.rs:417-419` | `MCPPolicyEngine.tla:InvariantS1_FailClosed`, `FailClosed.v:s1_*` |
 | S2 | **Priority ordering:** policies evaluated in priority-descending order | `vellaveto-engine/src/lib.rs:209-224` | `MCPCommon.tla:SortedByPriority` |
 | S3 | **Blocked paths override allowed:** first-match blocked path → Deny | `vellaveto-engine/src/rule_check.rs:50-59` | `MCPPolicyEngine.tla:InvariantS3_BlockedPathsOverride` |
 | S4 | **Blocked domains override allowed:** first-match blocked domain → Deny | `vellaveto-engine/src/rule_check.rs:124-133` | `MCPPolicyEngine.tla:InvariantS4_BlockedDomainsOverride` |
-| S5 | **Allow requires matching Allow policy:** Allow verdict only from Allow policy | `vellaveto-engine/src/lib.rs:545-547` | `MCPPolicyEngine.tla:InvariantS5_ErrorsDeny` |
+| S5 | **Allow requires matching Allow policy:** Allow verdict only from Allow policy | `vellaveto-engine/src/lib.rs:545-547` | `MCPPolicyEngine.tla:InvariantS5_ErrorsDeny`, `FailClosed.v:s5_allow_requires_match` |
 | S6 | **Missing context → Deny:** context-conditions without context → Deny | `vellaveto-engine/src/lib.rs:519-535` | `MCPPolicyEngine.tla:InvariantS6_MissingContextDeny` |
 
 ### ABAC Safety (S7–S10)
 
 | ID | Property | Source | Spec Location |
 |----|----------|--------|---------------|
-| S7 | **Forbid dominance:** any matching forbid → Deny (regardless of permits) | `vellaveto-engine/src/abac.rs:226-230` | `AbacForbidOverrides.tla:InvariantS7` |
-| S8 | **Forbid ignores priority:** low-priority forbid beats high-priority permit | `vellaveto-engine/src/abac.rs` (test line 1212) | `AbacForbidOverrides.tla:InvariantS8` |
-| S9 | **Permit requires no forbid:** Allow only when zero forbids match | `vellaveto-engine/src/abac.rs:232-236` | `AbacForbidOverrides.tla:InvariantS9` |
-| S10 | **No match → NoMatch:** nothing matches → NoMatch (caller decides) | `vellaveto-engine/src/abac.rs:239` | `AbacForbidOverrides.tla:InvariantS10` |
+| S7 | **Forbid dominance:** any matching forbid → Deny (regardless of permits) | `vellaveto-engine/src/abac.rs:226-230` | `AbacForbidOverrides.tla:InvariantS7`, `AbacForbidOverride.v:s7_forbid_dominance` |
+| S8 | **Forbid ignores priority:** low-priority forbid beats high-priority permit | `vellaveto-engine/src/abac.rs` (test line 1212) | `AbacForbidOverrides.tla:InvariantS8`, `AbacForbidOverride.v:s8_forbid_ignores_priority` |
+| S9 | **Permit requires no forbid:** Allow only when zero forbids match | `vellaveto-engine/src/abac.rs:232-236` | `AbacForbidOverrides.tla:InvariantS9`, `AbacForbidOverride.v:s9_permit_requires_no_forbid` |
+| S10 | **No match → NoMatch:** nothing matches → NoMatch (caller decides) | `vellaveto-engine/src/abac.rs:239` | `AbacForbidOverrides.tla:InvariantS10`, `AbacForbidOverride.v:s10_no_match_nomatch` |
 
 ### Capability Delegation Safety (S11–S16)
 
 | ID | Property | Source | Spec Location |
 |----|----------|--------|---------------|
-| S11 | **Monotonic attenuation:** child grants ⊆ parent grants | `vellaveto-mcp/src/capability_token.rs:470-508` | `CapabilityDelegation.als:S11` |
-| S12 | **Transitive attenuation:** attenuation holds across entire delegation chains | Derived from S11 (non-trivial: verifies transitivity of composed relation) | `CapabilityDelegation.als:S12` |
-| S13 | **Depth budget:** chain length ≤ MAX_DELEGATION_DEPTH | `vellaveto-types/src/capability.rs:21` | `CapabilityDelegation.als:S13` |
-| S14 | **Temporal monotonicity:** child.expiry ≤ parent.expiry | `vellaveto-mcp/src/capability_token.rs:172-176` | `CapabilityDelegation.als:S14` |
-| S15 | **Terminal cannot delegate:** depth=0 → no children | `vellaveto-mcp/src/capability_token.rs:128-131` | `CapabilityDelegation.als:S15` |
-| S16 | **Issuer chain integrity:** child.issuer = parent.holder | `vellaveto-mcp/src/capability_token.rs:195` | `CapabilityDelegation.als:S16` |
+| S11 | **Monotonic attenuation:** child grants ⊆ parent grants | `vellaveto-mcp/src/capability_token.rs:470-508` | `CapabilityDelegation.als:S11`, `CapabilityDelegation.v:s11_monotonic_attenuation` |
+| S12 | **Transitive attenuation:** attenuation holds across entire delegation chains | Derived from S11 (non-trivial: verifies transitivity of composed relation) | `CapabilityDelegation.als:S12`, `CapabilityDelegation.v:s12_transitive_attenuation` |
+| S13 | **Depth budget:** chain length ≤ MAX_DELEGATION_DEPTH | `vellaveto-types/src/capability.rs:21` | `CapabilityDelegation.als:S13`, `CapabilityDelegation.v:s13_depth_bounded` |
+| S14 | **Temporal monotonicity:** child.expiry ≤ parent.expiry | `vellaveto-mcp/src/capability_token.rs:172-176` | `CapabilityDelegation.als:S14`, `CapabilityDelegation.v:s14_temporal_monotonicity` |
+| S15 | **Terminal cannot delegate:** depth=0 → no children | `vellaveto-mcp/src/capability_token.rs:128-131` | `CapabilityDelegation.als:S15`, `CapabilityDelegation.v:s15_terminal_no_children` |
+| S16 | **Issuer chain integrity:** child.issuer = parent.holder | `vellaveto-mcp/src/capability_token.rs:195` | `CapabilityDelegation.als:S16`, `CapabilityDelegation.v:s16_issuer_chain_integrity` |
 
 ### Task Lifecycle Safety (T1–T5)
 
@@ -321,6 +362,7 @@ bound values.
 | Fuzz targets | `cargo fuzz` | 22 |
 | Property-based tests | `proptest` | ~50 |
 | **Formal specs (models)** | **TLA+ / Alloy / Lean** | **33 properties + 3 lemmas** |
+| **Formal specs (proofs)** | **Coq** | **15 theorems** |
 | **Formal specs (code)** | **Kani** | **5 proof harnesses** |
 
 The formal specs complement (not replace) the test suite:
