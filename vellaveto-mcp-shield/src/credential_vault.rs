@@ -246,6 +246,60 @@ impl CredentialVault {
     pub fn pool_size(&self) -> usize {
         self.pool_size
     }
+
+    /// Generate a local blind credential for self-replenishment.
+    ///
+    /// Fills 32-byte credential and 64-byte signature from `rand::thread_rng()`.
+    /// These are locally generated (not from a blind signature issuer), so
+    /// `provider_key_id` is set to `"self-generated"`.
+    pub fn generate_local_credential(epoch: u64) -> BlindCredential {
+        use rand::RngCore;
+        let mut rng = rand::thread_rng();
+
+        let mut credential = vec![0u8; 32];
+        rng.fill_bytes(&mut credential);
+
+        let mut signature = vec![0u8; 64];
+        rng.fill_bytes(&mut signature);
+
+        BlindCredential {
+            credential,
+            signature,
+            provider_key_id: "self-generated".to_string(),
+            issued_epoch: epoch,
+            credential_type: vellaveto_types::CredentialType::Subscriber,
+        }
+    }
+
+    /// Replenish the vault with locally generated credentials.
+    ///
+    /// Generates credentials until the vault has at least `replenish_threshold`
+    /// available, up to `pool_size`. Returns the number of credentials added.
+    /// No-op if the vault already has enough available credentials.
+    pub fn replenish(&self) -> Result<usize, ShieldError> {
+        let current_epoch = self
+            .current_epoch
+            .lock()
+            .map(|e| *e)
+            .unwrap_or(0);
+
+        let mut added = 0usize;
+        loop {
+            let status = self.status();
+            if !status.needs_replenishment {
+                break;
+            }
+            if status.total >= self.pool_size {
+                break;
+            }
+
+            let cred = Self::generate_local_credential(current_epoch);
+            self.add_credential(cred)?;
+            added = added.saturating_add(1);
+        }
+
+        Ok(added)
+    }
 }
 
 impl std::fmt::Debug for CredentialVault {

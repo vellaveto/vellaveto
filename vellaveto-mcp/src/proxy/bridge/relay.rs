@@ -533,8 +533,43 @@ impl ProxyBridge {
             }
         }
 
+        // Consumer shield: clean up session state before aborting relay
+        #[cfg(feature = "consumer-shield")]
+        self.cleanup_shield_sessions(&state).await;
+
         relay_handle.abort();
         Ok(())
+    }
+
+    /// Clean up consumer shield session state on relay exit.
+    ///
+    /// Best-effort: logs warnings on failure but does not propagate errors,
+    /// since the relay loop has already exited.
+    #[cfg(feature = "consumer-shield")]
+    async fn cleanup_shield_sessions(&self, state: &RelayState) {
+        let session_id = state.agent_id.as_deref().unwrap_or("default");
+
+        // End context isolation session
+        if let Some(ref isolator) = self.shield_context_isolator {
+            isolator.end_session(session_id);
+            tracing::debug!("Shield context isolation ended for session: {}", session_id);
+        }
+
+        // End session unlinkability (marks credential consumed)
+        if let Some(ref unlinker) = self.shield_session_unlinker {
+            let unlinker_guard = unlinker.lock().await;
+            if unlinker_guard.is_session_active(session_id) {
+                if let Err(e) = unlinker_guard.end_session(session_id) {
+                    tracing::warn!(
+                        "Shield session unlinker cleanup failed for '{}': {}",
+                        session_id,
+                        e
+                    );
+                } else {
+                    tracing::debug!("Shield session unlinker ended for session: {}", session_id);
+                }
+            }
+        }
     }
 
     /// Handle a message received from the agent.
@@ -3365,12 +3400,17 @@ impl ProxyBridge {
 
         // Consumer shield: desanitize inbound response content
         #[cfg(feature = "consumer-shield")]
-        if let Some(ref sanitizer) = self.shield_sanitizer {
-            if msg.get("result").is_some() || msg.get("error").is_some() {
-                match sanitizer.desanitize_json(&msg) {
-                    Ok(desanitized) => msg = desanitized,
-                    Err(e) => {
-                        tracing::warn!("Shield desanitize failed: {} — forwarding original", e);
+        if self.shield_desanitize_responses {
+            if let Some(ref sanitizer) = self.shield_sanitizer {
+                if msg.get("result").is_some() || msg.get("error").is_some() {
+                    match sanitizer.desanitize_json(&msg) {
+                        Ok(desanitized) => msg = desanitized,
+                        Err(e) => {
+                            tracing::warn!(
+                                "Shield desanitize failed: {} — forwarding original",
+                                e
+                            );
+                        }
                     }
                 }
             }

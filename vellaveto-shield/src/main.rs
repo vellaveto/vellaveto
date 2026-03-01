@@ -104,9 +104,12 @@ async fn main() -> Result<()> {
         .context("Failed to initialize audit chain — refusing to start")?;
     tracing::info!("Audit log: {}", audit_path.display());
 
-    // Set up encrypted audit store
+    // Set up encrypted audit store (only in local audit mode)
     let mut _audit_manager = None;
-    if policy_config.shield.enabled && !passphrase.is_empty() {
+    if policy_config.shield.enabled
+        && !passphrase.is_empty()
+        && policy_config.shield.audit_mode == "local"
+    {
         let enc_path = config_dir.join("shield-audit.enc");
         let store = vellaveto_mcp_shield::EncryptedAuditStore::new(enc_path, &passphrase)
             .context("Failed to initialize encrypted audit store")?;
@@ -116,8 +119,17 @@ async fn main() -> Result<()> {
         } else {
             manager
         };
+        #[cfg(feature = "zk-audit")]
+        let manager = if policy_config.shield.zk_commitments {
+            tracing::info!("ZK commitments: ENABLED");
+            manager.with_zk_commitments()
+        } else {
+            manager
+        };
         _audit_manager = Some(manager);
-        tracing::info!("Encrypted audit store: ENABLED");
+        tracing::info!("Encrypted audit store: ENABLED (local mode)");
+    } else if policy_config.shield.enabled && policy_config.shield.audit_mode == "remote" {
+        tracing::info!("Audit mode: remote — encrypted local store skipped");
     }
 
     // Set up shield sanitizer
@@ -291,10 +303,12 @@ async fn main() -> Result<()> {
         .with_sampling_config(policy_config.sampling.clone())
         .with_elicitation_config(policy_config.elicitation.clone());
 
-    // Wire shield sanitizer
+    // Wire shield sanitizer and desanitize flag
     if let Some(sanitizer) = shield_sanitizer {
         bridge = bridge.with_shield_sanitizer(sanitizer);
     }
+    bridge = bridge
+        .with_shield_desanitize_responses(policy_config.shield.desanitize_responses);
 
     // Wire injection scanner from config
     let injection_config = &policy_config.injection;
@@ -355,7 +369,41 @@ async fn main() -> Result<()> {
         );
         let unlinker = vellaveto_mcp_shield::SessionUnlinker::new(vault);
         let unlinker = Arc::new(tokio::sync::Mutex::new(unlinker));
-        bridge = bridge.with_session_unlinker(unlinker);
+        bridge = bridge.with_session_unlinker(unlinker.clone());
+
+        // Spawn background credential replenishment task
+        let replenish_interval = policy_config
+            .shield
+            .credential_epoch_interval
+            .max(10);
+        let replenish_unlinker = unlinker.clone();
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs(replenish_interval));
+            loop {
+                interval.tick().await;
+                let guard = replenish_unlinker.lock().await;
+                let vault = guard.vault();
+                if vault.status().needs_replenishment {
+                    match vault.replenish() {
+                        Ok(added) if added > 0 => {
+                            tracing::info!(
+                                "Credential vault replenished: {} credentials added",
+                                added
+                            );
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::warn!("Credential vault replenishment failed: {}", e);
+                        }
+                    }
+                }
+            }
+        });
+        tracing::info!(
+            "Credential replenishment task: ENABLED (interval: {}s)",
+            replenish_interval
+        );
     }
 
     // Set up context isolation and wire into bridge
@@ -363,6 +411,10 @@ async fn main() -> Result<()> {
         let isolator = Arc::new(vellaveto_mcp_shield::ContextIsolator::new());
         tracing::info!("Context isolation: ENABLED");
         bridge = bridge.with_context_isolator(isolator);
+    }
+
+    if policy_config.shield.traffic_padding {
+        tracing::info!("Traffic padding: ENABLED (HTTP transport only)");
     }
 
     tracing::info!(

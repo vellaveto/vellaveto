@@ -25,5 +25,8 @@ uuid = { workspace = true }
 regex = "1"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 
+[features]
+zk-audit = ["vellaveto-audit/zk-audit"]
+
 [dev-dependencies]
 tempfile = "3.0"

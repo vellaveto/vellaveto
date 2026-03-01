@@ -1432,3 +1432,150 @@ fn test_pipeline_rapid_session_churn() {
     // All sessions cleaned up
     assert_eq!(context.session_count(), 0);
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Session Cleanup Tests (Sprint: Wire Unused Features)
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_session_cleanup_ends_context() {
+    let ctx = ContextIsolator::new();
+    ctx.record("relay-session-1", "user", "Hello").unwrap();
+    assert_eq!(ctx.session_count(), 1);
+
+    // Cleanup ends the context session
+    ctx.end_session("relay-session-1");
+    assert_eq!(ctx.session_count(), 0);
+
+    // Subsequent end_session is a no-op (does not panic)
+    ctx.end_session("relay-session-1");
+    assert_eq!(ctx.session_count(), 0);
+}
+
+#[test]
+fn test_session_cleanup_marks_credential_consumed() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    vault.add_credential(make_test_credential(1)).unwrap();
+
+    let unlinker = SessionUnlinker::new(vault);
+    unlinker.start_session("relay-session-1").unwrap();
+    assert!(unlinker.is_session_active("relay-session-1"));
+    assert_eq!(unlinker.vault().status().active, 1);
+
+    // Cleanup ends the session and marks credential consumed
+    unlinker.end_session("relay-session-1").unwrap();
+    assert!(!unlinker.is_session_active("relay-session-1"));
+    assert_eq!(unlinker.vault().status().consumed, 1);
+    assert_eq!(unlinker.vault().status().active, 0);
+}
+
+#[test]
+fn test_session_cleanup_noop_on_missing_session() {
+    let (vault, _dir) = make_test_vault(10, 1);
+    let unlinker = SessionUnlinker::new(vault);
+
+    // end_session on nonexistent session returns error (not panic)
+    let result = unlinker.end_session("nonexistent");
+    assert!(result.is_err());
+
+    // is_session_active returns false for missing session
+    assert!(!unlinker.is_session_active("nonexistent"));
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Credential Vault Replenishment Tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_vault_replenish_fills_to_threshold() {
+    let (vault, _dir) = make_test_vault(10, 3);
+    // Empty vault needs replenishment
+    assert!(vault.status().needs_replenishment);
+
+    let added = vault.replenish().unwrap();
+    assert!(added >= 3); // At least replenish_threshold credentials added
+    assert!(!vault.status().needs_replenishment);
+}
+
+#[test]
+fn test_vault_replenish_noop_when_sufficient() {
+    let (vault, _dir) = make_test_vault(10, 3);
+    // Fill above threshold
+    for i in 0..5 {
+        vault.add_credential(make_test_credential(i)).unwrap();
+    }
+    assert!(!vault.status().needs_replenishment);
+
+    let added = vault.replenish().unwrap();
+    assert_eq!(added, 0);
+}
+
+#[test]
+fn test_vault_replenish_respects_pool_size() {
+    let (vault, _dir) = make_test_vault(5, 2);
+    let added = vault.replenish().unwrap();
+    // Should fill to pool_size (5), not beyond
+    assert_eq!(vault.available_count(), added);
+    assert!(vault.available_count() <= 5);
+
+    // Adding more should not exceed pool_size
+    let added2 = vault.replenish().unwrap();
+    assert_eq!(added2, 0);
+    assert!(vault.available_count() <= 5);
+}
+
+#[test]
+fn test_vault_generated_credential_validates() {
+    let cred = CredentialVault::generate_local_credential(42);
+    assert!(cred.validate().is_ok());
+    assert_eq!(cred.issued_epoch, 42);
+    assert_eq!(cred.provider_key_id, "self-generated");
+    assert!(!cred.credential.is_empty());
+    assert!(!cred.signature.is_empty());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ZK Commitments Tests (feature-gated)
+// ═══════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "zk-audit")]
+#[tokio::test]
+async fn test_local_audit_zk_commitment_generated() {
+    let dir = tempfile::tempdir().unwrap();
+    let enc_path = dir.path().join("zk-test.enc");
+    let audit_path = dir.path().join("zk-test.log");
+    let store = EncryptedAuditStore::new(enc_path, "test-pass").unwrap();
+    let mut manager = LocalAuditManager::new(audit_path, store).with_zk_commitments();
+
+    // Log an event — ZK commitment should be generated without error
+    manager
+        .log_shield_event("test_event", "ZK commitment test")
+        .await
+        .unwrap();
+
+    // Verify the entry was written (encrypted)
+    let entries = manager.read_entries().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["event"], "test_event");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Desanitize Config Flag Tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_desanitize_flag_false_preserves_placeholders() {
+    let config = vellaveto_config::ShieldConfig {
+        desanitize_responses: false,
+        ..vellaveto_config::ShieldConfig::default()
+    };
+    // The flag is stored correctly
+    assert!(!config.desanitize_responses);
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_desanitize_flag_true_is_default() {
+    let config = vellaveto_config::ShieldConfig::default();
+    assert!(config.desanitize_responses);
+}

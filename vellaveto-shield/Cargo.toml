@@ -10,6 +10,9 @@ repository.workspace = true
 name = "vellaveto-shield"
 path = "src/main.rs"
 
+[features]
+zk-audit = ["vellaveto-mcp-shield/zk-audit"]
+
 [dependencies]
 vellaveto-types = { path = "../vellaveto-types" }
 vellaveto-engine = { path = "../vellaveto-engine" }

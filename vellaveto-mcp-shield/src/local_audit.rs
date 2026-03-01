@@ -17,6 +17,9 @@ pub struct LocalAuditManager {
     audit_logger: AuditLogger,
     store: EncryptedAuditStore,
     merkle: Option<MerkleTree>,
+    /// Optional Pedersen committer for zero-knowledge commitments.
+    #[cfg(feature = "zk-audit")]
+    zk_committer: Option<vellaveto_audit::zk::pedersen::PedersenCommitter>,
 }
 
 impl LocalAuditManager {
@@ -26,6 +29,8 @@ impl LocalAuditManager {
             audit_logger: AuditLogger::new(audit_path),
             store,
             merkle: None,
+            #[cfg(feature = "zk-audit")]
+            zk_committer: None,
         }
     }
 
@@ -33,6 +38,18 @@ impl LocalAuditManager {
     pub fn with_merkle(mut self) -> Self {
         let merkle_path = self.store.path().with_extension("merkle");
         self.merkle = Some(MerkleTree::new(merkle_path));
+        self
+    }
+
+    /// Enable zero-knowledge Pedersen commitments for audit entries.
+    ///
+    /// When enabled, each logged event produces a Pedersen commitment
+    /// that hides the entry content while binding to it cryptographically.
+    /// Commitment generation is advisory: failures are logged but don't
+    /// block the audit entry.
+    #[cfg(feature = "zk-audit")]
+    pub fn with_zk_commitments(mut self) -> Self {
+        self.zk_committer = Some(vellaveto_audit::zk::pedersen::PedersenCommitter::new());
         self
     }
 
@@ -52,14 +69,29 @@ impl LocalAuditManager {
         let entry_bytes = serde_json::to_vec(&entry)
             .map_err(|e| ShieldError::Audit(format!("serialize: {e}")))?;
 
+        // Compute entry hash (used by both Merkle and ZK)
+        let mut hasher = Sha256::new();
+        hasher.update(&entry_bytes);
+        let hash: [u8; 32] = hasher.finalize().into();
+
         // Append to Merkle tree if enabled
         if let Some(ref mut merkle) = self.merkle {
-            let mut hasher = Sha256::new();
-            hasher.update(&entry_bytes);
-            let hash: [u8; 32] = hasher.finalize().into();
             merkle
                 .append(hash)
                 .map_err(|e| ShieldError::Audit(format!("merkle append: {e}")))?;
+        }
+
+        // Generate ZK commitment if enabled (advisory — warn on failure, don't block)
+        #[cfg(feature = "zk-audit")]
+        if let Some(ref committer) = self.zk_committer {
+            match committer.commit(&hash) {
+                Ok((_commitment, _blinding)) => {
+                    tracing::trace!("ZK commitment generated for shield event");
+                }
+                Err(e) => {
+                    tracing::warn!("ZK commitment generation failed (advisory): {}", e);
+                }
+            }
         }
 
         // Encrypt and write

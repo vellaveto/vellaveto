@@ -383,4 +383,12 @@ impl ProxyBridge {
         self.shield_session_unlinker = Some(unlinker);
         self
     }
+
+    /// Set whether to desanitize inbound responses (restore PII from placeholders).
+    /// When false, PII placeholders are preserved in responses.
+    #[cfg(feature = "consumer-shield")]
+    pub fn with_shield_desanitize_responses(mut self, desanitize: bool) -> Self {
+        self.shield_desanitize_responses = desanitize;
+        self
+    }
 }

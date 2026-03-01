@@ -120,6 +120,12 @@ pub struct ShieldConfig {
     /// Default: "none".
     #[serde(default = "default_stylometric_level")]
     pub stylometric_level: String,
+
+    /// Whether traffic padding is enabled for HTTP transport.
+    /// When true, request/response sizes are padded to fixed buckets and
+    /// privacy-revealing headers are stripped. Default: false.
+    #[serde(default)]
+    pub traffic_padding: bool,
 }
 
 fn default_audit_mode() -> String {
@@ -177,6 +183,7 @@ impl Default for ShieldConfig {
             replenish_threshold: default_replenish_threshold(),
             credential_epoch_interval: default_credential_epoch_interval(),
             stylometric_level: default_stylometric_level(),
+            traffic_padding: false,
         }
     }
 }
@@ -342,6 +349,7 @@ mod tests {
         assert_eq!(config.replenish_threshold, 10);
         assert_eq!(config.credential_epoch_interval, 100);
         assert_eq!(config.stylometric_level, "none");
+        assert!(!config.traffic_padding);
     }
 
     #[test]
@@ -383,6 +391,21 @@ mod tests {
         let toml_str = toml::to_string(&config).unwrap();
         let parsed: ShieldConfig = toml::from_str(&toml_str).unwrap();
         assert_eq!(config, parsed);
+    }
+
+    #[test]
+    fn test_shield_traffic_padding_toml_roundtrip() {
+        let toml_str = r#"
+enabled = true
+traffic_padding = true
+"#;
+        let config: ShieldConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.traffic_padding);
+
+        // Roundtrip
+        let serialized = toml::to_string(&config).unwrap();
+        let reparsed: ShieldConfig = toml::from_str(&serialized).unwrap();
+        assert!(reparsed.traffic_padding);
     }
 
     #[test]

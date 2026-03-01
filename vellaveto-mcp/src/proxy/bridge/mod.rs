@@ -226,6 +226,14 @@ pub struct ProxyBridge {
     /// vault. The provider cannot correlate sessions to the same user.
     #[cfg(feature = "consumer-shield")]
     shield_session_unlinker: Option<Arc<tokio::sync::Mutex<vellaveto_mcp_shield::SessionUnlinker>>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Consumer Shield: Desanitize Responses Flag
+    // ═══════════════════════════════════════════════════════════════════
+    /// When false, inbound response desanitization is skipped — PII placeholders
+    /// are preserved in responses returned to the agent.
+    #[cfg(feature = "consumer-shield")]
+    shield_desanitize_responses: bool,
 }
 
 impl ProxyBridge {
@@ -291,6 +299,8 @@ impl ProxyBridge {
             shield_context_isolator: None,
             #[cfg(feature = "consumer-shield")]
             shield_session_unlinker: None,
+            #[cfg(feature = "consumer-shield")]
+            shield_desanitize_responses: true,
         }
     }
 }
