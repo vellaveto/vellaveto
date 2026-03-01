@@ -14,9 +14,8 @@ tool_pattern = "file_*"
 function_pattern = "*"
 priority = 300
 id = "support:file:block-all"
+policy_type = "Deny"
 
-[policies.policy_type.Deny]
-reason = "Customer support agents cannot access the file system"
 
 # --- Allow CRM read operations ---
 [[policies]]
@@ -25,8 +24,7 @@ tool_pattern = "crm_*"
 function_pattern = "get*"
 priority = 200
 id = "support:crm:allow-read"
-
-[policies.policy_type.Allow]
+policy_type = "Allow"
 
 [policies.network_rules]
 allowed_domains = ["*.salesforce.com", "*.hubspot.com", "*.zendesk.com"]
@@ -50,8 +48,7 @@ tool_pattern = "knowledge_*"
 function_pattern = "*"
 priority = 200
 id = "support:kb:allow"
-
-[policies.policy_type.Allow]
+policy_type = "Allow"
 
 # --- Allow sending messages through approved channels ---
 [[policies]]
@@ -60,8 +57,7 @@ tool_pattern = "message_*"
 function_pattern = "send"
 priority = 200
 id = "support:message:allow"
-
-[policies.policy_type.Allow]
+policy_type = "Allow"
 
 [policies.network_rules]
 allowed_domains = ["*.slack.com", "*.intercom.io", "api.sendgrid.com"]
@@ -73,14 +69,14 @@ tool_pattern = "*"
 function_pattern = "*"
 priority = 0
 id = "support:*:default-deny"
+policy_type = "Deny"
 
-[policies.policy_type.Deny]
-reason = "Action not permitted for customer support agents"
 
 # --- Enhanced DLP for PII protection ---
-[detection]
-injection_enabled = true
-injection_blocking = true
-dlp_enabled = true
-dlp_blocking = true
-behavioral_enabled = true
+[injection]
+enabled = true
+block_on_injection = true
+
+[dlp]
+enabled = true
+block_on_finding = true

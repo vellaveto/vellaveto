@@ -16,7 +16,7 @@
 //! ```
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 #[cfg(test)]
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -27,15 +27,44 @@ use vellaveto_engine::PolicyEngine;
 use vellaveto_mcp::proxy::ProxyBridge;
 use vellaveto_types::command::resolve_executable;
 
+mod presets;
+
 #[derive(Parser)]
 #[command(
     name = "vellaveto-proxy",
-    about = "MCP stdio proxy with policy enforcement"
+    about = "MCP stdio proxy with policy enforcement",
+    after_help = "\
+Examples:
+  # Run with built-in defaults (no config needed):
+  vellaveto-proxy -- npx @modelcontextprotocol/server-filesystem /tmp
+
+  # Run with a named preset:
+  vellaveto-proxy --preset dev-laptop -- python -m mcp_server
+
+  # Run with an explicit config file:
+  vellaveto-proxy --config policy.toml -- ./my-server
+
+  # Generate a starter config file:
+  vellaveto-proxy init
+  vellaveto-proxy init --preset ci-agent
+
+  # List available presets:
+  vellaveto-proxy --list-presets"
 )]
 struct Cli {
-    /// Path to the policy configuration file (TOML)
+    /// Path to the policy configuration file (TOML).
+    /// If omitted, uses --preset or built-in defaults.
     #[arg(short, long)]
-    config: String,
+    config: Option<String>,
+
+    /// Use a built-in policy preset (e.g., dev-laptop, ci-agent, sandworm-hardened).
+    /// Mutually exclusive with --config.
+    #[arg(long)]
+    preset: Option<String>,
+
+    /// List available presets and exit
+    #[arg(long)]
+    list_presets: bool,
 
     /// Enable strict mode for policy evaluation
     #[arg(long, default_value_t = false)]
@@ -51,9 +80,26 @@ struct Cli {
     #[arg(long, default_value_t = false)]
     trace: bool,
 
+    #[command(subcommand)]
+    subcommand: Option<Commands>,
+
     /// The MCP server command and arguments (after --)
-    #[arg(trailing_var_arg = true, required = true)]
+    #[arg(trailing_var_arg = true)]
     command: Vec<String>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Generate a starter config file in the current directory
+    Init {
+        /// Preset to use as the starting template (default: dev-laptop)
+        #[arg(long, default_value = "dev-laptop")]
+        preset: String,
+
+        /// Output file path (default: vellaveto.toml)
+        #[arg(short, long, default_value = "vellaveto.toml")]
+        output: String,
+    },
 }
 
 #[tokio::main]
@@ -68,21 +114,83 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    if cli.command.is_empty() {
-        anyhow::bail!("No MCP server command specified. Usage: vellaveto-proxy --config policy.toml -- /path/to/mcp-server [args...]");
+    // Handle --list-presets
+    if cli.list_presets {
+        println!("Available presets:\n");
+        for (name, desc) in presets::list_presets() {
+            println!("  {:<25} {}", name, desc);
+        }
+        println!("\nUsage: vellaveto-proxy --preset <NAME> -- <COMMAND>");
+        return Ok(());
     }
 
-    // Load policies
-    let policy_config = PolicyConfig::load_file(&cli.config)
-        .map_err(|e| anyhow::anyhow!("Failed to load config '{}': {}", cli.config, e))?;
-    let policies = policy_config.to_policies();
-    tracing::info!("Loaded {} policies from {}", policies.len(), cli.config);
+    // Handle `init` subcommand
+    if let Some(Commands::Init { preset, output }) = &cli.subcommand {
+        let toml_content = presets::preset_toml(preset).ok_or_else(|| {
+            let available: Vec<&str> = presets::list_presets().iter().map(|(n, _)| *n).collect();
+            anyhow::anyhow!(
+                "Unknown preset '{}'. Available: {}",
+                preset,
+                available.join(", ")
+            )
+        })?;
+        let path = std::path::Path::new(output.as_str());
+        if path.exists() {
+            anyhow::bail!(
+                "'{}' already exists. Remove it first or use -o to specify a different path.",
+                output
+            );
+        }
+        std::fs::write(path, toml_content)
+            .with_context(|| format!("Failed to write '{}'", output))?;
+        println!("Created {} (preset: {})", output, preset);
+        println!("\nRun with:");
+        println!("  vellaveto-proxy --config {} -- <COMMAND>", output);
+        return Ok(());
+    }
 
-    // Set up audit logging next to config
-    let config_dir = std::path::Path::new(&cli.config)
-        .parent()
-        .unwrap_or(std::path::Path::new("."));
-    let audit_path = config_dir.join("proxy-audit.log");
+    if cli.command.is_empty() {
+        anyhow::bail!(
+            "No MCP server command specified.\n\n\
+             Usage: vellaveto-proxy [OPTIONS] -- <COMMAND>\n\n\
+             Examples:\n  \
+             vellaveto-proxy -- npx @modelcontextprotocol/server-filesystem /tmp\n  \
+             vellaveto-proxy --preset dev-laptop -- python -m mcp_server\n  \
+             vellaveto-proxy --config policy.toml -- ./my-server\n\n\
+             Run 'vellaveto-proxy --help' for more options."
+        );
+    }
+
+    // Validate --config and --preset are not both specified
+    if cli.config.is_some() && cli.preset.is_some() {
+        anyhow::bail!("Cannot specify both --config and --preset. Use one or the other.");
+    }
+
+    // Load policies: --config > --preset > built-in default
+    let (policy_config, config_source) = if let Some(ref config_path) = cli.config {
+        let pc = PolicyConfig::load_file(config_path)
+            .map_err(|e| anyhow::anyhow!("Failed to load config '{}': {}", config_path, e))?;
+        (pc, format!("file: {}", config_path))
+    } else if let Some(ref preset_name) = cli.preset {
+        let pc = presets::load_preset(preset_name).map_err(|e| anyhow::anyhow!("{}", e))?;
+        (pc, format!("preset: {}", preset_name))
+    } else {
+        let pc = presets::default_config();
+        (pc, "built-in default".to_string())
+    };
+
+    let policies = policy_config.to_policies();
+    tracing::info!("Loaded {} policies ({})", policies.len(), config_source);
+
+    // Set up audit logging
+    let audit_path = if let Some(ref config_path) = cli.config {
+        let config_dir = std::path::Path::new(config_path)
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
+        config_dir.join("proxy-audit.log")
+    } else {
+        std::path::Path::new("./proxy-audit.log").to_path_buf()
+    };
     let audit = Arc::new(AuditLogger::new(audit_path.clone()));
 
     // SECURITY (R230-PROXY-1): Fail-closed — refuse to start with broken audit chain.

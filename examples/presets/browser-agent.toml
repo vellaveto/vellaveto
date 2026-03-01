@@ -31,6 +31,7 @@ tool_pattern = "*"
 function_pattern = "*"
 priority = 250
 id = "browser:*:domain-block"
+policy_type = "Allow"
 
 [policies.network_rules]
 allowed_domains = []
@@ -73,10 +74,11 @@ tool_pattern = "*"
 function_pattern = "download*"
 priority = 150
 id = "browser:download:path-restrict"
+policy_type = "Allow"
 
 [policies.path_rules]
-allowed_globs = ["/tmp/**", "/home/*/Downloads/**"]
-blocked_globs = ["/etc/**", "/var/**", "/usr/**"]
+allowed = ["/tmp/**", "/home/*/Downloads/**"]
+blocked = ["/etc/**", "/var/**", "/usr/**"]
 
 # --- Default allow ---
 [[policies]]
@@ -90,14 +92,13 @@ policy_type = "Allow"
 # --- Injection detection ---
 [injection]
 enabled = true
-blocking = true
+block_on_injection = true
 
 # --- DLP scanning ---
 [dlp]
 enabled = true
-blocking = true
-scan_responses = true
+block_on_finding = true
 
 # --- Audit ---
 [audit]
-redaction_level = "High"
+redaction_level = "KeysAndPatterns"

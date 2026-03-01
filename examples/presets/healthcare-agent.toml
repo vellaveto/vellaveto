@@ -14,9 +14,8 @@ tool_pattern = "file_*"
 function_pattern = "*"
 priority = 300
 id = "health:file:block"
+policy_type = "Deny"
 
-[policies.policy_type.Deny]
-reason = "Direct file access blocked in healthcare environment"
 
 # --- Block data exfiltration domains ---
 [[policies]]
@@ -25,9 +24,8 @@ tool_pattern = "*"
 function_pattern = "*"
 priority = 300
 id = "health:*:block-exfil"
+policy_type = "Deny"
 
-[policies.policy_type.Deny]
-reason = "External data sharing blocked"
 
 [policies.network_rules]
 blocked_domains = [
@@ -45,8 +43,7 @@ tool_pattern = "ehr_*"
 function_pattern = "get*"
 priority = 200
 id = "health:ehr:allow-read"
-
-[policies.policy_type.Allow]
+policy_type = "Allow"
 
 [policies.network_rules]
 allowed_domains = [
@@ -75,8 +72,7 @@ tool_pattern = "search_*"
 function_pattern = "*"
 priority = 200
 id = "health:search:allow-refs"
-
-[policies.policy_type.Allow]
+policy_type = "Allow"
 
 [policies.network_rules]
 allowed_domains = [
@@ -93,18 +89,20 @@ tool_pattern = "*"
 function_pattern = "*"
 priority = 0
 id = "health:*:default-deny"
+policy_type = "Deny"
 
-[policies.policy_type.Deny]
-reason = "Action not permitted in healthcare environment"
 
 # --- Maximum detection with PHI protection ---
-[detection]
-injection_enabled = true
-injection_blocking = true
-dlp_enabled = true
-dlp_blocking = true
-behavioral_enabled = true
+[injection]
+enabled = true
+block_on_injection = true
 
-[compliance]
-eu_ai_act = true
-soc2 = true
+[dlp]
+enabled = true
+block_on_finding = true
+
+[compliance.eu_ai_act]
+enabled = true
+
+[compliance.soc2]
+enabled = true

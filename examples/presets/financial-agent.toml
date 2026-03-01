@@ -14,9 +14,8 @@ tool_pattern = "file_write"
 function_pattern = "*"
 priority = 300
 id = "fin:file_write:block"
+policy_type = "Deny"
 
-[policies.policy_type.Deny]
-reason = "File write operations are blocked in financial environment"
 
 # --- Block external data exfiltration ---
 [[policies]]
@@ -25,9 +24,8 @@ tool_pattern = "*"
 function_pattern = "*"
 priority = 300
 id = "fin:*:block-exfil"
+policy_type = "Deny"
 
-[policies.policy_type.Deny]
-reason = "External upload blocked"
 
 [policies.network_rules]
 blocked_domains = [
@@ -46,8 +44,7 @@ tool_pattern = "api_*"
 function_pattern = "*"
 priority = 200
 id = "fin:api:allow-financial"
-
-[policies.policy_type.Allow]
+policy_type = "Allow"
 
 [policies.network_rules]
 allowed_domains = [
@@ -66,8 +63,7 @@ tool_pattern = "database_*"
 function_pattern = "query"
 priority = 200
 id = "fin:db:allow-read"
-
-[policies.policy_type.Allow]
+policy_type = "Allow"
 
 # --- Require approval for database modifications ---
 [[policies]]
@@ -88,22 +84,27 @@ tool_pattern = "*"
 function_pattern = "*"
 priority = 0
 id = "fin:*:default-deny"
+policy_type = "Deny"
 
-[policies.policy_type.Deny]
-reason = "Action requires explicit authorization in financial environment"
 
 # --- Maximum detection settings ---
-[detection]
-injection_enabled = true
-injection_blocking = true
-dlp_enabled = true
-dlp_blocking = true
-behavioral_enabled = true
+[injection]
+enabled = true
+block_on_injection = true
+
+[dlp]
+enabled = true
+block_on_finding = true
 
 # --- DORA/NIS2 compliance ---
-[compliance]
-eu_ai_act = true
-nis2 = true
-dora = true
-soc2 = true
-iso42001 = true
+[compliance.eu_ai_act]
+enabled = true
+
+[compliance.soc2]
+enabled = true
+
+[compliance.nis2]
+enabled = true
+
+[compliance.dora]
+enabled = true

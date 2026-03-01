@@ -79,7 +79,7 @@ transparency_log = false
 shadow_ai_discovery = true
 require_agent_registration = true
 require_server_registration = true
-least_agency_enforcement = "Enforce"
+least_agency_enforcement = "enforce"
 auto_revoke_after_secs = 3600
 emit_agency_audit_events = true
 
@@ -170,7 +170,7 @@ policy_type = "Deny"
 
 [injection]
 enabled = true
-blocking = true
+block_on_injection = true
 
 # ═══════════════════════════════════════════════════════════════════
 # 6. DLP: Credential leak prevention
@@ -178,7 +178,7 @@ blocking = true
 
 [dlp]
 enabled = true
-blocking = true
+block_on_finding = true
 
 # ═══════════════════════════════════════════════════════════════════
 # 7. AUDIT: Full logging with PII redaction

@@ -58,7 +58,7 @@ policy_type = "Allow"
 # --- Injection detection ---
 [injection]
 enabled = true
-blocking = false
+block_on_injection = false
 
 # --- Audit ---
 [audit]

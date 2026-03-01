@@ -33,6 +33,7 @@ tool_pattern = "*"
 function_pattern = "*"
 priority = 250
 id = "ci:*:network-allowlist"
+policy_type = "Allow"
 
 [policies.network_rules]
 allowed_domains = [
@@ -78,12 +79,12 @@ policy_type = "Allow"
 # --- Injection detection (blocking in CI) ---
 [injection]
 enabled = true
-blocking = true
+block_on_injection = true
 
 # --- DLP scanning (blocking in CI) ---
 [dlp]
 enabled = true
-blocking = true
+block_on_finding = true
 
 # --- Audit ---
 [audit]

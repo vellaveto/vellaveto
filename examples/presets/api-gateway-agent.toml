@@ -13,9 +13,8 @@ tool_pattern = "*"
 function_pattern = "*"
 priority = 300
 id = "api-gw:*:block-internal"
+policy_type = "Deny"
 
-[policies.policy_type.Deny]
-reason = "Agent cannot access internal networks"
 
 [policies.network_rules]
 blocked_domains = ["*.internal", "*.local", "localhost", "*.corp"]
@@ -30,8 +29,7 @@ tool_pattern = "http_*"
 function_pattern = "*"
 priority = 200
 id = "api-gw:http:allow-approved"
-
-[policies.policy_type.Allow]
+policy_type = "Allow"
 
 [policies.network_rules]
 allowed_domains = [
@@ -63,13 +61,14 @@ tool_pattern = "*"
 function_pattern = "*"
 priority = 0
 id = "api-gw:*:default-deny"
+policy_type = "Deny"
 
-[policies.policy_type.Deny]
-reason = "No matching policy for this action"
 
 # --- Detection settings ---
-[detection]
-injection_enabled = true
-injection_blocking = true
-dlp_enabled = true
-dlp_blocking = true
+[injection]
+enabled = true
+block_on_injection = true
+
+[dlp]
+enabled = true
+block_on_finding = true

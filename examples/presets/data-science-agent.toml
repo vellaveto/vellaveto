@@ -14,12 +14,11 @@ tool_pattern = "*"
 function_pattern = "*"
 priority = 300
 id = "datasci:*:credential-block"
+policy_type = "Deny"
 
-[policies.policy_type.Deny]
-reason = "Access to credentials is blocked"
 
 [policies.path_rules]
-blocked_paths = [
+blocked = [
   "/home/*/.aws/**",
   "/home/*/.ssh/**",
   "/home/*/.gnupg/**",
@@ -37,11 +36,10 @@ tool_pattern = "file_read"
 function_pattern = "*"
 priority = 200
 id = "datasci:file_read:allow-data"
-
-[policies.policy_type.Allow]
+policy_type = "Allow"
 
 [policies.path_rules]
-allowed_paths = [
+allowed = [
   "/data/**",
   "/datasets/**",
   "/mnt/data/**",
@@ -57,11 +55,10 @@ tool_pattern = "file_write"
 function_pattern = "*"
 priority = 200
 id = "datasci:file_write:allow-output"
-
-[policies.policy_type.Allow]
+policy_type = "Allow"
 
 [policies.path_rules]
-allowed_paths = [
+allowed = [
   "/output/**",
   "/results/**",
   "/home/*/projects/*/output/**",
@@ -75,8 +72,7 @@ tool_pattern = "web_*"
 function_pattern = "*"
 priority = 200
 id = "datasci:web:allow-data-sources"
-
-[policies.policy_type.Allow]
+policy_type = "Allow"
 
 [policies.network_rules]
 allowed_domains = [
@@ -96,12 +92,13 @@ tool_pattern = "*"
 function_pattern = "*"
 priority = 0
 id = "datasci:*:default-deny"
+policy_type = "Deny"
 
-[policies.policy_type.Deny]
-reason = "Action not permitted by data science policy"
 
-[detection]
-injection_enabled = true
-injection_blocking = true
-dlp_enabled = true
-dlp_blocking = true
+[injection]
+enabled = true
+block_on_injection = true
+
+[dlp]
+enabled = true
+block_on_finding = true

@@ -32,6 +32,7 @@ tool_pattern = "*"
 function_pattern = "*"
 priority = 250
 id = "rag:*:network-allowlist"
+policy_type = "Allow"
 
 [policies.network_rules]
 allowed_domains = [
@@ -59,9 +60,10 @@ tool_pattern = "*"
 function_pattern = "write*"
 priority = 200
 id = "rag:write:system-block"
+policy_type = "Allow"
 
 [policies.path_rules]
-blocked_globs = ["/etc/**", "/var/**", "/usr/**", "/bin/**", "/sbin/**"]
+blocked = ["/etc/**", "/var/**", "/usr/**", "/bin/**", "/sbin/**"]
 
 # --- Default allow for reads ---
 [[policies]]
@@ -75,13 +77,12 @@ policy_type = "Allow"
 # --- Injection detection (critical for RAG) ---
 [injection]
 enabled = true
-blocking = true
+block_on_injection = true
 
 # --- DLP scanning (prevent exfiltration of retrieved data) ---
 [dlp]
 enabled = true
-blocking = true
-scan_responses = true
+block_on_finding = true
 
 # --- Audit ---
 [audit]

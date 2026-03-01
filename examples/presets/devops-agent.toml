@@ -30,11 +30,10 @@ tool_pattern = "file_read"
 function_pattern = "*"
 priority = 200
 id = "devops:file_read:allow"
-
-[policies.policy_type.Allow]
+policy_type = "Allow"
 
 [policies.path_rules]
-allowed_paths = [
+allowed = [
   "/etc/**",
   "/home/*/infrastructure/**",
   "/home/*/terraform/**",
@@ -49,8 +48,7 @@ tool_pattern = "terraform"
 function_pattern = "plan"
 priority = 200
 id = "devops:terraform:allow-plan"
-
-[policies.policy_type.Allow]
+policy_type = "Allow"
 
 # --- Require approval for Terraform apply ---
 [[policies]]
@@ -83,8 +81,7 @@ tool_pattern = "kubectl"
 function_pattern = "get"
 priority = 200
 id = "devops:kubectl:allow-read"
-
-[policies.policy_type.Allow]
+policy_type = "Allow"
 
 # --- Allow cloud provider APIs ---
 [[policies]]
@@ -93,8 +90,7 @@ tool_pattern = "cloud_*"
 function_pattern = "*"
 priority = 150
 id = "devops:cloud:allow"
-
-[policies.policy_type.Allow]
+policy_type = "Allow"
 
 [policies.network_rules]
 allowed_domains = [
@@ -112,12 +108,13 @@ tool_pattern = "*"
 function_pattern = "*"
 priority = 0
 id = "devops:*:default-deny"
+policy_type = "Deny"
 
-[policies.policy_type.Deny]
-reason = "Action not permitted by DevOps policy"
 
-[detection]
-injection_enabled = true
-injection_blocking = true
-dlp_enabled = true
-dlp_blocking = false
+[injection]
+enabled = true
+block_on_injection = true
+
+[dlp]
+enabled = true
+block_on_finding = false

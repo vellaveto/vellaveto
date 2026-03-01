@@ -49,6 +49,7 @@ tool_pattern = "*"
 function_pattern = "*"
 priority = 200
 id = "db:*:network-block"
+policy_type = "Allow"
 
 [policies.network_rules]
 allowed_domains = []
@@ -76,8 +77,7 @@ policy_type = "Allow"
 # --- DLP scanning (catch credential leaks in query results) ---
 [dlp]
 enabled = true
-blocking = true
-scan_responses = true
+block_on_finding = true
 
 # --- Audit ---
 [audit]
