@@ -105,12 +105,12 @@ id = "default:*:deny-all"
 # --- Injection detection (alert-only, non-blocking) ---
 [injection]
 enabled = true
-blocking = false
+block_on_injection = false
 
 # --- DLP response scanning ---
 [dlp]
 enabled = true
-blocking = false
+block_on_finding = false
 
 # --- Audit logging ---
 [audit]

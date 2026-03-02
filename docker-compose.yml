@@ -23,7 +23,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - VELLAVETO_API_KEY=${VELLAVETO_API_KEY:-changeme}
+      - VELLAVETO_API_KEY=${VELLAVETO_API_KEY:?Set VELLAVETO_API_KEY in your environment}
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
       - ./examples/production.toml:/etc/vellaveto/config.toml:ro
@@ -62,7 +62,7 @@ services:
     ports:
       - "3001:3001"
     environment:
-      - VELLAVETO_API_KEY=${VELLAVETO_API_KEY:-changeme}
+      - VELLAVETO_API_KEY=${VELLAVETO_API_KEY:?Set VELLAVETO_API_KEY in your environment}
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
       - ./examples/production.toml:/etc/vellaveto/config.toml:ro

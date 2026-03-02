@@ -22,7 +22,7 @@ code --install-extension vellaveto.vellaveto-policy
 | Command | Description |
 |---------|-------------|
 | `Vellaveto: Validate Policy` | Validate the current policy file |
-| `Vellaveto: Simulate Evaluation` | Simulate a tool call against the active policy |
+| `Vellaveto: Open Simulator` | Simulate a tool call against the active policy |
 
 ## Configuration
 

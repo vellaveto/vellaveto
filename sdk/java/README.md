@@ -25,10 +25,10 @@ implementation 'com.vellaveto:vellaveto-java-sdk:6.0.0'
 ## Quick Start
 
 ```java
-import com.vellaveto.sdk.VellavetoClient;
-import com.vellaveto.sdk.Action;
-import com.vellaveto.sdk.EvaluationResult;
-import com.vellaveto.sdk.Verdict;
+import com.vellaveto.VellavetoClient;
+import com.vellaveto.Action;
+import com.vellaveto.EvaluationResult;
+import com.vellaveto.Verdict;
 
 import java.util.Map;
 
@@ -70,8 +70,8 @@ public class Example {
 ### Exception Handling
 
 ```java
-import com.vellaveto.sdk.exceptions.PolicyDeniedException;
-import com.vellaveto.sdk.exceptions.ApprovalRequiredException;
+import com.vellaveto.PolicyDeniedException;
+import com.vellaveto.ApprovalRequiredException;
 
 try {
     client.evaluateOrThrow(action);

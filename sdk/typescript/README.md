@@ -37,20 +37,20 @@ if (result.verdict === Verdict.Allow) {
 ### With Exception Handling
 
 ```typescript
-import { VellavetoClient, PolicyDeniedError, ApprovalRequiredError } from '@vellaveto-sdk/typescript';
+import { VellavetoClient, PolicyDenied, ApprovalRequired } from '@vellaveto-sdk/typescript';
 
 const client = new VellavetoClient({ baseUrl: 'http://localhost:3000' });
 
 try {
-  await client.evaluateOrThrow({
+  await client.evaluateOrRaise({
     tool: 'http',
     function: 'fetch',
     parameters: { url: 'https://evil.com/exfil' },
   });
 } catch (e) {
-  if (e instanceof PolicyDeniedError) {
+  if (e instanceof PolicyDenied) {
     console.log(`Denied: ${e.reason}`);
-  } else if (e instanceof ApprovalRequiredError) {
+  } else if (e instanceof ApprovalRequired) {
     console.log(`Needs approval: ${e.approvalId}`);
   }
 }
@@ -79,12 +79,13 @@ const result = await client.evaluate(
 | Method | Description |
 |--------|-------------|
 | `evaluate()` | Evaluate a tool call against policies |
-| `evaluateOrThrow()` | Evaluate and throw on denial |
+| `evaluateOrRaise()` | Evaluate and throw on denial |
 | `health()` | Check server health |
 | `listPolicies()` | List configured policies |
 | `reloadPolicies()` | Reload policies from config |
-| `getPendingApprovals()` | Get pending approval requests |
-| `resolveApproval()` | Approve or deny a request |
+| `listPendingApprovals()` | Get pending approval requests |
+| `approveApproval()` | Approve a pending request |
+| `denyApproval()` | Deny a pending request |
 | `discover()` | Search the tool discovery index |
 | `discoveryStats()` | Get discovery index statistics |
 | `discoveryReindex()` | Rebuild discovery IDF weights |

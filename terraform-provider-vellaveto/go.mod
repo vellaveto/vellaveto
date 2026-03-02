@@ -1,6 +1,6 @@
 module github.com/vellaveto/vellaveto/terraform-provider-vellaveto
 
-go 1.25.7
+go 1.23.0
 
 require github.com/hashicorp/terraform-plugin-framework v1.17.0
 
