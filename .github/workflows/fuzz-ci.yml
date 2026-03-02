@@ -32,11 +32,29 @@ jobs:
       fail-fast: false
       matrix:
         target:
+          # Core security paths
           - fuzz_injection_detection
           - fuzz_normalize_path
           - fuzz_extract_domain
           - fuzz_dlp_decoding
           - fuzz_policy_compilation
+          # Crypto & identity
+          - fuzz_etdi_signature
+          - fuzz_attestation_verify
+          # Protocol parsing
+          - fuzz_grpc_proto
+          - fuzz_json_rpc_framing
+          - fuzz_ws_frame
+          # Resilience
+          - fuzz_circuit_breaker
+          - fuzz_cidr_parsing
+          # Input normalization
+          - fuzz_homoglyph
+          - fuzz_scan_params
+          - fuzz_output_validation
+          # A2A / agent card
+          - fuzz_agent_card_parse
+          - fuzz_a2a_classify
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
