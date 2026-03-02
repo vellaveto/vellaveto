@@ -129,15 +129,9 @@ vellaveto-proxy --protect vault -- ./my-server
 | `fortress` | Allow | Shield + exfil domains, AI config files, git hooks; approval for destructive ops | Developers who want more |
 | `vault` | **Deny** | Everything not explicitly allowed | Maximum security |
 
-<details>
-<summary><strong>See it in action</strong> (click to expand)</summary>
-
 <p align="center">
-  <img src="docs/shield-demo.svg" alt="VellaVeto Shield demo — blocking credential theft, rm -rf, and curl|sh while allowing safe operations" width="880">
+  <img src="docs/shield-demo.gif" alt="VellaVeto Shield demo — blocking credential theft, rm -rf, and curl|sh while allowing safe operations" width="880">
 </p>
-
-Run it yourself: `python3 demos/demo-client.py vellaveto-proxy --protect shield -- python3 demos/mock-mcp-server.py`
-</details>
 
 ### Setup Wizard
 
