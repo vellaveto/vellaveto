@@ -109,7 +109,9 @@ VellaVeto is not just a proxy or firewall — it is a security control plane for
 Pick a protection level and go — no config file needed:
 
 ```bash
-cargo install vellaveto-proxy
+# Install (pick one):
+cargo install vellaveto-proxy                 # From source (~2 min)
+# or download pre-built binary from https://github.com/vellaveto/vellaveto/releases
 
 # Shield — blocks credentials + dangerous commands, injection/DLP scanning
 vellaveto-proxy --protect shield -- npx @modelcontextprotocol/server-filesystem /tmp

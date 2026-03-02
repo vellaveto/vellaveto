@@ -48,13 +48,21 @@ Vellaveto is designed for low resource usage: <5ms P99 evaluation latency and <5
 
 ## Quick Start
 
-The fastest way to get Vellaveto running:
+### Stdio Proxy (local MCP servers, Claude Desktop, Cursor)
+
+The fastest way to protect a local MCP server — no config file needed:
 
 ```bash
-# Using Docker
-docker run -p 3000:3000 ghcr.io/vellaveto/vellaveto:latest
+cargo install vellaveto-proxy
+vellaveto-proxy --protect shield -- npx @modelcontextprotocol/server-filesystem /tmp
+```
 
-# Test the health endpoint
+Three protection levels: `shield` (blocks credentials + dangerous commands), `fortress` (adds exfil domain blocking + AI config protection), `vault` (default deny). See [CLI Reference](CLI.md) for details.
+
+### HTTP Server (Docker)
+
+```bash
+docker run -p 3000:3000 ghcr.io/vellaveto/vellaveto:latest
 curl http://localhost:3000/health
 ```
 

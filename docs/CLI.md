@@ -22,12 +22,52 @@ vellaveto verify --audit audit.log [--list-rotated]
 
 ## vellaveto-proxy (Stdio MCP Proxy)
 
+Wraps a local MCP server process. Intercepts JSON-RPC messages over stdin/stdout.
+
+### Protection Levels (easiest way to get started)
+
 ```bash
-vellaveto-proxy --config policy.toml [--strict] [--timeout 30] [--trace] \
+# Pick a level — no config file needed:
+vellaveto-proxy --protect shield   -- ./mcp-server    # Blocks credentials + dangerous commands
+vellaveto-proxy --protect fortress -- ./mcp-server    # Shield + exfil domains, AI config protection
+vellaveto-proxy --protect vault    -- ./mcp-server    # Fortress + default deny
+```
+
+| Level | Default | What it blocks |
+|-------|---------|----------------|
+| `shield` | Allow | Credential files, dangerous commands, injection attacks, credential leaks in responses |
+| `fortress` | Allow | Shield + exfiltration domains (pastebin, transfer.sh, etc.), AI config files (.cursor, .claude), git hooks; requires approval for destructive ops |
+| `vault` | **Deny** | Everything not explicitly allowed — must add Allow rules for what you need |
+
+### Named Presets
+
+```bash
+vellaveto-proxy --preset dev-laptop -- ./mcp-server
+vellaveto-proxy --list-presets                          # Show all available presets
+```
+
+### Custom Config
+
+```bash
+vellaveto-proxy --config policy.toml -- ./mcp-server
+vellaveto-proxy init --preset fortress -o vellaveto.toml  # Generate a starter config
+```
+
+### All Options
+
+```bash
+vellaveto-proxy \
+  [--protect shield|fortress|vault] \
+  [--preset <NAME>] \
+  [--config policy.toml] \
+  [--strict] \
+  [--timeout 30] \
+  [--trace] \
+  [--list-presets] \
   -- ./mcp-server --arg1
 ```
 
-Wraps a local MCP server process. Intercepts JSON-RPC messages over stdin/stdout.
+`--config`, `--preset`, and `--protect` are mutually exclusive — use one only.
 
 ## vellaveto-http-proxy (HTTP/WebSocket/gRPC Reverse Proxy)
 

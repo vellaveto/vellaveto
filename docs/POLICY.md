@@ -1,5 +1,23 @@
 # Policy Configuration
 
+## Don't Want to Write Policies?
+
+Use a built-in protection level — no config file needed:
+
+```bash
+vellaveto-proxy --protect shield   -- ./mcp-server    # Blocks credentials + dangerous commands
+vellaveto-proxy --protect fortress -- ./mcp-server    # Shield + exfil domains, AI config protection
+vellaveto-proxy --protect vault    -- ./mcp-server    # Fortress + default deny
+```
+
+Or use a named preset for your deployment scenario: `vellaveto-proxy --preset dev-laptop -- ./mcp-server`. Run `vellaveto-proxy --list-presets` to see all options.
+
+The rest of this document covers writing custom policies for when presets aren't enough.
+
+---
+
+## Custom Policies
+
 Policies are defined in TOML (or JSON). Each policy matches tool calls by tool and function name, with optional parameter constraints. Policies are evaluated in priority order (highest first); the first match wins.
 
 ## Basic Policies

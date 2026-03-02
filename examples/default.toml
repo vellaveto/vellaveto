@@ -1,6 +1,11 @@
 # Vellaveto Default Policy — Deny-by-default with common safe patterns
 #
-# Baked into the Docker image for zero-config usage:
+# For the stdio proxy, you can skip config files entirely with protection levels:
+#   vellaveto-proxy --protect shield -- ./mcp-server     # Blocks credentials + dangerous commands
+#   vellaveto-proxy --protect fortress -- ./mcp-server   # Shield + exfil domains, AI config protection
+#   vellaveto-proxy --protect vault -- ./mcp-server      # Fortress + default deny
+#
+# This file is baked into the Docker image for zero-config usage:
 #   docker run -p 3000:3000 ghcr.io/vellaveto/vellaveto:latest
 #
 # Override by mounting your own config:

@@ -1,8 +1,21 @@
 # create-vellaveto
 
-Interactive setup wizard for [Vellaveto](https://github.com/vellaveto/vellaveto) — the MCP Tool Firewall.
+Interactive setup wizard for [Vellaveto](https://github.com/vellaveto/vellaveto) — the runtime security engine for AI agent tool calls.
 
-## Usage
+## Quick Alternative
+
+If you just want protection without a config file, skip the wizard:
+
+```bash
+cargo install vellaveto-proxy
+vellaveto-proxy --protect shield -- ./your-mcp-server
+```
+
+Three levels: `shield` (blocks credentials + dangerous commands), `fortress` (adds exfil + AI config protection), `vault` (default deny). No config file needed.
+
+## Setup Wizard
+
+For a custom configuration, use the interactive wizard:
 
 ```bash
 npx create-vellaveto
@@ -16,9 +29,7 @@ yarn create vellaveto
 pnpm create vellaveto
 ```
 
-## What It Does
-
-The wizard walks you through setting up a Vellaveto configuration:
+The wizard walks you through:
 
 1. Choose a policy preset (deny-by-default, permissive, enterprise, etc.)
 2. Configure detection settings (injection scanning, DLP)
