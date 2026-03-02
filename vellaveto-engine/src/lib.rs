@@ -453,22 +453,65 @@ impl PolicyEngine {
     /// When the engine was constructed with [`Self::with_policies`] (or any
     /// builder that populates `compiled_policies`), the `policies` parameter
     /// is **completely ignored**. The engine uses its pre-compiled policy set
-    /// instead. This is a known API contract violation that cannot be fixed
-    /// without a breaking change.
+    /// instead.
+    #[deprecated(
+        since = "4.0.1",
+        note = "policies parameter is silently ignored when compiled policies exist. \
+                Use evaluate_action() for compiled engines or build a new engine \
+                with with_policies() for dynamic policy sets."
+    )]
+    #[must_use = "security verdicts must not be discarded"]
+    pub fn evaluate_action_with_context(
+        &self,
+        action: &Action,
+        policies: &[Policy],
+        context: Option<&EvaluationContext>,
+    ) -> Result<Verdict, EngineError> {
+        #[cfg(feature = "discovery")]
+        if let Some(deny) = self.check_topology(action) {
+            return Ok(deny);
+        }
+        if let Some(ctx) = context {
+            if let Err(reason) = ctx.validate() {
+                return Ok(Verdict::Deny { reason });
+            }
+        }
+        if context.is_none() {
+            return self.evaluate_action(action, policies);
+        }
+        if !self.compiled_policies.is_empty() {
+            return self.evaluate_with_compiled_ctx(action, context);
+        }
+        if let Some(ctx) = context {
+            if ctx.has_any_meaningful_fields() {
+                return Ok(Verdict::Deny {
+                    reason: "Policy engine has no compiled policies; \
+                             context conditions cannot be evaluated (fail-closed)"
+                        .to_string(),
+                });
+            }
+        }
+        self.evaluate_action(action, policies)
+    }
+
+    /// Evaluate an action with optional session context, returning only the verdict.
     ///
-    /// This behavior led to a P0 tenant isolation bypass where callers passed
-    /// tenant-specific policies in the `policies` parameter, but the engine
-    /// silently used its global compiled set instead.
+    /// This is the context-aware counterpart to [`Self::evaluate_action`].
+    /// When `context` is `Some`, context conditions (time windows, call limits,
+    /// agent identity, action history) are evaluated. When `None`, behaves
+    /// identically to `evaluate_action`.
     ///
-    /// # Migration guidance
-    ///
-    /// - **For compiled engines** (the common case): Use [`Self::evaluate_action`]
-    ///   which does not accept a `policies` parameter and makes the contract
-    ///   explicit. Context-aware evaluation with compiled policies works via
-    ///   [`Self::evaluate_action_traced_with_context`].
-    /// - **For dynamic policy sets**: Construct a new engine with
-    ///   [`Self::with_policies`] for each policy set, then call
-    ///   [`Self::evaluate_action`].
+    /// For the full decision trace, use [`Self::evaluate_action_traced_with_context`].
+    #[must_use = "security verdicts must not be discarded"]
+    pub fn evaluate_with_context(
+        &self,
+        action: &Action,
+        context: Option<&EvaluationContext>,
+    ) -> Result<Verdict, EngineError> {
+        self.evaluate_action_traced_with_context(action, context)
+            .map(|(verdict, _trace)| verdict)
+    }
+
     /// Evaluate an action with full decision trace and optional session context.
     #[must_use = "security verdicts must not be discarded"]
     pub fn evaluate_action_traced_with_context(
