@@ -71,6 +71,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **SDK examples:** LangChain agent integration example, Go SDK examples, examples index page.
 
+- **Consumer Shield — Wire Unused Features (6 items, 15 new tests):**
+  Closes gaps where shield modules were implemented but never wired into the production pipeline.
+  - **Session cleanup on relay exit (HIGH):** `cleanup_shield_sessions()` calls `ContextIsolator::end_session()` and `SessionUnlinker::end_session()` after the relay loop breaks, preventing memory leaks and stale Active credentials.
+  - **Credential vault replenishment (HIGH):** `generate_local_credential()` fills 32-byte cred + 64-byte sig from CSPRNG; `replenish()` fills vault to threshold; background tokio task checks `needs_replenishment` on a timer.
+  - **Wire `desanitize_responses` flag (MEDIUM):** `shield_desanitize_responses` field on ProxyBridge guards the desanitize block; when `false`, PII placeholders are preserved in responses.
+  - **Wire `audit_mode` field (MEDIUM):** Encrypted local audit store only initializes when `audit_mode == "local"`; `"remote"` mode logs skip message.
+  - **`traffic_padding` config field (MEDIUM):** Bool field on `ShieldConfig` (default `false`) with startup logging when enabled.
+  - **ZK commitments wiring (MEDIUM):** `zk-audit` feature on `vellaveto-mcp-shield` and `vellaveto-shield`; optional `PedersenCommitter` in `LocalAuditManager` with advisory commitment generation in log path.
+  - **Test count:** 8,917 → 8,932 Rust tests, 0 failures, clippy clean.
+
+- **Project governance:** Added `CODE_OF_CONDUCT.md` (Contributor Covenant) and `GOVERNANCE.md`
+  (project governance structure and decision-making process).
+
+- **Developer CI guide (`docs/CI_GREEN.md`):** Comprehensive guide documenting all CI gates,
+  pre-push verification commands, and top 10 historical CI killers.
+
+- **SDK and component READMEs:** Added missing READMEs for Python SDK, TypeScript SDK, Go SDK,
+  Java SDK, Helm chart, Terraform provider, VS Code extension, and admin console.
+
 ### Security
 
 - **Coq formal verification CI gate (17th CI job):**
@@ -79,8 +98,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **CodeQL advanced configuration:** Enhanced static analysis with test file exclusions
   to reduce noise while maintaining security scanning of production code.
-
-- **EthicalCheck CI workflow:** Automated ethical and security policy scanning.
 
 - **Rust clippy CI workflow:** Dedicated clippy lint gate.
 
@@ -140,18 +157,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   organization namespace.
 
 ## [6.0.0] - 2026-02-28
-
-### Added
-
-- **Consumer Shield — Wire Unused Features (6 items, 15 new tests):**
-  Closes gaps where shield modules were implemented but never wired into the production pipeline.
-  - **Session cleanup on relay exit (HIGH):** `cleanup_shield_sessions()` calls `ContextIsolator::end_session()` and `SessionUnlinker::end_session()` after the relay loop breaks, preventing memory leaks and stale Active credentials.
-  - **Credential vault replenishment (HIGH):** `generate_local_credential()` fills 32-byte cred + 64-byte sig from CSPRNG; `replenish()` fills vault to threshold; background tokio task checks `needs_replenishment` on a timer.
-  - **Wire `desanitize_responses` flag (MEDIUM):** `shield_desanitize_responses` field on ProxyBridge guards the desanitize block; when `false`, PII placeholders are preserved in responses.
-  - **Wire `audit_mode` field (MEDIUM):** Encrypted local audit store only initializes when `audit_mode == "local"`; `"remote"` mode logs skip message.
-  - **`traffic_padding` config field (MEDIUM):** Bool field on `ShieldConfig` (default `false`) with startup logging when enabled.
-  - **ZK commitments wiring (MEDIUM):** `zk-audit` feature on `vellaveto-mcp-shield` and `vellaveto-shield`; optional `PedersenCommitter` in `LocalAuditManager` with advisory commitment generation in log path.
-  - **Test count:** 8,917 → 8,932 Rust tests, 0 failures, clippy clean.
 
 ### Security
 
@@ -2367,7 +2372,8 @@ This is the initial stable release. No breaking changes from previous versions.
 - **Fixed** for any bug fixes
 - **Security** for vulnerability fixes
 
-[Unreleased]: https://github.com/vellaveto/vellaveto/compare/v6.0.0...HEAD
+[Unreleased]: https://github.com/vellaveto/vellaveto/compare/v6.0.1...HEAD
+[6.0.1]: https://github.com/vellaveto/vellaveto/compare/v6.0.0...v6.0.1
 [6.0.0]: https://github.com/vellaveto/vellaveto/compare/v3.0.0...v6.0.0
 [3.0.0]: https://github.com/vellaveto/vellaveto/compare/v2.2.1...v3.0.0
 [2.2.1]: https://github.com/vellaveto/vellaveto/compare/v2.0.0...v2.2.1

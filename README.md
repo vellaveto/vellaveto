@@ -93,7 +93,7 @@ VellaVeto is not just a proxy or firewall — it is a security control plane for
 - **Threat detection** — injection, tool squatting, rug pulls, schema poisoning, DLP, memory poisoning, multi-agent collusion. 20+ detection layers, not just regex.
 - **Identity and access** — OAuth 2.1/JWT, OIDC/SAML, RBAC, capability delegation, DPoP (RFC 9449), non-human identity lifecycle.
 - **Topology discovery** — auto-discover MCP servers, tools, and resources. Detect drift, tool shadowing, and namespace collisions.
-- **Audit and compliance** — tamper-evident logs (SHA-256 + Merkle + Ed25519), ZK proofs, evidence packs mapped to EU AI Act, SOC 2, DORA, NIS2, NIST AI 600-1, and 7 more frameworks.
+- **Audit and compliance** — tamper-evident logs (SHA-256 + Merkle + Ed25519), ZK proofs, evidence packs mapped to EU AI Act, SOC 2, DORA, NIS2, NIST AI 600-1, ISO 42001, and 6 more frameworks.
 - **Consumer shield** — all of the above, running user-side. See [Consumer Shield](#consumer-shield--protect-users-from-ai-providers).
 
 **Core guarantees:**
@@ -299,7 +299,7 @@ VellaVeto has undergone **232 rounds of internal adversarial security auditing**
 
 - **Fail-closed everywhere** — empty policy sets, missing parameters, lock poisoning, capacity exhaustion, and evaluation errors all produce `Deny`
 - **Zero `unwrap()` in library code** — all error paths return typed errors; panics reserved for tests only
-- **9,800+ tests** — Rust, Python, Go, TypeScript, Java, Terraform, React, shell + 24 fuzz targets, zero warnings
+- **9,800+ tests** — Rust, Python, Go, TypeScript, Java, Terraform, React, VS Code + 24 fuzz targets, zero warnings
 - **Post-quantum ready** — Hybrid Ed25519 + ML-DSA-65 (FIPS 204) audit signatures, feature-gated behind `pqc-hybrid`
 
 ### Formal Verification
@@ -312,7 +312,7 @@ We use formal methods to prove — not just test — critical security propertie
 | **Lean 4** | Fail-closed property (errors → Deny), evaluation determinism, path normalization idempotence | [formal/lean/](formal/lean/) |
 | **Coq** | 15 theorems: fail-closed, determinism, ABAC forbid-override, capability delegation attenuation | [formal/coq/](formal/coq/) |
 | **Alloy** | Capability delegation cannot escalate privileges | [formal/alloy/](formal/alloy/) |
-| **Kani** | 5 proof harnesses for Rust implementation correctness | [formal/kani/](formal/kani/) |
+| **Kani** | 5 proof harness specifications for bounded model checking (requires `cargo kani`) | [formal/kani/](formal/kani/) |
 
 Formal verification is rare in security tooling. We believe the properties that matter most — fail-closed behavior, determinism, no privilege escalation — should be proven, not just tested. See [formal/README.md](formal/README.md) for details.
 
@@ -355,10 +355,10 @@ Full details: [Compliance Guide](docs/COMPLIANCE.md) | [Website: vellaveto.onlin
 | **Stars** | New | ~1,800 | ~1,700 | ~349 |
 | **Primary role** | Runtime policy engine + firewall | Connectivity proxy / gateway | Scanner + monitor | Security gateway (plugin-based) |
 | **Evaluation latency** | <5ms P99 | Not published | N/A (scan-time) | Not published |
-| **Policy engine** | Glob/regex/domain, ABAC, Cedar, Wasm plugins, time windows, call sequences | Basic authorization | No policy engine | Plugin-based guardrails |
-| **Injection detection** | 20+ layers (Aho-Corasick, NFKC, ROT13, base64, math symbols, leetspeak, emoji smuggling, FlipAttack, memory poisoning, schema poisoning, ...) | None | Tool description scanning | Guardrail plugins |
-| **DLP** | 5-layer decode + credential patterns | None | None | Presidio plugin |
-| **Transport coverage** | HTTP, WebSocket, gRPC, stdio, SSE (verified parity) | MCP + A2A | MCP (stdio) | MCP (stdio, SSE) |
+| **Policy engine** | Glob/regex/domain, ABAC, Cedar, Wasm plugins, time windows, call sequences | OPA / OpenFGA / CEL | Guardrailing policies | Plugin-based guardrails |
+| **Injection detection** | 20+ layers (Aho-Corasick, NFKC, ROT13, base64, math symbols, leetspeak, emoji smuggling, FlipAttack, memory poisoning, schema poisoning, ...) | AI Prompt Guard (LLM-based) | Tool description scanning + LLM judges | Guardrail plugins |
+| **DLP** | 5-layer decode + credential patterns | PII pattern masking | Secrets scanning | Presidio plugin |
+| **Transport coverage** | HTTP, WebSocket, gRPC, stdio, SSE (verified parity) | MCP + A2A | MCP (stdio + proxy) | MCP (stdio, SSE) |
 | **Audit trail** | SHA-256 chain + Merkle + Ed25519 + ZK proofs + PostgreSQL | Observability hooks | Logging | Logging |
 | **Compliance** | 12 frameworks (EU AI Act, SOC 2, DORA, NIS2, ...) | None | None | None |
 | **Formal verification** | TLA+, Lean 4, Coq, Alloy, Kani | None | None | None |
@@ -368,7 +368,7 @@ Full details: [Compliance Guide](docs/COMPLIANCE.md) | [Website: vellaveto.onlin
 | **Ease of setup** | `--protect shield` (one flag) / Docker / Helm | Docker / binary | `pip install` | `pip install` |
 | **License** | MPL-2.0 / Apache-2.0 / BUSL-1.1 | Apache-2.0 | Apache-2.0 | MIT |
 
-**Trade-offs:** AgentGateway and MCP-Scan have strong institutional backing (Linux Foundation, Snyk) and larger communities. AgentGateway excels as a connectivity layer for routing agent traffic; MCP-Scan excels at static vulnerability scanning of MCP server configurations. Neither is a runtime policy engine — they solve adjacent problems. Lasso Gateway and [PipeLock](https://github.com/luckyPipewrench/pipelock) (Go, single binary, ~141 stars) are closer in scope but lighter on depth. VellaVeto's `--protect shield` offers comparable ease-of-use for basic protection, but if you need compliance evidence, multi-transport parity, or formal verification, VellaVeto is the only option that provides them.
+**Trade-offs:** AgentGateway and MCP-Scan have strong institutional backing (Linux Foundation, Snyk) and larger communities. AgentGateway excels as a connectivity and observability layer with external policy engine integration (OPA, OpenFGA); MCP-Scan excels at scanning MCP server configurations and now includes a runtime proxy mode. Both have solid security features. Lasso Gateway and [PipeLock](https://github.com/luckyPipewrench/pipelock) (Go, single binary) are closer in scope but lighter on depth. VellaVeto differentiates on integrated policy evaluation (<5ms P99), multi-transport parity, compliance evidence, and formal verification — the table above is our honest best-effort comparison, but we encourage you to evaluate each tool against your own requirements.
 
 ## Deployment Modes
 
@@ -411,7 +411,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for configuration details.
 |---|---|
 | [Deployment Guide](docs/DEPLOYMENT.md) | Docker, Kubernetes (Helm), bare metal |
 | [Operations Runbook](docs/OPERATIONS.md) | Monitoring, troubleshooting, maintenance |
-| [API Reference](docs/API.md) | Complete HTTP API (135+ endpoints) |
+| [API Reference](docs/API.md) | Complete HTTP API (168 endpoints) |
 | [Audit Log](docs/AUDIT_LOG.md) | Audit system internals, verification, SIEM export |
 | [IAM](docs/IAM.md) | OIDC, SAML, RBAC, session management |
 | [Benchmarks](docs/BENCHMARKS.md) | Reproducible performance benchmarks |
@@ -421,7 +421,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for configuration details.
 
 | SDK | Path | Tests |
 |---|---|---|
-| Python (sync + async, LangChain, LangGraph, CrewAI, Composio, Claude Agent, Strands) | [sdk/python/](sdk/python/) | 433 |
+| Python (sync + async, LangChain, LangGraph, CrewAI, Google ADK, OpenAI Agents, Composio, Claude Agent, Strands, MS Agents) | [sdk/python/](sdk/python/) | 433 |
 | TypeScript | [sdk/typescript/](sdk/typescript/) | 119 |
 | Go | [sdk/go/](sdk/go/) | 127 |
 | Java | [sdk/java/](sdk/java/) | 120 |

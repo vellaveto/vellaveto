@@ -237,9 +237,55 @@ class VellavetoCallbackHandler(BaseCallbackHandler):
         parent_run_id: Optional[UUID] = None,
         **kwargs: Any,
     ) -> None:
-        """Called when a tool finishes running."""
-        # Could add output scanning here in future
-        pass
+        """
+        Called when a tool finishes running.
+
+        Evaluates the tool output against Vellaveto policies for DLP scanning
+        (secret detection in tool responses). If a tool leaks a credential in
+        its output, the handler logs a warning and optionally raises PolicyDenied.
+        """
+        if output is None:
+            return
+
+        # Convert output to string for scanning
+        output_str = str(output) if not isinstance(output, str) else output
+
+        # Skip trivially short outputs (no secrets in < 8 chars)
+        if len(output_str) < 8:
+            return
+
+        if self.log_evaluations:
+            logger.debug(
+                "Scanning tool output (%d chars) for DLP findings",
+                len(output_str),
+            )
+
+        try:
+            result = self.client.evaluate(
+                tool="__vellaveto_response_scan",
+                function="dlp_check",
+                parameters={"output": output_str[:4096]},  # Cap scan size
+                context=self._get_context(),
+            )
+
+            if result.verdict == Verdict.DENY:
+                logger.warning(
+                    "Tool output blocked by DLP policy: %s",
+                    result.reason or "secret detected in output",
+                )
+                if self.raise_on_deny:
+                    raise PolicyDenied(
+                        result.reason or "DLP: secret detected in tool output",
+                        result.policy_id,
+                    )
+
+        except PolicyDenied:
+            raise
+        except Exception as e:
+            # Fail-open for output scanning: log but don't block.
+            # Tool already executed; blocking the output would lose data
+            # without preventing the action.
+            logger.debug("DLP output scan failed (non-blocking): %s", e)
 
     def on_tool_error(
         self,
@@ -289,9 +335,52 @@ class VellavetoCallbackHandler(BaseCallbackHandler):
         parent_run_id: Optional[UUID] = None,
         **kwargs: Any,
     ) -> None:
-        """Called when LLM starts running."""
-        # Could add prompt scanning here
-        pass
+        """
+        Called when LLM starts running.
+
+        Evaluates prompts for injection patterns that may have been injected
+        by a compromised tool output (cross-prompt injection defense).
+        """
+        if not prompts:
+            return
+
+        if self.log_evaluations:
+            model_name = serialized.get("name", serialized.get("id", ["unknown"])[-1] if isinstance(serialized.get("id"), list) else "unknown")
+            logger.info(
+                "LLM starting: model=%s, prompt_count=%d",
+                model_name,
+                len(prompts),
+            )
+
+        # Scan the combined prompt text for injection patterns
+        combined = "\n".join(prompts)[:8192]  # Cap scan size
+        if len(combined) < 8:
+            return
+
+        try:
+            result = self.client.evaluate(
+                tool="__vellaveto_prompt_scan",
+                function="injection_check",
+                parameters={"prompt": combined},
+                context=self._get_context(),
+            )
+
+            if result.verdict == Verdict.DENY:
+                logger.warning(
+                    "Prompt blocked by injection policy: %s",
+                    result.reason or "injection pattern detected in prompt",
+                )
+                if self.raise_on_deny:
+                    raise PolicyDenied(
+                        result.reason or "Injection pattern detected in prompt",
+                        result.policy_id,
+                    )
+
+        except PolicyDenied:
+            raise
+        except Exception as e:
+            # Fail-open for prompt scanning: log but don't block.
+            logger.debug("Prompt injection scan failed (non-blocking): %s", e)
 
     def on_llm_end(
         self,
@@ -301,9 +390,60 @@ class VellavetoCallbackHandler(BaseCallbackHandler):
         parent_run_id: Optional[UUID] = None,
         **kwargs: Any,
     ) -> None:
-        """Called when LLM ends running."""
-        # Could add response scanning here
-        pass
+        """
+        Called when LLM ends running.
+
+        Scans LLM response text for DLP findings (secrets that may have been
+        generated or echoed by the model from tool output).
+        """
+        if response is None:
+            return
+
+        # Extract text from LLMResult generations
+        texts = []
+        if HAS_LANGCHAIN and hasattr(response, "generations"):
+            for gen_list in response.generations:
+                for gen in gen_list:
+                    if hasattr(gen, "text") and gen.text:
+                        texts.append(gen.text)
+
+        if not texts:
+            return
+
+        combined = "\n".join(texts)[:8192]  # Cap scan size
+        if len(combined) < 8:
+            return
+
+        if self.log_evaluations:
+            logger.debug(
+                "Scanning LLM response (%d chars) for DLP findings",
+                len(combined),
+            )
+
+        try:
+            result = self.client.evaluate(
+                tool="__vellaveto_response_scan",
+                function="dlp_check",
+                parameters={"response": combined},
+                context=self._get_context(),
+            )
+
+            if result.verdict == Verdict.DENY:
+                logger.warning(
+                    "LLM response blocked by DLP policy: %s",
+                    result.reason or "secret detected in LLM response",
+                )
+                if self.raise_on_deny:
+                    raise PolicyDenied(
+                        result.reason or "DLP: secret detected in LLM response",
+                        result.policy_id,
+                    )
+
+        except PolicyDenied:
+            raise
+        except Exception as e:
+            # Fail-open for response scanning: log but don't block.
+            logger.debug("LLM response DLP scan failed (non-blocking): %s", e)
 
 
 class VellavetoToolGuard:

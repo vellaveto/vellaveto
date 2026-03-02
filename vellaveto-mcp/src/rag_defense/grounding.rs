@@ -331,7 +331,7 @@ impl GroundingChecker {
             ungrounded_claims,
             contradictions,
             attributions,
-            method: GroundingMethod::Lexical, // TODO: Use NLI when available
+            method: GroundingMethod::Lexical, // Lexical baseline; NLI requires external model
         })
     }
 
