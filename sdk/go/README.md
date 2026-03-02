@@ -100,6 +100,26 @@ client := vellaveto.NewClient("http://localhost:3000",
 )
 ```
 
+## Examples
+
+The [`examples/`](examples/) directory contains runnable programs demonstrating
+common integration patterns:
+
+| Example | Description |
+|---------|-------------|
+| [`basic`](examples/basic/) | Create a client, evaluate tool calls, handle Allow/Deny/RequireApproval verdicts |
+| [`middleware`](examples/middleware/) | HTTP middleware that enforces Vellaveto policies before forwarding requests |
+
+Run any example with:
+
+```bash
+export VELLAVETO_URL=http://localhost:3000
+export VELLAVETO_API_KEY=your-api-key
+cd examples/basic && go run .
+```
+
+See [`examples/README.md`](examples/README.md) for full details.
+
 ## License
 
 See [LICENSE](LICENSE) and [LICENSING.md](../../LICENSING.md)
