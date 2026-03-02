@@ -421,7 +421,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for configuration details.
 
 | SDK | Path | Tests |
 |---|---|---|
-| Python (sync + async, LangChain, LangGraph, CrewAI, Google ADK, OpenAI Agents, Composio, Claude Agent, Strands, MS Agents) | [sdk/python/](sdk/python/) | 433 |
+| Python (sync + async, LangChain, LangGraph, CrewAI, Google ADK, OpenAI Agents, Composio, Claude Agent, Strands, MS Agents) | [sdk/python/](sdk/python/) | 484 |
 | TypeScript | [sdk/typescript/](sdk/typescript/) | 119 |
 | Go | [sdk/go/](sdk/go/) | 127 |
 | Java | [sdk/java/](sdk/java/) | 120 |
