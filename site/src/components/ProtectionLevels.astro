@@ -60,10 +60,50 @@
         </div>
       </div>
     </div>
+    <div class="threat-comparison">
+      <h3 class="threat-title">What each level defends against</h3>
+      <table class="threat-table">
+        <thead>
+          <tr>
+            <th>Attack</th>
+            <th>Shield</th>
+            <th>Fortress</th>
+            <th>Vault</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Credential theft (.aws, .ssh, .env)</td><td class="y">Block</td><td class="y">Block</td><td class="y">Block</td></tr>
+          <tr><td>SANDWORM AI config injection</td><td class="y">Block</td><td class="y">Block</td><td class="y">Block</td></tr>
+          <tr><td>Data exfiltration (pastebin, ngrok)</td><td class="y">Block</td><td class="y">Block</td><td class="y">Block</td></tr>
+          <tr><td>Git hook persistence</td><td class="y">Block</td><td class="y">Block</td><td class="y">Block</td></tr>
+          <tr><td>System file tampering</td><td class="y">Block</td><td class="y">Block</td><td class="y">Block</td></tr>
+          <tr><td>Dangerous commands (rm -rf, curl|sh)</td><td class="y">Block</td><td class="y">Block</td><td class="y">Block</td></tr>
+          <tr><td>Prompt injection</td><td class="y">Block</td><td class="y">Block</td><td class="y">Block</td></tr>
+          <tr><td>Credential leaks in responses (DLP)</td><td class="y">Block</td><td class="y">Block</td><td class="y">Block</td></tr>
+          <tr><td>Package registry hijacking</td><td class="n">&mdash;</td><td class="y">Block</td><td class="y">Block</td></tr>
+          <tr><td>Privilege escalation (sudo)</td><td class="n">&mdash;</td><td class="a">Approve</td><td class="y">Block</td></tr>
+          <tr><td>Memory poisoning</td><td class="m">Monitor</td><td class="y">Block</td><td class="y">Block</td></tr>
+          <tr><td>Shadow agent detection</td><td class="n">&mdash;</td><td class="y">Detect</td><td class="y">Detect</td></tr>
+          <tr><td>Unauthorized file writes</td><td class="n">&mdash;</td><td class="n">&mdash;</td><td class="a">Approve</td></tr>
+          <tr><td>Destructive git ops (force push)</td><td class="a">Approve</td><td class="a">Approve</td><td class="y">Block</td></tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </section>
 
 <style>
+  .threat-comparison{margin-top:3rem}
+  .threat-title{font-size:1rem;font-weight:700;color:var(--text);margin-bottom:1rem}
+  .threat-table{width:100%;border-collapse:collapse;font-size:.8rem}
+  .threat-table th{text-align:left;padding:.5rem .75rem;border-bottom:2px solid var(--border);
+    color:var(--muted);font-weight:600;font-size:.7rem;text-transform:uppercase;letter-spacing:.04em}
+  .threat-table td{padding:.4rem .75rem;border-bottom:1px solid var(--border);color:var(--muted)}
+  .threat-table td:first-child{color:var(--text);font-weight:500}
+  .threat-table .y{color:var(--emerald, #34d399);font-weight:600}
+  .threat-table .a{color:var(--amber, #fbbf24);font-weight:600}
+  .threat-table .m{color:var(--cyan, #22d3ee);font-weight:500}
+  .threat-table .n{color:var(--muted);opacity:.5}
   #protection-levels{position:relative}
   .levels-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
     gap:1.25rem;margin-top:2.5rem}

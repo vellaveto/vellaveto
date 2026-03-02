@@ -28,16 +28,16 @@ Wraps a local MCP server process. Intercepts JSON-RPC messages over stdin/stdout
 
 ```bash
 # Pick a level — no config file needed:
-vellaveto-proxy --protect shield   -- ./mcp-server    # Blocks credentials + dangerous commands
-vellaveto-proxy --protect fortress -- ./mcp-server    # Shield + exfil domains, AI config protection
-vellaveto-proxy --protect vault    -- ./mcp-server    # Fortress + default deny
+vellaveto-proxy --protect shield   -- ./mcp-server    # 8 policies: credentials, SANDWORM, exfil, system files
+vellaveto-proxy --protect fortress -- ./mcp-server    # 11 policies: shield + package configs, sudo, memory tracking
+vellaveto-proxy --protect vault    -- ./mcp-server    # 11 policies: deny-by-default, reads allowed, writes need approval
 ```
 
-| Level | Default | What it blocks |
-|-------|---------|----------------|
-| `shield` | Allow | Credential files, dangerous commands, injection attacks, credential leaks in responses |
-| `fortress` | Allow | Shield + exfiltration domains (pastebin, transfer.sh, etc.), AI config files (.cursor, .claude), git hooks; requires approval for destructive ops |
-| `vault` | **Deny** | Everything not explicitly allowed — must add Allow rules for what you need |
+| Level | Default | What it defends against |
+|-------|---------|------------------------|
+| `shield` | Allow | Credential theft, SANDWORM (AI config injection), exfil domains, git hooks, system files, dangerous commands, injection, DLP; approval for destructive git ops |
+| `fortress` | Allow | Everything in Shield + package config tampering, privilege escalation approval, memory poisoning detection, shadow agent detection |
+| `vault` | **Deny** | Everything — nothing runs without permission. Source reads + safe git commands allowed; file writes require approval |
 
 ### Named Presets
 

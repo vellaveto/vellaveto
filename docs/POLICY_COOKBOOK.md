@@ -492,9 +492,9 @@ This is the pattern used by the built-in `vault` protection level (`vellaveto-pr
 **Start with a preset.** Before writing custom policies, try the built-in protection levels:
 
 ```bash
-vellaveto-proxy --protect shield   -- ./mcp-server    # Blocks credentials + dangerous commands
-vellaveto-proxy --protect fortress -- ./mcp-server    # Shield + exfil domains + approval gates
-vellaveto-proxy --protect vault    -- ./mcp-server    # Fortress + default deny
+vellaveto-proxy --protect shield   -- ./mcp-server    # 8 policies: credentials, SANDWORM, exfil, system files
+vellaveto-proxy --protect fortress -- ./mcp-server    # 11 policies: shield + package configs, sudo, memory tracking
+vellaveto-proxy --protect vault    -- ./mcp-server    # 11 policies: deny-by-default, reads allowed, writes need approval
 ```
 
 **Use `on_no_match = "continue"` on conditional policies.** Without this, a conditional policy that matches no constraints returns Allow by default. With `"continue"`, it skips to the next policy, which is almost always what you want for deny-list style rules.

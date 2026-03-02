@@ -68,9 +68,9 @@ struct Cli {
     preset: Option<String>,
 
     /// Easy protection level: shield, fortress, or vault.
-    /// Shield blocks credentials + dangerous commands.
-    /// Fortress adds exfil blocking + AI config protection.
-    /// Vault is fortress with default deny.
+    /// Shield: 8 policies — credentials, SANDWORM defense, exfil, system files.
+    /// Fortress: 11 policies — shield + package configs, sudo approval, memory tracking.
+    /// Vault: 11 policies — deny-by-default, reads allowed, writes need approval.
     /// Mutually exclusive with --config and --preset.
     #[arg(long)]
     protect: Option<String>,

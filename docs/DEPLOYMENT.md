@@ -57,7 +57,7 @@ cargo install vellaveto-proxy
 vellaveto-proxy --protect shield -- npx @modelcontextprotocol/server-filesystem /tmp
 ```
 
-Three protection levels: `shield` (blocks credentials + dangerous commands), `fortress` (adds exfil domain blocking + AI config protection), `vault` (default deny). See [CLI Reference](CLI.md) for details.
+Three protection levels: `shield` (8 policies — credentials, SANDWORM defense, exfil blocking, system files), `fortress` (11 policies — adds package config protection, sudo approval, memory tracking), `vault` (11 policies — deny-by-default, source reads allowed, writes need approval). See [CLI Reference](CLI.md) for details.
 
 ### HTTP Server (Docker)
 

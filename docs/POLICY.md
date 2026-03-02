@@ -5,9 +5,9 @@
 Use a built-in protection level — no config file needed:
 
 ```bash
-vellaveto-proxy --protect shield   -- ./mcp-server    # Blocks credentials + dangerous commands
-vellaveto-proxy --protect fortress -- ./mcp-server    # Shield + exfil domains, AI config protection
-vellaveto-proxy --protect vault    -- ./mcp-server    # Fortress + default deny
+vellaveto-proxy --protect shield   -- ./mcp-server    # 8 policies: credentials, SANDWORM, exfil, system files
+vellaveto-proxy --protect fortress -- ./mcp-server    # 11 policies: shield + package configs, sudo, memory tracking
+vellaveto-proxy --protect vault    -- ./mcp-server    # 11 policies: deny-by-default, reads allowed, writes need approval
 ```
 
 Or use a named preset for your deployment scenario: `vellaveto-proxy --preset dev-laptop -- ./mcp-server`. Run `vellaveto-proxy --list-presets` to see all options.
