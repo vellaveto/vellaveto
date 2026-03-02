@@ -4,11 +4,7 @@ on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: write
-  packages: write
-  attestations: write
-  id-token: write
+permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,6 +15,11 @@ jobs:
     name: Build Release Binaries
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: write
+      packages: write
+      attestations: write
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
