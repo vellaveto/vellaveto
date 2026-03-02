@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security Vulnerability
-    url: https://github.com/paolovella/vellaveto/blob/main/docs/SECURITY.md
+    url: https://github.com/vellaveto/vellaveto/blob/main/docs/SECURITY.md
     about: Report security vulnerabilities privately. Do NOT open a public issue.
   - name: Questions & Discussion
-    url: https://github.com/paolovella/vellaveto/discussions
+    url: https://github.com/vellaveto/vellaveto/discussions
     about: Ask questions or start a discussion.
