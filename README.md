@@ -8,7 +8,7 @@
     <a href="https://github.com/vellaveto/vellaveto/stargazers"><img src="https://img.shields.io/github/stars/vellaveto/vellaveto?style=flat&logo=github&label=stars" alt="GitHub Stars"></a>
     <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-MPL--2.0_/_Apache--2.0_/_BUSL--1.1-blue.svg" alt="License: Three-tier"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/MSRV-1.88.0-orange.svg?logo=rust" alt="MSRV 1.88.0"></a>
-    <img src="https://img.shields.io/badge/tests-9%2C600%2B_passing-brightgreen.svg" alt="Tests: 9,600+ passing">
+    <img src="https://img.shields.io/badge/tests-9%2C800%2B_passing-brightgreen.svg" alt="Tests: 9,800+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <a href="docs/SECURITY_GUARANTEES.md"><img src="https://img.shields.io/badge/internal_security_audits-232_rounds-orange.svg" alt="232 Internal Security Audit Rounds"></a>
     <a href="formal/"><img src="https://img.shields.io/badge/formal_verification-TLA%2B_%7C_Lean_4_%7C_Coq-blueviolet.svg" alt="Formal Verification: TLA+ | Lean 4 | Coq"></a>
@@ -276,7 +276,7 @@ VellaVeto has undergone **232 rounds of internal adversarial security auditing**
 
 - **Fail-closed everywhere** — empty policy sets, missing parameters, lock poisoning, capacity exhaustion, and evaluation errors all produce `Deny`
 - **Zero `unwrap()` in library code** — all error paths return typed errors; panics reserved for tests only
-- **9,600+ tests** — Rust, Python, Go, TypeScript, Java, Terraform, React, shell + 24 fuzz targets, zero warnings
+- **9,800+ tests** — Rust, Python, Go, TypeScript, Java, Terraform, React, shell + 24 fuzz targets, zero warnings
 - **Post-quantum ready** — Hybrid Ed25519 + ML-DSA-65 (FIPS 204) audit signatures, feature-gated behind `pqc-hybrid`
 
 ### Formal Verification

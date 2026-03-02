@@ -93,6 +93,10 @@ security-testing/
 /vellaveto/
 /vellaveto-src/
 
+# Audit runtime artifacts
+examples/audit.checkpoints.jsonl
+examples/proxy-audit.log
+
 # OS
 # Lean 4 build artifacts
 formal/lean/.lake/
