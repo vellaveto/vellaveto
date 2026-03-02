@@ -1,0 +1,246 @@
+# Vellaveto Preset: Code Review Agent
+#
+# For AI agents performing code review (reading source, diffs, CI configs).
+# Read-only access to source files and git history. Blocks all writes,
+# credential access, arbitrary command execution, and external network
+# access beyond the git remote.
+#
+# Usage:
+#   vellaveto serve --config examples/presets/code-review-agent.toml --port 3000
+
+# --- Block credential and secret files (highest priority) ---
+[[policies]]
+name = "Block credential and secret files"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "*:*:code-review-credential-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.aws/**",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.ssh/**",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gnupg/**",     on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env.*",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/credentials*",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets*",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/*.pem",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/*.key",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/*.p12",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/*.pfx",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_rsa*",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_ed25519*",        on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block all file write/modify operations ---
+[[policies]]
+name = "Block file writes"
+tool_pattern = "file_write"
+function_pattern = "*"
+priority = 290
+id = "file_write:*:code-review-block-write"
+policy_type = "Deny"
+
+[[policies]]
+name = "Block file create"
+tool_pattern = "file_create"
+function_pattern = "*"
+priority = 290
+id = "file_create:*:code-review-block-create"
+policy_type = "Deny"
+
+[[policies]]
+name = "Block file delete"
+tool_pattern = "file_delete"
+function_pattern = "*"
+priority = 290
+id = "file_delete:*:code-review-block-delete"
+policy_type = "Deny"
+
+[[policies]]
+name = "Block file edit"
+tool_pattern = "file_edit"
+function_pattern = "*"
+priority = 290
+id = "file_edit:*:code-review-block-edit"
+policy_type = "Deny"
+
+# --- Block dangerous and non-review commands ---
+[[policies]]
+name = "Block non-review commands"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 280
+id = "*:*:code-review-block-commands"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  # Block rm, mv, cp, chmod, chown, sudo, curl|sh, wget|sh
+  { param = "*", op = "regex", pattern = "rm\\s+",                   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "mv\\s+",                   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "cp\\s+",                   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "chmod\\s+",                on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "chown\\s+",                on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "sudo\\s+",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "curl.*\\|.*(sh|bash)",     on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "wget.*\\|.*(sh|bash)",     on_match = "deny", on_missing = "skip" },
+  # Block git push, commit, merge, rebase, checkout (write operations)
+  { param = "*", op = "regex", pattern = "git\\s+push",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+commit",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+merge",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+rebase",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+checkout",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+reset",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+stash",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+cherry-pick",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+branch\\s+-[dD]",   on_match = "deny", on_missing = "skip" },
+]
+
+# --- Allow reading source code files ---
+[[policies]]
+name = "Allow reading source files"
+tool_pattern = "file_read"
+function_pattern = "*"
+priority = 200
+id = "file_read:*:code-review-allow-source"
+policy_type = "Allow"
+
+[policies.path_rules]
+allowed = [
+  "**/*.rs",
+  "**/*.py",
+  "**/*.ts",
+  "**/*.tsx",
+  "**/*.js",
+  "**/*.jsx",
+  "**/*.go",
+  "**/*.java",
+  "**/*.kt",
+  "**/*.scala",
+  "**/*.c",
+  "**/*.cpp",
+  "**/*.h",
+  "**/*.hpp",
+  "**/*.cs",
+  "**/*.rb",
+  "**/*.swift",
+  "**/*.php",
+  "**/*.lua",
+  "**/*.sh",
+  "**/*.bash",
+  "**/*.zsh",
+  "**/*.toml",
+  "**/*.yaml",
+  "**/*.yml",
+  "**/*.json",
+  "**/*.xml",
+  "**/*.html",
+  "**/*.css",
+  "**/*.scss",
+  "**/*.sql",
+  "**/*.proto",
+  "**/*.graphql",
+  "**/*.md",
+  "**/*.txt",
+  "**/*.lock",
+  "**/Cargo.toml",
+  "**/Cargo.lock",
+  "**/package.json",
+  "**/package-lock.json",
+  "**/yarn.lock",
+  "**/pnpm-lock.yaml",
+  "**/go.mod",
+  "**/go.sum",
+  "**/Makefile",
+  "**/Dockerfile",
+  "**/docker-compose*.yml",
+  "**/.dockerignore",
+  "**/.gitignore",
+  "**/.gitattributes",
+]
+
+# --- Allow reading CI/CD configuration ---
+[[policies]]
+name = "Allow reading CI/CD configs"
+tool_pattern = "file_read"
+function_pattern = "*"
+priority = 200
+id = "file_read:*:code-review-allow-ci"
+policy_type = "Allow"
+
+[policies.path_rules]
+allowed = [
+  "**/.github/**",
+  "**/.gitlab-ci.yml",
+  "**/Jenkinsfile",
+  "**/.circleci/**",
+  "**/.travis.yml",
+  "**/.buildkite/**",
+  "**/azure-pipelines.yml",
+  "**/.drone.yml",
+]
+
+# --- Allow git read-only commands ---
+[[policies]]
+name = "Allow git read-only commands"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 200
+id = "*:*:code-review-allow-git-read"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "^git\\s+log\\b",  on_match = "allow", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "^git\\s+diff\\b", on_match = "allow", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "^git\\s+show\\b", on_match = "allow", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "^git\\s+blame\\b", on_match = "allow", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "^git\\s+status\\b", on_match = "allow", on_missing = "skip" },
+]
+
+# --- Network: only allow git remote (GitHub/GitLab/Bitbucket) ---
+[[policies]]
+name = "Network allowlist for git remotes"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 150
+id = "*:*:code-review-network-allowlist"
+policy_type = "Allow"
+
+[policies.network_rules]
+allowed_domains = [
+  "github.com",
+  "api.github.com",
+  "gitlab.com",
+  "bitbucket.org",
+]
+blocked_domains = []
+
+[policies.network_rules.ip_rules]
+block_private = true
+
+# --- Default deny (fail-closed) ---
+[[policies]]
+name = "Default deny"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 0
+id = "*:*:code-review-default-deny"
+policy_type = "Deny"
+
+# --- Injection detection (blocking) ---
+[injection]
+enabled = true
+block_on_injection = true
+
+# --- DLP scanning (blocking — prevent credential leaks in review output) ---
+[dlp]
+enabled = true
+block_on_finding = true
+
+# --- Audit ---
+[audit]
+redaction_level = "KeysAndPatterns"
