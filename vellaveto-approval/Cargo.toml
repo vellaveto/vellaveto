@@ -1,13 +1,13 @@
 [package]
 name = "vellaveto-approval"
-version = "3.0.0"
+version = "6.0.0"
 description = "Human-in-the-loop approval workflow with deduplication"
 edition = "2021"
 license = "MPL-2.0"
 repository.workspace = true
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types", version = "3.0.0" }
+vellaveto-types = { path = "../vellaveto-types", version = "6.0.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }

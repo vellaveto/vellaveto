@@ -1,15 +1,15 @@
 [package]
 name = "vellaveto-mcp-shield"
-version = "0.1.0"
+version = "6.0.0"
 description = "Consumer shield: bidirectional PII sanitization, session isolation, encrypted local audit"
 edition = "2021"
 license = "MPL-2.0"
 repository.workspace = true
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types", version = "3.0.0" }
-vellaveto-audit = { path = "../vellaveto-audit", version = "3.0.0" }
-vellaveto-config = { path = "../vellaveto-config", version = "3.0.0" }
+vellaveto-types = { path = "../vellaveto-types", version = "6.0.0" }
+vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.0" }
+vellaveto-config = { path = "../vellaveto-config", version = "6.0.0" }
 chacha20poly1305 = "0.10"
 argon2 = { workspace = true }
 sha2 = "0.10"

@@ -5239,7 +5239,7 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "vellaveto-approval"
-version = "3.0.0"
+version = "6.0.0"
 dependencies = [
  "chrono",
  "serde",
@@ -5256,7 +5256,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-audit"
-version = "3.0.0"
+version = "6.0.0"
 dependencies = [
  "ark-bn254",
  "ark-ff",
@@ -5301,7 +5301,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-canary"
-version = "0.1.0"
+version = "6.0.0"
 dependencies = [
  "chrono",
  "ed25519-dalek",
@@ -5315,7 +5315,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-canonical"
-version = "3.0.0"
+version = "6.0.0"
 dependencies = [
  "proptest",
  "serde",
@@ -5325,7 +5325,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-cluster"
-version = "3.0.0"
+version = "6.0.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5347,7 +5347,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-config"
-version = "3.0.0"
+version = "6.0.0"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -5365,7 +5365,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-discovery"
-version = "0.1.0"
+version = "6.0.0"
 dependencies = [
  "async-trait",
  "petgraph 0.7.1",
@@ -5383,7 +5383,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-engine"
-version = "3.0.0"
+version = "6.0.0"
 dependencies = [
  "chrono",
  "criterion",
@@ -5406,7 +5406,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-http-proxy"
-version = "3.0.0"
+version = "6.0.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5456,14 +5456,14 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-http-proxy-shield"
-version = "0.1.0"
+version = "6.0.0"
 dependencies = [
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "vellaveto-integration"
-version = "3.0.0"
+version = "6.0.0"
 dependencies = [
  "arc-swap",
  "axum",
@@ -5493,7 +5493,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-mcp"
-version = "3.0.0"
+version = "6.0.0"
 dependencies = [
  "aho-corasick",
  "async-trait",
@@ -5537,7 +5537,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-mcp-shield"
-version = "0.1.0"
+version = "6.0.0"
 dependencies = [
  "argon2",
  "chacha20poly1305",
@@ -5561,7 +5561,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-operator"
-version = "4.0.0"
+version = "6.0.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5580,7 +5580,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-proxy"
-version = "3.1.0"
+version = "6.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5599,7 +5599,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-server"
-version = "3.0.0"
+version = "6.0.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -5663,7 +5663,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-shield"
-version = "0.1.0"
+version = "6.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5683,7 +5683,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-types"
-version = "3.0.0"
+version = "6.0.0"
 dependencies = [
  "proptest",
  "serde",

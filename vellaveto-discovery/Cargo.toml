@@ -1,14 +1,14 @@
 [package]
 name = "vellaveto-discovery"
-version = "0.1.0"
+version = "6.0.0"
 description = "MCP tool topology crawling and verification for VellaVeto"
 edition = "2021"
 license = "MPL-2.0"
 repository.workspace = true
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types", version = "3.0.0" }
-vellaveto-canonical = { path = "../vellaveto-canonical", version = "3.0.0" }
+vellaveto-types = { path = "../vellaveto-types", version = "6.0.0" }
+vellaveto-canonical = { path = "../vellaveto-canonical", version = "6.0.0" }
 petgraph = "0.7"
 serde = { workspace = true }
 serde_json = { workspace = true }

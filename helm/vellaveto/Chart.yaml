@@ -2,8 +2,8 @@ apiVersion: v2
 name: vellaveto
 description: MCP Tool Firewall - Runtime security engine for AI agent tool calls
 type: application
-version: 4.0.0
-appVersion: "4.0.0"
+version: 6.0.0
+appVersion: "6.0.0"
 
 keywords:
   - mcp
