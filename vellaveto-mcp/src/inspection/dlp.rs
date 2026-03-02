@@ -1576,7 +1576,11 @@ mod tests {
     #[test]
     fn test_dlp_detects_database_uri_mongodb() {
         // Split to avoid GitHub secret scanning false positive on test fixture
-        let uri = ["mongodb://admin:s3cret@", "cluster0.mongodb.net:27017/prod?retryWrites=true"].concat();
+        let uri = [
+            "mongodb://admin:s3cret@",
+            "cluster0.mongodb.net:27017/prod?retryWrites=true",
+        ]
+        .concat();
         let params = json!({
             "connection_string": uri
         });
