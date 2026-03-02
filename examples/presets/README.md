@@ -46,7 +46,13 @@ For specific deployment scenarios. Use with `--preset <NAME>`:
 |--------|----------|---------|
 | [`browser-agent`](browser-agent.toml) | Browser automation (Playwright, Puppeteer) | Allow |
 | [`customer-support-agent`](customer-support-agent.toml) | CRM/ticketing with PII redaction | Allow |
-| [`financial-agent`](financial-agent.toml) | Financial services (DORA/NIS2 controls) | Allow |
+
+### Compliance & Regulated
+
+| Preset | Use Case | Default |
+|--------|----------|---------|
+| [`compliance-starter`](compliance-starter.toml) | All 12 compliance frameworks enabled (EU AI Act, NIS2, DORA, SOC 2, ...) | **Deny** |
+| [`financial-agent`](financial-agent.toml) | Financial services (DORA/NIS2 controls) | **Deny** |
 | [`healthcare-agent`](healthcare-agent.toml) | Healthcare (HIPAA-aligned PHI protection) | Allow |
 
 ### Security-Hardened

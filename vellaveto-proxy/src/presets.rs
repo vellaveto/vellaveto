@@ -104,6 +104,11 @@ const PRESETS: &[(&str, &str, &str)] = &[
         include_str!("../presets/devops-agent.toml"),
     ),
     (
+        "compliance-starter",
+        "All 12 compliance frameworks — EU AI Act, NIS2, DORA, SOC 2, and 8 more",
+        include_str!("../presets/compliance-starter.toml"),
+    ),
+    (
         "financial-agent",
         "Financial services — DORA/NIS2 controls, strict audit",
         include_str!("../presets/financial-agent.toml"),

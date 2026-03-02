@@ -32,13 +32,15 @@ vellaveto-proxy --protect shield -- npx @modelcontextprotocol/server-filesystem 
 
 That's it — credentials blocked, dangerous commands blocked, injection scanning on, DLP on. Three protection levels: `shield` (just works), `fortress` (adds exfil domain blocking + AI config protection), `vault` (default deny). No YAML, no config files, no security domain knowledge needed. Works with Claude Desktop, Cursor, Windsurf, or any MCP client — just wrap the server command.
 
-Beyond the one-liner, VellaVeto includes topology discovery (auto-inventorying MCP servers and tools), identity-aware access control (OIDC/SAML/RBAC/capability delegation), and a tamper-evident audit trail with evidence packs for compliance frameworks.
+Beyond the one-liner, VellaVeto includes topology discovery (auto-inventorying MCP servers and tools), identity-aware access control (OIDC/SAML/RBAC/capability delegation), and a tamper-evident audit trail with evidence packs mapped to 12 regulatory and industry frameworks — EU AI Act, NIS2, DORA, SOC 2, ISO 42001, NIST AI 600-1, OWASP Agentic Top 10, OWASP MCP Top 10, CoSAI, Adversa TOP 25, Singapore MGF, and CSA ATF. No other MCP gateway ships with compliance evidence generation.
 
 **Technical approach:** Written in Rust with a synchronous policy engine. <5ms P99 evaluation latency, <50MB memory baseline. The policy DSL supports glob/regex/domain matching, parameter constraints, time windows, call sequences, Cedar-style ABAC, and Wasm plugins for custom logic.
 
 **What I think is genuinely different:**
 
 - *Consumer privacy shield.* When AI providers process your tool calls, they see your file paths, credentials, browsing patterns, and work context. The Consumer Shield is a user-side deployment mode that strips PII before it reaches any provider — bidirectional replacement with placeholders outbound, restoration inbound. It also includes encrypted local audit (so you have a provable record of what was shared), session unlinkability (provider can't link your sessions to build a profile), credential vault (tool credentials never reach the provider), and stylometric fingerprint resistance. This was built before recent news about AI providers partnering with enterprises for broad data access — but that kind of arrangement is exactly why users need their own controls. Licensed MPL-2.0, no enterprise license required.
+
+- *12-framework compliance evidence.* If you deploy AI agents in regulated industries, you need evidence for auditors. VellaVeto ships registries for EU AI Act, NIS2, DORA, SOC 2, ISO 42001, NIST AI 600-1, and 6 more frameworks. Each registry maps VellaVeto controls to specific regulatory requirements and generates evidence packs. Cross-regulation incident reporting maps a single event to every applicable notification timeline (NIS2 24h, DORA classification, EU AI Act Art 62). This is table-stakes for enterprise adoption but no other MCP gateway provides it.
 
 - *Formal verification.* We wrote TLA+ specs, Lean 4 proofs, and Coq theorems proving fail-closed behavior, evaluation determinism, and that capability delegation can't escalate privileges. I haven't seen this in other security tools in this space. The proofs are in `formal/` — they're real, not marketing.
 

@@ -1,0 +1,144 @@
+# Vellaveto Preset: Compliance Starter
+#
+# Comprehensive compliance baseline with all 12 framework registries enabled.
+# Start from this preset when deploying in regulated environments (financial,
+# healthcare, public sector, EU-regulated entities) and need evidence packs
+# for auditors.
+#
+# This preset provides:
+#   - All 12 compliance framework registries enabled
+#   - Cross-regulation incident reporting timelines
+#   - Evidence pack generation (EU AI Act, NIS2, DORA, ISO 42001)
+#   - Gap analysis across all frameworks
+#   - Tamper-evident audit with cryptographic checkpoints
+#   - Injection scanning and DLP enabled (required by most frameworks)
+#   - Default deny (fail-closed, as required by DORA and NIS2)
+#
+# Usage:
+#   vellaveto serve --config examples/presets/compliance-starter.toml --port 3000
+
+# --- Block credential access ---
+[[policies]]
+name = "Block credential paths"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "*:*:comp-block-creds"
+policy_type = "Deny"
+
+[policies.path_rules]
+blocked = [
+  "**/.aws/**",
+  "**/.ssh/**",
+  "**/.env",
+  "**/.env.*",
+  "**/credentials*",
+  "**/secrets*",
+  "**/.gnupg/**",
+  "**/service-account*.json",
+]
+
+# --- Block exfiltration domains ---
+[[policies]]
+name = "Block exfiltration domains"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "*:*:comp-block-exfil"
+policy_type = "Deny"
+
+[policies.network_rules]
+blocked_domains = [
+  "*.pastebin.com",
+  "*.transfer.sh",
+  "*.file.io",
+  "*.wetransfer.com",
+  "*.webhook.site",
+  "*.requestbin.com",
+  "*.pipedream.net",
+  "*.ngrok.io",
+  "*.ngrok-free.app",
+]
+
+# --- Require approval for destructive operations ---
+[[policies]]
+name = "Require approval for writes"
+tool_pattern = "file_write"
+function_pattern = "*"
+priority = 200
+id = "file_write:*:comp-require-approval"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "require_approval"
+parameter_constraints = []
+
+# --- Allow reads with audit ---
+[[policies]]
+name = "Allow tool reads"
+tool_pattern = "*"
+function_pattern = "read*"
+priority = 100
+id = "*:read*:comp-allow-reads"
+policy_type = "Allow"
+
+# --- Default deny (fail-closed) ---
+[[policies]]
+name = "Default deny"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 0
+id = "*:*:comp-default-deny"
+policy_type = "Deny"
+
+# --- Detection layers (required by NIS2, DORA, OWASP) ---
+[injection]
+enabled = true
+block_on_injection = true
+
+[dlp]
+enabled = true
+block_on_finding = true
+
+# --- Audit configuration ---
+[audit]
+redaction_level = "KeysAndPatterns"
+strict_mode = true
+# Tamper-evident: SHA-256 chain + Merkle proofs + Ed25519 checkpoints
+# Required for EU AI Act Art 12, SOC 2 CC7, DORA Ch III
+
+# --- Compliance framework registries ---
+# Configurable frameworks (enable evidence pack generation):
+
+# EU AI Act (Art 9, 10, 12, 14, 50)
+[compliance.eu_ai_act]
+enabled = true
+transparency_marking = true
+
+# NIS2 (Art 21-23, incident notification timelines)
+[compliance.nis2]
+enabled = true
+
+# DORA (Ch II, III, V — financial ICT resilience)
+[compliance.dora]
+enabled = true
+
+# SOC 2 Type II (CC1-CC9, automated CC6 access reviews)
+[compliance.soc2]
+enabled = true
+
+# OWASP Agentic Security Index (ASI01-ASI10)
+[compliance.owasp_asi]
+enabled = true
+
+# Art 10 data governance
+[compliance.data_governance]
+enabled = true
+
+# Always-on registries (no configuration needed, coverage reports always available):
+#   - ISO 42001 (AI management system)
+#   - NIST AI 600-1 (GenAI risk profile)
+#   - CoSAI (38 controls)
+#   - Adversa TOP 25 (25 vulnerabilities)
+#   - OWASP MCP Top 10 (MCP-specific risks)
+#   - Singapore MGF (Model Governance Framework)
+#   - CSA ATF (Agentic Trust Framework)
