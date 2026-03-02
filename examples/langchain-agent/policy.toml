@@ -1,0 +1,96 @@
+# Vellaveto Policy: LangChain Agent Example
+#
+# Demonstrates a practical policy for a LangChain agent that can read files
+# and browse the web. This policy:
+#
+#   1. Blocks access to credential and secret files (highest priority)
+#   2. Blocks network requests to known exfiltration/paste domains
+#   3. Allows reading files under /tmp
+#   4. Allows everything else at the lowest priority
+#
+# Usage:
+#   vellaveto serve --config examples/langchain-agent/policy.toml --port 3000
+
+# ── Block credential and secret files (priority 300) ─────────────────────────
+#
+# Even if the LLM is tricked by prompt injection into reading sensitive files,
+# Vellaveto will deny the call before it executes.
+
+[[policies]]
+name = "Block credential files"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "*:*:langchain-credential-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  # AWS credentials
+  { param = "*", op = "glob", pattern = "/home/*/.aws/**",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.aws/credentials",   on_match = "deny", on_missing = "skip" },
+
+  # SSH keys
+  { param = "*", op = "glob", pattern = "/home/*/.ssh/**",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_rsa",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_ed25519",         on_match = "deny", on_missing = "skip" },
+
+  # Environment files (may contain API keys)
+  { param = "*", op = "glob", pattern = "**/.env",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env.*",             on_match = "deny", on_missing = "skip" },
+
+  # Other secrets
+  { param = "*", op = "glob", pattern = "**/credentials.json",   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.yaml",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.kube/config",  on_match = "deny", on_missing = "skip" },
+]
+
+# ── Block exfiltration domains (priority 200) ────────────────────────────────
+#
+# Prevents the agent from sending data to paste sites, file-sharing services,
+# or known attacker infrastructure.
+
+[[policies]]
+name = "Block exfiltration domains"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 200
+id = "*:*:langchain-exfil-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "*pastebin.com*",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "*requestbin.com*",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "*webhook.site*",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "*ngrok.io*",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "*transfer.sh*",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "*file.io*",             on_match = "deny", on_missing = "skip" },
+]
+
+# ── Default allow (priority 1) ───────────────────────────────────────────────
+#
+# Everything that isn't blocked above is allowed. In production you might
+# flip this to "Deny" and explicitly allow only the tools you need.
+
+[[policies]]
+name = "Default allow"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 1
+id = "*:*:langchain-default-allow"
+policy_type = "Allow"
+
+# ── Injection detection (blocking) ───────────────────────────────────────────
+[injection]
+enabled = true
+block_on_injection = true
+
+# ── DLP credential scanning (blocking) ───────────────────────────────────────
+[dlp]
+enabled = true
+block_on_finding = true
+
+# ── Audit logging ────────────────────────────────────────────────────────────
+[audit]
+redaction_level = "KeysAndPatterns"

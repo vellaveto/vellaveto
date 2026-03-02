@@ -5487,6 +5487,7 @@ dependencies = [
  "vellaveto-engine",
  "vellaveto-http-proxy",
  "vellaveto-mcp",
+ "vellaveto-mcp-shield",
  "vellaveto-server",
  "vellaveto-types",
 ]
