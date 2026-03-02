@@ -66,6 +66,12 @@ tags:
     description: Enhanced Tool Definition Integrity (cryptographic tool security)
   - name: Discovery
     description: Tool discovery and search
+  - name: Topology
+    description: MCP server topology graph and crawling
+  - name: Inventory
+    description: Asset inventory views (agents, servers, tools, relationships)
+  - name: Auth
+    description: M2M authentication and OAuth client metadata
   - name: Simulator
     description: Policy simulation, validation, and red-teaming
   - name: Execution Graphs
@@ -1523,6 +1529,292 @@ paths:
           description: Tool list (max 100)
 
   # ═══════════════════════════════════════════════════════════════════════════
+  # TOPOLOGY
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/topology:
+    get:
+      operationId: getTopologySnapshot
+      summary: Get current topology snapshot
+      description: Returns the full topology graph (servers, tools, resources) as JSON. Truncated if >5,000 nodes.
+      tags: [Topology]
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+      responses:
+        "200":
+          description: Topology snapshot or summary
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Topology crawling not enabled
+
+  /api/topology/status:
+    get:
+      operationId: getTopologyStatus
+      summary: Get topology guard status
+      description: Returns guard status (loaded/bypassed), fingerprint, server/tool/resource counts, and crawled_at timestamp.
+      tags: [Topology]
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+      responses:
+        "200":
+          description: Guard status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [loaded, bypassed]
+                  fingerprint:
+                    type: string
+                  server_count:
+                    type: integer
+                  tool_count:
+                    type: integer
+                  resource_count:
+                    type: integer
+                  crawled_at_epoch_secs:
+                    type: integer
+        "404":
+          description: Topology crawling not enabled
+
+  /api/topology/recrawl:
+    post:
+      operationId: triggerTopologyRecrawl
+      summary: Trigger immediate topology re-crawl
+      description: Forces the topology crawler to re-scan all configured MCP servers immediately.
+      tags: [Topology]
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+      responses:
+        "200":
+          description: Re-crawl triggered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+        "404":
+          description: Topology crawling not enabled
+
+  /api/topology/servers/{name}:
+    delete:
+      operationId: removeTopologyServer
+      summary: Remove a server from topology
+      description: Removes a server from the static probe and triggers a re-crawl.
+      tags: [Topology]
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 512
+      responses:
+        "200":
+          description: Server removed
+        "404":
+          description: Topology crawling not enabled or server not found
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # INVENTORY
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/inventory/agents:
+    get:
+      operationId: inventoryAgents
+      summary: List known agent identities
+      description: Returns agent IDs observed in audit trails and active sessions.
+      tags: [Inventory]
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+      responses:
+        "200":
+          description: Agent inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  count:
+                    type: integer
+                  agent_ids:
+                    type: array
+                    items:
+                      type: string
+
+  /api/inventory/mcp-servers:
+    get:
+      operationId: inventoryMcpServers
+      summary: List discovered MCP servers
+      description: Returns MCP server summaries from the topology graph.
+      tags: [Inventory]
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+      responses:
+        "200":
+          description: MCP server inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  loaded:
+                    type: boolean
+                  count:
+                    type: integer
+                  servers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        tool_count:
+                          type: integer
+                        resource_count:
+                          type: integer
+
+  /api/inventory/tools:
+    get:
+      operationId: inventoryTools
+      summary: List all tools across MCP servers
+      description: Returns tool summaries with server origin, description preview, and ownership/exposure labels.
+      tags: [Inventory]
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+      responses:
+        "200":
+          description: Tool inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  loaded:
+                    type: boolean
+                  count:
+                    type: integer
+                  tools:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        qualified_name:
+                          type: string
+                        server:
+                          type: string
+                        name:
+                          type: string
+                        description_preview:
+                          type: string
+
+  /api/inventory/graph:
+    get:
+      operationId: inventoryGraph
+      summary: Get agent-server-tool relationship graph
+      description: Returns a relationship graph showing which agents use which servers and tools, inferred from audit trails and topology.
+      tags: [Inventory]
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+      responses:
+        "200":
+          description: Relationship graph
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  servers:
+                    type: array
+                    items:
+                      type: object
+                  agents:
+                    type: array
+                    items:
+                      type: object
+                  relationships:
+                    type: array
+                    items:
+                      type: object
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # AUTH (M2M)
+  # ═══════════════════════════════════════════════════════════════════════════
+  /api/auth/token:
+    post:
+      operationId: m2mToken
+      summary: Exchange credentials for an M2M access token
+      description: OAuth 2.0 client_credentials grant for machine-to-machine authentication.
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                grant_type:
+                  type: string
+                  enum: [client_credentials]
+                client_id:
+                  type: string
+                client_secret:
+                  type: string
+              required: [grant_type, client_id, client_secret]
+      responses:
+        "200":
+          description: Access token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    enum: [Bearer]
+                  expires_in:
+                    type: integer
+        "401":
+          description: Invalid credentials
+
+  /api/auth/client-metadata:
+    get:
+      operationId: clientMetadata
+      summary: Get OAuth 2.0 client metadata
+      description: Returns client metadata for dynamic client registration and MCP OAuth discovery.
+      tags: [Auth]
+      responses:
+        "200":
+          description: Client metadata
+          content:
+            application/json:
+              schema:
+                type: object
+
+  # ═══════════════════════════════════════════════════════════════════════════
   # EXECUTION GRAPHS
   # ═══════════════════════════════════════════════════════════════════════════
   /api/graphs:
@@ -1930,8 +2222,13 @@ paths:
   /api/shadow-agents/{id}:
     delete:
       operationId: removeShadowAgent
-      summary: Remove shadow agent
+      summary: Distrust shadow agent (use PUT .../trust instead)
+      description: |
+        Agent removal is not supported. To distrust an agent, use
+        PUT /api/shadow-agents/{id}/trust with trust_level=0.
+        This endpoint returns 501 Not Implemented.
       tags: [Shadow Agents]
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1939,8 +2236,8 @@ paths:
           schema:
             type: string
       responses:
-        "200":
-          description: Agent removed
+        "501":
+          description: Not implemented — use PUT /api/shadow-agents/{id}/trust with trust_level 0
 
   /api/shadow-agents/{id}/trust:
     put:
