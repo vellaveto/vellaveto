@@ -7,6 +7,8 @@
 // Change Date: Three years from the date of publication of this version.
 // Change License: MPL-2.0
 
+//! VellaVeto HTTP server with policy evaluation, dashboard, and management API.
+
 use anyhow::{Context, Result};
 use arc_swap::ArcSwap;
 use clap::{Parser, Subcommand};
