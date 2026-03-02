@@ -5,13 +5,14 @@ description = "Warrant canary creation and cryptographic verification"
 edition = "2021"
 license = "Apache-2.0"
 repository.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
-ed25519-dalek = { version = "2", features = ["rand_core"] }
-hex = "0.4"
-sha2 = "0.10"
+ed25519-dalek = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
 serde_json_canonicalizer = "0.3"
-rand = "0.8"
+rand = { workspace = true }

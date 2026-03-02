@@ -5,6 +5,7 @@ edition = "2021"
 license = "Apache-2.0"
 description = "MCP Security Benchmark Framework — vendor-neutral security evaluation for MCP gateways"
 repository = "https://github.com/vellaveto/vellaveto"
+rust-version.workspace = true
 readme = "README.md"
 
 [[bin]]

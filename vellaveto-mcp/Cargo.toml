@@ -5,6 +5,10 @@ description = "MCP protocol security: DLP, injection detection, tool registry, a
 edition = "2021"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [features]
 default = []
@@ -34,20 +38,20 @@ tokio = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
-unicode-normalization = "0.1"
+unicode-normalization = { workspace = true }
 aho-corasick = "1.1"
-sha2 = "0.10"
+sha2 = { workspace = true }
 hmac = "0.12"
 serde_json_canonicalizer = "0.3"
-hex = "0.4"
-regex = "1"
+hex = { workspace = true }
+regex = { workspace = true }
 chrono = { workspace = true }
-base64 = "0.22"
-percent-encoding = "2.3"
-ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+base64 = { workspace = true }
+percent-encoding = { workspace = true }
+ed25519-dalek = { workspace = true }
 subtle = "2"
 chacha20poly1305 = "0.10"
-rand = "0.8"
+rand = { workspace = true }
 getrandom = "0.2"
 semver = "1.0"
 
@@ -64,7 +68,7 @@ reqwest = { workspace = true, optional = true }
 
 # Multimodal content scanning — metadata extraction uses flate2 (no image crate needed)
 image = { version = "0.25", optional = true, default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "webp"] }
-flate2 = "1.1"
+flate2 = { workspace = true }
 
 # FIPS 140-3 compliance mode (Phase 23.3)
 p256 = { version = "0.13", features = ["ecdsa"], optional = true }

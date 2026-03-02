@@ -5,6 +5,7 @@ description = "MCP tool topology crawling and verification for VellaVeto"
 edition = "2021"
 license = "MPL-2.0"
 repository.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 vellaveto-types = { path = "../vellaveto-types", version = "6.0.0" }
@@ -16,7 +17,7 @@ tokio = { version = "1", features = ["time", "sync", "rt", "macros"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
-sha2 = "0.10"
+sha2 = { workspace = true }
 async-trait = { workspace = true }
 
 [dev-dependencies]

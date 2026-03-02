@@ -5,6 +5,10 @@ description = "Core type definitions for Vellaveto policy engine"
 edition = "2021"
 license = "MPL-2.0"
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 serde = { workspace = true }

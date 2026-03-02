@@ -5,6 +5,13 @@ description = "Policy evaluation engine with glob, regex, and domain matching"
 edition = "2021"
 license = "MPL-2.0"
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 
 [features]
 default = []
@@ -18,13 +25,13 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 globset = "0.4"
 ipnet = "2"
-regex = "1"
-percent-encoding = "2.3"
+regex = { workspace = true }
+percent-encoding = { workspace = true }
 idna = "1.0"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 tracing = { workspace = true }
 metrics = { workspace = true }
-unicode-normalization = "0.1"
+unicode-normalization = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

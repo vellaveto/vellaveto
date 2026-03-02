@@ -5,6 +5,7 @@ description = "Canonical security policy presets for common scenarios"
 edition = "2021"
 license = "MPL-2.0"
 repository.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 vellaveto-types = { path = "../vellaveto-types", version = "6.0.0" }

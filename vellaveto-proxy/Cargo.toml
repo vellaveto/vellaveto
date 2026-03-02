@@ -5,6 +5,10 @@ description = "MCP stdio proxy with built-in security presets — zero config ne
 edition = "2021"
 license = "MPL-2.0"
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [[bin]]
 name = "vellaveto-proxy"

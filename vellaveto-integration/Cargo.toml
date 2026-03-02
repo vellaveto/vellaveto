@@ -5,6 +5,7 @@ description = "Integration test suite for Vellaveto components"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 publish = false
 
 [features]
@@ -32,10 +33,10 @@ tower = "0.5"
 dashmap = "6"
 
 [dev-dependencies]
-flate2 = "1.1"
-ed25519-dalek = { version = "2", features = ["rand_core"] }
-sha2 = "0.10"
-hex = "0.4"
-rand = "0.8"
+flate2 = { workspace = true }
+ed25519-dalek = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
 chrono = { workspace = true }
-base64 = "0.22"
+base64 = { workspace = true }

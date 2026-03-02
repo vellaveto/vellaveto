@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-exclude = ["fuzz"]
+exclude = ["fuzz", "formal/kani"]
 members = [
     "vellaveto-types",
     "vellaveto-engine",
@@ -26,7 +26,10 @@ members = [
 [workspace.package]
 license = "BUSL-1.1"
 repository = "https://github.com/vellaveto/vellaveto"
+homepage = "https://vellaveto.dev"
 rust-version = "1.88.0"
+keywords = ["mcp", "security", "firewall", "ai-agent", "policy"]
+categories = ["command-line-utilities", "network-programming"]
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -61,6 +64,17 @@ tokio-stream = "0.1"
 argon2 = "0.5"
 password-hash = "0.5"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "json", "chrono", "uuid"] }
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+sha2 = "0.10"
+hex = "0.4"
+rand = "0.8"
+regex = "1"
+unicode-normalization = "0.1"
+percent-encoding = "2.3"
+base64 = "0.22"
+flate2 = "1.1"
+url = "2"
+toml = "1.0"
 
 [profile.release]
 lto = "thin"

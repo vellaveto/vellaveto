@@ -5,19 +5,23 @@ description = "Configuration parsing and validation for Vellaveto policies"
 edition = "2021"
 license = "MPL-2.0"
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 vellaveto-types = { path = "../vellaveto-types", version = "6.0.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
-toml = "1.0"
-sha2 = "0.10"
-hex = "0.4"
-ed25519-dalek = { version = "2", features = ["rand_core"] }
-rand = "0.8"
-regex = "1"  # FIND-002: Validate DLP patterns at config load time
-url = "2"    # Phase 15: URL validation for observability endpoints
+toml = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+ed25519-dalek = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }  # FIND-002: Validate DLP patterns at config load time
+url = { workspace = true }    # Phase 15: URL validation for observability endpoints
 
 [dev-dependencies]
 tempfile = "3.0"
