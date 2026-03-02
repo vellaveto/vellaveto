@@ -547,6 +547,14 @@ impl SessionStore {
         session_id
     }
 
+    /// Get an immutable reference to a session.
+    pub fn get(
+        &self,
+        session_id: &str,
+    ) -> Option<dashmap::mapref::one::Ref<'_, String, SessionState>> {
+        self.sessions.get(session_id)
+    }
+
     /// Get a mutable reference to a session.
     pub fn get_mut(
         &self,

@@ -2065,16 +2065,20 @@ impl McpGrpcService {
                         tracing::warn!("Failed to audit gRPC tool description injection: {}", e);
                         // SECURITY (FIND-R206-001): strict audit mode parity
                         if self.state.audit_strict_mode {
-                            return Err(tonic::Status::internal(
+                            return make_proto_error_response(
+                                proto_req,
+                                -32603,
                                 "Audit logging failed — request denied (strict audit mode)",
-                            ));
+                            );
                         }
                     }
                 }
                 if !desc_findings.is_empty() && self.state.injection_blocking {
-                    return Err(tonic::Status::permission_denied(
+                    return make_proto_error_response(
+                        proto_req,
+                        -32603,
                         "Response blocked: suspicious content in tool descriptions",
-                    ));
+                    );
                 }
             }
         }
@@ -2144,9 +2148,11 @@ impl McpGrpcService {
                                 );
                                 // SECURITY (FIND-R206-001): strict audit mode parity
                                 if self.state.audit_strict_mode {
-                                    return Err(tonic::Status::internal(
+                                    return make_proto_error_response(
+                                        proto_req,
+                                        -32603,
                                         "Audit logging failed — request denied (strict audit mode)",
-                                    ));
+                                    );
                                 }
                             }
                         }
@@ -2960,6 +2966,7 @@ impl McpGrpcService {
     /// from the session, matching the HTTP handler's `build_evaluation_context`
     /// (call_chain.rs:82). Without these, context-aware policies that check
     /// agent identity or call chain depth are ineffective on gRPC.
+    #[allow(dead_code)] // Infrastructure for gRPC feature gate — used by future handlers
     fn build_evaluation_context(&self, session_id: &str) -> EvaluationContext {
         let mut ctx = EvaluationContext::default();
 
@@ -3376,42 +3383,49 @@ impl McpService for McpGrpcService {
                 // SECURITY (FIND-R55-GRPC-010): Check per-message rate limit.
                 if stream_rate_limit > 0 {
                     let now = std::time::Instant::now();
-                    let within_limit = {
-                        let mut start = match rate_window_start.lock() {
-                            Ok(guard) => guard,
-                            Err(e) => {
-                                tracing::error!(
-                                    "gRPC stream rate limiter mutex poisoned — fail-closed: {}",
-                                    e
+                    // Compute rate limit inside a sync block to avoid holding
+                    // MutexGuard across .await (MutexGuard is !Send).
+                    let within_limit = match rate_window_start.lock() {
+                        Err(_e) => {
+                            // Mutex poisoned — fail-closed. The error is handled
+                            // after releasing the lock scope (no .await while held).
+                            None
+                        }
+                        Ok(mut start) => {
+                            if now.duration_since(*start) >= std::time::Duration::from_secs(1) {
+                                *start = now;
+                                rate_counter.store(1, Ordering::SeqCst);
+                                Some(true)
+                            } else {
+                                // SECURITY (FIND-R155-GRPC-002): Use fetch_update + saturating_add
+                                // to prevent overflow wrap-to-zero resetting rate limit counter.
+                                // Parity with WS check_rate_limit (websocket/mod.rs:4236-4238).
+                                let prev = rate_counter.fetch_update(
+                                    Ordering::SeqCst,
+                                    Ordering::SeqCst,
+                                    |v| Some(v.saturating_add(1)),
                                 );
-                                let _ = tx
-                                    .send(Err(Status::resource_exhausted(
-                                        "Rate limiter unavailable",
-                                    )))
-                                    .await;
-                                break;
+                                let count = match prev {
+                                    Ok(previous) => previous.saturating_add(1),
+                                    Err(_) => unreachable!("infallible closure"),
+                                };
+                                Some(count <= stream_rate_limit as u64)
                             }
-                        };
-                        if now.duration_since(*start) >= std::time::Duration::from_secs(1) {
-                            *start = now;
-                            rate_counter.store(1, Ordering::SeqCst);
-                            true
-                        } else {
-                            // SECURITY (FIND-R155-GRPC-002): Use fetch_update + saturating_add
-                            // to prevent overflow wrap-to-zero resetting rate limit counter.
-                            // Parity with WS check_rate_limit (websocket/mod.rs:4236-4238).
-                            let prev = rate_counter.fetch_update(
-                                Ordering::SeqCst,
-                                Ordering::SeqCst,
-                                |v| Some(v.saturating_add(1)),
-                            );
-                            let count = match prev {
-                                Ok(previous) => previous.saturating_add(1),
-                                Err(_) => unreachable!("infallible closure"),
-                            };
-                            count <= stream_rate_limit as u64
                         }
                     };
+                    // Handle poisoned mutex outside the lock scope (safe to .await).
+                    if within_limit.is_none() {
+                        tracing::error!(
+                            "gRPC stream rate limiter mutex poisoned — fail-closed"
+                        );
+                        let _ = tx
+                            .send(Err(Status::resource_exhausted(
+                                "Rate limiter unavailable",
+                            )))
+                            .await;
+                        break;
+                    }
+                    let within_limit = within_limit.unwrap_or(false);
                     if !within_limit {
                         tracing::warn!(
                             session_id = %session_id,

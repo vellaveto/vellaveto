@@ -450,7 +450,7 @@ async fn cmd_serve(
                 table = %policy_config.audit_store.table_name,
                 "PostgreSQL audit sink initialized"
             );
-            audit_logger = audit_logger.with_sink(sink_arc.clone());
+            audit_logger = audit_logger.with_sink(sink_arc.clone(), false);
             Some(sink_arc)
         } else {
             None
