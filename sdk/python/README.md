@@ -14,7 +14,19 @@ pip install vellaveto-sdk[langchain]
 # With LangGraph support
 pip install vellaveto-sdk[langgraph]
 
-# Full installation
+# With CrewAI support
+pip install vellaveto-sdk[crewai]
+
+# With Google ADK support
+pip install vellaveto-sdk[google-adk]
+
+# With OpenAI Agents SDK support
+pip install vellaveto-sdk[openai-agents]
+
+# With Composio support
+pip install vellaveto-sdk[composio]
+
+# Full installation (all integrations)
 pip install vellaveto-sdk[all]
 ```
 
@@ -179,6 +191,155 @@ tool_node = create_vellaveto_tool_node(client, [read_file, write_file])
 
 graph = StateGraph(MyState)
 graph.add_node("tools", tool_node)  # Policy evaluation + execution
+```
+
+## CrewAI Integration
+
+Guard tool calls in CrewAI crews with `VellavetoCrewGuard`:
+
+```python
+from crewai import Agent, Crew, Task
+from vellaveto import VellavetoClient
+from vellaveto.crewai import VellavetoCrewGuard
+
+client = VellavetoClient(url="http://localhost:3000")
+guard = VellavetoCrewGuard(client)
+
+agent = Agent(role="researcher", tools=[web_search])
+task = Task(description="Research topic", agent=agent)
+crew = Crew(agents=[agent], tasks=[task])
+
+# Option 1: Wrap entire crew execution
+result = guard.kickoff(crew)
+
+# Option 2: Wrap individual tools
+guarded_tool = guard.wrap_tool(web_search)
+```
+
+## Google ADK Integration
+
+Guard tools in Google Agent Development Kit applications with `VellavetoADKGuard`:
+
+```python
+from google.adk import Agent
+from vellaveto import VellavetoClient
+from vellaveto.google_adk import VellavetoADKGuard
+
+client = VellavetoClient(url="http://localhost:3000")
+guard = VellavetoADKGuard(client)
+
+# Option 1: Decorator
+@guard.protect
+def search_web(query: str) -> str:
+    return do_search(query)
+
+# Option 2: Before-tool callback
+agent = Agent(
+    tools=[search_web],
+    before_tool_call=guard.before_tool_callback(),
+)
+```
+
+## OpenAI Agents SDK Integration
+
+Enforce policies on OpenAI Agents SDK function calls with `VellavetoAgentGuard`:
+
+```python
+from agents import Agent, Runner
+from vellaveto import VellavetoClient
+from vellaveto.openai_agents import VellavetoAgentGuard
+
+client = VellavetoClient(url="http://localhost:3000")
+guard = VellavetoAgentGuard(client)
+
+# Wrap tools with policy enforcement
+agent = Agent(
+    name="assistant",
+    tools=[guard.wrap_function(read_file), guard.wrap_function(web_search)],
+)
+result = Runner.run_sync(agent, "Read the config file")
+```
+
+## Composio Integration
+
+Guard Composio tool calls across any provider (OpenAI, LangChain, CrewAI, AutoGen) with `ComposioGuard`:
+
+```python
+from composio import Composio
+from vellaveto import VellavetoClient
+from vellaveto.composio import ComposioGuard
+
+client = VellavetoClient(url="http://localhost:3000", api_key="key")
+guard = ComposioGuard(client, session_id="sess-1")
+
+composio = Composio(api_key="...")
+tools = composio.tools.get(
+    user_id="default",
+    toolkits=["GITHUB"],
+    modifiers=[guard.before_execute_modifier(), guard.after_execute_modifier()],
+)
+```
+
+## Claude Agent SDK Integration
+
+Enforce tool permissions in Anthropic Claude Agent SDK applications with `VellavetoToolPermission`:
+
+```python
+from claude_agent_sdk import Agent, tool
+from vellaveto import VellavetoClient
+from vellaveto.claude_agent import VellavetoToolPermission
+
+client = VellavetoClient(url="http://localhost:3000")
+permission = VellavetoToolPermission(client)
+
+@tool
+def read_file(path: str) -> str:
+    return open(path).read()
+
+agent = Agent(
+    tools=[read_file],
+    tool_permission_callback=permission.check,
+)
+```
+
+## AWS Strands Agents Integration
+
+Guard tool calls in AWS Strands Agents applications with `VellavetoStrandsGuard`:
+
+```python
+from strands import Agent
+from strands.tools import tool
+from vellaveto import VellavetoClient
+from vellaveto.strands import VellavetoStrandsGuard
+
+client = VellavetoClient(url="http://localhost:3000")
+guard = VellavetoStrandsGuard(client)
+
+@tool
+def read_file(path: str) -> str:
+    return open(path).read()
+
+agent = Agent(
+    tools=[guard.wrap_tool(read_file)],
+)
+```
+
+## Microsoft Agent Framework Integration
+
+Intercept tool calls in Microsoft Agent Framework (AutoGen + Semantic Kernel) with `VellavetoAgentMiddleware`:
+
+```python
+from vellaveto import VellavetoClient
+from vellaveto.microsoft_agents import VellavetoAgentMiddleware
+
+client = VellavetoClient(url="http://localhost:3000")
+middleware = VellavetoAgentMiddleware(client)
+
+# Use as middleware in Microsoft Agent Framework
+agent = Agent(
+    middleware=[middleware],
+    tools=[read_file, web_search],
+)
 ```
 
 ## Parameter Redaction
