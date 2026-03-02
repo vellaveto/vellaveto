@@ -343,13 +343,19 @@ result = app.invoke({"messages": [HumanMessage(content="Read the data")]})
 For MCP-native tools, Vellaveto runs as a transparent proxy between the client and the MCP server.
 
 ```bash
-# Start as stdio proxy — sits between Claude Desktop and the MCP server
-vellaveto-proxy \
-  --config examples/presets/dev-laptop.toml \
-  --upstream-command "npx -y @modelcontextprotocol/server-filesystem /home/user/projects"
+# Quickest way — use a protection level (no config file needed):
+vellaveto-proxy --protect shield -- npx -y @modelcontextprotocol/server-filesystem /home/user/projects
+
+# Or with a specific preset:
+vellaveto-proxy --preset dev-laptop -- npx -y @modelcontextprotocol/server-filesystem /home/user/projects
+
+# Or with a custom config file:
+vellaveto-proxy --config policy.toml -- npx -y @modelcontextprotocol/server-filesystem /home/user/projects
 ```
 
-In your `claude_desktop_config.json`:
+### Claude Desktop
+
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 
 ```json
 {
@@ -357,15 +363,35 @@ In your `claude_desktop_config.json`:
     "filesystem": {
       "command": "vellaveto-proxy",
       "args": [
-        "--config", "/path/to/examples/presets/dev-laptop.toml",
-        "--upstream-command", "npx -y @modelcontextprotocol/server-filesystem /home/user/projects"
+        "--protect", "shield",
+        "--", "npx", "-y",
+        "@modelcontextprotocol/server-filesystem", "/home/user/projects"
       ]
     }
   }
 }
 ```
 
-Every tool call from Claude Desktop is evaluated against your policies before reaching the MCP server.
+### Cursor
+
+Edit `.cursor/mcp.json` in your project directory:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "vellaveto-proxy",
+      "args": [
+        "--protect", "fortress",
+        "--", "npx", "-y",
+        "@modelcontextprotocol/server-filesystem", "."
+      ]
+    }
+  }
+}
+```
+
+Every tool call is evaluated against your policies before reaching the MCP server. Use `shield` for basic protection, `fortress` for stronger controls, or `vault` for deny-by-default.
 
 ---
 
