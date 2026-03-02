@@ -23,7 +23,123 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). 10 formal properties,
   64 attack tests, 12 attack classes. Updated reference results to v6.0.0 (100/100, Tier 5 — all 64 tests passed).
 
-## [6.0.0] - 2026-03-02
+- **Content inspection endpoint for MCPSEC benchmarking:**
+  New `_test_response` field on the evaluate endpoint triggers injection and DLP scanning on
+  provided content, returning results in an `inspection` field. Enables the MCPSEC benchmark
+  runner to test detection capabilities without a live proxy connection. Also adds rapid-fire
+  test support for rate limiting tests.
+
+- **Code-review-agent preset (`examples/presets/code-review-agent.toml`):**
+  New professional preset for AI agents performing code review. Read-only access to source
+  files and git history, blocks writes/deletes/destructive commands, credential file protection,
+  network allowlist limited to git remotes, default deny. Registered in preset table and README.
+
+- **Compliance-starter preset (`examples/presets/compliance-starter.toml`):**
+  New preset enabling all 6 configurable compliance frameworks (EU AI Act, NIS2, DORA, SOC 2,
+  OWASP ASI, Data Governance) with strict audit mode, injection/DLP blocking, and default deny.
+  Designed as a comprehensive compliance baseline for regulated environments.
+
+- **Comprehensive compliance documentation (`docs/COMPLIANCE.md`):**
+  New guide covering all 12 regulatory and industry frameworks with detailed per-article
+  requirement mappings, evidence pack generation instructions (API and Rust), cross-regulation
+  incident reporting timelines, 10-framework gap analysis, full API endpoint reference (11 endpoints),
+  and compliance preset catalog. Compliance messaging strengthened across README, SHOW_HN, and site.
+
+- **Coq formal verification (15 theorems, S1–S16):**
+  New `formal/coq/` directory with 6 proof files: `Types.v`, `FailClosed.v`, `Determinism.v`,
+  `PathNormalization.v`, `AbacForbidOverride.v` (S7–S10), `CapabilityDelegation.v` (S11–S16).
+  Zero `Admitted` proofs — all theorems fully machine-checked. Covers fail-closed semantics,
+  determinism, path normalization idempotence, ABAC forbid-override, and capability delegation
+  attenuation. Build infrastructure via `_CoqProject` and Makefile.
+
+- **Crates.io publish readiness (`vellaveto-proxy` v3.1.0):**
+  Presets embedded inside the binary via `include_str!()` for zero-file-dependency packaging.
+  New `vellaveto-proxy init` command generates a starter config from any preset. Version fields
+  added to all workspace path dependencies.
+
+- **OpenSSF Best Practices Gold badge infrastructure:**
+  SPDX license headers on all 211 `.rs` files (CI-enforced), coverage CI with cargo-llvm-cov +
+  Codecov, dynamic analysis CI (5 fuzz targets), reproducible builds docs, security review docs,
+  hardening docs, Gold self-assessment (`docs/OPENSSF_GOLD.md`).
+
+- **Interactive demo tooling:**
+  VHS tape script (`shield-demo.tape`) for automated terminal recording of consumer shield
+  protection demo. Enhanced `run-demo.sh` shell script for guided demonstrations.
+
+- **Policy cookbook (`docs/POLICY_COOKBOOK.md`):** Ready-to-use policy recipes for common
+  deployment scenarios.
+
+- **SDK examples:** LangChain agent integration example, Go SDK examples, examples index page.
+
+### Security
+
+- **Coq formal verification CI gate (17th CI job):**
+  Builds and verifies all Coq proofs on every push. Rejects incomplete proofs containing
+  `Admitted` or `admit` markers. 10-minute timeout, independent of Rust pipeline.
+
+- **CodeQL advanced configuration:** Enhanced static analysis with test file exclusions
+  to reduce noise while maintaining security scanning of production code.
+
+- **EthicalCheck CI workflow:** Automated ethical and security policy scanning.
+
+- **Rust clippy CI workflow:** Dedicated clippy lint gate.
+
+- **Secret scanning hardening:** MongoDB test URI split to avoid GitHub secret scanning
+  false positives.
+
+### Changed
+
+- **Repository organization migration:** All GitHub URLs updated from `paolovella` to `vellaveto`
+  organization namespace. Old URLs redirect.
+
+- **Go SDK file naming:** Source files renamed from `sentinel.go` to `client.go` for Go
+  package naming conventions.
+
+- **Docker base images pinned:** SHA256-pinned base images for reproducible container builds.
+  Scorecard workflow permissions added.
+
+### Fixed
+
+- **Python SDK URL detection:** Fixed `urlparse()` usage instead of `startswith()` for HTTP/HTTPS
+  detection, preventing URL parsing edge cases.
+
+- **Policy ID format:** Corrected policy ID format in all preset TOML files to match validation rules.
+
+- **Docker image license label:** Corrected from `AGPL-3.0` to tri-license (MPL-2.0 / Apache-2.0 / BUSL-1.1).
+
+- **Stale references:** Corrected outdated references across Helm chart, ROADMAP, CI docs, and site.
+
+- **Compliance documentation accuracy:** Fixed API endpoint examples (path params not query params),
+  evidence pack availability (SOC 2 separate endpoint), gap analysis framework count (7 → 10),
+  Art 14 escalation claim removed (approval has timeout only).
+
+- **Coq proof compilation:** Fixed 5 proof issues for Coq 8.18 compatibility (PathNormalization
+  destruct semantics, induction hypothesis rewriting, parent variable substitution).
+
+- **CI compliance:** Removed `.expect()` from library code, resolved clippy blockers, fixed
+  env-var test race conditions via test serialization.
+
+### Dependencies
+
+- Bumped GitHub Actions group (9 action updates).
+- Bumped admin-console npm dependencies.
+- Bumped TypeScript SDK npm dependencies.
+- Bumped VS Code extension `@types/node`.
+- Fixed LangGraph typing for mypy compliance.
+
+## [6.0.1] - 2026-02-28
+
+### Fixed
+
+- **Consumer shield stylometric normalization:** Fixed fail-closed behavior in relay outbound path —
+  normalization errors now produce deny instead of passing through unnormalized content.
+
+### Changed
+
+- **Repository organization migration:** All GitHub URLs migrated from `paolovella` to `vellaveto`
+  organization namespace.
+
+## [6.0.0] - 2026-02-28
 
 ### Added
 
