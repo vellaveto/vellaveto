@@ -72,9 +72,14 @@ public class Example {
 ```java
 import com.vellaveto.PolicyDeniedException;
 import com.vellaveto.ApprovalRequiredException;
+import com.vellaveto.EvaluationContext;
+
+EvaluationContext context = EvaluationContext.builder()
+        .agentId("my-agent")
+        .build();
 
 try {
-    client.evaluateOrThrow(action);
+    client.evaluateOrRaise(action, context);
     // Allowed — proceed
 } catch (PolicyDeniedException e) {
     System.out.println("Blocked: " + e.getReason());
