@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Easy Mode Protection Presets (`--protect shield/fortress/vault`):**
+  Three beginner-friendly protection levels for users who don't want to write policy configs.
+  - `shield` — blocks credential files, dangerous commands, injection attacks, and credential leaks. Default allow.
+  - `fortress` — shield + exfiltration domain blocking (pastebin, transfer.sh, webhook.site, etc.), AI assistant config protection (SANDWORM defense), git hook manipulation blocking, approval gates for destructive operations.
+  - `vault` — fortress with default deny. Shadow agent detection enabled.
+  - New `--protect <LEVEL>` CLI flag on `vellaveto-proxy`, mutually exclusive with `--config` and `--preset`.
+  - Grouped `--list-presets` output showing protection levels first, then professional presets.
+  - Claude Desktop and Cursor integration examples in README and QUICKSTART.
+  - 11 new tests, 6 new preset TOML files.
+
 ## [6.0.0] - 2026-03-02
 
 ### Added
