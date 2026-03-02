@@ -202,6 +202,25 @@ Edit `.cursor/mcp.json` in your project directory:
 }
 ```
 
+### Use with Windsurf
+
+Edit `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "vellaveto-proxy",
+      "args": [
+        "--protect", "fortress",
+        "--", "npx", "-y",
+        "@modelcontextprotocol/server-filesystem", "."
+      ]
+    }
+  }
+}
+```
+
 Replace `shield`/`fortress` with `vault` for maximum security. See [docs/QUICKSTART.md](docs/QUICKSTART.md) for SDK integration guides (Anthropic, OpenAI, LangChain, LangGraph, CrewAI).
 
 ## How It Works
