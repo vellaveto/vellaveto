@@ -487,7 +487,7 @@ pub async fn promote_version(
                 return Err((
                     StatusCode::BAD_REQUEST,
                     Json(json!({
-                        "error": "Policy compilation failed — promotion blocked (no store mutation)",
+                        "error": "Policy failed compilation check — promotion blocked. Fix the policy and retry. Check server logs for details.",
                         "policy_id": id,
                     })),
                 ));

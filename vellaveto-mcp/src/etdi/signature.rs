@@ -9,8 +9,8 @@
 
 //! ETDI Signature Verification and Creation.
 //!
-//! Implements Ed25519 signature verification for tool definitions, with optional
-//! ECDSA P-256 support. Tool providers sign the canonical JSON representation of
+//! Implements Ed25519 signature verification for tool definitions. Tool providers
+//! sign the canonical JSON representation of
 //! tool definitions, and Vellaveto verifies signatures before allowing registration.
 //!
 //! # Security
@@ -127,8 +127,10 @@ impl ToolSignatureVerifier {
                 self.verify_ed25519(&tool_hash, &signature.signature, &signature.public_key)
             }
             SignatureAlgorithm::EcdsaP256 => {
-                // P-256 not implemented yet - fail closed
-                Err(EtdiError::UnsupportedAlgorithm("ecdsa_p256".to_string()))
+                // P-256 reserved for future use — fail closed per security policy
+                Err(EtdiError::UnsupportedAlgorithm(
+                    "ecdsa_p256 (only Ed25519 is currently supported)".to_string(),
+                ))
             }
         };
 
