@@ -34,6 +34,15 @@ def send_and_recv(proc, request, expect_response=True):
     return json.loads(line.strip())
 
 
+def shorten_reason(reason):
+    """Shorten verbose policy reasons for demo readability."""
+    # Extract just the policy name part
+    if "(policy '" in reason:
+        policy = reason.split("(policy '")[1].rstrip("')")
+        return policy
+    return reason[:60]
+
+
 def print_verdict(label, response, blocked_expected=True):
     """Pretty-print the verdict."""
     if response is None:
@@ -42,7 +51,8 @@ def print_verdict(label, response, blocked_expected=True):
 
     if "error" in response:
         reason = response["error"].get("data", {}).get("reason", response["error"].get("message", "unknown"))
-        print(f"  {RED}{BOLD}BLOCKED{RESET} {DIM}— {reason}{RESET}")
+        short = shorten_reason(reason)
+        print(f"  {RED}{BOLD}BLOCKED{RESET}  {DIM}policy: {short}{RESET}")
     elif "result" in response:
         print(f"  {GREEN}{BOLD}ALLOWED{RESET}")
     else:
