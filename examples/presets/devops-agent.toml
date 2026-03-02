@@ -1,18 +1,122 @@
 # Vellaveto Preset: DevOps / Infrastructure Agent
 #
-# For AI agents managing infrastructure (Terraform, Ansible, K8s).
-# Read access to configs; destructive operations require human approval.
-# Blocks production environment modifications without approval.
+# For AI agents managing infrastructure (Terraform, Ansible, K8s,
+# cloud CLIs). Read access to configs; destructive operations
+# require human approval. Blocks production changes without review.
+#
+# WHAT'S PROTECTED:
+#   [x] Credential files (.aws, .ssh, .env, .kube, cloud configs)
+#   [x] Secret store writes (vault write, kubectl create secret, ssm put)
+#   [x] Namespace/cluster deletion (kubectl delete namespace/cluster)
+#   [x] Production environment modifications (requires approval)
+#   [x] Terraform apply (requires approval; plan is allowed)
+#   [x] K8s delete operations (requires approval)
+#   [x] Prompt injection attacks (blocking mode)
+#   [x] Credential leaks in command output (blocking DLP)
+#
+# WHAT'S ALLOWED:
+#   Config reads (/etc, infrastructure/, terraform/, ansible/),
+#   Terraform plan, K8s get, cloud provider APIs (AWS, Azure, GCP,
+#   HashiCorp). All reads are safe; only mutations need approval.
+#
+# THREAT MODEL:
+#   DevOps agents have broad infrastructure access. A compromised
+#   agent could delete namespaces, write secrets, apply destructive
+#   Terraform changes, or modify production without review. This
+#   preset ensures all mutations require human approval while
+#   allowing read operations to proceed freely.
 #
 # Usage:
 #   vellaveto serve --config examples/presets/devops-agent.toml --port 3000
 
-# --- Block direct production access ---
+# ================================================================
+# THREAT: Credential theft
+# DevOps environments have access to cloud credentials, kubeconfig,
+# SSH keys, and service account tokens. This blocks all known
+# credential file locations.
+# ================================================================
+[[policies]]
+name = "Block credential files"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "*:*:devops-credential-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.aws/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.ssh/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gnupg/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env",                   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env.*",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/credentials.json",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.yaml",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.json",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_rsa",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_ed25519",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.npmrc",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.netrc",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.kube/config",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.azure/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.config/gcloud/**", on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Unauthorized secret writes
+# A compromised DevOps agent could write secrets to Vault, K8s,
+# or AWS SSM to establish persistence or access. Secret writes
+# require explicit human approval.
+# ================================================================
+[[policies]]
+name = "Require approval for secret writes"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 280
+id = "*:*:devops-secret-write-approval"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "vault\\s+(write|kv\\s+put)",                   on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "kubectl\\s+create\\s+secret",                  on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "aws\\s+ssm\\s+put-parameter",                 on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "aws\\s+secretsmanager\\s+put-secret-value",   on_match = "require_approval", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Namespace and cluster deletion
+# Deleting a K8s namespace or cluster destroys all resources in it.
+# This is always denied -- use the cloud console for this.
+# ================================================================
+[[policies]]
+name = "Block namespace/cluster deletion"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 270
+id = "*:*:devops-namespace-delete-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "kubectl\\s+delete\\s+namespace",    on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "kubectl\\s+delete\\s+cluster",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "eksctl\\s+delete\\s+cluster",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "az\\s+aks\\s+delete",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "gcloud.*delete.*cluster",            on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Production modifications without review
+# Any operation targeting production should require human approval.
+# This catches environment=production, namespace=production, and
+# any parameter containing "prod".
+# ================================================================
 [[policies]]
 name = "Block production modifications"
 tool_pattern = "*"
 function_pattern = "*"
-priority = 300
+priority = 260
 id = "*:*:devops-block-prod"
 
 [policies.policy_type.Conditional.conditions]
@@ -23,7 +127,11 @@ parameter_constraints = [
   { param = "*",           op = "glob",    pattern = "*prod*",   on_match = "require_approval", on_missing = "skip" },
 ]
 
-# --- Allow config reads ---
+# ================================================================
+# ALLOW: Config reads
+# Reading configuration files is always safe and needed for
+# infrastructure understanding and debugging.
+# ================================================================
 [[policies]]
 name = "Allow config reads"
 tool_pattern = "file_read"
@@ -41,7 +149,11 @@ allowed = [
   "/tmp/**",
 ]
 
-# --- Allow Terraform plan (not apply) ---
+# ================================================================
+# ALLOW: Terraform plan (read-only)
+# Terraform plan is a safe, read-only operation. Apply requires
+# approval below.
+# ================================================================
 [[policies]]
 name = "Allow Terraform plan"
 tool_pattern = "terraform"
@@ -50,7 +162,11 @@ priority = 200
 id = "terraform:plan:devops-allow-plan"
 policy_type = "Allow"
 
-# --- Require approval for Terraform apply ---
+# ================================================================
+# THREAT: Unreviewed Terraform apply
+# Terraform apply creates, modifies, or destroys infrastructure.
+# Always requires human review of the plan before applying.
+# ================================================================
 [[policies]]
 name = "Require approval for Terraform apply"
 tool_pattern = "terraform"
@@ -62,7 +178,11 @@ id = "terraform:apply:devops-require-apply"
 on_no_match = "require_approval"
 parameter_constraints = []
 
-# --- Require approval for destructive K8s operations ---
+# ================================================================
+# THREAT: Destructive K8s operations
+# kubectl delete can destroy pods, services, deployments, and
+# other critical resources. Always requires approval.
+# ================================================================
 [[policies]]
 name = "Require approval for K8s destructive ops"
 tool_pattern = "kubectl"
@@ -74,7 +194,10 @@ id = "kubectl:delete:devops-require-delete"
 on_no_match = "require_approval"
 parameter_constraints = []
 
-# --- Allow K8s read operations ---
+# ================================================================
+# ALLOW: K8s read operations
+# kubectl get is safe and needed for monitoring and debugging.
+# ================================================================
 [[policies]]
 name = "Allow K8s reads"
 tool_pattern = "kubectl"
@@ -83,7 +206,10 @@ priority = 200
 id = "kubectl:get:devops-allow-read"
 policy_type = "Allow"
 
-# --- Allow cloud provider APIs ---
+# ================================================================
+# ALLOW: Cloud provider APIs
+# Network access to AWS, Azure, GCP, and HashiCorp services.
+# ================================================================
 [[policies]]
 name = "Allow cloud APIs"
 tool_pattern = "cloud_*"
@@ -110,11 +236,16 @@ priority = 0
 id = "*:*:devops-default-deny"
 policy_type = "Deny"
 
-
+# --- Injection detection (blocking) ---
 [injection]
 enabled = true
 block_on_injection = true
 
+# --- DLP credential scanning (blocking) ---
 [dlp]
 enabled = true
-block_on_finding = false
+block_on_finding = true
+
+# --- Audit ---
+[audit]
+redaction_level = "KeysAndPatterns"

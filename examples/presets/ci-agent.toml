@@ -4,10 +4,35 @@
 # Jenkins). Strict network controls, no interactive approval (auto-deny),
 # and tight path restrictions to prevent supply chain attacks.
 #
+# WHAT'S PROTECTED:
+#   [x] Credential files (.aws, .ssh, .env, secrets, credentials)
+#   [x] AI config modification (SANDWORM defense in CI)
+#   [x] Git hook manipulation (build-time persistence prevention)
+#   [x] Data exfiltration to paste/upload/webhook/tunnel services
+#   [x] Dangerous shell commands (curl|sh, sudo, rm -rf /)
+#   [x] Prompt injection attacks (blocking mode)
+#   [x] Credential leaks in tool responses (blocking DLP)
+#
+# WHAT'S ALLOWED:
+#   Network access to approved package registries (npm, PyPI, crates.io,
+#   Maven, RubyGems, Docker Hub, GHCR). All other network access blocked.
+#   File operations within the workspace are allowed.
+#
+# THREAT MODEL:
+#   CI pipelines are high-value supply chain targets. An attacker who
+#   compromises a CI agent can inject malicious code into builds,
+#   exfiltrate secrets, or modify git hooks for persistence. This
+#   preset uses strict network allowlisting (only approved registries)
+#   and blocks all known exfiltration paths.
+#
 # Usage:
 #   vellaveto serve --config examples/presets/ci-agent.toml --port 3000
 
-# --- Block all credential paths ---
+# ================================================================
+# THREAT: Credential theft in CI
+# CI environments have access to deployment keys, cloud credentials,
+# and signing keys. This blocks all known credential paths.
+# ================================================================
 [[policies]]
 name = "Block credential access in CI"
 tool_pattern = "*"
@@ -20,13 +45,90 @@ on_no_match = "continue"
 parameter_constraints = [
   { param = "*", op = "glob", pattern = "/home/*/.aws/**",       on_match = "deny", on_missing = "skip" },
   { param = "*", op = "glob", pattern = "/home/*/.ssh/**",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gnupg/**",     on_match = "deny", on_missing = "skip" },
   { param = "*", op = "glob", pattern = "**/.env",               on_match = "deny", on_missing = "skip" },
   { param = "*", op = "glob", pattern = "**/.env.*",             on_match = "deny", on_missing = "skip" },
   { param = "*", op = "glob", pattern = "**/secrets*",           on_match = "deny", on_missing = "skip" },
   { param = "*", op = "glob", pattern = "**/credentials*",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_rsa",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_ed25519",         on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Network allowlist: only approved domains ---
+# ================================================================
+# THREAT: SANDWORM supply chain attack in CI
+# A compromised dependency can modify AI assistant configs during
+# the build process, injecting rogue MCP servers for later use.
+# ================================================================
+[[policies]]
+name = "Block AI config modification"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 275
+id = "*:*:ci-ai-config-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.cursor/**",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.claude/**",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.config/claude/**",   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.continue/**",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.codeium/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.windsurf/**",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.vscode/mcp*.json",       on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Git hook persistence in CI
+# An attacker can inject malicious build hooks that persist across
+# CI runs if the workspace is cached.
+# ================================================================
+[[policies]]
+name = "Block git hook manipulation"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 270
+id = "*:*:ci-git-hook-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob",  pattern = "**/.git/hooks/**",                  on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+config.*core\\.hooksPath",  on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Data exfiltration from CI
+# CI agents have access to source code and build artifacts. This
+# blocks known exfiltration endpoints and tunnel services.
+# ================================================================
+[[policies]]
+name = "Block exfiltration domains"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 265
+id = "*:*:ci-exfil-domains"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "pastebin\\.com",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "hastebin\\.com",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "transfer\\.sh",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "file\\.io",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "0x0\\.st",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "webhook\\.site",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "requestbin\\.com",    on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "pipedream\\.net",     on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "ngrok\\.io",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "ngrok-free\\.app",    on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# ALLOW: Approved package registries
+# CI needs to download dependencies. Only approved registries are
+# allowed. All other network access is blocked by default.
+# ================================================================
 [[policies]]
 name = "Network allowlist"
 tool_pattern = "*"
@@ -41,16 +143,25 @@ allowed_domains = [
   "api.github.com",
   "registry.npmjs.org",
   "pypi.org",
+  "files.pythonhosted.org",
   "crates.io",
   "index.crates.io",
   "static.crates.io",
+  "rubygems.org",
+  "repo1.maven.org",
+  "ghcr.io",
+  "registry.hub.docker.com",
 ]
 blocked_domains = []
 
 [policies.network_rules.ip_rules]
 block_private = true
 
-# --- Block shell execution with dangerous patterns ---
+# ================================================================
+# THREAT: Dangerous commands in CI
+# Shell injection and privilege escalation in CI can lead to
+# supply chain compromise. These are always hard-denied.
+# ================================================================
 [[policies]]
 name = "Block dangerous CI commands"
 tool_pattern = "*"
@@ -64,7 +175,8 @@ parameter_constraints = [
   { param = "*", op = "regex", pattern = "curl.*\\|.*(sh|bash)",  on_match = "deny", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "wget.*\\|.*(sh|bash)",  on_match = "deny", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "rm\\s+-rf\\s+/",        on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "regex", pattern = "sudo\\s+",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "\\bsudo\\s+",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "\\beval\\b.*\\$",       on_match = "deny", on_missing = "skip" },
 ]
 
 # --- Allow remaining tool calls ---

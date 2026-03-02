@@ -1,14 +1,43 @@
-# Vellaveto Preset: Developer Laptop Agent
+# Vellaveto Preset: Developer Laptop
 #
-# For AI coding assistants (Cursor, Windsurf, Claude Code, Copilot)
-# running on a developer's machine. Protects credential files and
-# prevents accidental network exfiltration while allowing normal
-# file operations within project directories.
+# Comprehensive protection for your AI coding assistant on YOUR machine.
+# Designed for Cursor, Windsurf, Claude Code, Copilot, and similar tools.
+#
+# WHAT'S PROTECTED:
+#   [x] Credential files (.aws, .ssh, .env, API keys, tokens, cloud configs)
+#   [x] AI assistant configs (SANDWORM defense)
+#   [x] Data exfiltration to paste/upload/webhook services
+#   [x] Git hook manipulation (persistence prevention)
+#   [x] System files (/etc/shadow, sudoers, crontab, systemd)
+#   [x] Package config tampering (.npmrc, .pypirc, pip.conf, cargo config)
+#   [x] Dangerous shell commands (rm -rf, curl|sh, eval, python -c, node -e)
+#   [x] Destructive git ops (force push, hard reset -- requires approval)
+#   [x] Prompt injection attacks (blocking mode)
+#   [x] Credential leaks in tool responses (blocking DLP)
+#   [x] Memory poisoning detection (monitoring mode)
+#
+# WHAT'S ALLOWED:
+#   Everything not listed above. Your AI assistant can read/write code,
+#   run tests, install packages, and do normal development work. Only
+#   dangerous operations are blocked or require approval.
+#
+# THREAT MODEL:
+#   Dev-laptop protects against the attacks that target individual
+#   developers: credential theft, supply chain injection (SANDWORM),
+#   data exfiltration, and accidental destructive commands. This is
+#   the preset you want if you're a developer using AI coding tools
+#   every day and want real protection without friction.
 #
 # Usage:
-#   vellaveto serve --config examples/presets/dev-laptop.toml --port 3000
+#   vellaveto-proxy --preset dev-laptop -- npx @modelcontextprotocol/server-filesystem /tmp
+#   vellaveto-proxy --preset dev-laptop -- python -m mcp_server
 
-# --- Block credential and secret files ---
+# ================================================================
+# THREAT: Credential theft
+# A compromised tool can read your AWS keys, SSH keys, cloud
+# credentials, or .env files and exfiltrate them. This blocks all
+# access to known credential file locations.
+# ================================================================
 [[policies]]
 name = "Block credential files"
 tool_pattern = "*"
@@ -19,31 +48,188 @@ id = "*:*:dev-credential-block"
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
 parameter_constraints = [
-  { param = "*", op = "glob", pattern = "/home/*/.aws/**",       on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "glob", pattern = "/home/*/.ssh/**",       on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "glob", pattern = "/home/*/.gnupg/**",     on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "glob", pattern = "**/.env",               on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "glob", pattern = "**/.env.*",             on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "glob", pattern = "**/credentials.json",   on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "glob", pattern = "**/secrets.yaml",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.aws/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.ssh/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gnupg/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env",                   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env.*",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/credentials.json",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.yaml",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.json",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_rsa",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_rsa.pub",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_ed25519",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_ecdsa",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.npmrc",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.netrc",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.kube/config",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.azure/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.config/gcloud/**", on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Block dangerous shell commands ---
+# ================================================================
+# THREAT: SANDWORM supply chain attack
+# An attacker can inject rogue MCP servers by modifying your AI
+# assistant's config files (.cursor/, .claude/, .vscode/mcp*.json).
+# Once injected, the rogue server intercepts all your tool calls.
+# ================================================================
 [[policies]]
-name = "Require approval for destructive commands"
+name = "Block AI config modification"
 tool_pattern = "*"
 function_pattern = "*"
-priority = 200
+priority = 285
+id = "*:*:dev-ai-config-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.cursor/**",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.claude/**",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.config/claude/**",     on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.continue/**",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.codeium/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.windsurf/**",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.vscode/mcp*.json",         on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Data exfiltration via paste/upload services
+# A compromised tool can send your source code or secrets to
+# attacker-controlled services like pastebin or transfer.sh.
+# ================================================================
+[[policies]]
+name = "Block exfiltration domains"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 275
+id = "*:*:dev-exfil-domains"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "pastebin\\.com",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "hastebin\\.com",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "0x0\\.st",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "transfer\\.sh",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "file\\.io",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "webhook\\.site",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "requestbin\\.com",    on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "pipedream\\.net",     on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "hookbin\\.com",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "ngrok\\.io",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "ngrok-free\\.app",    on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Git hook persistence
+# An attacker can create .git/hooks/pre-commit to run malicious
+# code every time you commit, or redirect hooks via core.hooksPath.
+# ================================================================
+[[policies]]
+name = "Block git hook manipulation"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 265
+id = "*:*:dev-git-hook-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob",  pattern = "**/.git/hooks/**",                  on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+config.*core\\.hooksPath",  on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: System file tampering
+# An AI agent should never modify /etc/passwd, crontab, or systemd.
+# ================================================================
+[[policies]]
+name = "Block system file access"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 260
+id = "*:*:dev-system-file-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/etc/shadow",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/passwd",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/sudoers",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/sudoers.d/**",   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/crontab",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/var/spool/cron/**",  on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/systemd/**",     on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Package registry hijacking
+# An attacker can redirect package installations to malicious
+# registries by modifying your package manager configuration.
+# ================================================================
+[[policies]]
+name = "Block package config tampering"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 255
+id = "*:*:dev-package-config-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.pip/pip.conf",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.config/pip/**",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.pypirc",                    on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.cargo/config*",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.yarnrc*",                   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gem/credentials",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gradle/gradle.properties",  on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Dangerous shell commands
+# Commands that can destroy your system or execute untrusted code.
+# eval, python -c import os, and node -e are common ways to
+# bypass restrictions with inline code execution.
+# ================================================================
+[[policies]]
+name = "Block dangerous commands"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 250
 id = "*:*:dev-dangerous-commands"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
 parameter_constraints = [
-  { param = "*", op = "regex", pattern = "rm\\s+-rf\\s+/",       on_match = "require_approval", on_missing = "skip" },
-  { param = "*", op = "regex", pattern = "git\\s+push\\s+--force", on_match = "require_approval", on_missing = "skip" },
-  { param = "*", op = "regex", pattern = "git\\s+reset\\s+--hard", on_match = "require_approval", on_missing = "skip" },
-  { param = "*", op = "regex", pattern = "chmod\\s+-R\\s+777",    on_match = "require_approval", on_missing = "skip" },
-  { param = "*", op = "regex", pattern = "curl.*\\|.*sh",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "rm\\s+-rf\\s+/",                    on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "curl.*\\|.*(sh|bash)",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "wget.*\\|.*(sh|bash)",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "chmod\\s+-R\\s+777",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "\\beval\\b.*\\$",                    on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "python3?\\s+-c\\s+.*import\\s+os",  on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "node\\s+-e\\s+.*require.*child",     on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Accidental destructive git operations
+# Force pushes, hard resets, and force branch deletes are
+# irreversible. You'll be prompted before they execute.
+# ================================================================
+[[policies]]
+name = "Require approval for destructive ops"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 200
+id = "*:*:dev-destructive-approval"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "git\\s+push\\s+--force",  on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+reset\\s+--hard",  on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+branch\\s+-D",     on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "chmod\\s+-R\\s+777",      on_match = "require_approval", on_missing = "skip" },
 ]
 
 # --- Allow all other tool calls ---
@@ -55,10 +241,20 @@ priority = 1
 id = "*:*:dev-default-allow"
 policy_type = "Allow"
 
-# --- Injection detection ---
+# --- Injection detection (blocking) ---
 [injection]
 enabled = true
-block_on_injection = false
+block_on_injection = true
+
+# --- DLP credential scanning (blocking) ---
+[dlp]
+enabled = true
+block_on_finding = true
+
+# --- Memory tracking (monitoring) ---
+[memory_tracking]
+enabled = true
+block_on_match = false
 
 # --- Audit ---
 [audit]

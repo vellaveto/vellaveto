@@ -3,18 +3,44 @@
 # Strong protection for developers who want comprehensive security
 # without going full deny-by-default.
 #
-# Everything in Shield, plus:
-#   - Blocks AI assistant config modification (SANDWORM defense)
-#   - Blocks data exfiltration to known paste/upload services
-#   - Blocks git hook manipulation (persistence prevention)
-#   - Requires human approval for destructive operations
-#   - Injection + DLP scanning in blocking mode
+# WHAT'S PROTECTED:
+#   [x] Credential files (.aws, .ssh, .env, API keys, tokens)
+#   [x] AI assistant configs (SANDWORM defense)
+#   [x] Data exfiltration to paste/upload/webhook/tunnel services
+#   [x] Network exfiltration commands (curl --data @, wget piping)
+#   [x] Git hook manipulation (persistence prevention)
+#   [x] System files (/etc/shadow, sudoers, crontab, systemd, init.d)
+#   [x] Package config tampering (.npmrc, .pypirc, pip.conf, cargo config)
+#   [x] Dangerous shell commands (rm -rf, curl|sh, eval, python -c)
+#   [x] Privilege escalation (sudo, su, doas -- requires approval)
+#   [x] Destructive operations (force push, hard reset -- requires approval)
+#   [x] Prompt injection attacks (blocking mode)
+#   [x] Credential leaks in tool responses (blocking DLP)
+#   [x] Memory poisoning detection (blocking mode)
+#   [x] Shadow agent detection
+#
+# WHAT'S ALLOWED:
+#   Everything not listed above. Fortress is allow-by-default like
+#   Shield, but with deeper protection. Your coding assistant works
+#   normally while getting strong security guardrails.
+#
+# THREAT MODEL:
+#   Fortress builds on Shield with supply chain defenses: it blocks
+#   package config tampering (registry hijacking), privilege escalation,
+#   and network exfiltration commands. Memory poisoning detection catches
+#   attempts to manipulate your AI assistant's context. Shadow agent
+#   detection spots rogue agents operating alongside your session.
 #
 # Usage:
 #   vellaveto-proxy --protect fortress -- npx @modelcontextprotocol/server-filesystem /tmp
 #   vellaveto-proxy --preset fortress -- python -m mcp_server
 
-# --- Block credential and secret files (priority 300) ---
+# ================================================================
+# THREAT: Credential theft
+# A compromised tool can read your AWS keys, SSH keys, cloud
+# credentials, or .env files and exfiltrate them. This blocks all
+# access to known credential file locations.
+# ================================================================
 [[policies]]
 name = "Block credential files"
 tool_pattern = "*"
@@ -44,8 +70,12 @@ parameter_constraints = [
   { param = "*", op = "glob", pattern = "/home/*/.config/gcloud/**", on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Block AI assistant config modification (priority 290) ---
-# SANDWORM defense: prevent prompt injection from modifying AI configs
+# ================================================================
+# THREAT: SANDWORM supply chain attack
+# An attacker can inject rogue MCP servers by modifying your AI
+# assistant's config files (.cursor/, .claude/, .vscode/mcp*.json).
+# Once injected, the rogue server intercepts all your tool calls.
+# ================================================================
 [[policies]]
 name = "Block AI config modification"
 tool_pattern = "*"
@@ -62,9 +92,15 @@ parameter_constraints = [
   { param = "*", op = "glob", pattern = "/home/*/.continue/**",        on_match = "deny", on_missing = "skip" },
   { param = "*", op = "glob", pattern = "/home/*/.codeium/**",         on_match = "deny", on_missing = "skip" },
   { param = "*", op = "glob", pattern = "/home/*/.windsurf/**",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.vscode/mcp*.json",       on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Block network exfiltration commands (priority 280) ---
+# ================================================================
+# THREAT: Data exfiltration via network commands
+# A compromised tool can upload files using curl --data @file or
+# pipe data through wget. These patterns catch the most common
+# command-line exfiltration techniques.
+# ================================================================
 [[policies]]
 name = "Block network exfiltration"
 tool_pattern = "*"
@@ -80,7 +116,12 @@ parameter_constraints = [
   { param = "*", op = "regex", pattern = "wget.*-O.*-.*\\|",           on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Block exfiltration domains (priority 275) ---
+# ================================================================
+# THREAT: Data exfiltration via paste/upload/tunnel services
+# A compromised tool can send your source code or secrets to
+# attacker-controlled services. This blocks known exfiltration
+# endpoints including tunnel services used to bypass firewalls.
+# ================================================================
 [[policies]]
 name = "Block exfiltration domains"
 tool_pattern = "*"
@@ -92,6 +133,7 @@ id = "*:*:fortress-exfil-domains"
 on_no_match = "continue"
 parameter_constraints = [
   { param = "*", op = "regex", pattern = "pastebin\\.com",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "hastebin\\.com",             on_match = "deny", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "transfer\\.sh",              on_match = "deny", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "webhook\\.site",             on_match = "deny", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "file\\.io",                  on_match = "deny", on_missing = "skip" },
@@ -99,10 +141,17 @@ parameter_constraints = [
   { param = "*", op = "regex", pattern = "pipedream\\.net",            on_match = "deny", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "hookbin\\.com",              on_match = "deny", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "0x0\\.st",                   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "ngrok\\.io",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "ngrok-free\\.app",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "localtunnel\\.me",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "burpcollaborator\\.net",     on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Block git hook manipulation (priority 270) ---
-# Prevents persistence via git hooks (SANDWORM attack vector)
+# ================================================================
+# THREAT: Git hook persistence
+# An attacker can create .git/hooks/pre-commit to run malicious
+# code every time you commit, or redirect hooks via core.hooksPath.
+# ================================================================
 [[policies]]
 name = "Block git hook manipulation"
 tool_pattern = "*"
@@ -117,7 +166,62 @@ parameter_constraints = [
   { param = "*", op = "regex", pattern = "git\\s+config.*core\\.hooksPath", on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Block dangerous commands (priority 250) ---
+# ================================================================
+# THREAT: System file tampering
+# An AI agent should never modify /etc/passwd, crontab, systemd
+# services, init scripts, or sudoers. These changes can grant
+# persistent access to an attacker or break your system.
+# ================================================================
+[[policies]]
+name = "Block system file access"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 260
+id = "*:*:fortress-system-file-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/etc/shadow",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/passwd",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/sudoers",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/sudoers.d/**",   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/crontab",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/var/spool/cron/**",  on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/systemd/**",     on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/init.d/**",      on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Package registry hijacking
+# An attacker can redirect package installations to malicious
+# registries by modifying .npmrc, pip.conf, cargo config, or
+# similar package manager configuration files.
+# ================================================================
+[[policies]]
+name = "Block package config tampering"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 255
+id = "*:*:fortress-package-config-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.pip/pip.conf",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.config/pip/**",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.pypirc",                    on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.cargo/config*",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.yarnrc*",                   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gem/credentials",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gradle/gradle.properties",  on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Dangerous shell commands
+# Commands like rm -rf /, curl|sh, eval, and python -c can destroy
+# your system or execute arbitrary attacker-controlled code.
+# ================================================================
 [[policies]]
 name = "Block dangerous commands"
 tool_pattern = "*"
@@ -128,11 +232,39 @@ id = "*:*:fortress-dangerous-commands-block"
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
 parameter_constraints = [
-  { param = "*", op = "regex", pattern = "curl.*\\|.*sh",              on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "regex", pattern = "wget.*\\|.*sh",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "rm\\s+-rf\\s+/",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "curl.*\\|.*(sh|bash)",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "wget.*\\|.*(sh|bash)",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "chmod\\s+-R\\s+777",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "\\beval\\b.*\\$",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "python3?\\s+-c\\s+.*import\\s+os", on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Require approval for destructive operations (priority 200) ---
+# ================================================================
+# THREAT: Privilege escalation
+# AI agents should rarely need sudo or su. When they do, you
+# should confirm exactly what's being elevated and why.
+# ================================================================
+[[policies]]
+name = "Require approval for privilege escalation"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 210
+id = "*:*:fortress-privilege-approval"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "\\bsudo\\s+",              on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "\\bsu\\s+-",               on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "\\bdoas\\s+",              on_match = "require_approval", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Accidental destructive operations
+# Force pushes, hard resets, bulk deletes, and chmod 777 can cause
+# irreversible damage. You'll be prompted before these execute.
+# ================================================================
 [[policies]]
 name = "Require approval for destructive ops"
 tool_pattern = "*"
@@ -143,11 +275,9 @@ id = "*:*:fortress-destructive-approval"
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
 parameter_constraints = [
-  { param = "*", op = "regex", pattern = "rm\\s+-rf\\s+/",               on_match = "require_approval", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "git\\s+push\\s+--force",       on_match = "require_approval", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "git\\s+reset\\s+--hard",       on_match = "require_approval", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "git\\s+branch\\s+-D",          on_match = "require_approval", on_missing = "skip" },
-  { param = "*", op = "regex", pattern = "chmod\\s+-R\\s+777",            on_match = "require_approval", on_missing = "skip" },
 ]
 
 # --- Allow everything else (priority 1) ---
@@ -168,6 +298,15 @@ block_on_injection = true
 [dlp]
 enabled = true
 block_on_finding = true
+
+# --- Memory poisoning detection (blocking at Fortress level) ---
+[memory_tracking]
+enabled = true
+block_on_match = true
+
+# --- Shadow agent detection ---
+[shadow_agent]
+enabled = true
 
 # --- Audit ---
 [audit]

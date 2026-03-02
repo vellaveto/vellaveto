@@ -12,11 +12,11 @@ vellaveto-proxy --protect fortress -- python -m mcp_server
 vellaveto-proxy --protect vault -- ./my-server
 ```
 
-| Level | Default | What it blocks | For whom |
-|-------|---------|----------------|----------|
-| [`shield`](shield.toml) | Allow | Credentials (.aws, .ssh, .env, etc.), dangerous commands (rm -rf /, curl\|sh), injection attacks, credential leaks | Anyone — just works |
-| [`fortress`](fortress.toml) | Allow | Shield + exfil domains (pastebin, transfer.sh, webhook.site), AI assistant configs (.cursor, .claude), git hooks; approval for destructive ops | Developers who want more |
-| [`vault`](vault.toml) | **Deny** | Everything not explicitly allowed | Maximum security |
+| Level | Policies | Default | What it blocks | For whom |
+|-------|---------|---------|----------------|----------|
+| [`shield`](shield.toml) | 8 | Allow | Credentials, SANDWORM (AI config injection), exfil domains, git hooks, system files, dangerous commands, injection, DLP; approval for destructive git ops | Anyone — just works |
+| [`fortress`](fortress.toml) | 11 | Allow | Shield + package config tampering, privilege escalation approval, memory poisoning detection (blocking), shadow agent detection | Developers who want more |
+| [`vault`](vault.toml) | 11 | **Deny** | Everything not explicitly allowed; source code reads + git reads allowed, file writes require human approval | Maximum security |
 
 ## Professional Presets
 

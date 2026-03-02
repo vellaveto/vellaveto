@@ -1,28 +1,46 @@
 # Vellaveto Protection Level: Vault
 #
-# Maximum security — deny by default. Only explicitly allowed
-# operations will succeed. Use this when you need full control
-# over what your AI assistant can access.
+# Maximum security -- deny by default. Every operation must be explicitly
+# allowed or approved by you. Use this when you need full control over
+# what your AI assistant can do.
 #
-# Same deny rules as Fortress, but the default policy is Deny
-# instead of Allow. You must add Allow rules for what you need.
+# OUT OF THE BOX, VAULT ALLOWS:
+#   [x] Reading source code files (.rs, .py, .ts, .go, .java, etc.)
+#   [x] Read-only git commands (log, diff, show, blame, status)
+#   [x] File writes -- WITH HUMAN APPROVAL for each one
+#   [x] Shell commands -- WITH HUMAN APPROVAL for each one
+#
+# WHAT'S BLOCKED (no override):
+#   [x] Credential files (.aws, .ssh, .env, API keys, tokens)
+#   [x] AI assistant configs (SANDWORM defense)
+#   [x] Data exfiltration to paste/upload/webhook/tunnel services
+#   [x] Network exfiltration commands (curl --data @, wget piping)
+#   [x] Git hook manipulation (persistence prevention)
+#   [x] System files (/etc/shadow, sudoers, crontab, systemd)
+#   [x] Dangerous shell commands (rm -rf, curl|sh, eval)
+#   [x] Prompt injection attacks (blocking mode)
+#   [x] Credential leaks in tool responses (blocking DLP)
+#   [x] Memory poisoning detection (blocking mode)
+#   [x] Shadow agent detection
+#
+# THREAT MODEL:
+#   Vault is for high-security environments. Nothing executes without
+#   explicit permission. Source code reading is allowed because it's
+#   always safe (credential files are blocked at higher priority).
+#   Every file write and shell command requires your approval. This is
+#   the strongest protection available -- use it when working with
+#   sensitive codebases or untrusted MCP servers.
 #
 # Usage:
 #   vellaveto-proxy --protect vault -- npx @modelcontextprotocol/server-filesystem /tmp
 #   vellaveto-proxy --preset vault -- python -m mcp_server
-#
-# To allow specific operations, add policies with priority > 1, e.g.:
-#
-#   [[policies]]
-#   name = "Allow reads in project dir"
-#   tool_pattern = "*"
-#   function_pattern = "read*"
-#   policy_type = "Allow"
-#   priority = 100
-#   [policies.path_rules]
-#   allowed = ["/home/user/projects/myapp/**"]
 
-# --- Block credential and secret files (priority 300) ---
+# ================================================================
+# THREAT: Credential theft
+# A compromised tool can read your AWS keys, SSH keys, cloud
+# credentials, or .env files. This blocks ALL credential paths.
+# Priority 300 = highest, overrides any Allow rule below.
+# ================================================================
 [[policies]]
 name = "Block credential files"
 tool_pattern = "*"
@@ -52,7 +70,11 @@ parameter_constraints = [
   { param = "*", op = "glob", pattern = "/home/*/.config/gcloud/**", on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Block AI assistant config modification (priority 290) ---
+# ================================================================
+# THREAT: SANDWORM supply chain attack
+# An attacker can inject rogue MCP servers by modifying your AI
+# assistant's config files. Hard deny -- never overridable.
+# ================================================================
 [[policies]]
 name = "Block AI config modification"
 tool_pattern = "*"
@@ -69,9 +91,13 @@ parameter_constraints = [
   { param = "*", op = "glob", pattern = "/home/*/.continue/**",        on_match = "deny", on_missing = "skip" },
   { param = "*", op = "glob", pattern = "/home/*/.codeium/**",         on_match = "deny", on_missing = "skip" },
   { param = "*", op = "glob", pattern = "/home/*/.windsurf/**",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.vscode/mcp*.json",       on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Block network exfiltration commands (priority 280) ---
+# ================================================================
+# THREAT: Data exfiltration via network commands
+# Blocks curl --data @file, wget piping, and similar exfil patterns.
+# ================================================================
 [[policies]]
 name = "Block network exfiltration"
 tool_pattern = "*"
@@ -87,7 +113,10 @@ parameter_constraints = [
   { param = "*", op = "regex", pattern = "wget.*-O.*-.*\\|",           on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Block exfiltration domains (priority 275) ---
+# ================================================================
+# THREAT: Data exfiltration via paste/upload/tunnel services
+# Blocks known exfiltration endpoints and tunnel services.
+# ================================================================
 [[policies]]
 name = "Block exfiltration domains"
 tool_pattern = "*"
@@ -99,6 +128,7 @@ id = "*:*:vault-exfil-domains"
 on_no_match = "continue"
 parameter_constraints = [
   { param = "*", op = "regex", pattern = "pastebin\\.com",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "hastebin\\.com",             on_match = "deny", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "transfer\\.sh",              on_match = "deny", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "webhook\\.site",             on_match = "deny", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "file\\.io",                  on_match = "deny", on_missing = "skip" },
@@ -106,9 +136,16 @@ parameter_constraints = [
   { param = "*", op = "regex", pattern = "pipedream\\.net",            on_match = "deny", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "hookbin\\.com",              on_match = "deny", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "0x0\\.st",                   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "ngrok\\.io",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "ngrok-free\\.app",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "localtunnel\\.me",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "burpcollaborator\\.net",     on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Block git hook manipulation (priority 270) ---
+# ================================================================
+# THREAT: Git hook persistence
+# Blocks git hook creation and hooksPath redirection.
+# ================================================================
 [[policies]]
 name = "Block git hook manipulation"
 tool_pattern = "*"
@@ -123,7 +160,34 @@ parameter_constraints = [
   { param = "*", op = "regex", pattern = "git\\s+config.*core\\.hooksPath", on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Block dangerous commands (priority 250) ---
+# ================================================================
+# THREAT: System file tampering
+# Hard deny on critical system files. No approval path.
+# ================================================================
+[[policies]]
+name = "Block system file access"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 260
+id = "*:*:vault-system-file-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/etc/shadow",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/passwd",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/sudoers",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/sudoers.d/**",   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/crontab",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/var/spool/cron/**",  on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/systemd/**",     on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/init.d/**",      on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Dangerous shell commands
+# Hard deny on rm -rf /, curl|sh, chmod 777, eval. No approval.
+# ================================================================
 [[policies]]
 name = "Block dangerous commands"
 tool_pattern = "*"
@@ -134,16 +198,72 @@ id = "*:*:vault-dangerous-commands"
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
 parameter_constraints = [
-  { param = "*", op = "regex", pattern = "rm\\s+-rf\\s+/",            on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "regex", pattern = "curl.*\\|.*sh",              on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "regex", pattern = "wget.*\\|.*sh",              on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "regex", pattern = "chmod\\s+-R\\s+777",         on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "regex", pattern = "curl.*--data.*@",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "rm\\s+-rf\\s+/",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "curl.*\\|.*(sh|bash)",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "wget.*\\|.*(sh|bash)",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "chmod\\s+-R\\s+777",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "curl.*--data.*@",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "\\beval\\b.*\\$",               on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# ALLOW: Reading source code files
+# Reading source code is always safe. Credential files are blocked
+# at priority 300, which overrides this Allow at priority 150.
+# This lets your AI assistant read your code without approval.
+# ================================================================
+[[policies]]
+name = "Allow reading source code"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 150
+id = "*:*:vault-allow-source-read"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "\\.(rs|py|ts|tsx|js|jsx|go|java|c|cpp|h|hpp|rb|swift|kt|scala|sh|bash|zsh|toml|yaml|yml|json|xml|html|css|scss|md|txt|cfg|ini|conf|lock|sum|mod)$", on_match = "allow", on_missing = "skip" },
+]
+
+# ================================================================
+# ALLOW: Read-only git commands
+# Git log, diff, show, blame, status, branch, and tag are safe
+# read-only operations that cannot modify the repository.
+# ================================================================
+[[policies]]
+name = "Allow safe git read operations"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 120
+id = "*:*:vault-allow-git-read"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "^git\\s+(log|diff|show|blame|status|branch|tag|stash list|remote -v)\\b", on_match = "allow", on_missing = "skip" },
+]
+
+# ================================================================
+# APPROVAL: File writes require human confirmation
+# Every file write needs your approval. This prevents malicious
+# writes while still letting you develop with your AI assistant.
+# ================================================================
+[[policies]]
+name = "Require approval for file writes"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 110
+id = "*:*:vault-file-write-approval"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "(write|create|edit|save|overwrite|append|mkdir|touch)", on_match = "require_approval", on_missing = "skip" },
 ]
 
 # --- Default DENY (priority 1) ---
-# This is the key difference from Fortress: everything not explicitly
-# allowed is denied. Add Allow rules above this to permit operations.
+# Everything not explicitly allowed or approved above is denied.
+# This is the key difference from Fortress: no implicit Allow.
 [[policies]]
 name = "Default deny"
 tool_pattern = "*"
@@ -162,8 +282,17 @@ block_on_injection = true
 enabled = true
 block_on_finding = true
 
+# --- Memory poisoning detection (blocking in Vault) ---
+[memory_tracking]
+enabled = true
+block_on_match = true
+
 # --- Shadow agent detection ---
 [shadow_agent]
+enabled = true
+
+# --- Elicitation controls ---
+[elicitation]
 enabled = true
 
 # --- Audit ---

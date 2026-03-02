@@ -21,15 +21,15 @@ use vellaveto_config::PolicyConfig;
 const PROTECTION_LEVELS: &[(&str, &str)] = &[
     (
         "shield",
-        "Entry-level — blocks credentials + dangerous commands, injection/DLP blocking",
+        "Entry-level — credential protection, SANDWORM defense, exfil blocking, injection/DLP scanning",
     ),
     (
         "fortress",
-        "Strong — shield + exfil domain blocking, AI config protection, approval gates",
+        "Strong — shield + system file protection, package config tampering, sudo approval, memory tracking",
     ),
     (
         "vault",
-        "Maximum — fortress + default deny, must whitelist what you need",
+        "Maximum — deny-by-default with safe read operations, file writes require approval",
     ),
 ];
 
@@ -39,28 +39,28 @@ const PRESETS: &[(&str, &str, &str)] = &[
     // --- Protection levels (beginner-friendly) ---
     (
         "shield",
-        "Entry-level — blocks credentials + dangerous commands, injection/DLP blocking",
+        "Entry-level — credential protection, SANDWORM defense, exfil blocking, injection/DLP scanning",
         include_str!("../presets/shield.toml"),
     ),
     (
         "fortress",
-        "Strong — shield + exfil domain blocking, AI config protection, approval gates",
+        "Strong — shield + system file protection, package config tampering, sudo approval, memory tracking",
         include_str!("../presets/fortress.toml"),
     ),
     (
         "vault",
-        "Maximum — fortress + default deny, must whitelist what you need",
+        "Maximum — deny-by-default with safe read operations, file writes require approval",
         include_str!("../presets/vault.toml"),
     ),
     // --- Professional presets ---
     (
         "dev-laptop",
-        "Developer laptop — blocks credentials, detects injection",
+        "Developer laptop — comprehensive workstation protection with SANDWORM defense",
         include_str!("../presets/dev-laptop.toml"),
     ),
     (
         "ci-agent",
-        "CI/CD pipeline — strict network controls, blocking injection/DLP",
+        "CI/CD pipeline — strict network/path controls, supply chain protection",
         include_str!("../presets/ci-agent.toml"),
     ),
     (
@@ -70,12 +70,12 @@ const PRESETS: &[(&str, &str, &str)] = &[
     ),
     (
         "browser-agent",
-        "Browser automation — blocks malicious domains, restricts downloads",
+        "Browser automation — JS execution controls, phishing defense, download restrictions",
         include_str!("../presets/browser-agent.toml"),
     ),
     (
         "database-agent",
-        "Database access — blocks destructive DDL, scans for credential leaks",
+        "Database access — SQL injection blocking, schema change approval, credential protection",
         include_str!("../presets/database-agent.toml"),
     ),
     (
@@ -100,7 +100,7 @@ const PRESETS: &[(&str, &str, &str)] = &[
     ),
     (
         "devops-agent",
-        "DevOps/infrastructure — Terraform/K8s controls, approval gates",
+        "DevOps/infrastructure — secrets management approval, namespace protection, credential blocking",
         include_str!("../presets/devops-agent.toml"),
     ),
     (
@@ -296,8 +296,9 @@ mod tests {
         let config = load_preset("shield").expect("shield should load");
         let policies = config.to_policies();
         assert!(
-            policies.len() >= 3,
-            "shield should have at least 3 policies (cred block, dangerous cmds, default allow)"
+            policies.len() >= 8,
+            "shield should have at least 8 policies, got {}",
+            policies.len()
         );
     }
 
@@ -306,8 +307,9 @@ mod tests {
         let config = load_preset("fortress").expect("fortress should load");
         let policies = config.to_policies();
         assert!(
-            policies.len() >= 5,
-            "fortress should have at least 5 policies"
+            policies.len() >= 10,
+            "fortress should have at least 10 policies, got {}",
+            policies.len()
         );
     }
 
@@ -315,7 +317,11 @@ mod tests {
     fn test_vault_preset_parses() {
         let config = load_preset("vault").expect("vault should load");
         let policies = config.to_policies();
-        assert!(policies.len() >= 5, "vault should have at least 5 policies");
+        assert!(
+            policies.len() >= 10,
+            "vault should have at least 10 policies, got {}",
+            policies.len()
+        );
     }
 
     #[test]

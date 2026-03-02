@@ -3,20 +3,39 @@
 # Entry-level protection for anyone using AI coding assistants
 # (Claude Desktop, Cursor, Windsurf, Copilot, etc.)
 #
-# What it does:
-#   - Blocks access to credential and secret files
-#   - Blocks dangerous shell commands (rm -rf /, curl|sh, chmod 777)
-#   - Scans for prompt injection attacks (blocking mode)
-#   - Scans for credential leaks in tool responses (blocking mode)
-#   - Allows everything else
+# WHAT'S PROTECTED:
+#   [x] Credential files (.aws, .ssh, .env, API keys, tokens)
+#   [x] AI assistant configs (SANDWORM defense)
+#   [x] Data exfiltration to paste/upload/webhook services
+#   [x] Git hook manipulation (persistence prevention)
+#   [x] System files (/etc/shadow, sudoers, crontab, systemd)
+#   [x] Dangerous shell commands (rm -rf /, curl|sh, chmod 777)
+#   [x] Destructive git ops (force push, hard reset -- requires approval)
+#   [x] Prompt injection attacks (blocking mode)
+#   [x] Credential leaks in tool responses (blocking DLP)
 #
-# No approval gates, no domain restrictions — just the essentials.
+# WHAT'S ALLOWED:
+#   Everything not listed above. Shield is allow-by-default so your
+#   coding assistant keeps working normally. You get strong guardrails
+#   without any configuration.
+#
+# THREAT MODEL:
+#   Shield defends against the most common AI agent attacks: credential
+#   theft, supply chain injection (SANDWORM), data exfiltration, and
+#   accidental destructive commands. It does NOT restrict which domains
+#   your agent can access or which files it can read (except credentials).
+#   For stricter controls, use Fortress or Vault.
 #
 # Usage:
 #   vellaveto-proxy --protect shield -- npx @modelcontextprotocol/server-filesystem /tmp
 #   vellaveto-proxy --preset shield -- python -m mcp_server
 
-# --- Block credential and secret files (priority 300) ---
+# ================================================================
+# THREAT: Credential theft
+# A compromised tool can read your AWS keys, SSH keys, cloud
+# credentials, or .env files and exfiltrate them. This blocks all
+# access to known credential file locations.
+# ================================================================
 [[policies]]
 name = "Block credential files"
 tool_pattern = "*"
@@ -46,7 +65,111 @@ parameter_constraints = [
   { param = "*", op = "glob", pattern = "/home/*/.config/gcloud/**", on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Block dangerous commands (priority 250) ---
+# ================================================================
+# THREAT: SANDWORM supply chain attack
+# An attacker can inject rogue MCP servers by modifying your AI
+# assistant's config files (.cursor/, .claude/, .vscode/mcp*.json).
+# Once injected, the rogue server intercepts all your tool calls.
+# This blocks ALL writes to AI assistant configuration directories.
+# ================================================================
+[[policies]]
+name = "Block AI config modification"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 285
+id = "*:*:shield-ai-config-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.cursor/**",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.claude/**",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.config/claude/**",     on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.continue/**",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.codeium/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.windsurf/**",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.vscode/mcp*.json",         on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Data exfiltration via paste/upload services
+# A compromised tool can send your source code or secrets to
+# attacker-controlled services like pastebin, transfer.sh, or
+# webhook.site. This blocks the most common exfiltration endpoints.
+# ================================================================
+[[policies]]
+name = "Block exfiltration domains"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 275
+id = "*:*:shield-exfil-domains"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "pastebin\\.com",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "hastebin\\.com",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "0x0\\.st",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "transfer\\.sh",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "file\\.io",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "webhook\\.site",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "requestbin\\.com",    on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "pipedream\\.net",     on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "hookbin\\.com",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "ngrok\\.io",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "ngrok-free\\.app",    on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Git hook persistence
+# An attacker can create .git/hooks/pre-commit to run malicious
+# code every time you commit, or redirect hooks via core.hooksPath.
+# This is a common persistence mechanism in supply chain attacks.
+# ================================================================
+[[policies]]
+name = "Block git hook manipulation"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 265
+id = "*:*:shield-git-hook-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob",  pattern = "**/.git/hooks/**",                  on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+config.*core\\.hooksPath",  on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: System file tampering
+# An AI agent should never modify /etc/passwd, crontab, systemd
+# services, or sudoers. These changes can grant persistent access
+# to an attacker or break your system entirely.
+# ================================================================
+[[policies]]
+name = "Block system file access"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 260
+id = "*:*:shield-system-file-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/etc/shadow",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/passwd",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/sudoers",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/sudoers.d/**",   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/crontab",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/var/spool/cron/**",  on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/systemd/**",     on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Dangerous shell commands
+# Commands like `rm -rf /`, `curl|sh`, and `chmod 777` can destroy
+# your system or run untrusted code. These are always blocked.
+# ================================================================
 [[policies]]
 name = "Block dangerous commands"
 tool_pattern = "*"
@@ -62,6 +185,27 @@ parameter_constraints = [
   { param = "*", op = "regex", pattern = "wget.*\\|.*sh",            on_match = "deny", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "chmod\\s+-R\\s+777",       on_match = "deny", on_missing = "skip" },
   { param = "*", op = "regex", pattern = "curl.*--data.*@",          on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Accidental destructive git operations
+# Instead of silently denying, you'll be prompted to approve
+# force pushes, hard resets, and force branch deletions. This way
+# you stay in control of irreversible git operations.
+# ================================================================
+[[policies]]
+name = "Require approval for destructive git ops"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 200
+id = "*:*:shield-destructive-approval"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "git\\s+push\\s+--force",  on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+reset\\s+--hard",  on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+branch\\s+-D",     on_match = "require_approval", on_missing = "skip" },
 ]
 
 # --- Allow everything else (priority 1) ---
@@ -82,6 +226,11 @@ block_on_injection = true
 [dlp]
 enabled = true
 block_on_finding = true
+
+# --- Memory tracking (monitor-only at Shield level) ---
+[memory_tracking]
+enabled = true
+block_on_match = false
 
 # --- Audit ---
 [audit]

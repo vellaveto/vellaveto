@@ -2,12 +2,39 @@
 #
 # For AI agents that automate web browsers (Playwright, Puppeteer,
 # Selenium). Prevents navigation to malicious sites, blocks credential
-# harvesting, and restricts file downloads.
+# harvesting, and restricts downloads.
+#
+# WHAT'S PROTECTED:
+#   [x] Credential files (.aws, .ssh, .env, API keys, tokens)
+#   [x] Malicious domains (exfiltration, phishing, tunnels)
+#   [x] URL shorteners used for phishing (bit.ly, tinyurl, t.co, goo.gl)
+#   [x] Sensitive JS execution (document.cookie, localStorage, keylogger)
+#   [x] Form submissions to unknown domains (requires approval)
+#   [x] Password/credit card/SSN form filling (always denied)
+#   [x] Downloads restricted to /tmp and ~/Downloads
+#   [x] Prompt injection attacks (blocking mode)
+#   [x] Credential leaks in page content (blocking DLP)
+#
+# WHAT'S ALLOWED:
+#   Browsing the web, clicking links, reading page content, taking
+#   screenshots, and interacting with forms (non-sensitive). Only
+#   dangerous operations are blocked or require approval.
+#
+# THREAT MODEL:
+#   Browser agents are uniquely exposed to web-based attacks:
+#   phishing pages can trick agents into submitting credentials,
+#   malicious JavaScript can steal cookies/localStorage, and
+#   URL shorteners hide the true destination. This preset blocks
+#   these vectors while letting the agent browse normally.
 #
 # Usage:
 #   vellaveto serve --config examples/presets/browser-agent.toml --port 3000
 
-# --- Block credential file access ---
+# ================================================================
+# THREAT: Credential theft
+# A compromised browser agent can read local credential files
+# and submit them to attacker-controlled servers.
+# ================================================================
 [[policies]]
 name = "Block credential files"
 tool_pattern = "*"
@@ -18,13 +45,28 @@ id = "*:*:browser-credential-block"
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
 parameter_constraints = [
-  { param = "*", op = "glob", pattern = "**/.env",               on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "glob", pattern = "**/.env.*",             on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "glob", pattern = "**/credentials*",      on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "glob", pattern = "**/passwords*",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.aws/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.ssh/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gnupg/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env",                   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env.*",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/credentials.json",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/credentials*",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.yaml",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.json",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/passwords*",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_rsa",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_ed25519",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.npmrc",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.netrc",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.kube/config",      on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Block navigation to dangerous sites ---
+# ================================================================
+# THREAT: Malicious and exfiltration domains
+# Blocks known exfiltration endpoints, tunnel services, and
+# security testing infrastructure that shouldn't be browsed.
+# ================================================================
 [[policies]]
 name = "Block malicious domains"
 tool_pattern = "*"
@@ -44,15 +86,71 @@ blocked_domains = [
   "0x0.st",
   "webhook.site",
   "requestbin.com",
-  # Phishing/malware infrastructure
-  "bit.ly",
-  "tinyurl.com",
+  "pipedream.net",
+  "hookbin.com",
+  # Tunnel services (bypass network controls)
+  "ngrok.io",
+  "ngrok-free.app",
+  "localtunnel.me",
+  # Security testing (shouldn't be browsed by agents)
+  "burpcollaborator.net",
 ]
 
 [policies.network_rules.ip_rules]
 block_private = true
 
-# --- Block form submissions to unknown domains ---
+# ================================================================
+# THREAT: Sensitive JavaScript execution
+# A malicious page or injected script can instruct the browser
+# agent to execute document.cookie, localStorage.getItem, or
+# keylogger-style event listeners to steal user data.
+# ================================================================
+[[policies]]
+name = "Block sensitive JS execution"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 240
+id = "*:*:browser-js-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "document\\.cookie",                          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "localStorage\\.(getItem|setItem|clear)",     on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "sessionStorage\\.(getItem|setItem|clear)",   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "addEventListener.*key(down|up|press)",        on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: URL shortener phishing
+# URL shorteners hide the true destination. An attacker can trick
+# a browser agent into navigating to a phishing page via a short
+# link. Blocking common shorteners forces use of full URLs.
+# ================================================================
+[[policies]]
+name = "Block URL shorteners"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 230
+id = "*:*:browser-shortener-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "bit\\.ly/",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "tinyurl\\.com/",   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "t\\.co/",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "goo\\.gl/",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "is\\.gd/",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "buff\\.ly/",       on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Credential harvesting via forms
+# A phishing page can present a login form and trick the browser
+# agent into filling it with passwords or credit card numbers.
+# Form submissions require approval; sensitive field filling is denied.
+# ================================================================
 [[policies]]
 name = "Require approval for form submissions"
 tool_pattern = "*"
@@ -67,9 +165,14 @@ parameter_constraints = [
   { param = "*", op = "regex", pattern = "(?i)fill.*(password|credit|ssn)", on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Block downloads to sensitive paths ---
+# ================================================================
+# THREAT: Malicious downloads
+# A browser agent should only download files to safe locations.
+# Downloads to /etc, /var, /usr are blocked. Only /tmp and
+# ~/Downloads are allowed.
+# ================================================================
 [[policies]]
-name = "Block downloads outside /tmp"
+name = "Block downloads outside safe paths"
 tool_pattern = "*"
 function_pattern = "download*"
 priority = 150

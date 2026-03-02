@@ -1,13 +1,39 @@
 # Vellaveto Preset: Database Agent
 #
 # For AI agents that interact with databases (PostgreSQL, MySQL, MongoDB,
-# etc.). Prevents destructive DDL operations, restricts network access to
-# database hosts, and scans queries for injection patterns.
+# etc.). Prevents destructive operations, blocks SQL injection patterns,
+# and scans queries for credential leaks.
+#
+# WHAT'S PROTECTED:
+#   [x] Credential files (.aws, .ssh, .env, .pgpass, .my.cnf, tokens)
+#   [x] SQL injection patterns (UNION SELECT, ;DROP, INTO OUTFILE, etc.)
+#   [x] Destructive DDL (DROP TABLE/DATABASE, TRUNCATE -- requires approval)
+#   [x] Schema changes (ALTER TABLE, CREATE TABLE/INDEX/VIEW -- requires approval)
+#   [x] Privilege escalation (GRANT ALL -- always denied)
+#   [x] Data exfiltration to paste/upload services
+#   [x] Credential leaks in query results (blocking DLP)
+#   [x] Prompt injection attacks (blocking mode)
+#
+# WHAT'S ALLOWED:
+#   SELECT queries, INSERT, UPDATE with WHERE clauses, and standard
+#   database operations. Destructive operations require approval.
+#   Network access is unrestricted except for known exfil services.
+#
+# THREAT MODEL:
+#   Database agents are high-risk because they have direct access to
+#   production data. A compromised agent could DROP tables, exfiltrate
+#   data via INTO OUTFILE, or escalate privileges via GRANT ALL. This
+#   preset blocks known SQL injection patterns and requires human
+#   approval for any schema-changing or destructive operation.
 #
 # Usage:
 #   vellaveto serve --config examples/presets/database-agent.toml --port 3000
 
-# --- Block credential file access ---
+# ================================================================
+# THREAT: Credential theft
+# Database connection strings, .pgpass, .my.cnf, and .env files
+# contain database passwords. This blocks all known locations.
+# ================================================================
 [[policies]]
 name = "Block credential files"
 tool_pattern = "*"
@@ -18,13 +44,57 @@ id = "*:*:db-credential-block"
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
 parameter_constraints = [
-  { param = "*", op = "glob", pattern = "**/.env",               on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "glob", pattern = "**/.pgpass",            on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "glob", pattern = "**/.my.cnf",            on_match = "deny", on_missing = "skip" },
-  { param = "*", op = "glob", pattern = "**/credentials*",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.aws/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.ssh/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gnupg/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env",                   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env.*",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/credentials.json",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.yaml",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.json",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.pgpass",                on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.my.cnf",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_rsa",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_ed25519",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.npmrc",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.netrc",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.kube/config",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.azure/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.config/gcloud/**", on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Require approval for destructive SQL ---
+# ================================================================
+# THREAT: SQL injection attacks
+# A compromised agent can inject UNION SELECT to extract data,
+# INTO OUTFILE to write files, LOAD_FILE to read files, or
+# xp_cmdshell to execute OS commands via the database.
+# These patterns are ALWAYS denied -- no approval path.
+# ================================================================
+[[policies]]
+name = "Block SQL injection patterns"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 275
+id = "*:*:db-sql-injection-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "(?i)UNION\\s+(ALL\\s+)?SELECT",   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "(?i);\\s*DROP\\s+",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "(?i)INTO\\s+OUTFILE",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "(?i)INTO\\s+DUMPFILE",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "(?i)LOAD_FILE\\s*\\(",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "(?i)\\bEXEC\\b.*\\bxp_cmdshell", on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "(?i)\\bEXEC\\b.*\\bsp_oacreate", on_match = "deny", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Destructive DDL operations
+# DROP TABLE, TRUNCATE, and DELETE without WHERE can destroy data.
+# GRANT ALL can escalate privileges. These require approval (except
+# GRANT ALL which is always denied).
+# ================================================================
 [[policies]]
 name = "Require approval for destructive operations"
 tool_pattern = "*"
@@ -42,9 +112,33 @@ parameter_constraints = [
   { param = "*", op = "regex", pattern = "(?i)GRANT\\s+ALL",    on_match = "deny", on_missing = "skip" },
 ]
 
-# --- Block data export to external domains ---
+# ================================================================
+# THREAT: Schema changes without review
+# CREATE TABLE, ALTER TABLE, and CREATE INDEX change the database
+# schema. These should be reviewed before execution.
+# ================================================================
 [[policies]]
-name = "Block external network access"
+name = "Require approval for schema changes"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 240
+id = "*:*:db-schema-approval"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "(?i)ALTER\\s+TABLE",    on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "(?i)CREATE\\s+TABLE",   on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "(?i)CREATE\\s+INDEX",   on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "(?i)CREATE\\s+VIEW",    on_match = "require_approval", on_missing = "skip" },
+]
+
+# ================================================================
+# THREAT: Data exfiltration from database results
+# A compromised agent could send query results to external services.
+# ================================================================
+[[policies]]
+name = "Block external exfiltration"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 200
@@ -60,6 +154,10 @@ blocked_domains = [
   "file.io",
   "0x0.st",
   "webhook.site",
+  "requestbin.com",
+  "pipedream.net",
+  "ngrok.io",
+  "ngrok-free.app",
 ]
 
 [policies.network_rules.ip_rules]
@@ -73,6 +171,11 @@ function_pattern = "*"
 priority = 1
 id = "*:*:db-default-allow"
 policy_type = "Allow"
+
+# --- Injection detection (blocking) ---
+[injection]
+enabled = true
+block_on_injection = true
 
 # --- DLP scanning (catch credential leaks in query results) ---
 [dlp]
