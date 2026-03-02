@@ -19,9 +19,18 @@ use vellaveto_config::PolicyConfig;
 /// Protection level definitions: (name, description).
 /// These are the beginner-friendly presets shown first in `--list-presets`.
 const PROTECTION_LEVELS: &[(&str, &str)] = &[
-    ("shield", "Entry-level — blocks credentials + dangerous commands, injection/DLP blocking"),
-    ("fortress", "Strong — shield + exfil domain blocking, AI config protection, approval gates"),
-    ("vault", "Maximum — fortress + default deny, must whitelist what you need"),
+    (
+        "shield",
+        "Entry-level — blocks credentials + dangerous commands, injection/DLP blocking",
+    ),
+    (
+        "fortress",
+        "Strong — shield + exfil domain blocking, AI config protection, approval gates",
+    ),
+    (
+        "vault",
+        "Maximum — fortress + default deny, must whitelist what you need",
+    ),
 ];
 
 /// Available preset definitions: (name, description, embedded TOML content).
@@ -296,10 +305,7 @@ mod tests {
     fn test_vault_preset_parses() {
         let config = load_preset("vault").expect("vault should load");
         let policies = config.to_policies();
-        assert!(
-            policies.len() >= 5,
-            "vault should have at least 5 policies"
-        );
+        assert!(policies.len() >= 5, "vault should have at least 5 policies");
     }
 
     #[test]

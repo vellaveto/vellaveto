@@ -182,10 +182,14 @@ async fn main() -> Result<()> {
     }
 
     // Validate --config, --preset, and --protect are mutually exclusive
-    let specified_count = [cli.config.is_some(), cli.preset.is_some(), cli.protect.is_some()]
-        .iter()
-        .filter(|&&v| v)
-        .count();
+    let specified_count = [
+        cli.config.is_some(),
+        cli.preset.is_some(),
+        cli.protect.is_some(),
+    ]
+    .iter()
+    .filter(|&&v| v)
+    .count();
     if specified_count > 1 {
         anyhow::bail!(
             "Cannot specify more than one of --config, --preset, and --protect. Use one only."
