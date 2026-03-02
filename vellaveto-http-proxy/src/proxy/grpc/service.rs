@@ -3606,10 +3606,9 @@ impl McpService for McpGrpcService {
 
         let _state = self.state.clone();
 
-        // Forward subscription to upstream via HTTP as a long-lived request
-        // For now, if upstream doesn't support gRPC streaming, we return an empty stream.
-        // When upstream_grpc_url is configured, we could relay notifications from the upstream
-        // gRPC server. This is a placeholder for future upstream gRPC streaming support.
+        // Upstream notification forwarding is not supported — subscribe returns an
+        // open stream that completes when the client disconnects. Notifications are
+        // delivered via the HTTP SSE transport instead.
         tokio::spawn(async move {
             tracing::info!(
                 session_id = %session_id,
@@ -3617,8 +3616,8 @@ impl McpService for McpGrpcService {
                 "gRPC notification subscription opened"
             );
 
-            // Keep the stream open until the client disconnects
-            // In a full implementation, this would relay from upstream notifications
+            // Keep the stream open until the client disconnects.
+            // Notifications are delivered via the HTTP SSE transport.
             let _ = tx.closed().await;
 
             tracing::info!(
