@@ -322,6 +322,10 @@ Injection detection is a pre-filter, not a security boundary. DLP does not detec
 
 Full details: [Security Guarantees](docs/SECURITY_GUARANTEES.md) | [Threat Model](docs/THREAT_MODEL.md) | [Assurance Case](docs/ASSURANCE_CASE.md)
 
+### MCPSEC Benchmark
+
+We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 64 reproducible attack test cases across 12 attack classes. Run it against any MCP gateway — including ours — and get a Tier 0-5 security score. See [mcpsec/README.md](mcpsec/README.md).
+
 ## How It Compares
 
 | | **VellaVeto** | **AgentGateway** | **MCP-Scan (Snyk)** | **Lasso Gateway** |
