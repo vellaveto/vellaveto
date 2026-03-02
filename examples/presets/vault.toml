@@ -28,7 +28,7 @@ name = "Block credential files"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 300
-id = "vault:*:credential-block"
+id = "*:*:vault-credential-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -58,7 +58,7 @@ name = "Block AI config modification"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 290
-id = "vault:*:ai-config-block"
+id = "*:*:vault-ai-config-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -77,7 +77,7 @@ name = "Block network exfiltration"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 280
-id = "vault:*:network-exfil"
+id = "*:*:vault-network-exfil"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -93,7 +93,7 @@ name = "Block exfiltration domains"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 275
-id = "vault:*:exfil-domains"
+id = "*:*:vault-exfil-domains"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -114,7 +114,7 @@ name = "Block git hook manipulation"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 270
-id = "vault:*:git-hook-block"
+id = "*:*:vault-git-hook-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -129,7 +129,7 @@ name = "Block dangerous commands"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 250
-id = "vault:*:dangerous-commands"
+id = "*:*:vault-dangerous-commands"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -149,7 +149,7 @@ name = "Default deny"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 1
-id = "vault:*:default-deny"
+id = "*:*:vault-default-deny"
 policy_type = "Deny"
 
 # --- Injection detection (blocking) ---

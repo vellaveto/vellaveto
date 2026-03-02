@@ -14,7 +14,7 @@ name = "Block credential files"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 300
-id = "rag:*:credential-block"
+id = "*:*:rag-credential-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -31,7 +31,7 @@ name = "Network allowlist for data sources"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 250
-id = "rag:*:network-allowlist"
+id = "*:*:rag-network-allowlist"
 policy_type = "Allow"
 
 [policies.network_rules]
@@ -59,7 +59,7 @@ name = "Block writes to system paths"
 tool_pattern = "*"
 function_pattern = "write*"
 priority = 200
-id = "rag:write:system-block"
+id = "*:write*:rag-system-block"
 policy_type = "Allow"
 
 [policies.path_rules]
@@ -71,7 +71,7 @@ name = "Default allow for RAG"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 1
-id = "rag:*:default-allow"
+id = "*:*:rag-default-allow"
 policy_type = "Allow"
 
 # --- Injection detection (critical for RAG) ---

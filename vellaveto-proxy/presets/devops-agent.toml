@@ -13,7 +13,7 @@ name = "Block production modifications"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 300
-id = "devops:*:block-prod"
+id = "*:*:devops-block-prod"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -29,7 +29,7 @@ name = "Allow config reads"
 tool_pattern = "file_read"
 function_pattern = "*"
 priority = 200
-id = "devops:file_read:allow"
+id = "file_read:*:devops-allow"
 policy_type = "Allow"
 
 [policies.path_rules]
@@ -47,7 +47,7 @@ name = "Allow Terraform plan"
 tool_pattern = "terraform"
 function_pattern = "plan"
 priority = 200
-id = "devops:terraform:allow-plan"
+id = "terraform:plan:devops-allow-plan"
 policy_type = "Allow"
 
 # --- Require approval for Terraform apply ---
@@ -56,7 +56,7 @@ name = "Require approval for Terraform apply"
 tool_pattern = "terraform"
 function_pattern = "apply"
 priority = 200
-id = "devops:terraform:require-apply"
+id = "terraform:apply:devops-require-apply"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "require_approval"
@@ -68,7 +68,7 @@ name = "Require approval for K8s destructive ops"
 tool_pattern = "kubectl"
 function_pattern = "delete"
 priority = 200
-id = "devops:kubectl:require-delete"
+id = "kubectl:delete:devops-require-delete"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "require_approval"
@@ -80,7 +80,7 @@ name = "Allow K8s reads"
 tool_pattern = "kubectl"
 function_pattern = "get"
 priority = 200
-id = "devops:kubectl:allow-read"
+id = "kubectl:get:devops-allow-read"
 policy_type = "Allow"
 
 # --- Allow cloud provider APIs ---
@@ -89,7 +89,7 @@ name = "Allow cloud APIs"
 tool_pattern = "cloud_*"
 function_pattern = "*"
 priority = 150
-id = "devops:cloud:allow"
+id = "cloud_*:*:devops-allow"
 policy_type = "Allow"
 
 [policies.network_rules]
@@ -107,7 +107,7 @@ name = "Default deny"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 0
-id = "devops:*:default-deny"
+id = "*:*:devops-default-deny"
 policy_type = "Deny"
 
 

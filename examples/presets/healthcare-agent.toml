@@ -13,7 +13,7 @@ name = "Block file access"
 tool_pattern = "file_*"
 function_pattern = "*"
 priority = 300
-id = "health:file:block"
+id = "file_*:*:health-block"
 policy_type = "Deny"
 
 
@@ -23,7 +23,7 @@ name = "Block exfiltration"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 300
-id = "health:*:block-exfil"
+id = "*:*:health-block-exfil"
 policy_type = "Deny"
 
 
@@ -42,7 +42,7 @@ name = "Allow EHR read access"
 tool_pattern = "ehr_*"
 function_pattern = "get*"
 priority = 200
-id = "health:ehr:allow-read"
+id = "ehr_*:get*:health-allow-read"
 policy_type = "Allow"
 
 [policies.network_rules]
@@ -59,7 +59,7 @@ name = "Require approval for EHR writes"
 tool_pattern = "ehr_*"
 function_pattern = "update*"
 priority = 200
-id = "health:ehr:require-approval"
+id = "ehr_*:update*:health-require-approval"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "require_approval"
@@ -71,7 +71,7 @@ name = "Allow medical references"
 tool_pattern = "search_*"
 function_pattern = "*"
 priority = 200
-id = "health:search:allow-refs"
+id = "search_*:*:health-allow-refs"
 policy_type = "Allow"
 
 [policies.network_rules]
@@ -88,7 +88,7 @@ name = "Default deny"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 0
-id = "health:*:default-deny"
+id = "*:*:health-default-deny"
 policy_type = "Deny"
 
 

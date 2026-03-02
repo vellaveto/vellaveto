@@ -105,8 +105,8 @@ struct Cli {
 enum Commands {
     /// Generate a starter config file in the current directory
     Init {
-        /// Preset to use as the starting template (default: dev-laptop)
-        #[arg(long, default_value = "dev-laptop")]
+        /// Preset to use as the starting template (default: shield)
+        #[arg(long, default_value = "shield")]
         preset: String,
 
         /// Output file path (default: vellaveto.toml)
@@ -182,10 +182,14 @@ async fn main() -> Result<()> {
     }
 
     // Validate --config, --preset, and --protect are mutually exclusive
-    let specified_count = [cli.config.is_some(), cli.preset.is_some(), cli.protect.is_some()]
-        .iter()
-        .filter(|&&v| v)
-        .count();
+    let specified_count = [
+        cli.config.is_some(),
+        cli.preset.is_some(),
+        cli.protect.is_some(),
+    ]
+    .iter()
+    .filter(|&&v| v)
+    .count();
     if specified_count > 1 {
         anyhow::bail!(
             "Cannot specify more than one of --config, --preset, and --protect. Use one only."

@@ -11,6 +11,9 @@ vellaveto serve --config examples/presets/dev-laptop.toml --port 3000
 # Or with Docker
 docker run -p 3000:3000 ghcr.io/vellaveto/vellaveto:latest
 
+# Or for stdio proxy mode (no HTTP server needed)
+vellaveto-proxy --protect shield -- ./your-mcp-server
+
 # Install Python SDK
 pip install vellaveto-sdk[all]
 ```

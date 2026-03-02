@@ -13,7 +13,7 @@ name = "Block credential files"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 300
-id = "db:*:credential-block"
+id = "*:*:db-credential-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -30,7 +30,7 @@ name = "Require approval for destructive operations"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 250
-id = "db:*:destructive-sql"
+id = "*:*:db-destructive-sql"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -48,7 +48,7 @@ name = "Block external network access"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 200
-id = "db:*:network-block"
+id = "*:*:db-network-block"
 policy_type = "Allow"
 
 [policies.network_rules]
@@ -71,7 +71,7 @@ name = "Default allow for database"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 1
-id = "db:*:default-allow"
+id = "*:*:db-default-allow"
 policy_type = "Allow"
 
 # --- DLP scanning (catch credential leaks in query results) ---

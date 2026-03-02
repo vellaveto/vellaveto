@@ -13,7 +13,7 @@ name = "Block credential access in CI"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 300
-id = "ci:*:credential-block"
+id = "*:*:ci-credential-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -32,7 +32,7 @@ name = "Network allowlist"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 250
-id = "ci:*:network-allowlist"
+id = "*:*:ci-network-allowlist"
 policy_type = "Allow"
 
 [policies.network_rules]
@@ -56,7 +56,7 @@ name = "Block dangerous CI commands"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 200
-id = "ci:*:dangerous-commands"
+id = "*:*:ci-dangerous-commands"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -73,7 +73,7 @@ name = "Default allow for CI"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 1
-id = "ci:*:default-allow"
+id = "*:*:ci-default-allow"
 policy_type = "Allow"
 
 # --- Injection detection (blocking in CI) ---

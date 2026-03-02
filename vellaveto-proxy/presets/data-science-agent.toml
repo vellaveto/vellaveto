@@ -13,7 +13,7 @@ name = "Block credentials"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 300
-id = "datasci:*:credential-block"
+id = "*:*:datasci-credential-block"
 policy_type = "Deny"
 
 
@@ -35,7 +35,7 @@ name = "Allow data read"
 tool_pattern = "file_read"
 function_pattern = "*"
 priority = 200
-id = "datasci:file_read:allow-data"
+id = "file_read:*:datasci-allow-data"
 policy_type = "Allow"
 
 [policies.path_rules]
@@ -54,7 +54,7 @@ name = "Allow output write"
 tool_pattern = "file_write"
 function_pattern = "*"
 priority = 200
-id = "datasci:file_write:allow-output"
+id = "file_write:*:datasci-allow-output"
 policy_type = "Allow"
 
 [policies.path_rules]
@@ -71,7 +71,7 @@ name = "Allow data sources"
 tool_pattern = "web_*"
 function_pattern = "*"
 priority = 200
-id = "datasci:web:allow-data-sources"
+id = "web_*:*:datasci-allow-data-sources"
 policy_type = "Allow"
 
 [policies.network_rules]
@@ -91,7 +91,7 @@ name = "Default deny"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 0
-id = "datasci:*:default-deny"
+id = "*:*:datasci-default-deny"
 policy_type = "Deny"
 
 

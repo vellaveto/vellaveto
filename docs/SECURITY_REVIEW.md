@@ -86,7 +86,7 @@ Puppetry injection, and SANDWORM supply chain worm hardening.
 ## Additional Assurance
 
 - **24 fuzz targets** covering all security-critical parsers
-- **9,600+ unit and integration tests** with adversarial test cases
+- **9,800+ unit and integration tests** with adversarial test cases
 - **Formal proofs** in 5 verification frameworks (TLA+, Alloy, Kani, Lean 4, Coq)
 - **Supply chain**: cargo-vet audits, cargo-deny license/advisory checks,
   GitHub Actions pinned to SHA, SLSA provenance, SBOM generation

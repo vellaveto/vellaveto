@@ -20,7 +20,7 @@ name = "Block credential files"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 300
-id = "fortress:*:credential-block"
+id = "*:*:fortress-credential-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -51,7 +51,7 @@ name = "Block AI config modification"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 290
-id = "fortress:*:ai-config-block"
+id = "*:*:fortress-ai-config-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -70,7 +70,7 @@ name = "Block network exfiltration"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 280
-id = "fortress:*:network-exfil"
+id = "*:*:fortress-network-exfil"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -86,7 +86,7 @@ name = "Block exfiltration domains"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 275
-id = "fortress:*:exfil-domains"
+id = "*:*:fortress-exfil-domains"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -108,7 +108,7 @@ name = "Block git hook manipulation"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 270
-id = "fortress:*:git-hook-block"
+id = "*:*:fortress-git-hook-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -123,7 +123,7 @@ name = "Block dangerous commands"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 250
-id = "fortress:*:dangerous-commands-block"
+id = "*:*:fortress-dangerous-commands-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -138,7 +138,7 @@ name = "Require approval for destructive ops"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 200
-id = "fortress:*:destructive-approval"
+id = "*:*:fortress-destructive-approval"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -156,7 +156,7 @@ name = "Default allow"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 1
-id = "fortress:*:default-allow"
+id = "*:*:fortress-default-allow"
 policy_type = "Allow"
 
 # --- Injection detection (blocking) ---

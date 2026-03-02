@@ -17,7 +17,7 @@ name = "Block credential files"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 300
-id = "default:*:credential-block"
+id = "*:*:default-credential-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -41,7 +41,7 @@ name = "Block exfiltration domains"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 280
-id = "default:*:exfil-domains"
+id = "*:*:default-exfil-domains"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -59,7 +59,7 @@ name = "Require approval for destructive commands"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 200
-id = "default:*:dangerous-commands"
+id = "*:*:default-dangerous-commands"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -80,7 +80,7 @@ tool_pattern = "file"
 function_pattern = "read"
 policy_type = "Allow"
 priority = 100
-id = "default:file:read-allow"
+id = "file:read:default-allow"
 
 [[policies]]
 name = "Allow file listing"
@@ -88,7 +88,7 @@ tool_pattern = "file"
 function_pattern = "list"
 policy_type = "Allow"
 priority = 100
-id = "default:file:list-allow"
+id = "file:list:default-allow"
 
 [[policies]]
 name = "Allow search operations"
@@ -96,7 +96,7 @@ tool_pattern = "search"
 function_pattern = "*"
 policy_type = "Allow"
 priority = 100
-id = "default:search:allow"
+id = "search:*:default-allow"
 
 # --- Priority 0: Default deny everything else ---
 [[policies]]
@@ -105,7 +105,7 @@ tool_pattern = "*"
 function_pattern = "*"
 policy_type = "Deny"
 priority = 0
-id = "default:*:deny-all"
+id = "*:*:default-deny-all"
 
 # --- Injection detection (alert-only, non-blocking) ---
 [injection]

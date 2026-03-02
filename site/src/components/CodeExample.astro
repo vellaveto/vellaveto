@@ -3,44 +3,85 @@
 <section>
   <div class="wrap">
     <h2 class="section-title">Try it</h2>
-    <p class="section-sub">Evaluate a tool call against your policy with a single request.</p>
-    <div class="terminal-container">
-      <div class="terminal-panel">
-        <div class="terminal-chrome">
-          <span class="dot dot-red"></span>
-          <span class="dot dot-yellow"></span>
-          <span class="dot dot-green"></span>
-          <span class="terminal-title">Request</span>
-        </div>
-        <div class="terminal-body">
-          <span class="comment"># Evaluate an MCP tool call against your policy</span><br>
-          <span class="cmd">curl</span> -X POST http://localhost:3000/api/evaluate \<br>
-          &nbsp;&nbsp;-H <span class="str">"Content-Type: application/json"</span> \<br>
-          &nbsp;&nbsp;-d <span class="str">'</span>&#123;<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"tool"</span>: <span class="str">"filesystem.write"</span>,<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"arguments"</span>: &#123;<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"path"</span>: <span class="str">"/etc/passwd"</span>,<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"content"</span>: <span class="str">"..."</span><br>
-          &nbsp;&nbsp;&nbsp;&nbsp;&#125;,<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"context"</span>: &#123; <span class="key">"agent"</span>: <span class="str">"coding-assistant"</span> &#125;<br>
-          &nbsp;&nbsp;&#125;<span class="str">'</span>
+    <p class="section-sub">One command protects your MCP server. No config files needed.</p>
+
+    <div class="code-tabs">
+      <input type="radio" name="code-tab" id="code-tab-proxy" checked class="tab-radio">
+      <label for="code-tab-proxy" class="tab-label">Stdio Proxy</label>
+      <input type="radio" name="code-tab" id="code-tab-api" class="tab-radio">
+      <label for="code-tab-api" class="tab-label">HTTP API</label>
+
+      <div class="tab-panel tab-panel-proxy">
+        <div class="terminal-container terminal-single">
+          <div class="terminal-panel">
+            <div class="terminal-chrome">
+              <span class="dot dot-red"></span>
+              <span class="dot dot-yellow"></span>
+              <span class="dot dot-green"></span>
+              <span class="terminal-title">Terminal</span>
+            </div>
+            <div class="terminal-body">
+              <span class="comment"># Install</span><br>
+              <span class="cmd">cargo</span> install vellaveto-proxy<br>
+              <br>
+              <span class="comment"># Protect any MCP server with one flag</span><br>
+              <span class="cmd">vellaveto-proxy</span> --protect shield -- npx @modelcontextprotocol/server-filesystem /tmp<br>
+              <br>
+              <span class="output"><span class="info">[info]</span> Loaded protection level: <span class="str">shield</span></span><br>
+              <span class="output"><span class="info">[info]</span> Injection scanning: <span class="str">enabled (blocking)</span></span><br>
+              <span class="output"><span class="info">[info]</span> DLP scanning: <span class="str">enabled (blocking)</span></span><br>
+              <span class="output"><span class="info">[info]</span> Proxying stdio &rarr; server-filesystem</span><br>
+              <br>
+              <span class="comment"># Agent tries to read credentials &rarr; blocked</span><br>
+              <span class="output"><span class="deny-out">[DENY]</span> read_file("/home/user/.aws/credentials") &mdash; path blocked by credential-protection rule</span><br>
+              <br>
+              <span class="comment"># Agent tries safe operation &rarr; allowed</span><br>
+              <span class="output"><span class="allow-out">[ALLOW]</span> read_file("/tmp/notes.txt")</span>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="terminal-panel">
-        <div class="terminal-chrome">
-          <span class="dot dot-red"></span>
-          <span class="dot dot-yellow"></span>
-          <span class="dot dot-green"></span>
-          <span class="terminal-title">Response</span>
-        </div>
-        <div class="terminal-body">
-          &#123;<br>
-          &nbsp;&nbsp;<span class="key">"decision"</span>: <span class="deny">"DENY"</span>,<br>
-          &nbsp;&nbsp;<span class="key">"reason"</span>: <span class="str">"write to sensitive system path"</span>,<br>
-          &nbsp;&nbsp;<span class="key">"policy"</span>: <span class="str">"filesystem-protection"</span>,<br>
-          &nbsp;&nbsp;<span class="key">"risk_score"</span>: <span class="num-val">0.95</span>,<br>
-          &nbsp;&nbsp;<span class="key">"audit_id"</span>: <span class="str">"a7f3...c812"</span><br>
-          &#125;
+
+      <div class="tab-panel tab-panel-api">
+        <div class="terminal-container">
+          <div class="terminal-panel">
+            <div class="terminal-chrome">
+              <span class="dot dot-red"></span>
+              <span class="dot dot-yellow"></span>
+              <span class="dot dot-green"></span>
+              <span class="terminal-title">Request</span>
+            </div>
+            <div class="terminal-body">
+              <span class="comment"># Evaluate an MCP tool call against your policy</span><br>
+              <span class="cmd">curl</span> -X POST http://localhost:3000/api/evaluate \<br>
+              &nbsp;&nbsp;-H <span class="str">"Content-Type: application/json"</span> \<br>
+              &nbsp;&nbsp;-d <span class="str">'</span>&#123;<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"tool"</span>: <span class="str">"filesystem.write"</span>,<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"arguments"</span>: &#123;<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"path"</span>: <span class="str">"/etc/passwd"</span>,<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"content"</span>: <span class="str">"..."</span><br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&#125;,<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"context"</span>: &#123; <span class="key">"agent"</span>: <span class="str">"coding-assistant"</span> &#125;<br>
+              &nbsp;&nbsp;&#125;<span class="str">'</span>
+            </div>
+          </div>
+          <div class="terminal-panel">
+            <div class="terminal-chrome">
+              <span class="dot dot-red"></span>
+              <span class="dot dot-yellow"></span>
+              <span class="dot dot-green"></span>
+              <span class="terminal-title">Response</span>
+            </div>
+            <div class="terminal-body">
+              &#123;<br>
+              &nbsp;&nbsp;<span class="key">"decision"</span>: <span class="deny">"DENY"</span>,<br>
+              &nbsp;&nbsp;<span class="key">"reason"</span>: <span class="str">"write to sensitive system path"</span>,<br>
+              &nbsp;&nbsp;<span class="key">"policy"</span>: <span class="str">"filesystem-protection"</span>,<br>
+              &nbsp;&nbsp;<span class="key">"risk_score"</span>: <span class="num-val">0.95</span>,<br>
+              &nbsp;&nbsp;<span class="key">"audit_id"</span>: <span class="str">"a7f3...c812"</span><br>
+              &#125;
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -48,8 +89,24 @@
 </section>
 
 <style>
+  .code-tabs{margin-top:1.5rem}
+  .tab-radio{display:none}
+  .tab-label{display:inline-block;padding:.5rem 1.25rem;
+    border-radius:.375rem;font-family:var(--sans);font-size:.8rem;
+    font-weight:600;color:var(--muted);cursor:pointer;transition:all .2s;
+    background:var(--surface);border:1px solid var(--border);margin-right:.25rem;
+    margin-bottom:1rem}
+  .tab-label:hover{color:var(--text)}
+  .tab-radio:checked + .tab-label{background:rgba(192,75,240,.12);
+    border-color:rgba(192,75,240,.3);color:var(--magenta)}
+
+  .tab-panel{display:none}
+  #code-tab-proxy:checked ~ .tab-panel-proxy{display:block}
+  #code-tab-api:checked ~ .tab-panel-api{display:block}
+
   .terminal-container{display:grid;grid-template-columns:1fr 1fr;gap:1rem;
-    margin-top:2rem;max-width:960px}
+    max-width:960px}
+  .terminal-single{grid-template-columns:1fr}
   .terminal-panel{border-radius:.75rem;overflow:hidden;
     border:1px solid var(--border);box-shadow:var(--shadow-md)}
   .terminal-chrome{display:flex;align-items:center;gap:.5rem;
@@ -68,6 +125,10 @@
   .cmd{color:var(--magenta)}
   .deny{color:var(--rose);font-weight:700}
   .num-val{color:var(--amber)}
+  .output{color:#8b949e}
+  .info{color:var(--cyan)}
+  .deny-out{color:var(--rose);font-weight:700}
+  .allow-out{color:var(--emerald);font-weight:700}
   @media(max-width:700px){
     .terminal-container{grid-template-columns:1fr}
   }

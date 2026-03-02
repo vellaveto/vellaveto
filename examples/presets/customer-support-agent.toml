@@ -13,7 +13,7 @@ name = "Block file system"
 tool_pattern = "file_*"
 function_pattern = "*"
 priority = 300
-id = "support:file:block-all"
+id = "file_*:*:support-block-all"
 policy_type = "Deny"
 
 
@@ -23,7 +23,7 @@ name = "Allow CRM read"
 tool_pattern = "crm_*"
 function_pattern = "get*"
 priority = 200
-id = "support:crm:allow-read"
+id = "crm_*:get*:support-allow-read"
 policy_type = "Allow"
 
 [policies.network_rules]
@@ -35,7 +35,7 @@ name = "Require approval for CRM changes"
 tool_pattern = "crm_*"
 function_pattern = "update*"
 priority = 200
-id = "support:crm:require-approval"
+id = "crm_*:update*:support-require-approval"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "require_approval"
@@ -47,7 +47,7 @@ name = "Allow knowledge base"
 tool_pattern = "knowledge_*"
 function_pattern = "*"
 priority = 200
-id = "support:kb:allow"
+id = "knowledge_*:*:support-allow"
 policy_type = "Allow"
 
 # --- Allow sending messages through approved channels ---
@@ -56,7 +56,7 @@ name = "Allow approved messaging"
 tool_pattern = "message_*"
 function_pattern = "send"
 priority = 200
-id = "support:message:allow"
+id = "message_*:send:support-allow"
 policy_type = "Allow"
 
 [policies.network_rules]
@@ -68,7 +68,7 @@ name = "Default deny"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 0
-id = "support:*:default-deny"
+id = "*:*:support-default-deny"
 policy_type = "Deny"
 
 
