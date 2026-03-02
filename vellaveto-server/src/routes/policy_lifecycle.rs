@@ -37,11 +37,24 @@ use crate::AppState;
 ///
 /// Spawns a background task to POST event data to the configured webhook URL.
 /// Failures are logged but never block the lifecycle operation.
+///
+/// SECURITY: Re-validates URL at runtime to defend against DNS rebinding
+/// (config-time SSRF check passes, but DNS resolves to private IP at call time).
+/// URL is never logged in full — may contain tokens in query parameters.
 fn notify_webhook(state: &AppState, event: &str, policy_id: &str, version: u64) {
     let url = match state.policy_lifecycle_config.notification_webhook_url {
         Some(ref u) => u.clone(),
         None => return,
     };
+
+    // SECURITY: Runtime SSRF re-validation (defends against DNS rebinding).
+    // Config-time validation catches static misconfigurations; this catches
+    // dynamic DNS resolution to private IPs between config load and call time.
+    if let Err(e) = vellaveto_types::validate_url_no_ssrf(&url) {
+        tracing::warn!("Lifecycle webhook URL failed runtime SSRF check: {}", e);
+        return;
+    }
+
     let event = event.to_string();
     let policy_id = policy_id.to_string();
     let body = json!({
@@ -57,18 +70,25 @@ fn notify_webhook(state: &AppState, event: &str, policy_id: &str, version: u64) 
         {
             Ok(c) => c,
             Err(e) => {
-                tracing::warn!("Lifecycle webhook client error: {}", e);
+                tracing::warn!("Lifecycle webhook client build error");
+                let _ = e;
                 return;
             }
         };
-        if let Err(e) = client
+        if let Err(_e) = client
             .post(&url)
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
             .await
         {
-            tracing::warn!("Lifecycle webhook failed for {}: {}", url, e);
+            // SECURITY: Do not log the full URL — it may contain tokens
+            // in query parameters. Log only the event context.
+            tracing::warn!(
+                "Lifecycle webhook delivery failed for event={} policy={}",
+                event,
+                policy_id
+            );
         }
     });
 }

@@ -167,13 +167,21 @@ pub struct InMemoryPolicyVersionStore {
 impl InMemoryPolicyVersionStore {
     /// Create a new in-memory store.
     pub fn new(config: PolicyLifecycleConfig) -> Self {
+        // SECURITY (FIND-R204-006): Warn when auto_approve_roles is configured
+        // but has no effect. This field is validated in config but the caller's
+        // role is not passed to promote_to_active, so role-based auto-approval
+        // cannot be enforced. Operators who set it would expect role-based
+        // auto-approval to work, but it silently does nothing.
         if !config.auto_approve_roles.is_empty() {
-            tracing::info!(
-                "policy_lifecycle: auto_approve_roles configured ({} roles) — \
-                 promotions will bypass manual approval requirements",
+            tracing::warn!(
+                "policy_lifecycle: auto_approve_roles is configured ({} roles) but not \
+                 enforced — role-based auto-approval is not yet implemented",
                 config.auto_approve_roles.len()
             );
         }
+        // SECURITY (FIND-R204-006): Warn when notification_webhook_url is set.
+        // The webhook is now implemented in the route handler (notify_webhook),
+        // but we log for operational visibility.
         if config.notification_webhook_url.is_some() {
             tracing::info!(
                 "policy_lifecycle: notification_webhook_url configured — \
@@ -474,12 +482,12 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
         let pv = &versions[idx];
 
         // Check approval requirements.
-        // When auto_approve_roles is configured, skip the manual approval check.
-        // The promote endpoint is already admin-only, so enabling auto_approve_roles
-        // means the admin has opted into bypassing the manual approval gate.
-        let auto_approved = !self.config.auto_approve_roles.is_empty();
+        // NOTE: auto_approve_roles is NOT checked here because the caller's
+        // role is not available at this layer. The promote endpoint is admin-only,
+        // but that's a weaker guarantee than role-specific auto-approval.
+        // When role-based auto-approval is implemented, the caller's role
+        // should be passed as a parameter and checked against auto_approve_roles.
         if self.config.required_approvals > 0
-            && !auto_approved
             && (pv.approvals.len() as u32) < self.config.required_approvals
         {
             return Err(LifecycleError::ApprovalRequired(format!(
@@ -1464,5 +1472,93 @@ mod tests {
             "Unicode case fold parity: {:?}",
             result
         );
+    }
+
+    // ─── auto_approve_roles tests ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_auto_approve_roles_does_not_bypass_approval() {
+        // SECURITY: auto_approve_roles is configured but NOT enforced because
+        // caller role is not available at the store layer. Approval should
+        // still be required regardless of auto_approve_roles configuration.
+        let mut config = test_config();
+        config.required_approvals = 1;
+        config.auto_approve_roles = vec!["senior-admin".to_string()];
+        let store = InMemoryPolicyVersionStore::new(config);
+
+        store
+            .create_version("pol-1", test_policy("pol-1"), "alice", None)
+            .await
+            .unwrap();
+
+        // Attempt to promote without any approvals — should be rejected
+        // even though auto_approve_roles is configured, because we cannot
+        // verify the caller has the required role.
+        let result = store.promote_version("pol-1", 1).await;
+        assert!(
+            matches!(result, Err(LifecycleError::ApprovalRequired(_))),
+            "auto_approve_roles should NOT bypass approval without role verification: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_promote_succeeds_with_approval_even_with_auto_approve_roles() {
+        // When auto_approve_roles is configured AND approval is provided,
+        // promotion should work normally.
+        let mut config = test_config();
+        config.required_approvals = 1;
+        config.auto_approve_roles = vec!["senior-admin".to_string()];
+        let store = InMemoryPolicyVersionStore::new(config);
+
+        store
+            .create_version("pol-1", test_policy("pol-1"), "alice", None)
+            .await
+            .unwrap();
+        store
+            .approve_version("pol-1", 1, "bob", None)
+            .await
+            .unwrap();
+        let pv = store.promote_version("pol-1", 1).await.unwrap();
+        assert!(matches!(pv.status, PolicyVersionStatus::Staging));
+    }
+
+    #[tokio::test]
+    async fn test_zero_required_approvals_allows_promote_without_approval() {
+        // When required_approvals is 0, promotion should succeed without
+        // any approvals regardless of auto_approve_roles.
+        let mut config = test_config();
+        config.required_approvals = 0;
+        config.auto_approve_roles = vec![];
+        let store = InMemoryPolicyVersionStore::new(config);
+
+        store
+            .create_version("pol-1", test_policy("pol-1"), "alice", None)
+            .await
+            .unwrap();
+        let pv = store.promote_version("pol-1", 1).await.unwrap();
+        assert!(matches!(pv.status, PolicyVersionStatus::Staging));
+    }
+
+    // ─── notification_webhook_url config tests ──────────────────────────────
+
+    #[tokio::test]
+    async fn test_webhook_config_does_not_affect_store_operations() {
+        // Webhook notification is handled at the route layer, not the store
+        // layer. Configuring a webhook URL should not change store behavior.
+        let mut config = test_config();
+        config.notification_webhook_url = Some("https://hooks.example.com/lifecycle".to_string());
+        let store = InMemoryPolicyVersionStore::new(config);
+
+        store
+            .create_version("pol-1", test_policy("pol-1"), "alice", None)
+            .await
+            .unwrap();
+        store
+            .approve_version("pol-1", 1, "bob", None)
+            .await
+            .unwrap();
+        let pv = store.promote_version("pol-1", 1).await.unwrap();
+        assert!(matches!(pv.status, PolicyVersionStatus::Staging));
     }
 }
