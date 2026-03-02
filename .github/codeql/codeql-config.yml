@@ -1,0 +1,15 @@
+name: "Vellaveto CodeQL Configuration"
+
+# Exclude test files and generated code from security-sensitive queries.
+# These paths contain intentional test fixtures (hard-coded keys, mock URIs,
+# DLP scan results) that trigger false positives.
+paths-ignore:
+  - "**/tests.rs"
+  - "**/test_*.rs"
+  - "**/*_test.rs"
+  - "**/tests/**"
+  - "vellaveto-integration/**"
+  - "vellaveto-canary/src/tests.rs"
+  - "target/**"
+  - "formal/**"
+  - "docs/**"
