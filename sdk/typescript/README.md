@@ -74,6 +74,123 @@ const result = await client.evaluate(
 );
 ```
 
+## Claude Agent SDK Integration
+
+The SDK includes a `VellavetoToolPermission` class that integrates with the Anthropic Claude Agent SDK's `toolPermissionCallback`:
+
+```typescript
+import { VellavetoClient } from '@vellaveto-sdk/typescript';
+import { VellavetoToolPermission } from '@vellaveto-sdk/typescript/claude-agent';
+import { Agent } from '@anthropic-ai/agent';
+
+const client = new VellavetoClient({ baseUrl: 'http://localhost:3000' });
+const permission = new VellavetoToolPermission(client, {
+  sessionId: 'session-001',
+  agentId: 'my-agent',
+  denyOnError: true, // fail-closed (default)
+});
+
+const agent = new Agent({
+  tools: [readFile, webSearch, executeCommand],
+  toolPermissionCallback: (name, args) => permission.check(name, args),
+});
+
+// Every tool call is evaluated against Vellaveto policies before execution.
+// Dangerous calls (credential access, exfiltration, destructive commands)
+// are blocked automatically.
+const result = await agent.run('Analyze the project structure');
+```
+
+### Filter Available Tools
+
+Pre-filter tools to only those currently allowed by policy:
+
+```typescript
+const allTools = ['read_file', 'write_file', 'execute', 'web_search'];
+const allowed = await permission.filterAllowedTools(allTools);
+// allowed: ['read_file', 'web_search'] (if write/execute are denied)
+```
+
+### Wrap Individual Tools
+
+Add policy enforcement to any function:
+
+```typescript
+const safeReadFile = permission.wrapTool(readFile, 'filesystem.read_file');
+
+try {
+  const content = await safeReadFile({ path: '/tmp/notes.txt' }); // allowed
+  const secrets = await safeReadFile({ path: '/home/user/.aws/credentials' }); // throws PolicyDenied
+} catch (e) {
+  if (e instanceof PolicyDenied) {
+    console.log(`Blocked: ${e.message}`);
+  }
+}
+```
+
+## Vercel AI SDK Integration
+
+Guard tool calls in a Vercel AI SDK application:
+
+```typescript
+import { VellavetoClient, PolicyDenied } from '@vellaveto-sdk/typescript';
+import { generateText, tool } from 'ai';
+import { openai } from '@ai-sdk/openai';
+import { z } from 'zod';
+
+const vellaveto = new VellavetoClient({ baseUrl: 'http://localhost:3000' });
+
+const readFile = tool({
+  description: 'Read a file from the filesystem',
+  parameters: z.object({ path: z.string() }),
+  execute: async ({ path }) => {
+    // Evaluate before execution
+    await vellaveto.evaluateOrRaise({
+      tool: 'filesystem',
+      function: 'read_file',
+      parameters: { path },
+      targetPaths: [path],
+    });
+    return fs.readFileSync(path, 'utf-8');
+  },
+});
+
+const result = await generateText({
+  model: openai('gpt-4o'),
+  tools: { readFile },
+  prompt: 'Read the project README',
+});
+```
+
+## Express/Koa Middleware Pattern
+
+Enforce policies on HTTP endpoints that proxy tool calls:
+
+```typescript
+import express from 'express';
+import { VellavetoClient, Verdict } from '@vellaveto-sdk/typescript';
+
+const app = express();
+const vellaveto = new VellavetoClient({ baseUrl: 'http://localhost:3000' });
+
+// Middleware: evaluate tool calls before forwarding
+app.use('/api/tools/:tool', async (req, res, next) => {
+  const result = await vellaveto.evaluate({
+    tool: req.params.tool,
+    function: req.body.function ?? '*',
+    parameters: req.body.parameters ?? {},
+  });
+
+  if (result.verdict !== Verdict.Allow) {
+    return res.status(403).json({
+      error: 'Policy denied',
+      reason: result.reason,
+    });
+  }
+  next();
+});
+```
+
 ## API Reference
 
 | Method | Description |
@@ -110,7 +227,7 @@ const client = new VellavetoClient({
 
 ```bash
 npm install
-npm test
+npm test       # 119 tests
 npm run build
 ```
 

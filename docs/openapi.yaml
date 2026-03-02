@@ -2807,6 +2807,13 @@ components:
           properties:
             context:
               $ref: "#/components/schemas/EvaluationContext"
+            _test_response:
+              type: object
+              description: |
+                Optional simulated tool response for content inspection benchmarking.
+                When present, the server runs injection and DLP scanners on this content
+                and includes results in the response's `inspection` field. Used by MCPSEC
+                benchmark to test detection capabilities without a live proxy connection.
 
     EvaluateResponse:
       type: object
@@ -2823,6 +2830,36 @@ components:
         trace:
           type: object
           description: Detailed evaluation trace (when trace=true)
+        inspection:
+          $ref: "#/components/schemas/InspectionResults"
+
+    InspectionResults:
+      type: object
+      description: Content inspection results. Only present when `_test_response` is provided.
+      properties:
+        injection_detected:
+          type: boolean
+          description: Whether injection patterns were detected in the test response
+        injection_patterns:
+          type: array
+          items:
+            type: string
+          description: Names of injection patterns detected (empty if none)
+        dlp_findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/DlpFindingSummary"
+          description: DLP findings in the test response (empty if none)
+
+    DlpFindingSummary:
+      type: object
+      properties:
+        pattern_name:
+          type: string
+          description: Name of the DLP pattern that matched
+        location:
+          type: string
+          description: Location within the response where the finding was detected
 
     SimulateRequest:
       type: object
