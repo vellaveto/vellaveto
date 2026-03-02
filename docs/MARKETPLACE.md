@@ -392,16 +392,16 @@ const result = await client.evaluate({
 
 **Go:**
 ```go
-client := sentinel.NewClient(
+client := vellaveto.NewClient(
     "https://vellaveto.example.com",
-    "vvt_...",
-    sentinel.WithTenant("acme-corp-a1b2c3"),
+    vellaveto.WithAPIKey("vvt_..."),
+    vellaveto.WithTenant("acme-corp-a1b2c3"),
 )
 
-result, err := client.Evaluate(ctx, sentinel.Action{
+result, err := client.Evaluate(ctx, vellaveto.Action{
     Tool:     "file_read",
     Function: "read",
-})
+}, nil, false)
 ```
 
 ---
