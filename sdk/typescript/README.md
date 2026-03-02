@@ -209,6 +209,28 @@ app.use('/api/tools/:tool', async (req, res, next) => {
 | `discoveryTools()` | List indexed tools with optional filters |
 | `projectorModels()` | List supported projector model families |
 | `projectSchema()` | Project canonical schema for a model family |
+| **Simulator** | |
+| `simulate()` | Simulate a single action evaluation with full trace |
+| `batchEvaluate()` | Batch-evaluate multiple actions |
+| `validateConfig()` | Validate a policy configuration string |
+| `diffConfigs()` | Diff two policy configurations |
+| **ZK Audit** | |
+| `zkStatus()` | Get the ZK audit scheduler status |
+| `zkProofs()` | List stored ZK batch proofs with optional pagination |
+| `zkVerify()` | Verify a stored ZK batch proof by batch ID |
+| `zkCommitments()` | List Pedersen commitments for audit entries in a sequence range |
+| **Compliance** | |
+| `soc2AccessReview()` | Generate a SOC 2 Type II access review report |
+| `owaspAsiCoverage()` | Get OWASP Agentic Security Index (ASI) coverage report |
+| `evidencePack()` | Generate a compliance evidence pack for a specified framework |
+| `evidencePackStatus()` | Get evidence pack status — which frameworks are available |
+| **Federation** | |
+| `federationStatus()` | Get federation status including per-anchor cache info |
+| `federationTrustAnchors()` | List federation trust anchors, optionally filtered by org ID |
+| **Billing & Usage** | |
+| `usage()` | Get current-period usage metrics for a tenant |
+| `quotaStatus()` | Get quota status (usage vs limits) for a tenant |
+| `usageHistory()` | Get usage history across billing periods for a tenant |
 
 ## Client Options
 

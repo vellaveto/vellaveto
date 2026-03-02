@@ -427,6 +427,19 @@ result = client.evaluate(
 | `discovery_tools()` | List indexed tools with optional filters |
 | `projector_models()` | List supported projector model families |
 | `project_schema()` | Project canonical schema for a model family |
+| **ZK Audit** | |
+| `zk_status()` | Get ZK audit scheduler status |
+| `zk_proofs(limit, offset)` | List stored ZK batch proofs with pagination |
+| `zk_verify(batch_id)` | Verify a stored ZK batch proof |
+| **Compliance** | |
+| `owasp_asi_coverage()` | Get OWASP Agentic Security Index coverage report |
+| `evidence_pack_status()` | Get evidence pack status and available frameworks |
+| **Federation** | |
+| `federation_status()` | Get federation status including per-anchor cache info |
+| **Billing** | |
+| `usage(tenant_id)` | Get current-period usage metrics for a tenant |
+| `quota_status(tenant_id)` | Get quota status (usage vs limits) for a tenant |
+| `usage_history(tenant_id, periods)` | Get usage history across billing periods for a tenant |
 
 ### Types
 

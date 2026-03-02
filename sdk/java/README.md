@@ -85,21 +85,81 @@ try {
 
 ## API Reference
 
+### Core Evaluation
+
 | Method | Description |
 |--------|-------------|
 | `health()` | Check server health |
-| `evaluate(action)` | Evaluate a single action |
-| `evaluateOrThrow(action)` | Evaluate; throws on deny/approval |
+| `evaluate(action, context, trace)` | Evaluate a single action |
+| `evaluateOrRaise(action, context)` | Evaluate; throws on deny/approval |
+| `simulate(action, context)` | Evaluate with full trace via the simulator endpoint |
+| `batchEvaluate(actions, policyConfig)` | Evaluate multiple actions in a single request |
+
+### Policy Management
+
+| Method | Description |
+|--------|-------------|
 | `listPolicies()` | List loaded policies |
 | `reloadPolicies()` | Trigger policy reload |
-| `getPendingApprovals()` | List pending approvals |
-| `resolveApproval(id, approved)` | Approve or deny a request |
-| `discover(query, maxResults)` | Search the tool discovery index |
+| `validateConfig(config, strict)` | Validate a policy configuration without loading it |
+| `diffConfigs(before, after)` | Compare two policy configurations |
+
+### Approval Management
+
+| Method | Description |
+|--------|-------------|
+| `listPendingApprovals()` | List pending approvals |
+| `approveApproval(id, reason)` | Approve a pending approval by ID |
+| `denyApproval(id, reason)` | Deny a pending approval by ID |
+
+### Discovery
+
+| Method | Description |
+|--------|-------------|
+| `discover(query, maxResults, tokenBudget)` | Search the tool discovery index |
 | `discoveryStats()` | Get discovery index statistics |
 | `discoveryReindex()` | Rebuild discovery IDF weights |
-| `discoveryTools(serverID, sensitivity)` | List indexed tools with optional filters |
+| `discoveryTools(serverId, sensitivity)` | List indexed tools with optional filters |
+
+### Projector
+
+| Method | Description |
+|--------|-------------|
 | `projectorModels()` | List supported projector model families |
 | `projectSchema(schema, modelFamily)` | Project canonical schema for a model family |
+
+### Zero-Knowledge Audit
+
+| Method | Description |
+|--------|-------------|
+| `zkStatus()` | Get the current ZK audit scheduler status |
+| `zkProofs(limit, offset)` | List stored ZK batch proofs with pagination |
+| `zkVerify(batchId)` | Verify a stored ZK batch proof by batch ID |
+| `zkCommitments(from, to)` | List Pedersen commitments for a sequence range |
+
+### Compliance & Evidence
+
+| Method | Description |
+|--------|-------------|
+| `soc2AccessReview(period, format, agentId)` | Generate a SOC 2 Type II access review report |
+| `owaspAsiCoverage()` | Retrieve the OWASP Agentic Security Index coverage report |
+| `evidencePack(framework, format)` | Generate a compliance evidence pack for a framework |
+| `evidencePackStatus()` | Retrieve available evidence pack frameworks |
+
+### Federation
+
+| Method | Description |
+|--------|-------------|
+| `federationStatus()` | Get the federation resolver status |
+| `federationTrustAnchors(orgId)` | Get configured federation trust anchors |
+
+### Usage & Billing
+
+| Method | Description |
+|--------|-------------|
+| `usage(tenantId)` | Retrieve current-period usage metrics for a tenant |
+| `quotaStatus(tenantId)` | Retrieve quota status (usage vs limits) for a tenant |
+| `usageHistory(tenantId, periods)` | Retrieve usage history across billing periods |
 
 ## Client Options
 

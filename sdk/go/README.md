@@ -86,6 +86,23 @@ func main() {
 | `DiscoveryTools(ctx, serverID, sensitivity)` | List indexed tools with optional filters |
 | `ProjectorModels(ctx)` | List supported projector model families |
 | `ProjectSchema(ctx, schema, modelFamily)` | Project canonical schema for a model family |
+| **ZK Audit** | |
+| `ZkStatus(ctx)` | Get ZK audit scheduler status |
+| `ZkProofs(ctx, limit, offset)` | List stored ZK batch proofs with pagination |
+| `ZkVerify(ctx, batchID)` | Verify a stored ZK batch proof by batch ID |
+| `ZkCommitments(ctx, from, to)` | List Pedersen commitments for an audit sequence range |
+| **Compliance** | |
+| `Soc2AccessReview(ctx, period, format, agentID)` | Generate a SOC 2 Type II access review report |
+| `OwaspAsiCoverage(ctx)` | Retrieve OWASP Agentic Security Index coverage report |
+| `EvidencePack(ctx, framework, format)` | Generate a compliance evidence pack for a framework |
+| `EvidencePackStatus(ctx)` | List which evidence pack frameworks are available |
+| **Federation** | |
+| `FederationStatus(ctx)` | Get federation resolver status |
+| `FederationTrustAnchors(ctx, orgID)` | List configured federation trust anchors |
+| **Billing & Usage** | |
+| `Usage(ctx, tenantID)` | Get current-period usage metrics for a tenant |
+| `QuotaStatus(ctx, tenantID)` | Get quota status (usage vs limits) for a tenant |
+| `UsageHistory(ctx, tenantID, periods)` | Retrieve usage history across billing periods |
 
 ## Client Options
 
