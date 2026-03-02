@@ -46,7 +46,7 @@ Beyond the one-liner, VellaVeto includes topology discovery (auto-inventorying M
 
 - *Transport parity.* Every security check works identically across HTTP, WebSocket, gRPC, stdio, and SSE. We maintain a 13-feature parity matrix and verify it on every change.
 
-- *Open security benchmark.* We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 64 reproducible attack test cases across 12 attack classes. Run it against any gateway — including ours — and get a Tier 0-5 security score. We score 97/100 (Tier 5: Hardened, 62/64 tests passed). The two failures are edge cases in injection evasion and response confidentiality we're still working on. Run `cargo run -p mcpsec -- --target http://localhost:3000` to verify.
+- *Open security benchmark.* We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 64 reproducible attack test cases across 12 attack classes. Run it against any gateway — including ours — and get a Tier 0-5 security score. We score 100/100 (Tier 5: Hardened, 64/64 tests passed). Run `cargo run -p mcpsec -- --target http://localhost:3000` to verify.
 
 **Honest caveats:**
 

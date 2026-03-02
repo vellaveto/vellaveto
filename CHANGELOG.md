@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **MCPSEC Benchmark promotion:** Added MCPSEC benchmark section to README and landing site.
   Open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). 10 formal properties,
-  64 attack tests, 12 attack classes. Updated reference results to v6.0.0 (97/100, Tier 5).
+  64 attack tests, 12 attack classes. Updated reference results to v6.0.0 (100/100, Tier 5 — all 64 tests passed).
 
 ## [6.0.0] - 2026-03-02
 
