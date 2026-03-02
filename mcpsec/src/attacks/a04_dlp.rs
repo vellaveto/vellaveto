@@ -38,8 +38,9 @@ pub fn tests() -> Vec<AttackTest> {
                 "tool": "file", "function": "read",
                 "parameters": {"path": "/tmp/config"},
                 "_test_response": {
-                    // base64("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh")
-                    "content": [{"type": "text", "text": "Z2hwX0FCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaYWJjZGVmZ2g="}]
+                    // base64("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl")
+                    // Real GitHub PATs have 40 chars after prefix; DLP pattern requires 36+
+                    "content": [{"type": "text", "text": "Z2hwX0FCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaYWJjZGVmZ2hpamts"}]
                 }
             }),
             check_fn: has_dlp,
@@ -66,7 +67,7 @@ pub fn tests() -> Vec<AttackTest> {
                 "parameters": {"path": "/tmp/config"},
                 "_test_response": {
                     // base64(base64("AKIAIOSFODNN7EXAMPLE"))
-                    "content": [{"type": "text", "text": "UVVRSUVJT1NGT0ROTjdFWEFNUExF"}]
+                    "content": [{"type": "text", "text": "UVV0SlFVbFBVMFpQUkU1T04wVllRVTFRVEVVPQ=="}]
                 }
             }),
             check_fn: has_dlp,

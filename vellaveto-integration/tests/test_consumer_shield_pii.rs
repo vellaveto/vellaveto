@@ -48,7 +48,9 @@ fn test_query_sanitizer_email_and_filepath_roundtrip_restores_originals() {
         "Please read /home/alice/medical/records.pdf and email alice@example.com with results";
 
     // Sanitize: PII should be replaced with [PII_*] placeholders
-    let sanitized = sanitizer.sanitize(original).expect("sanitize should succeed");
+    let sanitized = sanitizer
+        .sanitize(original)
+        .expect("sanitize should succeed");
 
     // Original PII values must NOT appear in sanitized output
     assert!(
@@ -318,7 +320,10 @@ fn test_session_isolator_sanitize_and_desanitize_within_same_session() {
     let restored = isolator
         .desanitize_in_session(session, &sanitized)
         .expect("desanitize");
-    assert_eq!(restored, input, "same-session roundtrip must restore original");
+    assert_eq!(
+        restored, input,
+        "same-session roundtrip must restore original"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -330,9 +335,7 @@ fn test_session_isolator_sanitize_and_desanitize_within_same_session() {
 fn test_query_sanitizer_clear_prevents_desanitization() {
     let sanitizer = QuerySanitizer::new(PiiScanner::default());
 
-    let sanitized = sanitizer
-        .sanitize("secret@example.com")
-        .expect("sanitize");
+    let sanitized = sanitizer.sanitize("secret@example.com").expect("sanitize");
     assert!(sanitized.contains("[PII_EMAIL_"));
     assert!(sanitizer.mapping_count() > 0);
 
