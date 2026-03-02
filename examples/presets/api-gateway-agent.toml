@@ -12,7 +12,7 @@ name = "Block internal networks"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 300
-id = "api-gw:*:block-internal"
+id = "*:*:api-gw-block-internal"
 policy_type = "Deny"
 
 
@@ -28,7 +28,7 @@ name = "Allow approved APIs"
 tool_pattern = "http_*"
 function_pattern = "*"
 priority = 200
-id = "api-gw:http:allow-approved"
+id = "http_*:*:api-gw-allow-approved"
 policy_type = "Allow"
 
 [policies.network_rules]
@@ -48,7 +48,7 @@ name = "Require approval for unknown APIs"
 tool_pattern = "http_*"
 function_pattern = "*"
 priority = 100
-id = "api-gw:http:require-approval"
+id = "http_*:*:api-gw-require-approval"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "require_approval"
@@ -60,7 +60,7 @@ name = "Default deny"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 0
-id = "api-gw:*:default-deny"
+id = "*:*:api-gw-default-deny"
 policy_type = "Deny"
 
 

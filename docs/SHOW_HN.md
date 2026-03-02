@@ -2,11 +2,14 @@
 
 ## Title Options
 
-Pick one (recommendation: Option 1 for understated technical tone):
+Pick one (recommendation: Option 1 — concrete, visceral, demo-first):
 
-1. `Show HN: VellaVeto – Runtime security engine for AI agent tool calls (Rust)`
-2. `Show HN: VellaVeto – Open-source security control plane for MCP and AI agents`
-3. `Show HN: VellaVeto – We built a fail-closed security engine for AI tool calls, with Coq proofs`
+1. `Show HN: VellaVeto – Firewall that blocks AI agents from reading your credentials (Rust, <5ms)`
+2. `Show HN: VellaVeto – Runtime firewall for AI agent tool calls, with formal proofs it can't fail open`
+3. `Show HN: VellaVeto – We wrote Coq proofs that our MCP firewall always denies on error`
+4. `Show HN: VellaVeto – One flag to stop AI agents from exfiltrating your AWS credentials`
+
+Avoid: "security engine", "control plane", "governance layer", "policy engine" — these are abstract and HN Show HNs with them consistently get 1-5 points. Lead with what it **blocks**, not what it **is**.
 
 **Link to:** `https://github.com/vellaveto/vellaveto`
 
@@ -16,7 +19,7 @@ Pick one (recommendation: Option 1 for understated technical tone):
 
 Hi HN, I'm Paolo.
 
-I built VellaVeto because AI agents with tool access — reading files, making HTTP requests, executing commands — have no standard security layer. MCP gives agents a protocol to call tools, but the protocol itself has no policy enforcement, no audit trail, and no identity model. In the last 15 months, the ecosystem has accumulated 30+ CVEs: tool poisoning, rug-pull attacks, path traversal in Anthropic's own reference servers, command injection via OAuth endpoints in mcp-remote (CVSS 9.6).
+I built VellaVeto because AI agents with tool access — reading files, making HTTP requests, executing commands — have no standard security layer. MCP gives agents a protocol to call tools, but the protocol itself has no policy enforcement, no audit trail, and no identity model. In the last 15 months, the ecosystem has accumulated 30+ CVEs: command injection in `mcp-remote` (CVE-2025-6514, CVSS 9.6), path traversal in Anthropic's own Git MCP server (CVE-2025-68143/44/45), SANDWORM npm supply-chain worms injecting rogue MCP servers into AI configs, and 8,000+ MCP servers found exposed with no authentication.
 
 **What VellaVeto does:** It sits between AI agents and tool servers as a runtime security engine. Every tool call is evaluated against policy before execution. No policy match, missing context, or any evaluation error produces `Deny`. It works across MCP (stdio, HTTP, WebSocket, gRPC, SSE) and function-calling APIs.
 
@@ -48,7 +51,7 @@ Beyond the one-liner, VellaVeto includes topology discovery (auto-inventorying M
 - The 232 security audit rounds are **internal** — systematic red-teaming where we attack our own code. They are not third-party audits. The methodology and all findings are documented in the changelog and security review docs. We'd welcome independent review.
 - Injection detection is a pre-filter, not a security boundary. A sufficiently novel injection will get through.
 - DLP does not detect secrets split across multiple tool calls.
-- The project is complex (19 Rust crates), but you don't need to understand any of it — `--protect shield` gives you solid defaults in one flag. If you want something even simpler, Agent-Wall (`npm install -g`) or PipeLock (single Go binary) are good alternatives.
+- The project is complex (19 Rust crates), but you don't need to understand any of it — `--protect shield` gives you solid defaults in one flag. If you want something simpler, [PipeLock](https://github.com/luckyPipewrench/pipelock) (single Go binary) is a good alternative.
 - Enterprise crates use BUSL-1.1, which is not OSI-approved open source. Core crates (types, engine, audit, config, discovery) are MPL-2.0. Each BSL version converts to MPL-2.0 after 3 years. Free for ≤3 nodes.
 
 I'd particularly value feedback on:
@@ -87,9 +90,9 @@ You're right — BUSL-1.1 is not OSI-approved. We use it for enterprise crates (
 
 Internal red-teaming, not third-party. We attack our own code systematically: pick an attack class, enumerate vectors, write exploits, document findings, fix them, write regression tests, verify fixes. It's documented in the changelog (every round has a commit) and docs/SECURITY_REVIEW.md. We'd welcome independent review — if a security firm wants to audit it, we'll make it easy.
 
-### "Why not just use Agent-Wall / PipeLock?"
+### "Why not just use AgentGateway / MCP-Scan / PipeLock?"
 
-Great tools for quick single-agent setups. If you need centralized governance across multiple agents, compliance evidence for regulated industries, multi-transport coverage, or formal verification of security properties, VellaVeto covers that. We link to both in our comparison table and recommend them for simpler use cases.
+Different tools, different problems. AgentGateway (~1,800 stars, Linux Foundation) is a connectivity proxy for routing agent traffic — great infrastructure, but no runtime policy engine. MCP-Scan (~1,700 stars, Snyk) scans MCP server configs for vulnerabilities — great for static analysis, but doesn't block at runtime. PipeLock (Go, single binary) is a simpler agent firewall — good for quick single-agent setups. VellaVeto is the runtime policy engine: fine-grained allow/deny rules, compliance evidence packs, multi-transport parity, formal verification. We link to all of them in our comparison table.
 
 ### "This is over-engineered"
 

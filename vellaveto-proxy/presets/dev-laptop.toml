@@ -14,7 +14,7 @@ name = "Block credential files"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 300
-id = "dev:*:credential-block"
+id = "*:*:dev-credential-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -34,7 +34,7 @@ name = "Require approval for destructive commands"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 200
-id = "dev:*:dangerous-commands"
+id = "*:*:dev-dangerous-commands"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -52,7 +52,7 @@ name = "Default allow for dev"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 1
-id = "dev:*:default-allow"
+id = "*:*:dev-default-allow"
 policy_type = "Allow"
 
 # --- Injection detection ---

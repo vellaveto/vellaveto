@@ -22,7 +22,7 @@ name = "Block credential files"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 300
-id = "shield:*:credential-block"
+id = "*:*:shield-credential-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -52,7 +52,7 @@ name = "Block dangerous commands"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 250
-id = "shield:*:dangerous-commands"
+id = "*:*:shield-dangerous-commands"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -70,7 +70,7 @@ name = "Default allow"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 1
-id = "shield:*:default-allow"
+id = "*:*:shield-default-allow"
 policy_type = "Allow"
 
 # --- Injection detection (blocking) ---
