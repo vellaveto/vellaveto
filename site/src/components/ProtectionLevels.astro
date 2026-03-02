@@ -1,0 +1,90 @@
+---
+---
+<section id="protection-levels">
+  <div class="wrap">
+    <h2 class="section-title">Zero-config protection</h2>
+    <p class="section-sub">Pick a level and go &mdash; no policy files, no security domain knowledge needed.</p>
+    <div class="levels-grid">
+      <div class="card level level-shield">
+        <div class="level-header">
+          <span class="level-name">Shield</span>
+          <span class="level-badge">Entry-level</span>
+        </div>
+        <div class="level-default">Default: <strong>Allow</strong></div>
+        <ul class="level-features">
+          <li>Block credential files (.aws, .ssh, .env, ...)</li>
+          <li>Block dangerous commands (rm -rf, curl|sh)</li>
+          <li>Injection scanning (blocking)</li>
+          <li>DLP credential leak detection (blocking)</li>
+        </ul>
+        <div class="level-install">
+          <code>vellaveto-proxy --protect shield -- ./server</code>
+        </div>
+      </div>
+      <div class="card level level-fortress">
+        <div class="level-header">
+          <span class="level-name">Fortress</span>
+          <span class="level-badge level-badge-rec">Recommended</span>
+        </div>
+        <div class="level-default">Default: <strong>Allow</strong></div>
+        <ul class="level-features">
+          <li>Everything in Shield, plus:</li>
+          <li>Block exfiltration domains (pastebin, webhook.site, ...)</li>
+          <li>Protect AI assistant configs (SANDWORM defense)</li>
+          <li>Block git hook manipulation</li>
+          <li>Approval gates for destructive operations</li>
+        </ul>
+        <div class="level-install">
+          <code>vellaveto-proxy --protect fortress -- ./server</code>
+        </div>
+      </div>
+      <div class="card level level-vault">
+        <div class="level-header">
+          <span class="level-name">Vault</span>
+          <span class="level-badge">Maximum</span>
+        </div>
+        <div class="level-default">Default: <strong class="deny-text">Deny</strong></div>
+        <ul class="level-features">
+          <li>Everything in Fortress, plus:</li>
+          <li>Default deny &mdash; must whitelist what you need</li>
+          <li>Shadow agent detection enabled</li>
+        </ul>
+        <div class="level-install">
+          <code>vellaveto-proxy --protect vault -- ./server</code>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  #protection-levels{position:relative}
+  .levels-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+    gap:1.25rem;margin-top:2.5rem}
+  .level{padding:1.75rem;position:relative;transition:border-color .2s}
+  .level-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem}
+  .level-name{font-size:1.15rem;font-weight:800;color:var(--text)}
+  .level-badge{font-size:.65rem;font-weight:600;padding:.2rem .6rem;border-radius:1rem;
+    text-transform:uppercase;letter-spacing:.05em;background:var(--surface);
+    border:1px solid var(--border);color:var(--muted)}
+  .level-badge-rec{background:rgba(192,75,240,.12);border-color:rgba(192,75,240,.3);color:var(--magenta)}
+  .level-default{font-size:.8rem;color:var(--muted);margin-bottom:1rem}
+  .level-default strong{color:var(--emerald, #34d399)}
+  .deny-text{color:var(--rose, #fb7185) !important}
+  .level-features{list-style:none;margin-bottom:1.25rem}
+  .level-features li{font-size:.825rem;color:var(--muted);padding:.3rem 0;
+    padding-left:1.25rem;position:relative;line-height:1.5}
+  .level-features li::before{content:"";position:absolute;left:0;top:.65rem;
+    width:6px;height:6px;border-radius:50%;background:var(--border)}
+  .level-features li:first-child::before{background:var(--cyan)}
+  .level-install{background:var(--surface);border:1px solid var(--border);
+    border-radius:.375rem;padding:.6rem .85rem;overflow-x:auto}
+  .level-install code{font-family:var(--mono);font-size:.75rem;color:var(--cyan);white-space:nowrap}
+
+  .level-fortress{border-color:rgba(192,75,240,.25)}
+  .level-fortress:hover{border-color:rgba(192,75,240,.5)}
+
+  @media(max-width:600px){
+    .levels-grid{grid-template-columns:1fr}
+  }
+</style>

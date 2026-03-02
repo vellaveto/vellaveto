@@ -8,7 +8,7 @@
     <a href="https://github.com/vellaveto/vellaveto/stargazers"><img src="https://img.shields.io/github/stars/vellaveto/vellaveto?style=flat&logo=github&label=stars" alt="GitHub Stars"></a>
     <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-MPL--2.0_/_Apache--2.0_/_BUSL--1.1-blue.svg" alt="License: Three-tier"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/MSRV-1.88.0-orange.svg?logo=rust" alt="MSRV 1.88.0"></a>
-    <img src="https://img.shields.io/badge/tests-9%2C600%2B_passing-brightgreen.svg" alt="Tests: 9,600+ passing">
+    <img src="https://img.shields.io/badge/tests-9%2C800%2B_passing-brightgreen.svg" alt="Tests: 9,800+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <a href="docs/SECURITY_GUARANTEES.md"><img src="https://img.shields.io/badge/internal_security_audits-232_rounds-orange.svg" alt="232 Internal Security Audit Rounds"></a>
     <a href="formal/"><img src="https://img.shields.io/badge/formal_verification-TLA%2B_%7C_Lean_4_%7C_Coq-blueviolet.svg" alt="Formal Verification: TLA+ | Lean 4 | Coq"></a>
@@ -43,7 +43,7 @@ Agent receives prompt injection
   → no audit trail, no one notices
 ```
 
-This is not hypothetical. In the last 15 months the MCP ecosystem has accumulated [30+ CVEs](https://www.practical-devsecops.com/mcp-security-vulnerabilities/) — tool poisoning, rug-pull attacks, path traversal in official servers, command injection via OAuth endpoints, and prompt injection through tool descriptions. 8,000+ MCP servers have been found exposed with no authentication.
+This is not hypothetical. The MCP ecosystem has accumulated [30+ CVEs](https://www.practical-devsecops.com/mcp-security-vulnerabilities/) in 15 months: command injection in `mcp-remote` ([CVE-2025-6514](https://nvd.nist.gov/vuln/detail/CVE-2025-6514)), path traversal in Anthropic's official Git MCP server ([CVE-2025-68143/44/45](https://github.com/anthropics/anthropic-cookbook/security/advisories)), [SANDWORM](docs/THREAT_MODEL.md) npm supply-chain worms injecting rogue MCP servers into AI configs, and [SmartLoader](https://blog.morphisec.com/smartloader-malware-targets-manufacturing) trojans distributed as MCP packages. [8,000+ MCP servers](https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks) have been found exposed with no authentication.
 
 VellaVeto sits between AI agents and tool servers. Every tool call is evaluated against policy before execution. No policy match, missing context, or evaluation error results in `Deny`. Every decision is logged in a tamper-evident chain.
 
@@ -129,6 +129,10 @@ vellaveto-proxy --protect vault -- ./my-server
 | `fortress` | Allow | Shield + exfil domains, AI config files, git hooks; approval for destructive ops | Developers who want more |
 | `vault` | **Deny** | Everything not explicitly allowed | Maximum security |
 
+<p align="center">
+  <img src="docs/shield-demo.gif" alt="VellaVeto Shield demo — blocking credential theft, rm -rf, and curl|sh while allowing safe operations" width="880">
+</p>
+
 ### Setup Wizard
 
 ```bash
@@ -182,6 +186,25 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 ### Use with Cursor
 
 Edit `.cursor/mcp.json` in your project directory:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "vellaveto-proxy",
+      "args": [
+        "--protect", "fortress",
+        "--", "npx", "-y",
+        "@modelcontextprotocol/server-filesystem", "."
+      ]
+    }
+  }
+}
+```
+
+### Use with Windsurf
+
+Edit `~/.codeium/windsurf/mcp_config.json`:
 
 ```json
 {
@@ -276,7 +299,7 @@ VellaVeto has undergone **232 rounds of internal adversarial security auditing**
 
 - **Fail-closed everywhere** — empty policy sets, missing parameters, lock poisoning, capacity exhaustion, and evaluation errors all produce `Deny`
 - **Zero `unwrap()` in library code** — all error paths return typed errors; panics reserved for tests only
-- **9,600+ tests** — Rust, Python, Go, TypeScript, Java, Terraform, React, shell + 24 fuzz targets, zero warnings
+- **9,800+ tests** — Rust, Python, Go, TypeScript, Java, Terraform, React, shell + 24 fuzz targets, zero warnings
 - **Post-quantum ready** — Hybrid Ed25519 + ML-DSA-65 (FIPS 204) audit signatures, feature-gated behind `pqc-hybrid`
 
 ### Formal Verification
@@ -299,23 +322,32 @@ Injection detection is a pre-filter, not a security boundary. DLP does not detec
 
 Full details: [Security Guarantees](docs/SECURITY_GUARANTEES.md) | [Threat Model](docs/THREAT_MODEL.md) | [Assurance Case](docs/ASSURANCE_CASE.md)
 
+### MCPSEC Benchmark
+
+We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 64 reproducible attack test cases across 12 attack classes. Run it against any MCP gateway — including ours — and get a Tier 0-5 security score. See [mcpsec/README.md](mcpsec/README.md).
+
 ## How It Compares
 
-| | **VellaVeto** | **Agent-Wall** | **PipeLock** | **MCP Defender** |
+| | **VellaVeto** | **AgentGateway** | **MCP-Scan (Snyk)** | **Lasso Gateway** |
 |---|---|---|---|---|
-| **Language** | Rust | TypeScript (npm) | Go (single binary) | Desktop app (Electron) |
-| **Evaluation latency** | <5ms P99 | Not published | Not published | N/A (desktop) |
-| **Policy engine** | Glob/regex/domain, ABAC, Cedar, Wasm plugins, time windows, call sequences | YAML rule engine | Regex + DLP rules | Signature-based allow/block |
-| **Injection detection** | 20+ layers (Aho-Corasick, NFKC, ROT13, base64 decode, math symbols, leetspeak, emoji smuggling, FlipAttack, memory poisoning, schema poisoning, ...) | 30+ regex patterns | 8 chain detection patterns | Signature scanning |
-| **Transport coverage** | HTTP, WebSocket, gRPC, stdio, SSE (verified security parity) | stdio | stdio | stdio |
-| **Audit trail** | SHA-256 chain + Merkle + Ed25519 + ZK proofs + PostgreSQL | Basic logging | Basic logging | Real-time alerts |
+| **Language** | Rust | Rust | Python | Python |
+| **Backing** | Independent | Linux Foundation / Solo.io | Snyk (acquired Invariant Labs) | Lasso Security (~$28M raised) |
+| **Stars** | New | ~1,800 | ~1,700 | ~349 |
+| **Primary role** | Runtime policy engine + firewall | Connectivity proxy / gateway | Scanner + monitor | Security gateway (plugin-based) |
+| **Evaluation latency** | <5ms P99 | Not published | N/A (scan-time) | Not published |
+| **Policy engine** | Glob/regex/domain, ABAC, Cedar, Wasm plugins, time windows, call sequences | Basic authorization | No policy engine | Plugin-based guardrails |
+| **Injection detection** | 20+ layers (Aho-Corasick, NFKC, ROT13, base64, math symbols, leetspeak, emoji smuggling, FlipAttack, memory poisoning, schema poisoning, ...) | None | Tool description scanning | Guardrail plugins |
+| **DLP** | 5-layer decode + credential patterns | None | None | Presidio plugin |
+| **Transport coverage** | HTTP, WebSocket, gRPC, stdio, SSE (verified parity) | MCP + A2A | MCP (stdio) | MCP (stdio, SSE) |
+| **Audit trail** | SHA-256 chain + Merkle + Ed25519 + ZK proofs + PostgreSQL | Observability hooks | Logging | Logging |
 | **Compliance** | 12 frameworks (EU AI Act, SOC 2, DORA, NIS2, ...) | None | None | None |
 | **Formal verification** | TLA+, Lean 4, Coq, Alloy, Kani | None | None | None |
-| **Consumer privacy** | PII sanitization, session isolation, credential vault, stylometric resistance | PII scanning | PII scanning | None |
-| **Ease of setup** | `cargo install` + `--protect shield` (one flag, no config) / Docker / Helm | `npm install -g` | Single binary | Download app |
-| **License** | MPL-2.0 / Apache-2.0 / BUSL-1.1 | MIT | MIT | Proprietary |
+| **Consumer privacy** | PII sanitization, session isolation, credential vault, stylometric resistance | None | None | PII scanning (Presidio) |
+| **Enterprise IAM** | OIDC, SAML, RBAC, SCIM, DPoP | None | None | None |
+| **Ease of setup** | `--protect shield` (one flag) / Docker / Helm | Docker / binary | `pip install` | `pip install` |
+| **License** | MPL-2.0 / Apache-2.0 / BUSL-1.1 | Apache-2.0 | Apache-2.0 | MIT |
 
-**Trade-offs:** Agent-Wall and PipeLock are simpler to install (npm/single binary vs. Rust compile). VellaVeto's `--protect shield` closes that gap for basic use (one flag, no config file), but if you don't need compliance evidence, multi-transport coverage, or formal verification, the simpler tools are a perfectly good choice. VellaVeto is designed for teams that need centralized governance across multiple agents and environments.
+**Trade-offs:** AgentGateway and MCP-Scan have strong institutional backing (Linux Foundation, Snyk) and larger communities. AgentGateway excels as a connectivity layer for routing agent traffic; MCP-Scan excels at static vulnerability scanning of MCP server configurations. Neither is a runtime policy engine — they solve adjacent problems. Lasso Gateway and [PipeLock](https://github.com/luckyPipewrench/pipelock) (Go, single binary, ~141 stars) are closer in scope but lighter on depth. VellaVeto's `--protect shield` offers comparable ease-of-use for basic protection, but if you need compliance evidence, multi-transport parity, or formal verification, VellaVeto is the only option that provides them.
 
 ## Deployment Modes
 
@@ -400,6 +432,17 @@ cd fuzz && cargo +nightly fuzz run fuzz_json_rpc_framing -- -max_total_time=60
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development rules and commit format.
 
+### CI Policy Validation
+
+Validate your policy config in GitHub Actions:
+
+```yaml
+- uses: vellaveto/vellaveto/.github/actions/policy-check@main
+  with:
+    config: vellaveto.toml
+    strict: true
+```
+
 ## License
 
 | Tier | License | Crates |
@@ -414,5 +457,8 @@ Enterprise crates are free for production use at ≤3 nodes / ≤25 endpoints. E
 
 - [MCP Specification 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25)
 - [OWASP Top 10 for Agentic Applications 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
+- [OWASP Top 10 for MCP Servers](https://owasp.org/www-project-top-10-for-mcp-servers/)
+- [CoSAI MCP Security Whitepaper](https://www.coalitionforsafeai.org/)
 - [ETDI: Mitigating Tool Squatting and Rug Pull Attacks in MCP](https://arxiv.org/abs/2506.01333)
 - [Enterprise-Grade Security for MCP](https://arxiv.org/pdf/2504.08623)
+- [MCP Security Vulnerabilities — Practical DevSecOps](https://www.practical-devsecops.com/mcp-security-vulnerabilities/)

@@ -46,6 +46,15 @@
     display:flex;align-items:center;justify-content:space-between;gap:1rem;font-family:var(--mono);font-size:.85rem;overflow-x:auto}
   .install code{white-space:nowrap;color:var(--cyan)}
   .install .label{color:var(--muted);font-size:.75rem;font-family:var(--sans);flex-shrink:0}
+  .levels-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.25rem;margin-top:2.5rem}
+  .level{background:var(--surface);border:1px solid var(--border);border-radius:.75rem;padding:1.75rem}
+  .level-rec{border-color:rgba(192,75,240,.3)}
+  .level-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem}
+  .level-name{font-size:1.1rem;font-weight:800;color:var(--text)}
+  .level-badge{font-size:.65rem;font-weight:600;padding:.2rem .6rem;border-radius:1rem;text-transform:uppercase;letter-spacing:.05em;background:var(--surface);border:1px solid var(--border);color:var(--muted)}
+  .badge-rec{background:rgba(192,75,240,.12);border-color:rgba(192,75,240,.3);color:var(--magenta)}
+  .level-desc{font-size:.85rem;color:var(--muted);line-height:1.6;margin-bottom:1rem}
+  .level-cmd{display:block;background:#0e1420;border:1px solid var(--border);border-radius:.375rem;padding:.6rem .85rem;font-family:var(--mono);font-size:.75rem;color:var(--cyan);overflow-x:auto;white-space:nowrap}
   .pillars-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1.5rem;margin-top:2.5rem}
   .pillar{background:var(--surface);border:1px solid var(--border);border-radius:.75rem;padding:1.75rem}
   .pillar h3{font-size:1rem;margin-bottom:.5rem;color:var(--text);font-weight:700}
@@ -90,10 +99,36 @@
   <div class="wrap">
     <h1><span>Secure every</span> agent tool call</h1>
     <p class="tagline">Intercept, evaluate, and audit every MCP tool invocation before execution. Fail-closed policy engine, topology discovery, identity-aware ABAC, and tamper-evident audit.</p>
-    <p class="trust">9,600+ tests &middot; 232 adversarial audit rounds &middot; &lt;5ms P99 latency &middot; 38 formally verified properties</p>
+    <p class="trust">9,800+ tests &middot; 232 adversarial audit rounds &middot; &lt;5ms P99 latency &middot; 38 formally verified properties</p>
     <div class="install" id="install">
       <span class="label">Quick start</span>
-      <code>docker run -p 3000:3000 ghcr.io/vellaveto/vellaveto:latest</code>
+      <code>cargo install vellaveto-proxy &amp;&amp; vellaveto-proxy --protect shield -- ./your-mcp-server</code>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<section id="protection-levels">
+  <div class="wrap">
+    <h2 class="section-title">Zero-config protection</h2>
+    <p class="section-sub">Pick a level and go &mdash; no policy files, no security domain knowledge needed.</p>
+    <div class="levels-grid">
+      <div class="level">
+        <div class="level-header"><span class="level-name">Shield</span><span class="level-badge">Entry-level</span></div>
+        <p class="level-desc">Blocks credentials + dangerous commands. Injection and DLP scanning in blocking mode. Default allow.</p>
+        <code class="level-cmd">vellaveto-proxy --protect shield -- ./server</code>
+      </div>
+      <div class="level level-rec">
+        <div class="level-header"><span class="level-name">Fortress</span><span class="level-badge badge-rec">Recommended</span></div>
+        <p class="level-desc">Shield + exfil domain blocking, AI config protection (SANDWORM defense), git hook blocking, approval gates for destructive ops.</p>
+        <code class="level-cmd">vellaveto-proxy --protect fortress -- ./server</code>
+      </div>
+      <div class="level">
+        <div class="level-header"><span class="level-name">Vault</span><span class="level-badge">Maximum</span></div>
+        <p class="level-desc">Fortress with default deny. Must whitelist what you need. Shadow agent detection enabled.</p>
+        <code class="level-cmd">vellaveto-proxy --protect vault -- ./server</code>
+      </div>
     </div>
   </div>
 </section>
@@ -119,7 +154,7 @@
   <div class="wrap">
     <h2 class="section-title">By the numbers</h2>
     <div class="stats-grid">
-      <div class="stat"><div class="num">9,600+</div><div class="desc">Tests across 8 languages</div></div>
+      <div class="stat"><div class="num">9,800+</div><div class="desc">Tests across 8 languages</div></div>
       <div class="stat"><div class="num">232</div><div class="desc">Adversarial audit rounds</div></div>
       <div class="stat"><div class="num">&lt;5ms</div><div class="desc">P99 evaluation latency</div></div>
       <div class="stat"><div class="num">38</div><div class="desc">Formally verified properties</div></div>

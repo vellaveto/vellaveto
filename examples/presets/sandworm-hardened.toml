@@ -105,7 +105,7 @@ name = "Block credential files"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 300
-id = "sandworm:*:credential-block"
+id = "*:*:sandworm-credential-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -130,7 +130,7 @@ name = "Block network exfiltration"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 250
-id = "sandworm:*:network-block"
+id = "*:*:sandworm-network-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -146,7 +146,7 @@ name = "Block git hook manipulation"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 200
-id = "sandworm:*:git-hook-block"
+id = "*:*:sandworm-git-hook-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -161,7 +161,7 @@ name = "Default deny"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 1
-id = "sandworm:*:default-deny"
+id = "*:*:sandworm-default-deny"
 policy_type = "Deny"
 
 # ═══════════════════════════════════════════════════════════════════

@@ -27,5 +27,5 @@
 <!-- Pillars -->
 <text x="600" y="245" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif" font-weight="600" font-size="15" fill="#E6EAF2" text-anchor="middle" letter-spacing="0.1em">GOVERN  ·  ENFORCE  ·  DISCOVER  ·  PROVE</text>
 <!-- Stats -->
-<text x="600" y="278" font-family="JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#6B7280" text-anchor="middle">9,600+ tests  •  232 audit rounds  •  &lt;5ms P99  •  38 verified properties</text>
+<text x="600" y="278" font-family="JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#6B7280" text-anchor="middle">9,800+ tests  •  232 audit rounds  •  &lt;5ms P99  •  38 verified properties</text>
 </svg>

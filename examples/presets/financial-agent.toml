@@ -13,7 +13,7 @@ name = "Block file writes"
 tool_pattern = "file_write"
 function_pattern = "*"
 priority = 300
-id = "fin:file_write:block"
+id = "file_write:*:fin-block"
 policy_type = "Deny"
 
 
@@ -23,7 +23,7 @@ name = "Block external uploads"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 300
-id = "fin:*:block-exfil"
+id = "*:*:fin-block-exfil"
 policy_type = "Deny"
 
 
@@ -43,7 +43,7 @@ name = "Allow financial APIs"
 tool_pattern = "api_*"
 function_pattern = "*"
 priority = 200
-id = "fin:api:allow-financial"
+id = "api_*:*:fin-allow-financial"
 policy_type = "Allow"
 
 [policies.network_rules]
@@ -62,7 +62,7 @@ name = "Allow read queries"
 tool_pattern = "database_*"
 function_pattern = "query"
 priority = 200
-id = "fin:db:allow-read"
+id = "database_*:query:fin-allow-read"
 policy_type = "Allow"
 
 # --- Require approval for database modifications ---
@@ -71,7 +71,7 @@ name = "Require approval for DB writes"
 tool_pattern = "database_*"
 function_pattern = "execute"
 priority = 200
-id = "fin:db:require-approval"
+id = "database_*:execute:fin-require-approval"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "require_approval"
@@ -83,7 +83,7 @@ name = "Default deny"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 0
-id = "fin:*:default-deny"
+id = "*:*:fin-default-deny"
 policy_type = "Deny"
 
 

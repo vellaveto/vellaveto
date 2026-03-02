@@ -13,7 +13,7 @@ name = "Block credential files"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 300
-id = "browser:*:credential-block"
+id = "*:*:browser-credential-block"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -30,7 +30,7 @@ name = "Block malicious domains"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 250
-id = "browser:*:domain-block"
+id = "*:*:browser-domain-block"
 policy_type = "Allow"
 
 [policies.network_rules]
@@ -58,7 +58,7 @@ name = "Require approval for form submissions"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 200
-id = "browser:*:form-approval"
+id = "*:*:browser-form-approval"
 
 [policies.policy_type.Conditional.conditions]
 on_no_match = "continue"
@@ -73,7 +73,7 @@ name = "Block downloads outside /tmp"
 tool_pattern = "*"
 function_pattern = "download*"
 priority = 150
-id = "browser:download:path-restrict"
+id = "*:download*:browser-path-restrict"
 policy_type = "Allow"
 
 [policies.path_rules]
@@ -86,7 +86,7 @@ name = "Default allow for browser"
 tool_pattern = "*"
 function_pattern = "*"
 priority = 1
-id = "browser:*:default-allow"
+id = "*:*:browser-default-allow"
 policy_type = "Allow"
 
 # --- Injection detection ---
