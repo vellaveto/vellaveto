@@ -3415,13 +3415,9 @@ impl McpService for McpGrpcService {
                     };
                     // Handle poisoned mutex outside the lock scope (safe to .await).
                     if within_limit.is_none() {
-                        tracing::error!(
-                            "gRPC stream rate limiter mutex poisoned — fail-closed"
-                        );
+                        tracing::error!("gRPC stream rate limiter mutex poisoned — fail-closed");
                         let _ = tx
-                            .send(Err(Status::resource_exhausted(
-                                "Rate limiter unavailable",
-                            )))
+                            .send(Err(Status::resource_exhausted("Rate limiter unavailable")))
                             .await;
                         break;
                     }

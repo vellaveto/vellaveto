@@ -307,8 +307,8 @@ mod tests {
         let config = load_preset("fortress").expect("fortress should load");
         let policies = config.to_policies();
         assert!(
-            policies.len() >= 10,
-            "fortress should have at least 10 policies, got {}",
+            policies.len() >= 11,
+            "fortress should have at least 11 policies, got {}",
             policies.len()
         );
     }
@@ -318,8 +318,8 @@ mod tests {
         let config = load_preset("vault").expect("vault should load");
         let policies = config.to_policies();
         assert!(
-            policies.len() >= 10,
-            "vault should have at least 10 policies, got {}",
+            policies.len() >= 11,
+            "vault should have at least 11 policies, got {}",
             policies.len()
         );
     }
@@ -521,7 +521,8 @@ mod tests {
     #[test]
     fn test_all_protection_levels_have_injection_and_dlp() {
         for level in ["shield", "fortress", "vault"] {
-            let config = load_preset(level).unwrap_or_else(|e| panic!("{} should load: {}", level, e));
+            let config =
+                load_preset(level).unwrap_or_else(|e| panic!("{} should load: {}", level, e));
             assert!(
                 config.injection.enabled && config.injection.block_on_injection,
                 "{} should have blocking injection",
