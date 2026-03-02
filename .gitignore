@@ -1,3 +1,8 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
 # Build artifacts
 /target/
 /target-b/
@@ -55,6 +60,9 @@ SECURITY_AUDIT_LOG.md
 DEPLOYMENT_PLAN.md
 audits/
 docs/IMPLEMENTATION_PLAN*.md
+docs/STRATEGIC_REVIEW*.md
+docs/SESSION_AUTH_PASSKEY_PLAN.md
+docs/TOOL_DISCOVERY_USAGE_PLAN.md
 
 # Bottega multi-agent coordination
 coordination
