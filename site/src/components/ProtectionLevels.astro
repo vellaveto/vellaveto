@@ -13,9 +13,11 @@
         <div class="level-default">Default: <strong>Allow</strong></div>
         <ul class="level-features">
           <li>Block credential files (.aws, .ssh, .env, ...)</li>
-          <li>Block dangerous commands (rm -rf, curl|sh)</li>
-          <li>Injection scanning (blocking)</li>
-          <li>DLP credential leak detection (blocking)</li>
+          <li>SANDWORM defense (AI config injection prevention)</li>
+          <li>Exfiltration domain blocking (pastebin, ngrok, ...)</li>
+          <li>Git hook &amp; system file protection</li>
+          <li>Dangerous command blocking + destructive git approval</li>
+          <li>Injection scanning + DLP credential leak detection</li>
         </ul>
         <div class="level-install">
           <code>vellaveto-proxy --protect shield -- ./server</code>
@@ -29,10 +31,11 @@
         <div class="level-default">Default: <strong>Allow</strong></div>
         <ul class="level-features">
           <li>Everything in Shield, plus:</li>
-          <li>Block exfiltration domains (pastebin, webhook.site, ...)</li>
-          <li>Protect AI assistant configs (SANDWORM defense)</li>
-          <li>Block git hook manipulation</li>
-          <li>Approval gates for destructive operations</li>
+          <li>System file protection (/etc/shadow, crontab, systemd)</li>
+          <li>Package config tampering defense (.npmrc, pip.conf, ...)</li>
+          <li>Privilege escalation approval (sudo, su, doas)</li>
+          <li>Memory poisoning detection (blocking)</li>
+          <li>Shadow agent detection</li>
         </ul>
         <div class="level-install">
           <code>vellaveto-proxy --protect fortress -- ./server</code>
@@ -46,8 +49,11 @@
         <div class="level-default">Default: <strong class="deny-text">Deny</strong></div>
         <ul class="level-features">
           <li>Everything in Fortress, plus:</li>
-          <li>Default deny &mdash; must whitelist what you need</li>
-          <li>Shadow agent detection enabled</li>
+          <li>Default deny &mdash; nothing runs without permission</li>
+          <li>Source code reading allowed (safe by design)</li>
+          <li>Read-only git commands allowed</li>
+          <li>File writes require human approval</li>
+          <li>Elicitation controls enabled</li>
         </ul>
         <div class="level-install">
           <code>vellaveto-proxy --protect vault -- ./server</code>

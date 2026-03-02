@@ -687,8 +687,10 @@ pub struct PolicySnapshot {
 /// Federation identity resolver for cross-organization JWKS validation
 /// and identity mapping via `FederationTrustAnchor` (Phase 39).
 ///
-/// Currently a placeholder — runtime JWKS resolution will be implemented
-/// in subsequent Phase 39 tasks.
+/// Stores federation configuration (trust anchors, issuer patterns, identity
+/// mappings) and provides status/anchor info for the dashboard and API.
+/// Runtime JWKS resolution (fetching and caching remote key sets) requires
+/// an async HTTP client and is gated behind the `federation-jwks` feature.
 ///
 /// FIND-R56-SRV-012: Custom `Debug` impl shows only `enabled` and anchor count
 /// to avoid leaking JWKS URIs, issuer patterns, and identity mappings.

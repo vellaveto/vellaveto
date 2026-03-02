@@ -314,7 +314,7 @@ impl BackendBuilder {
             )),
 
             BackendType::LocalGguf | BackendType::LocalOnnx => Err(LlmEvalError::NotConfigured(
-                "local model backends not yet implemented".to_string(),
+                "local model backends require the `llm-local` feature (ggml/onnxruntime native deps)".to_string(),
             )),
         }
     }
