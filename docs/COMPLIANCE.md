@@ -27,9 +27,9 @@ These are **control mappings**, not certifications. VellaVeto provides the techn
 | **EU AI Act** | AI system governance (Art 9, 10, 12, 14, 50) | Transparency, human oversight, risk management, record-keeping, data governance | Yes | Yes (Art 62) |
 | **NIS2** | Cybersecurity for essential/important entities | Incident notification (24h/72h/1M), supply chain, access control, monitoring | Yes | Yes (Art 23) |
 | **DORA** | Financial sector ICT resilience (Ch II, III, V) | ICT risk management, incident classification, third-party oversight | Yes | Yes (24h/72h) |
-| **SOC 2 Type II** | Trust services criteria (CC1-CC9) | Access review (CC6), availability, processing integrity, confidentiality | Yes | — |
+| **SOC 2 Type II** | Trust services criteria (CC1-CC9) | Access review (CC6), availability, processing integrity, confidentiality | Separate endpoint | — |
 | **ISO 42001** | AI management system (Clauses 4-10) | Risk assessment, policy enforcement, monitoring, improvement | Yes | — |
-| **NIST AI 600-1** | GenAI risk profile (12 risk areas) | Confabulation, data privacy, information security, toxicity/bias, and 8 more | — | — |
+| **NIST AI 600-1** | GenAI risk profile (12 risk areas) | Confabulation, data privacy, information security, toxicity/bias, and 8 more | Coverage report | — |
 | **OWASP Agentic Top 10** | Agentic application risks (ASI01-ASI10) | Injection, tool poisoning, insecure output, rug pull, memory poisoning | — | — |
 | **OWASP MCP Top 10** | MCP-specific risks (MCP01-MCP10) | Server spoofing, tool shadowing, data exfiltration, credential theft | — | — |
 | **CoSAI** | Coalition for Secure AI (38 controls) | Tool manipulation, prompt injection, unauthorized access, supply chain | — | — |
@@ -52,7 +52,7 @@ VellaVeto provides controls mapped to five articles:
 | Art 50(2) | Transparency: mark AI-generated output | `VerdictExplanation` with configurable verbosity injected into `_meta` |
 | Art 10 | Data governance for training/validation | `DataGovernanceRecord` with classification, purpose, provenance, retention |
 | Art 12 | Record-keeping and traceability | Tamper-evident audit: SHA-256 chains, Merkle proofs, Ed25519+ML-DSA-65 checkpoints |
-| Art 14 | Human oversight | `RequireApproval` verdict, human-in-the-loop workflow with timeout and escalation |
+| Art 14 | Human oversight | `RequireApproval` verdict, human-in-the-loop workflow with configurable timeout |
 | Art 9 | Risk management system | Policy engine with risk scoring, ABAC, behavioral anomaly detection, circuit breakers |
 
 **Registry:** `vellaveto-audit/src/eu_ai_act.rs`
@@ -69,7 +69,7 @@ VellaVeto provides controls mapped to five articles:
 | Supply chain security | ETDI cryptographic tool verification, version pinning, SANDWORM hardening |
 | Access control and identity | ABAC, RBAC (4 roles, 14 permissions), NHI lifecycle, OIDC/SAML/SCIM |
 | Continuous monitoring | Real-time audit, SIEM export (CEF/syslog/OCSF/webhook), anomaly detection |
-| Risk assessment | Policy simulation, 7-framework gap analysis, evidence pack generation |
+| Risk assessment | Policy simulation, 10-framework gap analysis, evidence pack generation |
 | Business continuity | HA clustering, leader election, cascading failure circuit breakers, smart fallback |
 
 **Registry:** `vellaveto-audit/src/nis2.rs`
@@ -136,7 +136,7 @@ MCP-specific risks: server spoofing (MCP01), tool poisoning (MCP02), excessive p
 
 - **CoSAI:** 38/38 controls from the Coalition for Secure AI MCP Security Whitepaper
 - **Adversa TOP 25:** 25/25 AI security vulnerabilities covered with mitigation mappings
-- **Gap analysis:** 7-framework consolidated gap analysis with remediation guidance
+- **Gap analysis:** 10-framework consolidated gap analysis with remediation guidance
 
 **Registries:** `vellaveto-audit/src/cosai.rs`, `vellaveto-audit/src/adversa_top25.rs`
 
@@ -177,14 +177,24 @@ let html = render_evidence_pack_html(&pack);
 ### Via API
 
 ```bash
-# Generate DORA evidence pack
+# Generate DORA evidence pack (JSON)
 curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:3000/api/compliance/evidence-pack?framework=dora&org=AcmeCorp&system=prod-01
+  http://localhost:3000/api/compliance/evidence-pack/dora
+
+# Generate DORA evidence pack (HTML, print-to-PDF ready)
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:3000/api/compliance/evidence-pack/dora?format=html
+
+# List available evidence pack frameworks
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:3000/api/compliance/evidence-pack/status
 
 # Generate gap analysis across all frameworks
 curl -H "Authorization: Bearer $TOKEN" \
   http://localhost:3000/api/compliance/gap-analysis
 ```
+
+Available framework path values: `dora`, `nis2`, `iso42001`, `eu-ai-act`
 
 ### Pack Contents
 
@@ -233,13 +243,37 @@ let report = generate_gap_analysis();
 
 ## Compliance Presets
 
-Two presets include compliance framework configurations:
+Three presets include compliance framework configurations:
 
-| Preset | Frameworks | Use Case |
-|--------|------------|----------|
+| Preset | Frameworks Enabled | Use Case |
+|--------|-------------------|----------|
+| [`compliance-starter.toml`](../examples/presets/compliance-starter.toml) | All 6 configurable (EU AI Act, NIS2, DORA, SOC 2, OWASP ASI, Data Governance) + strict audit | Comprehensive compliance baseline |
 | [`financial-agent.toml`](../examples/presets/financial-agent.toml) | DORA, NIS2, SOC 2, EU AI Act | Financial services |
 | [`healthcare-agent.toml`](../examples/presets/healthcare-agent.toml) | SOC 2, NIS2 | Healthcare / HIPAA-aligned |
-| [`compliance-starter.toml`](../examples/presets/compliance-starter.toml) | All 12 frameworks | Comprehensive compliance baseline |
+
+The remaining 6 frameworks (ISO 42001, NIST AI 600-1, CoSAI, Adversa TOP 25, OWASP MCP Top 10, Singapore MGF, CSA ATF) are always-on registries with coverage reports available via the API regardless of configuration.
+
+---
+
+## API Endpoints
+
+All compliance endpoints require authentication. Available at `http://localhost:3000` when running `vellaveto serve`.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/compliance/status` | GET | Overall compliance status (EU AI Act, SOC 2, ISO 42001, OWASP ASI) |
+| `/api/compliance/eu-ai-act/report` | GET | EU AI Act conformity assessment |
+| `/api/compliance/soc2/evidence` | GET | SOC 2 evidence report (optional `?category=CC6` filter) |
+| `/api/compliance/soc2/access-review` | GET | SOC 2 CC6 access review (JSON or HTML) |
+| `/api/compliance/iso42001/report` | GET | ISO 42001 clause compliance report |
+| `/api/compliance/owasp-agentic` | GET | OWASP ASI coverage report (ASI01-ASI10) |
+| `/api/compliance/threat-coverage` | GET | ATLAS, CoSAI, Adversa TOP 25 coverage |
+| `/api/compliance/data-governance` | GET | Art 10 data governance summary |
+| `/api/compliance/gap-analysis` | GET | Cross-framework gap analysis (10 frameworks) |
+| `/api/compliance/evidence-pack/status` | GET | List available evidence pack frameworks |
+| `/api/compliance/evidence-pack/{framework}` | GET | Generate evidence pack (`?format=json\|html`) |
+
+Evidence pack frameworks: `dora`, `nis2`, `iso42001`, `eu-ai-act`
 
 ---
 

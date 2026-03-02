@@ -334,7 +334,7 @@ See [mcpsec/README.md](mcpsec/README.md) for properties, attack classes, and met
 
 ### Compliance & Regulatory Frameworks
 
-VellaVeto maps runtime security controls to **12 regulatory and industry frameworks** — the only MCP gateway with built-in compliance evidence generation. Each framework has a dedicated registry that maps VellaVeto capabilities to specific articles, clauses, or controls, and generates auditor-ready evidence packs.
+VellaVeto maps runtime security controls to **12 regulatory and industry frameworks** — the only MCP gateway with built-in compliance evidence generation. Each framework has a dedicated Rust registry that maps VellaVeto capabilities to specific articles, clauses, or controls, with coverage reports and evidence packs for regulated frameworks.
 
 **Regulatory:** EU AI Act (Art 9/10/12/14/50), NIS2 (Art 21-23 with 24h/72h/1M incident timelines), DORA (Ch II/III/V for financial ICT resilience), ISO 42001 (AI management system)
 
@@ -342,7 +342,7 @@ VellaVeto maps runtime security controls to **12 regulatory and industry framewo
 
 **Threat & Security:** OWASP Top 10 Agentic (ASI01-ASI10), OWASP MCP Top 10 (MCP01-MCP10), CoSAI (38/38 controls), Adversa TOP 25 (25/25), CSA Agentic Trust Framework, Singapore MGF
 
-**Cross-regulation incident reporting** maps a single security incident to the notification timelines of every applicable framework (NIS2 24h pre-notification, DORA classification, EU AI Act Art 62 obligations). **7-framework gap analysis** provides a consolidated coverage report with priority-ranked remediation guidance.
+**Cross-regulation incident reporting** maps a single security incident to the notification timelines of every applicable framework (NIS2 24h pre-notification, DORA classification, EU AI Act Art 62 obligations). **10-framework gap analysis** provides a consolidated coverage report with priority-ranked remediation guidance.
 
 Full details: [Compliance Guide](docs/COMPLIANCE.md) | [Website: vellaveto.online/compliance](https://www.vellaveto.online/compliance)
 

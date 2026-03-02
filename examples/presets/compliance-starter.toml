@@ -1,16 +1,17 @@
 # Vellaveto Preset: Compliance Starter
 #
-# Comprehensive compliance baseline with all 12 framework registries enabled.
-# Start from this preset when deploying in regulated environments (financial,
-# healthcare, public sector, EU-regulated entities) and need evidence packs
-# for auditors.
+# Comprehensive compliance baseline for regulated environments. Enables all
+# 6 configurable compliance frameworks (EU AI Act, NIS2, DORA, SOC 2,
+# OWASP ASI, Data Governance). The remaining 6 frameworks (ISO 42001,
+# NIST AI 600-1, CoSAI, Adversa TOP 25, OWASP MCP, Singapore MGF, CSA ATF)
+# are always-on registries available via the API without configuration.
 #
 # This preset provides:
-#   - All 12 compliance framework registries enabled
+#   - All configurable compliance frameworks enabled
+#   - Evidence pack generation for DORA, NIS2, ISO 42001, EU AI Act
 #   - Cross-regulation incident reporting timelines
-#   - Evidence pack generation (EU AI Act, NIS2, DORA, ISO 42001)
 #   - Gap analysis across all frameworks
-#   - Tamper-evident audit with cryptographic checkpoints
+#   - Strict audit mode (fail-closed on audit failures)
 #   - Injection scanning and DLP enabled (required by most frameworks)
 #   - Default deny (fail-closed, as required by DORA and NIS2)
 #
