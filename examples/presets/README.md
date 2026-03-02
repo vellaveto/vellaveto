@@ -28,6 +28,7 @@ For specific deployment scenarios. Use with `--preset <NAME>`:
 |--------|----------|---------|
 | [`dev-laptop`](dev-laptop.toml) | AI coding assistants (Cursor, Claude Code, Copilot) | Allow |
 | [`ci-agent`](ci-agent.toml) | CI/CD pipelines (GitHub Actions, GitLab CI) | Allow |
+| [`code-review-agent`](code-review-agent.toml) | AI code review (read-only source, git history, CI configs) | **Deny** |
 | [`devops-agent`](devops-agent.toml) | Infrastructure automation (Terraform, K8s, AWS) | Allow |
 
 ### Data & APIs

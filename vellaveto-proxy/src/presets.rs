@@ -64,6 +64,11 @@ const PRESETS: &[(&str, &str, &str)] = &[
         include_str!("../presets/ci-agent.toml"),
     ),
     (
+        "code-review-agent",
+        "Code review — read-only source access, git history, default deny",
+        include_str!("../presets/code-review-agent.toml"),
+    ),
+    (
         "browser-agent",
         "Browser automation — blocks malicious domains, restricts downloads",
         include_str!("../presets/browser-agent.toml"),
