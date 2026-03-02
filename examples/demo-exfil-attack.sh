@@ -11,11 +11,11 @@
 #   export VELLAVETO_API_KEY=demo-key-12345
 #   cargo run -p vellaveto-server -- serve --config examples/credential-exfil-demo.toml
 #
-# The server must be running on http://127.0.0.1:8080
+# The server must be running on http://localhost:3000 (default)
 
 set -euo pipefail
 
-API="http://127.0.0.1:8080"
+API="${VELLAVETO_URL:-http://localhost:3000}"
 KEY="${VELLAVETO_API_KEY:-demo-key-12345}"
 AUTH="Authorization: Bearer $KEY"
 CT="Content-Type: application/json"
