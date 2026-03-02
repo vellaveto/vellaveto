@@ -1,0 +1,174 @@
+# Vellaveto Protection Level: Fortress
+#
+# Strong protection for developers who want comprehensive security
+# without going full deny-by-default.
+#
+# Everything in Shield, plus:
+#   - Blocks AI assistant config modification (SANDWORM defense)
+#   - Blocks data exfiltration to known paste/upload services
+#   - Blocks git hook manipulation (persistence prevention)
+#   - Requires human approval for destructive operations
+#   - Injection + DLP scanning in blocking mode
+#
+# Usage:
+#   vellaveto-proxy --protect fortress -- npx @modelcontextprotocol/server-filesystem /tmp
+#   vellaveto-proxy --preset fortress -- python -m mcp_server
+
+# --- Block credential and secret files (priority 300) ---
+[[policies]]
+name = "Block credential files"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "fortress:*:credential-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.aws/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.ssh/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gnupg/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env",                   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env.*",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/credentials.json",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.yaml",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.json",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_rsa",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_rsa.pub",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_ed25519",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_ecdsa",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.npmrc",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.netrc",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.kube/config",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.azure/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.config/gcloud/**", on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block AI assistant config modification (priority 290) ---
+# SANDWORM defense: prevent prompt injection from modifying AI configs
+[[policies]]
+name = "Block AI config modification"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 290
+id = "fortress:*:ai-config-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.cursor/**",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.claude/**",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.config/claude/**",   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.continue/**",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.codeium/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.windsurf/**",        on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block network exfiltration commands (priority 280) ---
+[[policies]]
+name = "Block network exfiltration"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 280
+id = "fortress:*:network-exfil"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "curl.*--data.*@",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "curl.*-d\\s+@",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "wget.*-O.*-.*\\|",           on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block exfiltration domains (priority 275) ---
+[[policies]]
+name = "Block exfiltration domains"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 275
+id = "fortress:*:exfil-domains"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "pastebin\\.com",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "transfer\\.sh",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "webhook\\.site",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "file\\.io",                  on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "requestbin\\.com",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "pipedream\\.net",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "hookbin\\.com",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "0x0\\.st",                   on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block git hook manipulation (priority 270) ---
+# Prevents persistence via git hooks (SANDWORM attack vector)
+[[policies]]
+name = "Block git hook manipulation"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 270
+id = "fortress:*:git-hook-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "**/.git/hooks/**",                  on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+config.*core\\.hooksPath", on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block dangerous commands (priority 250) ---
+[[policies]]
+name = "Block dangerous commands"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 250
+id = "fortress:*:dangerous-commands-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "curl.*\\|.*sh",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "wget.*\\|.*sh",              on_match = "deny", on_missing = "skip" },
+]
+
+# --- Require approval for destructive operations (priority 200) ---
+[[policies]]
+name = "Require approval for destructive ops"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 200
+id = "fortress:*:destructive-approval"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "rm\\s+-rf\\s+/",               on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+push\\s+--force",       on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+reset\\s+--hard",       on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+branch\\s+-D",          on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "chmod\\s+-R\\s+777",            on_match = "require_approval", on_missing = "skip" },
+]
+
+# --- Allow everything else (priority 1) ---
+[[policies]]
+name = "Default allow"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 1
+id = "fortress:*:default-allow"
+policy_type = "Allow"
+
+# --- Injection detection (blocking) ---
+[injection]
+enabled = true
+block_on_injection = true
+
+# --- DLP credential scanning (blocking) ---
+[dlp]
+enabled = true
+block_on_finding = true
+
+# --- Audit ---
+[audit]
+redaction_level = "KeysAndPatterns"

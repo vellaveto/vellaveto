@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.0] - 2026-03-02
+
 ### Added
 
 - **Consumer Shield — Wire Unused Features (6 items, 15 new tests):**
@@ -2233,7 +2235,8 @@ This is the initial stable release. No breaking changes from previous versions.
 - **Fixed** for any bug fixes
 - **Security** for vulnerability fixes
 
-[Unreleased]: https://github.com/vellaveto/vellaveto/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/vellaveto/vellaveto/compare/v6.0.0...HEAD
+[6.0.0]: https://github.com/vellaveto/vellaveto/compare/v3.0.0...v6.0.0
 [3.0.0]: https://github.com/vellaveto/vellaveto/compare/v2.2.1...v3.0.0
 [2.2.1]: https://github.com/vellaveto/vellaveto/compare/v2.0.0...v2.2.1
 [2.0.0]: https://github.com/vellaveto/vellaveto/compare/v1.0.0...v2.0.0

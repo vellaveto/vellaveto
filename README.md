@@ -158,7 +158,45 @@ docker run -p 3000:3000 \
   ghcr.io/vellaveto/vellaveto:latest
 ```
 
-See [docs/QUICKSTART.md](docs/QUICKSTART.md) for framework integration guides (Anthropic, OpenAI, LangChain, LangGraph, CrewAI).
+### Use with Claude Desktop
+
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "vellaveto-proxy",
+      "args": [
+        "--protect", "shield",
+        "--", "npx", "-y",
+        "@modelcontextprotocol/server-filesystem", "/home/user/projects"
+      ]
+    }
+  }
+}
+```
+
+### Use with Cursor
+
+Edit `.cursor/mcp.json` in your project directory:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "vellaveto-proxy",
+      "args": [
+        "--protect", "fortress",
+        "--", "npx", "-y",
+        "@modelcontextprotocol/server-filesystem", "."
+      ]
+    }
+  }
+}
+```
+
+Replace `shield`/`fortress` with `vault` for maximum security. See [docs/QUICKSTART.md](docs/QUICKSTART.md) for SDK integration guides (Anthropic, OpenAI, LangChain, LangGraph, CrewAI).
 
 ## How It Works
 
@@ -214,7 +252,7 @@ graph TD
     VC --> VA
 ```
 
-Lower crates never depend on higher crates. `vellaveto-operator` is standalone (kube-rs, no internal deps). License tiers are documented separately in [LICENSING.md](LICENSING.md). See [CLAUDE.md](CLAUDE.md) for the full crate dependency graph.
+Lower crates never depend on higher crates. `vellaveto-operator` is standalone (kube-rs, no internal deps). License tiers are documented separately in [LICENSING.md](LICENSING.md).
 
 ## Key Capabilities
 
@@ -272,10 +310,10 @@ Full details: [Security Guarantees](docs/SECURITY_GUARANTEES.md) | [Threat Model
 | **Compliance** | 12 frameworks (EU AI Act, SOC 2, DORA, NIS2, ...) | None | None | None |
 | **Formal verification** | TLA+, Lean 4, Coq, Alloy, Kani | None | None | None |
 | **Consumer privacy** | PII sanitization, session isolation, credential vault, stylometric resistance | PII scanning | PII scanning | None |
-| **Ease of setup** | `cargo install` / Docker / Helm | `npm install -g` | Single binary | Download app |
+| **Ease of setup** | `cargo install` + `--protect shield` (one flag, no config) / Docker / Helm | `npm install -g` | Single binary | Download app |
 | **License** | MPL-2.0 / Apache-2.0 / BUSL-1.1 | MIT | MIT | Proprietary |
 
-**Trade-offs:** Agent-Wall and PipeLock are simpler to install and better suited for quick single-agent setups. VellaVeto is designed for teams that need centralized governance, compliance evidence, and multi-transport coverage across multiple agents and environments. If you just want a quick guard on a single Claude Desktop session, the simpler tools may be the right choice.
+**Trade-offs:** Agent-Wall and PipeLock are simpler to install (npm/single binary vs. Rust compile). VellaVeto's `--protect shield` closes that gap for basic use (one flag, no config file), but if you don't need compliance evidence, multi-transport coverage, or formal verification, the simpler tools are a perfectly good choice. VellaVeto is designed for teams that need centralized governance across multiple agents and environments.
 
 ## Deployment Modes
 

@@ -1,0 +1,88 @@
+# Vellaveto Protection Level: Shield
+#
+# Entry-level protection for anyone using AI coding assistants
+# (Claude Desktop, Cursor, Windsurf, Copilot, etc.)
+#
+# What it does:
+#   - Blocks access to credential and secret files
+#   - Blocks dangerous shell commands (rm -rf /, curl|sh, chmod 777)
+#   - Scans for prompt injection attacks (blocking mode)
+#   - Scans for credential leaks in tool responses (blocking mode)
+#   - Allows everything else
+#
+# No approval gates, no domain restrictions — just the essentials.
+#
+# Usage:
+#   vellaveto-proxy --protect shield -- npx @modelcontextprotocol/server-filesystem /tmp
+#   vellaveto-proxy --preset shield -- python -m mcp_server
+
+# --- Block credential and secret files (priority 300) ---
+[[policies]]
+name = "Block credential files"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "shield:*:credential-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.aws/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.ssh/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gnupg/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env",                   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env.*",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/credentials.json",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.yaml",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.json",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_rsa",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_rsa.pub",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_ed25519",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_ecdsa",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.npmrc",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.netrc",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.kube/config",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.azure/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.config/gcloud/**", on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block dangerous commands (priority 250) ---
+[[policies]]
+name = "Block dangerous commands"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 250
+id = "shield:*:dangerous-commands"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "rm\\s+-rf\\s+/",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "curl.*\\|.*sh",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "wget.*\\|.*sh",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "chmod\\s+-R\\s+777",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "curl.*--data.*@",          on_match = "deny", on_missing = "skip" },
+]
+
+# --- Allow everything else (priority 1) ---
+[[policies]]
+name = "Default allow"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 1
+id = "shield:*:default-allow"
+policy_type = "Allow"
+
+# --- Injection detection (blocking) ---
+[injection]
+enabled = true
+block_on_injection = true
+
+# --- DLP credential scanning (blocking) ---
+[dlp]
+enabled = true
+block_on_finding = true
+
+# --- Audit ---
+[audit]
+redaction_level = "KeysAndPatterns"

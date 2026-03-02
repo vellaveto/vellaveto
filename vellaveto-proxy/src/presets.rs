@@ -9,11 +9,41 @@
 //!
 //! Embeds preset TOML configs from `examples/presets/` at compile time
 //! so users can run `vellaveto-proxy --preset dev-laptop` without a config file.
+//!
+//! Protection levels (`shield`, `fortress`, `vault`) are beginner-friendly
+//! presets accessible via `--protect <LEVEL>`. They are also available as
+//! regular presets via `--preset`.
 
 use vellaveto_config::PolicyConfig;
 
+/// Protection level definitions: (name, description).
+/// These are the beginner-friendly presets shown first in `--list-presets`.
+const PROTECTION_LEVELS: &[(&str, &str)] = &[
+    ("shield", "Entry-level — blocks credentials + dangerous commands, injection/DLP blocking"),
+    ("fortress", "Strong — shield + exfil domain blocking, AI config protection, approval gates"),
+    ("vault", "Maximum — fortress + default deny, must whitelist what you need"),
+];
+
 /// Available preset definitions: (name, description, embedded TOML content).
+/// Protection levels are listed first, then professional presets.
 const PRESETS: &[(&str, &str, &str)] = &[
+    // --- Protection levels (beginner-friendly) ---
+    (
+        "shield",
+        "Entry-level — blocks credentials + dangerous commands, injection/DLP blocking",
+        include_str!("../presets/shield.toml"),
+    ),
+    (
+        "fortress",
+        "Strong — shield + exfil domain blocking, AI config protection, approval gates",
+        include_str!("../presets/fortress.toml"),
+    ),
+    (
+        "vault",
+        "Maximum — fortress + default deny, must whitelist what you need",
+        include_str!("../presets/vault.toml"),
+    ),
+    // --- Professional presets ---
     (
         "dev-laptop",
         "Developer laptop — blocks credentials, detects injection",
@@ -152,6 +182,16 @@ pub fn preset_toml(name: &str) -> Option<&'static str> {
         .map(|(_, _, toml)| *toml)
 }
 
+/// Check whether a name is a protection level (shield/fortress/vault).
+pub fn is_protection_level(name: &str) -> bool {
+    PROTECTION_LEVELS.iter().any(|(n, _)| *n == name)
+}
+
+/// List protection levels as `(name, description)` pairs.
+pub fn list_protection_levels() -> Vec<(&'static str, &'static str)> {
+    PROTECTION_LEVELS.to_vec()
+}
+
 /// Load the built-in default configuration.
 ///
 /// This is used when no `--config` or `--preset` flag is provided.
@@ -228,5 +268,102 @@ mod tests {
     fn test_default_config_toml_is_valid() {
         assert!(DEFAULT_CONFIG_TOML.contains("credential"));
         assert!(DEFAULT_CONFIG_TOML.contains("[injection]"));
+    }
+
+    // --- Protection level tests ---
+
+    #[test]
+    fn test_shield_preset_parses() {
+        let config = load_preset("shield").expect("shield should load");
+        let policies = config.to_policies();
+        assert!(
+            policies.len() >= 3,
+            "shield should have at least 3 policies (cred block, dangerous cmds, default allow)"
+        );
+    }
+
+    #[test]
+    fn test_fortress_preset_parses() {
+        let config = load_preset("fortress").expect("fortress should load");
+        let policies = config.to_policies();
+        assert!(
+            policies.len() >= 5,
+            "fortress should have at least 5 policies"
+        );
+    }
+
+    #[test]
+    fn test_vault_preset_parses() {
+        let config = load_preset("vault").expect("vault should load");
+        let policies = config.to_policies();
+        assert!(
+            policies.len() >= 5,
+            "vault should have at least 5 policies"
+        );
+    }
+
+    #[test]
+    fn test_shield_has_injection_blocking() {
+        let config = load_preset("shield").expect("shield should load");
+        assert!(config.injection.enabled, "shield should enable injection");
+        assert!(
+            config.injection.block_on_injection,
+            "shield should block on injection"
+        );
+    }
+
+    #[test]
+    fn test_shield_has_dlp_blocking() {
+        let config = load_preset("shield").expect("shield should load");
+        assert!(config.dlp.enabled, "shield should enable DLP");
+        assert!(
+            config.dlp.block_on_finding,
+            "shield should block on DLP finding"
+        );
+    }
+
+    #[test]
+    fn test_vault_has_shadow_agent_detection() {
+        let config = load_preset("vault").expect("vault should load");
+        assert!(
+            config.shadow_agent.enabled,
+            "vault should enable shadow agent detection"
+        );
+    }
+
+    #[test]
+    fn test_is_protection_level() {
+        assert!(is_protection_level("shield"));
+        assert!(is_protection_level("fortress"));
+        assert!(is_protection_level("vault"));
+        assert!(!is_protection_level("dev-laptop"));
+        assert!(!is_protection_level("sandworm-hardened"));
+        assert!(!is_protection_level("nonexistent"));
+    }
+
+    #[test]
+    fn test_list_protection_levels() {
+        let levels = list_protection_levels();
+        assert_eq!(levels.len(), 3);
+        assert_eq!(levels[0].0, "shield");
+        assert_eq!(levels[1].0, "fortress");
+        assert_eq!(levels[2].0, "vault");
+    }
+
+    #[test]
+    fn test_protection_levels_appear_first_in_presets() {
+        let presets = list_presets();
+        assert_eq!(presets[0].0, "shield");
+        assert_eq!(presets[1].0, "fortress");
+        assert_eq!(presets[2].0, "vault");
+    }
+
+    #[test]
+    fn test_list_presets_includes_protection_levels() {
+        let presets = list_presets();
+        let names: Vec<&str> = presets.iter().map(|(n, _)| *n).collect();
+        assert!(names.contains(&"shield"));
+        assert!(names.contains(&"fortress"));
+        assert!(names.contains(&"vault"));
     }
 }

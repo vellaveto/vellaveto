@@ -35,6 +35,11 @@ mod presets;
     about = "MCP stdio proxy with policy enforcement",
     after_help = "\
 Examples:
+  # Instant protection (pick a level):
+  vellaveto-proxy --protect shield -- npx @modelcontextprotocol/server-filesystem /tmp
+  vellaveto-proxy --protect fortress -- python -m mcp_server
+  vellaveto-proxy --protect vault -- ./my-server
+
   # Run with built-in defaults (no config needed):
   vellaveto-proxy -- npx @modelcontextprotocol/server-filesystem /tmp
 
@@ -53,14 +58,22 @@ Examples:
 )]
 struct Cli {
     /// Path to the policy configuration file (TOML).
-    /// If omitted, uses --preset or built-in defaults.
+    /// If omitted, uses --protect, --preset, or built-in defaults.
     #[arg(short, long)]
     config: Option<String>,
 
     /// Use a built-in policy preset (e.g., dev-laptop, ci-agent, sandworm-hardened).
-    /// Mutually exclusive with --config.
+    /// Mutually exclusive with --config and --protect.
     #[arg(long)]
     preset: Option<String>,
+
+    /// Easy protection level: shield, fortress, or vault.
+    /// Shield blocks credentials + dangerous commands.
+    /// Fortress adds exfil blocking + AI config protection.
+    /// Vault is fortress with default deny.
+    /// Mutually exclusive with --config and --preset.
+    #[arg(long)]
+    protect: Option<String>,
 
     /// List available presets and exit
     #[arg(long)]
@@ -116,11 +129,18 @@ async fn main() -> Result<()> {
 
     // Handle --list-presets
     if cli.list_presets {
-        println!("Available presets:\n");
-        for (name, desc) in presets::list_presets() {
+        println!("Protection levels (easy mode):\n");
+        for (name, desc) in presets::list_protection_levels() {
             println!("  {:<25} {}", name, desc);
         }
-        println!("\nUsage: vellaveto-proxy --preset <NAME> -- <COMMAND>");
+        println!("\n  Usage: vellaveto-proxy --protect <LEVEL> -- <COMMAND>\n");
+        println!("Professional presets:\n");
+        for (name, desc) in presets::list_presets() {
+            if !presets::is_protection_level(name) {
+                println!("  {:<25} {}", name, desc);
+            }
+        }
+        println!("\n  Usage: vellaveto-proxy --preset <NAME> -- <COMMAND>");
         return Ok(());
     }
 
@@ -154,19 +174,41 @@ async fn main() -> Result<()> {
             "No MCP server command specified.\n\n\
              Usage: vellaveto-proxy [OPTIONS] -- <COMMAND>\n\n\
              Examples:\n  \
-             vellaveto-proxy -- npx @modelcontextprotocol/server-filesystem /tmp\n  \
+             vellaveto-proxy --protect shield -- npx @modelcontextprotocol/server-filesystem /tmp\n  \
              vellaveto-proxy --preset dev-laptop -- python -m mcp_server\n  \
              vellaveto-proxy --config policy.toml -- ./my-server\n\n\
              Run 'vellaveto-proxy --help' for more options."
         );
     }
 
-    // Validate --config and --preset are not both specified
-    if cli.config.is_some() && cli.preset.is_some() {
-        anyhow::bail!("Cannot specify both --config and --preset. Use one or the other.");
+    // Validate --config, --preset, and --protect are mutually exclusive
+    let specified_count = [cli.config.is_some(), cli.preset.is_some(), cli.protect.is_some()]
+        .iter()
+        .filter(|&&v| v)
+        .count();
+    if specified_count > 1 {
+        anyhow::bail!(
+            "Cannot specify more than one of --config, --preset, and --protect. Use one only."
+        );
     }
 
-    // Load policies: --config > --preset > built-in default
+    // Validate --protect value
+    if let Some(ref level) = cli.protect {
+        if !presets::is_protection_level(level) {
+            let levels: Vec<&str> = presets::list_protection_levels()
+                .iter()
+                .map(|(n, _)| *n)
+                .collect();
+            anyhow::bail!(
+                "Unknown protection level '{}'. Available levels: {}\n\n\
+                 Usage: vellaveto-proxy --protect <LEVEL> -- <COMMAND>",
+                level,
+                levels.join(", ")
+            );
+        }
+    }
+
+    // Load policies: --config > --preset > --protect > built-in default
     let (policy_config, config_source) = if let Some(ref config_path) = cli.config {
         let pc = PolicyConfig::load_file(config_path)
             .map_err(|e| anyhow::anyhow!("Failed to load config '{}': {}", config_path, e))?;
@@ -174,6 +216,9 @@ async fn main() -> Result<()> {
     } else if let Some(ref preset_name) = cli.preset {
         let pc = presets::load_preset(preset_name).map_err(|e| anyhow::anyhow!("{}", e))?;
         (pc, format!("preset: {}", preset_name))
+    } else if let Some(ref level) = cli.protect {
+        let pc = presets::load_preset(level).map_err(|e| anyhow::anyhow!("{}", e))?;
+        (pc, format!("protect: {}", level))
     } else {
         let pc = presets::default_config().map_err(|e| anyhow::anyhow!("{}", e))?;
         (pc, "built-in default".to_string())

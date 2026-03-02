@@ -1,0 +1,171 @@
+# Vellaveto Protection Level: Vault
+#
+# Maximum security — deny by default. Only explicitly allowed
+# operations will succeed. Use this when you need full control
+# over what your AI assistant can access.
+#
+# Same deny rules as Fortress, but the default policy is Deny
+# instead of Allow. You must add Allow rules for what you need.
+#
+# Usage:
+#   vellaveto-proxy --protect vault -- npx @modelcontextprotocol/server-filesystem /tmp
+#   vellaveto-proxy --preset vault -- python -m mcp_server
+#
+# To allow specific operations, add policies with priority > 1, e.g.:
+#
+#   [[policies]]
+#   name = "Allow reads in project dir"
+#   tool_pattern = "*"
+#   function_pattern = "read*"
+#   policy_type = "Allow"
+#   priority = 100
+#   [policies.path_rules]
+#   allowed = ["/home/user/projects/myapp/**"]
+
+# --- Block credential and secret files (priority 300) ---
+[[policies]]
+name = "Block credential files"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "vault:*:credential-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.aws/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.ssh/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gnupg/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env",                   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env.*",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/credentials.json",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.yaml",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.json",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_rsa",                 on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_rsa.pub",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_ed25519",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/id_ecdsa",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.npmrc",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.netrc",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.kube/config",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.azure/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.config/gcloud/**", on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block AI assistant config modification (priority 290) ---
+[[policies]]
+name = "Block AI config modification"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 290
+id = "vault:*:ai-config-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.cursor/**",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.claude/**",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.config/claude/**",   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.continue/**",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.codeium/**",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.windsurf/**",        on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block network exfiltration commands (priority 280) ---
+[[policies]]
+name = "Block network exfiltration"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 280
+id = "vault:*:network-exfil"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "curl.*--data.*@",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "curl.*-d\\s+@",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "wget.*-O.*-.*\\|",           on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block exfiltration domains (priority 275) ---
+[[policies]]
+name = "Block exfiltration domains"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 275
+id = "vault:*:exfil-domains"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "pastebin\\.com",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "transfer\\.sh",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "webhook\\.site",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "file\\.io",                  on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "requestbin\\.com",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "pipedream\\.net",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "hookbin\\.com",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "0x0\\.st",                   on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block git hook manipulation (priority 270) ---
+[[policies]]
+name = "Block git hook manipulation"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 270
+id = "vault:*:git-hook-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "**/.git/hooks/**",                  on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+config.*core\\.hooksPath", on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block dangerous commands (priority 250) ---
+[[policies]]
+name = "Block dangerous commands"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 250
+id = "vault:*:dangerous-commands"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "rm\\s+-rf\\s+/",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "curl.*\\|.*sh",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "wget.*\\|.*sh",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "chmod\\s+-R\\s+777",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "curl.*--data.*@",            on_match = "deny", on_missing = "skip" },
+]
+
+# --- Default DENY (priority 1) ---
+# This is the key difference from Fortress: everything not explicitly
+# allowed is denied. Add Allow rules above this to permit operations.
+[[policies]]
+name = "Default deny"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 1
+id = "vault:*:default-deny"
+policy_type = "Deny"
+
+# --- Injection detection (blocking) ---
+[injection]
+enabled = true
+block_on_injection = true
+
+# --- DLP credential scanning (blocking) ---
+[dlp]
+enabled = true
+block_on_finding = true
+
+# --- Shadow agent detection ---
+[shadow_agent]
+enabled = true
+
+# --- Audit ---
+[audit]
+redaction_level = "KeysAndPatterns"
