@@ -202,7 +202,7 @@ pub struct SuspiciousPattern {
 
 /// State of an active workflow.
 #[derive(Debug)]
-#[allow(dead_code)] // Used by feature-gated workflow enforcement module
+#[allow(dead_code)] // Fields populated for audit trail; read via Debug
 struct WorkflowState {
     /// Workflow ID.
     id: String,
@@ -220,7 +220,7 @@ struct WorkflowState {
 
 /// A recorded workflow action.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Used by feature-gated workflow enforcement module
+#[allow(dead_code)] // Fields populated for audit trail; read via Debug
 struct WorkflowAction {
     tool: String,
     function: String,

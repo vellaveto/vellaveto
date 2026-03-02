@@ -10,7 +10,7 @@ All contributors must sign the [Individual Contributor License Agreement](CLA.md
 
 **How to sign:**
 1. **Automatic:** When you open your first pull request, the CLA Assistant bot will prompt you to sign electronically.
-2. **Manual:** Email **paolovella1993@gmail.com** with subject "CLA Signature — Vellaveto" containing your full name, GitHub username, and the statement: "I have read and agree to the Vellaveto Individual Contributor License Agreement."
+2. **Manual:** Email **hello@vellaveto.online** with subject "CLA Signature — Vellaveto" containing your full name, GitHub username, and the statement: "I have read and agree to the Vellaveto Individual Contributor License Agreement."
 
 ## License
 

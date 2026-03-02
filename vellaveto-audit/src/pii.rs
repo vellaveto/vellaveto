@@ -138,7 +138,6 @@ pub fn validate_regex_safety(pattern: &str) -> Result<(), String> {
 
 /// A named PII regex pattern for built-in detection.
 struct NamedPiiRegex {
-    #[allow(dead_code)]
     name: &'static str,
     regex: Regex,
     /// SECURITY (R21-SUP-1): When true, matches are post-filtered through the

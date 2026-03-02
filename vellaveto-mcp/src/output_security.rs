@@ -209,7 +209,6 @@ pub struct OutputSecurityAnalyzer {
 
 /// Entropy baseline for a session.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Reserved for future entropy anomaly detection
 struct EntropyBaseline {
     /// Running average entropy.
     average: f32,

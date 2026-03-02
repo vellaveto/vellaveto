@@ -104,4 +104,4 @@ Puppetry injection, and SANDWORM supply chain worm hardening.
 ## Contact
 
 Report security vulnerabilities privately via the process described in
-[SECURITY.md](SECURITY.md) or email paolovella1993@gmail.com.
+[SECURITY.md](SECURITY.md) or email security@vellaveto.online.

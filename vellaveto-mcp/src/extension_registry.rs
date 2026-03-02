@@ -55,7 +55,6 @@ pub struct ExtensionRegistry {
     allowed_patterns: Vec<String>,
     blocked_patterns: Vec<String>,
     require_signatures: bool,
-    #[allow(dead_code)] // Reserved for future signature verification
     trusted_keys: Vec<String>,
     default_limits: ExtensionResourceLimits,
 }

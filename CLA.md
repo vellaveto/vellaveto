@@ -74,7 +74,7 @@ You agree to notify the Maintainer of any facts or circumstances of which you be
 
 When you open your first pull request to the Project, the CLA Assistant bot will automatically prompt you to sign this agreement. This is a one-time process. Your signature is recorded electronically and applies to all future Contributions.
 
-Alternatively, you may sign by sending an email to **paolovella1993@gmail.com** with the subject "CLA Signature — Vellaveto" containing:
+Alternatively, you may sign by sending an email to **hello@vellaveto.online** with the subject "CLA Signature — Vellaveto" containing:
 
 - Your full legal name
 - Your GitHub username
@@ -86,4 +86,4 @@ Alternatively, you may sign by sending an email to **paolovella1993@gmail.com** 
 **Project:** Vellaveto — MCP Tool Firewall
 **Maintainer:** Paolo Vella
 **License:** Three-tier (MPL-2.0 / Apache-2.0 / BUSL-1.1) with commercial licensing
-**Contact:** paolovella1993@gmail.com
+**Contact:** hello@vellaveto.online

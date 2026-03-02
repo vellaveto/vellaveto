@@ -4,7 +4,7 @@
 
 **Paolo Vella** — sole maintainer, final decision authority on all matters including roadmap, releases, security, and policy.
 
-Contact: paolovella1993@gmail.com
+Contact: hello@vellaveto.online
 
 ## Decision-Making
 

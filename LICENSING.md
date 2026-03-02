@@ -74,7 +74,7 @@ on end-user devices without a commercial license. The shield-specific crates
 For organizations that need to exceed the BSL production thresholds or offer
 VellaVeto as a managed service — a commercial license is available.
 
-Contact: **paolovella1993@gmail.com**
+Contact: **hello@vellaveto.online**
 
 The commercial license removes all usage restrictions and includes:
 - Permission to use VellaVeto in proprietary products and services at any scale

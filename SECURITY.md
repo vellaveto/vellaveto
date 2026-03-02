@@ -14,7 +14,7 @@
 
 Please report vulnerabilities via one of the following channels:
 
-- **Email:** [paolovella1993@gmail.com](mailto:paolovella1993@gmail.com) with subject line `[SECURITY] <brief description>`
+- **Email:** [security@vellaveto.online](mailto:security@vellaveto.online) with subject line `[SECURITY] <brief description>`
 - **GitHub Security Advisory:** [Report a vulnerability](https://github.com/vellaveto/vellaveto/security/advisories/new) (preferred)
 
 ### What to Include

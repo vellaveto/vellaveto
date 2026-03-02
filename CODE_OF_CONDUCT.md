@@ -4,6 +4,6 @@ This project follows the [Contributor Covenant v2.1](https://www.contributor-cov
 
 ## Reporting
 
-Report concerns to **paolovella1993@gmail.com** with subject `[CONDUCT]`.
+Report concerns to **hello@vellaveto.online** with subject `[CONDUCT]`.
 
 Reports are acknowledged within 3 business days.

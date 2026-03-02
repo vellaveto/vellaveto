@@ -188,7 +188,7 @@ FIELDS=(
   "report_process_status|Met|Bug reporting process documented. Security vulnerabilities reported privately per SECURITY.md.|passing"
   "report_archive_status|Met|GitHub Issues provides a public, searchable archive of all bug reports.|passing"
   "vulnerability_report_process_status|Met|SECURITY.md documents private vulnerability reporting via email to maintainer.|passing"
-  "vulnerability_report_private_status|Met|Private vulnerability reports accepted via email (paolovella1993@gmail.com) per SECURITY.md.|passing"
+  "vulnerability_report_private_status|Met|Private vulnerability reports accepted via email (security@vellaveto.online) per SECURITY.md.|passing"
   "build_floss_tools_status|Met|Built with Cargo (Rust), all FLOSS tools. CI uses GitHub Actions with open-source runners.|passing"
   "static_analysis_status|Met|Clippy with -D warnings on every CI run. cargo-audit for CVE scanning. Kani proof harnesses.|passing"
   "hardening_status|Met|Documented in docs/HARDENING.md: Rust memory safety, zero unsafe, overflow-checks=true, saturating arithmetic, PIE+ASLR, strip symbols, supply chain hardening.|passing"
