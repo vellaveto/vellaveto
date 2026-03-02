@@ -118,7 +118,7 @@ FROM alpine:3.21@sha256:c3f8e73fdb79deaebaa2037150150191b9dcbfba68b4a46d70103204
 LABEL org.opencontainers.image.title="Vellaveto" \
       org.opencontainers.image.description="Runtime security engine for AI agent tool calls" \
       org.opencontainers.image.source="https://github.com/vellaveto/vellaveto" \
-      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.licenses="MPL-2.0 AND Apache-2.0 AND BUSL-1.1" \
       org.opencontainers.image.vendor="Paolo Vella"
 
 # Security: Run as non-root user
