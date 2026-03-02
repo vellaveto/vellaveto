@@ -207,18 +207,18 @@ applicable transports and SDKs. A check mark means the feature MUST be present.
 
 ### SDK Method Parity
 
-| Feature                | Python (sync) | Python (async) | TypeScript | Go  |
-|------------------------|---------------|----------------|------------|-----|
-| evaluate()             |       Y       |       Y        |     Y      |  Y  |
-| approve/deny           |       Y       |       Y        |     Y      |  Y  |
-| audit export           |       Y       |       Y        |     Y      |  Y  |
-| discovery search       |       Y       |       Y        |     Y      |  Y  |
-| projector transform    |       Y       |       Y        |     Y      |  Y  |
-| zk_status/proofs/verify|       Y       |       Y        |     Y      |  Y  |
-| access review          |       Y       |       Y        |     Y      |  Y  |
-| federation status      |       Y       |       Y        |     Y      |  Y  |
-| Input validation       |       Y       |       Y        |     Y      |  Y  |
-| Retry with backoff     |       Y       |       Y        |     Y      |  Y  |
+| Feature                | Python (sync) | Python (async) | TypeScript | Go  | Java |
+|------------------------|---------------|----------------|------------|-----|------|
+| evaluate()             |       Y       |       Y        |     Y      |  Y  |  Y   |
+| approve/deny           |       Y       |       Y        |     Y      |  Y  |  Y   |
+| audit export           |       Y       |       Y        |     Y      |  Y  |  Y   |
+| discovery search       |       Y       |       Y        |     Y      |  Y  |  Y   |
+| projector transform    |       Y       |       Y        |     Y      |  Y  |  Y   |
+| zk_status/proofs/verify|       Y       |       Y        |     Y      |  Y  |  Y   |
+| access review          |       Y       |       Y        |     Y      |  Y  |  Y   |
+| federation status      |       Y       |       Y        |     Y      |  Y  |  Y   |
+| Input validation       |       Y       |       Y        |     Y      |  Y  |  Y   |
+| Retry with backoff     |       Y       |       Y        |     -      |  -  |  Y   |
 
 When you add a new SDK method to one language, add it to ALL languages.
 
@@ -255,10 +255,6 @@ find vellaveto-*/src/ -name '*.rs' \
 # 6. If you changed an error message, verify no test asserts on the old text
 grep -rn "<your_old_message_text>" vellaveto-*/src/tests.rs vellaveto-integration/tests/
 ```
-
-In restricted sandboxes/containers, local socket binds may fail with
-`PermissionDenied`. Integration tests that require `127.0.0.1:0` should skip
-only that path and still fail fast on any other bind error.
 
 If ANY gate fails, fix it before committing. Do not push with known failures.
 
