@@ -388,4 +388,170 @@ mod tests {
         assert!(names.contains(&"fortress"));
         assert!(names.contains(&"vault"));
     }
+
+    // --- Enhanced preset feature tests ---
+
+    #[test]
+    fn test_shield_has_memory_tracking() {
+        let config = load_preset("shield").expect("shield should load");
+        assert!(
+            config.memory_tracking.enabled,
+            "shield should enable memory tracking"
+        );
+        assert!(
+            !config.memory_tracking.block_on_match,
+            "shield memory tracking should be non-blocking (monitor-only)"
+        );
+    }
+
+    #[test]
+    fn test_fortress_has_memory_tracking_blocking() {
+        let config = load_preset("fortress").expect("fortress should load");
+        assert!(
+            config.memory_tracking.enabled,
+            "fortress should enable memory tracking"
+        );
+        assert!(
+            config.memory_tracking.block_on_match,
+            "fortress memory tracking should be blocking"
+        );
+    }
+
+    #[test]
+    fn test_fortress_has_shadow_agent_detection() {
+        let config = load_preset("fortress").expect("fortress should load");
+        assert!(
+            config.shadow_agent.enabled,
+            "fortress should enable shadow agent detection"
+        );
+    }
+
+    #[test]
+    fn test_vault_has_elicitation_enabled() {
+        let config = load_preset("vault").expect("vault should load");
+        assert!(
+            config.elicitation.enabled,
+            "vault should enable elicitation controls"
+        );
+    }
+
+    #[test]
+    fn test_dev_laptop_has_full_protection() {
+        let config = load_preset("dev-laptop").expect("dev-laptop should load");
+        let policies = config.to_policies();
+        assert!(
+            policies.len() >= 9,
+            "dev-laptop should have at least 9 policies, got {}",
+            policies.len()
+        );
+        assert!(
+            config.injection.enabled && config.injection.block_on_injection,
+            "dev-laptop should have blocking injection"
+        );
+        assert!(
+            config.dlp.enabled && config.dlp.block_on_finding,
+            "dev-laptop should have blocking DLP"
+        );
+    }
+
+    #[test]
+    fn test_ci_agent_has_supply_chain_protection() {
+        let config = load_preset("ci-agent").expect("ci-agent should load");
+        let policies = config.to_policies();
+        assert!(
+            policies.len() >= 7,
+            "ci-agent should have at least 7 policies, got {}",
+            policies.len()
+        );
+        assert!(
+            config.injection.enabled && config.injection.block_on_injection,
+            "ci-agent should have blocking injection"
+        );
+        assert!(
+            config.dlp.enabled && config.dlp.block_on_finding,
+            "ci-agent should have blocking DLP"
+        );
+    }
+
+    #[test]
+    fn test_database_agent_has_injection_and_dlp() {
+        let config = load_preset("database-agent").expect("database-agent should load");
+        let policies = config.to_policies();
+        assert!(
+            policies.len() >= 6,
+            "database-agent should have at least 6 policies, got {}",
+            policies.len()
+        );
+        assert!(
+            config.injection.enabled && config.injection.block_on_injection,
+            "database-agent should have blocking injection"
+        );
+        assert!(
+            config.dlp.enabled && config.dlp.block_on_finding,
+            "database-agent should have blocking DLP"
+        );
+    }
+
+    #[test]
+    fn test_browser_agent_has_full_protection() {
+        let config = load_preset("browser-agent").expect("browser-agent should load");
+        let policies = config.to_policies();
+        assert!(
+            policies.len() >= 7,
+            "browser-agent should have at least 7 policies, got {}",
+            policies.len()
+        );
+    }
+
+    #[test]
+    fn test_devops_agent_has_credential_blocking() {
+        let config = load_preset("devops-agent").expect("devops-agent should load");
+        let policies = config.to_policies();
+        assert!(
+            policies.len() >= 11,
+            "devops-agent should have at least 11 policies, got {}",
+            policies.len()
+        );
+        assert!(
+            config.dlp.enabled && config.dlp.block_on_finding,
+            "devops-agent should have blocking DLP"
+        );
+    }
+
+    #[test]
+    fn test_all_protection_levels_have_injection_and_dlp() {
+        for level in ["shield", "fortress", "vault"] {
+            let config = load_preset(level).unwrap_or_else(|e| panic!("{} should load: {}", level, e));
+            assert!(
+                config.injection.enabled && config.injection.block_on_injection,
+                "{} should have blocking injection",
+                level
+            );
+            assert!(
+                config.dlp.enabled && config.dlp.block_on_finding,
+                "{} should have blocking DLP",
+                level
+            );
+        }
+    }
+
+    #[test]
+    fn test_preset_descriptions_mention_key_features() {
+        let presets = list_presets();
+        let shield_desc = presets.iter().find(|(n, _)| *n == "shield").unwrap().1;
+        assert!(
+            shield_desc.contains("SANDWORM"),
+            "shield description should mention SANDWORM defense"
+        );
+        let fortress_desc = presets.iter().find(|(n, _)| *n == "fortress").unwrap().1;
+        assert!(
+            fortress_desc.contains("memory tracking") || fortress_desc.contains("package config"),
+            "fortress description should mention memory tracking or package config"
+        );
+        let vault_desc = presets.iter().find(|(n, _)| *n == "vault").unwrap().1;
+        assert!(
+            vault_desc.contains("deny") || vault_desc.contains("Deny"),
+            "vault description should mention deny-by-default"
+        );
+    }
 }
