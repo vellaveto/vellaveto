@@ -30,7 +30,7 @@ cargo install vellaveto-proxy
 vellaveto-proxy --protect shield -- npx @modelcontextprotocol/server-filesystem /tmp
 ```
 
-That's it — credentials blocked, dangerous commands blocked, injection scanning on, DLP on. Three protection levels: `shield` (just works), `fortress` (adds exfil domain blocking + AI config protection), `vault` (default deny). No YAML, no config files, no security domain knowledge needed. Works with Claude Desktop, Cursor, Windsurf, or any MCP client — just wrap the server command.
+That's it — credentials blocked, SANDWORM defense on, exfil domains blocked, injection scanning on, DLP on. Three protection levels: `shield` (8 policies — credentials, SANDWORM, exfil, git hooks, system files, dangerous commands), `fortress` (11 policies — adds package config protection, sudo approval, memory poisoning detection), `vault` (11 policies — deny-by-default, but source reads and git reads work, writes need approval). No YAML, no config files, no security domain knowledge needed. Works with Claude Desktop, Cursor, Windsurf, or any MCP client — just wrap the server command.
 
 Beyond the one-liner, VellaVeto includes topology discovery (auto-inventorying MCP servers and tools), identity-aware access control (OIDC/SAML/RBAC/capability delegation), and a tamper-evident audit trail with evidence packs mapped to 12 regulatory and industry frameworks — EU AI Act, NIS2, DORA, SOC 2, ISO 42001, NIST AI 600-1, OWASP Agentic Top 10, OWASP MCP Top 10, CoSAI, Adversa TOP 25, Singapore MGF, and CSA ATF. No other MCP gateway ships with compliance evidence generation.
 

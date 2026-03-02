@@ -113,21 +113,21 @@ Pick a protection level and go — no config file needed:
 cargo install vellaveto-proxy                 # From source (~2 min)
 # or download pre-built binary from https://github.com/vellaveto/vellaveto/releases
 
-# Shield — blocks credentials + dangerous commands, injection/DLP scanning
+# Shield — credentials, SANDWORM defense, exfil blocking, injection/DLP
 vellaveto-proxy --protect shield -- npx @modelcontextprotocol/server-filesystem /tmp
 
-# Fortress — shield + exfil domain blocking, AI config protection, approval gates
+# Fortress — shield + system files, package configs, sudo approval, memory tracking
 vellaveto-proxy --protect fortress -- python -m mcp_server
 
-# Vault — fortress + default deny (must whitelist what you need)
+# Vault — deny-by-default, safe reads allowed, writes require approval
 vellaveto-proxy --protect vault -- ./my-server
 ```
 
 | Level | Default | What it blocks | For whom |
 |-------|---------|----------------|----------|
-| `shield` | Allow | Credentials, dangerous commands, injection, credential leaks | Anyone — just works |
-| `fortress` | Allow | Shield + exfil domains, AI config files, git hooks; approval for destructive ops | Developers who want more |
-| `vault` | **Deny** | Everything not explicitly allowed | Maximum security |
+| `shield` | Allow | Credentials, SANDWORM (AI config injection), exfil domains, git hooks, system files, dangerous commands, injection, DLP | Anyone — just works |
+| `fortress` | Allow | Shield + package config tampering, privilege escalation approval, memory poisoning detection, shadow agent detection | Developers who want more |
+| `vault` | **Deny** | Everything not explicitly allowed; source reads + git reads allowed, writes require approval | Maximum security |
 
 <p align="center">
   <img src="docs/shield-demo.gif" alt="VellaVeto Shield demo — blocking credential theft, rm -rf, and curl|sh while allowing safe operations" width="880">

@@ -11,7 +11,7 @@ cargo install vellaveto-proxy
 vellaveto-proxy --protect shield -- ./your-mcp-server
 ```
 
-Three levels: `shield` (blocks credentials + dangerous commands), `fortress` (adds exfil + AI config protection), `vault` (default deny). No config file needed.
+Three levels: `shield` (8 policies — credentials, SANDWORM defense, exfil blocking, system files), `fortress` (11 policies — adds package config protection, sudo approval, memory tracking), `vault` (11 policies — deny-by-default, source reads allowed, writes need approval). No config file needed.
 
 ## Setup Wizard
 

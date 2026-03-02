@@ -9,11 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Enhanced policy presets for non-expert users:**
+  Every preset is now a complete, well-documented security posture with plain-language threat
+  explanations. A user running `--protect shield` gets comprehensive protection without understanding
+  policy syntax. Every policy has a `# THREAT:` comment block explaining the attack in plain language.
+  - `shield` — 3→8 policies: added SANDWORM defense (AI config injection prevention), exfiltration domain
+    blocking (pastebin, ngrok, webhook.site, etc.), git hook manipulation blocking, system file protection
+    (/etc/shadow, sudoers, crontab, systemd), approval gates for destructive git operations, memory tracking.
+  - `fortress` — 8→11 policies: added system file protection, package config tampering defense (.npmrc,
+    pip.conf, cargo config, pypirc), privilege escalation approval (sudo/su/doas), enhanced dangerous
+    commands (eval, python -c), memory poisoning detection (blocking), shadow agent detection.
+  - `vault` — 7→11 policies: added usable Allow rules so basic coding works out of the box — source code
+    reading allowed (credential files still blocked at higher priority), read-only git commands allowed,
+    file writes require human approval. Elicitation controls enabled.
+  - `dev-laptop` — 3→9 policies: comprehensive workstation protection with full credential coverage (17
+    patterns), SANDWORM defense, exfil blocking, git hooks, system files, package configs, injection +
+    DLP blocking.
+  - `ci-agent` — 4→7 policies: SANDWORM defense, git hook protection, exfil domain blocking, expanded
+    registry allowlist (npm, PyPI, crates.io, Maven, RubyGems, Docker Hub, GHCR).
+  - `database-agent` — 4→6 policies: expanded credential coverage (17 patterns), SQL injection blocking
+    (UNION SELECT, INTO OUTFILE, xp_cmdshell), schema change approval gates.
+  - `browser-agent` — 5→7 policies: expanded credentials, sensitive JS execution blocking (document.cookie,
+    localStorage, keylogger patterns), URL shortener phishing defense (bit.ly, tinyurl, t.co, goo.gl).
+  - `devops-agent` — 9→11 policies: added credential file blocking (was missing), secret write approval
+    (vault write, kubectl create secret, aws ssm put-parameter), namespace/cluster deletion blocking.
+  - Updated `presets.rs` descriptions and test assertions to match new policy counts.
+  - Updated README, website ProtectionLevels component, examples/presets/README, SHOW_HN, and
+    create-vellaveto README with enhanced descriptions.
+
 - **Easy Mode Protection Presets (`--protect shield/fortress/vault`):**
   Three beginner-friendly protection levels for users who don't want to write policy configs.
-  - `shield` — blocks credential files, dangerous commands, injection attacks, and credential leaks. Default allow.
-  - `fortress` — shield + exfiltration domain blocking (pastebin, transfer.sh, webhook.site, etc.), AI assistant config protection (SANDWORM defense), git hook manipulation blocking, approval gates for destructive operations.
-  - `vault` — fortress with default deny. Shadow agent detection enabled.
   - New `--protect <LEVEL>` CLI flag on `vellaveto-proxy`, mutually exclusive with `--config` and `--preset`.
   - Grouped `--list-presets` output showing protection levels first, then professional presets.
   - Claude Desktop, Cursor, and Windsurf integration examples in README and QUICKSTART.
