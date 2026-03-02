@@ -20,6 +20,7 @@ Example:
 import logging
 import threading
 from typing import Any, Dict, List, Optional, Union
+from urllib.parse import urlparse
 from uuid import UUID
 
 from vellaveto.client import VellavetoClient, PolicyDenied, ApprovalRequired
@@ -128,8 +129,10 @@ class VellavetoCallbackHandler(BaseCallbackHandler):
                 elif key in ("url", "uri", "endpoint", "host", "domain"):
                     target_domains.append(value)
                 # Check for URL patterns in any string value
-                elif value.startswith(("http://", "https://", "ftp://")):
-                    target_domains.append(value)
+                else:
+                    parsed = urlparse(value)
+                    if parsed.scheme in ("http", "https", "ftp") and parsed.netloc:
+                        target_domains.append(value)
 
         return {
             "tool": tool_name,

@@ -19,6 +19,7 @@ Example:
 
 import logging
 from typing import Any, Callable, Dict, List, Optional, TypedDict
+from urllib.parse import urlparse
 
 from vellaveto.client import VellavetoClient, PolicyDenied, ApprovalRequired
 from vellaveto.types import EvaluationContext, Verdict
@@ -135,8 +136,10 @@ def create_vellaveto_node(
                         target_paths.append(value)
                     elif key in ("url", "uri", "endpoint", "domain"):
                         target_domains.append(value)
-                    elif value.startswith(("http://", "https://")):
-                        target_domains.append(value)
+                    else:
+                        parsed = urlparse(value)
+                        if parsed.scheme in ("http", "https", "ftp") and parsed.netloc:
+                            target_domains.append(value)
 
         try:
             result = client.evaluate(

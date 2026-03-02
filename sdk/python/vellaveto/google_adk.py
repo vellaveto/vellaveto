@@ -27,6 +27,7 @@ Example:
 import logging
 import threading
 from typing import Any, Callable, Dict, List, Optional
+from urllib.parse import urlparse
 
 from vellaveto.client import ApprovalRequired, PolicyDenied, VellavetoClient
 from vellaveto.types import EvaluationContext
@@ -114,10 +115,12 @@ class VellavetoADKGuard:
                 paths.append(value)
             elif k in _DOMAIN_KEYS:
                 domains.append(value)
-            elif value.startswith(("http://", "https://", "ftp://")):
-                domains.append(value)
-            elif value.startswith("file://"):
-                paths.append(value)
+            else:
+                parsed = urlparse(value)
+                if parsed.scheme in ("http", "https", "ftp") and parsed.netloc:
+                    domains.append(value)
+                elif parsed.scheme == "file":
+                    paths.append(value)
         return paths[:100], domains[:100]
 
     def evaluate(
