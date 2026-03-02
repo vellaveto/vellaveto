@@ -56,7 +56,11 @@ fn proof_fail_closed_no_match_produces_deny() {
     // Create an action with concrete tool/function names.
     // The specific names don't matter — with zero policies, ALL actions
     // must be denied regardless of content.
-    let action = Action::new("arbitrary_tool", "arbitrary_function", serde_json::json!({}));
+    let action = Action::new(
+        "arbitrary_tool",
+        "arbitrary_function",
+        serde_json::json!({}),
+    );
 
     // Evaluate with empty policy slice — must be Deny
     let result = engine.evaluate_action(&action, &[]);
