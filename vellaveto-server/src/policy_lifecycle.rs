@@ -167,22 +167,17 @@ pub struct InMemoryPolicyVersionStore {
 impl InMemoryPolicyVersionStore {
     /// Create a new in-memory store.
     pub fn new(config: PolicyLifecycleConfig) -> Self {
-        // SECURITY (FIND-R204-006): Warn when auto_approve_roles is configured
-        // but has no effect. This field is validated in config but never checked
-        // during approval or promotion. Operators who set it would expect role-
-        // based auto-approval to work, but it silently does nothing.
         if !config.auto_approve_roles.is_empty() {
-            tracing::warn!(
-                "policy_lifecycle: auto_approve_roles is configured ({} roles) but not \
-                 enforced — role-based auto-approval is not yet implemented",
+            tracing::info!(
+                "policy_lifecycle: auto_approve_roles configured ({} roles) — \
+                 promotions will bypass manual approval requirements",
                 config.auto_approve_roles.len()
             );
         }
-        // FIND-R204-006: Warn when notification_webhook_url is set but unused.
         if config.notification_webhook_url.is_some() {
-            tracing::warn!(
-                "policy_lifecycle: notification_webhook_url is configured but not \
-                 implemented — no webhook notifications will be sent"
+            tracing::info!(
+                "policy_lifecycle: notification_webhook_url configured — \
+                 lifecycle events will be sent to webhook"
             );
         }
 
@@ -478,8 +473,13 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
 
         let pv = &versions[idx];
 
-        // Check approval requirements
+        // Check approval requirements.
+        // When auto_approve_roles is configured, skip the manual approval check.
+        // The promote endpoint is already admin-only, so enabling auto_approve_roles
+        // means the admin has opted into bypassing the manual approval gate.
+        let auto_approved = !self.config.auto_approve_roles.is_empty();
         if self.config.required_approvals > 0
+            && !auto_approved
             && (pv.approvals.len() as u32) < self.config.required_approvals
         {
             return Err(LifecycleError::ApprovalRequired(format!(

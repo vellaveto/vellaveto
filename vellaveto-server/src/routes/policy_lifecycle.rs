@@ -33,6 +33,46 @@ use crate::policy_lifecycle::LifecycleError;
 use crate::tenant::TenantContext;
 use crate::AppState;
 
+/// Fire-and-forget webhook notification for policy lifecycle events.
+///
+/// Spawns a background task to POST event data to the configured webhook URL.
+/// Failures are logged but never block the lifecycle operation.
+fn notify_webhook(state: &AppState, event: &str, policy_id: &str, version: u64) {
+    let url = match state.policy_lifecycle_config.notification_webhook_url {
+        Some(ref u) => u.clone(),
+        None => return,
+    };
+    let event = event.to_string();
+    let policy_id = policy_id.to_string();
+    let body = json!({
+        "event": event,
+        "policy_id": policy_id,
+        "version": version,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    });
+    tokio::spawn(async move {
+        let client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("Lifecycle webhook client error: {}", e);
+                return;
+            }
+        };
+        if let Err(e) = client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+        {
+            tracing::warn!("Lifecycle webhook failed for {}: {}", url, e);
+        }
+    });
+}
+
 /// SECURITY (FIND-R204-004): Policy lifecycle management is a global
 /// administrative operation. Non-default tenants must not be able to
 /// create, approve, promote, archive, or rollback policy versions that
@@ -273,6 +313,7 @@ pub async fn create_version(
     } else {
         crate::metrics::increment_audit_entries();
     }
+    notify_webhook(&state, "version_created", &id, version.version);
 
     Ok((
         StatusCode::CREATED,
@@ -344,6 +385,7 @@ pub async fn approve_version(
     } else {
         crate::metrics::increment_audit_entries();
     }
+    notify_webhook(&state, "version_approved", &id, v);
 
     Ok(Json(serde_json::to_value(&version).map_err(|e| {
         tracing::error!("Failed to serialize policy version: {}", e);
@@ -516,6 +558,7 @@ pub async fn promote_version(
     } else {
         crate::metrics::increment_audit_entries();
     }
+    notify_webhook(&state, event_name, &id, v);
 
     Ok(Json(serde_json::to_value(&promoted).map_err(|e| {
         tracing::error!("Failed to serialize promoted version: {}", e);
@@ -587,6 +630,7 @@ pub async fn archive_version(
     } else {
         crate::metrics::increment_audit_entries();
     }
+    notify_webhook(&state, "version_archived", &id, v);
 
     Ok(Json(serde_json::to_value(&version).map_err(|e| {
         tracing::error!("Failed to serialize policy version: {}", e);
@@ -652,6 +696,7 @@ pub async fn rollback_policy(
     } else {
         crate::metrics::increment_audit_entries();
     }
+    notify_webhook(&state, "version_rollback", &id, version.version);
 
     Ok((
         StatusCode::CREATED,
