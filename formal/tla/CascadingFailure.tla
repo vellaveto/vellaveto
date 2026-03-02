@@ -258,7 +258,7 @@ InvariantC3_OpenCircuitDenies ==
 InvariantC4_HalfOpenTransient ==
     \A pair \in AgentToolPairs :
         circuitState[pair] = "half_open"
-        => errorCounts[pair] < MaxErrors + 1  \* Still has room for one more attempt
+        => probeAllowed[pair] = TRUE  \* Half-open always permits exactly one probe
 
 (**************************************************************************)
 (* C5: Successful probe closes circuit                                    *)

@@ -17,4 +17,6 @@ CONSTANTS ag1, ag2, tool1, tool2
 const_Agents == {ag1, ag2}
 const_Tools == {tool1, tool2}
 
+StateConstraint == Len(requestOutcomes) <= 5
+
 =========================================================================

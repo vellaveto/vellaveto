@@ -88,11 +88,11 @@ TypeOK ==
 (* Policies must be sorted before evaluation begins (sort_policies() is   *)
 (* called before evaluate_action at lib.rs:252-261).                     *)
 (**************************************************************************)
+BoundedSeq(S, N) == UNION {[1..n -> S] : n \in 0..N}
+
 Init ==
-    /\ policies \in {s \in Seq(PolicySet) :
-                        /\ Len(s) >= 0
-                        /\ Len(s) <= MaxPolicies
-                        /\ SortedByPriority(s)}
+    /\ policies \in {s \in BoundedSeq(PolicySet, MaxPolicies) :
+                        SortedByPriority(s)}
     /\ pendingActions \in SUBSET ActionSet \ {{}}  \* At least one action to evaluate
     /\ verdicts = [a \in {} |-> VerdictAllow]      \* Empty map (no verdicts yet)
     /\ engineState = "idle"

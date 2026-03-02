@@ -1,0 +1,23 @@
+[package]
+name = "vellaveto-kani-proofs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Kani bounded model checking proofs for Vellaveto security invariants"
+
+# Kani verification crate — verifies extracted security-critical algorithms
+# from the production codebase using CBMC bounded model checking.
+#
+# Why a separate crate: Kani 0.67 cannot compile the icu_normalizer/zerovec
+# dependency chain pulled in by the `idna` crate. Since the verified algorithms
+# (path normalization, fail-closed logic) do not use IDNA, we extract them here
+# with minimal dependencies to make verification tractable.
+#
+# The extracted code is tested to be identical to the production code via
+# the CI diff check in .github/workflows/ci.yml.
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
+[dependencies]
+percent-encoding = "2.3"

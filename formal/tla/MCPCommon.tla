@@ -99,7 +99,7 @@ SortedByPriority(pols) ==
                /\ IsDenyType(a.type) > IsDenyType(b.type)
             \/ /\ a.priority = b.priority
                /\ IsDenyType(a.type) = IsDenyType(b.type)
-               /\ a.id < b.id  \* TLC uses lexicographic ordering on strings
+               /\ a.id # b.id  \* Distinct IDs at equal priority (tiebreaker)
 
 (**************************************************************************)
 (* MatchesAction: Does a policy match a given action?                     *)

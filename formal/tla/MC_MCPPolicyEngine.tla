@@ -29,17 +29,20 @@ const_PolicySet ==
          tool |-> wildcard, function |-> wildcard,
          blocked_paths |-> {p1}, allowed_paths |-> {},
          blocked_domains |-> {}, allowed_domains |-> {},
-         on_no_match |-> "deny", requires_context |-> FALSE],
+         on_no_match |-> "deny", requires_context |-> FALSE,
+         require_approval |-> FALSE],
         [id |-> "pol2", priority |-> 5, type |-> "Allow",
          tool |-> t1, function |-> f1,
          blocked_paths |-> {}, allowed_paths |-> {p2, p3},
          blocked_domains |-> {}, allowed_domains |-> {d1, d2},
-         on_no_match |-> "deny", requires_context |-> FALSE],
-        [id |-> "pol3", priority |-> 5, type |-> "Conditional",
+         on_no_match |-> "deny", requires_context |-> FALSE,
+         require_approval |-> FALSE],
+        [id |-> "pol3", priority |-> 3, type |-> "Conditional",
          tool |-> t2, function |-> wildcard,
          blocked_paths |-> {}, allowed_paths |-> {},
          blocked_domains |-> {d3}, allowed_domains |-> {},
-         on_no_match |-> "continue", requires_context |-> TRUE]
+         on_no_match |-> "continue", requires_context |-> TRUE,
+         require_approval |-> TRUE]
     }
 
 (**************************************************************************)

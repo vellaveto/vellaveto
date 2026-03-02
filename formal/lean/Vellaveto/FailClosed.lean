@@ -45,10 +45,11 @@ structure Action where
   function : String
   deriving DecidableEq, Repr
 
-/-- Abstract matching predicate. -/
-variable (matchesAction : Policy → Action → Bool)
+-- Abstract matching predicate.
+-- Abstract policy application.
+section EvalParams
 
-/-- Abstract policy application. -/
+variable (matchesAction : Policy → Action → Bool)
 variable (applyPolicy : Policy → Action → Option Verdict)
 
 /-- First-match evaluation with parameterized matching. -/
@@ -102,13 +103,14 @@ theorem s1_all_continue_implies_deny
   | nil => rfl
   | cons p ps ih =>
     simp [evaluateFirstMatch']
-    by_cases hm : matchesAction p action = true
-    · rw [hm]; simp
+    cases hm : matchesAction p action
+    · -- false case: doesn't match, recurse
+      simp [hm]
+      exact ih (fun q hq hq_match => h_all_none q (List.mem_cons_of_mem p hq) hq_match)
+    · -- true case: matches but applyPolicy returns none
+      simp [hm]
       have := h_all_none p (List.mem_cons_self p ps) hm
       rw [this]
-      exact ih (fun q hq hq_match => h_all_none q (List.mem_cons_of_mem p hq) hq_match)
-    · simp [Bool.eq_false_iff.mpr (by simp_all : ¬matchesAction p action = true)] at hm ⊢
-      rw [hm]; simp
       exact ih (fun q hq hq_match => h_all_none q (List.mem_cons_of_mem p hq) hq_match)
 
 /-! ## Corollary: Allow requires a matching Allow policy (S5) -/
@@ -124,8 +126,13 @@ theorem s5_allow_requires_match
   | nil => simp [evaluateFirstMatch'] at h_result
   | cons p ps ih =>
     simp [evaluateFirstMatch'] at h_result
-    by_cases hm : matchesAction p action = true
-    · rw [hm] at h_result; simp at h_result
+    cases hm : matchesAction p action
+    · -- false case: doesn't match, must be in tail
+      rw [hm] at h_result; simp at h_result
+      obtain ⟨q, hq_mem, hq_match, hq_apply⟩ := ih h_result
+      exact ⟨q, List.mem_cons_of_mem p hq_mem, hq_match, hq_apply⟩
+    · -- true case: matches
+      rw [hm] at h_result; simp at h_result
       cases ha : applyPolicy p action with
       | none =>
         rw [ha] at h_result
@@ -135,7 +142,5 @@ theorem s5_allow_requires_match
         rw [ha] at h_result
         simp at h_result
         exact ⟨p, List.mem_cons_self p ps, hm, by rw [ha]; exact congrArg some h_result⟩
-    · simp [Bool.eq_false_iff.mpr (by simp_all : ¬matchesAction p action = true)] at hm
-      rw [hm] at h_result; simp at h_result
-      obtain ⟨q, hq_mem, hq_match, hq_apply⟩ := ih h_result
-      exact ⟨q, List.mem_cons_of_mem p hq_mem, hq_match, hq_apply⟩
+
+end EvalParams
