@@ -352,13 +352,13 @@ bound values.
 | Glob patterns → Wildcard + Exact | Cannot detect glob-specific matching bugs | 24 fuzz targets cover pattern compilation |
 | Path/domain subset uses set identity, not glob matching | Alloy model is more restrictive than Rust | Sound over-approximation for security |
 | ABAC CHOOSE vs priority-ordered selection | Reported policy_id may differ | Does not affect Deny/Allow decision |
-| Conditional policies simplified to fire/no-fire | Constraint-level deny paths not modeled | Covered by 8,961 Rust unit tests |
+| Conditional policies simplified to fire/no-fire | Constraint-level deny paths not modeled | Covered by 8,972 Rust unit tests |
 
 ## Relation to Existing Test Suite
 
 | Verification Layer | Method | Count |
 |--------------------|--------|-------|
-| Unit tests | Rust `#[test]` | 8,961 |
+| Unit tests | Rust `#[test]` | 8,972 |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
 | **Formal specs (models)** | **TLA+ / Alloy / Lean** | **33 properties + 3 lemmas** |

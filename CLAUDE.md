@@ -4,7 +4,7 @@
 > **State:** v6.0.0-dev (Phases 1–70 complete, 232 audit rounds)
 > **Version:** 6.0.0-dev
 > **License:** Three-tier: MPL-2.0 / Apache-2.0 / BUSL-1.1 (see LICENSING.md)
-> **Tests:** 8,961 Rust + 59 React + 12 Terraform + 484 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
+> **Tests:** 8,972 Rust + 59 React + 12 Terraform + 484 Python + 127 Go + 119 TypeScript + 120 Java + 26 VS Code, zero warnings, zero `unwrap()` in library code
 > **Updated:** 2026-03-02
 
 ---
