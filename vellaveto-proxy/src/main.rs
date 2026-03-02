@@ -105,8 +105,8 @@ struct Cli {
 enum Commands {
     /// Generate a starter config file in the current directory
     Init {
-        /// Preset to use as the starting template (default: dev-laptop)
-        #[arg(long, default_value = "dev-laptop")]
+        /// Preset to use as the starting template (default: shield)
+        #[arg(long, default_value = "shield")]
         preset: String,
 
         /// Output file path (default: vellaveto.toml)

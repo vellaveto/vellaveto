@@ -256,7 +256,7 @@ Verify: `grep -r "Admitted\|admit" Vellaveto/*.v` returns no matches.
 ### Abstract Pattern Matching
 
 Pattern matching is reduced to two cases: wildcard (`*`) and exact match.
-Full glob/regex correctness is already covered by 22 fuzz targets in the Rust
+Full glob/regex correctness is already covered by 24 fuzz targets in the Rust
 codebase. The security properties verified here are about evaluation ordering,
 fail-closed semantics, and combining algorithms — not pattern compilation.
 
@@ -326,7 +326,7 @@ hold for the normal evaluation path while still allowing error traces.
 These specifications verify **structural security properties** of the policy
 evaluation algorithms. They do **not** cover:
 
-- Pattern compilation correctness (covered by 22 fuzz targets)
+- Pattern compilation correctness (covered by 24 fuzz targets)
 - Cryptographic correctness of Ed25519 signatures (assumes correct primitives)
 - Timing side channels or performance properties
 - Concurrency (the engine is synchronous by design)
@@ -349,17 +349,17 @@ bound values.
 
 | Gap | Impact | Mitigation |
 |-----|--------|------------|
-| Glob patterns → Wildcard + Exact | Cannot detect glob-specific matching bugs | 22 fuzz targets cover pattern compilation |
+| Glob patterns → Wildcard + Exact | Cannot detect glob-specific matching bugs | 24 fuzz targets cover pattern compilation |
 | Path/domain subset uses set identity, not glob matching | Alloy model is more restrictive than Rust | Sound over-approximation for security |
 | ABAC CHOOSE vs priority-ordered selection | Reported policy_id may differ | Does not affect Deny/Allow decision |
-| Conditional policies simplified to fire/no-fire | Constraint-level deny paths not modeled | Covered by 4,857 Rust unit tests |
+| Conditional policies simplified to fire/no-fire | Constraint-level deny paths not modeled | Covered by 8,950 Rust unit tests |
 
 ## Relation to Existing Test Suite
 
 | Verification Layer | Method | Count |
 |--------------------|--------|-------|
-| Unit tests | Rust `#[test]` | 8,044 |
-| Fuzz targets | `cargo fuzz` | 22 |
+| Unit tests | Rust `#[test]` | 8,950 |
+| Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
 | **Formal specs (models)** | **TLA+ / Alloy / Lean** | **33 properties + 3 lemmas** |
 | **Formal specs (proofs)** | **Coq** | **15 theorems** |
