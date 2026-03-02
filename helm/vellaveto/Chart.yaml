@@ -21,5 +21,5 @@ maintainers:
     email: paolovella1993@gmail.com
 
 annotations:
-  artifacthub.io/license: AGPL-3.0-only
+  artifacthub.io/license: MPL-2.0 AND Apache-2.0 AND BUSL-1.1
   artifacthub.io/category: security

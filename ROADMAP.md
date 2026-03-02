@@ -3,7 +3,7 @@
 > **Version:** 7.0.0-planning
 > **Updated:** 2026-02-28
 > **Status:** v6 foundation complete; next horizon planning
-> **Current baseline:** 8,790 Rust tests passing | 231 audit rounds | 72 completed phases
+> **Current baseline:** 8,932 Rust tests passing | 232 audit rounds | 70 completed phases
 > **Strategic position:** Security-first control plane for agentic systems
 > **Primary mechanism:** MCP-native policy gateway
 > **Licensing:** Multi-tier open-core (see LICENSING.md)
@@ -365,8 +365,8 @@ The next roadmap should be judged by product adoption and control-plane leverage
 The following baseline is complete and should be treated as platform foundation, not backlog:
 
 - Phases **36-72** delivered across DX, IAM, billing, MCP 2025-11-25 support, compliance expansion, observability, Wasm plugins, advanced security, Cedar compatibility, A2A hardening, formal verification, consumer shield, analytics, bulk policy operations, adaptive rate limiting, and policy coverage
-- **8,790** Rust tests passing
-- **231** adversarial audit rounds completed
+- **8,932** Rust tests passing (9,800+ total across all languages)
+- **232** adversarial audit rounds completed
 - Core control-plane surfaces already exist: admin console, server APIs, stdio/HTTP gateways, discovery, audit, Terraform, Helm, operator, VS Code extension, SDKs
 
 The next roadmap assumes this foundation is stable enough to productize and distribute, not re-invent.
