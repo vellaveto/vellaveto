@@ -122,9 +122,10 @@ jobs:
         run: |
           # Scan library source for .unwrap() and .expect() calls.
           # Excludes: main.rs, tests.rs, *_tests.rs (test modules),
+          # kani_proofs.rs (Kani harnesses gated behind #[cfg(kani)]),
           # #[cfg(test)] blocks, and doc comments (//! and ///).
           # shellcheck disable=SC2016
-          HITS=$(find vellaveto-*/src/ -name '*.rs' -not -name 'main.rs' -not -name 'tests.rs' -not -name '*_tests.rs' -print0 \
+          HITS=$(find vellaveto-*/src/ -name '*.rs' -not -name 'main.rs' -not -name 'tests.rs' -not -name '*_tests.rs' -not -name 'kani_proofs.rs' -print0 \
             | xargs -0 awk 'FNR==1 { skip=0 }
               /^#\[cfg\(test\)\]/ { skip=1 }
               skip==0 && /^[[:space:]]*(\/\/!|\/\/\/)/ { next }
@@ -139,10 +140,11 @@ jobs:
       - name: Reject panic! in library code
         run: |
           # Scan library source for panic! in non-test code paths.
-          # Excludes: main.rs, tests.rs, *_tests.rs, #[cfg(test)] sections,
-          # and comment/doc-comment lines.
+          # Excludes: main.rs, tests.rs, *_tests.rs, kani_proofs.rs
+          # (Kani harnesses use panic! for assertion and are gated
+          # behind #[cfg(kani)]), #[cfg(test)] sections, and comments.
           # shellcheck disable=SC2016
-          HITS=$(find vellaveto-*/src/ -name '*.rs' -not -name 'main.rs' -not -name 'tests.rs' -not -name '*_tests.rs' -print0 \
+          HITS=$(find vellaveto-*/src/ -name '*.rs' -not -name 'main.rs' -not -name 'tests.rs' -not -name '*_tests.rs' -not -name 'kani_proofs.rs' -print0 \
             | xargs -0 awk 'FNR==1 { skip=0 }
               /^#\[cfg\(test\)\]/ { skip=1 }
               skip==0 && /^[[:space:]]*\/\// { next }
