@@ -128,4 +128,4 @@ MCPSEC is open to contributions. To propose a new attack class or security prope
 
 Apache-2.0 — use it, fork it, benchmark your competitors.
 
-The benchmark framework itself is Apache-2.0 to encourage adoption. The Vellaveto gateway (which scores highest against this benchmark) is AGPL-3.0.
+The benchmark framework itself is Apache-2.0 to encourage adoption. The Vellaveto gateway is licensed under a three-tier model (MPL-2.0 / Apache-2.0 / BUSL-1.1) — see [LICENSING.md](../LICENSING.md).

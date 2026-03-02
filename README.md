@@ -324,7 +324,13 @@ Full details: [Security Guarantees](docs/SECURITY_GUARANTEES.md) | [Threat Model
 
 ### MCPSEC Benchmark
 
-We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 64 reproducible attack test cases across 12 attack classes. Run it against any MCP gateway — including ours — and get a Tier 0-5 security score. See [mcpsec/README.md](mcpsec/README.md).
+We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 64 reproducible attack test cases across 12 attack classes. VellaVeto v6.0.0 scores **97/100 (Tier 5: Hardened)** — 62/64 tests passed. Run it against any MCP gateway — including ours:
+
+```bash
+cargo run -p mcpsec -- --target http://localhost:3000 --format markdown
+```
+
+See [mcpsec/README.md](mcpsec/README.md) for properties, attack classes, and methodology.
 
 ## How It Compares
 
@@ -344,6 +350,7 @@ We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP g
 | **Formal verification** | TLA+, Lean 4, Coq, Alloy, Kani | None | None | None |
 | **Consumer privacy** | PII sanitization, session isolation, credential vault, stylometric resistance | None | None | PII scanning (Presidio) |
 | **Enterprise IAM** | OIDC, SAML, RBAC, SCIM, DPoP | None | None | None |
+| **MCPSEC score** | 97/100 (Tier 5) | Not tested | Not applicable | Not tested |
 | **Ease of setup** | `--protect shield` (one flag) / Docker / Helm | Docker / binary | `pip install` | `pip install` |
 | **License** | MPL-2.0 / Apache-2.0 / BUSL-1.1 | Apache-2.0 | Apache-2.0 | MIT |
 

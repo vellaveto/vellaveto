@@ -1,0 +1,110 @@
+---
+---
+<section id="benchmark">
+  <div class="wrap">
+    <div class="benchmark-header">
+      <div class="benchmark-badge">MCPSEC &mdash; Apache-2.0</div>
+      <h2 class="section-title">Open security benchmark</h2>
+      <p class="section-sub">We built <a href="https://github.com/vellaveto/vellaveto/tree/main/mcpsec" target="_blank" rel="noopener noreferrer">MCPSEC</a>, a vendor-neutral benchmark for MCP gateway security. 10 formal properties, 64 attack tests, 12 attack classes. Run it against any gateway &mdash; including ours.</p>
+    </div>
+
+    <div class="benchmark-layout">
+      <div class="score-card card">
+        <div class="score-ring">
+          <svg viewBox="0 0 120 120" class="score-svg">
+            <circle cx="60" cy="60" r="50" class="score-bg"></circle>
+            <circle cx="60" cy="60" r="50" class="score-fill" stroke-dasharray="305" stroke-dashoffset="9"></circle>
+          </svg>
+          <div class="score-value">97<span class="score-pct">%</span></div>
+        </div>
+        <div class="score-tier">Tier 5: Hardened</div>
+        <div class="score-detail">62/64 attack tests passed</div>
+        <div class="score-version">VellaVeto v6.0.0</div>
+      </div>
+
+      <div class="properties-card card">
+        <h3>Security Properties</h3>
+        <div class="property-list">
+          <div class="property"><span class="property-id">P1</span><span class="property-name">Access Control</span><span class="property-score score-full">100%</span></div>
+          <div class="property"><span class="property-id">P2</span><span class="property-name">Parameter Constraints</span><span class="property-score score-full">100%</span></div>
+          <div class="property"><span class="property-id">P3</span><span class="property-name">Priority Monotonicity</span><span class="property-score score-full">100%</span></div>
+          <div class="property"><span class="property-id">P4</span><span class="property-name">Injection Resistance</span><span class="property-score score-partial">95%</span></div>
+          <div class="property"><span class="property-id">P5</span><span class="property-name">Schema Integrity</span><span class="property-score score-full">100%</span></div>
+          <div class="property"><span class="property-id">P6</span><span class="property-name">Response Confidentiality</span><span class="property-score score-partial">95%</span></div>
+          <div class="property"><span class="property-id">P7</span><span class="property-name">Audit Immutability</span><span class="property-score score-full">100%</span></div>
+          <div class="property"><span class="property-id">P8</span><span class="property-name">Delegation Monotonicity</span><span class="property-score score-full">100%</span></div>
+          <div class="property"><span class="property-id">P9</span><span class="property-name">Unicode Normalization</span><span class="property-score score-full">100%</span></div>
+          <div class="property"><span class="property-id">P10</span><span class="property-name">Temporal Consistency</span><span class="property-score score-full">100%</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="benchmark-run">
+      <code>cargo run -p mcpsec -- --target http://localhost:3000 --format markdown</code>
+    </div>
+  </div>
+</section>
+
+<style>
+  #benchmark{position:relative;overflow:hidden}
+  #benchmark::before{content:'';position:absolute;inset:0;
+    background:linear-gradient(135deg,rgba(50,209,255,.03),rgba(192,75,240,.03));
+    pointer-events:none}
+  .benchmark-header{position:relative;z-index:1;text-align:center;margin-bottom:2rem}
+  .benchmark-badge{display:inline-block;padding:.3rem .75rem;border-radius:1rem;
+    font-size:.7rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+    background:rgba(50,209,255,.12);color:var(--cyan);margin-bottom:1rem}
+  .benchmark-header .section-sub{max-width:700px;margin-left:auto;margin-right:auto}
+  .benchmark-header .section-sub a{color:var(--cyan)}
+
+  .benchmark-layout{display:grid;grid-template-columns:280px 1fr;gap:1.5rem;
+    position:relative;z-index:1}
+
+  .score-card{padding:2rem;text-align:center;display:flex;flex-direction:column;
+    align-items:center;justify-content:center}
+  .score-ring{position:relative;width:130px;height:130px;margin-bottom:1rem}
+  .score-svg{width:100%;height:100%;transform:rotate(-90deg)}
+  .score-bg{fill:none;stroke:var(--border);stroke-width:8}
+  .score-fill{fill:none;stroke:url(#score-gradient);stroke-width:8;
+    stroke-linecap:round;transition:stroke-dashoffset .5s}
+  .score-value{position:absolute;inset:0;display:flex;align-items:center;
+    justify-content:center;font-size:2.25rem;font-weight:900;
+    background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .score-pct{font-size:1rem;font-weight:600}
+  .score-tier{font-size:.9rem;font-weight:700;color:var(--text);margin-bottom:.25rem}
+  .score-detail{font-size:.8rem;color:var(--muted)}
+  .score-version{font-size:.7rem;color:var(--muted);margin-top:.5rem;
+    font-family:var(--mono)}
+
+  .properties-card{padding:1.5rem}
+  .properties-card h3{font-size:1rem;font-weight:700;color:var(--text);margin-bottom:1rem}
+  .property-list{display:flex;flex-direction:column;gap:.35rem}
+  .property{display:flex;align-items:center;gap:.75rem;padding:.4rem .5rem;
+    border-radius:.375rem;transition:background .15s}
+  .property:hover{background:rgba(255,255,255,.03)}
+  .property-id{font-family:var(--mono);font-size:.7rem;font-weight:600;
+    color:var(--cyan);width:2rem;flex-shrink:0}
+  .property-name{flex:1;font-size:.825rem;color:var(--muted)}
+  .property-score{font-family:var(--mono);font-size:.8rem;font-weight:700;
+    width:3.5rem;text-align:right;flex-shrink:0}
+  .score-full{color:var(--emerald, #34d399)}
+  .score-partial{color:var(--amber, #fbbf24)}
+
+  .benchmark-run{margin-top:1.5rem;background:var(--surface);border:1px solid var(--border);
+    border-radius:.5rem;padding:.75rem 1rem;text-align:center;position:relative;z-index:1}
+  .benchmark-run code{font-family:var(--mono);font-size:.8rem;color:var(--cyan)}
+
+  @media(max-width:700px){
+    .benchmark-layout{grid-template-columns:1fr}
+    .score-card{order:-1}
+  }
+</style>
+
+<svg style="position:absolute;width:0;height:0">
+  <defs>
+    <linearGradient id="score-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#C04BF0" />
+      <stop offset="100%" stop-color="#32D1FF" />
+    </linearGradient>
+  </defs>
+</svg>
