@@ -51,6 +51,9 @@ CLAUDE.md
 ATTACK_PLAYBOOK.md
 MODULE_EXTRACTION_PLAYBOOK.md
 MONETIZATION_STRATEGY.md
+SECURITY_AUDIT_LOG.md
+DEPLOYMENT_PLAN.md
+audits/
 docs/IMPLEMENTATION_PLAN*.md
 
 # Bottega multi-agent coordination
@@ -83,6 +86,10 @@ security-testing/
 /vellaveto-src/
 
 # OS
+# Lean 4 build artifacts
+formal/lean/.lake/
+formal/lean/lake-manifest.json
+
 .DS_Store
 Thumbs.db
 *:Zone.Identifier
