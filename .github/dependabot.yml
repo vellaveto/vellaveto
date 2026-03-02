@@ -37,3 +37,70 @@ updates:
     labels:
       - "dependencies"
       - "security"
+
+  - package-ecosystem: "npm"
+    directory: "/admin-console"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "UTC"
+    groups:
+      admin-console:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(admin-console)"
+    labels:
+      - "dependencies"
+      - "admin-console"
+
+  - package-ecosystem: "npm"
+    directory: "/sdk/typescript"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "UTC"
+    groups:
+      typescript-sdk:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(sdk-typescript)"
+    labels:
+      - "dependencies"
+      - "SDK"
+
+  - package-ecosystem: "npm"
+    directory: "/vscode-vellaveto"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "UTC"
+    groups:
+      vscode-extension:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(vscode)"
+    labels:
+      - "dependencies"
+
+  - package-ecosystem: "pip"
+    directory: "/sdk/python"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(sdk-python)"
+    labels:
+      - "dependencies"
+      - "SDK"

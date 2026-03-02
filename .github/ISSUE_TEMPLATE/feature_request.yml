@@ -39,9 +39,21 @@ body:
         - Configuration (vellaveto-config)
         - MCP handling (vellaveto-mcp)
         - Audit logging (vellaveto-audit)
+        - Consumer Shield (vellaveto-mcp-shield)
+        - Threat detection (injection/DLP/squatting)
+        - Discovery (topology)
         - HTTP proxy (vellaveto-http-proxy)
         - Server API (vellaveto-server)
+        - Cluster (vellaveto-cluster)
+        - Kubernetes operator
         - Python SDK
+        - TypeScript SDK
+        - Go SDK
+        - Java SDK
+        - VS Code extension
+        - Terraform provider
+        - Admin console
+        - Formal verification
         - Documentation
         - CI/CD
         - Other

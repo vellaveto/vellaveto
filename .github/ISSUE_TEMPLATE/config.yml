@@ -1,8 +1,11 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Security Vulnerability
-    url: https://github.com/vellaveto/vellaveto/blob/main/docs/SECURITY.md
-    about: Report security vulnerabilities privately. Do NOT open a public issue.
+  - name: Report a Security Vulnerability
+    url: https://github.com/vellaveto/vellaveto/security/advisories/new
+    about: Report security vulnerabilities privately via GitHub Security Advisory. Do NOT open a public issue.
   - name: Questions & Discussion
     url: https://github.com/vellaveto/vellaveto/discussions
-    about: Ask questions or start a discussion.
+    about: Ask questions, share policy recipes, or start a discussion.
+  - name: Policy Help
+    url: https://github.com/vellaveto/vellaveto/discussions/categories/q-a
+    about: Need help writing a policy? Ask in Q&A discussions.

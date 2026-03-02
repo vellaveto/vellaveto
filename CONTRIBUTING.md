@@ -18,6 +18,19 @@ Vellaveto uses a three-tier license model (MPL-2.0 / Apache-2.0 / BUSL-1.1).
 See [LICENSING.md](LICENSING.md) for details. By submitting a contribution,
 you agree to the terms in [LICENSING.md](LICENSING.md) and [CLA.md](CLA.md).
 
+## Where to Start
+
+New to the project? Here are some ways to get involved:
+
+- **Good first issues** — Look for the [`good first issue`](https://github.com/vellaveto/vellaveto/labels/good%20first%20issue) label. These are self-contained tasks that don't require deep knowledge of the codebase.
+- **Documentation** — Improve examples, fix typos, clarify explanations. Every docs PR is welcome.
+- **SDK examples** — Add usage examples for Python, TypeScript, Go, or Java SDKs with popular frameworks.
+- **Policy presets** — Create new policy preset templates for specific use cases (see `examples/presets/`).
+- **Security research** — Run adversarial tests against the engine and report findings. See [SECURITY.md](SECURITY.md) for responsible disclosure.
+- **Formal verification** — Extend TLA+, Lean 4, or Coq proofs for additional properties (see `formal/`).
+
+If you're unsure where to start, open a [Discussion](https://github.com/vellaveto/vellaveto/discussions) and ask.
+
 ## Getting Started
 
 ```bash

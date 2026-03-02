@@ -12,7 +12,7 @@ body:
     attributes:
       label: Vellaveto Version
       description: Output of `vellaveto --version` or crate version
-      placeholder: "3.0.0"
+      placeholder: "6.0.0"
     validations:
       required: true
 
@@ -21,13 +21,48 @@ body:
     attributes:
       label: Deployment Mode
       options:
-        - HTTP API server (vellaveto-server)
-        - HTTP reverse proxy (vellaveto-http-proxy)
         - Stdio proxy (vellaveto-proxy)
+        - HTTP reverse proxy (vellaveto-http-proxy)
+        - HTTP API server (vellaveto-server)
+        - Consumer Shield (vellaveto-shield)
         - Python SDK
+        - TypeScript SDK
+        - Go SDK
+        - Java SDK
+        - Docker
+        - Kubernetes operator
         - Library (embedded crate)
     validations:
       required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component is affected?
+      options:
+        - Policy engine (vellaveto-engine)
+        - Types (vellaveto-types)
+        - Configuration (vellaveto-config)
+        - MCP handling (vellaveto-mcp)
+        - Audit logging (vellaveto-audit)
+        - Consumer Shield (vellaveto-mcp-shield)
+        - Threat detection (injection/DLP/squatting)
+        - Discovery (topology)
+        - HTTP proxy (vellaveto-http-proxy)
+        - Server API (vellaveto-server)
+        - Cluster (vellaveto-cluster)
+        - Kubernetes operator
+        - Python SDK
+        - TypeScript SDK
+        - Go SDK
+        - Java SDK
+        - VS Code extension
+        - Terraform provider
+        - Admin console
+        - Documentation
+        - CI/CD
+        - Other
 
   - type: textarea
     id: description
