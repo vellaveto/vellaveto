@@ -19,6 +19,7 @@
   </p>
   <p>
     <a href="#the-problem">The Problem</a> &middot;
+    <a href="#consumer-shield--protect-users-from-ai-providers">Shield</a> &middot;
     <a href="#quick-start">Quick Start</a> &middot;
     <a href="#how-it-compares">Compare</a> &middot;
     <a href="#security">Security</a> &middot;
@@ -54,6 +55,36 @@ Agent attempts: read_file("/home/user/.aws/credentials")
   → Agent never sees the file contents
 ```
 
+## Consumer Shield — Protect Users from AI Providers
+
+Enterprise security is half the story. When AI providers process tool calls through their infrastructure, they see your file paths, credentials, browsing patterns, and work context. The [Consumer Shield](examples/presets/consumer-shield.toml) is a user-side deployment mode that protects individuals from mass data collection — regardless of what the provider's terms of service say.
+
+```
+You type: "Read my medical records at /home/alice/health/lab-results.pdf"
+  → Shield intercepts before the provider sees it
+  → PII replaced: "Read my medical records at [PII_PATH_1]"
+  → Provider processes the sanitized request
+  → Response comes back, Shield restores original paths
+  → Encrypted local audit proves what was shared and what was stripped
+```
+
+**What the Shield does:**
+
+| Layer | What It Protects | How |
+|---|---|---|
+| **PII sanitization** | File paths, emails, IPs, names, credentials | Bidirectional replacement with `[PII_{CAT}_{SEQ}]` placeholders — provider never sees originals |
+| **Encrypted local audit** | Full interaction history | XChaCha20-Poly1305 + Argon2id, stored on your machine, not the provider's |
+| **Session isolation** | Cross-session correlation | Each session gets a fresh credential — provider cannot link sessions to build a profile |
+| **Credential vault** | API keys, tokens passed through tool calls | Blind credential binding — provider sees the tool call but not the credential value |
+| **Stylometric resistance** | Writing style fingerprinting | Whitespace, punctuation, emoji, and filler word normalization so your writing patterns are not identifiable |
+| **Warrant canary** | Legal compulsion transparency | Ed25519-signed canary — if it stops being updated, assume legal pressure |
+
+The Shield runs locally as `vellaveto-shield` and is licensed under **MPL-2.0** — no enterprise license required.
+
+```bash
+vellaveto-shield --config consumer-shield.toml -- npx @anthropic/claude-desktop
+```
+
 ## What It Does
 
 VellaVeto is not just a proxy or firewall — it is a security control plane for agentic systems:
@@ -63,7 +94,7 @@ VellaVeto is not just a proxy or firewall — it is a security control plane for
 - **Identity and access** — OAuth 2.1/JWT, OIDC/SAML, RBAC, capability delegation, DPoP (RFC 9449), non-human identity lifecycle.
 - **Topology discovery** — auto-discover MCP servers, tools, and resources. Detect drift, tool shadowing, and namespace collisions.
 - **Audit and compliance** — tamper-evident logs (SHA-256 + Merkle + Ed25519), ZK proofs, evidence packs mapped to EU AI Act, SOC 2, DORA, NIS2, NIST AI 600-1, and 7 more frameworks.
-- **Consumer shield** — user-side PII sanitization, encrypted local audit, session isolation, stylometric fingerprint resistance, warrant canary.
+- **Consumer shield** — all of the above, running user-side. See [Consumer Shield](#consumer-shield--protect-users-from-ai-providers).
 
 **Core guarantees:**
 - **Complete mediation** — request and response paths evaluated before tool execution and before model return
@@ -73,16 +104,38 @@ VellaVeto is not just a proxy or firewall — it is a security control plane for
 
 ## Quick Start
 
+### Instant Protection
+
+Pick a protection level and go — no config file needed:
+
+```bash
+cargo install vellaveto-proxy
+
+# Shield — blocks credentials + dangerous commands, injection/DLP scanning
+vellaveto-proxy --protect shield -- npx @modelcontextprotocol/server-filesystem /tmp
+
+# Fortress — shield + exfil domain blocking, AI config protection, approval gates
+vellaveto-proxy --protect fortress -- python -m mcp_server
+
+# Vault — fortress + default deny (must whitelist what you need)
+vellaveto-proxy --protect vault -- ./my-server
+```
+
+| Level | Default | What it blocks | For whom |
+|-------|---------|----------------|----------|
+| `shield` | Allow | Credentials, dangerous commands, injection, credential leaks | Anyone — just works |
+| `fortress` | Allow | Shield + exfil domains, AI config files, git hooks; approval for destructive ops | Developers who want more |
+| `vault` | **Deny** | Everything not explicitly allowed | Maximum security |
+
 ### Setup Wizard
 
 ```bash
 npx create-vellaveto
 ```
 
-### MCP Stdio Proxy (Claude Desktop, local MCP servers)
+### Custom Config
 
 ```bash
-cargo install vellaveto-proxy
 vellaveto-proxy --config policy.toml -- /path/to/mcp-server
 ```
 
@@ -103,26 +156,6 @@ docker pull ghcr.io/vellaveto/vellaveto:latest
 docker run -p 3000:3000 \
   -v /path/to/config.toml:/etc/vellaveto/config.toml:ro \
   ghcr.io/vellaveto/vellaveto:latest
-```
-
-### Minimal Policy (deny-by-default)
-
-```toml
-[[policies]]
-name = "Allow file reads in /tmp"
-tool_pattern = "file"
-function_pattern = "read"
-policy_type = "Allow"
-priority = 100
-[policies.path_rules]
-allowed = ["/tmp/**"]
-
-[[policies]]
-name = "Default deny"
-tool_pattern = "*"
-function_pattern = "*"
-policy_type = "Deny"
-priority = 0
 ```
 
 See [docs/QUICKSTART.md](docs/QUICKSTART.md) for framework integration guides (Anthropic, OpenAI, LangChain, LangGraph, CrewAI).
