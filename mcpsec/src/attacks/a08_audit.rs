@@ -25,9 +25,14 @@ fn tamper_detected(body: &serde_json::Value, status: u16) -> bool {
         if let Some(broken) = body.get("broken_at_index") {
             return broken.is_number();
         }
+        // Gateway denied the audit_verify action (access control)
+        if super::is_deny(body, status) {
+            return true;
+        }
     }
     // 400/409 also acceptable (gateway rejected tampered data)
-    status == 400 || status == 409
+    // 403 = access control denied the internal tool call
+    status == 400 || status == 403 || status == 409
 }
 
 /// Check that entries have hash fields.

@@ -1266,6 +1266,13 @@ struct EvaluateRequest {
     action: Action,
     #[serde(default)]
     context: Option<EvaluationContext>,
+    /// Optional simulated tool response for content inspection benchmarking.
+    /// When present, the server runs injection and DLP scanners on this
+    /// content and includes results in the response's `inspection` field.
+    /// Used by MCPSEC benchmark to test the gateway's detection capabilities
+    /// without requiring a live proxy connection.
+    #[serde(default, rename = "_test_response")]
+    test_response: Option<serde_json::Value>,
 }
 
 /// Query parameters for the evaluate endpoint.
@@ -1278,6 +1285,24 @@ struct EvaluateQuery {
     trace: bool,
 }
 
+/// Content inspection results from injection and DLP scanning.
+/// Only present when `_test_response` is provided in the request.
+#[derive(Serialize)]
+struct InspectionResults {
+    injection_detected: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    injection_patterns: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    dlp_findings: Vec<DlpFindingSummary>,
+}
+
+/// Summary of a DLP finding for the API response.
+#[derive(Serialize)]
+struct DlpFindingSummary {
+    pattern_name: String,
+    location: String,
+}
+
 #[derive(Serialize)]
 struct EvaluateResponse {
     verdict: Verdict,
@@ -1287,6 +1312,9 @@ struct EvaluateResponse {
     /// Detailed evaluation trace (only present when ?trace=true).
     #[serde(skip_serializing_if = "Option::is_none")]
     trace: Option<vellaveto_types::EvaluationTrace>,
+    /// Content inspection results (only present when `_test_response` is provided).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inspection: Option<InspectionResults>,
 }
 
 /// SECURITY (R31-SRV-1): Redact action parameters before returning in the evaluate
@@ -2094,6 +2122,7 @@ async fn evaluate(
                             action: redact_response_action(action),
                             approval_id: None,
                             trace: None,
+                            inspection: None,
                         }));
                     }
                 };
@@ -2126,6 +2155,7 @@ async fn evaluate(
                     action: redact_response_action(action),
                     approval_id,
                     trace: None,
+                    inspection: None,
                 }));
             }
             vellaveto_mcp::tool_registry::TrustLevel::Untrusted { score } => {
@@ -2183,6 +2213,7 @@ async fn evaluate(
                             action: redact_response_action(action),
                             approval_id: None,
                             trace: None,
+                            inspection: None,
                         }));
                     }
                 };
@@ -2215,6 +2246,7 @@ async fn evaluate(
                     action: redact_response_action(action),
                     approval_id,
                     trace: None,
+                    inspection: None,
                 }));
             }
             vellaveto_mcp::tool_registry::TrustLevel::Trusted => {
@@ -2533,11 +2565,87 @@ async fn evaluate(
         }
     }
 
+    // MCPSEC benchmark support: when `_test_response` is provided, run injection
+    // and DLP scanners on the simulated tool response content. This lets external
+    // benchmarks test the gateway's detection capabilities through the evaluate API.
+    let inspection = if let Some(ref test_response) = req.test_response {
+        // Wrap as MCP result structure for scanner compatibility.
+        // The scanners expect {"result": {"content": [...]}} format.
+        let as_result = json!({"result": test_response});
+
+        // Injection scanning
+        let mut injection_patterns: Vec<String> =
+            vellaveto_mcp::inspection::scan_response_for_injection(&as_result)
+                .into_iter()
+                .map(String::from)
+                .collect();
+
+        // Also scan error field at top level if present (MCP error responses)
+        if let Some(error) = test_response.get("error") {
+            let as_error = json!({"error": error});
+            injection_patterns.extend(
+                vellaveto_mcp::inspection::scan_response_for_injection(&as_error)
+                    .into_iter()
+                    .map(String::from),
+            );
+        }
+
+        let injection_detected = !injection_patterns.is_empty();
+
+        // DLP scanning — structured response scanner for raw secrets
+        let mut dlp_findings: Vec<DlpFindingSummary> =
+            vellaveto_mcp::inspection::scan_response_for_secrets(&as_result)
+                .into_iter()
+                .map(|f| DlpFindingSummary {
+                    pattern_name: f.pattern_name,
+                    location: f.location,
+                })
+                .collect();
+
+        // Multi-layer decode DLP: scan_parameters_for_secrets recursively decodes
+        // base64, percent-encoding, etc. before matching. This catches encoded secrets
+        // that scan_response_for_secrets misses (e.g., base64-wrapped tokens).
+        dlp_findings.extend(
+            vellaveto_mcp::inspection::scan_parameters_for_secrets(test_response)
+                .into_iter()
+                .map(|f| DlpFindingSummary {
+                    pattern_name: f.pattern_name,
+                    location: f.location,
+                }),
+        );
+
+        // Also scan error field for DLP
+        if let Some(error) = test_response.get("error") {
+            let as_error = json!({"error": error});
+            dlp_findings.extend(
+                vellaveto_mcp::inspection::scan_response_for_secrets(&as_error)
+                    .into_iter()
+                    .map(|f| DlpFindingSummary {
+                        pattern_name: f.pattern_name,
+                        location: f.location,
+                    }),
+            );
+        }
+
+        // Deduplicate DLP findings (same pattern found by both scanners)
+        dlp_findings.sort_by(|a, b| a.pattern_name.cmp(&b.pattern_name));
+        dlp_findings.dedup_by(|a, b| a.pattern_name == b.pattern_name && a.location == b.location);
+
+        Some(InspectionResults {
+            injection_detected,
+            injection_patterns,
+            dlp_findings,
+        })
+    } else {
+        None
+    };
+
     Ok(Json(EvaluateResponse {
         verdict,
         action: redact_response_action(action),
         approval_id,
         trace: eval_trace,
+        inspection,
     }))
 }
 

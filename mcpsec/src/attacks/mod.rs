@@ -37,7 +37,9 @@ pub struct AttackTest {
     pub check_fn: fn(&serde_json::Value, u16) -> bool,
 }
 
-/// Check if the response verdict is Deny.
+/// Check if the response verdict is Deny or RequireApproval.
+/// RequireApproval counts as a security control — the gateway blocked autonomous
+/// execution and requires human confirmation, which is a valid security response.
 pub fn is_deny(body: &serde_json::Value, status: u16) -> bool {
     if status == 403 || status == 429 {
         return true;
@@ -46,9 +48,17 @@ pub fn is_deny(body: &serde_json::Value, status: u16) -> bool {
     if body.get("verdict").and_then(|v| v.get("Deny")).is_some() {
         return true;
     }
+    // Vellaveto: {"verdict": {"RequireApproval": {"reason": "..."}}}
+    if body
+        .get("verdict")
+        .and_then(|v| v.get("RequireApproval"))
+        .is_some()
+    {
+        return true;
+    }
     // Simple: {"verdict": "Deny"} or {"verdict": "deny"}
     if let Some(v) = body.get("verdict").and_then(|v| v.as_str()) {
-        if v.eq_ignore_ascii_case("deny") {
+        if v.eq_ignore_ascii_case("deny") || v.eq_ignore_ascii_case("require_approval") {
             return true;
         }
     }

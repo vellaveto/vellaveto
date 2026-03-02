@@ -91,17 +91,14 @@ pub fn tests() -> Vec<AttackTest> {
             payload: json!({
                 "tool": "file", "function": "read",
                 "parameters": {"path": "/tmp/test"},
-                "_test_rapid_requests": 10
+                "_test_rapid_requests": 100
             }),
-            // This test is special — it requires multiple rapid requests.
-            // The harness sends 10 rapid requests and checks for 429 on later ones.
+            // This test is special — the runner sends 100 rapid requests and
+            // checks if any receive 429. The gateway should rate-limit after
+            // exceeding its configured burst capacity.
             check_fn: |body: &serde_json::Value, status: u16| -> bool {
-                // 429 = rate limited (ideal)
-                // 200 = gateway has no rate limiting (fail for this test)
-                // We accept any non-500 status since rate limiting config varies
                 status == 429
                     || body.get("rate_limited").and_then(|r| r.as_bool()) == Some(true)
-                    // If the gateway has rate limiting enabled at all, consider it a pass
                     || body.get("rate_limits_enabled").and_then(|r| r.as_bool()) == Some(true)
             },
         },

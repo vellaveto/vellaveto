@@ -110,6 +110,32 @@ async fn run_single_test(
     test: &AttackTest,
     timeout_secs: u64,
 ) -> bool {
+    // Handle rapid-fire tests: if the payload contains `_test_rapid_requests`,
+    // send that many requests and check if any later ones trigger rate limiting.
+    if let Some(count) = test
+        .payload
+        .get("_test_rapid_requests")
+        .and_then(|v| v.as_u64())
+    {
+        // Build a clean payload without the _test_rapid_requests meta field
+        let mut clean_payload = test.payload.clone();
+        if let Some(obj) = clean_payload.as_object_mut() {
+            obj.remove("_test_rapid_requests");
+        }
+
+        let mut any_passed = false;
+        for _ in 0..count {
+            let result = send_evaluate(client, config, &clean_payload, timeout_secs).await;
+            if let Ok(resp) = result {
+                if (test.check_fn)(&resp.body, resp.status) {
+                    any_passed = true;
+                    break;
+                }
+            }
+        }
+        return any_passed;
+    }
+
     let result = send_evaluate(client, config, &test.payload, timeout_secs).await;
 
     match result {

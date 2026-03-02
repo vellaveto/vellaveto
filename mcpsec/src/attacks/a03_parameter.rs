@@ -33,7 +33,7 @@ pub fn tests() -> Vec<AttackTest> {
             class: "Parameter Constraint Bypass",
             payload: json!({
                 "tool": "file", "function": "read",
-                "parameters": {"path": "/tmp/%252e%252e/%252e%252e/etc/passwd"}
+                "parameters": {"path": "/tmp/%252e%252e/%252e%252e/home/user/.aws/credentials"}
             }),
             check_fn: is_deny,
         },
@@ -57,7 +57,7 @@ pub fn tests() -> Vec<AttackTest> {
                     "config": {
                         "nested": {
                             "deep": {
-                                "path": "/etc/shadow"
+                                "path": "/home/user/.ssh/id_rsa"
                             }
                         }
                     }

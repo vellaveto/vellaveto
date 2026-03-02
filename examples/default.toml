@@ -107,6 +107,11 @@ policy_type = "Deny"
 priority = 0
 id = "*:*:default-deny-all"
 
+# --- Rate limiting ---
+[rate_limit]
+evaluate_rps = 50
+evaluate_burst = 50
+
 # --- Injection detection (alert-only, non-blocking) ---
 [injection]
 enabled = true
