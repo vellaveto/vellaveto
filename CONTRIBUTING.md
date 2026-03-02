@@ -94,7 +94,7 @@ All pull requests must pass the following before merge:
 ### CI Gates (Automated)
 - `cargo fmt --all -- --check` (formatting)
 - `cargo clippy --workspace --all-targets --locked -- -D warnings` (linting)
-- `cargo test --workspace --no-fail-fast --locked` (9,800+ tests)
+- `cargo test --workspace --no-fail-fast --locked` (9,900+ tests)
 - unwrap/expect/panic scanner (no panics in library code)
 - SPDX license header check (all `.rs` files)
 - Feature matrix (5 feature combinations)

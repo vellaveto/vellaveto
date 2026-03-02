@@ -121,7 +121,7 @@ let mut engine = ...;
 
 ### 5. Test Suite
 
-`cargo test --workspace --no-fail-fast --locked` — runs all 8,932+ Rust tests (9,800+ total across all languages).
+`cargo test --workspace --no-fail-fast --locked` — runs all 8,961+ Rust tests (9,900+ total across all languages).
 
 **Common trap:** Tests that use `std::env::set_var()` / `remove_var()` race
 when run in parallel. Serialize them behind a static `Mutex`:

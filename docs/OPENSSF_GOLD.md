@@ -63,7 +63,7 @@ Best Practices Gold badge. Criteria are organized by category.
 | `build_common_tools` | MET | Cargo (standard Rust build tool) |
 | `build_floss_tools` | MET | All tools are FLOSS |
 | `build_reproducible` | MET | -Ctrim-paths=all (RUSTFLAGS), codegen-units=1, --locked (docs/REPRODUCIBLE_BUILDS.md) |
-| `test` | MET | 9,800+ tests, `cargo test --workspace` |
+| `test` | MET | 9,900+ tests, `cargo test --workspace` |
 | `test_invocation` | MET | `cargo test --workspace --locked` |
 | `test_most` | MET | Unit + integration + adversarial + property-based tests |
 | `test_continuous_integration` | MET | GitHub Actions CI on every push/PR |
