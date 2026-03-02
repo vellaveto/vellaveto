@@ -5,6 +5,16 @@
 // Copyright 2026 Paolo Vella
 // SPDX-License-Identifier: MPL-2.0
 
+//! Core types for the Vellaveto MCP tool firewall.
+//!
+//! This crate defines the foundational data structures shared across all
+//! Vellaveto components: [`Action`](core::Action), [`Policy`](core::Policy),
+//! [`Verdict`](core::Verdict), [`EvaluationContext`](identity::EvaluationContext),
+//! identity types, ABAC attributes, compliance mappings, and wire formats.
+//!
+//! `vellaveto-types` is a leaf crate with no internal dependencies — all other
+//! Vellaveto crates depend on it.
+
 pub mod abac;
 pub mod audit_store;
 pub mod capability;

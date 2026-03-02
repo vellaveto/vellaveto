@@ -5,6 +5,14 @@
 // Copyright 2026 Paolo Vella
 // SPDX-License-Identifier: MPL-2.0
 
+//! Tamper-evident audit logging for the Vellaveto MCP tool firewall.
+//!
+//! Records every policy decision in an append-only, hash-chained audit log
+//! with Ed25519-signed checkpoints and Merkle proof generation. Supports
+//! export to CEF, JSONL, OCSF, webhook, and syslog formats, plus dual-write
+//! to PostgreSQL. Compliance registries map audit events to EU AI Act, SOC 2,
+//! DORA, NIS2, OWASP ASI, and 6 additional regulatory frameworks.
+
 // vellaveto-audit: Append-only tamper-evident audit logging for policy decisions.
 //
 // Submodules:

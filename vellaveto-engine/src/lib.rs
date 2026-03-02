@@ -5,6 +5,16 @@
 // Copyright 2026 Paolo Vella
 // SPDX-License-Identifier: MPL-2.0
 
+//! Policy evaluation engine for the Vellaveto MCP tool firewall.
+//!
+//! Evaluates [`Action`](vellaveto_types::core::Action) requests against
+//! configured [`Policy`](vellaveto_types::core::Policy) rules and returns a
+//! [`Verdict`](vellaveto_types::core::Verdict) (Allow, Deny, or RequireApproval).
+//! Supports glob/regex path matching, domain/IP rules, ABAC attribute constraints,
+//! call-chain validation, decision caching (LRU+TTL), and Wasm policy plugins.
+//!
+//! The engine is synchronous by design — all evaluation completes in <5ms P99.
+
 pub mod abac;
 pub mod adaptive_rate;
 pub mod behavioral;
@@ -31,6 +41,9 @@ mod policy_compile;
 mod rule_check;
 mod traced;
 pub mod wasm_plugin;
+
+#[cfg(kani)]
+mod kani_proofs;
 
 pub use compiled::{
     CompiledConstraint, CompiledContextCondition, CompiledIpRules, CompiledNetworkRules,
@@ -456,61 +469,6 @@ impl PolicyEngine {
     /// - **For dynamic policy sets**: Construct a new engine with
     ///   [`Self::with_policies`] for each policy set, then call
     ///   [`Self::evaluate_action`].
-    /// - **Do not** pass tenant-specific or request-scoped policies via the
-    ///   `policies` parameter on an engine that has compiled policies — they
-    ///   will be silently discarded.
-    #[deprecated(
-        since = "4.0.1",
-        note = "policies parameter is silently ignored when compiled policies exist. \
-                Use evaluate_action() for compiled engines or build a new engine \
-                with with_policies() for dynamic policy sets."
-    )]
-    #[must_use = "security verdicts must not be discarded"]
-    pub fn evaluate_action_with_context(
-        &self,
-        action: &Action,
-        policies: &[Policy],
-        context: Option<&EvaluationContext>,
-    ) -> Result<Verdict, EngineError> {
-        // Topology pre-filter: check if the tool exists in the topology graph.
-        #[cfg(feature = "discovery")]
-        if let Some(deny) = self.check_topology(action) {
-            return Ok(deny);
-        }
-
-        // SECURITY (FIND-R50-063): Validate context bounds before evaluation.
-        // Without this, crafted EvaluationContext with >10K previous_actions
-        // bypasses the bounds checks and causes unbounded CPU/memory usage.
-        if let Some(ctx) = context {
-            if let Err(reason) = ctx.validate() {
-                return Ok(Verdict::Deny { reason });
-            }
-        }
-        if context.is_none() {
-            return self.evaluate_action(action, policies);
-        }
-        // Fast path: use pre-compiled policies
-        if !self.compiled_policies.is_empty() {
-            return self.evaluate_with_compiled_ctx(action, context);
-        }
-        // SECURITY (R13-LEG-7): Fail-closed when context is provided but
-        // compiled policies are unavailable. The legacy path cannot evaluate
-        // context conditions (time windows, call limits, agent identity,
-        // forbidden sequences). Silently dropping context would bypass all
-        // context-based restrictions.
-        if let Some(ctx) = context {
-            if ctx.has_any_meaningful_fields() {
-                return Ok(Verdict::Deny {
-                    reason: "Policy engine has no compiled policies; \
-                             context conditions cannot be evaluated (fail-closed)"
-                        .to_string(),
-                });
-            }
-        }
-        // Context was provided but empty — safe to fall through to legacy
-        self.evaluate_action(action, policies)
-    }
-
     /// Evaluate an action with full decision trace and optional session context.
     #[must_use = "security verdicts must not be discarded"]
     pub fn evaluate_action_traced_with_context(

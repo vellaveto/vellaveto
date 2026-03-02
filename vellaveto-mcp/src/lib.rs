@@ -7,6 +7,15 @@
 // Change Date: Three years from the date of publication of this version.
 // Change License: MPL-2.0
 
+//! MCP protocol handling and proxy bridge for the Vellaveto tool firewall.
+//!
+//! Implements the MCP 2025-11-25 specification including tool call interception,
+//! injection detection (Aho-Corasick + NFKC), DLP parameter scanning (5-layer decode),
+//! tool squatting defense (ETDI), capability tokens, A2A signature enforcement,
+//! semantic guardrails, and NHI identity lifecycle management. The proxy bridge
+//! provides bidirectional stdio/HTTP/WebSocket/gRPC/SSE transport relay with
+//! policy enforcement on every message.
+
 #[cfg(feature = "a2a")]
 pub mod a2a;
 pub mod accountability;

@@ -5,6 +5,13 @@
 // Copyright 2026 Paolo Vella
 // SPDX-License-Identifier: MPL-2.0
 
+//! Configuration types and validation for the Vellaveto MCP tool firewall.
+//!
+//! Parses and validates TOML policy configuration files including policy rules,
+//! network constraints, ABAC attributes, compliance settings, observability,
+//! and deployment options. All config structs use `deny_unknown_fields` and
+//! bounded `validate()` methods to reject invalid or oversized input.
+
 pub mod observability;
 pub mod validation;
 
