@@ -113,6 +113,10 @@ type Client struct {
 	apiKey     string
 	httpClient *http.Client
 	headers    map[string]string
+	// failClosed causes Evaluate to return a Deny verdict instead of an error
+	// when the server is unreachable. This makes the client fail-closed without
+	// requiring error handling in application code.
+	failClosed bool
 }
 
 // Option configures a Client.
@@ -175,6 +179,14 @@ func WithHeaders(h map[string]string) Option {
 			c.headers[k] = v
 		}
 	}
+}
+
+// WithFailClosed makes Evaluate return a Deny verdict instead of an error
+// when the Vellaveto server is unreachable. Without this, callers must handle
+// connection errors explicitly; with it, the client automatically denies when
+// enforcement is unavailable.
+func WithFailClosed() Option {
+	return func(c *Client) { c.failClosed = true }
 }
 
 // WithTenant sets the tenant ID for multi-tenancy support (Phase 44).
@@ -462,6 +474,13 @@ func (c *Client) Evaluate(ctx context.Context, action Action, evalCtx *Evaluatio
 		if err != nil {
 			// SECURITY (FIND-R213-001): Only retry transient network errors.
 			if !isRetryableError(err) {
+				if c.failClosed {
+					log.Printf("[vellaveto] server unreachable (fail_closed=true), denying: %v", err)
+					return &EvaluationResult{
+						Verdict: VerdictDeny,
+						Reason:  fmt.Sprintf("Server unreachable (fail-closed): %v", err),
+					}, nil
+				}
 				return nil, err
 			}
 			lastErr = err
@@ -500,6 +519,13 @@ func (c *Client) Evaluate(ctx context.Context, action Action, evalCtx *Evaluatio
 		if !retryableStatus(status) {
 			return nil, lastErr
 		}
+	}
+	if c.failClosed && lastErr != nil {
+		log.Printf("[vellaveto] server unreachable after retries (fail_closed=true), denying: %v", lastErr)
+		return &EvaluationResult{
+			Verdict: VerdictDeny,
+			Reason:  fmt.Sprintf("Server unreachable (fail-closed): %v", lastErr),
+		}, nil
 	}
 	return nil, lastErr
 }

@@ -24,9 +24,12 @@ import (
 )
 
 func main() {
-    client := vellaveto.NewClient("http://localhost:3000",
+    client, err := vellaveto.NewClient("http://localhost:3000",
         vellaveto.WithAPIKey("your-api-key"),
     )
+    if err != nil {
+        log.Fatal(err)
+    }
 
     // Check health
     health, err := client.Health(context.Background())
@@ -107,7 +110,7 @@ func main() {
 ## Client Options
 
 ```go
-client := vellaveto.NewClient("http://localhost:3000",
+client, err := vellaveto.NewClient("http://localhost:3000",
     vellaveto.WithAPIKey("key"),              // Bearer token auth
     vellaveto.WithTimeout(10 * time.Second),  // Request timeout (default 5s)
     vellaveto.WithHTTPClient(customClient),   // Custom http.Client

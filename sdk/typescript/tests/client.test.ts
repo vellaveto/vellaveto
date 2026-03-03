@@ -1406,4 +1406,35 @@ describe("Input validation hardening", () => {
       client.simulate({ tool: "fs" }, { context: { agent_id: "a\x01b" } })
     ).rejects.toThrow("context.agent_id contains control characters");
   });
+
+  // ── failClosed option tests ──
+
+  test("evaluate returns Deny when failClosed and server unreachable", async () => {
+    const fcClient = new VellavetoClient({
+      baseUrl: "http://localhost:9999",
+      apiKey: "test-key",
+      failClosed: true,
+    });
+    // fetch() throws TypeError on network failure, which request() wraps in VellavetoError
+    mockFetch.mockRejectedValueOnce(new TypeError("fetch failed"));
+    const result = await fcClient.evaluate({ tool: "fs" });
+    expect(result.verdict).toBe(Verdict.Deny);
+    expect(result.reason).toContain("Server unreachable (fail-closed)");
+  });
+
+  test("evaluate throws when not failClosed and server unreachable", async () => {
+    mockFetch.mockRejectedValueOnce(new TypeError("fetch failed"));
+    await expect(client.evaluate({ tool: "fs" })).rejects.toThrow(VellavetoError);
+  });
+
+  test("evaluate throws HTTP error even with failClosed", async () => {
+    const fcClient = new VellavetoClient({
+      baseUrl: "http://localhost:9999",
+      apiKey: "test-key",
+      failClosed: true,
+    });
+    // HTTP 400 errors have a statusCode — these are server errors, not connection failures
+    mockFetch.mockResolvedValueOnce(jsonResponse({ error: "bad request" }, 400));
+    await expect(fcClient.evaluate({ tool: "fs" })).rejects.toThrow(VellavetoError);
+  });
 });

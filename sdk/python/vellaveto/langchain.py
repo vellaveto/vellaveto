@@ -78,7 +78,21 @@ class VellavetoCallbackHandler(BaseCallbackHandler):
         agent_id: Optional[str] = None,
         raise_on_deny: bool = True,
         log_evaluations: bool = True,
+        scan_responses: bool = True,
+        scan_prompts: bool = True,
     ):
+        """
+        Args:
+            client: VellavetoClient instance.
+            session_id: Session ID for stateful evaluation.
+            agent_id: Agent ID for agent-specific policies.
+            raise_on_deny: Raise PolicyDenied on denial (fail-closed).
+            log_evaluations: Log all evaluation attempts.
+            scan_responses: Enable DLP scanning of tool and LLM outputs.
+                Set to False to reduce HTTP calls per step from 3-4 to 1.
+            scan_prompts: Enable injection scanning of LLM prompts.
+                Set to False to skip the pre-LLM injection check.
+        """
         if not HAS_LANGCHAIN:
             raise ImportError(
                 "LangChain is required for VellavetoCallbackHandler. "
@@ -90,6 +104,8 @@ class VellavetoCallbackHandler(BaseCallbackHandler):
         self.agent_id = agent_id
         self.raise_on_deny = raise_on_deny
         self.log_evaluations = log_evaluations
+        self.scan_responses = scan_responses
+        self.scan_prompts = scan_prompts
         self._call_chain: List[str] = []
         # SECURITY (FIND-SDK-015): Thread safety for _call_chain
         self._chain_lock = threading.Lock()
@@ -243,7 +259,11 @@ class VellavetoCallbackHandler(BaseCallbackHandler):
         Evaluates the tool output against Vellaveto policies for DLP scanning
         (secret detection in tool responses). If a tool leaks a credential in
         its output, the handler logs a warning and optionally raises PolicyDenied.
+
+        Skipped when scan_responses=False.
         """
+        if not self.scan_responses:
+            return
         if output is None:
             return
 
@@ -340,7 +360,11 @@ class VellavetoCallbackHandler(BaseCallbackHandler):
 
         Evaluates prompts for injection patterns that may have been injected
         by a compromised tool output (cross-prompt injection defense).
+
+        Skipped when scan_prompts=False.
         """
+        if not self.scan_prompts:
+            return
         if not prompts:
             return
 
@@ -395,7 +419,11 @@ class VellavetoCallbackHandler(BaseCallbackHandler):
 
         Scans LLM response text for DLP findings (secrets that may have been
         generated or echoed by the model from tool output).
+
+        Skipped when scan_responses=False.
         """
+        if not self.scan_responses:
+            return
         if response is None:
             return
 

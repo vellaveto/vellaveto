@@ -15,12 +15,19 @@ name = "vellaveto"
 path = "src/main.rs"
 
 [features]
-default = ["discovery", "projector"]
+default = ["discovery", "projector", "opentelemetry"]
 redis-backend = ["vellaveto-cluster/redis-backend"]
 observability-exporters = ["vellaveto-audit/observability-exporters"]
 discovery = ["vellaveto-mcp/discovery", "vellaveto-engine/discovery"]
 projector = ["vellaveto-mcp/projector"]
 postgres-store = ["vellaveto-audit/postgres-store", "dep:sqlx"]
+opentelemetry = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:opentelemetry-semantic-conventions",
+    "dep:tracing-opentelemetry",
+]
 
 [dependencies]
 vellaveto-types = { path = "../vellaveto-types", version = "6.0.0" }
@@ -62,12 +69,13 @@ url = { workspace = true }
 metrics = "0.24"
 metrics-exporter-prometheus = "0.18"
 ring = "0.17"
-# OpenTelemetry (Phase 4)
-opentelemetry = { workspace = true }
-opentelemetry_sdk = { workspace = true }
-opentelemetry-otlp = { workspace = true }
-opentelemetry-semantic-conventions = { workspace = true }
-tracing-opentelemetry = { workspace = true }
+# OpenTelemetry (Phase 4) — optional, feature-gated to avoid cmake build
+# requirement for users who don't need OTLP export.
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry-semantic-conventions = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
 
 # Phase 5: Enterprise Hardening
 tokio-rustls = "0.26"

@@ -11,10 +11,23 @@ Helm chart for deploying [Vellaveto](https://github.com/vellaveto/vellaveto) on 
 
 ```bash
 helm install vellaveto helm/vellaveto/ \
-  --set config.apiKey="your-api-key"
+  --set vellaveto.extraEnv[0].name=VELLAVETO_API_KEY \
+  --set vellaveto.extraEnv[0].value="your-api-key"
 ```
 
 ### With custom values
+
+Create a `my-values.yaml`:
+
+```yaml
+vellaveto:
+  extraEnv:
+    - name: VELLAVETO_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: vellaveto-secrets
+          key: api-key
+```
 
 ```bash
 helm install vellaveto helm/vellaveto/ -f my-values.yaml

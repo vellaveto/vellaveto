@@ -2460,3 +2460,41 @@ func TestBatchEvaluate_RejectsOversizedParameters(t *testing.T) {
 		t.Errorf("error = %q, want contains 'exceeds max serialized size'", err.Error())
 	}
 }
+
+// ── WithFailClosed option tests ──
+
+func TestEvaluate_WithFailClosed_ConnectionRefused(t *testing.T) {
+	// Port 1 will refuse connections on any standard system
+	c, err := NewClient("http://127.0.0.1:1",
+		WithAPIKey("test"),
+		WithFailClosed(),
+		WithTimeout(200*time.Millisecond),
+	)
+	if err != nil {
+		t.Fatalf("NewClient() error: %v", err)
+	}
+	result, err := c.Evaluate(context.Background(), Action{Tool: "fs"}, nil, false)
+	if err != nil {
+		t.Fatalf("Evaluate() should not error with WithFailClosed(), got: %v", err)
+	}
+	if result.Verdict != VerdictDeny {
+		t.Errorf("Verdict = %q, want %q", result.Verdict, VerdictDeny)
+	}
+	if !strings.Contains(result.Reason, "fail-closed") {
+		t.Errorf("Reason = %q, should contain 'fail-closed'", result.Reason)
+	}
+}
+
+func TestEvaluate_WithoutFailClosed_ConnectionRefused(t *testing.T) {
+	c, err := NewClient("http://127.0.0.1:1",
+		WithAPIKey("test"),
+		WithTimeout(200*time.Millisecond),
+	)
+	if err != nil {
+		t.Fatalf("NewClient() error: %v", err)
+	}
+	_, err = c.Evaluate(context.Background(), Action{Tool: "fs"}, nil, false)
+	if err == nil {
+		t.Fatal("Evaluate() should error when server unreachable without WithFailClosed()")
+	}
+}

@@ -19,6 +19,7 @@ pub mod policy_lifecycle;
 pub mod rbac;
 pub mod routes;
 pub mod setup_wizard;
+#[cfg(feature = "opentelemetry")]
 pub mod telemetry;
 pub mod tenant;
 pub mod threat_intel;

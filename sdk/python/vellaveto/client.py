@@ -376,6 +376,7 @@ class VellavetoClient:
         redactor: Optional["ParameterRedactor"] = None,
         max_retries: int = 3,
         tenant: Optional[str] = None,
+        fail_closed: bool = False,
     ):
         """
         Initialize the Vellaveto client.
@@ -390,6 +391,10 @@ class VellavetoClient:
                 (connection errors, 502/503/504). Default 3 (aligned with Go/TS SDKs).
             tenant: Optional tenant ID for multi-tenant deployments. Must be
                 alphanumeric with hyphens/underscores, max 64 characters.
+            fail_closed: When True, evaluate() returns a Deny verdict instead of
+                raising on connection errors. This makes the client fail-closed
+                without requiring try/except in application code. Default: False
+                (raises VellavetoConnectionError for backward compatibility).
         """
         # SECURITY (FIND-R73-SDK-002): Validate base URL — parity with Go/TS SDKs.
         self.url = _validate_base_url(url)
@@ -422,6 +427,7 @@ class VellavetoClient:
                     "(alphanumeric, hyphens, underscores only)"
                 )
         self.tenant = tenant
+        self.fail_closed = fail_closed
 
         if not verify_ssl:
             warnings.warn(
@@ -659,12 +665,23 @@ class VellavetoClient:
         if trace:
             params["trace"] = "true"
 
-        response = self._request(
-            method="POST",
-            path="/api/evaluate",
-            json_data=payload,
-            params=params if params else None,
-        )
+        try:
+            response = self._request(
+                method="POST",
+                path="/api/evaluate",
+                json_data=payload,
+                params=params if params else None,
+            )
+        except (VellavetoConnectionError, VellavetoError) as e:
+            if self.fail_closed and isinstance(e, VellavetoConnectionError):
+                logger.warning(
+                    "Vellaveto server unreachable (fail_closed=True), denying: %s", e,
+                )
+                return EvaluationResult(
+                    verdict=Verdict.DENY,
+                    reason=f"Server unreachable (fail-closed): {e}",
+                )
+            raise
 
         return EvaluationResult.from_dict(response)
 

@@ -64,12 +64,14 @@ public class VellavetoClient implements AutoCloseable {
     private final Duration timeout;
     private final Map<String, String> headers;
     private final ObjectMapper mapper;
+    private final boolean failClosed;
 
     private VellavetoClient(Builder builder) {
         this.baseUrl = builder.baseUrl;
         this.apiKey = builder.apiKey;
         this.timeout = builder.timeout;
         this.headers = Collections.unmodifiableMap(builder.headers);
+        this.failClosed = builder.failClosed;
         this.mapper = new ObjectMapper()
                 .setSerializationInclusion(JsonInclude.Include.NON_NULL);
         this.httpClient = builder.httpClient != null
@@ -137,8 +139,27 @@ public class VellavetoClient implements AutoCloseable {
         if (context != null) body.put("context", context);
 
         String path = trace ? "/api/evaluate?trace=true" : "/api/evaluate";
-        JsonNode raw = doJsonPostRaw(path, body);
-        return parseEvaluationResult(raw);
+        try {
+            JsonNode raw = doJsonPostRaw(path, body);
+            return parseEvaluationResult(raw);
+        } catch (VellavetoException e) {
+            if (failClosed && isConnectionError(e)) {
+                LOG.warning("Vellaveto server unreachable (failClosed=true), denying: " + e.getMessage());
+                return new EvaluationResult(
+                        Verdict.DENY,
+                        "Server unreachable (fail-closed): " + e.getMessage(),
+                        null, null, null, null);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Returns true if the exception represents a network connectivity failure
+     * (as opposed to a server-side error with an HTTP status code).
+     */
+    private static boolean isConnectionError(VellavetoException e) {
+        return e.getStatusCode() == 0 && e.getCause() instanceof IOException;
     }
 
     /**
@@ -713,6 +734,7 @@ public class VellavetoClient implements AutoCloseable {
         private String apiKey;
         private Duration timeout = DEFAULT_TIMEOUT;
         private HttpClient httpClient;
+        private boolean failClosed;
         private final Map<String, String> headers = new HashMap<>();
 
         Builder(String baseUrl) {
@@ -744,6 +766,15 @@ public class VellavetoClient implements AutoCloseable {
 
         public Builder httpClient(HttpClient httpClient) {
             this.httpClient = httpClient;
+            return this;
+        }
+
+        /**
+         * Enables fail-closed mode: when the server is unreachable, evaluate()
+         * returns a Deny verdict instead of throwing an exception.
+         */
+        public Builder failClosed(boolean failClosed) {
+            this.failClosed = failClosed;
             return this;
         }
 

@@ -57,6 +57,12 @@ export interface VellavetoClientOptions {
   headers?: Record<string, string>;
   /** Tenant identifier for multi-tenant deployments (max 64 chars, alphanumeric/dash/underscore). */
   tenant?: string;
+  /**
+   * When true, evaluate() returns a Deny verdict instead of throwing on
+   * connection errors. This makes the client fail-closed without requiring
+   * try/catch in application code. Default: false (throws for backward compat).
+   */
+  failClosed?: boolean;
 }
 
 /** Error thrown by the Vellaveto client. */
@@ -315,6 +321,7 @@ export class VellavetoClient {
   private readonly timeout: number;
   private readonly extraHeaders: Record<string, string>;
   private readonly tenant?: string;
+  private readonly failClosed: boolean;
 
   constructor(options: VellavetoClientOptions) {
     // SECURITY (FIND-R46-TS-003): Validate baseUrl before use.
@@ -427,6 +434,8 @@ export class VellavetoClient {
       }
       this.tenant = options.tenant;
     }
+
+    this.failClosed = options.failClosed ?? false;
   }
 
   // ────────────────────────────────────────────────────
@@ -834,7 +843,19 @@ export class VellavetoClient {
     if (context) {
       body.context = context;
     }
-    const resp = await this.request<unknown>("POST", path, body);
+    let resp: unknown;
+    try {
+      resp = await this.request<unknown>("POST", path, body);
+    } catch (e) {
+      if (this.failClosed && e instanceof VellavetoError && e.statusCode === undefined) {
+        // VellavetoError without statusCode indicates network-level failure (DNS, refused, timeout)
+        return {
+          verdict: Verdict.Deny,
+          reason: `Server unreachable (fail-closed): ${e.message}`,
+        };
+      }
+      throw e;
+    }
 
     // SECURITY (FIND-R46-TS-002): Runtime type validation on server responses.
     // Fail-closed: if the response is not a valid object or contains an unknown
