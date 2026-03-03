@@ -1,12 +1,13 @@
 {
   "name": "@vellaveto-sdk/typescript",
-  "version": "6.0.1",
+  "version": "6.0.0",
   "description": "TypeScript SDK for the Vellaveto agentic security control plane",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist/",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "repository": {
     "type": "git",
@@ -26,8 +27,12 @@
     "vellaveto",
     "mcp",
     "security",
+    "ai",
+    "llm",
+    "agent",
     "gateway",
-    "policy"
+    "policy",
+    "firewall"
   ],
   "license": "SEE LICENSE IN LICENSE",
   "devDependencies": {
