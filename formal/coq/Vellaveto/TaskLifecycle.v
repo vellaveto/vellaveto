@@ -164,5 +164,6 @@ Theorem terminal_irreversible :
     is_terminal s = true ->
     forall s', transition s s' = None.
 Proof.
-  exact t1_terminal_no_successor.
+  intros s Hterm s'.
+  exact (t1_terminal_no_successor s s' Hterm).
 Qed.
