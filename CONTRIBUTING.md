@@ -117,4 +117,4 @@ All pull requests must pass the following before merge:
 ## Security
 
 If you discover a security vulnerability, please report it privately.
-See [SECURITY.md](docs/SECURITY.md) for details.
+See [SECURITY.md](SECURITY.md) for details.
