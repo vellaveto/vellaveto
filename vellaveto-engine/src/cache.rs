@@ -27,7 +27,7 @@
 //! - **Counters use `saturating_add`.** Hit/miss/eviction counters cannot
 //!   wrap to zero.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
@@ -81,12 +81,23 @@ pub struct CacheStats {
     pub invalidations: u64,
 }
 
+/// Interior of the cache behind the RwLock.
+///
+/// The `lru_index` BTreeMap provides O(log n) eviction by mapping
+/// `last_accessed` counters to their corresponding `CacheKey`.
+/// This replaces the previous O(n) linear scan on eviction.
+struct CacheInner {
+    entries: HashMap<CacheKey, CacheEntry>,
+    /// Maps access-order counter → CacheKey for O(log n) LRU eviction.
+    lru_index: BTreeMap<u64, CacheKey>,
+}
+
 /// LRU decision cache for policy evaluation results.
 ///
 /// Thread-safe via `RwLock`. Lock poisoning is handled fail-closed
 /// (cache miss on read, no-op on write).
 pub struct DecisionCache {
-    cache: RwLock<HashMap<CacheKey, CacheEntry>>,
+    inner: RwLock<CacheInner>,
     max_entries: usize,
     ttl: Duration,
     policy_generation: AtomicU64,
@@ -111,7 +122,11 @@ impl std::fmt::Debug for DecisionCache {
             )
             .field(
                 "current_size",
-                &self.cache.read().map(|c| c.len()).unwrap_or_default(),
+                &self
+                    .inner
+                    .read()
+                    .map(|c| c.entries.len())
+                    .unwrap_or_default(),
             )
             .finish()
     }
@@ -132,7 +147,10 @@ impl DecisionCache {
         let clamped_ttl = Duration::from_secs(clamped_ttl_secs);
 
         Self {
-            cache: RwLock::new(HashMap::with_capacity(clamped_max.min(1024))),
+            inner: RwLock::new(CacheInner {
+                entries: HashMap::with_capacity(clamped_max.min(1024)),
+                lru_index: BTreeMap::new(),
+            }),
             max_entries: clamped_max,
             ttl: clamped_ttl,
             policy_generation: AtomicU64::new(0),
@@ -163,7 +181,7 @@ impl DecisionCache {
         let current_gen = self.policy_generation.load(Ordering::SeqCst);
 
         // Fail-closed: poisoned lock → cache miss
-        let cache = match self.cache.read() {
+        let inner = match self.inner.read() {
             Ok(guard) => guard,
             Err(_) => {
                 self.misses.fetch_add(1, Ordering::Relaxed);
@@ -171,7 +189,7 @@ impl DecisionCache {
             }
         };
 
-        match cache.get(&key) {
+        match inner.entries.get(&key) {
             Some(entry)
                 if entry.generation == current_gen && entry.inserted_at.elapsed() < self.ttl =>
             {
@@ -209,17 +227,23 @@ impl DecisionCache {
         let access_order = self.access_counter.fetch_add(1, Ordering::SeqCst);
 
         // Fail-closed: poisoned lock → no-op
-        let mut cache = match self.cache.write() {
+        let mut inner = match self.inner.write() {
             Ok(guard) => guard,
             Err(_) => return,
         };
 
-        // Evict LRU if at capacity and this is a new key
-        if cache.len() >= self.max_entries && !cache.contains_key(&key) {
-            self.evict_lru(&mut cache);
+        // If overwriting an existing entry, remove its old LRU index entry.
+        if let Some(old_access) = inner.entries.get(&key).map(|e| e.last_accessed) {
+            inner.lru_index.remove(&old_access);
         }
 
-        cache.insert(
+        // Evict LRU if at capacity and this is a new key
+        if inner.entries.len() >= self.max_entries && !inner.entries.contains_key(&key) {
+            self.evict_lru(&mut inner);
+        }
+
+        inner.lru_index.insert(access_order, key.clone());
+        inner.entries.insert(
             key,
             CacheEntry {
                 verdict: verdict.clone(),
@@ -255,7 +279,7 @@ impl DecisionCache {
     ///
     /// Returns 0 if the lock is poisoned (fail-closed).
     pub fn len(&self) -> usize {
-        self.cache.read().map(|c| c.len()).unwrap_or(0)
+        self.inner.read().map(|c| c.entries.len()).unwrap_or(0)
     }
 
     /// Returns `true` if the cache contains no entries.
@@ -410,18 +434,16 @@ impl DecisionCache {
 
     /// Evict the least-recently-used entry from the cache.
     ///
-    /// Scans all entries to find the one with the lowest `last_accessed`
-    /// counter. This is O(n) but only called when the cache is full,
-    /// which is bounded by `max_entries`.
-    fn evict_lru(&self, cache: &mut HashMap<CacheKey, CacheEntry>) {
-        let lru_key = cache
-            .iter()
-            .min_by_key(|(_, entry)| entry.last_accessed)
-            .map(|(key, _)| key.clone());
-
-        if let Some(key) = lru_key {
-            cache.remove(&key);
-            self.evictions.fetch_add(1, Ordering::Relaxed);
+    /// Uses the BTreeMap LRU index for O(log n) eviction instead of
+    /// scanning all entries. The BTreeMap is ordered by access counter,
+    /// so `first_key_value()` gives us the oldest entry directly.
+    fn evict_lru(&self, inner: &mut CacheInner) {
+        // Pop the smallest access counter (oldest entry) from the index.
+        if let Some((&access_counter, _)) = inner.lru_index.iter().next() {
+            if let Some(evicted_key) = inner.lru_index.remove(&access_counter) {
+                inner.entries.remove(&evicted_key);
+                self.evictions.fetch_add(1, Ordering::Relaxed);
+            }
         }
     }
 }
