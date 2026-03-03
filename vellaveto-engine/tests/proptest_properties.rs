@@ -328,7 +328,8 @@ proptest! {
         // Only literal dotted key exists (no nested equivalent)
         let params = json!({dotted_key.clone(): value.clone()});
         let result = PolicyEngine::get_param_by_path(&params, &dotted_key);
-        prop_assert_eq!(result, Some(&json!(value)),
+        let expected = json!(value);
+        prop_assert_eq!(result, Some(&expected),
             "Exact dotted key {:?} must resolve when no nested equivalent exists", dotted_key);
     }
 }
