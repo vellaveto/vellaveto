@@ -4,6 +4,9 @@ version = "6.0.0"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 rust-version.workspace = true
 description = "Kubernetes operator for Vellaveto — manages VellavetoCluster, VellavetoPolicy, and VellavetoTenant CRDs"
 

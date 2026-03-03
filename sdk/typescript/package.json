@@ -18,8 +18,12 @@
   "bugs": {
     "url": "https://github.com/vellaveto/vellaveto/issues"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
+    "prepublishOnly": "npm run build",
     "test": "jest",
     "lint": "eslint src/"
   },

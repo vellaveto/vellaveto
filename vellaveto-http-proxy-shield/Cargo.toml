@@ -1,10 +1,13 @@
 [package]
 name = "vellaveto-http-proxy-shield"
 version = "6.0.0"
-description = "Consumer shield HTTP proxy layer (Sprint 2+)"
+description = "Consumer shield HTTP proxy layer with traffic padding and header stripping"
 edition = "2021"
 license = "MPL-2.0"
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 rust-version.workspace = true
 
 [dependencies]
