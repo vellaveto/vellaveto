@@ -8,10 +8,10 @@
     <a href="https://github.com/vellaveto/vellaveto/stargazers"><img src="https://img.shields.io/badge/stars-⭐_star_if_useful-yellow.svg?style=flat&logo=github" alt="GitHub Stars"></a>
     <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-MPL--2.0_/_Apache--2.0_/_BUSL--1.1-blue.svg" alt="License: Three-tier"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/MSRV-1.88.0-orange.svg?logo=rust" alt="MSRV 1.88.0"></a>
-    <img src="https://img.shields.io/badge/tests-9%2C900%2B_passing-brightgreen.svg" alt="Tests: 9,900+ passing">
+    <img src="https://img.shields.io/badge/tests-9%2C950%2B_passing-brightgreen.svg" alt="Tests: 9,950+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <a href="docs/SECURITY_GUARANTEES.md"><img src="https://img.shields.io/badge/internal_security_audits-232_rounds-orange.svg" alt="232 Internal Security Audit Rounds"></a>
-    <a href="formal/"><img src="https://img.shields.io/badge/formal_verification-TLA%2B_%7C_Lean_4_%7C_Coq-blueviolet.svg" alt="Formal Verification: TLA+ | Lean 4 | Coq"></a>
+    <a href="formal/"><img src="https://img.shields.io/badge/formal_verification-132_properties_%7C_5_tools-blueviolet.svg" alt="Formal Verification: 132 properties | 5 tools"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
     <a href="https://github.com/vellaveto/vellaveto/actions/workflows/provenance-sbom.yml"><img src="https://img.shields.io/badge/SLSA-Level_3-green.svg" alt="SLSA Level 3"></a>
@@ -422,8 +422,8 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for configuration details.
 | SDK | Path | Tests |
 |---|---|---|
 | Python (sync + async, LangChain, LangGraph, CrewAI, Google ADK, OpenAI Agents, Composio, Claude Agent, Strands, MS Agents) | [sdk/python/](sdk/python/) | 484 |
-| TypeScript | [sdk/typescript/](sdk/typescript/) | 119 |
-| Go | [sdk/go/](sdk/go/) | 127 |
+| TypeScript | [sdk/typescript/](sdk/typescript/) | 122 |
+| Go | [sdk/go/](sdk/go/) | 129 |
 | Java | [sdk/java/](sdk/java/) | 120 |
 
 ## Development
