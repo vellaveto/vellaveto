@@ -303,18 +303,35 @@ async fn main() -> Result<()> {
     // Without these, `npx`-based MCP servers fail to resolve packages.
     let forward_vars: &[&str] = &[
         // Base OS
-        "PATH", "HOME", "USER", "LANG", "TERM", "TMPDIR", "SHELL",
+        "PATH",
+        "HOME",
+        "USER",
+        "LANG",
+        "TERM",
+        "TMPDIR",
+        "SHELL",
         // Node.js / npm / nvm / fnm — required for npx-based MCP servers
-        "NODE_PATH", "NODE_ENV", "NVM_DIR", "NVM_BIN", "FNM_DIR",
-        "NPM_CONFIG_PREFIX", "NPM_CONFIG_CACHE",
+        "NODE_PATH",
+        "NODE_ENV",
+        "NVM_DIR",
+        "NVM_BIN",
+        "FNM_DIR",
+        "NPM_CONFIG_PREFIX",
+        "NPM_CONFIG_CACHE",
         "COREPACK_HOME",
         // Python — required for `python -m` MCP servers
-        "PYTHONPATH", "VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV",
+        "PYTHONPATH",
+        "VIRTUAL_ENV",
+        "CONDA_PREFIX",
+        "CONDA_DEFAULT_ENV",
         // XDG directories — package managers use these for cache/config
-        "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
         "XDG_RUNTIME_DIR",
         // Locale
-        "LC_ALL", "LC_CTYPE",
+        "LC_ALL",
+        "LC_CTYPE",
     ];
     for key in forward_vars {
         if let Ok(val) = std::env::var(key) {

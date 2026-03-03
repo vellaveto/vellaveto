@@ -268,7 +268,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Consumer Shield Sprint 1 + License Restructuring (Phase 67):**
   Consumer AI interaction firewall — bidirectional PII sanitization, encrypted local audit, session isolation, and warrant canary verification. Also restructures licensing from monolithic AGPL-3.0 to three tiers.
-  - **License restructuring:** MPL-2.0 for 8 core crates (types, engine, audit, canonical, config, discovery, approval, proxy), Apache-2.0 for canary crate, AGPL-3.0 retained for server/integration/operator. New `LICENSE-MPL-2.0` and `LICENSE-APACHE-2.0` files, `LICENSING.md` rewritten for three-tier model.
+  - **License restructuring:** MPL-2.0 for 8 core crates (types, engine, audit, canonical, config, discovery, approval, proxy), Apache-2.0 for canary crate, BUSL-1.1 for server/integration/operator (initially AGPL-3.0, subsequently changed to BUSL-1.1). New `LICENSE-MPL-2.0` and `LICENSE-APACHE-2.0` files, `LICENSING.md` rewritten for three-tier model.
   - **`vellaveto-mcp-shield` (NEW, MPL-2.0):** Core shield logic — `QuerySanitizer` (bidirectional PII mapping with `[PII_{CAT}_{SEQ:06}]` placeholders, fail-closed at 50K mappings), `SessionIsolator` (per-session PII isolation with bounded history), `EncryptedAuditStore` (XChaCha20-Poly1305 + Argon2id KDF), `LocalAuditManager` (encrypted audit with Merkle proofs). 24 tests.
   - **`vellaveto-canary` (NEW, Apache-2.0):** Warrant canary — `create_canary()` / `verify_canary()` with Ed25519 signatures, expiration checking, tamper detection. 6 tests.
   - **`vellaveto-http-proxy-shield` (NEW, MPL-2.0):** Stub for Sprint 2+ (traffic padding, request splitting).

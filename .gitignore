@@ -93,6 +93,9 @@ security-testing/
 /vellaveto/
 /vellaveto-src/
 
+# Local-only planning docs
+ROADMAP.md
+
 # Audit runtime artifacts
 examples/audit.checkpoints.jsonl
 examples/proxy-audit.log
