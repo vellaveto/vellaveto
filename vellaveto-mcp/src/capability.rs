@@ -101,6 +101,11 @@ fn parse_single_capability(s: &str) -> Result<McpCapability, String> {
             .find(')')
             .ok_or_else(|| format!("Unclosed parenthesis in capability: {s}"))?;
 
+        // ')' must come after '(' for a valid capability string
+        if paren_end <= paren_start {
+            return Err(format!("Malformed parentheses in capability: {s}"));
+        }
+
         let name_version = &s[..paren_start];
         let subs_str = &s[paren_start + 1..paren_end];
 
@@ -351,6 +356,15 @@ mod tests {
 
         let result = find_blocked_capability(&declared, &blocked);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_capability_parse_paren_before_open() {
+        // Regression test for fuzz_async_tasks crash: input ")(_"
+        // ')' before '(' caused an invalid slice range panic
+        let result = parse_capabilities(")(_");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Malformed"));
     }
 
     #[test]
