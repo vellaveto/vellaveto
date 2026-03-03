@@ -150,20 +150,23 @@ These properties are covered by the test suite (8,972+ tests, 24 fuzz targets,
 
 ## Verification in CI
 
-Formal checks are **not** currently run in CI because they require:
+Formal checks run in CI via `.github/workflows/formal-verification.yml`,
+triggered on `formal/**` path changes and weekly schedule:
 
-- Java 11+ and `tla2tools.jar` (TLA+)
-- Alloy Analyzer JAR (Alloy)
-- Lean 4 toolchain (Lean)
-- Coq 8.16+ (Coq)
-- Kani verifier (Kani)
+| Tool | CI Job | Toolchain |
+|------|--------|-----------|
+| TLA+ (6 specs) | `tla-plus` | Java 21 + tla2tools.jar |
+| Lean 4 (5 files) | `lean` | elan + lake |
+| Coq (7 files) | `coq` | apt coq package |
+| Kani (9 harnesses) | `kani` | cargo-kani + CBMC |
+| Alloy (2 models) | Local only | Requires Alloy Analyzer JAR |
 
-These are available via `make formal` for local verification.
+The CI also verifies zero `sorry` (Lean) and zero `Admitted` (Coq) markers.
 
-To add formal checks to CI, install the required toolchains in the CI
-environment and add `make formal` as a workflow step. The `make verify`
-target already includes formal checks when tools are available and skips
-gracefully when they are not.
+For local verification: `make formal` (all tools) or `make formal-tla`,
+`make formal-lean`, etc. for individual tools. The `make verify` target
+includes formal checks when tools are available and skips gracefully
+when they are not.
 
 ---
 

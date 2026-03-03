@@ -1,0 +1,138 @@
+name: Formal Verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "formal/**"
+  pull_request:
+    paths:
+      - "formal/**"
+  # Weekly full verification even without changes
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tla-plus:
+    name: "TLA+ Model Checking (6 specs)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Download TLA+ tools
+        run: |
+          mkdir -p formal/tla
+          curl -sSL -o formal/tla/tla2tools.jar \
+            "https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar"
+
+      - name: Run TLC on all 6 specifications
+        working-directory: formal/tla
+        run: |
+          set -e
+          for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation; do
+            mc="MC_${spec}.tla"
+            main="${spec}.tla"
+            cfg="${spec}.cfg"
+            if [ -f "$mc" ]; then
+              echo "=== TLA+ $spec (via MC_${spec}) ==="
+              java -jar tla2tools.jar -config "$cfg" "$mc"
+            elif [ -f "$cfg" ] && [ -f "$main" ]; then
+              echo "=== TLA+ $spec (direct) ==="
+              java -jar tla2tools.jar -config "$cfg" "$main"
+            else
+              echo "SKIP: $spec (files not found)"
+            fi
+          done
+
+  lean:
+    name: "Lean 4 (5 files, 21 theorems)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install elan and Lean 4
+        run: |
+          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y
+          echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+      - name: Build Lean proofs
+        working-directory: formal/lean
+        run: |
+          lake update
+          lake build
+
+      - name: Verify no sorry markers
+        working-directory: formal/lean
+        run: |
+          if grep -rn 'sorry' Vellaveto/*.lean; then
+            echo "FAIL: sorry markers found in Lean proofs"
+            exit 1
+          fi
+
+  coq:
+    name: "Coq (7 files, 27 theorems)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install Coq
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq coq
+
+      - name: Build Coq proofs
+        working-directory: formal/coq
+        run: |
+          coq_makefile -f _CoqProject -o CoqMakefile
+          make -f CoqMakefile
+
+      - name: Verify no Admitted markers
+        working-directory: formal/coq
+        run: |
+          if grep -rn 'Admitted' Vellaveto/*.v; then
+            echo "FAIL: Admitted markers found in Coq proofs"
+            exit 1
+          fi
+
+  kani:
+    name: "Kani (9 harnesses)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install Kani
+        run: |
+          cargo install --locked kani-verifier
+          cargo kani setup
+
+      - name: Run Kani proofs
+        working-directory: formal/kani
+        run: cargo kani
