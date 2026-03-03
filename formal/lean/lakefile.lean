@@ -9,4 +9,4 @@ package vellaveto where
 @[default_target]
 lean_lib Vellaveto where
   srcDir := "."
-  roots := #[`Vellaveto.Determinism, `Vellaveto.FailClosed, `Vellaveto.PathNormalization]
+  roots := #[`Vellaveto.Determinism, `Vellaveto.FailClosed, `Vellaveto.PathNormalization, `Vellaveto.AbacForbidOverride, `Vellaveto.CapabilityDelegation]

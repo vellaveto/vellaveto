@@ -9,43 +9,103 @@ For the full property catalog with source traceability, see
 
 ## What Is Formally Verified
 
-| Property | Framework | ID | Status |
-|----------|-----------|-----|--------|
-| Fail-closed (no match → Deny) | TLA+, Lean 4 | S1 | Verified |
-| Priority ordering | TLA+ | S2 | Verified |
-| Blocked paths override allowed | TLA+ | S3 | Verified |
-| Blocked domains override allowed | TLA+ | S4 | Verified |
-| Allow requires matching Allow policy | TLA+, Lean 4 | S5 | Verified |
-| Missing context → Deny | TLA+ | S6 | Verified |
-| ABAC forbid dominance | TLA+ | S7 | Verified |
-| ABAC forbid ignores priority | TLA+ | S8 | Verified |
-| ABAC permit requires no forbid | TLA+ | S9 | Verified |
-| ABAC no match → NoMatch | TLA+ | S10 | Verified |
-| Capability monotonic attenuation | Alloy | S11 | Verified |
-| Capability transitive attenuation | Alloy | S12 | Verified |
-| Capability depth budget | Alloy | S13 | Verified |
-| Capability temporal monotonicity | Alloy | S14 | Verified |
-| Terminal cannot delegate | Alloy | S15 | Verified |
-| Issuer chain integrity | Alloy | S16 | Verified |
-| Eventual verdict (liveness) | TLA+ | L1 | Verified |
-| No stuck states (liveness) | TLA+ | L2 | Verified |
-| ABAC eventual decision (liveness) | TLA+ | L3 | Verified |
-| Evaluation determinism | Lean 4 | — | Verified |
-| Path normalization idempotence | Lean 4 | — | Verified |
+### TLA+ Model Checking (6 specifications, 32 safety + 8 liveness)
 
-**Total: 19 model-checked properties + 3 Lean 4 lemmas.**
+| Property | Specification | ID | Status |
+|----------|-------------|-----|--------|
+| Fail-closed (no match → Deny) | MCPPolicyEngine | S1 | Verified |
+| Priority ordering | MCPPolicyEngine | S2 | Verified |
+| Blocked paths override allowed | MCPPolicyEngine | S3 | Verified |
+| Blocked domains override allowed | MCPPolicyEngine | S4 | Verified |
+| Allow requires matching Allow policy | MCPPolicyEngine | S5 | Verified |
+| Missing context → Deny | MCPPolicyEngine | S6 | Verified |
+| Conditional continue | MCPPolicyEngine | S7 | Verified |
+| ABAC forbid dominance | AbacForbidOverrides | S7 | Verified |
+| ABAC forbid ignores priority | AbacForbidOverrides | S8 | Verified |
+| ABAC permit requires no forbid | AbacForbidOverrides | S9 | Verified |
+| ABAC no match → NoMatch | AbacForbidOverrides | S10 | Verified |
+| Terminal absorbing | MCPTaskLifecycle | T1 | Verified |
+| Initial state | MCPTaskLifecycle | T2 | Verified |
+| Policy evaluated | MCPTaskLifecycle | T3 | Verified |
+| Terminal audited | MCPTaskLifecycle | T4 | Verified |
+| Bounded concurrency | MCPTaskLifecycle | T5 | Verified |
+| Chain depth bounded | CascadingFailure | C1 | Verified |
+| Error threshold triggers open | CascadingFailure | C2 | Verified |
+| Open circuit denies all | CascadingFailure | C3 | Verified |
+| Half-open transient | CascadingFailure | C4 | Verified |
+| Probe success closes | CascadingFailure | C5 | Verified |
+| Workflow predecessor | WorkflowConstraint | S8 | Verified |
+| Acyclic DAG | WorkflowConstraint | S9 | Verified |
+| Delegation depth monotonic | CapabilityDelegation | D1 | Verified |
+| Delegation depth bounded | CapabilityDelegation | D2 | Verified |
+| Delegation temporal monotonicity | CapabilityDelegation | D3 | Verified |
+| Issuer chain integrity | CapabilityDelegation | D4 | Verified |
+| Terminal isolation | CapabilityDelegation | D5 | Verified |
+
+### Alloy Bounded Model Checking (2 models, 10 assertions)
+
+| Property | Model | ID | Status |
+|----------|-------|-----|--------|
+| Capability monotonic attenuation | CapabilityDelegation | S11 | Verified |
+| Capability transitive attenuation | CapabilityDelegation | S12 | Verified |
+| Capability depth budget | CapabilityDelegation | S13 | Verified |
+| Capability temporal monotonicity | CapabilityDelegation | S14 | Verified |
+| Terminal cannot delegate | CapabilityDelegation | S15 | Verified |
+| Issuer chain integrity | CapabilityDelegation | S16 | Verified |
+| ABAC forbid dominance | AbacForbidOverride | S7 | Verified |
+| ABAC forbid ignores priority | AbacForbidOverride | S8 | Verified |
+| ABAC permit requires no forbid | AbacForbidOverride | S9 | Verified |
+| ABAC no match → NoMatch | AbacForbidOverride | S10 | Verified |
+
+### Lean 4 Proofs (5 files, 21 theorems, 0 sorry)
+
+| Property | File | Status |
+|----------|------|--------|
+| Fail-closed (S1, S5) | FailClosed.lean | Verified |
+| Evaluation determinism | Determinism.lean | Verified |
+| Path normalization idempotence | PathNormalization.lean | Verified |
+| ABAC forbid dominance (S7-S10) | AbacForbidOverride.lean | Verified |
+| Capability delegation (S11-S16) | CapabilityDelegation.lean | Verified |
+
+### Coq Proofs (8 files, 27 theorems, 0 Admitted)
+
+| Property | File | Status |
+|----------|------|--------|
+| Fail-closed (S1, S5) | FailClosed.v | Verified |
+| Evaluation determinism | Determinism.v | Verified |
+| Path normalization idempotence | PathNormalization.v | Verified |
+| ABAC forbid-overrides (S7-S10) | AbacForbidOverride.v | Verified |
+| Capability delegation (S11-S16) | CapabilityDelegation.v | Verified |
+| Circuit breaker (C1-C5) | CircuitBreaker.v | Verified |
+| Task lifecycle (T1-T3) | TaskLifecycle.v | Verified |
+
+### Kani Proof Harnesses (9 harnesses on actual Rust code)
+
+| Property | Harness | Status |
+|----------|---------|--------|
+| Fail-closed (K1) | proof_fail_closed_no_match_produces_deny | Verified |
+| Path normalize idempotent (K2) | proof_path_normalize_idempotent | Verified |
+| Path normalize no traversal (K3) | proof_path_normalize_no_traversal | Verified |
+| Saturating counters (K4) | proof_saturating_counters_never_wrap | Verified |
+| Verdict deny on error (K5) | proof_verdict_deny_on_error | Verified |
+| ABAC forbid dominance (K6) | proof_abac_forbid_dominance | Verified |
+| ABAC no-match → NoMatch (K7) | proof_abac_no_match_produces_nomatch | Verified |
+| Evaluation determinism (K8) | proof_evaluation_deterministic | Verified |
+| Domain normalize idempotent (K9) | proof_domain_normalize_idempotent | Verified |
+
+**Total: 54+ verified properties across 5 tools.**
 
 ---
 
 ## What Is Tested But Not Formally Verified
 
-These properties are covered by the test suite (5,003+ tests, 24 fuzz targets,
+These properties are covered by the test suite (8,972+ tests, 24 fuzz targets,
 ~50 proptest generators) but not by formal specifications:
 
 | Property | Coverage |
 |----------|----------|
 | Glob/regex pattern compilation correctness | 24 fuzz targets, ~200 unit tests |
-| Path traversal normalization | Unit tests + proptest + fuzz |
+| Path traversal normalization (full impl) | Unit tests + proptest + fuzz |
 | DNS rebinding / IP resolution | Unit tests |
 | DLP multi-layer decode (base64, percent, combos) | Unit tests + fuzz |
 | Injection detection (Aho-Corasick + NFKC + semantic) | Unit tests + fuzz |
@@ -80,11 +140,11 @@ These properties are covered by the test suite (5,003+ tests, 24 fuzz targets,
 | Glob patterns abstracted to wildcard + exact | Cannot detect glob-specific matching bugs | 24 fuzz targets cover pattern compilation |
 | Path/domain subset uses set identity, not glob matching | Alloy model is more restrictive than Rust implementation | Sound over-approximation (security-safe direction) |
 | ABAC CHOOSE vs priority-ordered selection | Reported `policy_id` may differ from Rust | Does not affect Deny/Allow decision |
-| Conditional policies simplified to fire/no-fire | Constraint-level deny paths not modeled | Covered by 5,003+ unit tests |
+| Conditional policies simplified to fire/no-fire | Constraint-level deny paths not modeled | Covered by 8,972+ unit tests |
 | `RequireApproval` verdict not modeled in TLA+ | Approval flow not formally verified | Covered by integration tests |
 | `max_invocations` not checked during attenuation | Child could inherit unlimited invocations | Known implementation gap, tracked |
+| Grant subset axiomatized in Lean/Coq | Cannot verify concrete grant coverage | Verified by Alloy bounded model checking |
 | Small model bounds (3 policies, 2 actions) | Exhaustive for structural properties | Properties are independent of bound values |
-| Small model bounds in Lean (list induction) | Proofs are over abstract lists, not bounded integers | Matches Rust implementation structure exactly |
 
 ---
 
@@ -95,6 +155,8 @@ Formal checks are **not** currently run in CI because they require:
 - Java 11+ and `tla2tools.jar` (TLA+)
 - Alloy Analyzer JAR (Alloy)
 - Lean 4 toolchain (Lean)
+- Coq 8.16+ (Coq)
+- Kani verifier (Kani)
 
 These are available via `make formal` for local verification.
 
