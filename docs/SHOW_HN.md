@@ -15,6 +15,8 @@ Avoid: "security engine", "control plane", "governance layer", "policy engine" â
 
 ## First Comment (post immediately after submission)
 
+**HN formatting note:** HN supports *italics*, code with 2-space indent, and auto-linked URLs â€” but NOT markdown links `[text](url)`, NOT `**bold**`, NOT triple-backtick code blocks. When pasting, replace `[text](url)` with plain URLs and `**bold**` with *italics*.
+
 ---
 
 Hi HN, I'm Paolo.
