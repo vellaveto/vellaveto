@@ -54,7 +54,17 @@ jobs:
           - fuzz_output_validation
           # A2A / agent card
           - fuzz_agent_card_parse
+          - fuzz_agent_card_url
           - fuzz_a2a_classify
+          # Message classification & similarity
+          - fuzz_classify_message
+          - fuzz_semantic_similarity
+          # Schema & tasks
+          - fuzz_schema_lineage
+          - fuzz_async_tasks
+          # Multimodal metadata
+          - fuzz_audio_metadata
+          - fuzz_video_metadata
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

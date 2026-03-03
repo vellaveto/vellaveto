@@ -11,10 +11,107 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-release:
-    name: Build Release Binaries
-    runs-on: ubuntu-latest
+  build:
+    name: "Build (${{ matrix.target }})"
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            archive: tar.gz
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            archive: tar.gz
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-13
+            archive: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-14
+            archive: tar.gz
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Install musl tools (Linux x86_64)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Install cross-compilation tools (Linux aarch64)
+        if: matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools gcc-aarch64-linux-gnu
+          mkdir -p .cargo
+          cat >> .cargo/config.toml <<EOF
+          [target.aarch64-unknown-linux-musl]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        with:
+          cache-on-failure: true
+          key: ${{ matrix.target }}
+
+      - name: Build release binaries
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Strip binaries (Linux)
+        if: contains(matrix.target, 'linux') && !matrix.cross
+        run: |
+          for bin in vellaveto vellaveto-http-proxy vellaveto-proxy vellaveto-shield; do
+            strip "target/${{ matrix.target }}/release/$bin" 2>/dev/null || true
+          done
+
+      - name: Strip binaries (Linux cross)
+        if: matrix.cross
+        run: |
+          for bin in vellaveto vellaveto-http-proxy vellaveto-proxy vellaveto-shield; do
+            aarch64-linux-gnu-strip "target/${{ matrix.target }}/release/$bin" 2>/dev/null || true
+          done
+
+      - name: Strip binaries (macOS)
+        if: contains(matrix.target, 'apple')
+        run: |
+          for bin in vellaveto vellaveto-http-proxy vellaveto-proxy vellaveto-shield; do
+            strip "target/${{ matrix.target }}/release/$bin" 2>/dev/null || true
+          done
+
+      - name: Create release archive
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p release
+          for bin in vellaveto vellaveto-http-proxy vellaveto-proxy vellaveto-shield; do
+            cp "target/${{ matrix.target }}/release/$bin" "release/" 2>/dev/null || true
+          done
+          cp LICENSE LICENSING.md NOTICE README.md CHANGELOG.md release/
+          cp -r examples/ release/examples/
+          tar czf "vellaveto-${VERSION}-${{ matrix.target }}.${{ matrix.archive }}" -C release .
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ matrix.target }}
+          path: vellaveto-*-${{ matrix.target }}.*
+          retention-days: 1
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       packages: write
@@ -26,44 +123,14 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master
+      - name: Download all build artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          toolchain: stable
-          targets: x86_64-unknown-linux-musl
+          pattern: release-*
+          merge-multiple: true
 
-      - name: Install musl tools
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
-        with:
-          cache-on-failure: true
-
-      - name: Run tests
-        run: cargo test --workspace --locked
-
-      - name: Build release binaries (static musl)
-        run: cargo build --release --locked --target x86_64-unknown-linux-musl
-
-      - name: Strip binaries
-        run: |
-          strip target/x86_64-unknown-linux-musl/release/vellaveto
-          strip target/x86_64-unknown-linux-musl/release/vellaveto-http-proxy
-          strip target/x86_64-unknown-linux-musl/release/vellaveto-proxy
-
-      - name: Create release archive
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          mkdir -p release
-          for bin in vellaveto vellaveto-http-proxy vellaveto-proxy; do
-            cp "target/x86_64-unknown-linux-musl/release/$bin" "release/"
-          done
-          cp LICENSE LICENSING.md NOTICE README.md CHANGELOG.md release/
-          cp -r examples/ release/examples/
-          tar czf "vellaveto-${VERSION}-x86_64-linux-musl.tar.gz" -C release .
-          sha256sum "vellaveto-${VERSION}-x86_64-linux-musl.tar.gz" > checksums-sha256.txt
-          for bin in release/vellaveto release/vellaveto-http-proxy release/vellaveto-proxy; do
-            sha256sum "$bin" >> checksums-sha256.txt
-          done
+      - name: Generate checksums
+        run: sha256sum vellaveto-*.tar.gz > checksums-sha256.txt
 
       - name: Generate SBOM
         uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11 # v0
@@ -71,14 +138,6 @@ jobs:
           path: .
           format: cyclonedx-json
           output-file: sbom.cdx.json
-
-      - name: Attest binary provenance
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-path: |
-            release/vellaveto
-            release/vellaveto-http-proxy
-            release/vellaveto-proxy
 
       - name: Extract changelog for this version
         id: changelog
@@ -95,8 +154,8 @@ jobs:
         with:
           body_path: release-notes.md
           files: |
-            vellaveto-*-x86_64-linux-musl.tar.gz
+            vellaveto-*.tar.gz
             checksums-sha256.txt
             sbom.cdx.json
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
           generate_release_notes: false

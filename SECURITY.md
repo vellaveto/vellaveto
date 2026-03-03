@@ -66,7 +66,7 @@ For production deployment hardening guidance, see [docs/SECURITY.md](docs/SECURI
 | [Security Defaults](docs/DEFAULTS.md) | Every security-relevant default value and rationale |
 | [Formal Verification Scope](docs/FORMAL_SCOPE.md) | What is proven vs. tested vs. assumed |
 | [Hardening Guide](docs/SECURITY.md) | Production deployment security configuration |
-| [Audit History](audits/README.md) | Internal adversarial testing methodology and results |
+| [Audit History](docs/SECURITY_REVIEW.md) | Internal adversarial testing methodology and results |
 
 ## Patch Policy
 

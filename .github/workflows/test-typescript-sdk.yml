@@ -1,0 +1,53 @@
+name: TypeScript SDK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sdk/typescript/**"
+  pull_request:
+    paths:
+      - "sdk/typescript/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: "Test (Node ${{ matrix.node-version }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["18", "20", "22"]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # v4.3.0
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install dependencies
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts
+
+      - name: Build
+        working-directory: sdk/typescript
+        run: npm run build
+
+      - name: Test
+        working-directory: sdk/typescript
+        run: npm test
+
+      - name: Lint
+        if: matrix.node-version == '22'
+        working-directory: sdk/typescript
+        run: npm run lint
