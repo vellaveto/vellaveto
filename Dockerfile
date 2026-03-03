@@ -111,8 +111,8 @@ COPY vellaveto-http-proxy-shield/src vellaveto-http-proxy-shield/src/
 COPY vellaveto-canary/src vellaveto-canary/src/
 COPY vellaveto-shield/src vellaveto-shield/src/
 
-# Copy preset config files (embedded at compile time by vellaveto-proxy)
-COPY examples/presets vellaveto-proxy/presets_embed/
+# Copy preset config files (embedded at compile time via include_str! in vellaveto-proxy/src/presets.rs)
+COPY vellaveto-proxy/presets vellaveto-proxy/presets/
 COPY examples/presets examples/presets/
 
 # Touch source files to invalidate cache
