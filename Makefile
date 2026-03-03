@@ -41,23 +41,70 @@ verify: ## Run full verification suite and produce evidence bundle
 	echo "{\"tests\":{\"passed\":$$TESTS_PASSED,\"failed\":$$TESTS_FAILED,\"duration_secs\":$$TESTS_DURATION}}" > $(EVIDENCE_DIR)/tests.json; \
 	if [ "$$TEST_EXIT" -ne 0 ]; then echo "FAIL: tests failed"; exit 1; fi
 	@echo ""
-	@# Step 4: Formal verification (TLA+ — skipped if tla2tools.jar not found)
+	@# Step 4: Formal verification (graceful skip when tools not installed)
 	@echo "── [4/6] Formal verification ───────────────────────────────"
+	@echo '{}' > $(EVIDENCE_DIR)/formal.json
+	@# TLA+ (6 specifications)
 	@if command -v java >/dev/null 2>&1 && [ -f formal/tla/tla2tools.jar ]; then \
-		echo "Running TLA+ model checker..."; \
-		cd formal/tla && \
-		java -jar tla2tools.jar -config MCPPolicyEngine.cfg MC_MCPPolicyEngine.tla 2>&1 | tail -5 && \
-		java -jar tla2tools.jar -config AbacForbidOverrides.cfg MC_AbacForbidOverrides.tla 2>&1 | tail -5; \
-		echo '{"tla_plus":"passed"}' > ../../$(EVIDENCE_DIR)/formal.json; \
+		echo "Running TLA+ model checker (6 specs)..."; \
+		TLA_OK=true; \
+		for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation; do \
+			cfg="formal/tla/$${spec}.cfg"; \
+			mc="formal/tla/MC_$${spec}.tla"; \
+			main="formal/tla/$${spec}.tla"; \
+			if [ -f "$$mc" ]; then \
+				echo "  TLA+ $$spec (via MC)..."; \
+				cd formal/tla && java -jar tla2tools.jar -config $${spec}.cfg MC_$${spec}.tla 2>&1 | tail -3; \
+				if [ $$? -ne 0 ]; then TLA_OK=false; fi; \
+				cd ../..; \
+			elif [ -f "$$cfg" ] && [ -f "$$main" ]; then \
+				echo "  TLA+ $$spec (direct)..."; \
+				cd formal/tla && java -jar tla2tools.jar -config $${spec}.cfg $${spec}.tla 2>&1 | tail -3; \
+				if [ $$? -ne 0 ]; then TLA_OK=false; fi; \
+				cd ../..; \
+			else \
+				echo "  SKIP: $$spec (files not found)"; \
+			fi; \
+		done; \
+		if $$TLA_OK; then \
+			echo '{"tla_plus":"passed"}' > $(EVIDENCE_DIR)/formal.json; \
+		else \
+			echo '{"tla_plus":"failed"}' > $(EVIDENCE_DIR)/formal.json; \
+		fi; \
 	else \
-		echo "SKIP: tla2tools.jar not found at formal/tla/tla2tools.jar (install Java 11+ and download TLA+ tools)"; \
-		echo '{"tla_plus":"skipped"}' > $(EVIDENCE_DIR)/formal.json; \
+		echo "SKIP: TLA+ (requires Java 11+ and formal/tla/tla2tools.jar)"; \
 	fi
-	@if command -v lake >/dev/null 2>&1; then \
-		echo "Running Lean 4 checks..."; \
-		cd formal/lean && lake build 2>&1 | tail -3; \
+	@# Alloy (2 models)
+	@if command -v java >/dev/null 2>&1 && [ -f formal/alloy/alloy.jar ]; then \
+		echo "Running Alloy bounded model checking (2 models)..."; \
+		for model in CapabilityDelegation AbacForbidOverride; do \
+			echo "  Alloy $$model..."; \
+			java -jar formal/alloy/alloy.jar -c "formal/alloy/$${model}.als" 2>&1 | tail -3; \
+		done; \
 	else \
-		echo "SKIP: Lean 4 (lake) not found"; \
+		echo "SKIP: Alloy (requires Java 11+ and formal/alloy/alloy.jar)"; \
+	fi
+	@# Lean 4 (5 files, 21 theorems)
+	@if command -v lake >/dev/null 2>&1; then \
+		echo "Running Lean 4 type checker (5 files, 21 theorems)..."; \
+		cd formal/lean && lake build 2>&1 | tail -5; \
+	else \
+		echo "SKIP: Lean 4 (requires lake)"; \
+	fi
+	@# Coq (7 files, 27 theorems)
+	@if command -v coqc >/dev/null 2>&1; then \
+		echo "Running Coq type checker (7 files, 27 theorems)..."; \
+		cd formal/coq && coq_makefile -f _CoqProject -o CoqMakefile 2>/dev/null && \
+		make -f CoqMakefile 2>&1 | tail -5; \
+	else \
+		echo "SKIP: Coq (requires coqc 8.16+)"; \
+	fi
+	@# Kani (9 harnesses on actual Rust)
+	@if command -v cargo-kani >/dev/null 2>&1; then \
+		echo "Running Kani bounded model checking (9 harnesses)..."; \
+		cd formal/kani && cargo kani 2>&1 | tail -10; \
+	else \
+		echo "SKIP: Kani (requires cargo-kani)"; \
 	fi
 	@echo ""
 	@# Step 5: Benchmark sanity (short run — not full benchmarks)
@@ -121,9 +168,39 @@ bench-quick: ## Run quick benchmark sanity check
 	cargo bench -p vellaveto-engine -- --quick
 
 .PHONY: formal
-formal: ## Run formal verification (requires Java 11+ and tla2tools.jar)
-	cd formal/tla && java -jar tla2tools.jar -config MCPPolicyEngine.cfg MC_MCPPolicyEngine.tla
-	cd formal/tla && java -jar tla2tools.jar -config AbacForbidOverrides.cfg MC_AbacForbidOverrides.tla
+formal: formal-tla formal-alloy formal-lean formal-coq formal-kani ## Run all formal verification tools
+
+.PHONY: formal-tla
+formal-tla: ## Run TLA+ model checking (6 specs, requires Java 11+ and tla2tools.jar)
+	@for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation; do \
+		cfg="formal/tla/$${spec}.cfg"; \
+		mc="formal/tla/MC_$${spec}.tla"; \
+		main="formal/tla/$${spec}.tla"; \
+		if [ -f "$$mc" ]; then \
+			echo "TLA+ $$spec (via MC_$${spec})..."; \
+			cd formal/tla && java -jar tla2tools.jar -config $${spec}.cfg MC_$${spec}.tla && cd ../..; \
+		elif [ -f "$$cfg" ] && [ -f "$$main" ]; then \
+			echo "TLA+ $$spec (direct)..."; \
+			cd formal/tla && java -jar tla2tools.jar -config $${spec}.cfg $${spec}.tla && cd ../..; \
+		fi; \
+	done
+
+.PHONY: formal-alloy
+formal-alloy: ## Run Alloy bounded model checking (requires alloy.jar)
+	java -jar formal/alloy/alloy.jar -c formal/alloy/CapabilityDelegation.als
+	java -jar formal/alloy/alloy.jar -c formal/alloy/AbacForbidOverride.als
+
+.PHONY: formal-lean
+formal-lean: ## Run Lean 4 type checker (5 files, 21 theorems)
+	cd formal/lean && lake build
+
+.PHONY: formal-coq
+formal-coq: ## Run Coq type checker (7 files, 27 theorems)
+	cd formal/coq && coq_makefile -f _CoqProject -o CoqMakefile && make -f CoqMakefile
+
+.PHONY: formal-kani
+formal-kani: ## Run Kani bounded model checking (9 harnesses)
+	cd formal/kani && cargo kani
 
 .PHONY: clean
 clean: ## Clean build artifacts
