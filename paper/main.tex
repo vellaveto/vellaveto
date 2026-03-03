@@ -42,8 +42,8 @@ delegation, task lifecycle, circuit-breaker cascading failure, and workflow
 constraints. The model comprises six \tlaplus specifications verifying 32
 safety invariants and 8 liveness properties via TLC model checking, two Alloy
 models verifying 10 assertions via bounded model checking, five Lean~4 proof
-files establishing 21 theorems (no \texttt{sorry} markers), eight Coq proof
-files establishing 27 theorems (no \texttt{Admitted} markers), and nine Kani
+files establishing 30 theorems (no \texttt{sorry} markers), eight Coq proof
+files establishing 43 theorems (no \texttt{Admitted} markers), and nine Kani
 bounded model checking harnesses verifying the actual Rust implementation
 against the formal properties.
 
@@ -97,7 +97,7 @@ possible outcome'' is the gap formal verification closes.
     with zero invariant violations across all reachable states.
   \item Alloy bounded model checking of capability delegation (6 assertions)
     and ABAC forbid-overrides (4 assertions).
-  \item Lean~4 proofs (21 theorems across 5 files) and Coq proofs (27
+  \item Lean~4 proofs (30 theorems across 5 files) and Coq proofs (27
     theorems across 8 files) providing unbounded guarantees for fail-closed
     semantics, determinism, path normalization idempotence, ABAC
     forbid-overrides, capability delegation, circuit breaker correctness,
@@ -357,11 +357,11 @@ layered assurance from design through implementation:
     assertions at scope~7) and ABAC forbid-overrides (4 assertions).
     Naturally suited for relational parent-child-grant structures.
   \item[Lean~4 (unbounded proof assistant)] Interactive theorem prover.
-    21 theorems across 5 files with zero \texttt{sorry} markers. Covers
+    30 theorems across 5 files with zero \texttt{sorry} markers. Covers
     fail-closed (S1, S5), determinism, path normalization idempotence,
     ABAC forbid-overrides (S7--S10), and capability delegation (S11--S16).
   \item[Coq (unbounded proof assistant)] Interactive theorem prover.
-    27 theorems across 8 files with zero \texttt{Admitted} markers.
+    43 theorems across 8 files with zero \texttt{Admitted} markers.
     Independently verifies Lean~4 properties plus circuit breaker (C1--C5)
     and task lifecycle (T1--T3). Uses structural induction on lists and
     ancestor chains.
@@ -512,9 +512,9 @@ complementary tools:
     properties. Zero violations across all reachable states.
   \item \textbf{Alloy:} 2 models, 10 assertions (6 capability + 4 ABAC).
     Zero counterexamples at scope 7.
-  \item \textbf{Lean~4:} 5 files, 21 theorems. Zero \texttt{sorry} markers.
+  \item \textbf{Lean~4:} 5 files, 30 theorems. Zero \texttt{sorry} markers.
     All proofs complete via structural induction or reflexivity.
-  \item \textbf{Coq:} 8 files, 27 theorems. Zero \texttt{Admitted} markers.
+  \item \textbf{Coq:} 8 files, 43 theorems. Zero \texttt{Admitted} markers.
     All proofs complete, verified by the Coq type checker.
   \item \textbf{Kani:} 9 harnesses on actual Rust code. All report
     \texttt{VERIFICATION:- SUCCESSFUL}.
@@ -538,8 +538,8 @@ Fuzz targets & \texttt{cargo fuzz} & 24 \\
 Property tests & proptest & $\sim$50 \\
 TLA+ model checking & TLC & 6 specs \\
 Alloy model checking & Alloy Analyzer & 2 models \\
-Theorem proving & Lean~4 & 21 theorems \\
-Theorem proving & Coq & 27 theorems \\
+Theorem proving & Lean~4 & 30 theorems \\
+Theorem proving & Coq & 43 theorems \\
 Implementation proofs & Kani/CBMC & 9 harnesses \\
 \bottomrule
 \end{tabular}

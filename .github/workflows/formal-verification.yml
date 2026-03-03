@@ -61,7 +61,7 @@ jobs:
           done
 
   lean:
-    name: "Lean 4 (5 files, 21 theorems)"
+    name: "Lean 4 (5 files, 30 theorems)"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -90,7 +90,7 @@ jobs:
           fi
 
   coq:
-    name: "Coq (7 files, 27 theorems)"
+    name: "Coq (8 files, 43 theorems)"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

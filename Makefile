@@ -84,16 +84,16 @@ verify: ## Run full verification suite and produce evidence bundle
 	else \
 		echo "SKIP: Alloy (requires Java 11+ and formal/alloy/alloy.jar)"; \
 	fi
-	@# Lean 4 (5 files, 21 theorems)
+	@# Lean 4 (5 files, 30 theorems)
 	@if command -v lake >/dev/null 2>&1; then \
-		echo "Running Lean 4 type checker (5 files, 21 theorems)..."; \
+		echo "Running Lean 4 type checker (5 files, 30 theorems)..."; \
 		cd formal/lean && lake build 2>&1 | tail -5; \
 	else \
 		echo "SKIP: Lean 4 (requires lake)"; \
 	fi
-	@# Coq (7 files, 27 theorems)
+	@# Coq (8 files, 43 theorems)
 	@if command -v coqc >/dev/null 2>&1; then \
-		echo "Running Coq type checker (7 files, 27 theorems)..."; \
+		echo "Running Coq type checker (8 files, 43 theorems)..."; \
 		cd formal/coq && coq_makefile -f _CoqProject -o CoqMakefile 2>/dev/null && \
 		make -f CoqMakefile 2>&1 | tail -5; \
 	else \
@@ -191,11 +191,11 @@ formal-alloy: ## Run Alloy bounded model checking (requires alloy.jar)
 	java -jar formal/alloy/alloy.jar -c formal/alloy/AbacForbidOverride.als
 
 .PHONY: formal-lean
-formal-lean: ## Run Lean 4 type checker (5 files, 21 theorems)
+formal-lean: ## Run Lean 4 type checker (5 files, 30 theorems)
 	cd formal/lean && lake build
 
 .PHONY: formal-coq
-formal-coq: ## Run Coq type checker (7 files, 27 theorems)
+formal-coq: ## Run Coq type checker (8 files, 43 theorems)
 	cd formal/coq && coq_makefile -f _CoqProject -o CoqMakefile && make -f CoqMakefile
 
 .PHONY: formal-kani

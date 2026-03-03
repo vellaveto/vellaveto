@@ -57,7 +57,7 @@ For the full property catalog with source traceability, see
 | ABAC permit requires no forbid | AbacForbidOverride | S9 | Verified |
 | ABAC no match → NoMatch | AbacForbidOverride | S10 | Verified |
 
-### Lean 4 Proofs (5 files, 21 theorems, 0 sorry)
+### Lean 4 Proofs (5 files, 30 theorems, 0 sorry)
 
 | Property | File | Status |
 |----------|------|--------|
@@ -67,7 +67,7 @@ For the full property catalog with source traceability, see
 | ABAC forbid dominance (S7-S10) | AbacForbidOverride.lean | Verified |
 | Capability delegation (S11-S16) | CapabilityDelegation.lean | Verified |
 
-### Coq Proofs (8 files, 27 theorems, 0 Admitted)
+### Coq Proofs (8 files, 43 theorems, 0 Admitted)
 
 | Property | File | Status |
 |----------|------|--------|
@@ -93,7 +93,7 @@ For the full property catalog with source traceability, see
 | Evaluation determinism (K8) | proof_evaluation_deterministic | Verified |
 | Domain normalize idempotent (K9) | proof_domain_normalize_idempotent | Verified |
 
-**Total: 54+ verified properties across 5 tools.**
+**Total: 132 verification instances across 5 tools (40 TLA+ + 10 Alloy + 30 Lean + 43 Coq + 9 Kani).**
 
 ---
 
@@ -157,7 +157,7 @@ triggered on `formal/**` path changes and weekly schedule:
 |------|--------|-----------|
 | TLA+ (6 specs) | `tla-plus` | Java 21 + tla2tools.jar |
 | Lean 4 (5 files) | `lean` | elan + lake |
-| Coq (7 files) | `coq` | apt coq package |
+| Coq (8 files) | `coq` | apt coq package |
 | Kani (9 harnesses) | `kani` | cargo-kani + CBMC |
 | Alloy (2 models) | Local only | Requires Alloy Analyzer JAR |
 

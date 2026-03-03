@@ -30,11 +30,11 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `CircuitBreaker.v` | Coq | C1–C5 | Circuit breaker state machine properties |
 | `TaskLifecycle.v` | Coq | T1–T3 | MCP Task lifecycle terminal absorbing, valid transitions |
 
-**54+ verified properties total** across 5 tools:
+**132 verification instances** across 5 tools:
 - **TLA+:** 32 safety invariants + 8 liveness properties (6 specs)
 - **Alloy:** 10 assertions (2 models)
-- **Lean 4:** 21 theorems (5 files, no `sorry`)
-- **Coq:** 27 theorems (8 files, no `Admitted`)
+- **Lean 4:** 30 theorems (5 files, no `sorry`)
+- **Coq:** 43 theorems (8 files, no `Admitted`)
 - **Kani:** 9 proof harnesses on actual Rust code
 
 ## Coverage Matrix
@@ -455,8 +455,8 @@ bound values.
 | Property-based tests | `proptest` | ~50 |
 | **Formal specs (TLA+)** | **Model checking** | **6 specs, 32 safety + 8 liveness** |
 | **Formal specs (Alloy)** | **Bounded model checking** | **2 models, 10 assertions** |
-| **Formal specs (Lean 4)** | **Proof assistant** | **5 files, 21 theorems** |
-| **Formal specs (Coq)** | **Proof assistant** | **8 files, 27 theorems** |
+| **Formal specs (Lean 4)** | **Proof assistant** | **5 files, 30 theorems** |
+| **Formal specs (Coq)** | **Proof assistant** | **8 files, 43 theorems** |
 | **Formal specs (Kani)** | **CBMC on Rust code** | **9 proof harnesses** |
 
 The formal specs complement (not replace) the test suite:
