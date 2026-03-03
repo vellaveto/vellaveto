@@ -116,7 +116,7 @@ jobs:
         run: cargo check --workspace --all-targets --locked
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings -A clippy::uninlined_format_args
 
       - name: Reject unwrap()/expect() in library code
         run: |
@@ -320,6 +320,8 @@ jobs:
       - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          RUSTUP_TOOLCHAIN: stable
 
   # ───────────────────────────────────────────────────────
   # 6. Fuzz target compilation check

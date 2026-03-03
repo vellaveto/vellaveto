@@ -2593,10 +2593,13 @@ mod tests {
         // empty vec (which would mean "no injection detected" = fail-open).
 
         // Verify the vellaveto constant is non-empty and descriptive
-        assert!(
-            !INJECTION_DETECTION_UNAVAILABLE.is_empty(),
-            "INJECTION_DETECTION_UNAVAILABLE must be a non-empty string"
-        );
+        #[allow(clippy::const_is_empty)]
+        {
+            assert!(
+                !INJECTION_DETECTION_UNAVAILABLE.is_empty(),
+                "INJECTION_DETECTION_UNAVAILABLE must be a non-empty string"
+            );
+        }
         assert!(
             INJECTION_DETECTION_UNAVAILABLE.contains("UNAVAILABLE"),
             "Vellaveto string must clearly indicate unavailability"
