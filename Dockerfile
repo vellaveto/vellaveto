@@ -11,7 +11,16 @@
 #   docker run -p 3000:3000 -v ./policy.toml:/etc/vellaveto/config.toml:ro ghcr.io/vellaveto/vellaveto:latest
 
 # Build stage: Compile Rust binaries with musl for static linking
-FROM rust:1.93-alpine@sha256:4fec02de605563c297c78a31064c8335bc004fa2b0bf406b1b99441da64e2d2d AS builder
+FROM rust:1.93-alpine AS builder
+
+# Resolve target triple from Docker's TARGETARCH (amd64 or arm64)
+ARG TARGETARCH
+RUN case "${TARGETARCH}" in \
+      amd64) echo "x86_64-unknown-linux-musl" > /tmp/rust-target ;; \
+      arm64) echo "aarch64-unknown-linux-musl" > /tmp/rust-target ;; \
+      *)     echo "x86_64-unknown-linux-musl" > /tmp/rust-target ;; \
+    esac \
+    && rustup target add "$(cat /tmp/rust-target)"
 
 # Install build dependencies
 RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig
@@ -74,8 +83,9 @@ RUN mkdir -p vellaveto-types/src vellaveto-engine/src vellaveto-audit/src \
     && echo "fn main() {}" > vellaveto-shield/src/main.rs
 
 # Build dependencies only (for layer caching)
-RUN cargo build --release --target x86_64-unknown-linux-musl \
-    --bin vellaveto --bin vellaveto-http-proxy || true
+RUN RUST_TARGET="$(cat /tmp/rust-target)" \
+    && cargo build --release --target "$RUST_TARGET" \
+       --bin vellaveto --bin vellaveto-http-proxy --bin vellaveto-proxy || true
 
 # Copy actual source code
 COPY vellaveto-types/src vellaveto-types/src/
@@ -101,16 +111,26 @@ COPY vellaveto-http-proxy-shield/src vellaveto-http-proxy-shield/src/
 COPY vellaveto-canary/src vellaveto-canary/src/
 COPY vellaveto-shield/src vellaveto-shield/src/
 
+# Copy preset config files (embedded at compile time by vellaveto-proxy)
+COPY examples/presets vellaveto-proxy/presets_embed/
+COPY examples/presets examples/presets/
+
 # Touch source files to invalidate cache
 RUN find . -name "*.rs" -exec touch {} \;
 
 # Build release binaries
-RUN cargo build --release --target x86_64-unknown-linux-musl \
-    --bin vellaveto --bin vellaveto-http-proxy
+RUN RUST_TARGET="$(cat /tmp/rust-target)" \
+    && cargo build --release --target "$RUST_TARGET" \
+       --bin vellaveto --bin vellaveto-http-proxy --bin vellaveto-proxy \
+    && mkdir -p /build/out \
+    && cp "/build/target/$RUST_TARGET/release/vellaveto" /build/out/ \
+    && cp "/build/target/$RUST_TARGET/release/vellaveto-http-proxy" /build/out/ \
+    && cp "/build/target/$RUST_TARGET/release/vellaveto-proxy" /build/out/
 
-# Verify binaries exist and are executable (musl target guarantees static linking)
-RUN test -x /build/target/x86_64-unknown-linux-musl/release/vellaveto \
-    && test -x /build/target/x86_64-unknown-linux-musl/release/vellaveto-http-proxy
+# Verify binaries exist and are executable
+RUN test -x /build/out/vellaveto \
+    && test -x /build/out/vellaveto-http-proxy \
+    && test -x /build/out/vellaveto-proxy
 
 # Runtime stage: Minimal Alpine image
 FROM alpine:3.21@sha256:c3f8e73fdb79deaebaa2037150150191b9dcbfba68b4a46d70103204c53f4709
@@ -132,8 +152,9 @@ RUN mkdir -p /etc/vellaveto /var/lib/vellaveto /var/log/vellaveto \
     && chown -R vellaveto:vellaveto /etc/vellaveto /var/lib/vellaveto /var/log/vellaveto
 
 # Copy binaries from builder
-COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/vellaveto /usr/local/bin/
-COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/vellaveto-http-proxy /usr/local/bin/
+COPY --from=builder /build/out/vellaveto /usr/local/bin/
+COPY --from=builder /build/out/vellaveto-http-proxy /usr/local/bin/
+COPY --from=builder /build/out/vellaveto-proxy /usr/local/bin/
 
 # Copy example configs
 COPY examples/*.toml /etc/vellaveto/examples/

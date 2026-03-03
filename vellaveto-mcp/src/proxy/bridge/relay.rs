@@ -228,10 +228,8 @@ impl RelayState {
             Some(trimmed)
         });
         if agent_id.is_none() {
-            tracing::warn!(
-                "SECURITY (FIND-R46-013): agent_id is None in stdio proxy. \
-                 Set VELLAVETO_AGENT_ID environment variable to identify the agent \
-                 for context-aware policy evaluation."
+            tracing::debug!(
+                "agent_id not set — set VELLAVETO_AGENT_ID for context-aware policy evaluation"
             );
         } else {
             tracing::info!(

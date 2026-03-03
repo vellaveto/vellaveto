@@ -406,11 +406,17 @@ impl PolicyEngine {
         // This is always exploitable — the attacker controls which parameters to send.
         // Operators should set at least one constraint to on_missing="deny" or remove
         // on_no_match="continue" to ensure fail-closed behavior.
+        //
+        // Exception: blocklist policies where ALL constraints use param="*" (wildcard).
+        // These scan all parameter values and correctly skip when no parameters exist —
+        // a tool call with no parameters has nothing dangerous to block.
+        let all_wildcard_params = constraints.iter().all(|c| c.param() == "*");
         if on_no_match_continue
             && !constraints.is_empty()
             && constraints.iter().all(|c| c.on_missing() == "skip")
             && forbidden_parameters.is_empty()
             && required_parameters.is_empty()
+            && !all_wildcard_params
         {
             tracing::warn!(
                 policy_id = %policy.id,
