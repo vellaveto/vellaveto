@@ -8,6 +8,7 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
+readme = "README.md"
 description = "Vellaveto policy engine — CLI and HTTP server"
 
 [[bin]]
