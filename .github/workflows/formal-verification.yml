@@ -73,7 +73,7 @@ jobs:
       - name: Install elan and Lean 4
         run: |
           curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y
-          echo "$HOME/.elan/bin" >> $GITHUB_PATH
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Build Lean proofs
         working-directory: formal/lean

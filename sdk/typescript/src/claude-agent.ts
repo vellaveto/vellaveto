@@ -151,11 +151,13 @@ export class VellavetoToolPermission {
       const ctx = this.buildContext(agentName);
 
       const result = await this.client.evaluate(
-        toolName,
-        "*",
-        args,
-        paths,
-        domains,
+        {
+          tool: toolName,
+          function: "*",
+          parameters: args,
+          target_paths: paths,
+          target_domains: domains,
+        },
         ctx
       );
 
@@ -166,7 +168,7 @@ export class VellavetoToolPermission {
       } else if (result.verdict === Verdict.RequireApproval) {
         throw new ApprovalRequired(
           result.reason ?? "Approval required",
-          result.approval_id
+          result.approval_id ?? ""
         );
       } else {
         return false;
