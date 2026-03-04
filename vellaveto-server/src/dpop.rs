@@ -1571,4 +1571,216 @@ mod tests {
         let result: Result<DpopHeader, _> = serde_json::from_str(header_json);
         assert!(result.is_err(), "Unknown field 'extra' should be rejected");
     }
+
+    // ── DpopClaims validation edge cases ──────────────────────────────
+
+    #[test]
+    fn test_claims_validate_jti_at_max_length_ok() {
+        let mut claims = test_claims();
+        claims.jti = "x".repeat(MAX_JTI_LENGTH);
+        assert!(claims.validate().is_ok());
+    }
+
+    #[test]
+    fn test_claims_validate_htm_at_max_length_ok() {
+        let mut claims = test_claims();
+        claims.htm = "X".repeat(MAX_HTM_LENGTH);
+        assert!(claims.validate().is_ok());
+    }
+
+    #[test]
+    fn test_claims_validate_htm_over_max_length_rejected() {
+        let mut claims = test_claims();
+        claims.htm = "X".repeat(MAX_HTM_LENGTH + 1);
+        assert!(claims.validate().is_err());
+    }
+
+    #[test]
+    fn test_claims_validate_empty_htm_rejected() {
+        let mut claims = test_claims();
+        claims.htm = String::new();
+        assert!(claims.validate().is_err());
+    }
+
+    #[test]
+    fn test_claims_validate_empty_htu_rejected() {
+        let mut claims = test_claims();
+        claims.htu = String::new();
+        assert!(claims.validate().is_err());
+    }
+
+    #[test]
+    fn test_claims_validate_nonce_at_max_length_ok() {
+        let mut claims = test_claims();
+        claims.nonce = Some("n".repeat(MAX_NONCE_LENGTH));
+        assert!(claims.validate().is_ok());
+    }
+
+    #[test]
+    fn test_claims_validate_nonce_over_max_length_rejected() {
+        let mut claims = test_claims();
+        claims.nonce = Some("n".repeat(MAX_NONCE_LENGTH + 1));
+        assert!(claims.validate().is_err());
+    }
+
+    #[test]
+    fn test_claims_validate_ath_over_max_length_rejected() {
+        let mut claims = test_claims();
+        claims.ath = Some("h".repeat(129));
+        assert!(claims.validate().is_err());
+    }
+
+    #[test]
+    fn test_claims_validate_ath_at_max_length_ok() {
+        let mut claims = test_claims();
+        claims.ath = Some("h".repeat(128));
+        assert!(claims.validate().is_ok());
+    }
+
+    #[test]
+    fn test_claims_validate_dangerous_jti_rejected() {
+        let mut claims = test_claims();
+        claims.jti = "jti\u{200B}hidden".to_string();
+        assert!(claims.validate().is_err());
+    }
+
+    #[test]
+    fn test_claims_validate_dangerous_htu_rejected() {
+        let mut claims = test_claims();
+        claims.htu = "https://example.com/\x00api".to_string();
+        assert!(claims.validate().is_err());
+    }
+
+    // ── dpop_htu_match edge cases ─────────────────────────────────────
+
+    #[test]
+    fn test_dpop_htu_match_identical_uris() {
+        assert!(dpop_htu_match(
+            "https://example.com/api/v1",
+            "https://example.com/api/v1"
+        ));
+    }
+
+    #[test]
+    fn test_dpop_htu_match_no_scheme_treated_as_plain_string() {
+        // Both have no scheme — falls through to full string comparison
+        assert!(dpop_htu_match("/api/v1", "/api/v1"));
+        assert!(!dpop_htu_match("/api/v1", "/api/v2"));
+    }
+
+    #[test]
+    fn test_dpop_htu_match_http_scheme() {
+        assert!(dpop_htu_match(
+            "http://example.com/api",
+            "HTTP://EXAMPLE.COM/api"
+        ));
+    }
+
+    #[test]
+    fn test_dpop_htu_match_both_have_query_stripped() {
+        assert!(dpop_htu_match(
+            "https://example.com/api?a=1",
+            "https://example.com/api?b=2"
+        ));
+    }
+
+    #[test]
+    fn test_dpop_htu_match_fragment_stripped() {
+        assert!(dpop_htu_match(
+            "https://example.com/api#section1",
+            "https://example.com/api#section2"
+        ));
+    }
+
+    #[test]
+    fn test_dpop_htu_match_host_only_no_path() {
+        assert!(dpop_htu_match(
+            "https://example.com",
+            "https://example.com"
+        ));
+    }
+
+    // ── DpopConfig defaults ───────────────────────────────────────────
+
+    #[test]
+    fn test_dpop_config_default_clock_skew() {
+        let config = DpopConfig::default();
+        assert_eq!(config.clock_skew_secs, MAX_CLOCK_SKEW_SECS);
+        assert_eq!(config.jti_window_secs, JTI_REPLAY_WINDOW_SECS);
+    }
+
+    // ── Verifier state tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_verifier_is_enabled_reflects_config() {
+        let disabled = DpopVerifier::new(DpopConfig {
+            enabled: false,
+            ..DpopConfig::default()
+        });
+        assert!(!disabled.is_enabled());
+
+        let enabled = DpopVerifier::new(DpopConfig::default());
+        assert!(enabled.is_enabled());
+    }
+
+    #[test]
+    fn test_verifier_is_required_reflects_config() {
+        let optional = DpopVerifier::new(DpopConfig::default());
+        assert!(!optional.is_required());
+
+        let required = DpopVerifier::new(DpopConfig {
+            required: true,
+            ..DpopConfig::default()
+        });
+        assert!(required.is_required());
+    }
+
+    // ── JWK thumbprint injection tests ────────────────────────────────
+
+    #[test]
+    fn test_compute_jwk_thumbprint_okp_injection_rejected() {
+        let jwk = json!({
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": r#"inject","kty":"EC"#,
+        });
+        assert!(compute_jwk_thumbprint(&jwk).is_err());
+    }
+
+    #[test]
+    fn test_compute_jwk_thumbprint_rsa_backslash_injection_rejected() {
+        let jwk = json!({
+            "kty": "RSA",
+            "e": "AQAB\\",
+            "n": "test"
+        });
+        assert!(compute_jwk_thumbprint(&jwk).is_err());
+    }
+
+    // ── DpopClaims deny_unknown_fields ────────────────────────────────
+
+    #[test]
+    fn test_dpop_claims_deny_unknown_fields() {
+        let claims_json =
+            r#"{"jti":"a","htm":"POST","htu":"https://x.com","iat":1000,"extra":"bad"}"#;
+        let result: Result<DpopClaims, _> = serde_json::from_str(claims_json);
+        assert!(result.is_err(), "Unknown field should be rejected");
+    }
+
+    // ── compute_token_hash tests ──────────────────────────────────────
+
+    #[test]
+    fn test_compute_token_hash_empty_token() {
+        let h = compute_token_hash("");
+        assert!(!h.is_empty());
+    }
+
+    #[test]
+    fn test_compute_token_hash_is_base64url() {
+        let h = compute_token_hash("my-access-token");
+        // Base64url should not contain +, /, or =
+        assert!(!h.contains('+'));
+        assert!(!h.contains('/'));
+        assert!(!h.contains('='));
+    }
 }

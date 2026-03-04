@@ -706,3 +706,400 @@ impl PolicyEngine {
         max_depth
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ---- describe_value tests ----
+
+    #[test]
+    fn test_describe_value_null() {
+        assert_eq!(PolicyEngine::describe_value(&json!(null)), "null");
+    }
+
+    #[test]
+    fn test_describe_value_bool_true() {
+        assert_eq!(PolicyEngine::describe_value(&json!(true)), "bool(true)");
+    }
+
+    #[test]
+    fn test_describe_value_bool_false() {
+        assert_eq!(PolicyEngine::describe_value(&json!(false)), "bool(false)");
+    }
+
+    #[test]
+    fn test_describe_value_number_integer() {
+        assert_eq!(PolicyEngine::describe_value(&json!(42)), "number(42)");
+    }
+
+    #[test]
+    fn test_describe_value_number_float() {
+        assert_eq!(PolicyEngine::describe_value(&json!(2.71)), "number(2.71)");
+    }
+
+    #[test]
+    fn test_describe_value_string_empty() {
+        assert_eq!(PolicyEngine::describe_value(&json!("")), "string(0 chars)");
+    }
+
+    #[test]
+    fn test_describe_value_string_nonempty() {
+        assert_eq!(
+            PolicyEngine::describe_value(&json!("hello")),
+            "string(5 chars)"
+        );
+    }
+
+    #[test]
+    fn test_describe_value_array_empty() {
+        assert_eq!(
+            PolicyEngine::describe_value(&json!([])),
+            "array(0 items)"
+        );
+    }
+
+    #[test]
+    fn test_describe_value_array_nonempty() {
+        assert_eq!(
+            PolicyEngine::describe_value(&json!([1, 2, 3])),
+            "array(3 items)"
+        );
+    }
+
+    #[test]
+    fn test_describe_value_object_empty() {
+        assert_eq!(
+            PolicyEngine::describe_value(&json!({})),
+            "object(0 keys)"
+        );
+    }
+
+    #[test]
+    fn test_describe_value_object_nonempty() {
+        assert_eq!(
+            PolicyEngine::describe_value(&json!({"a": 1, "b": 2})),
+            "object(2 keys)"
+        );
+    }
+
+    // ---- json_depth tests ----
+
+    #[test]
+    fn test_json_depth_scalar_zero() {
+        assert_eq!(PolicyEngine::json_depth(&json!(42)), 0);
+        assert_eq!(PolicyEngine::json_depth(&json!("hello")), 0);
+        assert_eq!(PolicyEngine::json_depth(&json!(null)), 0);
+        assert_eq!(PolicyEngine::json_depth(&json!(true)), 0);
+    }
+
+    #[test]
+    fn test_json_depth_flat_array() {
+        assert_eq!(PolicyEngine::json_depth(&json!([1, 2, 3])), 1);
+    }
+
+    #[test]
+    fn test_json_depth_flat_object() {
+        assert_eq!(PolicyEngine::json_depth(&json!({"a": 1, "b": 2})), 1);
+    }
+
+    #[test]
+    fn test_json_depth_nested_objects() {
+        let nested = json!({"a": {"b": {"c": 1}}});
+        assert_eq!(PolicyEngine::json_depth(&nested), 3);
+    }
+
+    #[test]
+    fn test_json_depth_nested_arrays() {
+        let nested = json!([[[1]]]);
+        assert_eq!(PolicyEngine::json_depth(&nested), 3);
+    }
+
+    #[test]
+    fn test_json_depth_mixed_nesting() {
+        let mixed = json!({"a": [{"b": [1]}]});
+        assert_eq!(PolicyEngine::json_depth(&mixed), 4);
+    }
+
+    #[test]
+    fn test_json_depth_empty_containers() {
+        assert_eq!(PolicyEngine::json_depth(&json!([])), 0);
+        assert_eq!(PolicyEngine::json_depth(&json!({})), 0);
+    }
+
+    #[test]
+    fn test_json_depth_wide_object() {
+        // A wide but shallow object (many keys at depth 1)
+        let mut obj = serde_json::Map::new();
+        for i in 0..100 {
+            obj.insert(format!("key_{}", i), json!(i));
+        }
+        let value = serde_json::Value::Object(obj);
+        assert_eq!(PolicyEngine::json_depth(&value), 1);
+    }
+
+    // ---- policy_type_str tests ----
+
+    #[test]
+    fn test_policy_type_str_allow() {
+        assert_eq!(PolicyEngine::policy_type_str(&PolicyType::Allow), "allow");
+    }
+
+    #[test]
+    fn test_policy_type_str_deny() {
+        assert_eq!(PolicyEngine::policy_type_str(&PolicyType::Deny), "deny");
+    }
+
+    #[test]
+    fn test_policy_type_str_conditional() {
+        let pt = PolicyType::Conditional {
+            conditions: json!({}),
+        };
+        assert_eq!(PolicyEngine::policy_type_str(&pt), "conditional");
+    }
+
+    // ---- constraint_type_str tests ----
+
+    #[test]
+    fn test_constraint_type_str_all_variants() {
+        use crate::compiled::CompiledConstraint;
+
+        let glob = globset::GlobBuilder::new("*.txt")
+            .literal_separator(true)
+            .build()
+            .unwrap()
+            .compile_matcher();
+        let c = CompiledConstraint::Glob {
+            param: "p".to_string(),
+            matcher: glob,
+            pattern_str: "*.txt".to_string(),
+            on_match: "deny".to_string(),
+            on_missing: "skip".to_string(),
+        };
+        assert_eq!(PolicyEngine::constraint_type_str(&c), "glob");
+
+        let c = CompiledConstraint::Eq {
+            param: "p".to_string(),
+            value: json!(1),
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(PolicyEngine::constraint_type_str(&c), "eq");
+
+        let c = CompiledConstraint::Ne {
+            param: "p".to_string(),
+            value: json!(1),
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(PolicyEngine::constraint_type_str(&c), "ne");
+
+        let c = CompiledConstraint::OneOf {
+            param: "p".to_string(),
+            values: vec![],
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(PolicyEngine::constraint_type_str(&c), "one_of");
+
+        let c = CompiledConstraint::NoneOf {
+            param: "p".to_string(),
+            values: vec![],
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(PolicyEngine::constraint_type_str(&c), "none_of");
+
+        let c = CompiledConstraint::DomainMatch {
+            param: "p".to_string(),
+            pattern: "example.com".to_string(),
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(PolicyEngine::constraint_type_str(&c), "domain_match");
+
+        let c = CompiledConstraint::DomainNotIn {
+            param: "p".to_string(),
+            patterns: vec![],
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(PolicyEngine::constraint_type_str(&c), "domain_not_in");
+
+        let c = CompiledConstraint::Regex {
+            param: "p".to_string(),
+            regex: regex::Regex::new(".*").unwrap(),
+            pattern_str: ".*".to_string(),
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(PolicyEngine::constraint_type_str(&c), "regex");
+
+        let c = CompiledConstraint::NotGlob {
+            param: "p".to_string(),
+            matchers: vec![],
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(PolicyEngine::constraint_type_str(&c), "not_glob");
+    }
+
+    // ---- constraint_expected_str tests ----
+
+    #[test]
+    fn test_constraint_expected_str_eq() {
+        let c = CompiledConstraint::Eq {
+            param: "p".to_string(),
+            value: json!("hello"),
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(
+            PolicyEngine::constraint_expected_str(&c),
+            "equals \"hello\""
+        );
+    }
+
+    #[test]
+    fn test_constraint_expected_str_ne() {
+        let c = CompiledConstraint::Ne {
+            param: "p".to_string(),
+            value: json!(42),
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(PolicyEngine::constraint_expected_str(&c), "not equal 42");
+    }
+
+    #[test]
+    fn test_constraint_expected_str_domain_match() {
+        let c = CompiledConstraint::DomainMatch {
+            param: "url".to_string(),
+            pattern: "*.evil.com".to_string(),
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(
+            PolicyEngine::constraint_expected_str(&c),
+            "domain matches '*.evil.com'"
+        );
+    }
+
+    #[test]
+    fn test_constraint_expected_str_domain_not_in() {
+        let c = CompiledConstraint::DomainNotIn {
+            param: "url".to_string(),
+            patterns: vec!["a.com".to_string(), "b.com".to_string()],
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(
+            PolicyEngine::constraint_expected_str(&c),
+            "domain not in [a.com, b.com]"
+        );
+    }
+
+    // ---- evaluate_action_traced tests ----
+
+    #[test]
+    fn test_evaluate_action_traced_no_policies_deny() {
+        let engine = PolicyEngine::new(false);
+        let action = Action::new("tool", "func", json!({}));
+        let (verdict, trace) = engine.evaluate_action_traced(&action).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+        assert_eq!(trace.policies_checked, 0);
+        assert_eq!(trace.policies_matched, 0);
+        assert!(matches!(trace.verdict, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_evaluate_action_traced_allow_policy() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "allow-all".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = Action::new("tool", "func", json!({}));
+        let (verdict, trace) = engine.evaluate_action_traced(&action).unwrap();
+        assert!(matches!(verdict, Verdict::Allow));
+        assert!(trace.policies_checked >= 1);
+        assert!(trace.policies_matched >= 1);
+        assert!(trace.duration_us < 10_000_000); // sanity: should complete in <10s
+    }
+
+    #[test]
+    fn test_evaluate_action_traced_deny_policy() {
+        let policies = vec![Policy {
+            id: "bash:*".to_string(),
+            name: "block-bash".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = Action::new("bash", "execute", json!({}));
+        let (verdict, trace) = engine.evaluate_action_traced(&action).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+        assert_eq!(trace.action_summary.tool, "bash");
+        assert_eq!(trace.action_summary.function, "execute");
+    }
+
+    #[test]
+    fn test_evaluate_action_traced_action_summary_param_count() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "allow-all".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = Action::new("tool", "func", json!({"a": 1, "b": 2, "c": 3}));
+        let (_, trace) = engine.evaluate_action_traced(&action).unwrap();
+        assert_eq!(trace.action_summary.param_count, 3);
+        assert_eq!(trace.action_summary.param_keys.len(), 3);
+    }
+
+    #[test]
+    fn test_evaluate_action_traced_no_match_deny() {
+        let policies = vec![Policy {
+            id: "other_tool:*".to_string(),
+            name: "allow-other".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = Action::new("bash", "execute", json!({}));
+        let (verdict, trace) = engine.evaluate_action_traced(&action).unwrap();
+        // No matching policy -> deny
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+        assert_eq!(trace.policies_matched, 0);
+    }
+
+    #[test]
+    fn test_evaluate_action_traced_conditional_require_approval() {
+        let policies = vec![Policy {
+            id: "network:*".to_string(),
+            name: "net-approval".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({ "require_approval": true }),
+            },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = Action::new("network", "connect", json!({}));
+        let (verdict, _trace) = engine.evaluate_action_traced(&action).unwrap();
+        assert!(matches!(verdict, Verdict::RequireApproval { .. }));
+    }
+}

@@ -291,3 +291,368 @@ fn qualified_from_str(s: &str) -> QualifiedTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::topology::{
+        StaticResourceDecl, StaticServerDecl, StaticToolDecl, TopologyGraph,
+    };
+
+    fn make_topology(servers: Vec<StaticServerDecl>) -> TopologyGraph {
+        TopologyGraph::from_static(servers).unwrap()
+    }
+
+    #[test]
+    fn test_qualified_from_str_with_separator() {
+        let q = qualified_from_str("server::tool_name");
+        assert_eq!(q.server, "server");
+        assert_eq!(q.tool, "tool_name");
+        assert_eq!(q.qualified, "server::tool_name");
+    }
+
+    #[test]
+    fn test_qualified_from_str_without_separator() {
+        let q = qualified_from_str("just_a_name");
+        assert_eq!(q.server, "");
+        assert_eq!(q.tool, "just_a_name");
+        assert_eq!(q.qualified, "just_a_name");
+    }
+
+    #[test]
+    fn test_qualified_from_str_multiple_separators() {
+        // splitn(2, "::") should only split at the first "::"
+        let q = qualified_from_str("server::nested::tool");
+        assert_eq!(q.server, "server");
+        assert_eq!(q.tool, "nested::tool");
+    }
+
+    #[test]
+    fn test_diff_empty_topologies() {
+        let t1 = TopologyGraph::empty();
+        let t2 = TopologyGraph::empty();
+        let diff = t1.diff(&t2);
+        assert!(diff.is_empty());
+        assert_eq!(diff.summary(), "no changes");
+    }
+
+    #[test]
+    fn test_diff_data_flow_edge_added() {
+        let t1 = make_topology(vec![StaticServerDecl {
+            name: "srv".to_string(),
+            tools: vec![
+                StaticToolDecl {
+                    name: "producer".to_string(),
+                    description: "Search for files. Returns file paths.".to_string(),
+                    input_schema: serde_json::json!({"type": "object"}),
+                },
+                StaticToolDecl {
+                    name: "consumer".to_string(),
+                    description: "Read file content".to_string(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "file_path": {"type": "string"}
+                        }
+                    }),
+                },
+            ],
+            resources: vec![],
+        }]);
+
+        // Build t2 with DataFlow edges via inference
+        let mut t2 = make_topology(vec![StaticServerDecl {
+            name: "srv".to_string(),
+            tools: vec![
+                StaticToolDecl {
+                    name: "producer".to_string(),
+                    description: "Search for files. Returns file paths.".to_string(),
+                    input_schema: serde_json::json!({"type": "object"}),
+                },
+                StaticToolDecl {
+                    name: "consumer".to_string(),
+                    description: "Read file content".to_string(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "file_path": {"type": "string"}
+                        }
+                    }),
+                },
+            ],
+            resources: vec![],
+        }]);
+        let engine = crate::inference::InferenceEngine::new(crate::inference::InferenceConfig {
+            threshold: 0.0,
+            ..crate::inference::InferenceConfig::default()
+        });
+        engine.infer_edges(&mut t2);
+
+        let diff = t1.diff(&t2);
+        // DataFlow edges were added to t2, so diff should detect them
+        if t2.edge_count() > t1.edge_count() {
+            assert!(
+                !diff.added_data_flow_edges.is_empty(),
+                "Should detect added DataFlow edges"
+            );
+            let summary = diff.summary();
+            assert!(summary.contains("data flows"));
+        }
+    }
+
+    #[test]
+    fn test_diff_data_flow_edge_removed() {
+        // Build t1 with DataFlow edges, t2 without
+        let mut t1 = make_topology(vec![StaticServerDecl {
+            name: "srv".to_string(),
+            tools: vec![
+                StaticToolDecl {
+                    name: "file_search".to_string(),
+                    description: "Search for files. Returns file paths.".to_string(),
+                    input_schema: serde_json::json!({"type": "object"}),
+                },
+                StaticToolDecl {
+                    name: "read_file".to_string(),
+                    description: "Read content".to_string(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "file_path": {"type": "string"}
+                        }
+                    }),
+                },
+            ],
+            resources: vec![],
+        }]);
+        let engine = crate::inference::InferenceEngine::new(crate::inference::InferenceConfig {
+            threshold: 0.0,
+            ..crate::inference::InferenceConfig::default()
+        });
+        engine.infer_edges(&mut t1);
+
+        let t2 = make_topology(vec![StaticServerDecl {
+            name: "srv".to_string(),
+            tools: vec![
+                StaticToolDecl {
+                    name: "file_search".to_string(),
+                    description: "Search for files. Returns file paths.".to_string(),
+                    input_schema: serde_json::json!({"type": "object"}),
+                },
+                StaticToolDecl {
+                    name: "read_file".to_string(),
+                    description: "Read content".to_string(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "file_path": {"type": "string"}
+                        }
+                    }),
+                },
+            ],
+            resources: vec![],
+        }]);
+
+        let diff = t1.diff(&t2);
+        if t1.edge_count() > t2.edge_count() {
+            assert!(
+                !diff.removed_data_flow_edges.is_empty(),
+                "Should detect removed DataFlow edges"
+            );
+        }
+    }
+
+    #[test]
+    fn test_diff_simultaneous_add_remove_same_server() {
+        // t1 has server "alpha" with tool_a, t2 has server "alpha" with tool_b
+        // This means tool_a is removed and tool_b is added simultaneously
+        let t1 = make_topology(vec![StaticServerDecl {
+            name: "alpha".to_string(),
+            tools: vec![StaticToolDecl {
+                name: "tool_a".to_string(),
+                description: "A".to_string(),
+                input_schema: serde_json::json!({}),
+            }],
+            resources: vec![],
+        }]);
+
+        let t2 = make_topology(vec![StaticServerDecl {
+            name: "alpha".to_string(),
+            tools: vec![StaticToolDecl {
+                name: "tool_b".to_string(),
+                description: "B".to_string(),
+                input_schema: serde_json::json!({}),
+            }],
+            resources: vec![],
+        }]);
+
+        let diff = t1.diff(&t2);
+        assert!(diff.added_servers.is_empty(), "Server alpha still exists");
+        assert!(diff.removed_servers.is_empty(), "Server alpha still exists");
+        assert_eq!(diff.removed_tools.len(), 1);
+        assert_eq!(diff.removed_tools[0].qualified, "alpha::tool_a");
+        assert_eq!(diff.added_tools.len(), 1);
+        assert_eq!(diff.added_tools[0].qualified, "alpha::tool_b");
+    }
+
+    #[test]
+    fn test_diff_summary_multiple_change_types() {
+        let t1 = make_topology(vec![
+            StaticServerDecl {
+                name: "s1".to_string(),
+                tools: vec![StaticToolDecl {
+                    name: "old_tool".to_string(),
+                    description: "Old".to_string(),
+                    input_schema: serde_json::json!({}),
+                }],
+                resources: vec![StaticResourceDecl {
+                    uri_template: "old://".to_string(),
+                    name: "old_res".to_string(),
+                    mime_type: None,
+                }],
+            },
+            StaticServerDecl {
+                name: "to_remove".to_string(),
+                tools: vec![],
+                resources: vec![],
+            },
+        ]);
+
+        let t2 = make_topology(vec![
+            StaticServerDecl {
+                name: "s1".to_string(),
+                tools: vec![StaticToolDecl {
+                    name: "new_tool".to_string(),
+                    description: "New".to_string(),
+                    input_schema: serde_json::json!({}),
+                }],
+                resources: vec![],
+            },
+            StaticServerDecl {
+                name: "added_server".to_string(),
+                tools: vec![],
+                resources: vec![],
+            },
+        ]);
+
+        let diff = t1.diff(&t2);
+        let summary = diff.summary();
+        // Should contain multiple change indicators
+        assert!(
+            summary.contains("servers") || summary.contains("tools") || summary.contains("resources"),
+            "Summary should describe changes: {summary}"
+        );
+        assert!(diff.has_removals());
+    }
+
+    #[test]
+    fn test_diff_resource_removed() {
+        let t1 = make_topology(vec![StaticServerDecl {
+            name: "s1".to_string(),
+            tools: vec![],
+            resources: vec![
+                StaticResourceDecl {
+                    uri_template: "a://".to_string(),
+                    name: "res_a".to_string(),
+                    mime_type: None,
+                },
+                StaticResourceDecl {
+                    uri_template: "b://".to_string(),
+                    name: "res_b".to_string(),
+                    mime_type: None,
+                },
+            ],
+        }]);
+
+        let t2 = make_topology(vec![StaticServerDecl {
+            name: "s1".to_string(),
+            tools: vec![],
+            resources: vec![StaticResourceDecl {
+                uri_template: "a://".to_string(),
+                name: "res_a".to_string(),
+                mime_type: None,
+            }],
+        }]);
+
+        let diff = t1.diff(&t2);
+        assert_eq!(diff.removed_resources.len(), 1);
+        assert!(diff.removed_resources.contains(&"s1::res_b".to_string()));
+        assert!(diff.has_removals());
+    }
+
+    #[test]
+    fn test_diff_is_empty_all_fields_considered() {
+        // Verify that is_empty checks all fields
+        let mut diff = TopologyDiff {
+            added_servers: vec![],
+            removed_servers: vec![],
+            added_tools: vec![],
+            removed_tools: vec![],
+            modified_tools: vec![],
+            added_resources: vec![],
+            removed_resources: vec![],
+            added_data_flow_edges: vec![],
+            removed_data_flow_edges: vec![],
+            timestamp: SystemTime::now(),
+        };
+        assert!(diff.is_empty());
+
+        // Adding just one data flow edge should make it non-empty
+        diff.added_data_flow_edges.push(("a".to_string(), "b".to_string()));
+        assert!(!diff.is_empty());
+    }
+
+    #[test]
+    fn test_diff_has_schema_changes_false_when_only_description() {
+        let t1 = make_topology(vec![StaticServerDecl {
+            name: "s".to_string(),
+            tools: vec![StaticToolDecl {
+                name: "t".to_string(),
+                description: "v1".to_string(),
+                input_schema: serde_json::json!({"type": "object"}),
+            }],
+            resources: vec![],
+        }]);
+
+        let t2 = make_topology(vec![StaticServerDecl {
+            name: "s".to_string(),
+            tools: vec![StaticToolDecl {
+                name: "t".to_string(),
+                description: "v2 updated".to_string(),
+                input_schema: serde_json::json!({"type": "object"}),
+            }],
+            resources: vec![],
+        }]);
+
+        let diff = t1.diff(&t2);
+        assert!(!diff.has_schema_changes(), "Only description changed, not schema");
+        assert!(
+            diff.modified_tools[0].description_changed,
+            "Description should be marked as changed"
+        );
+    }
+
+    #[test]
+    fn test_resource_names_sorted() {
+        let graph = make_topology(vec![StaticServerDecl {
+            name: "s".to_string(),
+            tools: vec![],
+            resources: vec![
+                StaticResourceDecl {
+                    uri_template: "z://".to_string(),
+                    name: "zebra".to_string(),
+                    mime_type: None,
+                },
+                StaticResourceDecl {
+                    uri_template: "a://".to_string(),
+                    name: "alpha".to_string(),
+                    mime_type: None,
+                },
+            ],
+        }]);
+
+        let names = graph.resource_names();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(names, sorted, "resource_names() should return sorted results");
+    }
+}

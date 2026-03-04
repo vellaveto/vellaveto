@@ -749,3 +749,345 @@ impl NlPolicyConfig {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ═══════════════════════════════════════════════════
+    // SemanticGuardrailsConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_semantic_guardrails_validate_default_ok() {
+        let config = SemanticGuardrailsConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_min_confidence_nan_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.min_confidence = f64::NAN;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("min_confidence"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_min_confidence_infinity_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.min_confidence = f64::INFINITY;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("min_confidence"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_min_confidence_negative_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.min_confidence = -0.01;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("min_confidence"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_min_confidence_above_one_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.min_confidence = 1.01;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("min_confidence"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_min_confidence_boundary_zero_ok() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.min_confidence = 0.0;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_min_confidence_boundary_one_ok() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.min_confidence = 1.0;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_intent_confidence_nan_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.intent_classification.confidence_threshold = f64::NAN;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("intent_classification.confidence_threshold"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_intent_confidence_above_one_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.intent_classification.confidence_threshold = 1.1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("intent_classification.confidence_threshold"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_jailbreak_confidence_nan_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.jailbreak_detection.confidence_threshold = f64::NAN;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("jailbreak_detection.confidence_threshold"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_jailbreak_confidence_negative_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.jailbreak_detection.confidence_threshold = -0.5;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("jailbreak_detection.confidence_threshold"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_cache_ttl_zero_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.cache_ttl_secs = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("cache_ttl_secs must be > 0"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_cache_ttl_over_max_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.cache_ttl_secs = MAX_CACHE_TTL_SECS + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("cache_ttl_secs"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_cache_max_size_zero_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.cache_max_size = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("cache_max_size must be > 0"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_cache_max_size_over_cap_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.cache_max_size = MAX_CACHE_MAX_SIZE + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("cache_max_size"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_max_latency_zero_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.max_latency_ms = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_latency_ms must be > 0"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_max_latency_over_cap_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.max_latency_ms = MAX_LATENCY_MS + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_latency_ms"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_invalid_fallback_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.fallback_on_timeout = "invalid".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("fallback_on_timeout"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_all_valid_fallbacks_accepted() {
+        for fb in &["deny", "allow", "pattern_match"] {
+            let mut config = SemanticGuardrailsConfig::default();
+            config.fallback_on_timeout = fb.to_string();
+            assert!(
+                config.validate().is_ok(),
+                "should accept fallback '{}'",
+                fb
+            );
+        }
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_fallback_control_chars_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.fallback_on_timeout = "deny\x00".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_model_control_chars_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.model = Some("gpt-4\x00".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("model contains control"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_model_too_long_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.model = Some("m".repeat(MAX_MODEL_STRING_LEN + 1));
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("model length"));
+    }
+
+    #[test]
+    fn test_semantic_guardrails_validate_too_many_nl_policies_rejected() {
+        let mut config = SemanticGuardrailsConfig::default();
+        config.nl_policies = (0..=MAX_NL_POLICIES)
+            .map(|i| NlPolicyConfig {
+                id: format!("pol-{}", i),
+                name: "test".to_string(),
+                statement: "do something".to_string(),
+                tool_patterns: Vec::new(),
+                enabled: true,
+                priority: 0,
+            })
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("nl_policies"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // NlPolicyConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_nl_policy_validate_valid_ok() {
+        let policy = NlPolicyConfig {
+            id: "test-policy".to_string(),
+            name: "Test".to_string(),
+            statement: "No file deletion".to_string(),
+            tool_patterns: vec!["filesystem:*".to_string()],
+            enabled: true,
+            priority: 0,
+        };
+        assert!(policy.validate().is_ok());
+    }
+
+    #[test]
+    fn test_nl_policy_validate_empty_id_rejected() {
+        let policy = NlPolicyConfig {
+            id: "".to_string(),
+            name: "".to_string(),
+            statement: "test statement".to_string(),
+            tool_patterns: Vec::new(),
+            enabled: true,
+            priority: 0,
+        };
+        let err = policy.validate().unwrap_err();
+        assert!(err.contains("id is empty"));
+    }
+
+    #[test]
+    fn test_nl_policy_validate_empty_statement_rejected() {
+        let policy = NlPolicyConfig {
+            id: "test".to_string(),
+            name: "".to_string(),
+            statement: "".to_string(),
+            tool_patterns: Vec::new(),
+            enabled: true,
+            priority: 0,
+        };
+        let err = policy.validate().unwrap_err();
+        assert!(err.contains("statement is empty"));
+    }
+
+    #[test]
+    fn test_nl_policy_validate_statement_too_long_rejected() {
+        let policy = NlPolicyConfig {
+            id: "test".to_string(),
+            name: "".to_string(),
+            statement: "x".repeat(MAX_NL_POLICY_STATEMENT_LEN + 1),
+            tool_patterns: Vec::new(),
+            enabled: true,
+            priority: 0,
+        };
+        let err = policy.validate().unwrap_err();
+        assert!(err.contains("statement length"));
+    }
+
+    #[test]
+    fn test_nl_policy_validate_id_control_chars_rejected() {
+        let policy = NlPolicyConfig {
+            id: "test\x00id".to_string(),
+            name: "".to_string(),
+            statement: "valid statement".to_string(),
+            tool_patterns: Vec::new(),
+            enabled: true,
+            priority: 0,
+        };
+        let err = policy.validate().unwrap_err();
+        assert!(err.contains("id contains control"));
+    }
+
+    #[test]
+    fn test_nl_policy_validate_too_many_tool_patterns_rejected() {
+        let policy = NlPolicyConfig {
+            id: "test".to_string(),
+            name: "".to_string(),
+            statement: "valid statement".to_string(),
+            tool_patterns: (0..=MAX_NL_TOOL_PATTERNS)
+                .map(|i| format!("tool_{}", i))
+                .collect(),
+            enabled: true,
+            priority: 0,
+        };
+        let err = policy.validate().unwrap_err();
+        assert!(err.contains("tool_patterns"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // OpenAiBackendConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_openai_backend_validate_default_ok() {
+        let config = OpenAiBackendConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_openai_backend_validate_empty_model_rejected() {
+        let mut config = OpenAiBackendConfig::default();
+        config.model = "".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("model must not be empty"));
+    }
+
+    #[test]
+    fn test_openai_backend_validate_timeout_zero_rejected() {
+        let mut config = OpenAiBackendConfig::default();
+        config.timeout_ms = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("timeout_ms must be > 0"));
+    }
+
+    #[test]
+    fn test_openai_backend_validate_max_tokens_zero_rejected() {
+        let mut config = OpenAiBackendConfig::default();
+        config.max_tokens = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_tokens must be > 0"));
+    }
+
+    #[test]
+    fn test_openai_backend_validate_timeout_over_cap_rejected() {
+        let mut config = OpenAiBackendConfig::default();
+        config.timeout_ms = MAX_BACKEND_TIMEOUT_MS + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("timeout_ms"));
+    }
+
+    #[test]
+    fn test_openai_backend_validate_max_tokens_over_cap_rejected() {
+        let mut config = OpenAiBackendConfig::default();
+        config.max_tokens = MAX_BACKEND_MAX_TOKENS + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_tokens"));
+    }
+}

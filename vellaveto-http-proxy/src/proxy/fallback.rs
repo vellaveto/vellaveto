@@ -176,3 +176,146 @@ pub async fn forward_with_fallback(
         last_error,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // =========================================================================
+    // FallbackError Display tests
+    // =========================================================================
+
+    #[test]
+    fn test_fallback_error_all_failed_display() {
+        let err = FallbackError::AllFailed {
+            attempts: 3,
+            last_error: "connection refused".to_string(),
+        };
+        let display = format!("{}", err);
+        assert!(display.contains("3 fallback attempt(s) failed"));
+        assert!(display.contains("connection refused"));
+    }
+
+    #[test]
+    fn test_fallback_error_no_fallback_display() {
+        let err = FallbackError::NoFallback;
+        let display = format!("{}", err);
+        assert_eq!(display, "no fallback transports configured");
+    }
+
+    #[test]
+    fn test_fallback_error_all_failed_single_attempt() {
+        let err = FallbackError::AllFailed {
+            attempts: 1,
+            last_error: "timeout".to_string(),
+        };
+        let display = format!("{}", err);
+        assert!(display.contains("1 fallback attempt(s) failed"));
+    }
+
+    #[test]
+    fn test_fallback_error_is_std_error() {
+        let err: Box<dyn std::error::Error> = Box::new(FallbackError::NoFallback);
+        assert!(err.to_string().contains("no fallback"));
+    }
+
+    // =========================================================================
+    // FallbackResult struct tests
+    // =========================================================================
+
+    #[test]
+    fn test_fallback_result_primary_success() {
+        let result = FallbackResult {
+            response: bytes::Bytes::from_static(b"ok"),
+            transport_used: TransportProtocol::Http,
+            fallback_attempts: 0,
+            status: 200,
+            negotiation_history: None,
+        };
+        assert_eq!(result.fallback_attempts, 0);
+        assert_eq!(result.status, 200);
+        assert!(result.negotiation_history.is_none());
+    }
+
+    #[test]
+    fn test_fallback_result_after_retries() {
+        let result = FallbackResult {
+            response: bytes::Bytes::from_static(b"recovered"),
+            transport_used: TransportProtocol::Http,
+            fallback_attempts: 2,
+            status: 200,
+            negotiation_history: None,
+        };
+        assert_eq!(result.fallback_attempts, 2);
+    }
+
+    #[test]
+    fn test_fallback_result_non_success_status() {
+        let result = FallbackResult {
+            response: bytes::Bytes::from_static(b"error"),
+            transport_used: TransportProtocol::Http,
+            fallback_attempts: 0,
+            status: 500,
+            negotiation_history: None,
+        };
+        assert_eq!(result.status, 500);
+    }
+
+    // =========================================================================
+    // forward_with_fallback edge case tests (async)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_forward_with_fallback_empty_url_returns_no_fallback() {
+        let client = reqwest::Client::new();
+        let headers = reqwest::header::HeaderMap::new();
+        let result = forward_with_fallback(
+            &client,
+            "",
+            bytes::Bytes::new(),
+            &headers,
+            3,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+        assert!(matches!(result, Err(FallbackError::NoFallback)));
+    }
+
+    #[tokio::test]
+    async fn test_forward_with_fallback_whitespace_url_returns_no_fallback() {
+        let client = reqwest::Client::new();
+        let headers = reqwest::header::HeaderMap::new();
+        let result = forward_with_fallback(
+            &client,
+            "   ",
+            bytes::Bytes::new(),
+            &headers,
+            3,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+        assert!(matches!(result, Err(FallbackError::NoFallback)));
+    }
+
+    #[tokio::test]
+    async fn test_forward_with_fallback_retries_capped_at_max() {
+        let client = reqwest::Client::new();
+        let headers = reqwest::header::HeaderMap::new();
+        // Use a URL that will always fail (invalid address)
+        let result = forward_with_fallback(
+            &client,
+            "http://192.0.2.1:1", // RFC 5737 TEST-NET, guaranteed unreachable
+            bytes::Bytes::from("{}"),
+            &headers,
+            100, // Request 100 retries
+            std::time::Duration::from_millis(50),
+        )
+        .await;
+        // Should be capped at MAX_FALLBACK_RETRIES (10) + 1 = 11
+        if let Err(FallbackError::AllFailed { attempts, .. }) = result {
+            assert!(attempts <= 11, "retries should be capped at MAX_FALLBACK_RETRIES + 1, got {}", attempts);
+        } else {
+            panic!("Expected AllFailed error");
+        }
+    }
+}

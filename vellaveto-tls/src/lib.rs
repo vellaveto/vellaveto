@@ -290,8 +290,39 @@ pub fn build_tls_acceptor(config: &TlsConfig) -> Result<Option<TlsAcceptor>, Tls
                 }
             }
 
+            // R233-TLS-1: Apply min_version at runtime (was ignored — always used defaults).
+            let protocol_versions = match config.min_version.as_str() {
+                "1.3" => vec![&rustls::version::TLS13],
+                _ => vec![&rustls::version::TLS12, &rustls::version::TLS13],
+            };
+            tracing::info!(
+                "TLS min_version={}: {} protocol version(s) enabled",
+                config.min_version,
+                protocol_versions.len()
+            );
+
+            // R233-TLS-3: Apply cipher_suites filter at runtime (was ignored — always used defaults).
+            // When configured, retain only cipher suites whose name matches the allowlist.
+            if !config.cipher_suites.is_empty() {
+                let before = provider.cipher_suites.len();
+                provider.cipher_suites.retain(|suite| {
+                    let name = format!("{:?}", suite.suite());
+                    config.cipher_suites.iter().any(|allowed| name.contains(allowed.as_str()))
+                });
+                let after = provider.cipher_suites.len();
+                if provider.cipher_suites.is_empty() {
+                    return Err(TlsError::Config(
+                        "tls.cipher_suites filter removed all supported cipher suites".to_string(),
+                    ));
+                }
+                tracing::info!(
+                    "TLS cipher_suites: filtered {before} -> {after} suites ({} configured)",
+                    config.cipher_suites.len()
+                );
+            }
+
             let builder = rustls::ServerConfig::builder_with_provider(Arc::new(provider))
-                .with_safe_default_protocol_versions()
+                .with_protocol_versions(&protocol_versions)
                 .map_err(TlsError::Tls)?;
 
             let mut server_config = if config.mode == TlsMode::Mtls {
@@ -517,5 +548,139 @@ mod tests {
         } else {
             assert_eq!(provider.kx_groups.len(), initial_total);
         }
+    }
+
+    // ── SpiffeIdentity edge cases (merged from vellaveto-server) ─────
+
+    #[test]
+    fn test_spiffe_identity_parse_deep_path() {
+        let id =
+            SpiffeIdentity::parse("spiffe://prod.example.org/ns/default/sa/frontend/v2").unwrap();
+        assert_eq!(id.trust_domain, "prod.example.org");
+        assert_eq!(id.workload_path, "/ns/default/sa/frontend/v2");
+        assert_eq!(
+            id.spiffe_id,
+            "spiffe://prod.example.org/ns/default/sa/frontend/v2"
+        );
+    }
+
+    #[test]
+    fn test_spiffe_identity_parse_empty_scheme_rejected() {
+        assert!(SpiffeIdentity::parse("").is_none());
+    }
+
+    #[test]
+    fn test_spiffe_identity_parse_case_sensitive_scheme() {
+        // "SPIFFE://" is not valid — scheme must be lowercase per SPIFFE spec
+        assert!(SpiffeIdentity::parse("SPIFFE://example.org/workload").is_none());
+    }
+
+    #[test]
+    fn test_spiffe_identity_parse_http_scheme_rejected() {
+        assert!(SpiffeIdentity::parse("http://example.org/workload").is_none());
+    }
+
+    #[test]
+    fn test_spiffe_identity_parse_spiffe_prefix_substring_rejected() {
+        // "spiffe:/" is not "spiffe://"
+        assert!(SpiffeIdentity::parse("spiffe:/example.org").is_none());
+    }
+
+    #[test]
+    fn test_spiffe_identity_parse_just_scheme_and_domain() {
+        let id = SpiffeIdentity::parse("spiffe://trust.domain").unwrap();
+        assert_eq!(id.trust_domain, "trust.domain");
+        assert_eq!(id.workload_path, "");
+    }
+
+    #[test]
+    fn test_spiffe_identity_parse_root_path() {
+        let id = SpiffeIdentity::parse("spiffe://example.org/").unwrap();
+        assert_eq!(id.trust_domain, "example.org");
+        assert_eq!(id.workload_path, "/");
+    }
+
+    // ── extract_spiffe_ids (merged from vellaveto-server) ────────────
+
+    #[test]
+    fn test_extract_spiffe_ids_invalid_cert_returns_empty() {
+        let empty = extract_spiffe_ids(&[]);
+        assert!(empty.is_empty());
+
+        let garbage = extract_spiffe_ids(b"not a certificate");
+        assert!(garbage.is_empty());
+    }
+
+    // ── extract_client_cert_info (merged from vellaveto-server) ──────
+
+    #[test]
+    fn test_extract_client_cert_info_invalid_cert_returns_defaults() {
+        let info = extract_client_cert_info(b"not a certificate");
+        assert!(info.spiffe_ids.is_empty());
+        assert!(info.common_name.is_none());
+        assert!(info.organization.is_none());
+        assert!(info.serial_number.is_none());
+        // verified is true because the function assumes rustls already verified
+        assert!(info.verified);
+    }
+
+    // ── KEX policy helpers (merged from vellaveto-server) ────────────
+
+    #[test]
+    fn test_is_pq_or_hybrid_named_group_classical_groups() {
+        // X25519 and secp256r1 are classical, not PQ/hybrid
+        assert!(!is_pq_or_hybrid_named_group(rustls::NamedGroup::X25519));
+        assert!(!is_pq_or_hybrid_named_group(rustls::NamedGroup::secp256r1));
+        assert!(!is_pq_or_hybrid_named_group(rustls::NamedGroup::secp384r1));
+    }
+
+    #[test]
+    fn test_is_pq_or_hybrid_named_group_pq_groups() {
+        assert!(is_pq_or_hybrid_named_group(rustls::NamedGroup::MLKEM768));
+        assert!(is_pq_or_hybrid_named_group(
+            rustls::NamedGroup::X25519MLKEM768
+        ));
+    }
+
+    #[test]
+    fn test_count_pq_or_hybrid_groups_default_provider() {
+        let provider = default_crypto_provider();
+        // Default aws-lc-rs provider should have at least some groups
+        assert!(
+            !provider.kx_groups.is_empty(),
+            "default provider must have kx groups"
+        );
+    }
+
+    #[test]
+    fn test_effective_kex_groups_for_policy_classical_only() {
+        let groups = effective_kex_groups_for_policy(TlsKexPolicy::ClassicalOnly).unwrap();
+        assert!(!groups.is_empty());
+        for g in &groups {
+            assert!(
+                !is_pq_or_hybrid_named_group(*g),
+                "ClassicalOnly must not contain PQ/hybrid groups"
+            );
+        }
+    }
+
+    #[test]
+    fn test_effective_kex_groups_for_policy_hybrid_preferred() {
+        let groups = effective_kex_groups_for_policy(TlsKexPolicy::HybridPreferred).unwrap();
+        assert!(!groups.is_empty());
+    }
+
+    // ── TLS error display (merged from vellaveto-server) ─────────────
+
+    #[test]
+    fn test_tls_error_display_variants() {
+        let err = TlsError::Config("test config error".to_string());
+        assert!(err.to_string().contains("test config error"));
+
+        let err = TlsError::Certificate("bad cert".to_string());
+        assert!(err.to_string().contains("bad cert"));
+
+        let err = TlsError::PrivateKey("bad key".to_string());
+        assert!(err.to_string().contains("bad key"));
     }
 }

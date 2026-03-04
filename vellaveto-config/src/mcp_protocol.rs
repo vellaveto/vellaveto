@@ -775,3 +775,425 @@ impl StepUpAuthConfig {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ═══════════════════════════════════════════════════
+    // ElicitationConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_elicitation_validate_default_ok() {
+        let config = ElicitationConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_elicitation_validate_too_many_blocked_field_types_rejected() {
+        let mut config = ElicitationConfig::default();
+        config.blocked_field_types = (0..=MAX_BLOCKED_FIELD_TYPES)
+            .map(|i| format!("type_{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("blocked_field_types"));
+    }
+
+    #[test]
+    fn test_elicitation_validate_empty_blocked_field_type_rejected() {
+        let mut config = ElicitationConfig::default();
+        config.blocked_field_types = vec!["".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("is empty"));
+    }
+
+    #[test]
+    fn test_elicitation_validate_blocked_field_type_too_long_rejected() {
+        let mut config = ElicitationConfig::default();
+        config.blocked_field_types = vec!["x".repeat(MAX_BLOCKED_FIELD_TYPE_LENGTH + 1)];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("exceeds max"));
+    }
+
+    #[test]
+    fn test_elicitation_validate_blocked_field_type_control_chars_rejected() {
+        let mut config = ElicitationConfig::default();
+        config.blocked_field_types = vec!["password\x00".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // SamplingConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_sampling_validate_default_ok() {
+        let config = SamplingConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_sampling_validate_too_many_allowed_models_rejected() {
+        let mut config = SamplingConfig::default();
+        config.allowed_models = (0..=MAX_ALLOWED_MODELS)
+            .map(|i| format!("model_{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("allowed_models"));
+    }
+
+    #[test]
+    fn test_sampling_validate_empty_model_rejected() {
+        let mut config = SamplingConfig::default();
+        config.allowed_models = vec!["".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("is empty"));
+    }
+
+    #[test]
+    fn test_sampling_validate_model_too_long_rejected() {
+        let mut config = SamplingConfig::default();
+        config.allowed_models = vec!["m".repeat(MAX_ALLOWED_MODEL_LENGTH + 1)];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("exceeds max"));
+    }
+
+    #[test]
+    fn test_sampling_validate_model_control_chars_rejected() {
+        let mut config = SamplingConfig::default();
+        config.allowed_models = vec!["claude\x01bad".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+
+    #[test]
+    fn test_sampling_validate_per_tool_window_over_3600_rejected() {
+        let mut config = SamplingConfig::default();
+        config.per_tool_window_secs = 3601;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("per_tool_window_secs"));
+    }
+
+    #[test]
+    fn test_sampling_validate_empty_include_context_rejected() {
+        let mut config = SamplingConfig::default();
+        config.allowed_include_context = Vec::new();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("at least one entry"));
+    }
+
+    #[test]
+    fn test_sampling_validate_too_many_include_context_rejected() {
+        let mut config = SamplingConfig::default();
+        config.allowed_include_context = vec![
+            "none".to_string(),
+            "thisServer".to_string(),
+            "allServers".to_string(),
+            "extra".to_string(),
+        ];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max is 3"));
+    }
+
+    #[test]
+    fn test_sampling_validate_invalid_include_context_rejected() {
+        let mut config = SamplingConfig::default();
+        config.allowed_include_context = vec!["invalid".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("is not valid"));
+    }
+
+    #[test]
+    fn test_sampling_validate_all_valid_include_context_ok() {
+        let mut config = SamplingConfig::default();
+        config.allowed_include_context = vec![
+            "none".to_string(),
+            "thisServer".to_string(),
+            "allServers".to_string(),
+        ];
+        assert!(config.validate().is_ok());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // AsyncTaskConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_async_task_validate_default_ok() {
+        let config = AsyncTaskConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_async_task_validate_too_many_cancellation_entries_rejected() {
+        let mut config = AsyncTaskConfig::default();
+        config.allow_cancellation = (0..=MAX_ALLOW_CANCELLATION)
+            .map(|i| format!("agent_{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("allow_cancellation"));
+    }
+
+    #[test]
+    fn test_async_task_validate_empty_cancellation_entry_rejected() {
+        let mut config = AsyncTaskConfig::default();
+        config.allow_cancellation = vec!["".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("is empty"));
+    }
+
+    #[test]
+    fn test_async_task_validate_cancellation_control_chars_rejected() {
+        let mut config = AsyncTaskConfig::default();
+        config.allow_cancellation = vec!["admin\x07".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+
+    #[test]
+    fn test_async_task_validate_zero_nonces_with_replay_protection_rejected() {
+        let mut config = AsyncTaskConfig::default();
+        config.replay_protection = true;
+        config.max_nonces = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_nonces must be > 0"));
+    }
+
+    #[test]
+    fn test_async_task_validate_zero_nonces_without_replay_protection_ok() {
+        let mut config = AsyncTaskConfig::default();
+        config.replay_protection = false;
+        config.max_nonces = 0;
+        assert!(config.validate().is_ok());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // ResourceIndicatorConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_resource_indicator_validate_default_ok() {
+        let config = ResourceIndicatorConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_resource_indicator_validate_too_many_resources_rejected() {
+        let mut config = ResourceIndicatorConfig::default();
+        config.allowed_resources = (0..=MAX_ALLOWED_RESOURCES)
+            .map(|i| format!("urn:res:{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("allowed_resources"));
+    }
+
+    #[test]
+    fn test_resource_indicator_validate_empty_resource_rejected() {
+        let mut config = ResourceIndicatorConfig::default();
+        config.allowed_resources = vec!["".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("is empty"));
+    }
+
+    #[test]
+    fn test_resource_indicator_validate_resource_too_long_rejected() {
+        let mut config = ResourceIndicatorConfig::default();
+        config.allowed_resources = vec!["x".repeat(MAX_RESOURCE_ENTRY_LENGTH + 1)];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("exceeds max"));
+    }
+
+    #[test]
+    fn test_resource_indicator_validate_resource_control_chars_rejected() {
+        let mut config = ResourceIndicatorConfig::default();
+        config.allowed_resources = vec!["urn:test\x00".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // CimdConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_cimd_validate_default_ok() {
+        let config = CimdConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_cimd_validate_too_many_required_capabilities_rejected() {
+        let mut config = CimdConfig::default();
+        config.required_capabilities = (0..=MAX_CAPABILITIES)
+            .map(|i| format!("cap_{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("required_capabilities"));
+    }
+
+    #[test]
+    fn test_cimd_validate_too_many_blocked_capabilities_rejected() {
+        let mut config = CimdConfig::default();
+        config.blocked_capabilities = (0..=MAX_CAPABILITIES)
+            .map(|i| format!("cap_{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("blocked_capabilities"));
+    }
+
+    #[test]
+    fn test_cimd_validate_empty_required_capability_rejected() {
+        let mut config = CimdConfig::default();
+        config.required_capabilities = vec!["".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("required_capabilities[0] is empty"));
+    }
+
+    #[test]
+    fn test_cimd_validate_empty_blocked_capability_rejected() {
+        let mut config = CimdConfig::default();
+        config.blocked_capabilities = vec!["".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("blocked_capabilities[0] is empty"));
+    }
+
+    #[test]
+    fn test_cimd_validate_required_capability_too_long_rejected() {
+        let mut config = CimdConfig::default();
+        config.required_capabilities = vec!["c".repeat(MAX_CAPABILITY_ENTRY_LENGTH + 1)];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("exceeds max"));
+    }
+
+    #[test]
+    fn test_cimd_validate_capability_control_chars_rejected() {
+        let mut config = CimdConfig::default();
+        config.required_capabilities = vec!["tools\x00".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // StreamableHttpConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_streamable_http_validate_default_ok() {
+        let config = StreamableHttpConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_streamable_http_validate_event_id_length_zero_rejected() {
+        let mut config = StreamableHttpConfig::default();
+        config.max_event_id_length = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_event_id_length"));
+    }
+
+    #[test]
+    fn test_streamable_http_validate_event_id_length_over_512_rejected() {
+        let mut config = StreamableHttpConfig::default();
+        config.max_event_id_length = 513;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_event_id_length"));
+    }
+
+    #[test]
+    fn test_streamable_http_validate_sse_retry_below_100_rejected() {
+        let mut config = StreamableHttpConfig::default();
+        config.sse_retry_ms = Some(99);
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("sse_retry_ms"));
+    }
+
+    #[test]
+    fn test_streamable_http_validate_sse_retry_above_60000_rejected() {
+        let mut config = StreamableHttpConfig::default();
+        config.sse_retry_ms = Some(60_001);
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("sse_retry_ms"));
+    }
+
+    #[test]
+    fn test_streamable_http_validate_sse_retry_none_ok() {
+        let mut config = StreamableHttpConfig::default();
+        config.sse_retry_ms = None;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_streamable_http_validate_sse_retry_boundary_100_ok() {
+        let mut config = StreamableHttpConfig::default();
+        config.sse_retry_ms = Some(100);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_streamable_http_validate_sse_retry_boundary_60000_ok() {
+        let mut config = StreamableHttpConfig::default();
+        config.sse_retry_ms = Some(60_000);
+        assert!(config.validate().is_ok());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // StepUpAuthConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_step_up_auth_validate_default_ok() {
+        let config = StepUpAuthConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_step_up_auth_validate_too_many_trigger_tools_rejected() {
+        let mut config = StepUpAuthConfig::default();
+        config.trigger_tools = (0..=MAX_TRIGGER_TOOLS)
+            .map(|i| format!("tool_{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("trigger_tools"));
+    }
+
+    #[test]
+    fn test_step_up_auth_validate_required_level_above_4_rejected() {
+        let mut config = StepUpAuthConfig::default();
+        config.required_level = 5;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("required_level"));
+    }
+
+    #[test]
+    fn test_step_up_auth_validate_required_level_4_ok() {
+        let mut config = StepUpAuthConfig::default();
+        config.required_level = 4;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_step_up_auth_validate_empty_trigger_tool_rejected() {
+        let mut config = StepUpAuthConfig::default();
+        config.trigger_tools = vec!["".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("is empty"));
+    }
+
+    #[test]
+    fn test_step_up_auth_validate_trigger_tool_too_long_rejected() {
+        let mut config = StepUpAuthConfig::default();
+        config.trigger_tools = vec!["t".repeat(MAX_TRIGGER_TOOL_LENGTH + 1)];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("exceeds max"));
+    }
+
+    #[test]
+    fn test_step_up_auth_validate_trigger_tool_control_chars_rejected() {
+        let mut config = StepUpAuthConfig::default();
+        config.trigger_tools = vec!["delete_\x00all".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+}

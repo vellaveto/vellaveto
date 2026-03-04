@@ -71,7 +71,9 @@ pub struct ProxyBridge {
     /// Populated from tools/list responses, validated on tools/call responses.
     output_schema_registry: Arc<OutputSchemaRegistry>,
     /// When true, block responses that fail output schema validation.
-    /// Default: false (warn-only).
+    /// Default: true (fail-closed).
+    /// SECURITY (R233-MCPSEC-8): Changed from false to true — schema validation
+    /// bypass is fail-open; operators must explicitly opt out via builder.
     output_schema_blocking: bool,
     /// When true, scan tool responses for secrets (DLP response scanning).
     /// Default: true.
@@ -194,6 +196,19 @@ pub struct ProxyBridge {
     topology_guard: Option<Arc<vellaveto_discovery::guard::TopologyGuard>>,
 
     // ═══════════════════════════════════════════════════════════════════
+    // Phase 71: Cross-Call DLP Tracking (R233-DLP-1)
+    // ═══════════════════════════════════════════════════════════════════
+    /// When true, enable cross-call DLP tracking per session to detect
+    /// secrets split across sequential tool calls.
+    cross_call_dlp_enabled: bool,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // TI-2026-001: Sharded Exfiltration Detection (R233-MCPSEC-2)
+    // ═══════════════════════════════════════════════════════════════════
+    /// When true, enable sharded exfiltration detection per session.
+    sharded_exfil_enabled: bool,
+
+    // ═══════════════════════════════════════════════════════════════════
     // Consumer Shield: Bidirectional PII Sanitization
     // ═══════════════════════════════════════════════════════════════════
     /// When set, outbound requests are sanitized (PII replaced with
@@ -251,7 +266,7 @@ impl ProxyBridge {
             manifest_config: None,
             flagged_tools_path: None,
             output_schema_registry: Arc::new(OutputSchemaRegistry::new()),
-            output_schema_blocking: false,
+            output_schema_blocking: true,
             response_dlp_enabled: true,
             response_dlp_blocking: false,
             known_tools: crate::rug_pull::build_known_tools(&[]),
@@ -290,6 +305,10 @@ impl ProxyBridge {
             // Topology guard (default: disabled)
             #[cfg(feature = "discovery")]
             topology_guard: None,
+            // Phase 71: Cross-call DLP (default: disabled)
+            cross_call_dlp_enabled: false,
+            // TI-2026-001: Sharded exfil (default: disabled)
+            sharded_exfil_enabled: false,
             // Consumer shield (default: disabled)
             #[cfg(feature = "consumer-shield")]
             shield_sanitizer: None,

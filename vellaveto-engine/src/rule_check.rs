@@ -253,3 +253,454 @@ impl PolicyEngine {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use vellaveto_types::{NetworkRules, PathRules, Policy, PolicyType};
+
+    /// Helper: create an engine with a single policy and compiled rules.
+    fn engine_with_policy(policy: Policy) -> (PolicyEngine, usize) {
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        (engine, 0)
+    }
+
+    // ---- check_path_rules tests ----
+
+    #[test]
+    fn test_check_path_rules_no_path_rules_returns_none() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "no-paths".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let action = Action::new("tool", "func", json!({}));
+        let result = engine.check_path_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_check_path_rules_blocked_path_returns_deny() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "block-tmp".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: Some(PathRules {
+                allowed: vec![],
+                blocked: vec!["/tmp/**".to_string()],
+            }),
+            network_rules: None,
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_paths = vec!["/tmp/evil.sh".to_string()];
+        let result = engine.check_path_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_some());
+        let verdict = result.unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_check_path_rules_allowed_path_passes() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "allow-home".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: Some(PathRules {
+                allowed: vec!["/home/**".to_string()],
+                blocked: vec![],
+            }),
+            network_rules: None,
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_paths = vec!["/home/user/file.txt".to_string()];
+        let result = engine.check_path_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_check_path_rules_path_not_in_allowlist_deny() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "restrict-paths".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: Some(PathRules {
+                allowed: vec!["/safe/**".to_string()],
+                blocked: vec![],
+            }),
+            network_rules: None,
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_paths = vec!["/etc/passwd".to_string()];
+        let result = engine.check_path_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => {
+                assert!(reason.contains("not in allowed paths"));
+            }
+            _ => panic!("Expected Deny verdict"),
+        }
+    }
+
+    #[test]
+    fn test_check_path_rules_empty_paths_with_allowlist_fail_closed() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "with-allowlist".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: Some(PathRules {
+                allowed: vec!["/safe/**".to_string()],
+                blocked: vec![],
+            }),
+            network_rules: None,
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let action = Action::new("tool", "func", json!({})); // no target_paths
+        let result = engine.check_path_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => {
+                assert!(reason.contains("No target paths provided"));
+            }
+            _ => panic!("Expected Deny for fail-closed"),
+        }
+    }
+
+    #[test]
+    fn test_check_path_rules_blocked_takes_precedence_over_allowed() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "precedence".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: Some(PathRules {
+                allowed: vec!["/home/**".to_string()],
+                blocked: vec!["/home/secret/**".to_string()],
+            }),
+            network_rules: None,
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_paths = vec!["/home/secret/data.db".to_string()];
+        let result = engine.check_path_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_check_path_rules_empty_rules_returns_none() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "empty-rules".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: Some(PathRules {
+                allowed: vec![],
+                blocked: vec![],
+            }),
+            network_rules: None,
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_paths = vec!["/any/path".to_string()];
+        let result = engine.check_path_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_none());
+    }
+
+    // ---- check_network_rules tests ----
+
+    #[test]
+    fn test_check_network_rules_no_rules_returns_none() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "no-net".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let action = Action::new("tool", "func", json!({}));
+        let result = engine.check_network_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_check_network_rules_blocked_domain_deny() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "block-evil".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec![],
+                blocked_domains: vec!["evil.com".to_string()],
+                ip_rules: None,
+            }),
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_domains = vec!["evil.com".to_string()];
+        let result = engine.check_network_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_check_network_rules_allowed_domain_passes() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "allow-safe".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec!["api.safe.com".to_string()],
+                blocked_domains: vec![],
+                ip_rules: None,
+            }),
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_domains = vec!["api.safe.com".to_string()];
+        let result = engine.check_network_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_check_network_rules_domain_not_in_allowlist_deny() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "restrict-domains".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec!["safe.com".to_string()],
+                blocked_domains: vec![],
+                ip_rules: None,
+            }),
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_domains = vec!["unknown.com".to_string()];
+        let result = engine.check_network_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => {
+                assert!(reason.contains("not in allowed domains"));
+            }
+            _ => panic!("Expected Deny"),
+        }
+    }
+
+    #[test]
+    fn test_check_network_rules_empty_domains_with_allowlist_fail_closed() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "allowlist-no-domains".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec!["safe.com".to_string()],
+                blocked_domains: vec![],
+                ip_rules: None,
+            }),
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let action = Action::new("tool", "func", json!({})); // no target_domains
+        let result = engine.check_network_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => {
+                assert!(reason.contains("No target domains provided"));
+            }
+            _ => panic!("Expected Deny for fail-closed"),
+        }
+    }
+
+    // ---- check_ip_rules tests ----
+
+    #[test]
+    fn test_check_ip_rules_no_rules_returns_none() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "no-ip".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let action = Action::new("tool", "func", json!({}));
+        let result = engine.check_ip_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_check_ip_rules_private_ip_blocked() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "block-private".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec![],
+                blocked_domains: vec![],
+                ip_rules: Some(vellaveto_types::IpRules {
+                    block_private: true,
+                    blocked_cidrs: vec![],
+                    allowed_cidrs: vec![],
+                }),
+            }),
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_domains = vec!["example.com".to_string()];
+        action.resolved_ips = vec!["192.168.1.1".to_string()];
+        let result = engine.check_ip_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => {
+                assert!(reason.contains("private/reserved"));
+            }
+            _ => panic!("Expected Deny for private IP"),
+        }
+    }
+
+    #[test]
+    fn test_check_ip_rules_public_ip_allowed() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "block-private-only".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec![],
+                blocked_domains: vec![],
+                ip_rules: Some(vellaveto_types::IpRules {
+                    block_private: true,
+                    blocked_cidrs: vec![],
+                    allowed_cidrs: vec![],
+                }),
+            }),
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_domains = vec!["example.com".to_string()];
+        action.resolved_ips = vec!["8.8.8.8".to_string()];
+        let result = engine.check_ip_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_check_ip_rules_invalid_ip_deny() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "invalid-ip".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec![],
+                blocked_domains: vec![],
+                ip_rules: Some(vellaveto_types::IpRules {
+                    block_private: false,
+                    blocked_cidrs: vec![],
+                    allowed_cidrs: vec![],
+                }),
+            }),
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_domains = vec!["example.com".to_string()];
+        action.resolved_ips = vec!["not-an-ip".to_string()];
+        let result = engine.check_ip_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => {
+                assert!(reason.contains("Invalid resolved IP"));
+            }
+            _ => panic!("Expected Deny for invalid IP"),
+        }
+    }
+
+    #[test]
+    fn test_check_ip_rules_no_resolved_ips_with_domains_fail_closed() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "missing-ips".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec![],
+                blocked_domains: vec![],
+                ip_rules: Some(vellaveto_types::IpRules {
+                    block_private: true,
+                    blocked_cidrs: vec![],
+                    allowed_cidrs: vec![],
+                }),
+            }),
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_domains = vec!["example.com".to_string()];
+        // No resolved_ips provided
+        let result = engine.check_ip_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => {
+                assert!(reason.contains("no resolved IPs provided"));
+            }
+            _ => panic!("Expected Deny for missing resolved IPs"),
+        }
+    }
+
+    #[test]
+    fn test_check_ip_rules_blocked_cidr() {
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "block-cidr".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec![],
+                blocked_domains: vec![],
+                ip_rules: Some(vellaveto_types::IpRules {
+                    block_private: false,
+                    blocked_cidrs: vec!["10.0.0.0/8".to_string()],
+                    allowed_cidrs: vec![],
+                }),
+            }),
+        };
+        let (engine, idx) = engine_with_policy(policy);
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_domains = vec!["internal.corp".to_string()];
+        action.resolved_ips = vec!["10.1.2.3".to_string()];
+        let result = engine.check_ip_rules(&action, &engine.compiled_policies[idx]);
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => {
+                assert!(reason.contains("blocked CIDR"));
+            }
+            _ => panic!("Expected Deny for blocked CIDR"),
+        }
+    }
+}

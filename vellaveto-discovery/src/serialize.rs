@@ -378,3 +378,273 @@ fn collect_servers(graph: &TopologyGraph, servers: &mut HashMap<String, StaticSe
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::topology::{StaticResourceDecl, StaticServerDecl, StaticToolDecl, TopologyGraph};
+
+    fn make_simple_topology() -> TopologyGraph {
+        TopologyGraph::from_static(vec![StaticServerDecl {
+            name: "fs".to_string(),
+            tools: vec![StaticToolDecl {
+                name: "read_file".to_string(),
+                description: "Read a file from disk".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"}
+                    }
+                }),
+            }],
+            resources: vec![StaticResourceDecl {
+                uri_template: "file:///{path}".to_string(),
+                name: "file_resource".to_string(),
+                mime_type: Some("text/plain".to_string()),
+            }],
+        }])
+        .unwrap()
+    }
+
+    #[test]
+    fn test_from_json_malformed_json_returns_error() {
+        let result = TopologyGraph::from_json("this is not valid json {{{");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_json_empty_object_returns_error() {
+        let result = TopologyGraph::from_json("{}");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_json_missing_fields_returns_error() {
+        // Valid JSON but missing required fields
+        let result = TopologyGraph::from_json(r#"{"nodes": []}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_json_unknown_fields_rejected() {
+        // deny_unknown_fields on TopologySnapshot should reject extra fields
+        let json = r#"{
+            "nodes": [],
+            "edges": [],
+            "crawled_at_epoch_secs": 0,
+            "fingerprint": "00",
+            "extra_field": "should be rejected"
+        }"#;
+        let result = TopologyGraph::from_json(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_snapshot_oversized_edges_rejected() {
+        // Manually construct a snapshot with too many edges (> MAX_SNAPSHOT_EDGES = 100_000)
+        let snapshot = TopologySnapshot {
+            nodes: vec![],
+            edges: (0..100_001)
+                .map(|i| SerializedEdge {
+                    source: format!("s{i}"),
+                    target: format!("t{i}"),
+                    edge: crate::topology::TopologyEdge::Owns,
+                })
+                .collect(),
+            crawled_at_epoch_secs: 0,
+            fingerprint: String::new(),
+        };
+        let result = TopologyGraph::from_snapshot(snapshot);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("exceeds maximum"));
+    }
+
+    #[test]
+    fn test_fingerprint_preserved_after_json_roundtrip() {
+        let original = make_simple_topology();
+        let original_fp = original.fingerprint_hex();
+
+        let json = original.to_json().unwrap();
+        let restored = TopologyGraph::from_json(&json).unwrap();
+
+        // After round-trip, fingerprint should match (recomputed from same data)
+        assert_eq!(
+            original_fp,
+            restored.fingerprint_hex(),
+            "Fingerprint should be stable across JSON round-trip"
+        );
+    }
+
+    #[test]
+    fn test_snapshot_roundtrip_preserves_resources() {
+        let graph = make_simple_topology();
+        let snapshot = graph.to_snapshot();
+        let restored = TopologyGraph::from_snapshot(snapshot).unwrap();
+
+        let resource_names = restored.resource_names();
+        assert!(resource_names.contains(&"fs::file_resource".to_string()));
+    }
+
+    #[test]
+    fn test_tools_matching_capability_case_insensitive() {
+        let graph = make_simple_topology();
+        // "READ" in uppercase should still match "read_file"
+        let matches = graph.tools_matching_capability("READ");
+        assert!(
+            matches.contains(&"fs::read_file".to_string()),
+            "Case-insensitive search should find read_file, got: {matches:?}",
+        );
+    }
+
+    #[test]
+    fn test_tools_matching_capability_matches_description() {
+        let graph = make_simple_topology();
+        // "disk" appears in description "Read a file from disk"
+        let matches = graph.tools_matching_capability("disk");
+        assert!(
+            matches.contains(&"fs::read_file".to_string()),
+            "Should match on description keyword 'disk', got: {matches:?}",
+        );
+    }
+
+    #[test]
+    fn test_tools_matching_capability_empty_keyword() {
+        let graph = make_simple_topology();
+        // Empty string should match everything (every name/description contains "")
+        let matches = graph.tools_matching_capability("");
+        assert!(
+            !matches.is_empty(),
+            "Empty keyword should match all tools"
+        );
+    }
+
+    #[test]
+    fn test_adjacency_list_sorted() {
+        let graph = TopologyGraph::from_static(vec![
+            StaticServerDecl {
+                name: "beta".to_string(),
+                tools: vec![StaticToolDecl {
+                    name: "tool_b".to_string(),
+                    description: "B".to_string(),
+                    input_schema: serde_json::json!({}),
+                }],
+                resources: vec![],
+            },
+            StaticServerDecl {
+                name: "alpha".to_string(),
+                tools: vec![StaticToolDecl {
+                    name: "tool_a".to_string(),
+                    description: "A".to_string(),
+                    input_schema: serde_json::json!({}),
+                }],
+                resources: vec![],
+            },
+        ])
+        .unwrap();
+
+        let adj = graph.to_adjacency_list();
+        // Verify outer list is sorted by source name
+        let sources: Vec<&str> = adj.iter().map(|(s, _)| s.as_str()).collect();
+        let mut sorted_sources = sources.clone();
+        sorted_sources.sort();
+        assert_eq!(sources, sorted_sources, "Adjacency list should be sorted");
+    }
+
+    #[test]
+    fn test_merge_preserves_both_servers_tools() {
+        let t1 = TopologyGraph::from_static(vec![StaticServerDecl {
+            name: "s1".to_string(),
+            tools: vec![
+                StaticToolDecl {
+                    name: "t1".to_string(),
+                    description: "Tool 1".to_string(),
+                    input_schema: serde_json::json!({}),
+                },
+                StaticToolDecl {
+                    name: "t2".to_string(),
+                    description: "Tool 2".to_string(),
+                    input_schema: serde_json::json!({}),
+                },
+            ],
+            resources: vec![],
+        }])
+        .unwrap();
+
+        let t2 = TopologyGraph::from_static(vec![StaticServerDecl {
+            name: "s2".to_string(),
+            tools: vec![StaticToolDecl {
+                name: "t3".to_string(),
+                description: "Tool 3".to_string(),
+                input_schema: serde_json::json!({}),
+            }],
+            resources: vec![],
+        }])
+        .unwrap();
+
+        let merged = t1.merge(&t2).unwrap();
+        assert_eq!(merged.server_count(), 2);
+        assert!(merged.find_tool("s1::t1").is_some());
+        assert!(merged.find_tool("s1::t2").is_some());
+        assert!(merged.find_tool("s2::t3").is_some());
+    }
+
+    #[test]
+    fn test_filter_servers_none_allowed() {
+        let graph = make_simple_topology();
+        let filtered = graph.filter_servers(&[]).unwrap();
+        assert_eq!(filtered.server_count(), 0);
+        assert_eq!(filtered.node_count(), 0);
+    }
+
+    #[test]
+    fn test_filter_servers_nonexistent_name() {
+        let graph = make_simple_topology();
+        let filtered = graph.filter_servers(&["nonexistent"]).unwrap();
+        assert_eq!(filtered.server_count(), 0);
+    }
+
+    #[test]
+    fn test_snapshot_dataflow_edges_roundtrip() {
+        // Build a topology, add DataFlow edges, serialize, and restore
+        let mut graph = TopologyGraph::from_static(vec![StaticServerDecl {
+            name: "srv".to_string(),
+            tools: vec![
+                StaticToolDecl {
+                    name: "producer".to_string(),
+                    description: "Produces data".to_string(),
+                    input_schema: serde_json::json!({}),
+                },
+                StaticToolDecl {
+                    name: "consumer".to_string(),
+                    description: "Consumes data".to_string(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "data": {"type": "string"}
+                        }
+                    }),
+                },
+            ],
+            resources: vec![],
+        }])
+        .unwrap();
+
+        // Manually add a DataFlow edge via inference engine
+        let engine = crate::inference::InferenceEngine::new(crate::inference::InferenceConfig {
+            threshold: 0.0,
+            ..crate::inference::InferenceConfig::default()
+        });
+        engine.infer_edges(&mut graph);
+
+        let initial_edge_count = graph.edge_count();
+        let json = graph.to_json().unwrap();
+        let restored = TopologyGraph::from_json(&json).unwrap();
+
+        assert_eq!(
+            initial_edge_count,
+            restored.edge_count(),
+            "Edge count should be preserved across roundtrip"
+        );
+    }
+}

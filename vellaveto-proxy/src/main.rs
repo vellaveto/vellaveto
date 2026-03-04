@@ -430,6 +430,18 @@ async fn main() -> Result<()> {
         bridge = bridge.with_injection_disabled(true);
     }
 
+    // Phase 71 (R233-DLP-1): Wire cross-call DLP tracker when DLP is enabled.
+    if injection_config.enabled {
+        bridge = bridge.with_cross_call_dlp(true);
+        tracing::info!("Cross-call DLP: ENABLED");
+    }
+
+    // TI-2026-001 (R233-MCPSEC-2): Wire sharded exfiltration detection when DLP is enabled.
+    if injection_config.enabled {
+        bridge = bridge.with_sharded_exfil(true);
+        tracing::info!("Sharded exfiltration detection: ENABLED");
+    }
+
     // SECURITY (FIND-R78-001): MCP 2025-11-25 tool name validation parity with HTTP proxy.
     if policy_config.streamable_http.strict_tool_name_validation {
         bridge = bridge.with_strict_tool_name_validation(true);

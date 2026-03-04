@@ -803,3 +803,124 @@ impl std::fmt::Display for ReportExportFormat {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Helper: minimal valid DataGovernanceRecord ───────────────────────
+
+    fn valid_dgr() -> DataGovernanceRecord {
+        DataGovernanceRecord {
+            tool: "my-tool".to_string(),
+            classifications: vec![DataClassification::Input],
+            purpose: ProcessingPurpose::ToolExecution,
+            provenance: None,
+            retention_days: Some(90),
+        }
+    }
+
+    // ── DataGovernanceRecord::validate() — valid baseline ───────────────
+
+    #[test]
+    fn test_data_governance_record_validate_valid_baseline_ok() {
+        assert!(valid_dgr().validate().is_ok());
+    }
+
+    // ── tool field validation ───────────────────────────────────────────
+
+    #[test]
+    fn test_data_governance_record_validate_empty_tool_rejected() {
+        let mut dgr = valid_dgr();
+        dgr.tool = String::new();
+        assert!(dgr.validate().unwrap_err().contains("tool must not be empty"));
+    }
+
+    #[test]
+    fn test_data_governance_record_validate_tool_too_long_rejected() {
+        let mut dgr = valid_dgr();
+        dgr.tool = "t".repeat(257);
+        let err = dgr.validate().unwrap_err();
+        assert!(err.contains("tool length"), "got: {err}");
+    }
+
+    #[test]
+    fn test_data_governance_record_validate_tool_control_chars_rejected() {
+        let mut dgr = valid_dgr();
+        dgr.tool = "tool\x00null".to_string();
+        let err = dgr.validate().unwrap_err();
+        assert!(err.contains("control or format"), "got: {err}");
+    }
+
+    // ── classifications bounds ──────────────────────────────────────────
+
+    #[test]
+    fn test_data_governance_record_validate_classifications_overflow_rejected() {
+        let mut dgr = valid_dgr();
+        dgr.classifications = vec![DataClassification::Input; 65];
+        let err = dgr.validate().unwrap_err();
+        assert!(err.contains("classifications count"), "got: {err}");
+    }
+
+    #[test]
+    fn test_data_governance_record_validate_classifications_at_max_ok() {
+        let mut dgr = valid_dgr();
+        dgr.classifications = vec![DataClassification::Output; 64];
+        assert!(dgr.validate().is_ok());
+    }
+
+    #[test]
+    fn test_data_governance_record_validate_empty_classifications_ok() {
+        let mut dgr = valid_dgr();
+        dgr.classifications = vec![];
+        assert!(dgr.validate().is_ok());
+    }
+
+    // ── provenance field validation ─────────────────────────────────────
+
+    #[test]
+    fn test_data_governance_record_validate_provenance_too_long_rejected() {
+        let mut dgr = valid_dgr();
+        dgr.provenance = Some("p".repeat(513));
+        let err = dgr.validate().unwrap_err();
+        assert!(err.contains("provenance length"), "got: {err}");
+    }
+
+    #[test]
+    fn test_data_governance_record_validate_provenance_control_chars_rejected() {
+        let mut dgr = valid_dgr();
+        dgr.provenance = Some("user\x01input".to_string());
+        let err = dgr.validate().unwrap_err();
+        assert!(err.contains("provenance contains control"), "got: {err}");
+    }
+
+    #[test]
+    fn test_data_governance_record_validate_provenance_none_ok() {
+        let mut dgr = valid_dgr();
+        dgr.provenance = None;
+        assert!(dgr.validate().is_ok());
+    }
+
+    // ── retention_days (no validation in current impl, verify no crash) ─
+
+    #[test]
+    fn test_data_governance_record_validate_retention_days_none_ok() {
+        let mut dgr = valid_dgr();
+        dgr.retention_days = None;
+        assert!(dgr.validate().is_ok());
+    }
+
+    #[test]
+    fn test_data_governance_record_validate_retention_days_zero_ok() {
+        let mut dgr = valid_dgr();
+        dgr.retention_days = Some(0);
+        assert!(dgr.validate().is_ok());
+    }
+
+    #[test]
+    fn test_data_governance_record_validate_retention_days_max_ok() {
+        let mut dgr = valid_dgr();
+        dgr.retention_days = Some(u32::MAX);
+        assert!(dgr.validate().is_ok());
+    }
+}

@@ -463,3 +463,176 @@ pub(super) async fn validate_agent_identity(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderMap;
+    use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+
+    // =========================================================================
+    // build_effective_request_uri tests
+    // =========================================================================
+
+    #[test]
+    fn test_build_effective_request_uri_no_headers_uses_bind_addr() {
+        let headers = HeaderMap::new();
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 3000));
+        let uri: axum::http::Uri = "/mcp".parse().unwrap();
+        let result = build_effective_request_uri(&headers, bind, &uri, false);
+        assert_eq!(result, "http://127.0.0.1:3000/mcp");
+    }
+
+    #[test]
+    fn test_build_effective_request_uri_port_443_uses_https() {
+        let headers = HeaderMap::new();
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 443));
+        let uri: axum::http::Uri = "/api/v1".parse().unwrap();
+        let result = build_effective_request_uri(&headers, bind, &uri, false);
+        assert_eq!(result, "https://0.0.0.0:443/api/v1");
+    }
+
+    #[test]
+    fn test_build_effective_request_uri_host_header_used() {
+        let mut headers = HeaderMap::new();
+        headers.insert(axum::http::header::HOST, "example.com".parse().unwrap());
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 8080));
+        let uri: axum::http::Uri = "/mcp".parse().unwrap();
+        let result = build_effective_request_uri(&headers, bind, &uri, false);
+        assert_eq!(result, "http://example.com/mcp");
+    }
+
+    #[test]
+    fn test_build_effective_request_uri_forwarded_headers_trusted_proxy() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-proto", "https".parse().unwrap());
+        headers.insert("x-forwarded-host", "api.example.com".parse().unwrap());
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 8080));
+        let uri: axum::http::Uri = "/mcp".parse().unwrap();
+        let result = build_effective_request_uri(&headers, bind, &uri, true);
+        assert_eq!(result, "https://api.example.com/mcp");
+    }
+
+    #[test]
+    fn test_build_effective_request_uri_forwarded_headers_untrusted_proxy_ignored() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-proto", "https".parse().unwrap());
+        headers.insert("x-forwarded-host", "evil.com".parse().unwrap());
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 8080));
+        let uri: axum::http::Uri = "/mcp".parse().unwrap();
+        let result = build_effective_request_uri(&headers, bind, &uri, false);
+        // Untrusted: forwarded headers should be ignored, falls back to bind addr
+        assert_eq!(result, "http://0.0.0.0:8080/mcp");
+    }
+
+    #[test]
+    fn test_build_effective_request_uri_forwarded_proto_comma_separated() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-proto", "https, http".parse().unwrap());
+        headers.insert(axum::http::header::HOST, "example.com".parse().unwrap());
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 80));
+        let uri: axum::http::Uri = "/".parse().unwrap();
+        let result = build_effective_request_uri(&headers, bind, &uri, true);
+        assert_eq!(result, "https://example.com/");
+    }
+
+    #[test]
+    fn test_build_effective_request_uri_forwarded_host_with_slash_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-host", "evil.com/path".parse().unwrap());
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 8080));
+        let uri: axum::http::Uri = "/mcp".parse().unwrap();
+        let result = build_effective_request_uri(&headers, bind, &uri, true);
+        // Forwarded-Host with slash is filtered out, falls back to bind addr
+        assert_eq!(result, "http://0.0.0.0:8080/mcp");
+    }
+
+    #[test]
+    fn test_build_effective_request_uri_ipv6_bind_addr() {
+        let headers = HeaderMap::new();
+        let bind = SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, 3000, 0, 0));
+        let uri: axum::http::Uri = "/mcp".parse().unwrap();
+        let result = build_effective_request_uri(&headers, bind, &uri, false);
+        assert_eq!(result, "http://[::1]:3000/mcp");
+    }
+
+    #[test]
+    fn test_build_effective_request_uri_empty_host_header_uses_bind() {
+        let mut headers = HeaderMap::new();
+        headers.insert(axum::http::header::HOST, "".parse().unwrap());
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 0, 0, 1), 9090));
+        let uri: axum::http::Uri = "/api".parse().unwrap();
+        let result = build_effective_request_uri(&headers, bind, &uri, false);
+        assert_eq!(result, "http://10.0.0.1:9090/api");
+    }
+
+    #[test]
+    fn test_build_effective_request_uri_path_and_query_preserved() {
+        let headers = HeaderMap::new();
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 3000));
+        let uri: axum::http::Uri = "/mcp?trace=true&debug=1".parse().unwrap();
+        let result = build_effective_request_uri(&headers, bind, &uri, false);
+        assert_eq!(result, "http://127.0.0.1:3000/mcp?trace=true&debug=1");
+    }
+
+    // =========================================================================
+    // dpop_mode_label tests
+    // =========================================================================
+
+    #[test]
+    fn test_dpop_mode_label_off() {
+        assert_eq!(dpop_mode_label(crate::oauth::DpopMode::Off), "off");
+    }
+
+    #[test]
+    fn test_dpop_mode_label_optional() {
+        assert_eq!(
+            dpop_mode_label(crate::oauth::DpopMode::Optional),
+            "optional"
+        );
+    }
+
+    #[test]
+    fn test_dpop_mode_label_required() {
+        assert_eq!(
+            dpop_mode_label(crate::oauth::DpopMode::Required),
+            "required"
+        );
+    }
+
+    // =========================================================================
+    // dpop_failure_label tests
+    // =========================================================================
+
+    #[test]
+    fn test_dpop_failure_label_missing_proof() {
+        assert_eq!(
+            dpop_failure_label(&OAuthError::MissingDpopProof),
+            "missing_proof"
+        );
+    }
+
+    #[test]
+    fn test_dpop_failure_label_replay_detected() {
+        assert_eq!(
+            dpop_failure_label(&OAuthError::DpopReplayDetected),
+            "replay_detected"
+        );
+    }
+
+    #[test]
+    fn test_dpop_failure_label_invalid_proof() {
+        assert_eq!(
+            dpop_failure_label(&OAuthError::InvalidDpopProof("bad".to_string())),
+            "invalid_proof"
+        );
+    }
+
+    #[test]
+    fn test_dpop_failure_label_other_error_is_validation_error() {
+        assert_eq!(
+            dpop_failure_label(&OAuthError::InvalidFormat),
+            "validation_error"
+        );
+    }
+}

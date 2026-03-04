@@ -1033,3 +1033,385 @@ pub const MAX_DATA_FLOW_FINDINGS: usize = 50_000;
 
 /// Maximum fingerprints per DLP pattern.
 pub const MAX_DATA_FLOW_FINGERPRINTS: usize = 10_000;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ═══════════════════════════════════════════════════
+    // BehavioralDetectionConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_behavioral_validate_default_ok() {
+        let config = BehavioralDetectionConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_behavioral_validate_alpha_zero_rejected() {
+        let mut config = BehavioralDetectionConfig::default();
+        config.alpha = 0.0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.alpha"));
+    }
+
+    #[test]
+    fn test_behavioral_validate_alpha_negative_rejected() {
+        let mut config = BehavioralDetectionConfig::default();
+        config.alpha = -0.1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.alpha"));
+    }
+
+    #[test]
+    fn test_behavioral_validate_alpha_above_one_rejected() {
+        let mut config = BehavioralDetectionConfig::default();
+        config.alpha = 1.001;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.alpha"));
+    }
+
+    #[test]
+    fn test_behavioral_validate_alpha_exactly_one_ok() {
+        let mut config = BehavioralDetectionConfig::default();
+        config.alpha = 1.0;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_behavioral_validate_alpha_nan_rejected() {
+        let mut config = BehavioralDetectionConfig::default();
+        config.alpha = f64::NAN;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.alpha"));
+    }
+
+    #[test]
+    fn test_behavioral_validate_alpha_infinity_rejected() {
+        let mut config = BehavioralDetectionConfig::default();
+        config.alpha = f64::INFINITY;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.alpha"));
+    }
+
+    #[test]
+    fn test_behavioral_validate_alpha_neg_infinity_rejected() {
+        let mut config = BehavioralDetectionConfig::default();
+        config.alpha = f64::NEG_INFINITY;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.alpha"));
+    }
+
+    #[test]
+    fn test_behavioral_validate_threshold_zero_rejected() {
+        let mut config = BehavioralDetectionConfig::default();
+        config.threshold = 0.0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.threshold"));
+    }
+
+    #[test]
+    fn test_behavioral_validate_threshold_negative_rejected() {
+        let mut config = BehavioralDetectionConfig::default();
+        config.threshold = -1.0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.threshold"));
+    }
+
+    #[test]
+    fn test_behavioral_validate_threshold_nan_rejected() {
+        let mut config = BehavioralDetectionConfig::default();
+        config.threshold = f64::NAN;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.threshold"));
+    }
+
+    #[test]
+    fn test_behavioral_validate_threshold_infinity_rejected() {
+        let mut config = BehavioralDetectionConfig::default();
+        config.threshold = f64::INFINITY;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.threshold"));
+    }
+
+    #[test]
+    fn test_behavioral_validate_max_agents_over_cap_rejected() {
+        let mut config = BehavioralDetectionConfig::default();
+        config.max_agents = MAX_BEHAVIORAL_AGENTS + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.max_agents"));
+    }
+
+    #[test]
+    fn test_behavioral_validate_max_tools_over_cap_rejected() {
+        let mut config = BehavioralDetectionConfig::default();
+        config.max_tools_per_agent = MAX_BEHAVIORAL_TOOLS_PER_AGENT + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.max_tools_per_agent"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // SemanticDetectionConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_semantic_detection_validate_default_ok() {
+        let config = SemanticDetectionConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_semantic_detection_validate_threshold_zero_rejected() {
+        let mut config = SemanticDetectionConfig::default();
+        config.threshold = 0.0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("semantic_detection.threshold"));
+    }
+
+    #[test]
+    fn test_semantic_detection_validate_threshold_above_one_rejected() {
+        let mut config = SemanticDetectionConfig::default();
+        config.threshold = 1.01;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("semantic_detection.threshold"));
+    }
+
+    #[test]
+    fn test_semantic_detection_validate_threshold_nan_rejected() {
+        let mut config = SemanticDetectionConfig::default();
+        config.threshold = f64::NAN;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("semantic_detection.threshold"));
+    }
+
+    #[test]
+    fn test_semantic_detection_validate_threshold_infinity_rejected() {
+        let mut config = SemanticDetectionConfig::default();
+        config.threshold = f64::INFINITY;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("semantic_detection.threshold"));
+    }
+
+    #[test]
+    fn test_semantic_detection_validate_threshold_exactly_one_ok() {
+        let mut config = SemanticDetectionConfig::default();
+        config.threshold = 1.0;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_semantic_detection_validate_min_text_length_zero_rejected() {
+        let mut config = SemanticDetectionConfig::default();
+        config.min_text_length = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("min_text_length"));
+    }
+
+    #[test]
+    fn test_semantic_detection_validate_extra_templates_over_max_rejected() {
+        let mut config = SemanticDetectionConfig::default();
+        config.extra_templates = (0..=MAX_SEMANTIC_EXTRA_TEMPLATES)
+            .map(|i| format!("template_{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("extra_templates"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // CircuitBreakerConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_circuit_breaker_validate_default_ok() {
+        let config = CircuitBreakerConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_circuit_breaker_validate_failure_threshold_zero_rejected() {
+        let mut config = CircuitBreakerConfig::default();
+        config.failure_threshold = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("failure_threshold"));
+    }
+
+    #[test]
+    fn test_circuit_breaker_validate_success_threshold_zero_rejected() {
+        let mut config = CircuitBreakerConfig::default();
+        config.success_threshold = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("success_threshold"));
+    }
+
+    #[test]
+    fn test_circuit_breaker_validate_open_duration_zero_rejected() {
+        let mut config = CircuitBreakerConfig::default();
+        config.open_duration_secs = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("open_duration_secs"));
+    }
+
+    #[test]
+    fn test_circuit_breaker_validate_half_open_max_requests_zero_rejected() {
+        let mut config = CircuitBreakerConfig::default();
+        config.half_open_max_requests = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("half_open_max_requests"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // DeputyConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_deputy_validate_default_ok() {
+        let config = DeputyConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_deputy_validate_too_many_non_delegatable_tools_rejected() {
+        let mut config = DeputyConfig::default();
+        config.non_delegatable_tools = (0..=MAX_NON_DELEGATABLE_TOOLS)
+            .map(|i| format!("tool_{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("non_delegatable_tools"));
+    }
+
+    #[test]
+    fn test_deputy_validate_empty_tool_rejected() {
+        let mut config = DeputyConfig::default();
+        config.non_delegatable_tools = vec!["".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("must not be empty"));
+    }
+
+    #[test]
+    fn test_deputy_validate_tool_too_long_rejected() {
+        let mut config = DeputyConfig::default();
+        config.non_delegatable_tools = vec!["x".repeat(MAX_NON_DELEGATABLE_TOOL_LEN + 1)];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("exceeds max length"));
+    }
+
+    #[test]
+    fn test_deputy_validate_tool_with_control_chars_rejected() {
+        let mut config = DeputyConfig::default();
+        config.non_delegatable_tools = vec!["tool\x00name".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // SchemaPoisoningConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_schema_poisoning_validate_default_ok() {
+        let config = SchemaPoisoningConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_schema_poisoning_validate_mutation_threshold_nan_rejected() {
+        let mut config = SchemaPoisoningConfig::default();
+        config.mutation_threshold = f32::NAN;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("mutation_threshold"));
+    }
+
+    #[test]
+    fn test_schema_poisoning_validate_mutation_threshold_negative_rejected() {
+        let mut config = SchemaPoisoningConfig::default();
+        config.mutation_threshold = -0.1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("mutation_threshold"));
+    }
+
+    #[test]
+    fn test_schema_poisoning_validate_mutation_threshold_above_one_rejected() {
+        let mut config = SchemaPoisoningConfig::default();
+        config.mutation_threshold = 1.1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("mutation_threshold"));
+    }
+
+    #[test]
+    fn test_schema_poisoning_validate_max_tracked_schemas_over_cap_rejected() {
+        let mut config = SchemaPoisoningConfig::default();
+        config.max_tracked_schemas = MAX_TRACKED_SCHEMAS + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_tracked_schemas"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // CrossAgentConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_cross_agent_validate_default_ok() {
+        let config = CrossAgentConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_cross_agent_validate_deny_threshold_nan_rejected() {
+        let mut config = CrossAgentConfig::default();
+        config.escalation_deny_threshold = f32::NAN;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("escalation_deny_threshold"));
+    }
+
+    #[test]
+    fn test_cross_agent_validate_deny_threshold_above_one_rejected() {
+        let mut config = CrossAgentConfig::default();
+        config.escalation_deny_threshold = 1.1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("escalation_deny_threshold"));
+    }
+
+    #[test]
+    fn test_cross_agent_validate_alert_threshold_nan_rejected() {
+        let mut config = CrossAgentConfig::default();
+        config.escalation_alert_threshold = f32::NAN;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("escalation_alert_threshold"));
+    }
+
+    #[test]
+    fn test_cross_agent_validate_alert_above_deny_rejected() {
+        let mut config = CrossAgentConfig::default();
+        config.escalation_alert_threshold = 0.9;
+        config.escalation_deny_threshold = 0.5;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("must be <= escalation_deny_threshold"));
+    }
+
+    #[test]
+    fn test_cross_agent_validate_too_many_trusted_agents_rejected() {
+        let mut config = CrossAgentConfig::default();
+        config.trusted_agents = (0..=MAX_CROSS_AGENT_TRUSTED_AGENTS)
+            .map(|i| format!("agent_{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("trusted_agents"));
+    }
+
+    #[test]
+    fn test_cross_agent_validate_empty_trusted_agent_rejected() {
+        let mut config = CrossAgentConfig::default();
+        config.trusted_agents = vec!["".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("must not be empty"));
+    }
+
+    #[test]
+    fn test_cross_agent_validate_trusted_agent_control_char_rejected() {
+        let mut config = CrossAgentConfig::default();
+        config.trusted_agents = vec!["agent\x07bell".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+}

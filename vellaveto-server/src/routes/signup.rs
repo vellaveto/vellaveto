@@ -69,7 +69,7 @@ fn default_tier() -> String {
 }
 
 /// Self-service signup response.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct SignupResponse {
     /// Created tenant ID.
     pub tenant_id: String,
@@ -81,6 +81,19 @@ pub struct SignupResponse {
     pub server_url: String,
     /// Onboarding instructions.
     pub next_steps: Vec<String>,
+}
+
+// SECURITY (FIND-GAP-001): Custom Debug redacts api_key to prevent log leakage.
+impl std::fmt::Debug for SignupResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignupResponse")
+            .field("tenant_id", &self.tenant_id)
+            .field("api_key", &"[REDACTED]")
+            .field("plan", &self.plan)
+            .field("server_url", &self.server_url)
+            .field("next_steps", &self.next_steps)
+            .finish()
+    }
 }
 
 /// `POST /api/signup`

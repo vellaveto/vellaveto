@@ -628,3 +628,195 @@ impl AuditLogger {
         self.log_entry(&action, &verdict, metadata).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    fn make_logger() -> (AuditLogger, TempDir) {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path);
+        (logger, tmp)
+    }
+
+    // ── merge_details_safe tests ────────────────────────────────────
+
+    #[test]
+    fn test_merge_details_safe_adds_non_reserved_keys() {
+        let mut metadata = json!({"event": "test"});
+        let details = json!({"severity": "high", "tool_name": "foo"});
+        merge_details_safe(&mut metadata, details);
+        assert_eq!(metadata["severity"], "high");
+        assert_eq!(metadata["tool_name"], "foo");
+    }
+
+    #[test]
+    fn test_merge_details_safe_blocks_reserved_event_key() {
+        let mut metadata = json!({"event": "original"});
+        let details = json!({"event": "injected"});
+        merge_details_safe(&mut metadata, details);
+        // The "event" key is reserved and must not be overwritten
+        assert_eq!(metadata["event"], "original");
+    }
+
+    #[test]
+    fn test_merge_details_safe_blocks_all_reserved_keys() {
+        let mut metadata = json!({"event": "test"});
+        for &key in RESERVED_METADATA_KEYS {
+            let details = json!({key: "evil_value"});
+            merge_details_safe(&mut metadata, details);
+            // Reserved keys should not appear with the injected value
+            if key == "event" {
+                assert_eq!(metadata[key], "test");
+            } else {
+                // Should not have been inserted
+                assert!(metadata.get(key).is_none(), "Reserved key '{}' was inserted", key);
+            }
+        }
+    }
+
+    #[test]
+    fn test_merge_details_safe_non_object_details_ignored() {
+        let mut metadata = json!({"event": "test"});
+        merge_details_safe(&mut metadata, json!("string_value"));
+        // Non-object details should be silently ignored
+        assert_eq!(metadata, json!({"event": "test"}));
+    }
+
+    #[test]
+    fn test_merge_details_safe_non_object_metadata_no_crash() {
+        let mut metadata = json!("not_an_object");
+        merge_details_safe(&mut metadata, json!({"key": "val"}));
+        // Non-object metadata should not crash; nothing happens
+        assert_eq!(metadata, json!("not_an_object"));
+    }
+
+    // ── log_heartbeat tests ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_log_heartbeat_creates_entry() {
+        let (logger, _tmp) = make_logger();
+        logger.log_heartbeat(60, 1).await.expect("heartbeat");
+        let entries = logger.load_entries().await.expect("load");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].action.tool, "vellaveto");
+        assert_eq!(entries[0].action.function, "heartbeat");
+        assert!(matches!(entries[0].verdict, Verdict::Allow));
+        assert_eq!(entries[0].metadata["event"], "heartbeat");
+        assert_eq!(entries[0].metadata["interval_secs"], 60);
+        assert_eq!(entries[0].metadata["sequence"], 1);
+    }
+
+    // ── log_circuit_breaker_event tests ─────────────────────────────
+
+    #[tokio::test]
+    async fn test_log_circuit_breaker_rejected_produces_deny() {
+        let (logger, _tmp) = make_logger();
+        logger
+            .log_circuit_breaker_event("rejected", "bad_tool", json!({"failures": 10}))
+            .await
+            .expect("cb event");
+        let entries = logger.load_entries().await.expect("load");
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(entries[0].verdict, Verdict::Deny { .. }));
+        if let Verdict::Deny { reason } = &entries[0].verdict {
+            assert!(reason.contains("bad_tool"));
+        }
+        assert_eq!(entries[0].metadata["event"], "circuit_breaker.rejected");
+        assert_eq!(entries[0].metadata["failures"], 10);
+    }
+
+    #[tokio::test]
+    async fn test_log_circuit_breaker_opened_produces_allow() {
+        let (logger, _tmp) = make_logger();
+        logger
+            .log_circuit_breaker_event("opened", "some_tool", json!({}))
+            .await
+            .expect("cb event");
+        let entries = logger.load_entries().await.expect("load");
+        assert!(matches!(entries[0].verdict, Verdict::Allow));
+        assert_eq!(entries[0].metadata["event"], "circuit_breaker.opened");
+    }
+
+    // ── Reserved key protection in circuit breaker details ──────────
+
+    #[tokio::test]
+    async fn test_log_circuit_breaker_details_cannot_overwrite_event() {
+        let (logger, _tmp) = make_logger();
+        logger
+            .log_circuit_breaker_event("opened", "tool", json!({"event": "injected"}))
+            .await
+            .expect("cb event");
+        let entries = logger.load_entries().await.expect("load");
+        // The "event" key should be the original, not the injected one
+        assert_eq!(entries[0].metadata["event"], "circuit_breaker.opened");
+    }
+
+    // ── log_shadow_agent_event tests ────────────────────────────────
+
+    #[tokio::test]
+    async fn test_log_shadow_agent_detected_produces_deny() {
+        let (logger, _tmp) = make_logger();
+        logger
+            .log_shadow_agent_event("detected", "agent-x", json!({}))
+            .await
+            .expect("shadow agent");
+        let entries = logger.load_entries().await.expect("load");
+        assert!(matches!(entries[0].verdict, Verdict::Deny { .. }));
+        if let Verdict::Deny { reason } = &entries[0].verdict {
+            assert!(reason.contains("agent-x"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_log_shadow_agent_registered_produces_allow() {
+        let (logger, _tmp) = make_logger();
+        logger
+            .log_shadow_agent_event("registered", "agent-y", json!({}))
+            .await
+            .expect("shadow agent");
+        let entries = logger.load_entries().await.expect("load");
+        assert!(matches!(entries[0].verdict, Verdict::Allow));
+    }
+
+    // ── log_sampling_event tests ────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_log_sampling_event_always_deny() {
+        let (logger, _tmp) = make_logger();
+        logger
+            .log_sampling_event("rate_limit", "sess-1", json!({}))
+            .await
+            .expect("sampling");
+        let entries = logger.load_entries().await.expect("load");
+        assert!(matches!(entries[0].verdict, Verdict::Deny { .. }));
+        assert_eq!(entries[0].metadata["event"], "sampling.rate_limit");
+    }
+
+    // ── log_task_lifecycle_event tests ───────────────────────────────
+
+    #[tokio::test]
+    async fn test_log_task_lifecycle_failed_produces_deny() {
+        let (logger, _tmp) = make_logger();
+        logger
+            .log_task_lifecycle_event("failed", "task-42", json!({}))
+            .await
+            .expect("task lifecycle");
+        let entries = logger.load_entries().await.expect("load");
+        assert!(matches!(entries[0].verdict, Verdict::Deny { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_log_task_lifecycle_completed_produces_allow() {
+        let (logger, _tmp) = make_logger();
+        logger
+            .log_task_lifecycle_event("completed", "task-42", json!({}))
+            .await
+            .expect("task lifecycle");
+        let entries = logger.load_entries().await.expect("load");
+        assert!(matches!(entries[0].verdict, Verdict::Allow));
+    }
+}

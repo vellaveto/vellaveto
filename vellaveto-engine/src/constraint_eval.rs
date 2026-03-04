@@ -534,3 +534,327 @@ impl PolicyEngine {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use vellaveto_types::PolicyType;
+
+    fn make_allow_policy(name: &str) -> Policy {
+        Policy {
+            id: "*".to_string(),
+            name: name.to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }
+    }
+
+    fn make_conditional_policy(name: &str, conditions: serde_json::Value) -> Policy {
+        Policy {
+            id: "*".to_string(),
+            name: name.to_string(),
+            policy_type: PolicyType::Conditional { conditions },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }
+    }
+
+    // ---- require_approval tests ----
+
+    #[test]
+    fn test_evaluate_compiled_conditions_require_approval() {
+        let policy = make_conditional_policy("approval", json!({ "require_approval": true }));
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({}));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Verdict::RequireApproval { .. }));
+    }
+
+    // ---- forbidden_parameters tests ----
+
+    #[test]
+    fn test_evaluate_compiled_conditions_forbidden_param_present_deny() {
+        let policy = make_conditional_policy(
+            "no-secret",
+            json!({ "forbidden_parameters": ["secret"] }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({ "secret": "value" }));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => {
+                assert!(reason.contains("forbidden"));
+            }
+            _ => panic!("Expected Deny for forbidden parameter"),
+        }
+    }
+
+    #[test]
+    fn test_evaluate_compiled_conditions_forbidden_param_absent_allow() {
+        let policy = make_conditional_policy(
+            "no-secret",
+            json!({ "forbidden_parameters": ["secret"] }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({ "name": "safe" }));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Verdict::Allow));
+    }
+
+    // ---- required_parameters tests ----
+
+    #[test]
+    fn test_evaluate_compiled_conditions_required_param_missing_deny() {
+        let policy = make_conditional_policy(
+            "need-token",
+            json!({ "required_parameters": ["token"] }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({}));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => {
+                assert!(reason.contains("missing"));
+            }
+            _ => panic!("Expected Deny for missing required parameter"),
+        }
+    }
+
+    #[test]
+    fn test_evaluate_compiled_conditions_required_param_present_allow() {
+        let policy = make_conditional_policy(
+            "need-token",
+            json!({ "required_parameters": ["token"] }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({ "token": "abc123" }));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Verdict::Allow));
+    }
+
+    // ---- on_no_match_continue tests ----
+
+    #[test]
+    fn test_evaluate_compiled_conditions_on_no_match_continue_returns_none() {
+        let policy = make_conditional_policy(
+            "continue-test",
+            json!({
+                "on_no_match": "continue",
+                "parameter_constraints": [
+                    { "param": "nonexistent", "op": "eq", "value": "x", "on_missing": "skip" }
+                ]
+            }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({}));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        // on_no_match=continue -> returns None
+        assert!(result.is_none());
+    }
+
+    // ---- fail-closed when all constraints skipped ----
+
+    #[test]
+    fn test_evaluate_compiled_conditions_all_skipped_fail_closed() {
+        // When all constraints skip due to missing params and on_no_match is NOT continue,
+        // the engine should fail-closed with Deny.
+        let policy = make_conditional_policy(
+            "fail-closed",
+            json!({
+                "parameter_constraints": [
+                    { "param": "missing1", "op": "eq", "value": "x", "on_missing": "skip" },
+                    { "param": "missing2", "op": "eq", "value": "y", "on_missing": "skip" }
+                ]
+            }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({}));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => {
+                assert!(reason.contains("constraints skipped"));
+            }
+            _ => panic!("Expected Deny for all-skipped fail-closed"),
+        }
+    }
+
+    // ---- Eq constraint tests ----
+
+    #[test]
+    fn test_evaluate_compiled_constraint_eq_match() {
+        let policy = make_conditional_policy(
+            "eq-test",
+            json!({
+                "parameter_constraints": [
+                    { "param": "mode", "op": "eq", "value": "danger", "on_match": "deny" }
+                ]
+            }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({ "mode": "danger" }));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_evaluate_compiled_constraint_eq_no_match() {
+        let policy = make_conditional_policy(
+            "eq-no-match",
+            json!({
+                "parameter_constraints": [
+                    { "param": "mode", "op": "eq", "value": "danger", "on_match": "deny" }
+                ]
+            }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({ "mode": "safe" }));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(result.is_some());
+        // No constraint fired -> Allow (default for no constraints firing)
+        assert!(matches!(result.unwrap(), Verdict::Allow));
+    }
+
+    // ---- Ne constraint tests ----
+
+    #[test]
+    fn test_evaluate_compiled_constraint_ne_match() {
+        let policy = make_conditional_policy(
+            "ne-test",
+            json!({
+                "parameter_constraints": [
+                    { "param": "level", "op": "ne", "value": 0, "on_match": "deny" }
+                ]
+            }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({ "level": 5 }));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Verdict::Deny { .. }));
+    }
+
+    // ---- OneOf constraint tests ----
+
+    #[test]
+    fn test_evaluate_compiled_constraint_one_of_match() {
+        let policy = make_conditional_policy(
+            "one-of-test",
+            json!({
+                "parameter_constraints": [
+                    { "param": "env", "op": "one_of", "values": ["prod", "staging"], "on_match": "allow" }
+                ]
+            }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({ "env": "prod" }));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_evaluate_compiled_constraint_one_of_no_match() {
+        let policy = make_conditional_policy(
+            "one-of-miss",
+            json!({
+                "parameter_constraints": [
+                    { "param": "env", "op": "one_of", "values": ["prod", "staging"], "on_match": "allow" }
+                ]
+            }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({ "env": "dev" }));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(result.is_some());
+        // env="dev" not in [prod, staging], so one_of doesn't fire -> Allow (no constraints fired)
+        assert!(matches!(result.unwrap(), Verdict::Allow));
+    }
+
+    // ---- NoneOf constraint tests ----
+
+    #[test]
+    fn test_evaluate_compiled_constraint_none_of_match() {
+        let policy = make_conditional_policy(
+            "none-of-test",
+            json!({
+                "parameter_constraints": [
+                    { "param": "action", "op": "none_of", "values": ["delete", "drop"], "on_match": "deny" }
+                ]
+            }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        // "read" is NOT in [delete, drop], so none_of fires
+        let action = Action::new("tool", "func", json!({ "action": "read" }));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_evaluate_compiled_constraint_none_of_no_match() {
+        let policy = make_conditional_policy(
+            "none-of-no-match",
+            json!({
+                "parameter_constraints": [
+                    { "param": "action", "op": "none_of", "values": ["delete", "drop"], "on_match": "deny" }
+                ]
+            }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        // "delete" IS in [delete, drop], so none_of does NOT fire
+        let action = Action::new("tool", "func", json!({ "action": "delete" }));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Verdict::Allow));
+    }
+
+    // ---- Missing param with on_missing=deny (fail-closed default) ----
+
+    #[test]
+    fn test_evaluate_compiled_constraint_missing_param_deny() {
+        let policy = make_conditional_policy(
+            "missing-deny",
+            json!({
+                "parameter_constraints": [
+                    { "param": "path", "op": "glob", "pattern": "/safe/**", "on_match": "allow", "on_missing": "deny" }
+                ]
+            }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({})); // no "path" param
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => {
+                assert!(reason.contains("missing"));
+            }
+            _ => panic!("Expected Deny for missing param with on_missing=deny"),
+        }
+    }
+}

@@ -197,6 +197,10 @@ pub(super) struct RelayState {
     /// R227: Per-tool sampling call timestamps for rate limiting.
     /// Key: tool name, Value: timestamps of sampling calls within the window.
     sampling_per_tool: HashMap<String, VecDeque<Instant>>,
+    /// Phase 71 (R233-DLP-1): Cross-call DLP tracker for secrets split across tool calls.
+    cross_call_dlp: Option<crate::inspection::cross_call_dlp::CrossCallDlpTracker>,
+    /// TI-2026-001 (R233-MCPSEC-2): Sharded exfiltration tracker per session.
+    sharded_exfil: Option<crate::inspection::dlp::ShardedExfilTracker>,
 }
 
 impl RelayState {
@@ -254,6 +258,8 @@ impl RelayState {
             agent_id,
             server_name: None,
             sampling_per_tool: HashMap::new(),
+            cross_call_dlp: None,
+            sharded_exfil: None,
         }
     }
 
@@ -442,6 +448,19 @@ impl ProxyBridge {
 
         // Phase 4B: Load previously persisted flagged tools on startup.
         let mut state = RelayState::new(self.load_flagged_tools().await);
+
+        // Phase 71 (R233-DLP-1): Initialize cross-call DLP tracker if enabled.
+        if self.cross_call_dlp_enabled {
+            state.cross_call_dlp = Some(crate::inspection::cross_call_dlp::CrossCallDlpTracker::new());
+            tracing::info!("Cross-call DLP tracker: ENABLED");
+        }
+
+        // TI-2026-001 (R233-MCPSEC-2): Initialize sharded exfiltration tracker if enabled.
+        if self.sharded_exfil_enabled {
+            state.sharded_exfil = Some(crate::inspection::dlp::ShardedExfilTracker::new());
+            tracing::info!("Sharded exfiltration tracker: ENABLED");
+        }
+
         let mut io = IoWriters {
             agent: &mut agent_writer,
             child: &mut child_stdin,
@@ -858,7 +877,38 @@ impl ProxyBridge {
         }
 
         // P2: DLP scan parameters for secret exfiltration.
-        let dlp_findings = scan_parameters_for_secrets(&arguments);
+        let mut dlp_findings = scan_parameters_for_secrets(&arguments);
+
+        // Phase 71 (R233-DLP-1): Cross-call DLP — detect secrets split across sequential tool calls.
+        if let Some(ref mut tracker) = state.cross_call_dlp {
+            let args_str = serde_json::to_string(&arguments).unwrap_or_default();
+            let field_path = format!("tools/call.{}", tool_name);
+            let cross_findings = tracker.scan_with_overlap(&field_path, &args_str);
+            if !cross_findings.is_empty() {
+                tracing::warn!(
+                    "SECURITY: Cross-call DLP alert for tool '{}': {} findings",
+                    tool_name,
+                    cross_findings.len()
+                );
+                dlp_findings.extend(cross_findings);
+            }
+        }
+
+        // TI-2026-001 (R233-MCPSEC-2): Sharded exfiltration detection.
+        if let Some(ref mut tracker) = state.sharded_exfil {
+            let _ = tracker.record_parameters(&arguments);
+            if let Some(cumulative_bytes) = tracker.check_exfiltration() {
+                tracing::warn!(
+                    "SECURITY: Sharded exfiltration detected for '{}': {} cumulative high-entropy bytes",
+                    tool_name, cumulative_bytes
+                );
+                dlp_findings.push(crate::inspection::dlp::DlpFinding {
+                    pattern_name: "sharded_exfiltration".to_string(),
+                    location: format!("tools/call.{} ({} bytes across {} fragments)", tool_name, cumulative_bytes, tracker.fragment_count()),
+                });
+            }
+        }
+
         if !dlp_findings.is_empty() {
             tracing::warn!(
                 "SECURITY: DLP alert for tool '{}': {:?}",
@@ -1312,7 +1362,18 @@ impl ProxyBridge {
                                 );
                             }
                             Err(e) => {
-                                tracing::warn!("Shield session start failed: {} — continuing without credential", e);
+                                tracing::error!(
+                                    "Shield credential consumption FAILED (fail-closed): {} — blocking request",
+                                    e
+                                );
+                                let error_response = make_denial_response(
+                                    &id,
+                                    "Shield session unlinkability failed — request blocked to prevent identity leakage",
+                                );
+                                write_message(agent_writer, &error_response)
+                                    .await
+                                    .map_err(ProxyError::Framing)?;
+                                return Ok(());
                             }
                         }
                     }
@@ -1571,6 +1632,31 @@ impl ProxyBridge {
                 // SECURITY (R38-MCP-2): Update call_counts and action_history for ResourceRead.
                 state.record_forwarded_action("resources/read");
                 state.track_pending_request(&id, "resources/read".to_string(), None);
+
+                // SECURITY (R233-SHIELD-2): PII sanitization for resource reads.
+                #[cfg(feature = "consumer-shield")]
+                let msg = if let Some(ref sanitizer) = self.shield_sanitizer {
+                    match sanitizer.sanitize_json(&msg) {
+                        Ok(sanitized) => sanitized,
+                        Err(e) => {
+                            tracing::error!(
+                                "Shield sanitize FAILED for resources/read (fail-closed): {}",
+                                e
+                            );
+                            let error_response = make_denial_response(
+                                &id,
+                                "Shield PII sanitization failed — request blocked",
+                            );
+                            write_message(agent_writer, &error_response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
+                        }
+                    }
+                } else {
+                    msg
+                };
+
                 write_message(child_stdin, &msg)
                     .await
                     .map_err(ProxyError::Framing)?;
@@ -3168,6 +3254,49 @@ impl ProxyBridge {
             state.memory_tracker.extract_from_value(result_val);
         }
 
+        // SECURITY (R233-SHIELD-2): PII sanitization for passthrough messages.
+        // Covers agent responses to sampling/elicitation and any other extensible
+        // method that carries user data to the provider.
+        #[cfg(feature = "consumer-shield")]
+        let sanitized_msg;
+        #[cfg(feature = "consumer-shield")]
+        let msg = if let Some(ref sanitizer) = self.shield_sanitizer {
+            match sanitizer.sanitize_json(msg) {
+                Ok(s) => {
+                    sanitized_msg = s;
+                    &sanitized_msg
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Shield sanitize FAILED for passthrough (fail-closed): {}",
+                        e
+                    );
+                    if let Some(id) = msg.get("id") {
+                        if !id.is_null() {
+                            let id_key = id.to_string();
+                            state.pending_requests.remove(&id_key);
+                            state.tools_list_request_ids.remove(&id_key);
+                            state.initialize_request_ids.remove(&id_key);
+                            let response = json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "error": {
+                                    "code": -32001,
+                                    "message": "Request blocked: PII sanitization failed",
+                                }
+                            });
+                            write_message(agent_writer, &response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                        }
+                    }
+                    return Ok(());
+                }
+            }
+        } else {
+            msg
+        };
+
         // Forward the message after security scanning passes
         write_message(child_stdin, msg)
             .await
@@ -4358,6 +4487,8 @@ mod tests {
         assert!(state.call_counts.is_empty());
         assert!(state.action_history.is_empty());
         assert_eq!(state.elicitation_count, 0);
+        assert!(state.cross_call_dlp.is_none());
+        assert!(state.sharded_exfil.is_none());
     }
 
     #[test]

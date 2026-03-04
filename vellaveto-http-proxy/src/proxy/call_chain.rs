@@ -489,3 +489,454 @@ pub fn check_privilege_escalation(
         upstream_deny_reason: None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // =========================================================================
+    // jsonrpc_id_key tests
+    // =========================================================================
+
+    #[test]
+    fn test_jsonrpc_id_key_string_value() {
+        let id = json!("request-1");
+        assert_eq!(jsonrpc_id_key(&id), Some("s:request-1".to_string()));
+    }
+
+    #[test]
+    fn test_jsonrpc_id_key_number_value() {
+        let id = json!(42);
+        assert_eq!(jsonrpc_id_key(&id), Some("n:42".to_string()));
+    }
+
+    #[test]
+    fn test_jsonrpc_id_key_null_returns_none() {
+        let id = json!(null);
+        assert_eq!(jsonrpc_id_key(&id), None);
+    }
+
+    #[test]
+    fn test_jsonrpc_id_key_bool_returns_none() {
+        let id = json!(true);
+        assert_eq!(jsonrpc_id_key(&id), None);
+    }
+
+    #[test]
+    fn test_jsonrpc_id_key_object_returns_none() {
+        let id = json!({"id": 1});
+        assert_eq!(jsonrpc_id_key(&id), None);
+    }
+
+    #[test]
+    fn test_jsonrpc_id_key_array_returns_none() {
+        let id = json!([1, 2, 3]);
+        assert_eq!(jsonrpc_id_key(&id), None);
+    }
+
+    #[test]
+    fn test_jsonrpc_id_key_oversized_string_returns_none() {
+        let long_string = "x".repeat(MAX_JSONRPC_ID_KEY_LEN + 1);
+        let id = Value::String(long_string);
+        assert_eq!(jsonrpc_id_key(&id), None);
+    }
+
+    #[test]
+    fn test_jsonrpc_id_key_exact_max_length_string_accepted() {
+        let exact_string = "x".repeat(MAX_JSONRPC_ID_KEY_LEN);
+        let id = Value::String(exact_string.clone());
+        assert_eq!(
+            jsonrpc_id_key(&id),
+            Some(format!("s:{}", exact_string))
+        );
+    }
+
+    #[test]
+    fn test_jsonrpc_id_key_negative_number() {
+        let id = json!(-7);
+        assert_eq!(jsonrpc_id_key(&id), Some("n:-7".to_string()));
+    }
+
+    #[test]
+    fn test_jsonrpc_id_key_float_number() {
+        let id = json!(3.14);
+        assert_eq!(jsonrpc_id_key(&id), Some("n:3.14".to_string()));
+    }
+
+    // =========================================================================
+    // call_chain_entry_signing_content tests
+    // =========================================================================
+
+    #[test]
+    fn test_signing_content_deterministic() {
+        let entry = vellaveto_types::CallChainEntry {
+            agent_id: "agent-1".to_string(),
+            tool: "read_file".to_string(),
+            function: "execute".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        };
+        let content1 = call_chain_entry_signing_content(&entry);
+        let content2 = call_chain_entry_signing_content(&entry);
+        assert_eq!(content1, content2);
+    }
+
+    #[test]
+    fn test_signing_content_strips_unverified_prefix() {
+        let entry_clean = vellaveto_types::CallChainEntry {
+            agent_id: "agent-1".to_string(),
+            tool: "read_file".to_string(),
+            function: "execute".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        };
+        let entry_prefixed = vellaveto_types::CallChainEntry {
+            agent_id: "[unverified] agent-1".to_string(),
+            ..entry_clean.clone()
+        };
+        assert_eq!(
+            call_chain_entry_signing_content(&entry_clean),
+            call_chain_entry_signing_content(&entry_prefixed)
+        );
+    }
+
+    #[test]
+    fn test_signing_content_strips_stale_prefix() {
+        let entry_clean = vellaveto_types::CallChainEntry {
+            agent_id: "agent-1".to_string(),
+            tool: "read_file".to_string(),
+            function: "execute".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        };
+        let entry_stale = vellaveto_types::CallChainEntry {
+            agent_id: "[stale] agent-1".to_string(),
+            ..entry_clean.clone()
+        };
+        assert_eq!(
+            call_chain_entry_signing_content(&entry_clean),
+            call_chain_entry_signing_content(&entry_stale)
+        );
+    }
+
+    #[test]
+    fn test_signing_content_different_agents_differ() {
+        let entry1 = vellaveto_types::CallChainEntry {
+            agent_id: "agent-1".to_string(),
+            tool: "read_file".to_string(),
+            function: "execute".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        };
+        let entry2 = vellaveto_types::CallChainEntry {
+            agent_id: "agent-2".to_string(),
+            ..entry1.clone()
+        };
+        assert_ne!(
+            call_chain_entry_signing_content(&entry1),
+            call_chain_entry_signing_content(&entry2)
+        );
+    }
+
+    #[test]
+    fn test_signing_content_length_prefixed_no_boundary_confusion() {
+        // Ensure that length-prefixing prevents boundary confusion:
+        // "ab" + "cd" != "a" + "bcd"
+        let entry1 = vellaveto_types::CallChainEntry {
+            agent_id: "ab".to_string(),
+            tool: "cd".to_string(),
+            function: "execute".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        };
+        let entry2 = vellaveto_types::CallChainEntry {
+            agent_id: "a".to_string(),
+            tool: "bcd".to_string(),
+            function: "execute".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        };
+        assert_ne!(
+            call_chain_entry_signing_content(&entry1),
+            call_chain_entry_signing_content(&entry2)
+        );
+    }
+
+    // =========================================================================
+    // compute_call_chain_hmac / verify_call_chain_hmac tests
+    // =========================================================================
+
+    #[test]
+    fn test_compute_and_verify_hmac_roundtrip() {
+        let key = [0xABu8; 32];
+        let data = b"hello world";
+        let hmac_hex = compute_call_chain_hmac(&key, data).unwrap();
+        assert!(verify_call_chain_hmac(&key, data, &hmac_hex).unwrap());
+    }
+
+    #[test]
+    fn test_verify_hmac_wrong_key_fails() {
+        let key1 = [0xABu8; 32];
+        let key2 = [0xCDu8; 32];
+        let data = b"hello world";
+        let hmac_hex = compute_call_chain_hmac(&key1, data).unwrap();
+        assert!(!verify_call_chain_hmac(&key2, data, &hmac_hex).unwrap());
+    }
+
+    #[test]
+    fn test_verify_hmac_wrong_data_fails() {
+        let key = [0xABu8; 32];
+        let hmac_hex = compute_call_chain_hmac(&key, b"hello").unwrap();
+        assert!(!verify_call_chain_hmac(&key, b"world", &hmac_hex).unwrap());
+    }
+
+    #[test]
+    fn test_verify_hmac_invalid_hex_returns_false() {
+        let key = [0xABu8; 32];
+        let result = verify_call_chain_hmac(&key, b"data", "not-valid-hex!!");
+        assert_eq!(result, Ok(false));
+    }
+
+    #[test]
+    fn test_compute_hmac_produces_hex_string() {
+        let key = [0x42u8; 32];
+        let hmac_hex = compute_call_chain_hmac(&key, b"test data").unwrap();
+        assert!(hmac_hex.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(hmac_hex.len(), 64); // SHA-256 = 32 bytes = 64 hex chars
+    }
+
+    // =========================================================================
+    // build_current_agent_entry tests
+    // =========================================================================
+
+    #[test]
+    fn test_build_current_agent_entry_without_hmac() {
+        let entry = build_current_agent_entry(
+            Some("my-agent"),
+            "read_file",
+            "execute",
+            None,
+        );
+        assert_eq!(entry.agent_id, "my-agent");
+        assert_eq!(entry.tool, "read_file");
+        assert_eq!(entry.function, "execute");
+        assert!(entry.hmac.is_none());
+        assert!(entry.verified.is_none());
+        // Timestamp should be a valid RFC3339 string
+        assert!(chrono::DateTime::parse_from_rfc3339(&entry.timestamp).is_ok());
+    }
+
+    #[test]
+    fn test_build_current_agent_entry_with_hmac() {
+        let key = [0xABu8; 32];
+        let entry = build_current_agent_entry(
+            Some("my-agent"),
+            "read_file",
+            "execute",
+            Some(&key),
+        );
+        assert_eq!(entry.agent_id, "my-agent");
+        assert!(entry.hmac.is_some());
+        assert_eq!(entry.verified, Some(true));
+        // HMAC should be valid hex
+        let hmac_hex = entry.hmac.as_ref().unwrap();
+        assert!(hmac_hex.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_build_current_agent_entry_no_agent_id_defaults_to_unknown() {
+        let entry = build_current_agent_entry(None, "tool", "func", None);
+        assert_eq!(entry.agent_id, "unknown");
+    }
+
+    #[test]
+    fn test_build_current_agent_entry_hmac_verifies() {
+        let key = [0x42u8; 32];
+        let entry = build_current_agent_entry(
+            Some("test-agent"),
+            "my_tool",
+            "my_func",
+            Some(&key),
+        );
+        let content = call_chain_entry_signing_content(&entry);
+        let hmac_hex = entry.hmac.as_ref().unwrap();
+        assert!(verify_call_chain_hmac(&key, &content, hmac_hex).unwrap());
+    }
+
+    // =========================================================================
+    // build_audit_context tests
+    // =========================================================================
+
+    #[test]
+    fn test_build_audit_context_basic() {
+        let ctx = build_audit_context("session-123", json!({}), &None);
+        assert_eq!(ctx["source"], "http_proxy");
+        assert_eq!(ctx["session"], "session-123");
+    }
+
+    #[test]
+    fn test_build_audit_context_with_extra_fields() {
+        let extra = json!({"foo": "bar", "count": 42});
+        let ctx = build_audit_context("sess-1", extra, &None);
+        assert_eq!(ctx["foo"], "bar");
+        assert_eq!(ctx["count"], 42);
+    }
+
+    #[test]
+    fn test_build_audit_context_with_oauth_claims() {
+        let claims = OAuthClaims {
+            sub: "user@example.com".to_string(),
+            iss: "https://issuer.example.com".to_string(),
+            aud: vec!["api".to_string()],
+            exp: 0,
+            iat: 0,
+            scope: "read write".to_string(),
+            resource: None,
+            cnf: None,
+        };
+        let ctx = build_audit_context("sess-1", json!({}), &Some(claims));
+        assert_eq!(ctx["oauth_subject"], "user@example.com");
+        assert_eq!(ctx["oauth_scopes"], "read write");
+    }
+
+    #[test]
+    fn test_build_audit_context_oauth_empty_scope_omitted() {
+        let claims = OAuthClaims {
+            sub: "user@example.com".to_string(),
+            iss: String::new(),
+            aud: Vec::new(),
+            exp: 0,
+            iat: 0,
+            scope: String::new(),
+            resource: None,
+            cnf: None,
+        };
+        let ctx = build_audit_context("sess-1", json!({}), &Some(claims));
+        assert_eq!(ctx["oauth_subject"], "user@example.com");
+        assert!(ctx.get("oauth_scopes").is_none());
+    }
+
+    // =========================================================================
+    // build_audit_context_with_chain tests
+    // =========================================================================
+
+    #[test]
+    fn test_build_audit_context_with_chain_empty_chain_no_field() {
+        let ctx = build_audit_context_with_chain("sess-1", json!({}), &None, &[]);
+        assert!(ctx.get("call_chain").is_none());
+    }
+
+    #[test]
+    fn test_build_audit_context_with_chain_includes_chain() {
+        let chain = vec![vellaveto_types::CallChainEntry {
+            agent_id: "upstream-agent".to_string(),
+            tool: "read_file".to_string(),
+            function: "execute".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        }];
+        let ctx = build_audit_context_with_chain("sess-1", json!({}), &None, &chain);
+        let chain_val = ctx.get("call_chain").unwrap();
+        assert!(chain_val.is_array());
+        assert_eq!(chain_val.as_array().unwrap().len(), 1);
+        assert_eq!(chain_val[0]["agent_id"], "upstream-agent");
+    }
+
+    // =========================================================================
+    // validate_call_chain_header tests
+    // =========================================================================
+
+    #[test]
+    fn test_validate_call_chain_header_absent_is_ok() {
+        let headers = HeaderMap::new();
+        let limits = vellaveto_config::LimitsConfig::default();
+        assert!(validate_call_chain_header(&headers, &limits).is_ok());
+    }
+
+    #[test]
+    fn test_validate_call_chain_header_valid_json_array() {
+        let mut headers = HeaderMap::new();
+        let chain = json!([{
+            "agent_id": "agent-1",
+            "tool": "read_file",
+            "function": "execute",
+            "timestamp": "2026-01-01T00:00:00Z"
+        }]);
+        headers.insert(
+            super::X_UPSTREAM_AGENTS,
+            chain.to_string().parse().unwrap(),
+        );
+        let limits = vellaveto_config::LimitsConfig::default();
+        assert!(validate_call_chain_header(&headers, &limits).is_ok());
+    }
+
+    #[test]
+    fn test_validate_call_chain_header_invalid_json_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            super::X_UPSTREAM_AGENTS,
+            "not valid json".parse().unwrap(),
+        );
+        let limits = vellaveto_config::LimitsConfig::default();
+        let err = validate_call_chain_header(&headers, &limits).unwrap_err();
+        assert!(err.contains("not valid JSON"));
+    }
+
+    #[test]
+    fn test_validate_call_chain_header_oversized_rejected() {
+        let mut limits = vellaveto_config::LimitsConfig::default();
+        limits.max_call_chain_header_bytes = 10; // Very small
+        let mut headers = HeaderMap::new();
+        let chain = json!([{
+            "agent_id": "agent-1",
+            "tool": "read_file",
+            "function": "execute",
+            "timestamp": "2026-01-01T00:00:00Z"
+        }]);
+        headers.insert(
+            super::X_UPSTREAM_AGENTS,
+            chain.to_string().parse().unwrap(),
+        );
+        let err = validate_call_chain_header(&headers, &limits).unwrap_err();
+        assert!(err.contains("size limit"));
+    }
+
+    #[test]
+    fn test_validate_call_chain_header_too_many_entries_rejected() {
+        let mut limits = vellaveto_config::LimitsConfig::default();
+        limits.max_call_chain_length = 1;
+        let chain = json!([
+            {"agent_id": "a1", "tool": "t1", "function": "f1", "timestamp": "2026-01-01T00:00:00Z"},
+            {"agent_id": "a2", "tool": "t2", "function": "f2", "timestamp": "2026-01-01T00:00:01Z"}
+        ]);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            super::X_UPSTREAM_AGENTS,
+            chain.to_string().parse().unwrap(),
+        );
+        let err = validate_call_chain_header(&headers, &limits).unwrap_err();
+        assert!(err.contains("entry limit"));
+    }
+
+    // =========================================================================
+    // PrivilegeEscalationCheck tests
+    // =========================================================================
+
+    #[test]
+    fn test_check_privilege_escalation_empty_chain_no_escalation() {
+        let engine = PolicyEngine::with_policies(false, &[]).unwrap();
+        let action = Action::new("tool", "func", json!({}));
+        let result = check_privilege_escalation(&engine, &[], &action, &[], None);
+        assert!(!result.escalation_detected);
+        assert!(result.escalating_from_agent.is_none());
+        assert!(result.upstream_deny_reason.is_none());
+    }
+}

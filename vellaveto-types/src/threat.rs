@@ -868,3 +868,191 @@ impl fmt::Display for ValidationError {
 }
 
 impl std::error::Error for ValidationError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── AuthLevel::from_u8 ──────────────────────────────────────────────
+
+    #[test]
+    fn test_auth_level_from_u8_all_valid_values() {
+        assert_eq!(AuthLevel::from_u8(0), AuthLevel::None);
+        assert_eq!(AuthLevel::from_u8(1), AuthLevel::Basic);
+        assert_eq!(AuthLevel::from_u8(2), AuthLevel::OAuth);
+        assert_eq!(AuthLevel::from_u8(3), AuthLevel::OAuthMfa);
+        assert_eq!(AuthLevel::from_u8(4), AuthLevel::HardwareKey);
+    }
+
+    #[test]
+    fn test_auth_level_from_u8_unknown_values_fail_closed() {
+        // Fail-closed: unknown values map to None (lowest level)
+        assert_eq!(AuthLevel::from_u8(5), AuthLevel::None);
+        assert_eq!(AuthLevel::from_u8(100), AuthLevel::None);
+        assert_eq!(AuthLevel::from_u8(255), AuthLevel::None);
+    }
+
+    // ── AuthLevel::satisfies ────────────────────────────────────────────
+
+    #[test]
+    fn test_auth_level_satisfies_same_level_ok() {
+        assert!(AuthLevel::Basic.satisfies(AuthLevel::Basic));
+        assert!(AuthLevel::HardwareKey.satisfies(AuthLevel::HardwareKey));
+    }
+
+    #[test]
+    fn test_auth_level_satisfies_higher_meets_lower() {
+        assert!(AuthLevel::HardwareKey.satisfies(AuthLevel::None));
+        assert!(AuthLevel::OAuthMfa.satisfies(AuthLevel::OAuth));
+        assert!(AuthLevel::OAuth.satisfies(AuthLevel::Basic));
+    }
+
+    #[test]
+    fn test_auth_level_satisfies_lower_fails_higher() {
+        assert!(!AuthLevel::None.satisfies(AuthLevel::Basic));
+        assert!(!AuthLevel::Basic.satisfies(AuthLevel::OAuth));
+        assert!(!AuthLevel::OAuth.satisfies(AuthLevel::OAuthMfa));
+        assert!(!AuthLevel::OAuthMfa.satisfies(AuthLevel::HardwareKey));
+    }
+
+    #[test]
+    fn test_auth_level_satisfies_none_satisfies_none() {
+        assert!(AuthLevel::None.satisfies(AuthLevel::None));
+    }
+
+    // ── McpCapability::validate() ───────────────────────────────────────
+
+    #[test]
+    fn test_mcp_capability_validate_valid_ok() {
+        let cap = McpCapability::new("tools");
+        assert!(cap.validate().is_ok());
+    }
+
+    #[test]
+    fn test_mcp_capability_validate_empty_name_rejected() {
+        let cap = McpCapability::new("");
+        let err = cap.validate().unwrap_err();
+        assert!(err.contains("must not be empty"), "got: {err}");
+    }
+
+    #[test]
+    fn test_mcp_capability_validate_name_too_long_rejected() {
+        let cap = McpCapability::new("x".repeat(257));
+        let err = cap.validate().unwrap_err();
+        assert!(err.contains("name length"), "got: {err}");
+    }
+
+    #[test]
+    fn test_mcp_capability_validate_name_control_chars_rejected() {
+        let cap = McpCapability::new("tools\x00bad");
+        let err = cap.validate().unwrap_err();
+        assert!(err.contains("control or format"), "got: {err}");
+    }
+
+    #[test]
+    fn test_mcp_capability_validate_version_too_long_rejected() {
+        let cap = McpCapability::with_version("tools", "v".repeat(129));
+        let err = cap.validate().unwrap_err();
+        assert!(err.contains("version length"), "got: {err}");
+    }
+
+    #[test]
+    fn test_mcp_capability_validate_sub_capabilities_count_rejected() {
+        let mut cap = McpCapability::new("tools");
+        cap.sub_capabilities = vec!["sub".to_string(); MAX_SUB_CAPABILITIES + 1];
+        let err = cap.validate().unwrap_err();
+        assert!(err.contains("sub_capabilities count"), "got: {err}");
+    }
+
+    #[test]
+    fn test_mcp_capability_validate_sub_capability_too_long_rejected() {
+        let mut cap = McpCapability::new("tools");
+        cap.sub_capabilities = vec!["x".repeat(257)];
+        let err = cap.validate().unwrap_err();
+        assert!(err.contains("sub_capabilities[0] length"), "got: {err}");
+    }
+
+    #[test]
+    fn test_mcp_capability_validate_sub_capability_control_chars_rejected() {
+        let mut cap = McpCapability::new("tools");
+        cap.sub_capabilities = vec!["read".into(), "write\x01bad".into()];
+        let err = cap.validate().unwrap_err();
+        assert!(
+            err.contains("sub_capabilities[1]") && err.contains("control or format"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_mcp_capability_validate_at_max_sub_capabilities_ok() {
+        let mut cap = McpCapability::new("tools");
+        cap.sub_capabilities = vec!["s".to_string(); MAX_SUB_CAPABILITIES];
+        assert!(cap.validate().is_ok());
+    }
+
+    #[test]
+    fn test_mcp_capability_has_sub() {
+        let mut cap = McpCapability::new("tools");
+        cap.sub_capabilities = vec!["read".into(), "write".into()];
+        assert!(cap.has_sub("read"));
+        assert!(!cap.has_sub("execute"));
+    }
+
+    // ── SchemaRecord::validate() ────────────────────────────────────────
+
+    #[test]
+    fn test_schema_record_validate_valid_ok() {
+        let sr = SchemaRecord::new("my-tool", "abc123", 1000);
+        assert!(sr.validate().is_ok());
+    }
+
+    #[test]
+    fn test_schema_record_validate_empty_tool_name_rejected() {
+        let sr = SchemaRecord::new("", "hash", 1000);
+        assert!(sr.validate().unwrap_err().contains("tool_name must not be empty"));
+    }
+
+    #[test]
+    fn test_schema_record_validate_trust_score_nan_rejected() {
+        let mut sr = SchemaRecord::new("tool", "hash", 1000);
+        sr.trust_score = f32::NAN;
+        assert!(sr.validate().unwrap_err().contains("not finite"));
+    }
+
+    #[test]
+    fn test_schema_record_validate_trust_score_out_of_range_rejected() {
+        let mut sr = SchemaRecord::new("tool", "hash", 1000);
+        sr.trust_score = 1.5;
+        assert!(sr.validate().unwrap_err().contains("[0.0, 1.0]"));
+        sr.trust_score = -0.1;
+        assert!(sr.validate().unwrap_err().contains("[0.0, 1.0]"));
+    }
+
+    #[test]
+    fn test_schema_record_validate_version_history_overflow_rejected() {
+        let mut sr = SchemaRecord::new("tool", "hash", 1000);
+        sr.version_history = vec!["h".to_string(); SchemaRecord::MAX_VERSION_HISTORY + 1];
+        assert!(sr.validate().unwrap_err().contains("version_history"));
+    }
+
+    // ── PrincipalContext::validate() ────────────────────────────────────
+
+    #[test]
+    fn test_principal_context_validate_valid_direct_ok() {
+        let pc = PrincipalContext::direct("agent-1");
+        assert!(pc.validate().is_ok());
+    }
+
+    #[test]
+    fn test_principal_context_validate_empty_principal_rejected() {
+        let pc = PrincipalContext::direct("");
+        assert!(pc.validate().unwrap_err().contains("must not be empty"));
+    }
+
+    #[test]
+    fn test_principal_context_validate_expires_zero_rejected() {
+        let mut pc = PrincipalContext::direct("agent-1");
+        pc.delegation_expires = Some(0);
+        assert!(pc.validate().unwrap_err().contains("must be non-zero"));
+    }
+}

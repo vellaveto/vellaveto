@@ -484,3 +484,292 @@ impl std::fmt::Debug for StaticProbe {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::topology::{StaticResourceDecl, StaticServerDecl, StaticToolDecl};
+
+    fn make_server_decl(name: &str, tool_count: usize) -> StaticServerDecl {
+        StaticServerDecl {
+            name: name.to_string(),
+            tools: (0..tool_count)
+                .map(|i| StaticToolDecl {
+                    name: format!("tool_{i}"),
+                    description: format!("Tool {i}"),
+                    input_schema: serde_json::json!({"type": "object"}),
+                })
+                .collect(),
+            resources: vec![],
+        }
+    }
+
+    #[test]
+    fn test_static_probe_new_empty() {
+        let probe = StaticProbe::new(vec![]);
+        assert_eq!(probe.server_count(), 0);
+    }
+
+    #[test]
+    fn test_static_probe_new_with_servers() {
+        let probe = StaticProbe::new(vec![
+            make_server_decl("s1", 2),
+            make_server_decl("s2", 1),
+        ]);
+        assert_eq!(probe.server_count(), 2);
+    }
+
+    #[test]
+    fn test_static_probe_upsert_new_server() {
+        let probe = StaticProbe::new(vec![make_server_decl("s1", 1)]);
+        probe.upsert_server(make_server_decl("s2", 1));
+        assert_eq!(probe.server_count(), 2);
+    }
+
+    #[test]
+    fn test_static_probe_upsert_replaces_existing() {
+        let probe = StaticProbe::new(vec![make_server_decl("s1", 1)]);
+        // Upsert with same name should replace, not duplicate
+        probe.upsert_server(make_server_decl("s1", 3));
+        assert_eq!(probe.server_count(), 1);
+    }
+
+    #[test]
+    fn test_static_probe_remove_server_exists() {
+        let probe = StaticProbe::new(vec![
+            make_server_decl("s1", 1),
+            make_server_decl("s2", 1),
+        ]);
+        assert!(probe.remove_server("s1"));
+        assert_eq!(probe.server_count(), 1);
+    }
+
+    #[test]
+    fn test_static_probe_remove_server_not_found() {
+        let probe = StaticProbe::new(vec![make_server_decl("s1", 1)]);
+        assert!(!probe.remove_server("nonexistent"));
+        assert_eq!(probe.server_count(), 1);
+    }
+
+    #[test]
+    fn test_static_probe_debug_format() {
+        let probe = StaticProbe::new(vec![make_server_decl("s1", 1)]);
+        let debug = format!("{probe:?}");
+        assert!(debug.contains("StaticProbe"));
+        assert!(debug.contains("server_count"));
+    }
+
+    #[tokio::test]
+    async fn test_static_probe_list_servers() {
+        let probe = StaticProbe::new(vec![
+            make_server_decl("alpha", 1),
+            make_server_decl("beta", 1),
+        ]);
+        let servers = probe.list_servers().await.unwrap();
+        assert_eq!(servers.len(), 2);
+        let ids: Vec<&str> = servers.iter().map(|s| s.id.as_str()).collect();
+        assert!(ids.contains(&"alpha"));
+        assert!(ids.contains(&"beta"));
+    }
+
+    #[tokio::test]
+    async fn test_static_probe_list_tools_not_found() {
+        let probe = StaticProbe::new(vec![]);
+        let result = probe.list_tools("nonexistent").await;
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_static_probe_list_resources_not_found() {
+        let probe = StaticProbe::new(vec![]);
+        let result = probe.list_resources("nonexistent").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_static_probe_capabilities_based_on_content() {
+        let probe = StaticProbe::new(vec![StaticServerDecl {
+            name: "with_both".to_string(),
+            tools: vec![StaticToolDecl {
+                name: "t1".to_string(),
+                description: "T".to_string(),
+                input_schema: serde_json::json!({}),
+            }],
+            resources: vec![StaticResourceDecl {
+                uri_template: "test://".to_string(),
+                name: "r1".to_string(),
+                mime_type: None,
+            }],
+        }]);
+
+        let caps = probe.server_capabilities("with_both").await.unwrap();
+        assert!(caps.tools);
+        assert!(caps.resources);
+        assert!(!caps.prompts);
+        assert!(!caps.logging);
+    }
+
+    #[tokio::test]
+    async fn test_static_probe_capabilities_empty_server() {
+        let probe = StaticProbe::new(vec![StaticServerDecl {
+            name: "empty".to_string(),
+            tools: vec![],
+            resources: vec![],
+        }]);
+
+        let caps = probe.server_capabilities("empty").await.unwrap();
+        assert!(!caps.tools);
+        assert!(!caps.resources);
+    }
+
+    #[tokio::test]
+    async fn test_crawler_crawl_empty_server_list() {
+        let probe = StaticProbe::new(vec![]);
+        let crawler = TopologyCrawler::new(Arc::new(probe), CrawlConfig::default());
+        let result = crawler.crawl().await.unwrap();
+
+        assert_eq!(result.servers_crawled, 0);
+        assert_eq!(result.tools_found, 0);
+        assert_eq!(result.resources_found, 0);
+        assert!(result.servers_failed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_crawler_crawl_server_not_found() {
+        let probe = StaticProbe::new(vec![make_server_decl("s1", 1)]);
+        let crawler = TopologyCrawler::new(Arc::new(probe), CrawlConfig::default());
+        let result = crawler.crawl_server("nonexistent").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_crawl_config_default() {
+        let config = CrawlConfig::default();
+        assert_eq!(config.server_timeout, Duration::from_secs(10));
+        assert!(config.continue_on_error);
+        assert_eq!(config.max_concurrent, 5);
+    }
+
+    #[tokio::test]
+    async fn test_crawler_debug_format() {
+        let probe = StaticProbe::new(vec![]);
+        let crawler = TopologyCrawler::new(Arc::new(probe), CrawlConfig::default());
+        let debug = format!("{crawler:?}");
+        assert!(debug.contains("TopologyCrawler"));
+        assert!(debug.contains("config"));
+    }
+
+    #[tokio::test]
+    async fn test_crawler_all_servers_fail_continue_on_error() {
+        // A probe where server_capabilities fails for all servers
+        struct AllFailProbe;
+
+        #[async_trait]
+        impl McpServerProbe for AllFailProbe {
+            async fn list_servers(&self) -> Result<Vec<ServerInfo>, DiscoveryError> {
+                Ok(vec![
+                    ServerInfo {
+                        id: "s1".to_string(),
+                        name: "s1".to_string(),
+                        version: None,
+                    },
+                    ServerInfo {
+                        id: "s2".to_string(),
+                        name: "s2".to_string(),
+                        version: None,
+                    },
+                ])
+            }
+            async fn list_tools(&self, _: &str) -> Result<Vec<ToolInfo>, DiscoveryError> {
+                Err(DiscoveryError::ServerError {
+                    server: "any".to_string(),
+                    reason: "fail".to_string(),
+                })
+            }
+            async fn list_resources(
+                &self,
+                _: &str,
+            ) -> Result<Vec<ResourceInfo>, DiscoveryError> {
+                Ok(vec![])
+            }
+            async fn server_capabilities(
+                &self,
+                _: &str,
+            ) -> Result<ServerCapabilities, DiscoveryError> {
+                Err(DiscoveryError::ServerError {
+                    server: "any".to_string(),
+                    reason: "fail".to_string(),
+                })
+            }
+        }
+
+        let config = CrawlConfig {
+            continue_on_error: true,
+            ..CrawlConfig::default()
+        };
+        let crawler = TopologyCrawler::new(Arc::new(AllFailProbe), config);
+        let result = crawler.crawl().await.unwrap();
+
+        assert_eq!(result.servers_crawled, 0);
+        assert_eq!(result.servers_failed.len(), 2);
+        assert_eq!(result.tools_found, 0);
+    }
+
+    #[tokio::test]
+    async fn test_crawler_zero_timeout_causes_timeout_error() {
+        // Use a probe that sleeps a bit
+        struct SlowProbe;
+
+        #[async_trait]
+        impl McpServerProbe for SlowProbe {
+            async fn list_servers(&self) -> Result<Vec<ServerInfo>, DiscoveryError> {
+                Ok(vec![ServerInfo {
+                    id: "slow".to_string(),
+                    name: "slow".to_string(),
+                    version: None,
+                }])
+            }
+            async fn list_tools(&self, _: &str) -> Result<Vec<ToolInfo>, DiscoveryError> {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                Ok(vec![])
+            }
+            async fn list_resources(
+                &self,
+                _: &str,
+            ) -> Result<Vec<ResourceInfo>, DiscoveryError> {
+                Ok(vec![])
+            }
+            async fn server_capabilities(
+                &self,
+                _: &str,
+            ) -> Result<ServerCapabilities, DiscoveryError> {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                Ok(ServerCapabilities {
+                    tools: true,
+                    resources: false,
+                    prompts: false,
+                    logging: false,
+                })
+            }
+        }
+
+        let config = CrawlConfig {
+            server_timeout: Duration::from_millis(1),
+            continue_on_error: true,
+            max_concurrent: 1,
+        };
+        let crawler = TopologyCrawler::new(Arc::new(SlowProbe), config);
+        let result = crawler.crawl().await.unwrap();
+
+        assert_eq!(result.servers_crawled, 0);
+        assert_eq!(result.servers_failed.len(), 1);
+        // The error should be a timeout
+        let err_msg = format!("{}", result.servers_failed[0].1);
+        assert!(
+            err_msg.contains("timed out"),
+            "Expected timeout error, got: {err_msg}"
+        );
+    }
+}

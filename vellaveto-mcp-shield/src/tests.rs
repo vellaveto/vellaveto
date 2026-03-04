@@ -947,6 +947,36 @@ fn test_stylometric_level2_multiword_filler() {
     assert!(!result.contains("sort of"));
 }
 
+// FIND-GAP-005: Multi-byte UTF-8 characters mixed with filler words.
+#[test]
+fn test_stylometric_level2_cjk_with_fillers() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level2);
+    // CJK characters (3 bytes each) + filler words — must not corrupt output
+    let input = "我 basically 需要 sort of 理解 you know this";
+    let result = norm.normalize(input).unwrap();
+    // CJK preserved, fillers removed
+    assert!(result.contains('我'), "CJK char 我 should be preserved");
+    assert!(result.contains('需'), "CJK char 需 should be preserved");
+    assert!(result.contains('理'), "CJK char 理 should be preserved");
+    assert!(!result.contains("basically"), "filler 'basically' should be removed");
+    assert!(!result.contains("sort of"), "filler 'sort of' should be removed");
+    assert!(!result.contains("you know"), "filler 'you know' should be removed");
+    // Verify valid UTF-8 output (would panic on invalid)
+    let _: Vec<char> = result.chars().collect();
+}
+
+#[test]
+fn test_stylometric_level2_emoji_adjacent_fillers() {
+    let norm = StylometricNormalizer::new(NormalizationLevel::Level2);
+    // Emoji (4 bytes each) adjacent to fillers
+    let input = "honestly the result is quite amazing";
+    let result = norm.normalize(input).unwrap();
+    assert!(!result.contains("honestly"), "filler 'honestly' removed");
+    assert!(!result.contains("quite"), "filler 'quite' removed");
+    assert!(result.contains("result"), "content word preserved");
+    assert!(result.contains("amazing"), "content word preserved");
+}
+
 #[test]
 fn test_stylometric_level2_preserves_semantics() {
     let norm = StylometricNormalizer::new(NormalizationLevel::Level2);
@@ -1579,4 +1609,203 @@ fn test_desanitize_flag_false_preserves_placeholders() {
 fn test_desanitize_flag_true_is_default() {
     let config = vellaveto_config::ShieldConfig::default();
     assert!(config.desanitize_responses);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-GAP-003: Merkle chain integrity tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn test_merkle_chain_continuity_across_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let audit_path = dir.path().join("audit.log");
+    let enc_path = dir.path().join("audit.enc");
+    let store = crate::crypto::EncryptedAuditStore::new(enc_path, "secret").unwrap();
+    let mut manager = crate::local_audit::LocalAuditManager::new(audit_path, store).with_merkle();
+
+    // Log 5 entries to build a Merkle tree
+    for i in 0..5 {
+        manager
+            .log_shield_event("chain_test", &format!("entry_{i}"))
+            .await
+            .unwrap();
+    }
+
+    // All entries should have valid proofs
+    for i in 0..5 {
+        let proof = manager.generate_proof(i);
+        assert!(proof.is_ok(), "proof for entry {i} should be valid");
+    }
+
+    // Root should be present and non-empty
+    let root = manager.merkle_root();
+    assert!(root.is_some());
+    assert!(!root.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn test_merkle_root_changes_with_each_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let audit_path = dir.path().join("audit.log");
+    let enc_path = dir.path().join("audit.enc");
+    let store = crate::crypto::EncryptedAuditStore::new(enc_path, "secret").unwrap();
+    let mut manager = crate::local_audit::LocalAuditManager::new(audit_path, store).with_merkle();
+
+    manager
+        .log_shield_event("event1", "details1")
+        .await
+        .unwrap();
+    let root1 = manager.merkle_root().unwrap();
+
+    manager
+        .log_shield_event("event2", "details2")
+        .await
+        .unwrap();
+    let root2 = manager.merkle_root().unwrap();
+
+    // Root must change after appending a new entry
+    assert_ne!(root1, root2, "Merkle root should change with each new entry");
+}
+
+#[tokio::test]
+async fn test_merkle_proof_invalid_index_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let audit_path = dir.path().join("audit.log");
+    let enc_path = dir.path().join("audit.enc");
+    let store = crate::crypto::EncryptedAuditStore::new(enc_path, "secret").unwrap();
+    let mut manager = crate::local_audit::LocalAuditManager::new(audit_path, store).with_merkle();
+
+    manager
+        .log_shield_event("event1", "details1")
+        .await
+        .unwrap();
+
+    // Requesting proof for index beyond tree size should fail
+    let proof = manager.generate_proof(999);
+    assert!(proof.is_err());
+}
+
+#[test]
+fn test_merkle_proof_without_merkle_enabled_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let audit_path = dir.path().join("audit.log");
+    let enc_path = dir.path().join("audit.enc");
+    let store = crate::crypto::EncryptedAuditStore::new(enc_path, "secret").unwrap();
+    // NOT calling .with_merkle()
+    let manager = crate::local_audit::LocalAuditManager::new(audit_path, store);
+
+    let proof = manager.generate_proof(0);
+    assert!(proof.is_err());
+    let err_msg = format!("{}", proof.unwrap_err());
+    assert!(
+        err_msg.contains("not enabled"),
+        "error should mention Merkle not enabled: {err_msg}"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-GAP-004: Encrypted audit store corruption/recovery tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_crypto_corrupted_ciphertext_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.enc");
+    let store = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+
+    let plaintext = b"audit entry data";
+    let mut encrypted = store.encrypt(plaintext).unwrap();
+
+    // Corrupt a byte in the ciphertext (after the nonce)
+    if encrypted.len() > 30 {
+        encrypted[30] ^= 0xFF;
+    }
+
+    // Decryption must fail — Poly1305 tag verification detects corruption
+    let result = store.decrypt(&encrypted);
+    assert!(result.is_err(), "corrupted ciphertext should fail decryption");
+}
+
+#[test]
+fn test_crypto_truncated_ciphertext_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.enc");
+    let store = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+
+    let plaintext = b"audit entry data";
+    let encrypted = store.encrypt(plaintext).unwrap();
+
+    // Truncate the ciphertext (remove last 8 bytes — partial tag)
+    let truncated = &encrypted[..encrypted.len().saturating_sub(8)];
+
+    let result = store.decrypt(truncated);
+    assert!(
+        result.is_err(),
+        "truncated ciphertext should fail decryption"
+    );
+}
+
+#[test]
+fn test_crypto_truncated_entry_in_store_detected() {
+    use std::io::Write;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.enc");
+    let store = crate::crypto::EncryptedAuditStore::new(path.clone(), "test-pass").unwrap();
+
+    // Write a valid entry first
+    store.write_encrypted_entry(b"valid entry").unwrap();
+
+    // Append a truncated entry: length header says 1000 bytes but only 10 follow
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap();
+    file.write_all(&1000u32.to_le_bytes()).unwrap();
+    file.write_all(&[0xAB; 10]).unwrap();
+
+    // Reading all entries should fail on the truncated entry
+    let result = store.read_all_entries();
+    assert!(result.is_err(), "truncated store entry should be detected");
+    let err_msg = format!("{}", result.unwrap_err());
+    assert!(
+        err_msg.contains("truncated"),
+        "error should mention truncation: {err_msg}"
+    );
+}
+
+#[test]
+fn test_crypto_nonce_too_short_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.enc");
+    let store = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+
+    // Data shorter than nonce (24 bytes)
+    let result = store.decrypt(&[0u8; 10]);
+    assert!(result.is_err(), "data shorter than nonce should fail");
+    let err_msg = format!("{}", result.unwrap_err());
+    assert!(
+        err_msg.contains("too short"),
+        "error should mention data too short: {err_msg}"
+    );
+}
+
+#[test]
+fn test_crypto_wrong_key_fails_gracefully() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.enc");
+
+    // Write with one passphrase
+    let store1 =
+        crate::crypto::EncryptedAuditStore::new(path.clone(), "correct-pass").unwrap();
+    store1.write_encrypted_entry(b"secret data").unwrap();
+    store1.write_encrypted_entry(b"more secret data").unwrap();
+
+    // Open with different passphrase — read should fail on decryption
+    let store2 = crate::crypto::EncryptedAuditStore::new(path, "wrong-pass").unwrap();
+    let result = store2.read_all_entries();
+    assert!(
+        result.is_err(),
+        "wrong passphrase should fail on decryption"
+    );
 }

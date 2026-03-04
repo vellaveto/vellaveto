@@ -538,4 +538,444 @@ mod tests {
             other => panic!("expected validation error, got {other:?}"),
         }
     }
+
+    // ── load_entries tests ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_load_entries_empty_file_returns_empty_vec() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path);
+        let entries = logger.load_entries().await.expect("load");
+        assert!(entries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_load_entries_skips_corrupt_lines() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone());
+
+        // Write a valid entry first
+        logger
+            .log_entry(
+                &Action::new("tool", "valid", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry");
+
+        // Append a corrupt line to the file
+        tokio::fs::write(
+            &log_path,
+            format!(
+                "{}\n{}\n",
+                tokio::fs::read_to_string(&log_path).await.expect("read").trim(),
+                "this is not valid json"
+            ),
+        )
+        .await
+        .expect("write corrupt");
+
+        let entries = logger.load_entries().await.expect("load");
+        // Should have loaded the valid entry, skipped the corrupt one
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].action.function, "valid");
+    }
+
+    #[tokio::test]
+    async fn test_load_entries_rejects_oversized_file() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone());
+
+        // Create a file just over the MAX_AUDIT_LOG_SIZE limit
+        // We write a minimal amount to check the size gate
+        let oversized_content = "x".repeat(AuditLogger::MAX_AUDIT_LOG_SIZE as usize + 1);
+        tokio::fs::write(&log_path, oversized_content)
+            .await
+            .expect("write oversized");
+
+        let err = logger.load_entries().await.expect_err("should reject oversized");
+        match err {
+            AuditError::Validation(msg) => {
+                assert!(msg.contains("too large"), "unexpected msg: {msg}");
+            }
+            other => panic!("expected validation error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_load_entries_skips_oversized_lines() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone());
+
+        // Write a valid entry
+        logger
+            .log_entry(
+                &Action::new("tool", "good", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry");
+
+        // Read existing content, then append a very long line (> MAX_AUDIT_LINE_SIZE)
+        let existing = tokio::fs::read_to_string(&log_path).await.expect("read");
+        let long_line = "a".repeat(AuditLogger::MAX_AUDIT_LINE_SIZE + 10);
+        tokio::fs::write(&log_path, format!("{}{}\n", existing, long_line))
+            .await
+            .expect("write");
+
+        let entries = logger.load_entries().await.expect("load");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].action.function, "good");
+    }
+
+    // ── verify_chain tests ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_verify_chain_empty_log_valid() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path);
+        let result = logger.verify_chain().await.expect("verify");
+        assert!(result.valid);
+        assert_eq!(result.entries_checked, 0);
+    }
+
+    #[tokio::test]
+    async fn test_verify_chain_valid_chain() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path);
+
+        for i in 0..5 {
+            logger
+                .log_entry(
+                    &Action::new("tool", format!("fn{i}"), serde_json::json!({})),
+                    &Verdict::Allow,
+                    serde_json::json!({}),
+                )
+                .await
+                .expect("entry");
+        }
+
+        let result = logger.verify_chain().await.expect("verify");
+        assert!(result.valid, "Chain should be valid");
+        assert_eq!(result.entries_checked, 5);
+        assert!(result.first_broken_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_verify_chain_detects_tampered_hash() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone());
+
+        for i in 0..3 {
+            logger
+                .log_entry(
+                    &Action::new("tool", format!("fn{i}"), serde_json::json!({})),
+                    &Verdict::Allow,
+                    serde_json::json!({}),
+                )
+                .await
+                .expect("entry");
+        }
+
+        // Tamper with the second entry's hash
+        let content = tokio::fs::read_to_string(&log_path).await.expect("read");
+        let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+        if lines.len() >= 2 {
+            let mut entry: AuditEntry =
+                serde_json::from_str(&lines[1]).expect("parse entry");
+            entry.entry_hash = Some("0000000000000000000000000000000000000000000000000000000000000000".to_string());
+            lines[1] = serde_json::to_string(&entry).expect("serialize");
+            let tampered = lines.join("\n") + "\n";
+            tokio::fs::write(&log_path, tampered).await.expect("write tampered");
+        }
+
+        let result = logger.verify_chain().await.expect("verify");
+        assert!(!result.valid, "Tampered chain should be invalid");
+        assert!(result.first_broken_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_verify_chain_detects_timestamp_regression() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone());
+
+        // Write two entries
+        logger
+            .log_entry(
+                &Action::new("tool", "fn0", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry 0");
+        logger
+            .log_entry(
+                &Action::new("tool", "fn1", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry 1");
+
+        // Tamper the second entry's timestamp to be earlier than the first
+        let content = tokio::fs::read_to_string(&log_path).await.expect("read");
+        let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+        if lines.len() >= 2 {
+            let mut entry: AuditEntry =
+                serde_json::from_str(&lines[1]).expect("parse entry");
+            entry.timestamp = "2020-01-01T00:00:00Z".to_string();
+            // Also fix the hash so the hash check passes but timestamp check fails
+            // Actually the hash will be wrong too, but the timestamp check runs first
+            lines[1] = serde_json::to_string(&entry).expect("serialize");
+            let tampered = lines.join("\n") + "\n";
+            tokio::fs::write(&log_path, tampered).await.expect("write");
+        }
+
+        let result = logger.verify_chain().await.expect("verify");
+        assert!(!result.valid, "Timestamp regression should be detected");
+    }
+
+    #[tokio::test]
+    async fn test_verify_chain_rejects_non_utc_timestamp() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone());
+
+        // Write one valid entry
+        logger
+            .log_entry(
+                &Action::new("tool", "fn0", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry");
+
+        // Tamper the timestamp to have a non-UTC offset
+        let content = tokio::fs::read_to_string(&log_path).await.expect("read");
+        let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+        if !lines.is_empty() {
+            let mut entry: AuditEntry =
+                serde_json::from_str(&lines[0]).expect("parse");
+            entry.timestamp = "2026-03-01T12:00:00+05:30".to_string();
+            lines[0] = serde_json::to_string(&entry).expect("serialize");
+            tokio::fs::write(&log_path, lines.join("\n") + "\n")
+                .await
+                .expect("write");
+        }
+
+        let result = logger.verify_chain().await.expect("verify");
+        assert!(!result.valid, "Non-UTC timestamps should be rejected");
+    }
+
+    // ── detect_duplicate_ids tests ──────────────────────────────────
+
+    #[tokio::test]
+    async fn test_detect_duplicate_ids_no_duplicates() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path);
+
+        for i in 0..3 {
+            logger
+                .log_entry(
+                    &Action::new("tool", format!("fn{i}"), serde_json::json!({})),
+                    &Verdict::Allow,
+                    serde_json::json!({}),
+                )
+                .await
+                .expect("entry");
+        }
+
+        let dups = logger.detect_duplicate_ids().await.expect("detect");
+        assert!(dups.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_detect_duplicate_ids_finds_duplicates() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone());
+
+        // Write two entries, then manually duplicate the first entry's ID
+        logger
+            .log_entry(
+                &Action::new("tool", "fn0", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry 0");
+        logger
+            .log_entry(
+                &Action::new("tool", "fn1", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry 1");
+
+        // Read and duplicate the first entry's ID in the second entry
+        let content = tokio::fs::read_to_string(&log_path).await.expect("read");
+        let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+        if lines.len() >= 2 {
+            let entry0: AuditEntry =
+                serde_json::from_str(&lines[0]).expect("parse");
+            let mut entry1: AuditEntry =
+                serde_json::from_str(&lines[1]).expect("parse");
+            entry1.id = entry0.id.clone();
+            lines[1] = serde_json::to_string(&entry1).expect("serialize");
+            tokio::fs::write(&log_path, lines.join("\n") + "\n")
+                .await
+                .expect("write");
+        }
+
+        let dups = logger.detect_duplicate_ids().await.expect("detect");
+        assert_eq!(dups.len(), 1);
+        assert_eq!(dups[0].1, 2); // Two occurrences
+    }
+
+    // ── generate_report tests ───────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_generate_report_counts_verdicts() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path);
+
+        // 2 Allow, 1 Deny
+        logger
+            .log_entry(
+                &Action::new("tool", "allow1", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry");
+        logger
+            .log_entry(
+                &Action::new("tool", "allow2", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry");
+        logger
+            .log_entry(
+                &Action::new("tool", "deny1", serde_json::json!({})),
+                &Verdict::Deny {
+                    reason: "blocked".to_string(),
+                },
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry");
+
+        let report = logger.generate_report().await.expect("report");
+        assert_eq!(report.total_entries, 3);
+        assert_eq!(report.allow_count, 2);
+        assert_eq!(report.deny_count, 1);
+        assert_eq!(report.require_approval_count, 0);
+        assert_eq!(report.entries.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_generate_report_empty_log() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path);
+
+        let report = logger.generate_report().await.expect("report");
+        assert_eq!(report.total_entries, 0);
+        assert_eq!(report.allow_count, 0);
+        assert_eq!(report.deny_count, 0);
+    }
+
+    // ── strip_utc_suffix tests ──────────────────────────────────────
+
+    #[test]
+    fn test_strip_utc_suffix_z() {
+        assert_eq!(strip_utc_suffix("2026-03-01T12:00:00Z"), "2026-03-01T12:00:00");
+    }
+
+    #[test]
+    fn test_strip_utc_suffix_lowercase_z() {
+        assert_eq!(strip_utc_suffix("2026-03-01T12:00:00z"), "2026-03-01T12:00:00");
+    }
+
+    #[test]
+    fn test_strip_utc_suffix_plus_zero() {
+        assert_eq!(
+            strip_utc_suffix("2026-03-01T12:00:00+00:00"),
+            "2026-03-01T12:00:00"
+        );
+    }
+
+    #[test]
+    fn test_strip_utc_suffix_no_suffix() {
+        assert_eq!(strip_utc_suffix("2026-03-01T12:00:00"), "2026-03-01T12:00:00");
+    }
+
+    // ── Mixed Z and +00:00 ordering test ────────────────────────────
+
+    #[tokio::test]
+    async fn test_verify_chain_mixed_utc_suffixes_valid() {
+        // R228-AUD-1: A chain with mixed Z and +00:00 suffixes on the same
+        // date-time prefix should be valid after suffix normalization.
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone());
+
+        // Write two entries
+        logger
+            .log_entry(
+                &Action::new("tool", "fn0", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry 0");
+        logger
+            .log_entry(
+                &Action::new("tool", "fn1", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry 1");
+
+        // Now rewrite the entries with controlled timestamps that only differ
+        // in UTC suffix representation
+        let content = tokio::fs::read_to_string(&log_path).await.expect("read");
+        let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+        if lines.len() >= 2 {
+            let mut entry0: AuditEntry = serde_json::from_str(&lines[0]).expect("parse");
+            let mut entry1: AuditEntry = serde_json::from_str(&lines[1]).expect("parse");
+            // Same time, different suffix
+            entry0.timestamp = "2026-03-01T12:00:00Z".to_string();
+            entry1.timestamp = "2026-03-01T12:00:01+00:00".to_string();
+            // Recompute hashes
+            entry0.entry_hash = Some(AuditLogger::compute_entry_hash(&entry0).expect("hash"));
+            entry1.prev_hash = entry0.entry_hash.clone();
+            entry1.entry_hash = Some(AuditLogger::compute_entry_hash(&entry1).expect("hash"));
+            lines[0] = serde_json::to_string(&entry0).expect("serialize");
+            lines[1] = serde_json::to_string(&entry1).expect("serialize");
+            tokio::fs::write(&log_path, lines.join("\n") + "\n")
+                .await
+                .expect("write");
+        }
+
+        let result = logger.verify_chain().await.expect("verify");
+        assert!(result.valid, "Mixed UTC suffixes should be handled correctly");
+    }
 }

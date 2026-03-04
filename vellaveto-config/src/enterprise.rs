@@ -81,8 +81,11 @@ pub struct TlsConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_ca_path: Option<String>,
 
-    /// Require clients to present a certificate (mTLS). Default: false.
-    #[serde(default)]
+    /// Require clients to present a certificate (mTLS). Default: true (fail-closed).
+    /// SECURITY (R233-TLS-4): Changed from false to true — mTLS with optional client
+    /// certs is fail-open by default; operators who want unauthenticated access must
+    /// explicitly opt in via `require_client_cert = false`.
+    #[serde(default = "default_true")]
     pub require_client_cert: bool,
 
     /// Verify client certificates against the CA. Default: true when mTLS enabled.
@@ -182,7 +185,7 @@ impl Default for TlsConfig {
             cert_path: None,
             key_path: None,
             client_ca_path: None,
-            require_client_cert: false,
+            require_client_cert: true,
             verify_client_cert: default_true(),
             min_version: default_min_tls_version(),
             kex_policy: TlsKexPolicy::ClassicalOnly,
@@ -863,4 +866,416 @@ fn default_jit_max_ttl() -> u64 {
 
 fn default_jit_max_sessions() -> u32 {
     3
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ═══════════════════════════════════════════════════
+    // TlsConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_tls_validate_default_ok() {
+        let config = TlsConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_tls_validate_invalid_min_version_rejected() {
+        let mut config = TlsConfig::default();
+        config.min_version = "1.1".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("min_version"));
+    }
+
+    #[test]
+    fn test_tls_validate_valid_min_versions_accepted() {
+        for ver in &["1.2", "1.3"] {
+            let mut config = TlsConfig::default();
+            config.min_version = ver.to_string();
+            assert!(config.validate().is_ok(), "should accept '{}'", ver);
+        }
+    }
+
+    #[test]
+    fn test_tls_validate_mtls_without_ca_rejected() {
+        let mut config = TlsConfig::default();
+        config.mode = TlsMode::Mtls;
+        config.cert_path = Some("/cert.pem".to_string());
+        config.key_path = Some("/key.pem".to_string());
+        config.client_ca_path = None;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("client_ca_path"));
+    }
+
+    #[test]
+    fn test_tls_validate_tls_without_cert_rejected() {
+        let mut config = TlsConfig::default();
+        config.mode = TlsMode::Tls;
+        config.cert_path = None;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("cert_path required"));
+    }
+
+    #[test]
+    fn test_tls_validate_tls_without_key_rejected() {
+        let mut config = TlsConfig::default();
+        config.mode = TlsMode::Tls;
+        config.cert_path = Some("/cert.pem".to_string());
+        config.key_path = None;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("key_path required"));
+    }
+
+    #[test]
+    fn test_tls_validate_too_many_cipher_suites_rejected() {
+        let mut config = TlsConfig::default();
+        config.cipher_suites = (0..=MAX_CIPHER_SUITES)
+            .map(|i| format!("TLS_SUITE_{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("cipher_suites"));
+    }
+
+    #[test]
+    fn test_tls_validate_cipher_suite_control_chars_rejected() {
+        let mut config = TlsConfig::default();
+        config.cipher_suites = vec!["TLS_AES\x00".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+
+    #[test]
+    fn test_tls_validate_cert_path_control_chars_rejected() {
+        let mut config = TlsConfig::default();
+        config.cert_path = Some("/path\x00cert".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("cert_path contains control"));
+    }
+
+    #[test]
+    fn test_tls_validate_key_path_control_chars_rejected() {
+        let mut config = TlsConfig::default();
+        config.key_path = Some("/path\x01key".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("key_path contains control"));
+    }
+
+    #[test]
+    fn test_tls_validate_crl_path_control_chars_rejected() {
+        let mut config = TlsConfig::default();
+        config.crl_path = Some("/path\x02crl".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("crl_path contains control"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // SpiffeConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_spiffe_validate_default_ok() {
+        let config = SpiffeConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_spiffe_validate_enabled_without_trust_domain_rejected() {
+        let mut config = SpiffeConfig::default();
+        config.enabled = true;
+        config.trust_domain = None;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("trust_domain is required"));
+    }
+
+    #[test]
+    fn test_spiffe_validate_too_many_spiffe_ids_rejected() {
+        let mut config = SpiffeConfig::default();
+        config.allowed_spiffe_ids = (0..=MAX_SPIFFE_IDS)
+            .map(|i| format!("spiffe://example.org/agent/{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("allowed_spiffe_ids"));
+    }
+
+    #[test]
+    fn test_spiffe_validate_too_many_role_mappings_rejected() {
+        let mut config = SpiffeConfig::default();
+        config.id_to_role = (0..=MAX_SPIFFE_ROLE_MAPPINGS)
+            .map(|i| (format!("spiffe://a/{}", i), "viewer".to_string()))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("id_to_role"));
+    }
+
+    #[test]
+    fn test_spiffe_validate_spiffe_id_control_chars_rejected() {
+        let mut config = SpiffeConfig::default();
+        config.allowed_spiffe_ids = vec!["spiffe://ex\x00ample".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+
+    #[test]
+    fn test_spiffe_validate_id_to_role_key_control_chars_rejected() {
+        let mut config = SpiffeConfig::default();
+        config.id_to_role = [("key\x00".to_string(), "admin".to_string())]
+            .into_iter()
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("id_to_role key contains control"));
+    }
+
+    #[test]
+    fn test_spiffe_validate_id_to_role_value_control_chars_rejected() {
+        let mut config = SpiffeConfig::default();
+        config.id_to_role = [("valid_key".to_string(), "admin\x00".to_string())]
+            .into_iter()
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("id_to_role value contains control"));
+    }
+
+    #[test]
+    fn test_spiffe_validate_trust_domain_control_chars_rejected() {
+        let mut config = SpiffeConfig::default();
+        config.trust_domain = Some("example\x01.org".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("trust_domain contains control"));
+    }
+
+    #[test]
+    fn test_spiffe_validate_svid_cache_ttl_over_max_rejected() {
+        let mut config = SpiffeConfig::default();
+        config.svid_cache_ttl_secs = MAX_CACHE_TTL_SECS + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("svid_cache_ttl_secs"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // OpaConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_opa_validate_default_ok() {
+        let config = OpaConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_opa_validate_enabled_without_endpoint_or_bundle_rejected() {
+        let mut config = OpaConfig::default();
+        config.enabled = true;
+        config.endpoint = None;
+        config.bundle_path = None;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("endpoint or opa.bundle_path is required"));
+    }
+
+    #[test]
+    fn test_opa_validate_too_many_headers_rejected() {
+        let mut config = OpaConfig::default();
+        config.headers = (0..=MAX_OPA_HEADERS)
+            .map(|i| (format!("X-Header-{}", i), "value".to_string()))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("headers count"));
+    }
+
+    #[test]
+    fn test_opa_validate_header_key_control_chars_rejected() {
+        let mut config = OpaConfig::default();
+        config.headers = [("X-Bad\x00".to_string(), "value".to_string())]
+            .into_iter()
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("headers key contains control"));
+    }
+
+    #[test]
+    fn test_opa_validate_header_value_control_chars_rejected() {
+        let mut config = OpaConfig::default();
+        config.headers = [("X-Good".to_string(), "val\x01ue".to_string())]
+            .into_iter()
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("headers value contains control"));
+    }
+
+    #[test]
+    fn test_opa_validate_cache_ttl_over_max_rejected() {
+        let mut config = OpaConfig::default();
+        config.cache_ttl_secs = MAX_CACHE_TTL_SECS + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("cache_ttl_secs"));
+    }
+
+    #[test]
+    fn test_opa_validate_cache_size_over_max_rejected() {
+        let mut config = OpaConfig::default();
+        config.cache_size = MAX_OPA_CACHE_SIZE + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("cache_size"));
+    }
+
+    #[test]
+    fn test_opa_validate_endpoint_control_chars_rejected() {
+        let mut config = OpaConfig::default();
+        config.endpoint = Some("https://opa\x00.example.com".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("endpoint contains control"));
+    }
+
+    #[test]
+    fn test_opa_validate_require_https_non_https_endpoint_rejected() {
+        let mut config = OpaConfig::default();
+        config.require_https = true;
+        config.endpoint = Some("http://opa.example.com/v1/data".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("must use https://"));
+    }
+
+    #[test]
+    fn test_opa_validate_decision_path_control_chars_rejected() {
+        let mut config = OpaConfig::default();
+        config.decision_path = "result\x00".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("decision_path contains control"));
+    }
+
+    #[test]
+    fn test_opa_validate_bundle_path_control_chars_rejected() {
+        let mut config = OpaConfig::default();
+        config.bundle_path = Some("/path\x00bundle".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("bundle_path contains control"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // ThreatIntelConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_threat_intel_validate_default_ok() {
+        let config = ThreatIntelConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_threat_intel_validate_enabled_without_endpoint_rejected() {
+        let mut config = ThreatIntelConfig::default();
+        config.enabled = true;
+        config.endpoint = None;
+        // Default derive produces empty on_match; set valid value to reach endpoint check.
+        config.on_match = "deny".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("endpoint is required"));
+    }
+
+    #[test]
+    fn test_threat_intel_validate_enabled_invalid_on_match_rejected() {
+        let mut config = ThreatIntelConfig::default();
+        config.enabled = true;
+        config.endpoint = Some("https://taxii.example.com".to_string());
+        config.on_match = "invalid".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("on_match"));
+    }
+
+    #[test]
+    fn test_threat_intel_validate_too_many_ioc_types_rejected() {
+        let mut config = ThreatIntelConfig::default();
+        config.ioc_types = (0..=MAX_IOC_TYPES)
+            .map(|i| format!("type_{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("ioc_types"));
+    }
+
+    #[test]
+    fn test_threat_intel_validate_ioc_type_control_chars_rejected() {
+        let mut config = ThreatIntelConfig::default();
+        config.ioc_types = vec!["ip\x00".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+
+    #[test]
+    fn test_threat_intel_validate_endpoint_control_chars_rejected() {
+        let mut config = ThreatIntelConfig::default();
+        config.endpoint = Some("https://taxii\x00.example.com".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+
+    #[test]
+    fn test_threat_intel_validate_endpoint_non_https_rejected() {
+        let mut config = ThreatIntelConfig::default();
+        config.endpoint = Some("http://external.example.com".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("https://"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // JitAccessConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_jit_access_validate_default_ok() {
+        let config = JitAccessConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_jit_access_validate_too_many_elevations_rejected() {
+        let mut config = JitAccessConfig::default();
+        config.allowed_elevations = (0..=MAX_JIT_ELEVATIONS)
+            .map(|i| format!("elev_{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("allowed_elevations"));
+    }
+
+    #[test]
+    fn test_jit_access_validate_default_ttl_exceeds_max_ttl_rejected() {
+        let mut config = JitAccessConfig::default();
+        config.default_ttl_secs = 90_000;
+        config.max_ttl_secs = 86_400;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("exceeds max_ttl_secs"));
+    }
+
+    #[test]
+    fn test_jit_access_validate_empty_elevation_rejected() {
+        let mut config = JitAccessConfig::default();
+        config.allowed_elevations = vec!["".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("must not be empty"));
+    }
+
+    #[test]
+    fn test_jit_access_validate_elevation_control_chars_rejected() {
+        let mut config = JitAccessConfig::default();
+        config.allowed_elevations = vec!["admin\x00".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+
+    #[test]
+    fn test_jit_access_validate_webhook_non_https_rejected() {
+        let mut config = JitAccessConfig::default();
+        config.notification_webhook = Some("http://external.example.com/hook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("https://"));
+    }
+
+    #[test]
+    fn test_jit_access_validate_webhook_control_chars_rejected() {
+        let mut config = JitAccessConfig::default();
+        config.notification_webhook = Some("https://hook\x00.example.com".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
 }

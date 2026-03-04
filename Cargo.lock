@@ -5658,6 +5658,7 @@ dependencies = [
  "vellaveto-discovery",
  "vellaveto-engine",
  "vellaveto-mcp",
+ "vellaveto-tls",
  "vellaveto-types",
  "x509-parser",
 ]

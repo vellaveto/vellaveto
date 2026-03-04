@@ -510,3 +510,270 @@ pub struct CompiledPolicy {
     /// Pre-compiled context conditions (from conditions JSON `context_conditions` key).
     pub context_conditions: Vec<CompiledContextCondition>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn make_glob_constraint(param: &str, pattern: &str) -> CompiledConstraint {
+        let glob = globset::GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .build()
+            .unwrap()
+            .compile_matcher();
+        CompiledConstraint::Glob {
+            param: param.to_string(),
+            matcher: glob,
+            pattern_str: pattern.to_string(),
+            on_match: "deny".to_string(),
+            on_missing: "skip".to_string(),
+        }
+    }
+
+    fn make_eq_constraint(param: &str, value: serde_json::Value) -> CompiledConstraint {
+        CompiledConstraint::Eq {
+            param: param.to_string(),
+            value,
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        }
+    }
+
+    fn make_ne_constraint(param: &str, value: serde_json::Value) -> CompiledConstraint {
+        CompiledConstraint::Ne {
+            param: param.to_string(),
+            value,
+            on_match: "deny".to_string(),
+            on_missing: "skip".to_string(),
+        }
+    }
+
+    fn make_one_of_constraint(param: &str, values: Vec<serde_json::Value>) -> CompiledConstraint {
+        CompiledConstraint::OneOf {
+            param: param.to_string(),
+            values,
+            on_match: "allow".to_string(),
+            on_missing: "deny".to_string(),
+        }
+    }
+
+    fn make_none_of_constraint(
+        param: &str,
+        values: Vec<serde_json::Value>,
+    ) -> CompiledConstraint {
+        CompiledConstraint::NoneOf {
+            param: param.to_string(),
+            values,
+            on_match: "deny".to_string(),
+            on_missing: "skip".to_string(),
+        }
+    }
+
+    // ---- CompiledConstraint accessor tests ----
+
+    #[test]
+    fn test_compiled_constraint_param_glob() {
+        let c = make_glob_constraint("file_path", "/tmp/**");
+        assert_eq!(c.param(), "file_path");
+    }
+
+    #[test]
+    fn test_compiled_constraint_param_eq() {
+        let c = make_eq_constraint("mode", json!("read"));
+        assert_eq!(c.param(), "mode");
+    }
+
+    #[test]
+    fn test_compiled_constraint_on_match_returns_correct_value() {
+        let c = make_glob_constraint("path", "*.exe");
+        assert_eq!(c.on_match(), "deny");
+    }
+
+    #[test]
+    fn test_compiled_constraint_on_missing_returns_correct_value() {
+        let c = make_glob_constraint("path", "*.exe");
+        assert_eq!(c.on_missing(), "skip");
+    }
+
+    #[test]
+    fn test_compiled_constraint_on_match_ne() {
+        let c = make_ne_constraint("level", json!(0));
+        assert_eq!(c.on_match(), "deny");
+    }
+
+    #[test]
+    fn test_compiled_constraint_on_missing_ne() {
+        let c = make_ne_constraint("level", json!(0));
+        assert_eq!(c.on_missing(), "skip");
+    }
+
+    #[test]
+    fn test_compiled_constraint_on_match_one_of() {
+        let c = make_one_of_constraint("env", vec![json!("dev"), json!("staging")]);
+        assert_eq!(c.on_match(), "allow");
+    }
+
+    #[test]
+    fn test_compiled_constraint_on_missing_one_of() {
+        let c = make_one_of_constraint("env", vec![json!("dev")]);
+        assert_eq!(c.on_missing(), "deny");
+    }
+
+    #[test]
+    fn test_compiled_constraint_param_none_of() {
+        let c = make_none_of_constraint("action", vec![json!("delete")]);
+        assert_eq!(c.param(), "action");
+    }
+
+    #[test]
+    fn test_compiled_constraint_param_all_variants() {
+        // Verify param() returns correct value for every variant
+        let domain_match = CompiledConstraint::DomainMatch {
+            param: "url".to_string(),
+            pattern: "*.example.com".to_string(),
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(domain_match.param(), "url");
+
+        let domain_not_in = CompiledConstraint::DomainNotIn {
+            param: "endpoint".to_string(),
+            patterns: vec!["example.com".to_string()],
+            on_match: "deny".to_string(),
+            on_missing: "skip".to_string(),
+        };
+        assert_eq!(domain_not_in.param(), "endpoint");
+
+        let regex_c = CompiledConstraint::Regex {
+            param: "input".to_string(),
+            regex: Regex::new("^[a-z]+$").unwrap(),
+            pattern_str: "^[a-z]+$".to_string(),
+            on_match: "allow".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(regex_c.param(), "input");
+
+        let not_glob = CompiledConstraint::NotGlob {
+            param: "file".to_string(),
+            matchers: vec![],
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(not_glob.param(), "file");
+    }
+
+    #[test]
+    fn test_compiled_constraint_on_match_all_variants() {
+        let domain_match = CompiledConstraint::DomainMatch {
+            param: "url".to_string(),
+            pattern: "evil.com".to_string(),
+            on_match: "require_approval".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(domain_match.on_match(), "require_approval");
+
+        let regex_c = CompiledConstraint::Regex {
+            param: "q".to_string(),
+            regex: Regex::new(".*").unwrap(),
+            pattern_str: ".*".to_string(),
+            on_match: "allow".to_string(),
+            on_missing: "skip".to_string(),
+        };
+        assert_eq!(regex_c.on_match(), "allow");
+    }
+
+    #[test]
+    fn test_compiled_constraint_on_missing_all_variants() {
+        let domain_not_in = CompiledConstraint::DomainNotIn {
+            param: "host".to_string(),
+            patterns: vec![],
+            on_match: "deny".to_string(),
+            on_missing: "deny".to_string(),
+        };
+        assert_eq!(domain_not_in.on_missing(), "deny");
+    }
+
+    // ---- CompiledPathRules tests ----
+
+    #[test]
+    fn test_compiled_path_rules_empty_allowed_and_blocked() {
+        let rules = CompiledPathRules {
+            allowed: vec![],
+            blocked: vec![],
+        };
+        assert!(rules.allowed.is_empty());
+        assert!(rules.blocked.is_empty());
+    }
+
+    // ---- CompiledNetworkRules tests ----
+
+    #[test]
+    fn test_compiled_network_rules_empty() {
+        let rules = CompiledNetworkRules {
+            allowed_domains: vec![],
+            blocked_domains: vec![],
+        };
+        assert!(rules.allowed_domains.is_empty());
+        assert!(rules.blocked_domains.is_empty());
+    }
+
+    // ---- CompiledIpRules tests ----
+
+    #[test]
+    fn test_compiled_ip_rules_block_private_default() {
+        let rules = CompiledIpRules {
+            block_private: false,
+            blocked_cidrs: vec![],
+            allowed_cidrs: vec![],
+        };
+        assert!(!rules.block_private);
+        assert!(rules.blocked_cidrs.is_empty());
+    }
+
+    #[test]
+    fn test_compiled_ip_rules_with_cidrs() {
+        let blocked: ipnet::IpNet = "10.0.0.0/8".parse().unwrap();
+        let allowed: ipnet::IpNet = "192.168.1.0/24".parse().unwrap();
+        let rules = CompiledIpRules {
+            block_private: true,
+            blocked_cidrs: vec![blocked],
+            allowed_cidrs: vec![allowed],
+        };
+        assert!(rules.block_private);
+        assert_eq!(rules.blocked_cidrs.len(), 1);
+        assert_eq!(rules.allowed_cidrs.len(), 1);
+    }
+
+    // ---- CompiledConditions tests ----
+
+    #[test]
+    fn test_compiled_conditions_default_state() {
+        let conds = CompiledConditions {
+            require_approval: false,
+            forbidden_parameters: vec![],
+            required_parameters: vec![],
+            constraints: vec![],
+            on_no_match_continue: false,
+            context_conditions: vec![],
+        };
+        assert!(!conds.require_approval);
+        assert!(conds.constraints.is_empty());
+        assert!(!conds.on_no_match_continue);
+    }
+
+    #[test]
+    fn test_compiled_conditions_with_approval() {
+        let conds = CompiledConditions {
+            require_approval: true,
+            forbidden_parameters: vec!["secret".to_string()],
+            required_parameters: vec!["token".to_string()],
+            constraints: vec![],
+            on_no_match_continue: false,
+            context_conditions: vec![],
+        };
+        assert!(conds.require_approval);
+        assert_eq!(conds.forbidden_parameters, vec!["secret"]);
+        assert_eq!(conds.required_parameters, vec!["token"]);
+    }
+}

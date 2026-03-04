@@ -1282,13 +1282,17 @@ pub fn extract_session_cookie(headers: &HeaderMap, cookie_name: &str) -> Option<
 }
 
 /// Login query params.
+// SECURITY (FIND-GAP-002): Reject unknown fields in user-supplied query parameters.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LoginParams {
     pub next: Option<String>,
 }
 
 /// Callback query params from the IdP.
+// SECURITY (FIND-GAP-002): Reject unknown fields in user-supplied query parameters.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CallbackParams {
     pub code: Option<String>,
     pub state: Option<String>,

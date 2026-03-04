@@ -819,4 +819,260 @@ mod tests {
         let result = build_custom_indicator_url("not a url", IndicatorType::Ip, "1.2.3.4");
         assert!(matches!(result, Err(ThreatIntelError::InvalidResponse(_))));
     }
+
+    // ── indicator_type conversions ────────────────────────────────────
+
+    #[test]
+    fn test_indicator_type_to_stix_all_variants() {
+        assert_eq!(indicator_type_to_stix(IndicatorType::Ip), "ipv4-addr");
+        assert_eq!(indicator_type_to_stix(IndicatorType::Url), "url");
+        assert_eq!(indicator_type_to_stix(IndicatorType::FileHash), "file");
+        assert_eq!(indicator_type_to_stix(IndicatorType::Email), "email-addr");
+        assert_eq!(indicator_type_to_stix(IndicatorType::ToolName), "tool");
+        assert_eq!(indicator_type_to_stix(IndicatorType::Unknown), "indicator");
+    }
+
+    #[test]
+    fn test_indicator_type_to_misp_all_variants() {
+        assert_eq!(indicator_type_to_misp(IndicatorType::Ip), "ip-dst");
+        assert_eq!(indicator_type_to_misp(IndicatorType::Url), "url");
+        assert_eq!(indicator_type_to_misp(IndicatorType::FileHash), "md5");
+        assert_eq!(indicator_type_to_misp(IndicatorType::Email), "email-src");
+        assert_eq!(indicator_type_to_misp(IndicatorType::ToolName), "text");
+        assert_eq!(indicator_type_to_misp(IndicatorType::Unknown), "text");
+    }
+
+    #[test]
+    fn test_indicator_type_to_string_all_variants() {
+        assert_eq!(indicator_type_to_string(IndicatorType::Ip), "ip");
+        assert_eq!(indicator_type_to_string(IndicatorType::Url), "url");
+        assert_eq!(indicator_type_to_string(IndicatorType::FileHash), "hash");
+        assert_eq!(indicator_type_to_string(IndicatorType::Email), "email");
+        assert_eq!(indicator_type_to_string(IndicatorType::ToolName), "tool");
+        assert_eq!(indicator_type_to_string(IndicatorType::Unknown), "unknown");
+    }
+
+    // ── ThreatIndicator validation ────────────────────────────────────
+
+    #[test]
+    fn test_indicator_validate_valid_no_tags() {
+        let indicator = ThreatIndicator {
+            indicator_type: IndicatorType::Domain,
+            value: "evil.com".to_string(),
+            confidence: 90,
+            severity: Severity::High,
+            source: "test".to_string(),
+            description: None,
+            tags: vec![],
+            first_seen: None,
+            last_seen: None,
+        };
+        assert!(indicator.validate().is_ok());
+    }
+
+    #[test]
+    fn test_indicator_validate_max_tags_ok() {
+        let indicator = ThreatIndicator {
+            indicator_type: IndicatorType::Ip,
+            value: "1.2.3.4".to_string(),
+            confidence: 50,
+            severity: Severity::Medium,
+            source: "test".to_string(),
+            description: None,
+            tags: (0..MAX_INDICATOR_TAGS)
+                .map(|i| format!("tag-{}", i))
+                .collect(),
+            first_seen: None,
+            last_seen: None,
+        };
+        assert!(indicator.validate().is_ok());
+    }
+
+    #[test]
+    fn test_indicator_validate_too_many_tags_rejected() {
+        let indicator = ThreatIndicator {
+            indicator_type: IndicatorType::Ip,
+            value: "1.2.3.4".to_string(),
+            confidence: 50,
+            severity: Severity::Medium,
+            source: "test".to_string(),
+            description: None,
+            tags: (0..=MAX_INDICATOR_TAGS)
+                .map(|i| format!("tag-{}", i))
+                .collect(),
+            first_seen: None,
+            last_seen: None,
+        };
+        assert!(indicator.validate().is_err());
+    }
+
+    #[test]
+    fn test_indicator_validate_tag_too_long_rejected() {
+        let indicator = ThreatIndicator {
+            indicator_type: IndicatorType::Url,
+            value: "https://evil.com".to_string(),
+            confidence: 80,
+            severity: Severity::Critical,
+            source: "test".to_string(),
+            description: None,
+            tags: vec!["x".repeat(MAX_TAG_LEN + 1)],
+            first_seen: None,
+            last_seen: None,
+        };
+        assert!(indicator.validate().is_err());
+    }
+
+    #[test]
+    fn test_indicator_validate_tag_at_max_length_ok() {
+        let indicator = ThreatIndicator {
+            indicator_type: IndicatorType::Url,
+            value: "https://evil.com".to_string(),
+            confidence: 80,
+            severity: Severity::Critical,
+            source: "test".to_string(),
+            description: None,
+            tags: vec!["x".repeat(MAX_TAG_LEN)],
+            first_seen: None,
+            last_seen: None,
+        };
+        assert!(indicator.validate().is_ok());
+    }
+
+    // ── Severity ordering ─────────────────────────────────────────────
+
+    #[test]
+    fn test_severity_equality() {
+        assert_eq!(Severity::High, Severity::High);
+        assert_ne!(Severity::High, Severity::Low);
+    }
+
+    // ── ThreatAction ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_threat_action_equality() {
+        assert_eq!(ThreatAction::Deny, ThreatAction::Deny);
+        assert_ne!(ThreatAction::Deny, ThreatAction::Allow);
+        assert_ne!(ThreatAction::Alert, ThreatAction::RequireApproval);
+    }
+
+    // ── determine_action edge cases ───────────────────────────────────
+
+    #[test]
+    fn test_determine_action_require_approval() {
+        let config = ThreatIntelConfig {
+            enabled: true,
+            endpoint: Some("http://localhost".to_string()),
+            on_match: "require_approval".to_string(),
+            ..Default::default()
+        };
+        let client = ThreatIntelClient::new(&config).unwrap().unwrap();
+        assert_eq!(client.determine_action(), ThreatAction::RequireApproval);
+    }
+
+    #[test]
+    fn test_determine_action_unknown_defaults_to_deny() {
+        let config = ThreatIntelConfig {
+            enabled: true,
+            endpoint: Some("http://localhost".to_string()),
+            on_match: "unknown_action".to_string(),
+            ..Default::default()
+        };
+        let client = ThreatIntelClient::new(&config).unwrap().unwrap();
+        assert_eq!(client.determine_action(), ThreatAction::Deny);
+    }
+
+    // ── STIX parsing edge cases ───────────────────────────────────────
+
+    #[test]
+    fn test_parse_stix_objects_non_indicator_objects_skipped() {
+        let client = test_client();
+        let result = client
+            .parse_stix_objects(&json!({
+                "objects": [
+                    {"type": "relationship", "id": "relationship--1"},
+                    {"type": "indicator", "pattern": "[domain:value='evil.com']"}
+                ]
+            }))
+            .expect("should parse valid indicators");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].source, "TAXII");
+    }
+
+    #[test]
+    fn test_parse_stix_objects_default_confidence() {
+        let client = test_client();
+        let result = client
+            .parse_stix_objects(&json!({
+                "objects": [
+                    {"type": "indicator", "pattern": "[ip:value='1.2.3.4']"}
+                ]
+            }))
+            .expect("should parse");
+        assert_eq!(result[0].confidence, 50); // default
+    }
+
+    #[test]
+    fn test_parse_stix_objects_empty_objects_array() {
+        let client = test_client();
+        let result = client
+            .parse_stix_objects(&json!({"objects": []}))
+            .expect("empty array should be valid");
+        assert!(result.is_empty());
+    }
+
+    // ── MISP parsing edge cases ───────────────────────────────────────
+
+    #[test]
+    fn test_parse_misp_response_valid_attributes() {
+        let client = test_client();
+        let result = client
+            .parse_misp_response(&json!({
+                "response": {
+                    "Attribute": [
+                        {"value": "evil.com", "comment": "malware domain"},
+                        {"value": "1.2.3.4"}
+                    ]
+                }
+            }))
+            .expect("should parse valid attributes");
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].value, "evil.com");
+        assert_eq!(result[0].source, "MISP");
+        assert_eq!(result[0].description, Some("malware domain".to_string()));
+    }
+
+    // ── build_custom_indicator_url path variants ──────────────────────
+
+    #[test]
+    fn test_build_custom_indicator_url_ip_type() {
+        let url =
+            build_custom_indicator_url("https://intel.example.com", IndicatorType::Ip, "10.0.0.1")
+                .expect("valid URL");
+        assert!(url.as_str().contains("/indicators/ip/10.0.0.1"));
+    }
+
+    #[test]
+    fn test_build_custom_indicator_url_url_type() {
+        let url = build_custom_indicator_url(
+            "https://intel.example.com",
+            IndicatorType::Url,
+            "https://evil.com",
+        )
+        .expect("valid URL");
+        assert!(url.as_str().contains("/indicators/url/"));
+    }
+
+    // ── ThreatIntelError display ──────────────────────────────────────
+
+    #[test]
+    fn test_threat_intel_error_display() {
+        let err = ThreatIntelError::NotConfigured;
+        assert!(err.to_string().contains("not configured"));
+
+        let err = ThreatIntelError::UnsupportedProvider("custom-v2".to_string());
+        assert!(err.to_string().contains("custom-v2"));
+
+        let err = ThreatIntelError::InvalidResponse("bad json".to_string());
+        assert!(err.to_string().contains("bad json"));
+    }
 }

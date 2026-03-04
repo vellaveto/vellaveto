@@ -554,3 +554,373 @@ impl MerkleTree {
         &self.leaf_file_path
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn make_tree() -> (MerkleTree, TempDir) {
+        let tmp = TempDir::new().expect("temp dir");
+        let leaf_path = tmp.path().join("test.merkle-leaves");
+        let tree = MerkleTree::new(leaf_path);
+        (tree, tmp)
+    }
+
+    // ── hash_leaf vs hash_internal domain separation ────────────────
+
+    #[test]
+    fn test_hash_leaf_vs_hash_internal_different() {
+        // RFC 6962 domain separation: hash_leaf(data) != hash_internal(data, data)
+        let data = [0xABu8; 32];
+        let leaf = hash_leaf(&data);
+        let internal = hash_internal(&data, &data);
+        assert_ne!(leaf, internal, "Leaf and internal hashes must differ (domain separation)");
+    }
+
+    #[test]
+    fn test_hash_leaf_deterministic() {
+        let data = [0x42u8; 32];
+        let h1 = hash_leaf(&data);
+        let h2 = hash_leaf(&data);
+        assert_eq!(h1, h2, "hash_leaf must be deterministic");
+    }
+
+    #[test]
+    fn test_hash_internal_deterministic() {
+        let left = [0x01u8; 32];
+        let right = [0x02u8; 32];
+        let h1 = hash_internal(&left, &right);
+        let h2 = hash_internal(&left, &right);
+        assert_eq!(h1, h2, "hash_internal must be deterministic");
+    }
+
+    #[test]
+    fn test_hash_internal_order_matters() {
+        let a = [0x01u8; 32];
+        let b = [0x02u8; 32];
+        let h1 = hash_internal(&a, &b);
+        let h2 = hash_internal(&b, &a);
+        assert_ne!(h1, h2, "hash_internal(a,b) != hash_internal(b,a)");
+    }
+
+    // ── Basic tree operations ───────────────────────────────────────
+
+    #[test]
+    fn test_empty_tree_root_is_none() {
+        let (tree, _tmp) = make_tree();
+        assert!(tree.root().is_none());
+        assert!(tree.root_hex().is_none());
+        assert_eq!(tree.leaf_count(), 0);
+    }
+
+    #[test]
+    fn test_append_single_leaf() {
+        let (mut tree, _tmp) = make_tree();
+        let leaf = hash_leaf(&[1u8; 32]);
+        tree.append(leaf).expect("append");
+        assert_eq!(tree.leaf_count(), 1);
+        assert!(tree.root().is_some());
+        // Single leaf: root == the leaf hash itself
+        assert_eq!(tree.root().expect("root"), leaf);
+    }
+
+    #[test]
+    fn test_append_two_leaves_root() {
+        let (mut tree, _tmp) = make_tree();
+        let leaf0 = hash_leaf(&[0u8; 32]);
+        let leaf1 = hash_leaf(&[1u8; 32]);
+        tree.append(leaf0).expect("append 0");
+        tree.append(leaf1).expect("append 1");
+        assert_eq!(tree.leaf_count(), 2);
+        let expected_root = hash_internal(&leaf0, &leaf1);
+        assert_eq!(tree.root().expect("root"), expected_root);
+    }
+
+    #[test]
+    fn test_append_three_leaves_root() {
+        let (mut tree, _tmp) = make_tree();
+        let leaf0 = hash_leaf(&[0u8; 32]);
+        let leaf1 = hash_leaf(&[1u8; 32]);
+        let leaf2 = hash_leaf(&[2u8; 32]);
+        tree.append(leaf0).expect("append 0");
+        tree.append(leaf1).expect("append 1");
+        tree.append(leaf2).expect("append 2");
+        assert_eq!(tree.leaf_count(), 3);
+        // For 3 leaves: peaks are [None (level 0 = leaf2), Some(internal(leaf0, leaf1)) at level 1]
+        // Root = hash_internal(peaks[1], peaks[0]) = hash_internal(hash_internal(leaf0, leaf1), leaf2)
+        let internal_01 = hash_internal(&leaf0, &leaf1);
+        let expected_root = hash_internal(&internal_01, &leaf2);
+        assert_eq!(tree.root().expect("root"), expected_root);
+    }
+
+    #[test]
+    fn test_root_hex_format() {
+        let (mut tree, _tmp) = make_tree();
+        let leaf = hash_leaf(&[42u8; 32]);
+        tree.append(leaf).expect("append");
+        let hex_root = tree.root_hex().expect("root_hex");
+        assert_eq!(hex_root.len(), 64, "SHA-256 hex should be 64 chars");
+        assert!(hex_root.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    // ── Proof generation and verification ───────────────────────────
+
+    #[test]
+    fn test_proof_single_leaf() {
+        let (mut tree, _tmp) = make_tree();
+        let data = [0xAAu8; 32];
+        let leaf = hash_leaf(&data);
+        tree.append(leaf).expect("append");
+
+        let proof = tree.generate_proof(0).expect("proof");
+        assert_eq!(proof.leaf_index, 0);
+        assert_eq!(proof.tree_size, 1);
+        assert!(proof.siblings.is_empty(), "Single leaf needs no siblings");
+
+        let trusted_root = tree.root_hex().expect("root");
+        let result = MerkleTree::verify_proof(leaf, &proof, &trusted_root).expect("verify");
+        assert!(result.valid, "Proof for single leaf should verify");
+    }
+
+    #[test]
+    fn test_proof_two_leaves() {
+        let (mut tree, _tmp) = make_tree();
+        let leaf0 = hash_leaf(&[0u8; 32]);
+        let leaf1 = hash_leaf(&[1u8; 32]);
+        tree.append(leaf0).expect("append 0");
+        tree.append(leaf1).expect("append 1");
+
+        let trusted_root = tree.root_hex().expect("root");
+
+        // Proof for leaf 0
+        let proof0 = tree.generate_proof(0).expect("proof 0");
+        let result0 = MerkleTree::verify_proof(leaf0, &proof0, &trusted_root).expect("verify 0");
+        assert!(result0.valid, "Proof for leaf 0 should verify");
+
+        // Proof for leaf 1
+        let proof1 = tree.generate_proof(1).expect("proof 1");
+        let result1 = MerkleTree::verify_proof(leaf1, &proof1, &trusted_root).expect("verify 1");
+        assert!(result1.valid, "Proof for leaf 1 should verify");
+    }
+
+    #[test]
+    fn test_proof_four_leaves() {
+        let (mut tree, _tmp) = make_tree();
+        let leaves: Vec<[u8; 32]> = (0..4u8).map(|i| hash_leaf(&[i; 32])).collect();
+        for leaf in &leaves {
+            tree.append(*leaf).expect("append");
+        }
+
+        let trusted_root = tree.root_hex().expect("root");
+        for (idx, leaf) in leaves.iter().enumerate() {
+            let proof = tree.generate_proof(idx as u64).expect("proof");
+            let result =
+                MerkleTree::verify_proof(*leaf, &proof, &trusted_root).expect("verify");
+            assert!(
+                result.valid,
+                "Proof for leaf {} should verify",
+                idx
+            );
+        }
+    }
+
+    #[test]
+    fn test_proof_five_leaves_non_power_of_two() {
+        let (mut tree, _tmp) = make_tree();
+        let leaves: Vec<[u8; 32]> = (0..5u8).map(|i| hash_leaf(&[i; 32])).collect();
+        for leaf in &leaves {
+            tree.append(*leaf).expect("append");
+        }
+
+        let trusted_root = tree.root_hex().expect("root");
+        for (idx, leaf) in leaves.iter().enumerate() {
+            let proof = tree.generate_proof(idx as u64).expect("proof");
+            let result =
+                MerkleTree::verify_proof(*leaf, &proof, &trusted_root).expect("verify");
+            assert!(
+                result.valid,
+                "Proof for leaf {} (5-leaf tree) should verify",
+                idx
+            );
+        }
+    }
+
+    #[test]
+    fn test_proof_wrong_root_fails() {
+        let (mut tree, _tmp) = make_tree();
+        let leaf = hash_leaf(&[0u8; 32]);
+        tree.append(leaf).expect("append");
+
+        let proof = tree.generate_proof(0).expect("proof");
+        let wrong_root = "0".repeat(64);
+        let result = MerkleTree::verify_proof(leaf, &proof, &wrong_root).expect("verify");
+        assert!(!result.valid, "Wrong root should fail verification");
+        assert!(result.failure_reason.is_some());
+    }
+
+    #[test]
+    fn test_proof_out_of_range_rejected() {
+        let (mut tree, _tmp) = make_tree();
+        let leaf = hash_leaf(&[0u8; 32]);
+        tree.append(leaf).expect("append");
+
+        let err = tree.generate_proof(1).expect_err("out of range");
+        match err {
+            AuditError::Validation(msg) => {
+                assert!(msg.contains("out of range"));
+            }
+            other => panic!("expected validation error, got {other:?}"),
+        }
+    }
+
+    // ── verify_proof edge cases ─────────────────────────────────────
+
+    #[test]
+    fn test_verify_proof_zero_tree_size() {
+        let proof = MerkleProof {
+            leaf_index: 0,
+            tree_size: 0,
+            siblings: vec![],
+            root_hash: "0".repeat(64),
+        };
+        let result =
+            MerkleTree::verify_proof([0u8; 32], &proof, &"0".repeat(64)).expect("verify");
+        assert!(!result.valid);
+        assert!(result
+            .failure_reason
+            .as_ref()
+            .expect("reason")
+            .contains("zero tree size"));
+    }
+
+    #[test]
+    fn test_verify_proof_leaf_index_ge_tree_size() {
+        let proof = MerkleProof {
+            leaf_index: 5,
+            tree_size: 3,
+            siblings: vec![],
+            root_hash: "0".repeat(64),
+        };
+        let result =
+            MerkleTree::verify_proof([0u8; 32], &proof, &"0".repeat(64)).expect("verify");
+        assert!(!result.valid);
+        assert!(result
+            .failure_reason
+            .as_ref()
+            .expect("reason")
+            .contains(">="));
+    }
+
+    #[test]
+    fn test_verify_proof_too_many_siblings_rejected() {
+        let siblings: Vec<ProofStep> = (0..65)
+            .map(|_| ProofStep {
+                hash: "0".repeat(64),
+                is_left: false,
+            })
+            .collect();
+        let proof = MerkleProof {
+            leaf_index: 0,
+            tree_size: 1,
+            siblings,
+            root_hash: "0".repeat(64),
+        };
+        let err = MerkleTree::verify_proof([0u8; 32], &proof, &"0".repeat(64))
+            .expect_err("too many siblings");
+        match err {
+            AuditError::Validation(msg) => {
+                assert!(msg.contains("too many siblings"));
+            }
+            other => panic!("expected validation error, got {other:?}"),
+        }
+    }
+
+    // ── Crash recovery (initialize) ─────────────────────────────────
+
+    #[test]
+    fn test_initialize_recovers_from_leaf_file() {
+        let tmp = TempDir::new().expect("temp dir");
+        let leaf_path = tmp.path().join("test.merkle-leaves");
+
+        // Build a tree with 4 leaves
+        let mut tree1 = MerkleTree::new(leaf_path.clone());
+        let leaves: Vec<[u8; 32]> = (0..4u8).map(|i| hash_leaf(&[i; 32])).collect();
+        for leaf in &leaves {
+            tree1.append(*leaf).expect("append");
+        }
+        let root1 = tree1.root_hex().expect("root");
+
+        // Create a new tree from the same leaf file
+        let mut tree2 = MerkleTree::new(leaf_path);
+        tree2.initialize().expect("initialize");
+        assert_eq!(tree2.leaf_count(), 4);
+        let root2 = tree2.root_hex().expect("root");
+        assert_eq!(root1, root2, "Recovered root should match original");
+    }
+
+    #[test]
+    fn test_initialize_truncates_partial_write() {
+        let tmp = TempDir::new().expect("temp dir");
+        let leaf_path = tmp.path().join("test.merkle-leaves");
+
+        // Write a valid leaf + 10 trailing bytes (simulating a crash mid-write)
+        let leaf = hash_leaf(&[0u8; 32]);
+        let mut data = leaf.to_vec();
+        data.extend_from_slice(&[0xFF; 10]); // partial write
+        std::fs::write(&leaf_path, &data).expect("write");
+
+        let mut tree = MerkleTree::new(leaf_path.clone());
+        tree.initialize().expect("initialize");
+        assert_eq!(tree.leaf_count(), 1, "Should have only 1 complete leaf");
+
+        // Verify the file was truncated
+        let meta = std::fs::metadata(&leaf_path).expect("metadata");
+        assert_eq!(meta.len(), 32, "File should be truncated to 32 bytes");
+    }
+
+    #[test]
+    fn test_initialize_nonexistent_file_ok() {
+        let tmp = TempDir::new().expect("temp dir");
+        let leaf_path = tmp.path().join("nonexistent.merkle-leaves");
+        let mut tree = MerkleTree::new(leaf_path);
+        tree.initialize().expect("initialize");
+        assert_eq!(tree.leaf_count(), 0);
+    }
+
+    // ── Max leaf count enforcement ──────────────────────────────────
+
+    #[test]
+    fn test_append_rejects_at_max_leaf_count() {
+        let tmp = TempDir::new().expect("temp dir");
+        let leaf_path = tmp.path().join("test.merkle-leaves");
+        let mut tree = MerkleTree::new(leaf_path).with_max_leaf_count(2);
+
+        tree.append(hash_leaf(&[0u8; 32])).expect("append 0");
+        tree.append(hash_leaf(&[1u8; 32])).expect("append 1");
+
+        let err = tree
+            .append(hash_leaf(&[2u8; 32]))
+            .expect_err("should reject at limit");
+        match err {
+            AuditError::Validation(msg) => {
+                assert!(msg.contains("limit reached"));
+            }
+            other => panic!("expected validation error, got {other:?}"),
+        }
+    }
+
+    // ── Reset ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_reset_clears_state() {
+        let (mut tree, _tmp) = make_tree();
+        tree.append(hash_leaf(&[0u8; 32])).expect("append");
+        tree.append(hash_leaf(&[1u8; 32])).expect("append");
+        assert_eq!(tree.leaf_count(), 2);
+
+        tree.reset();
+        assert_eq!(tree.leaf_count(), 0);
+        assert!(tree.root().is_none());
+    }
+}

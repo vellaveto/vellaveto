@@ -1106,3 +1106,662 @@ impl PolicyEngine {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::collections::HashMap;
+    use vellaveto_types::{
+        Action, AgentIdentity, CallChainEntry, EvaluationContext, Policy, PolicyType, Verdict,
+    };
+
+    // ── helpers ──────────────────────────────────────────────────────────
+
+    fn ctx_policy(id: &str, context_conditions: serde_json::Value) -> Policy {
+        Policy {
+            id: id.to_string(),
+            name: "ctx-test".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({ "context_conditions": context_conditions }),
+            },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }
+    }
+
+    fn ctx_engine(policy: Policy) -> PolicyEngine {
+        let mut engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        engine.set_trust_context_timestamps(true);
+        engine
+    }
+
+    #[allow(deprecated)] // evaluate_action_with_context is the only API accepting context
+    fn eval(engine: &PolicyEngine, tool: &str, ctx: &EvaluationContext) -> Verdict {
+        engine
+            .evaluate_action_with_context(
+                &Action::new(tool.to_string(), "execute".to_string(), json!({})),
+                &[],
+                Some(ctx),
+            )
+            .unwrap()
+    }
+
+    // ── 1. Time window checks ────────────────────────────────────────────
+
+    #[test]
+    fn test_time_window_hour_boundary_start_allow() {
+        // Exactly at start_hour should be allowed (>= start_hour)
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "time_window", "start_hour": 9, "end_hour": 17}]),
+        ));
+        let ctx = EvaluationContext {
+            timestamp: Some("2026-03-04T09:00:00Z".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_time_window_hour_boundary_end_deny() {
+        // Exactly at end_hour should be denied (< end_hour, not <=)
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "time_window", "start_hour": 9, "end_hour": 17}]),
+        ));
+        let ctx = EvaluationContext {
+            timestamp: Some("2026-03-04T17:00:00Z".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_time_window_midnight_wrap_allow_before_midnight() {
+        // 22-6 overnight window: 23:00 is within window
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "time_window", "start_hour": 22, "end_hour": 6}]),
+        ));
+        let ctx = EvaluationContext {
+            timestamp: Some("2026-03-04T23:30:00Z".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_time_window_midnight_wrap_allow_after_midnight() {
+        // 22-6 overnight window: 03:00 is within window
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "time_window", "start_hour": 22, "end_hour": 6}]),
+        ));
+        let ctx = EvaluationContext {
+            timestamp: Some("2026-03-05T03:00:00Z".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_time_window_midnight_wrap_deny_midday() {
+        // 22-6 overnight window: 12:00 is outside window
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "time_window", "start_hour": 22, "end_hour": 6}]),
+        ));
+        let ctx = EvaluationContext {
+            timestamp: Some("2026-03-04T12:00:00Z".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_time_window_day_of_week_deny_wrong_day() {
+        // 2026-03-04 is Wednesday (day 3). Policy only allows Monday (1).
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "time_window", "start_hour": 0, "end_hour": 23, "days": [1]}]),
+        ));
+        let ctx = EvaluationContext {
+            timestamp: Some("2026-03-04T10:00:00Z".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_time_window_day_of_week_allow_correct_day() {
+        // 2026-03-04 is Wednesday (day 3). Policy allows Wednesday.
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "time_window", "start_hour": 0, "end_hour": 23, "days": [3]}]),
+        ));
+        let ctx = EvaluationContext {
+            timestamp: Some("2026-03-04T10:00:00Z".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Allow));
+    }
+
+    // ── 2. Call limit enforcement ────────────────────────────────────────
+
+    #[test]
+    fn test_max_calls_empty_call_counts_fail_closed() {
+        // MaxCalls with empty call_counts should fail-closed
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "max_calls", "tool_pattern": "read_file", "max": 5}]),
+        ));
+        let ctx = EvaluationContext {
+            call_counts: HashMap::new(),
+            ..Default::default()
+        };
+        let v = eval(&engine, "read_file", &ctx);
+        assert!(matches!(v, Verdict::Deny { .. }));
+        if let Verdict::Deny { reason } = v {
+            assert!(reason.contains("fail-closed"));
+        }
+    }
+
+    #[test]
+    fn test_max_calls_under_limit_allow() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "max_calls", "tool_pattern": "read_file", "max": 5}]),
+        ));
+        let mut cc = HashMap::new();
+        cc.insert("read_file".to_string(), 3u64);
+        let ctx = EvaluationContext {
+            call_counts: cc,
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_max_calls_at_limit_deny() {
+        // count >= max triggers denial (>= not >)
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "max_calls", "tool_pattern": "read_file", "max": 5}]),
+        ));
+        let mut cc = HashMap::new();
+        cc.insert("read_file".to_string(), 5u64);
+        let ctx = EvaluationContext {
+            call_counts: cc,
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_max_calls_wildcard_aggregates_all_tools() {
+        // PatternMatcher::Any aggregates all tools
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "max_calls", "tool_pattern": "*", "max": 10}]),
+        ));
+        let mut cc = HashMap::new();
+        cc.insert("read_file".to_string(), 4u64);
+        cc.insert("write_file".to_string(), 4u64);
+        cc.insert("delete_file".to_string(), 3u64);
+        // Total = 11, exceeds max 10
+        let ctx = EvaluationContext {
+            call_counts: cc,
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+    }
+
+    // ── 3. Previous action requirements ──────────────────────────────────
+
+    #[test]
+    fn test_require_previous_action_present_allow() {
+        let engine = ctx_engine(ctx_policy(
+            "deploy:*",
+            json!([{"type": "require_previous_action", "required_tool": "review"}]),
+        ));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["review".to_string()],
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "deploy", &ctx), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_require_previous_action_missing_deny() {
+        let engine = ctx_engine(ctx_policy(
+            "deploy:*",
+            json!([{"type": "require_previous_action", "required_tool": "review"}]),
+        ));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["other_action".to_string()],
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "deploy", &ctx), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_require_previous_action_case_insensitive() {
+        // RequirePreviousAction should match case-insensitively via normalize_full
+        let engine = ctx_engine(ctx_policy(
+            "deploy:*",
+            json!([{"type": "require_previous_action", "required_tool": "review"}]),
+        ));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["REVIEW".to_string()],
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "deploy", &ctx), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_forbidden_previous_action_present_deny() {
+        let engine = ctx_engine(ctx_policy(
+            "http_request:*",
+            json!([{"type": "forbidden_previous_action", "forbidden_tool": "read_secret"}]),
+        ));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["read_secret".to_string()],
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "http_request", &ctx), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_forbidden_previous_action_absent_allow() {
+        let engine = ctx_engine(ctx_policy(
+            "http_request:*",
+            json!([{"type": "forbidden_previous_action", "forbidden_tool": "read_secret"}]),
+        ));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["list_files".to_string()],
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "http_request", &ctx), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_forbidden_previous_action_case_insensitive() {
+        // "READ_SECRET" in history should match "read_secret" forbidden tool
+        let engine = ctx_engine(ctx_policy(
+            "http_request:*",
+            json!([{"type": "forbidden_previous_action", "forbidden_tool": "read_secret"}]),
+        ));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["READ_SECRET".to_string()],
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "http_request", &ctx), Verdict::Deny { .. }));
+    }
+
+    // ── 4. Agent ID matching ─────────────────────────────────────────────
+
+    #[test]
+    fn test_agent_id_allowed_list_match_allow() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "agent_id", "allowed": ["agent-alpha"]}]),
+        ));
+        let ctx = EvaluationContext {
+            agent_id: Some("agent-alpha".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_agent_id_allowed_list_no_match_deny() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "agent_id", "allowed": ["agent-alpha"]}]),
+        ));
+        let ctx = EvaluationContext {
+            agent_id: Some("agent-beta".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_agent_id_blocked_list_deny() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "agent_id", "blocked": ["rogue-agent"]}]),
+        ));
+        let ctx = EvaluationContext {
+            agent_id: Some("rogue-agent".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_agent_id_missing_with_allowed_list_fail_closed() {
+        // No agent_id but allowed list is non-empty: fail-closed
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "agent_id", "allowed": ["agent-alpha"]}]),
+        ));
+        let ctx = EvaluationContext {
+            agent_id: None,
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_agent_id_case_insensitive_normalization() {
+        // Agent ID matching should be case-insensitive via normalize_full
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "agent_id", "allowed": ["agent-alpha"]}]),
+        ));
+        let ctx = EvaluationContext {
+            agent_id: Some("AGENT-ALPHA".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Allow));
+    }
+
+    // ── 5. Max chain depth ───────────────────────────────────────────────
+
+    #[test]
+    fn test_max_chain_depth_within_limit_allow() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "max_chain_depth", "max_depth": 2}]),
+        ));
+        let entry = CallChainEntry {
+            agent_id: "agent-1".to_string(),
+            tool: "t".to_string(),
+            function: "f".to_string(),
+            timestamp: "2026-03-04T10:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        };
+        let ctx = EvaluationContext {
+            call_chain: vec![entry],
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_max_chain_depth_exceeds_limit_deny() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "max_chain_depth", "max_depth": 1}]),
+        ));
+        let mk_entry = |id: &str| CallChainEntry {
+            agent_id: id.to_string(),
+            tool: "t".to_string(),
+            function: "f".to_string(),
+            timestamp: "2026-03-04T10:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        };
+        let ctx = EvaluationContext {
+            call_chain: vec![mk_entry("a1"), mk_entry("a2")],
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_max_chain_depth_zero_allows_empty_chain() {
+        // max_depth=0 means only direct calls (empty chain) allowed
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "max_chain_depth", "max_depth": 0}]),
+        ));
+        let ctx = EvaluationContext {
+            call_chain: vec![],
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Allow));
+    }
+
+    // ── 6. Session state required ────────────────────────────────────────
+
+    #[test]
+    fn test_session_state_required_matching_allow() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "session_state_required", "allowed_states": ["active", "init"]}]),
+        ));
+        let ctx = EvaluationContext {
+            session_state: Some("active".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_session_state_required_missing_fail_closed() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "session_state_required", "allowed_states": ["active"]}]),
+        ));
+        let ctx = EvaluationContext {
+            session_state: None,
+            ..Default::default()
+        };
+        let v = eval(&engine, "read_file", &ctx);
+        assert!(matches!(v, Verdict::Deny { .. }));
+        if let Verdict::Deny { reason } = v {
+            assert!(reason.contains("fail-closed"));
+        }
+    }
+
+    #[test]
+    fn test_session_state_required_wrong_state_deny() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "session_state_required", "allowed_states": ["active"]}]),
+        ));
+        let ctx = EvaluationContext {
+            session_state: Some("suspended".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+    }
+
+    // ── 7. MaxCallsInWindow ──────────────────────────────────────────────
+
+    #[test]
+    fn test_max_calls_in_window_under_limit_allow() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "max_calls_in_window", "tool_pattern": "read_file", "max": 3, "window": 5}]),
+        ));
+        let ctx = EvaluationContext {
+            previous_actions: vec![
+                "read_file".to_string(),
+                "other".to_string(),
+                "read_file".to_string(),
+            ],
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_max_calls_in_window_at_limit_deny() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "max_calls_in_window", "tool_pattern": "read_file", "max": 2, "window": 5}]),
+        ));
+        let ctx = EvaluationContext {
+            previous_actions: vec![
+                "read_file".to_string(),
+                "other".to_string(),
+                "read_file".to_string(),
+            ],
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_max_calls_in_window_zero_window_uses_full_history() {
+        // window=0 means entire history
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "max_calls_in_window", "tool_pattern": "read_file", "max": 3, "window": 0}]),
+        ));
+        let ctx = EvaluationContext {
+            previous_actions: vec![
+                "read_file".to_string(),
+                "read_file".to_string(),
+                "read_file".to_string(),
+            ],
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+    }
+
+    // ── 8. Fail-closed: empty conditions / missing fields ────────────────
+
+    #[test]
+    fn test_empty_context_conditions_allow() {
+        // No context conditions means all pass -> Allow
+        let engine = ctx_engine(ctx_policy("read_file:*", json!([])));
+        let ctx = EvaluationContext::default();
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_min_verification_tier_missing_fail_closed() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "min_verification_tier", "required_tier": 2}]),
+        ));
+        let ctx = EvaluationContext {
+            verification_tier: None,
+            ..Default::default()
+        };
+        let v = eval(&engine, "read_file", &ctx);
+        assert!(matches!(v, Verdict::Deny { .. }));
+        if let Verdict::Deny { reason } = v {
+            assert!(reason.contains("fail-closed"));
+        }
+    }
+
+    #[test]
+    fn test_min_verification_tier_sufficient_allow() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "min_verification_tier", "required_tier": 2}]),
+        ));
+        let ctx = EvaluationContext {
+            verification_tier: Some(vellaveto_types::VerificationTier::DidVerified), // level 3
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_min_verification_tier_insufficient_deny() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "min_verification_tier", "required_tier": 3}]),
+        ));
+        let ctx = EvaluationContext {
+            verification_tier: Some(vellaveto_types::VerificationTier::EmailVerified), // level 1
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+    }
+
+    // ── 9. Deputy validation / delegation depth ──────────────────────────
+
+    #[test]
+    fn test_deputy_validation_require_principal_missing_deny() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "deputy_validation", "require_principal": true, "max_delegation_depth": 3}]),
+        ));
+        // No agent_identity, no agent_id -> no principal
+        let ctx = EvaluationContext::default();
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_deputy_validation_delegation_depth_exceeded_deny() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "deputy_validation", "require_principal": false, "max_delegation_depth": 1}]),
+        ));
+        let mk_entry = |id: &str| CallChainEntry {
+            agent_id: id.to_string(),
+            tool: "t".to_string(),
+            function: "f".to_string(),
+            timestamp: "2026-03-04T10:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        };
+        let ctx = EvaluationContext {
+            call_chain: vec![mk_entry("a1"), mk_entry("a2")],
+            ..Default::default()
+        };
+        let v = eval(&engine, "read_file", &ctx);
+        assert!(matches!(v, Verdict::Deny { .. }));
+        if let Verdict::Deny { reason } = v {
+            assert!(reason.contains("delegation depth"));
+        }
+    }
+
+    // ── 10. Step-up auth ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_step_up_auth_insufficient_level_require_approval() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "step_up_auth", "required_level": 3}]),
+        ));
+        // auth_level=1 < required_level=3 -> RequireApproval
+        let ctx = EvaluationContext {
+            agent_identity: Some(AgentIdentity {
+                claims: {
+                    let mut m = HashMap::new();
+                    m.insert("auth_level".to_string(), json!("1"));
+                    m
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let v = eval(&engine, "read_file", &ctx);
+        assert!(
+            matches!(v, Verdict::RequireApproval { .. }),
+            "Expected RequireApproval, got {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_step_up_auth_sufficient_level_allow() {
+        let engine = ctx_engine(ctx_policy(
+            "read_file:*",
+            json!([{"type": "step_up_auth", "required_level": 2}]),
+        ));
+        let ctx = EvaluationContext {
+            agent_identity: Some(AgentIdentity {
+                claims: {
+                    let mut m = HashMap::new();
+                    m.insert("auth_level".to_string(), json!("3"));
+                    m
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Allow));
+    }
+}

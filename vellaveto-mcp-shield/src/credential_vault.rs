@@ -91,12 +91,16 @@ impl CredentialVault {
             )));
         }
 
-        // Update epoch tracker
-        if let Ok(mut epoch) = self.current_epoch.lock() {
-            if credential.issued_epoch > *epoch {
-                *epoch = credential.issued_epoch;
-            }
+        // SECURITY (R233-SHIELD-5): Fail-closed on epoch lock poisoning.
+        // Silently skipping epoch update would allow stale epoch tracking.
+        let mut epoch = self
+            .current_epoch
+            .lock()
+            .map_err(|e| ShieldError::Encryption(format!("epoch lock poisoned: {e}")))?;
+        if credential.issued_epoch > *epoch {
+            *epoch = credential.issued_epoch;
         }
+        drop(epoch);
 
         let stored = StoredVaultEntry {
             credential: credential.clone(),
@@ -179,11 +183,13 @@ impl CredentialVault {
             }
         }
 
-        // Update epoch
-        if let Ok(mut epoch) = self.current_epoch.lock() {
-            if current_epoch > *epoch {
-                *epoch = current_epoch;
-            }
+        // SECURITY (R233-SHIELD-5): Fail-closed on epoch lock poisoning.
+        let mut epoch = self
+            .current_epoch
+            .lock()
+            .map_err(|e| ShieldError::Encryption(format!("epoch lock poisoned: {e}")))?;
+        if current_epoch > *epoch {
+            *epoch = current_epoch;
         }
 
         Ok(expired_count)
@@ -219,7 +225,15 @@ impl CredentialVault {
             .filter(|e| e.status == CredentialStatus::Consumed)
             .count();
 
-        let current_epoch = self.current_epoch.lock().map(|e| *e).unwrap_or(0);
+        let current_epoch = match self.current_epoch.lock() {
+            Ok(e) => *e,
+            Err(_) => {
+                tracing::error!(
+                    "SECURITY (R233-SHIELD-5): epoch lock poisoned in status() — reporting epoch 0"
+                );
+                0
+            }
+        };
 
         CredentialVaultStatus {
             total: entries.len(),
@@ -278,7 +292,15 @@ impl CredentialVault {
     /// available, up to `pool_size`. Returns the number of credentials added.
     /// No-op if the vault already has enough available credentials.
     pub fn replenish(&self) -> Result<usize, ShieldError> {
-        let current_epoch = self.current_epoch.lock().map(|e| *e).unwrap_or(0);
+        // SECURITY (R233-SHIELD-5): Fail-closed on epoch lock poisoning.
+        // unwrap_or(0) would produce born-expired credentials (epoch 0), which
+        // causes a starvation cascade: replenish generates creds → expire_old_epochs
+        // immediately expires them → replenish runs again → infinite loop.
+        let current_epoch = self
+            .current_epoch
+            .lock()
+            .map(|e| *e)
+            .map_err(|e| ShieldError::Encryption(format!("epoch lock poisoned: {e}")))?;
 
         let mut added = 0usize;
         loop {

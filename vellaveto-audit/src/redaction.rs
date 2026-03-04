@@ -279,3 +279,248 @@ fn redact_keys_and_patterns_with_scanner_inner(
         _ => value.clone(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ── redact_keys_only tests ──────────────────────────────────────
+
+    #[test]
+    fn test_redact_keys_only_password_redacted() {
+        let input = json!({"password": "s3cret", "username": "alice"});
+        let result = redact_keys_only(&input);
+        assert_eq!(result["password"], REDACTED);
+        assert_eq!(result["username"], "alice");
+    }
+
+    #[test]
+    fn test_redact_keys_only_case_insensitive() {
+        let input = json!({"PASSWORD": "s3cret", "Api_Key": "key123"});
+        let result = redact_keys_only(&input);
+        assert_eq!(result["PASSWORD"], REDACTED);
+        assert_eq!(result["Api_Key"], REDACTED);
+    }
+
+    #[test]
+    fn test_redact_keys_only_nested_object() {
+        let input = json!({"config": {"secret": "hidden", "name": "test"}});
+        let result = redact_keys_only(&input);
+        assert_eq!(result["config"]["secret"], REDACTED);
+        assert_eq!(result["config"]["name"], "test");
+    }
+
+    #[test]
+    fn test_redact_keys_only_array_elements() {
+        let input = json!([{"token": "abc"}, {"name": "safe"}]);
+        let result = redact_keys_only(&input);
+        assert_eq!(result[0]["token"], REDACTED);
+        assert_eq!(result[1]["name"], "safe");
+    }
+
+    #[test]
+    fn test_redact_keys_only_does_not_redact_values() {
+        // redact_keys_only should NOT scan string values for patterns
+        let input = json!({"note": "sk-proj-secret123"});
+        let result = redact_keys_only(&input);
+        assert_eq!(result["note"], "sk-proj-secret123");
+    }
+
+    #[test]
+    fn test_redact_keys_only_depth_limit_fail_closed() {
+        // Build a JSON value nested deeper than MAX_REDACTION_DEPTH.
+        // At max depth the function should redact (fail-closed), not pass through.
+        let mut value = json!("leaf");
+        for _ in 0..MAX_REDACTION_DEPTH + 5 {
+            value = json!({"a": value});
+        }
+        let result = redact_keys_only(&value);
+        // Walk down to the depth limit -- should be REDACTED
+        let mut cursor = &result;
+        for _ in 0..MAX_REDACTION_DEPTH {
+            cursor = &cursor["a"];
+        }
+        assert_eq!(cursor, REDACTED);
+    }
+
+    // ── redact_keys_and_patterns tests ──────────────────────────────
+
+    #[test]
+    fn test_redact_keys_and_patterns_sensitive_key() {
+        let input = json!({"client_secret": "abc123"});
+        let result = redact_keys_and_patterns(&input);
+        assert_eq!(result["client_secret"], REDACTED);
+    }
+
+    #[test]
+    fn test_redact_keys_and_patterns_value_prefix_sk() {
+        let input = json!({"key": "sk-proj-abcdef123456"});
+        let result = redact_keys_and_patterns(&input);
+        assert_eq!(result["key"], REDACTED);
+    }
+
+    #[test]
+    fn test_redact_keys_and_patterns_value_prefix_case_insensitive() {
+        // "SK-" should match "sk-" (R9-8)
+        let input = json!({"key": "SK-UPPERCASE-KEY"});
+        let result = redact_keys_and_patterns(&input);
+        assert_eq!(result["key"], REDACTED);
+    }
+
+    #[test]
+    fn test_redact_keys_and_patterns_email_pii() {
+        let input = json!({"note": "contact user@example.com"});
+        let result = redact_keys_and_patterns(&input);
+        assert_eq!(result["note"], REDACTED);
+    }
+
+    #[test]
+    fn test_redact_keys_and_patterns_ssn_pii() {
+        let input = json!({"info": "SSN 123-45-6789"});
+        let result = redact_keys_and_patterns(&input);
+        assert_eq!(result["info"], REDACTED);
+    }
+
+    #[test]
+    fn test_redact_keys_and_patterns_phone_pii() {
+        let input = json!({"contact": "555-123-4567"});
+        let result = redact_keys_and_patterns(&input);
+        assert_eq!(result["contact"], REDACTED);
+    }
+
+    #[test]
+    fn test_redact_keys_and_patterns_number_pii() {
+        // SSN-like pattern in a numeric value (R9-3)
+        // Use a number that matches the phone regex: 5551234567
+        let input = json!({"data": 5551234567u64});
+        let result = redact_keys_and_patterns(&input);
+        assert_eq!(result["data"], REDACTED);
+    }
+
+    #[test]
+    fn test_redact_keys_and_patterns_nfkc_normalization() {
+        // FIND-084: Fullwidth digits should be normalized before PII scanning.
+        // Fullwidth "1" is U+FF11, "2" is U+FF12, etc.
+        // Build a fullwidth SSN-like pattern: 123-45-6789 in fullwidth digits.
+        let fullwidth_ssn = "\u{FF11}\u{FF12}\u{FF13}-\u{FF14}\u{FF15}-\u{FF16}\u{FF17}\u{FF18}\u{FF19}";
+        let input = json!({"data": fullwidth_ssn});
+        let result = redact_keys_and_patterns(&input);
+        // NFKC normalizes fullwidth digits to ASCII, so the SSN pattern should match
+        assert_eq!(
+            result["data"], REDACTED,
+            "Fullwidth digit SSN should be detected after NFKC normalization"
+        );
+    }
+
+    #[test]
+    fn test_redact_keys_and_patterns_aws_key_prefix() {
+        let input = json!({"val": "AKIAIOSFODNN7EXAMPLE"});
+        let result = redact_keys_and_patterns(&input);
+        assert_eq!(result["val"], REDACTED);
+    }
+
+    #[test]
+    fn test_redact_keys_and_patterns_bearer_prefix() {
+        let input = json!({"header": "Bearer eyJhbGciOiJ..."});
+        let result = redact_keys_and_patterns(&input);
+        assert_eq!(result["header"], REDACTED);
+    }
+
+    #[test]
+    fn test_redact_keys_and_patterns_depth_limit_fail_closed() {
+        let mut value = json!("innocuous");
+        for _ in 0..MAX_REDACTION_DEPTH + 5 {
+            value = json!({"a": value});
+        }
+        let result = redact_keys_and_patterns(&value);
+        let mut cursor = &result;
+        for _ in 0..MAX_REDACTION_DEPTH {
+            cursor = &cursor["a"];
+        }
+        assert_eq!(cursor, REDACTED);
+    }
+
+    #[test]
+    fn test_redact_keys_and_patterns_safe_value_unchanged() {
+        let input = json!({"greeting": "hello world"});
+        let result = redact_keys_and_patterns(&input);
+        assert_eq!(result["greeting"], "hello world");
+    }
+
+    // ── redact_keys_and_patterns_with_scanner tests ─────────────────
+
+    #[test]
+    fn test_redact_with_scanner_sensitive_key() {
+        let scanner = PiiScanner::default();
+        let input = json!({"authorization": "my-token"});
+        let result = redact_keys_and_patterns_with_scanner(&input, &scanner);
+        assert_eq!(result["authorization"], REDACTED);
+    }
+
+    #[test]
+    fn test_redact_with_scanner_substring_preserves_context() {
+        let scanner = PiiScanner::default();
+        // The scanner should do substring replacement for PII.
+        // With scanner, the original string gets NFKC-normalized and checked.
+        // If PII is found in normalized form, the entire value is REDACTED.
+        let input = json!({"note": "Contact user@example.com for info"});
+        let result = redact_keys_and_patterns_with_scanner(&input, &scanner);
+        // Email is PII -- the normalized form has it, so full value redacted
+        assert_eq!(result["note"], REDACTED);
+    }
+
+    #[test]
+    fn test_redact_with_scanner_value_prefix() {
+        let scanner = PiiScanner::default();
+        let input = json!({"key": "ghp_abcdef1234567890"});
+        let result = redact_keys_and_patterns_with_scanner(&input, &scanner);
+        assert_eq!(result["key"], REDACTED);
+    }
+
+    #[test]
+    fn test_redact_with_scanner_depth_limit_fail_closed() {
+        let scanner = PiiScanner::default();
+        let mut value = json!("safe");
+        for _ in 0..MAX_REDACTION_DEPTH + 5 {
+            value = json!({"a": value});
+        }
+        let result = redact_keys_and_patterns_with_scanner(&value, &scanner);
+        let mut cursor = &result;
+        for _ in 0..MAX_REDACTION_DEPTH {
+            cursor = &cursor["a"];
+        }
+        assert_eq!(cursor, REDACTED);
+    }
+
+    #[test]
+    fn test_redact_with_scanner_safe_string_unchanged() {
+        let scanner = PiiScanner::default();
+        let input = json!({"msg": "no sensitive data here"});
+        let result = redact_keys_and_patterns_with_scanner(&input, &scanner);
+        assert_eq!(result["msg"], "no sensitive data here");
+    }
+
+    #[test]
+    fn test_redact_keys_and_patterns_all_sensitive_keys() {
+        // Verify all SENSITIVE_PARAM_KEYS are redacted
+        for &key in SENSITIVE_PARAM_KEYS {
+            let input = json!({key: "some_value"});
+            let result = redact_keys_and_patterns(&input);
+            assert_eq!(
+                result[key], REDACTED,
+                "Key '{}' should be redacted",
+                key
+            );
+        }
+    }
+
+    #[test]
+    fn test_redact_keys_and_patterns_bool_null_unchanged() {
+        let input = json!({"flag": true, "nothing": null, "count": 42});
+        let result = redact_keys_and_patterns(&input);
+        assert_eq!(result["flag"], true);
+        assert!(result["nothing"].is_null());
+        assert_eq!(result["count"], 42);
+    }
+}

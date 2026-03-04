@@ -354,3 +354,241 @@ impl ZkSchedulerStatus {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Helper: minimal valid ZkBatchProof ───────────────────────────────
+
+    fn valid_batch_proof() -> ZkBatchProof {
+        ZkBatchProof {
+            proof: "deadbeef".to_string(),
+            batch_id: "batch-001".to_string(),
+            entry_range: (1, 10),
+            merkle_root: "aabbccdd".to_string(),
+            first_prev_hash: "00001111".to_string(),
+            final_entry_hash: "ffffeeee".to_string(),
+            created_at: "2025-06-01T12:00:00Z".to_string(),
+            entry_count: 10,
+        }
+    }
+
+    // ── PedersenCommitment::validate() ──────────────────────────────────
+
+    #[test]
+    fn test_pedersen_commitment_validate_valid_ok() {
+        let pc = PedersenCommitment {
+            commitment: "a".repeat(64),
+            blinding_hint: "b".repeat(64),
+        };
+        assert!(pc.validate().is_ok());
+    }
+
+    #[test]
+    fn test_pedersen_commitment_validate_commitment_too_long_rejected() {
+        let pc = PedersenCommitment {
+            commitment: "x".repeat(129),
+            blinding_hint: String::new(),
+        };
+        let err = pc.validate().unwrap_err();
+        assert!(err.contains("commitment length"), "got: {err}");
+    }
+
+    #[test]
+    fn test_pedersen_commitment_validate_blinding_hint_too_long_rejected() {
+        let pc = PedersenCommitment {
+            commitment: "ok".to_string(),
+            blinding_hint: "y".repeat(129),
+        };
+        let err = pc.validate().unwrap_err();
+        assert!(err.contains("blinding_hint length"), "got: {err}");
+    }
+
+    #[test]
+    fn test_pedersen_commitment_validate_commitment_control_chars_rejected() {
+        let pc = PedersenCommitment {
+            commitment: "abc\x00def".to_string(),
+            blinding_hint: String::new(),
+        };
+        let err = pc.validate().unwrap_err();
+        assert!(err.contains("commitment contains control"), "got: {err}");
+    }
+
+    #[test]
+    fn test_pedersen_commitment_validate_blinding_hint_control_chars_rejected() {
+        let pc = PedersenCommitment {
+            commitment: "ok".to_string(),
+            blinding_hint: "hint\x07bell".to_string(),
+        };
+        let err = pc.validate().unwrap_err();
+        assert!(err.contains("blinding_hint contains control"), "got: {err}");
+    }
+
+    #[test]
+    fn test_pedersen_commitment_debug_redacts_blinding_hint() {
+        let pc = PedersenCommitment {
+            commitment: "abc123".to_string(),
+            blinding_hint: "supersecret".to_string(),
+        };
+        let debug_str = format!("{pc:?}");
+        assert!(debug_str.contains("[REDACTED]"));
+        assert!(!debug_str.contains("supersecret"));
+    }
+
+    // ── ZkBatchProof::validate() ────────────────────────────────────────
+
+    #[test]
+    fn test_zk_batch_proof_validate_valid_ok() {
+        assert!(valid_batch_proof().validate().is_ok());
+    }
+
+    #[test]
+    fn test_zk_batch_proof_validate_proof_too_long_rejected() {
+        let mut bp = valid_batch_proof();
+        bp.proof = "p".repeat(65_537);
+        let err = bp.validate().unwrap_err();
+        assert!(err.contains("proof length"), "got: {err}");
+    }
+
+    #[test]
+    fn test_zk_batch_proof_validate_proof_control_chars_rejected() {
+        let mut bp = valid_batch_proof();
+        bp.proof = "abc\x01def".to_string();
+        let err = bp.validate().unwrap_err();
+        assert!(err.contains("proof contains control"), "got: {err}");
+    }
+
+    #[test]
+    fn test_zk_batch_proof_validate_batch_id_control_chars_rejected() {
+        let mut bp = valid_batch_proof();
+        bp.batch_id = "id\x00null".to_string();
+        let err = bp.validate().unwrap_err();
+        assert!(err.contains("batch_id contains control"), "got: {err}");
+    }
+
+    #[test]
+    fn test_zk_batch_proof_validate_entry_range_inverted_rejected() {
+        let mut bp = valid_batch_proof();
+        bp.entry_range = (10, 1);
+        let err = bp.validate().unwrap_err();
+        assert!(err.contains("entry_range start"), "got: {err}");
+    }
+
+    #[test]
+    fn test_zk_batch_proof_validate_entry_count_too_large_rejected() {
+        let mut bp = valid_batch_proof();
+        bp.entry_count = 10_001;
+        // Fix range to match
+        bp.entry_range = (1, 10_001);
+        let err = bp.validate().unwrap_err();
+        assert!(err.contains("entry_count"), "got: {err}");
+    }
+
+    #[test]
+    fn test_zk_batch_proof_validate_entry_count_mismatch_rejected() {
+        let mut bp = valid_batch_proof();
+        bp.entry_count = 5; // range is (1,10) -> expected 10
+        let err = bp.validate().unwrap_err();
+        assert!(err.contains("does not match entry_range span"), "got: {err}");
+    }
+
+    #[test]
+    fn test_zk_batch_proof_validate_merkle_root_too_long_rejected() {
+        let mut bp = valid_batch_proof();
+        bp.merkle_root = "m".repeat(257);
+        let err = bp.validate().unwrap_err();
+        assert!(err.contains("merkle_root length"), "got: {err}");
+    }
+
+    #[test]
+    fn test_zk_batch_proof_validate_hash_fields_control_chars_rejected() {
+        let mut bp = valid_batch_proof();
+        bp.first_prev_hash = "hash\x02bad".to_string();
+        assert!(bp.validate().unwrap_err().contains("first_prev_hash contains control"));
+
+        let mut bp2 = valid_batch_proof();
+        bp2.final_entry_hash = "hash\x03bad".to_string();
+        assert!(bp2.validate().unwrap_err().contains("final_entry_hash contains control"));
+
+        let mut bp3 = valid_batch_proof();
+        bp3.merkle_root = "root\x04bad".to_string();
+        assert!(bp3.validate().unwrap_err().contains("merkle_root contains control"));
+    }
+
+    // ── ZkVerifyResult::validate() ──────────────────────────────────────
+
+    #[test]
+    fn test_zk_verify_result_validate_valid_ok() {
+        let vr = ZkVerifyResult {
+            valid: true,
+            batch_id: "batch-001".to_string(),
+            entry_range: (1, 10),
+            verified_at: "2025-06-01T12:00:00Z".to_string(),
+            error: None,
+        };
+        assert!(vr.validate().is_ok());
+    }
+
+    #[test]
+    fn test_zk_verify_result_validate_error_too_long_rejected() {
+        let vr = ZkVerifyResult {
+            valid: false,
+            batch_id: "b1".to_string(),
+            entry_range: (1, 1),
+            verified_at: "2025-01-01T00:00:00Z".to_string(),
+            error: Some("e".repeat(4097)),
+        };
+        assert!(vr.validate().unwrap_err().contains("error length"));
+    }
+
+    #[test]
+    fn test_zk_verify_result_validate_error_control_chars_rejected() {
+        let vr = ZkVerifyResult {
+            valid: false,
+            batch_id: "b1".to_string(),
+            entry_range: (1, 1),
+            verified_at: "2025-01-01T00:00:00Z".to_string(),
+            error: Some("err\x00msg".to_string()),
+        };
+        assert!(vr.validate().unwrap_err().contains("error contains control"));
+    }
+
+    // ── ZkSchedulerStatus::validate() ───────────────────────────────────
+
+    #[test]
+    fn test_zk_scheduler_status_validate_valid_ok() {
+        let ss = ZkSchedulerStatus {
+            active: true,
+            pending_witnesses: 5,
+            completed_proofs: 10,
+            last_proved_sequence: Some(100),
+            last_proof_at: Some("2025-06-01T12:00:00Z".to_string()),
+        };
+        assert!(ss.validate().is_ok());
+    }
+
+    #[test]
+    fn test_zk_scheduler_status_validate_timestamp_too_long_rejected() {
+        let ss = ZkSchedulerStatus {
+            active: false,
+            pending_witnesses: 0,
+            completed_proofs: 0,
+            last_proved_sequence: None,
+            last_proof_at: Some("t".repeat(65)),
+        };
+        assert!(ss.validate().unwrap_err().contains("last_proof_at length"));
+    }
+
+    #[test]
+    fn test_zk_scheduler_status_validate_timestamp_control_chars_rejected() {
+        let ss = ZkSchedulerStatus {
+            active: false,
+            pending_witnesses: 0,
+            completed_proofs: 0,
+            last_proved_sequence: None,
+            last_proof_at: Some("2025-01-01\x00T00:00:00Z".to_string()),
+        };
+        assert!(ss.validate().unwrap_err().contains("control or format"));
+    }
+}

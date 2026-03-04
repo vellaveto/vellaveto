@@ -201,3 +201,242 @@ pub fn extract_authority_from_origin(origin: &str) -> Option<String> {
     }
     Some(authority.to_lowercase())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+
+    // =========================================================================
+    // is_loopback_addr tests
+    // =========================================================================
+
+    #[test]
+    fn test_is_loopback_addr_ipv4_localhost() {
+        let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 3000));
+        assert!(is_loopback_addr(&addr));
+    }
+
+    #[test]
+    fn test_is_loopback_addr_ipv4_127_range() {
+        let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 42), 3000));
+        assert!(is_loopback_addr(&addr));
+    }
+
+    #[test]
+    fn test_is_loopback_addr_ipv6_localhost() {
+        let addr = SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, 3000, 0, 0));
+        assert!(is_loopback_addr(&addr));
+    }
+
+    #[test]
+    fn test_is_loopback_addr_non_loopback_ipv4() {
+        let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 0, 0, 1), 3000));
+        assert!(!is_loopback_addr(&addr));
+    }
+
+    #[test]
+    fn test_is_loopback_addr_non_loopback_ipv6() {
+        let addr = SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 3000, 0, 0));
+        assert!(!is_loopback_addr(&addr));
+    }
+
+    // =========================================================================
+    // build_loopback_origins tests
+    // =========================================================================
+
+    #[test]
+    fn test_build_loopback_origins_includes_all_variants() {
+        let origins = build_loopback_origins(3000);
+        assert_eq!(origins.len(), 6);
+        assert!(origins.contains(&"http://localhost:3000".to_string()));
+        assert!(origins.contains(&"https://localhost:3000".to_string()));
+        assert!(origins.contains(&"http://127.0.0.1:3000".to_string()));
+        assert!(origins.contains(&"https://127.0.0.1:3000".to_string()));
+        assert!(origins.contains(&"http://[::1]:3000".to_string()));
+        assert!(origins.contains(&"https://[::1]:3000".to_string()));
+    }
+
+    #[test]
+    fn test_build_loopback_origins_different_port() {
+        let origins = build_loopback_origins(8443);
+        assert!(origins.contains(&"http://localhost:8443".to_string()));
+        assert!(origins.contains(&"https://[::1]:8443".to_string()));
+    }
+
+    // =========================================================================
+    // extract_authority_from_origin tests
+    // =========================================================================
+
+    #[test]
+    fn test_extract_authority_http_localhost_port() {
+        assert_eq!(
+            extract_authority_from_origin("http://localhost:3001"),
+            Some("localhost:3001".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_authority_https_domain() {
+        assert_eq!(
+            extract_authority_from_origin("https://example.com"),
+            Some("example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_authority_strips_path() {
+        assert_eq!(
+            extract_authority_from_origin("http://example.com:8080/path/to/page"),
+            Some("example.com:8080".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_authority_strips_query() {
+        assert_eq!(
+            extract_authority_from_origin("http://example.com?query=val"),
+            Some("example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_authority_strips_fragment() {
+        assert_eq!(
+            extract_authority_from_origin("http://example.com#section"),
+            Some("example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_authority_strips_userinfo() {
+        assert_eq!(
+            extract_authority_from_origin("http://user:pass@example.com:8080"),
+            Some("example.com:8080".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_authority_lowercases() {
+        assert_eq!(
+            extract_authority_from_origin("http://EXAMPLE.COM"),
+            Some("example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_authority_ipv6() {
+        assert_eq!(
+            extract_authority_from_origin("http://[::1]:3001"),
+            Some("[::1]:3001".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_authority_no_scheme_returns_none() {
+        assert_eq!(extract_authority_from_origin("example.com"), None);
+    }
+
+    #[test]
+    fn test_extract_authority_empty_authority_returns_none() {
+        assert_eq!(extract_authority_from_origin("http:///path"), None);
+    }
+
+    #[test]
+    fn test_extract_authority_invalid_chars_returns_none() {
+        assert_eq!(
+            extract_authority_from_origin("http://example.com<script>"),
+            None
+        );
+    }
+
+    // =========================================================================
+    // validate_origin tests
+    // =========================================================================
+
+    #[test]
+    fn test_validate_origin_no_header_allows() {
+        let headers = HeaderMap::new();
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 3000));
+        assert!(validate_origin(&headers, &bind, &[]).is_ok());
+    }
+
+    #[test]
+    fn test_validate_origin_allowlist_match() {
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", "http://app.example.com".parse().unwrap());
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 8080));
+        let allowed = vec!["http://app.example.com".to_string()];
+        assert!(validate_origin(&headers, &bind, &allowed).is_ok());
+    }
+
+    #[test]
+    fn test_validate_origin_allowlist_wildcard() {
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", "http://any-origin.example.com".parse().unwrap());
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 8080));
+        let allowed = vec!["*".to_string()];
+        assert!(validate_origin(&headers, &bind, &allowed).is_ok());
+    }
+
+    #[test]
+    fn test_validate_origin_allowlist_mismatch_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", "http://evil.com".parse().unwrap());
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 8080));
+        let allowed = vec!["http://trusted.com".to_string()];
+        assert!(validate_origin(&headers, &bind, &allowed).is_err());
+    }
+
+    #[test]
+    fn test_validate_origin_loopback_localhost_allowed() {
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", "http://localhost:3000".parse().unwrap());
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 3000));
+        assert!(validate_origin(&headers, &bind, &[]).is_ok());
+    }
+
+    #[test]
+    fn test_validate_origin_loopback_rejects_external() {
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", "http://evil.com".parse().unwrap());
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 3000));
+        assert!(validate_origin(&headers, &bind, &[]).is_err());
+    }
+
+    #[test]
+    fn test_validate_origin_non_loopback_same_origin_allowed() {
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", "http://myserver.com:8080".parse().unwrap());
+        headers.insert("host", "myserver.com:8080".parse().unwrap());
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 0, 0, 1), 8080));
+        assert!(validate_origin(&headers, &bind, &[]).is_ok());
+    }
+
+    #[test]
+    fn test_validate_origin_non_loopback_mismatch_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", "http://evil.com:8080".parse().unwrap());
+        headers.insert("host", "myserver.com:8080".parse().unwrap());
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 0, 0, 1), 8080));
+        assert!(validate_origin(&headers, &bind, &[]).is_err());
+    }
+
+    #[test]
+    fn test_validate_origin_host_without_port_matches_origin_with_port() {
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", "http://myserver.com:8080".parse().unwrap());
+        headers.insert("host", "myserver.com".parse().unwrap());
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 0, 0, 1), 8080));
+        assert!(validate_origin(&headers, &bind, &[]).is_ok());
+    }
+
+    #[test]
+    fn test_validate_origin_case_insensitive_host() {
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", "http://MyServer.COM:8080".parse().unwrap());
+        headers.insert("host", "MYSERVER.com:8080".parse().unwrap());
+        let bind = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 0, 0, 1), 8080));
+        assert!(validate_origin(&headers, &bind, &[]).is_ok());
+    }
+}

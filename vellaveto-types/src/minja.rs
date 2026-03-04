@@ -1040,3 +1040,435 @@ pub struct MemorySecurityStats {
     /// Number of [`NamespaceSharingRequest`] records awaiting operator approval.
     pub pending_shares: u64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Helper: minimal valid MemoryEntry ────────────────────────────────
+
+    fn valid_entry() -> MemoryEntry {
+        MemoryEntry {
+            id: "entry-1".to_string(),
+            fingerprint: "abc123".to_string(),
+            preview: "hello world".to_string(),
+            recorded_at: "2025-01-15T10:00:00Z".to_string(),
+            last_accessed: None,
+            access_count: 0,
+            taint_labels: vec![],
+            trust_score: 0.8,
+            provenance_id: None,
+            quarantined: false,
+            namespace: None,
+            session_id: None,
+            agent_id: None,
+            content_hash: "deadbeef".to_string(),
+        }
+    }
+
+    // ── MemoryEntry::validate() — valid baseline ────────────────────────
+
+    #[test]
+    fn test_memory_entry_validate_valid_baseline_ok() {
+        assert!(valid_entry().validate().is_ok());
+    }
+
+    // ── trust_score: NaN / Infinity / negative / above 1.0 ──────────────
+
+    #[test]
+    fn test_memory_entry_validate_trust_score_nan_rejected() {
+        let mut e = valid_entry();
+        e.trust_score = f64::NAN;
+        let err = e.validate().unwrap_err();
+        assert!(err.contains("not finite"), "got: {err}");
+    }
+
+    #[test]
+    fn test_memory_entry_validate_trust_score_infinity_rejected() {
+        let mut e = valid_entry();
+        e.trust_score = f64::INFINITY;
+        let err = e.validate().unwrap_err();
+        assert!(err.contains("not finite"), "got: {err}");
+    }
+
+    #[test]
+    fn test_memory_entry_validate_trust_score_neg_infinity_rejected() {
+        let mut e = valid_entry();
+        e.trust_score = f64::NEG_INFINITY;
+        let err = e.validate().unwrap_err();
+        assert!(err.contains("not finite"), "got: {err}");
+    }
+
+    #[test]
+    fn test_memory_entry_validate_trust_score_negative_rejected() {
+        let mut e = valid_entry();
+        e.trust_score = -0.1;
+        let err = e.validate().unwrap_err();
+        assert!(err.contains("[0.0, 1.0]"), "got: {err}");
+    }
+
+    #[test]
+    fn test_memory_entry_validate_trust_score_above_one_rejected() {
+        let mut e = valid_entry();
+        e.trust_score = 1.01;
+        let err = e.validate().unwrap_err();
+        assert!(err.contains("[0.0, 1.0]"), "got: {err}");
+    }
+
+    #[test]
+    fn test_memory_entry_validate_trust_score_boundaries_ok() {
+        let mut e = valid_entry();
+        e.trust_score = 0.0;
+        assert!(e.validate().is_ok());
+        e.trust_score = 1.0;
+        assert!(e.validate().is_ok());
+    }
+
+    // ── taint label / trust_score consistency ────────────────────────────
+
+    #[test]
+    fn test_memory_entry_validate_security_taint_with_perfect_trust_rejected() {
+        let mut e = valid_entry();
+        e.trust_score = 1.0;
+        e.taint_labels = vec![TaintLabel::Untrusted];
+        let err = e.validate().unwrap_err();
+        assert!(err.contains("security-relevant taint"), "got: {err}");
+    }
+
+    #[test]
+    fn test_memory_entry_validate_security_taint_with_low_trust_ok() {
+        let mut e = valid_entry();
+        e.trust_score = 0.5;
+        e.taint_labels = vec![TaintLabel::Untrusted];
+        assert!(e.validate().is_ok());
+    }
+
+    #[test]
+    fn test_memory_entry_validate_non_security_taint_with_perfect_trust_ok() {
+        let mut e = valid_entry();
+        e.trust_score = 1.0;
+        e.taint_labels = vec![TaintLabel::Sanitized, TaintLabel::Sensitive];
+        assert!(e.validate().is_ok());
+    }
+
+    #[test]
+    fn test_memory_entry_validate_all_security_taints_rejected_at_1() {
+        for label in &[
+            TaintLabel::Untrusted,
+            TaintLabel::Quarantined,
+            TaintLabel::IntegrityFailed,
+            TaintLabel::MixedProvenance,
+            TaintLabel::Replayed,
+        ] {
+            let mut e = valid_entry();
+            e.trust_score = 1.0;
+            e.taint_labels = vec![*label];
+            assert!(e.validate().is_err(), "Expected error for {label:?}");
+        }
+    }
+
+    // ── taint_labels overflow ────────────────────────────────────────────
+
+    #[test]
+    fn test_memory_entry_validate_taint_labels_over_max_rejected() {
+        let mut e = valid_entry();
+        e.taint_labels = vec![TaintLabel::Sanitized; MAX_TAINT_LABELS + 1];
+        let err = e.validate().unwrap_err();
+        assert!(err.contains("taint_labels"), "got: {err}");
+    }
+
+    #[test]
+    fn test_memory_entry_validate_taint_labels_at_max_ok() {
+        let mut e = valid_entry();
+        e.taint_labels = vec![TaintLabel::Sanitized; MAX_TAINT_LABELS];
+        assert!(e.validate().is_ok());
+    }
+
+    // ── string field length bounds ───────────────────────────────────────
+
+    #[test]
+    fn test_memory_entry_validate_id_too_long_rejected() {
+        let mut e = valid_entry();
+        e.id = "x".repeat(MemoryEntry::MAX_ID_LEN + 1);
+        assert!(e.validate().unwrap_err().contains("id length"));
+    }
+
+    #[test]
+    fn test_memory_entry_validate_fingerprint_too_long_rejected() {
+        let mut e = valid_entry();
+        e.fingerprint = "a".repeat(MemoryEntry::MAX_FINGERPRINT_LEN + 1);
+        assert!(e.validate().unwrap_err().contains("fingerprint length"));
+    }
+
+    #[test]
+    fn test_memory_entry_validate_content_hash_too_long_rejected() {
+        let mut e = valid_entry();
+        e.content_hash = "b".repeat(MemoryEntry::MAX_CONTENT_HASH_LEN + 1);
+        assert!(e.validate().unwrap_err().contains("content_hash length"));
+    }
+
+    #[test]
+    fn test_memory_entry_validate_preview_too_long_rejected() {
+        let mut e = valid_entry();
+        // MAX_PREVIEW_LENGTH + 3 (for "...") + 1 to exceed
+        e.preview = "p".repeat(MemoryEntry::MAX_PREVIEW_LENGTH + 4);
+        assert!(e.validate().unwrap_err().contains("preview length"));
+    }
+
+    // ── control character rejection ──────────────────────────────────────
+
+    #[test]
+    fn test_memory_entry_validate_id_control_char_rejected() {
+        let mut e = valid_entry();
+        e.id = "entry\x00bad".to_string();
+        let err = e.validate().unwrap_err();
+        assert!(err.contains("control or format"), "got: {err}");
+    }
+
+    #[test]
+    fn test_memory_entry_validate_fingerprint_control_char_rejected() {
+        let mut e = valid_entry();
+        e.fingerprint = "fp\x07bell".to_string();
+        let err = e.validate().unwrap_err();
+        assert!(err.contains("control or format"), "got: {err}");
+    }
+
+    #[test]
+    fn test_memory_entry_validate_optional_fields_control_chars_rejected() {
+        // provenance_id
+        let mut e = valid_entry();
+        e.provenance_id = Some("prov\x01id".to_string());
+        assert!(e.validate().unwrap_err().contains("control or format"));
+
+        // namespace
+        let mut e2 = valid_entry();
+        e2.namespace = Some("ns\x08bad".to_string());
+        assert!(e2.validate().unwrap_err().contains("control or format"));
+
+        // session_id
+        let mut e3 = valid_entry();
+        e3.session_id = Some("sid\x0Cff".to_string());
+        assert!(e3.validate().unwrap_err().contains("control or format"));
+
+        // agent_id
+        let mut e4 = valid_entry();
+        e4.agent_id = Some("aid\x7F del".to_string());
+        assert!(e4.validate().unwrap_err().contains("control or format"));
+    }
+
+    // ── MemoryEntry::new() ──────────────────────────────────────────────
+
+    #[test]
+    fn test_memory_entry_new_short_content_no_truncation() {
+        let entry = MemoryEntry::new(
+            "id1".into(),
+            "fp".into(),
+            "short",
+            "hash".into(),
+            "2025-01-01T00:00:00Z".into(),
+        );
+        assert_eq!(entry.preview, "short");
+        assert_eq!(entry.trust_score, 0.5);
+        assert!(entry.has_taint(TaintLabel::Untrusted));
+        assert!(entry.validate().is_ok());
+    }
+
+    #[test]
+    fn test_memory_entry_new_long_content_truncated() {
+        let content = "a".repeat(200);
+        let entry = MemoryEntry::new(
+            "id2".into(),
+            "fp2".into(),
+            &content,
+            "hash2".into(),
+            "2025-06-01T12:00:00Z".into(),
+        );
+        assert!(entry.preview.ends_with("..."));
+        assert!(entry.preview.len() <= MemoryEntry::MAX_PREVIEW_LENGTH + 3);
+    }
+
+    // ── add_taint / has_taint / is_blocked ──────────────────────────────
+
+    #[test]
+    fn test_memory_entry_add_taint_duplicate_returns_false() {
+        let mut e = valid_entry();
+        e.taint_labels = vec![TaintLabel::Sensitive];
+        assert!(!e.add_taint(TaintLabel::Sensitive));
+    }
+
+    #[test]
+    fn test_memory_entry_add_taint_at_capacity_returns_false() {
+        let mut e = valid_entry();
+        e.taint_labels = vec![TaintLabel::Sanitized; MAX_TAINT_LABELS];
+        assert!(!e.add_taint(TaintLabel::Untrusted));
+    }
+
+    #[test]
+    fn test_memory_entry_is_blocked_quarantined_flag() {
+        let mut e = valid_entry();
+        e.quarantined = true;
+        assert!(e.is_blocked());
+    }
+
+    #[test]
+    fn test_memory_entry_is_blocked_quarantined_taint() {
+        let mut e = valid_entry();
+        e.taint_labels = vec![TaintLabel::Quarantined];
+        assert!(e.is_blocked());
+    }
+
+    // ── decayed_trust_score ─────────────────────────────────────────────
+
+    #[test]
+    fn test_memory_entry_decayed_trust_score_fail_closed_on_bad_timestamp() {
+        let mut e = valid_entry();
+        e.recorded_at = "not-a-timestamp".to_string();
+        let score = e.decayed_trust_score(0.1, "2025-01-15T10:00:00Z");
+        assert_eq!(score, 0.0);
+    }
+
+    // ── ProvenanceNode::validate() ──────────────────────────────────────
+
+    #[test]
+    fn test_provenance_node_validate_valid_ok() {
+        let node = ProvenanceNode::new(
+            "node-1".into(),
+            ProvenanceEventType::ToolResponse,
+            "my-tool".into(),
+            "abc123".into(),
+            "2025-01-01T00:00:00Z".into(),
+        );
+        assert!(node.validate().is_ok());
+    }
+
+    #[test]
+    fn test_provenance_node_validate_too_many_parents_rejected() {
+        let mut node = ProvenanceNode::new(
+            "n1".into(),
+            ProvenanceEventType::Derivation,
+            "src".into(),
+            "hash".into(),
+            "2025-01-01T00:00:00Z".into(),
+        );
+        node.parents = vec!["p".to_string(); ProvenanceNode::MAX_PARENTS + 1];
+        assert!(node.validate().unwrap_err().contains("parents"));
+    }
+
+    #[test]
+    fn test_provenance_node_validate_too_many_metadata_rejected() {
+        let mut node = ProvenanceNode::new(
+            "n2".into(),
+            ProvenanceEventType::ToolResponse,
+            "src".into(),
+            "hash".into(),
+            "2025-01-01T00:00:00Z".into(),
+        );
+        for i in 0..=ProvenanceNode::MAX_METADATA_ENTRIES {
+            node.metadata.insert(format!("key-{i}"), "val".into());
+        }
+        assert!(node.validate().unwrap_err().contains("metadata"));
+    }
+
+    #[test]
+    fn test_provenance_node_validate_id_too_long_rejected() {
+        let mut node = ProvenanceNode::new(
+            "x".repeat(ProvenanceNode::MAX_ID_LEN + 1),
+            ProvenanceEventType::ToolResponse,
+            "src".into(),
+            "hash".into(),
+            "2025-01-01T00:00:00Z".into(),
+        );
+        assert!(node.validate().unwrap_err().contains("id length"));
+        // source too long
+        node.id = "ok".into();
+        node.source = "s".repeat(ProvenanceNode::MAX_SOURCE_LEN + 1);
+        assert!(node.validate().unwrap_err().contains("source length"));
+    }
+
+    // ── QuarantineEntry::validate() ─────────────────────────────────────
+
+    #[test]
+    fn test_quarantine_entry_validate_valid_ok() {
+        let qe = QuarantineEntry::new(
+            "e1".into(),
+            QuarantineDetection::InjectionPattern,
+            "2025-01-01T00:00:00Z".into(),
+        );
+        assert!(qe.validate().is_ok());
+    }
+
+    #[test]
+    fn test_quarantine_entry_validate_entry_id_too_long_rejected() {
+        let qe = QuarantineEntry::new(
+            "x".repeat(257),
+            QuarantineDetection::LowTrust,
+            "2025-01-01T00:00:00Z".into(),
+        );
+        assert!(qe.validate().unwrap_err().contains("entry_id length"));
+    }
+
+    #[test]
+    fn test_quarantine_entry_validate_description_too_long_rejected() {
+        let mut qe = QuarantineEntry::new(
+            "e2".into(),
+            QuarantineDetection::ManualQuarantine,
+            "2025-01-01T00:00:00Z".into(),
+        );
+        qe.description = Some("d".repeat(4097));
+        assert!(qe.validate().unwrap_err().contains("description length"));
+    }
+
+    // ── MemoryNamespace::validate() + access control ────────────────────
+
+    #[test]
+    fn test_memory_namespace_validate_valid_ok() {
+        let ns = MemoryNamespace::new(
+            "ns-1".into(),
+            "agent-a".into(),
+            "2025-01-01T00:00:00Z".into(),
+        );
+        assert!(ns.validate().is_ok());
+        assert!(ns.can_read("agent-a"));
+        assert!(ns.can_write("agent-a"));
+        assert!(!ns.can_read("agent-b"));
+    }
+
+    #[test]
+    fn test_memory_namespace_validate_read_allowed_overflow_rejected() {
+        let mut ns = MemoryNamespace::new(
+            "ns-2".into(),
+            "owner".into(),
+            "2025-01-01T00:00:00Z".into(),
+        );
+        ns.read_allowed = vec!["a".to_string(); MemoryNamespace::MAX_ACL_ENTRIES + 1];
+        assert!(ns.validate().unwrap_err().contains("read_allowed"));
+    }
+
+    // ── NamespaceSharingRequest::validate() ──────────────────────────────
+
+    #[test]
+    fn test_namespace_sharing_request_validate_control_chars_rejected() {
+        let req = NamespaceSharingRequest {
+            namespace_id: "ns\x00id".to_string(),
+            requester_agent: "agent".to_string(),
+            access_type: NamespaceAccessType::Read,
+            requested_at: "2025-01-01T00:00:00Z".to_string(),
+            approved: None,
+            resolved_at: None,
+        };
+        assert!(req.validate().unwrap_err().contains("invalid character"));
+    }
+
+    #[test]
+    fn test_namespace_sharing_request_validate_requester_agent_too_long_rejected() {
+        let req = NamespaceSharingRequest {
+            namespace_id: "ns-ok".to_string(),
+            requester_agent: "r".repeat(257),
+            access_type: NamespaceAccessType::Write,
+            requested_at: "2025-01-01T00:00:00Z".to_string(),
+            approved: None,
+            resolved_at: None,
+        };
+        assert!(req.validate().unwrap_err().contains("requester_agent length"));
+    }
+}

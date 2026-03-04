@@ -468,3 +468,364 @@ fn build_reason(
         parts.join("; ")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::topology::{StaticServerDecl, StaticToolDecl, TopologyGraph};
+
+    #[test]
+    fn test_inference_config_default_valid() {
+        let config = InferenceConfig::default();
+        assert!(config.validate().is_ok());
+        assert!((config.threshold - 0.7).abs() < f32::EPSILON);
+        assert!((config.name_weight - 0.5).abs() < f32::EPSILON);
+        assert!((config.type_weight - 0.3).abs() < f32::EPSILON);
+        assert!((config.description_weight - 0.2).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_inference_config_validate_nan_threshold() {
+        let config = InferenceConfig {
+            threshold: f32::NAN,
+            ..InferenceConfig::default()
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("threshold"));
+    }
+
+    #[test]
+    fn test_inference_config_validate_infinity_weight() {
+        let config = InferenceConfig {
+            name_weight: f32::INFINITY,
+            ..InferenceConfig::default()
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("name_weight"));
+    }
+
+    #[test]
+    fn test_inference_config_validate_negative_weight() {
+        let config = InferenceConfig {
+            type_weight: -0.1,
+            ..InferenceConfig::default()
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("type_weight"));
+    }
+
+    #[test]
+    fn test_inference_config_validate_description_weight_over_one() {
+        let config = InferenceConfig {
+            description_weight: 1.1,
+            ..InferenceConfig::default()
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("description_weight"));
+    }
+
+    #[test]
+    fn test_extract_param_names_empty_schema() {
+        let schema = serde_json::json!({});
+        let names = extract_param_names(&schema);
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn test_extract_param_names_no_properties_key() {
+        let schema = serde_json::json!({"type": "object"});
+        let names = extract_param_names(&schema);
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn test_extract_param_names_with_properties() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string"},
+                "content": {"type": "string"}
+            }
+        });
+        let mut names = extract_param_names(&schema);
+        names.sort();
+        assert_eq!(names, vec!["content", "file_path"]);
+    }
+
+    #[test]
+    fn test_extract_param_types_empty_schema() {
+        let schema = serde_json::json!({});
+        let types = extract_param_types(&schema);
+        assert!(types.is_empty());
+    }
+
+    #[test]
+    fn test_extract_param_types_with_properties() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "count": {"type": "integer"},
+                "name": {"type": "string"}
+            }
+        });
+        let mut types = extract_param_types(&schema);
+        types.sort();
+        assert_eq!(types, vec!["integer", "string"]);
+    }
+
+    #[test]
+    fn test_extract_param_types_missing_type_field() {
+        // Property without a "type" key should be skipped
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "mystery": {"description": "no type specified"}
+            }
+        });
+        let types = extract_param_types(&schema);
+        assert!(types.is_empty());
+    }
+
+    #[test]
+    fn test_tokenize_empty_string() {
+        let tokens = tokenize("");
+        assert!(tokens.is_empty());
+    }
+
+    #[test]
+    fn test_tokenize_filters_stopwords() {
+        let tokens = tokenize("Read a file from the disk");
+        // "a", "from", "the" are stopwords and should be filtered
+        assert!(!tokens.contains(&"a".to_string()));
+        assert!(!tokens.contains(&"from".to_string()));
+        assert!(!tokens.contains(&"the".to_string()));
+        // "read", "file", "disk" should remain
+        assert!(tokens.contains(&"read".to_string()));
+        assert!(tokens.contains(&"file".to_string()));
+        assert!(tokens.contains(&"disk".to_string()));
+    }
+
+    #[test]
+    fn test_tokenize_filters_short_words() {
+        let tokens = tokenize("I go to x y z big");
+        // Single-char tokens should be filtered (len < 2)
+        assert!(!tokens.contains(&"x".to_string()));
+        assert!(!tokens.contains(&"y".to_string()));
+        assert!(!tokens.contains(&"z".to_string()));
+        // "go" and "to" are stopwords; "big" should remain
+        assert!(tokens.contains(&"big".to_string()));
+    }
+
+    #[test]
+    fn test_infer_outputs_search_tool() {
+        let outputs = infer_outputs("file_search", "Search for files");
+        assert!(outputs.contains(&"path".to_string()));
+        assert!(outputs.contains(&"file_path".to_string()));
+        assert!(outputs.contains(&"result".to_string()));
+    }
+
+    #[test]
+    fn test_infer_outputs_read_tool() {
+        let outputs = infer_outputs("read_data", "Read some data from storage");
+        assert!(outputs.contains(&"content".to_string()));
+        assert!(outputs.contains(&"data".to_string()));
+        assert!(outputs.contains(&"text".to_string()));
+    }
+
+    #[test]
+    fn test_infer_outputs_no_match() {
+        // A tool name that doesn't match any known patterns and has short parts
+        let outputs = infer_outputs("zz", "does nothing special");
+        // "zz" has len < 3 so it won't be extracted as a noun
+        // No keyword matches either
+        assert!(outputs.is_empty());
+    }
+
+    #[test]
+    fn test_infer_outputs_deduplicates() {
+        // "search" matches both name and description
+        let outputs = infer_outputs("file_search", "search for file paths");
+        // Dedup should prevent duplicate entries
+        let unique_count = outputs.len();
+        let mut deduped = outputs.clone();
+        deduped.sort();
+        deduped.dedup();
+        assert_eq!(unique_count, deduped.len());
+    }
+
+    #[test]
+    fn test_match_schemas_non_tool_nodes_returns_empty() {
+        let engine = InferenceEngine::new(InferenceConfig::default());
+        let server_node = crate::topology::TopologyNode::Server {
+            name: "test".to_string(),
+            version: None,
+            capabilities: crate::topology::ServerCapabilities::default(),
+        };
+        let tool_node = crate::topology::TopologyNode::Tool {
+            server: "test".to_string(),
+            name: "tool1".to_string(),
+            description: "A tool".to_string(),
+            input_schema: serde_json::json!({}),
+            output_hints: vec![],
+            inferred_deps: vec![],
+        };
+
+        // Server vs Tool should return empty
+        let matches = engine.match_schemas(&server_node, &tool_node);
+        assert!(matches.is_empty());
+
+        // Tool vs Server should also return empty
+        let matches2 = engine.match_schemas(&tool_node, &server_node);
+        assert!(matches2.is_empty());
+    }
+
+    #[test]
+    fn test_description_match_score_empty_tokens() {
+        let engine = InferenceEngine::new(InferenceConfig::default());
+        let source = ToolAnalysis {
+            server: String::new(),
+            name: "src".to_string(),
+            description: String::new(),
+            param_names: vec![],
+            param_types: vec![],
+            description_tokens: vec![],
+            implied_outputs: vec![],
+        };
+        let target = ToolAnalysis {
+            server: String::new(),
+            name: "tgt".to_string(),
+            description: "some description".to_string(),
+            param_names: vec![],
+            param_types: vec![],
+            description_tokens: vec!["some".to_string()],
+            implied_outputs: vec![],
+        };
+
+        let score = engine.description_match_score(&source, &target);
+        assert!((score - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_max_inferred_edges_cap() {
+        // Create a topology with many tools that have overlapping descriptions
+        // to trigger the MAX_INFERRED_EDGES cap (50_000). We use a low threshold
+        // so many edges get created.
+        let mut tools = Vec::new();
+        // With 100 tools, that's ~100*99 = 9900 pairs; each pair can produce
+        // multiple matches. We verify the code doesn't crash but we can't easily
+        // hit 50K without a huge graph. Instead, verify it runs without panic.
+        for i in 0..20 {
+            tools.push(StaticToolDecl {
+                name: format!("file_search_{i}"),
+                description: "Search for files matching a pattern. Returns file paths."
+                    .to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "content": {"type": "string"},
+                        "result": {"type": "array"}
+                    }
+                }),
+            });
+        }
+        let mut graph = TopologyGraph::from_static(vec![StaticServerDecl {
+            name: "test".to_string(),
+            tools,
+            resources: vec![],
+        }])
+        .unwrap();
+
+        let engine = InferenceEngine::new(InferenceConfig {
+            threshold: 0.0,
+            ..InferenceConfig::default()
+        });
+        // This should complete without panic even with many potential edges
+        engine.infer_edges(&mut graph);
+        // Just verify we got some DataFlow edges
+        let edge_count = graph.edge_count();
+        assert!(edge_count > 20, "Expected DataFlow edges to be added");
+    }
+
+    #[test]
+    fn test_build_reason_no_scores() {
+        let source = ToolAnalysis {
+            server: String::new(),
+            name: "src_tool".to_string(),
+            description: String::new(),
+            param_names: vec![],
+            param_types: vec![],
+            description_tokens: vec![],
+            implied_outputs: vec![],
+        };
+        let reason = build_reason(&source, "target_param", 0.0, 0.0, 0.0);
+        assert!(reason.contains("inferred data flow"));
+        assert!(reason.contains("src_tool"));
+        assert!(reason.contains("target_param"));
+    }
+
+    #[test]
+    fn test_build_reason_all_scores() {
+        let source = ToolAnalysis {
+            server: String::new(),
+            name: "src_tool".to_string(),
+            description: String::new(),
+            param_names: vec![],
+            param_types: vec![],
+            description_tokens: vec![],
+            implied_outputs: vec![],
+        };
+        let reason = build_reason(&source, "path", 0.8, 0.5, 0.3);
+        assert!(reason.contains("name:"));
+        assert!(reason.contains("type:"));
+        assert!(reason.contains("desc:"));
+    }
+
+    #[test]
+    fn test_name_match_score_exact_output_match() {
+        let engine = InferenceEngine::new(InferenceConfig::default());
+        let source = ToolAnalysis {
+            server: String::new(),
+            name: "file_search".to_string(),
+            description: "Search files".to_string(),
+            param_names: vec![],
+            param_types: vec![],
+            description_tokens: vec![],
+            implied_outputs: vec!["file_path".to_string()],
+        };
+        let score = engine.name_match_score(&source, "file_path");
+        assert!((score - 0.9).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_name_match_score_partial_match() {
+        let engine = InferenceEngine::new(InferenceConfig::default());
+        let source = ToolAnalysis {
+            server: String::new(),
+            name: "file_search".to_string(),
+            description: "Search files".to_string(),
+            param_names: vec![],
+            param_types: vec![],
+            description_tokens: vec![],
+            implied_outputs: vec!["file".to_string()],
+        };
+        let score = engine.name_match_score(&source, "file_path");
+        assert!((score - 0.6).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_name_match_score_no_match() {
+        let engine = InferenceEngine::new(InferenceConfig::default());
+        let source = ToolAnalysis {
+            server: String::new(),
+            name: "zz".to_string(),
+            description: String::new(),
+            param_names: vec![],
+            param_types: vec![],
+            description_tokens: vec![],
+            implied_outputs: vec![],
+        };
+        let score = engine.name_match_score(&source, "completely_unrelated");
+        assert!((score - 0.0).abs() < f32::EPSILON);
+    }
+}

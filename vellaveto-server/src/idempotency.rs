@@ -569,4 +569,183 @@ mod tests {
         };
         assert!(!response.is_expired());
     }
+
+    // ── Additional edge case tests ────────────────────────────────────
+
+    #[test]
+    fn test_extract_key_exact_max_length_ok() {
+        let store = IdempotencyStore::new(test_config());
+        let mut headers = HeaderMap::new();
+        let key = "a".repeat(64); // max_key_length = 64 in test_config
+        headers.insert(
+            IDEMPOTENCY_KEY_HEADER,
+            HeaderValue::from_str(&key).unwrap(),
+        );
+        let result = store.extract_key(&headers).unwrap();
+        assert_eq!(result, Some(key));
+    }
+
+    #[test]
+    fn test_extract_key_special_chars_rejected() {
+        let store = IdempotencyStore::new(test_config());
+        let mut headers = HeaderMap::new();
+
+        // Dot
+        headers.insert(
+            IDEMPOTENCY_KEY_HEADER,
+            HeaderValue::from_static("key.with.dots"),
+        );
+        assert!(matches!(
+            store.extract_key(&headers),
+            Err(IdempotencyError::InvalidKey(_))
+        ));
+    }
+
+    #[test]
+    fn test_extract_key_slash_rejected() {
+        let store = IdempotencyStore::new(test_config());
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            IDEMPOTENCY_KEY_HEADER,
+            HeaderValue::from_static("key/slash"),
+        );
+        assert!(matches!(
+            store.extract_key(&headers),
+            Err(IdempotencyError::InvalidKey(_))
+        ));
+    }
+
+    #[test]
+    fn test_store_is_empty_initially() {
+        let store = IdempotencyStore::new(test_config());
+        assert!(store.is_empty());
+        assert_eq!(store.len(), 0);
+    }
+
+    #[test]
+    fn test_store_len_after_acquire() {
+        let store = IdempotencyStore::new(test_config());
+        let _ = store.try_acquire("key-1");
+        assert_eq!(store.len(), 1);
+        assert!(!store.is_empty());
+    }
+
+    #[test]
+    fn test_store_is_enabled_flag() {
+        let enabled_store = IdempotencyStore::new(test_config());
+        assert!(enabled_store.is_enabled());
+
+        let disabled_store = IdempotencyStore::new(IdempotencyConfig::default());
+        assert!(!disabled_store.is_enabled());
+    }
+
+    #[test]
+    fn test_store_ttl_calculation() {
+        let store = IdempotencyStore::new(test_config());
+        // test_config has ttl_hours = 1
+        assert_eq!(store.ttl(), Duration::from_secs(3600));
+    }
+
+    #[test]
+    fn test_complete_with_content_type() {
+        let store = IdempotencyStore::new(test_config());
+        let _ = store.try_acquire("ct-key");
+        store.complete(
+            "ct-key",
+            StatusCode::OK,
+            b"body".to_vec(),
+            Some("text/plain".to_string()),
+        );
+
+        if let Ok(Some(cached)) = store.try_acquire("ct-key") {
+            assert_eq!(cached.content_type, Some("text/plain".to_string()));
+        } else {
+            panic!("expected cached response with content type");
+        }
+    }
+
+    #[test]
+    fn test_complete_without_content_type() {
+        let store = IdempotencyStore::new(test_config());
+        let _ = store.try_acquire("no-ct-key");
+        store.complete("no-ct-key", StatusCode::NO_CONTENT, vec![], None);
+
+        if let Ok(Some(cached)) = store.try_acquire("no-ct-key") {
+            assert!(cached.content_type.is_none());
+            assert!(cached.body.is_empty());
+            assert_eq!(cached.status, StatusCode::NO_CONTENT);
+        } else {
+            panic!("expected cached response");
+        }
+    }
+
+    #[test]
+    fn test_complete_body_exactly_at_limit() {
+        let store = IdempotencyStore::new(test_config());
+        let _ = store.try_acquire("exact-key");
+        let body = vec![0u8; MAX_CACHED_BODY_BYTES];
+        store.complete("exact-key", StatusCode::OK, body.clone(), None);
+
+        if let Ok(Some(cached)) = store.try_acquire("exact-key") {
+            assert_eq!(cached.body.len(), MAX_CACHED_BODY_BYTES);
+        } else {
+            panic!("expected cached response");
+        }
+    }
+
+    #[test]
+    fn test_validate_all_valid_boundary_values() {
+        // Minimum valid values
+        let cfg = IdempotencyConfig {
+            enabled: true,
+            ttl_hours: 1,
+            max_keys: 1,
+            max_key_length: 16,
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_idempotency_error_display() {
+        let err = IdempotencyError::InvalidKey("test reason".into());
+        assert!(err.to_string().contains("test reason"));
+
+        let err = IdempotencyError::InProgress;
+        assert!(err.to_string().contains("already in progress"));
+    }
+
+    #[test]
+    fn test_build_cached_response_with_content_type() {
+        let cached = CachedResponse {
+            status: StatusCode::CREATED,
+            body: b"response".to_vec(),
+            content_type: Some("application/json".to_string()),
+            created_at: Instant::now(),
+            expires_at: Instant::now() + Duration::from_secs(3600),
+        };
+        let response = build_cached_response(&cached);
+        assert_eq!(response.status(), StatusCode::CREATED);
+        assert!(response
+            .headers()
+            .get(IDEMPOTENCY_REPLAYED_HEADER)
+            .is_some());
+        assert_eq!(
+            response.headers().get("content-type").unwrap(),
+            "application/json"
+        );
+    }
+
+    #[test]
+    fn test_build_cached_response_without_content_type() {
+        let cached = CachedResponse {
+            status: StatusCode::OK,
+            body: vec![],
+            content_type: None,
+            created_at: Instant::now(),
+            expires_at: Instant::now() + Duration::from_secs(3600),
+        };
+        let response = build_cached_response(&cached);
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response.headers().get("content-type").is_none());
+    }
 }

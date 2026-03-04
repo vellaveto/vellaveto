@@ -529,3 +529,310 @@ impl PolicyLifecycleStatus {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Policy, PolicyType};
+
+    // ── Helper: minimal valid Policy ────────────────────────────────────
+
+    fn valid_policy() -> Policy {
+        Policy {
+            id: "pol-1".to_string(),
+            name: "Test Policy".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }
+    }
+
+    // ── Helper: minimal valid PolicyVersion ──────────────────────────────
+
+    fn valid_version() -> PolicyVersion {
+        PolicyVersion {
+            version_id: "ver-001".to_string(),
+            policy_id: "pol-1".to_string(),
+            version: 1,
+            policy: valid_policy(),
+            created_by: "admin".to_string(),
+            created_at: "2025-06-01T12:00:00Z".to_string(),
+            status: PolicyVersionStatus::Draft,
+            comment: None,
+            approvals: vec![],
+            required_approvals: 0,
+            previous_version_id: None,
+            staged_at: None,
+        }
+    }
+
+    // ── PolicyVersion::validate() — valid baseline ──────────────────────
+
+    #[test]
+    fn test_policy_version_validate_valid_baseline_ok() {
+        assert!(valid_version().validate().is_ok());
+    }
+
+    // ── version_id validation ───────────────────────────────────────────
+
+    #[test]
+    fn test_policy_version_validate_empty_version_id_rejected() {
+        let mut pv = valid_version();
+        pv.version_id = String::new();
+        assert!(pv.validate().unwrap_err().contains("version_id must be non-empty"));
+    }
+
+    #[test]
+    fn test_policy_version_validate_version_id_too_long_rejected() {
+        let mut pv = valid_version();
+        pv.version_id = "v".repeat(MAX_LIFECYCLE_IDENTITY_LEN + 1);
+        assert!(pv.validate().unwrap_err().contains("version_id exceeds"));
+    }
+
+    #[test]
+    fn test_policy_version_validate_version_id_control_chars_rejected() {
+        let mut pv = valid_version();
+        pv.version_id = "ver\x00null".to_string();
+        assert!(pv.validate().unwrap_err().contains("version_id contains invalid"));
+    }
+
+    // ── policy_id validation ────────────────────────────────────────────
+
+    #[test]
+    fn test_policy_version_validate_empty_policy_id_rejected() {
+        let mut pv = valid_version();
+        pv.policy_id = String::new();
+        assert!(pv.validate().unwrap_err().contains("policy_id must be non-empty"));
+    }
+
+    #[test]
+    fn test_policy_version_validate_policy_id_too_long_rejected() {
+        let mut pv = valid_version();
+        pv.policy_id = "p".repeat(257);
+        assert!(pv.validate().unwrap_err().contains("policy_id exceeds 256"));
+    }
+
+    // ── version number ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_policy_version_validate_version_zero_rejected() {
+        let mut pv = valid_version();
+        pv.version = 0;
+        assert!(pv.validate().unwrap_err().contains("version must be >= 1"));
+    }
+
+    // ── created_by validation ───────────────────────────────────────────
+
+    #[test]
+    fn test_policy_version_validate_empty_created_by_rejected() {
+        let mut pv = valid_version();
+        pv.created_by = String::new();
+        assert!(pv.validate().unwrap_err().contains("created_by must be non-empty"));
+    }
+
+    #[test]
+    fn test_policy_version_validate_whitespace_only_created_by_rejected() {
+        let mut pv = valid_version();
+        pv.created_by = "   ".to_string();
+        assert!(pv.validate().unwrap_err().contains("created_by must be non-empty"));
+    }
+
+    // ── created_at timestamp validation ─────────────────────────────────
+
+    #[test]
+    fn test_policy_version_validate_invalid_timestamp_rejected() {
+        let mut pv = valid_version();
+        pv.created_at = "not-a-timestamp".to_string();
+        assert!(pv.validate().unwrap_err().contains("created_at:"));
+    }
+
+    #[test]
+    fn test_policy_version_validate_empty_created_at_rejected() {
+        let mut pv = valid_version();
+        pv.created_at = String::new();
+        assert!(pv.validate().unwrap_err().contains("created_at must be non-empty"));
+    }
+
+    // ── comment bounds ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_policy_version_validate_comment_too_long_rejected() {
+        let mut pv = valid_version();
+        pv.comment = Some("c".repeat(MAX_VERSION_COMMENT_LEN + 1));
+        assert!(pv.validate().unwrap_err().contains("comment exceeds"));
+    }
+
+    #[test]
+    fn test_policy_version_validate_comment_control_chars_rejected() {
+        let mut pv = valid_version();
+        pv.comment = Some("note\x07bell".to_string());
+        assert!(pv.validate().unwrap_err().contains("comment contains invalid"));
+    }
+
+    // ── approvals overflow ──────────────────────────────────────────────
+
+    #[test]
+    fn test_policy_version_validate_too_many_approvals_rejected() {
+        let mut pv = valid_version();
+        pv.approvals = (0..MAX_APPROVALS_PER_VERSION + 1)
+            .map(|i| PolicyApproval {
+                approved_by: format!("user-{i}"),
+                approved_at: "2025-06-01T12:00:00Z".to_string(),
+                comment: None,
+            })
+            .collect();
+        assert!(pv.validate().unwrap_err().contains("approvals count"));
+    }
+
+    // ── staged_at validation ────────────────────────────────────────────
+
+    #[test]
+    fn test_policy_version_validate_staged_at_empty_when_present_rejected() {
+        let mut pv = valid_version();
+        pv.staged_at = Some(String::new());
+        assert!(pv.validate().unwrap_err().contains("staged_at must be non-empty"));
+    }
+
+    #[test]
+    fn test_policy_version_validate_staged_at_bad_timestamp_rejected() {
+        let mut pv = valid_version();
+        pv.staged_at = Some("bad-ts".to_string());
+        assert!(pv.validate().unwrap_err().contains("staged_at:"));
+    }
+
+    // ── PolicyApproval::validate() ──────────────────────────────────────
+
+    #[test]
+    fn test_policy_approval_validate_valid_ok() {
+        let pa = PolicyApproval {
+            approved_by: "reviewer".to_string(),
+            approved_at: "2025-06-01T12:00:00Z".to_string(),
+            comment: Some("looks good".to_string()),
+        };
+        assert!(pa.validate().is_ok());
+    }
+
+    #[test]
+    fn test_policy_approval_validate_empty_approved_by_rejected() {
+        let pa = PolicyApproval {
+            approved_by: String::new(),
+            approved_at: "2025-06-01T12:00:00Z".to_string(),
+            comment: None,
+        };
+        assert!(pa.validate().unwrap_err().contains("approved_by must be non-empty"));
+    }
+
+    #[test]
+    fn test_policy_approval_validate_approved_by_too_long_rejected() {
+        let pa = PolicyApproval {
+            approved_by: "u".repeat(MAX_LIFECYCLE_IDENTITY_LEN + 1),
+            approved_at: "2025-06-01T12:00:00Z".to_string(),
+            comment: None,
+        };
+        assert!(pa.validate().unwrap_err().contains("approved_by exceeds"));
+    }
+
+    #[test]
+    fn test_policy_approval_validate_approved_at_bad_timestamp_rejected() {
+        let pa = PolicyApproval {
+            approved_by: "admin".to_string(),
+            approved_at: "invalid".to_string(),
+            comment: None,
+        };
+        assert!(pa.validate().unwrap_err().contains("approved_at:"));
+    }
+
+    #[test]
+    fn test_policy_approval_validate_comment_too_long_rejected() {
+        let pa = PolicyApproval {
+            approved_by: "admin".to_string(),
+            approved_at: "2025-06-01T12:00:00Z".to_string(),
+            comment: Some("c".repeat(MAX_VERSION_COMMENT_LEN + 1)),
+        };
+        assert!(pa.validate().unwrap_err().contains("approval comment exceeds"));
+    }
+
+    #[test]
+    fn test_policy_approval_validate_comment_control_chars_rejected() {
+        let pa = PolicyApproval {
+            approved_by: "admin".to_string(),
+            approved_at: "2025-06-01T12:00:00Z".to_string(),
+            comment: Some("ok\x01bad".to_string()),
+        };
+        assert!(pa.validate().unwrap_err().contains("approval comment contains invalid"));
+    }
+
+    // ── PolicyVersionDiff::validate() ───────────────────────────────────
+
+    #[test]
+    fn test_policy_version_diff_validate_valid_ok() {
+        let diff = PolicyVersionDiff {
+            policy_id: "pol-1".to_string(),
+            from_version: 1,
+            to_version: 2,
+            changes: vec!["Added path rule".to_string()],
+        };
+        assert!(diff.validate().is_ok());
+    }
+
+    #[test]
+    fn test_policy_version_diff_validate_too_many_changes_rejected() {
+        let diff = PolicyVersionDiff {
+            policy_id: "pol-1".to_string(),
+            from_version: 1,
+            to_version: 2,
+            changes: vec!["change".to_string(); MAX_DIFF_CHANGES + 1],
+        };
+        assert!(diff.validate().unwrap_err().contains("changes count"));
+    }
+
+    #[test]
+    fn test_policy_version_diff_validate_change_too_long_rejected() {
+        let diff = PolicyVersionDiff {
+            policy_id: "pol-1".to_string(),
+            from_version: 1,
+            to_version: 2,
+            changes: vec!["x".repeat(MAX_DIFF_CHANGE_LEN + 1)],
+        };
+        assert!(diff.validate().unwrap_err().contains("changes[0] exceeds"));
+    }
+
+    // ── PolicyLifecycleStatus::validate() ───────────────────────────────
+
+    #[test]
+    fn test_policy_lifecycle_status_validate_valid_ok() {
+        let status = PolicyLifecycleStatus {
+            enabled: true,
+            tracked_policies: 10,
+            total_versions: 50,
+            staging_count: 2,
+            approval_workflow_enabled: true,
+        };
+        assert!(status.validate().is_ok());
+    }
+
+    #[test]
+    fn test_policy_lifecycle_status_validate_total_versions_overflow_rejected() {
+        let status = PolicyLifecycleStatus {
+            enabled: true,
+            tracked_policies: 1,
+            total_versions: MAX_TOTAL_VERSIONS + 1,
+            staging_count: 0,
+            approval_workflow_enabled: false,
+        };
+        assert!(status.validate().unwrap_err().contains("total_versions"));
+    }
+
+    #[test]
+    fn test_policy_lifecycle_status_validate_staging_exceeds_tracked_rejected() {
+        let status = PolicyLifecycleStatus {
+            enabled: true,
+            tracked_policies: 5,
+            total_versions: 10,
+            staging_count: 6,
+            approval_workflow_enabled: false,
+        };
+        assert!(status.validate().unwrap_err().contains("staging_count"));
+    }
+}

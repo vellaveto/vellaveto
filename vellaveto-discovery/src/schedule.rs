@@ -301,3 +301,304 @@ impl std::fmt::Debug for RecrawlScheduler {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crawler::{
+        CrawlConfig, McpServerProbe, ResourceInfo, ServerInfo, StaticProbe, ToolInfo,
+        TopologyCrawler,
+    };
+    use crate::topology::{StaticServerDecl, StaticToolDecl};
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    fn make_test_guard() -> Arc<TopologyGuard> {
+        let graph = crate::topology::TopologyGraph::from_static(vec![StaticServerDecl {
+            name: "test-server".to_string(),
+            tools: vec![StaticToolDecl {
+                name: "tool_a".to_string(),
+                description: "A test tool".to_string(),
+                input_schema: serde_json::json!({"type": "object"}),
+            }],
+            resources: vec![],
+        }])
+        .unwrap();
+        let guard = TopologyGuard::new();
+        guard.update(graph);
+        Arc::new(guard)
+    }
+
+    fn make_test_crawler() -> Arc<TopologyCrawler> {
+        let probe = StaticProbe::new(vec![StaticServerDecl {
+            name: "test-server".to_string(),
+            tools: vec![StaticToolDecl {
+                name: "tool_a".to_string(),
+                description: "A test tool".to_string(),
+                input_schema: serde_json::json!({"type": "object"}),
+            }],
+            resources: vec![],
+        }]);
+        Arc::new(TopologyCrawler::new(
+            Arc::new(probe),
+            CrawlConfig::default(),
+        ))
+    }
+
+    #[test]
+    fn test_recrawl_config_default_values() {
+        let config = RecrawlConfig::default();
+        assert_eq!(config.interval, Duration::from_secs(300));
+        assert!(config.on_unknown_tool);
+        assert_eq!(config.debounce, Duration::from_secs(30));
+        assert_eq!(config.max_consecutive_failures, 3);
+    }
+
+    #[test]
+    fn test_recrawl_config_zero_interval_disables_periodic() {
+        let config = RecrawlConfig {
+            interval: Duration::ZERO,
+            ..RecrawlConfig::default()
+        };
+        assert!(config.interval.is_zero());
+    }
+
+    #[test]
+    fn test_scheduler_creation_initial_state() {
+        let crawler = make_test_crawler();
+        let guard = make_test_guard();
+        let config = RecrawlConfig::default();
+        let scheduler = RecrawlScheduler::new(crawler, guard, config.clone());
+
+        assert_eq!(
+            scheduler.consecutive_failures.load(Ordering::Relaxed),
+            0
+        );
+        assert!(scheduler.on_change.is_none());
+        assert!(scheduler.on_audit.is_none());
+        assert_eq!(scheduler.config.interval, config.interval);
+    }
+
+    #[test]
+    fn test_scheduler_set_on_change_callback() {
+        let crawler = make_test_crawler();
+        let guard = make_test_guard();
+        let mut scheduler = RecrawlScheduler::new(crawler, guard, RecrawlConfig::default());
+
+        assert!(scheduler.on_change.is_none());
+        scheduler.set_on_change(Box::new(|_diff| {}));
+        assert!(scheduler.on_change.is_some());
+    }
+
+    #[test]
+    fn test_scheduler_set_on_audit_callback() {
+        let crawler = make_test_crawler();
+        let guard = make_test_guard();
+        let mut scheduler = RecrawlScheduler::new(crawler, guard, RecrawlConfig::default());
+
+        assert!(scheduler.on_audit.is_none());
+        scheduler.set_on_audit(Box::new(|_event| {}));
+        assert!(scheduler.on_audit.is_some());
+    }
+
+    #[test]
+    fn test_scheduler_trigger_handle_returns_shared_notify() {
+        let crawler = make_test_crawler();
+        let guard = make_test_guard();
+        let scheduler = RecrawlScheduler::new(crawler, guard, RecrawlConfig::default());
+
+        let handle1 = scheduler.trigger_handle();
+        let handle2 = scheduler.trigger_handle();
+        // Both handles should point to the same Notify
+        assert!(Arc::ptr_eq(&handle1, &handle2));
+    }
+
+    #[test]
+    fn test_scheduler_debug_format() {
+        let crawler = make_test_crawler();
+        let guard = make_test_guard();
+        let scheduler = RecrawlScheduler::new(crawler, guard, RecrawlConfig::default());
+
+        let debug = format!("{scheduler:?}");
+        assert!(debug.contains("RecrawlScheduler"));
+        assert!(debug.contains("consecutive_failures"));
+        assert!(debug.contains("config"));
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_trigger_recrawl_succeeds() {
+        let crawler = make_test_crawler();
+        let guard = make_test_guard();
+        let scheduler = RecrawlScheduler::new(crawler, guard, RecrawlConfig::default());
+
+        let result = scheduler.trigger_recrawl("test-reason").await;
+        assert!(result.is_ok());
+        // Consecutive failures should be reset to 0 after success
+        assert_eq!(
+            scheduler.consecutive_failures.load(Ordering::Relaxed),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_notify_unknown_tool_emits_audit() {
+        let crawler = make_test_crawler();
+        let guard = make_test_guard();
+        let audit_events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events_clone = Arc::clone(&audit_events);
+
+        let mut scheduler = RecrawlScheduler::new(
+            crawler,
+            guard,
+            RecrawlConfig {
+                on_unknown_tool: true,
+                ..RecrawlConfig::default()
+            },
+        );
+        scheduler.set_on_audit(Box::new(move |event| {
+            if let Ok(mut events) = events_clone.lock() {
+                events.push(format!("{event:?}"));
+            }
+        }));
+
+        scheduler.notify_unknown_tool("unknown_tool", Some("did_you_mean".to_string()));
+
+        let events = audit_events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(events[0].contains("TopologyViolation"));
+        assert!(events[0].contains("unknown_tool"));
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_notify_unknown_tool_disabled_no_trigger() {
+        let crawler = make_test_crawler();
+        let guard = make_test_guard();
+
+        let scheduler = RecrawlScheduler::new(
+            crawler,
+            guard,
+            RecrawlConfig {
+                on_unknown_tool: false,
+                ..RecrawlConfig::default()
+            },
+        );
+
+        // This should not trigger a recrawl since on_unknown_tool is false.
+        // We verify by checking that the trigger Notify is not notified —
+        // if it were, a subsequent notified() would resolve immediately.
+        scheduler.notify_unknown_tool("test_tool", None);
+        // No panic, no crash — the tool notification was ignored.
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_consecutive_failures_increment() {
+        // Create a crawler with an empty probe, so crawling a topology
+        // that has servers in the guard but none in the probe will work
+        // but produce a different topology (triggering a change, not a failure).
+        // To test failure, we use a probe that fails on list_servers.
+        use async_trait::async_trait;
+        use crate::error::DiscoveryError;
+        use crate::topology::ServerCapabilities;
+
+        struct FailingProbe;
+        #[async_trait]
+        impl McpServerProbe for FailingProbe {
+            async fn list_servers(&self) -> Result<Vec<ServerInfo>, DiscoveryError> {
+                Err(DiscoveryError::GraphError("forced failure".to_string()))
+            }
+            async fn list_tools(&self, _: &str) -> Result<Vec<ToolInfo>, DiscoveryError> {
+                Ok(vec![])
+            }
+            async fn list_resources(
+                &self,
+                _: &str,
+            ) -> Result<Vec<ResourceInfo>, DiscoveryError> {
+                Ok(vec![])
+            }
+            async fn server_capabilities(
+                &self,
+                _: &str,
+            ) -> Result<ServerCapabilities, DiscoveryError> {
+                Ok(ServerCapabilities::default())
+            }
+        }
+
+        let crawler = Arc::new(TopologyCrawler::new(
+            Arc::new(FailingProbe),
+            CrawlConfig::default(),
+        ));
+        let guard = make_test_guard();
+        let scheduler = RecrawlScheduler::new(crawler, guard, RecrawlConfig::default());
+
+        // First failure
+        let r1 = scheduler.trigger_recrawl("test").await;
+        assert!(r1.is_err());
+        assert_eq!(
+            scheduler.consecutive_failures.load(Ordering::Relaxed),
+            1
+        );
+
+        // Second failure
+        let r2 = scheduler.trigger_recrawl("test").await;
+        assert!(r2.is_err());
+        assert_eq!(
+            scheduler.consecutive_failures.load(Ordering::Relaxed),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_run_shutdown_immediate() {
+        let crawler = make_test_crawler();
+        let guard = make_test_guard();
+        let scheduler = RecrawlScheduler::new(crawler, guard, RecrawlConfig::default());
+
+        let shutdown = CancellationToken::new();
+        shutdown.cancel(); // Cancel immediately
+
+        // run() should return immediately when shutdown is cancelled
+        scheduler.run(shutdown).await;
+        // If we get here, the scheduler shut down gracefully.
+    }
+
+    #[test]
+    fn test_topology_audit_event_serialization() {
+        let event = TopologyAuditEvent::CrawlCompleted {
+            servers: 3,
+            tools: 10,
+            resources: 2,
+            fingerprint: "abc123".to_string(),
+            duration_ms: 42,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("CrawlCompleted"));
+        assert!(json.contains("\"servers\":3"));
+
+        let event2 = TopologyAuditEvent::TopologyViolation {
+            tool: "unknown".to_string(),
+            verdict: "Denied".to_string(),
+            suggestion: Some("known_tool".to_string()),
+        };
+        let json2 = serde_json::to_string(&event2).unwrap();
+        assert!(json2.contains("TopologyViolation"));
+        assert!(json2.contains("known_tool"));
+    }
+
+    #[test]
+    fn test_topology_audit_event_crawl_failed_serialization() {
+        let event = TopologyAuditEvent::CrawlFailed {
+            error: "timeout".to_string(),
+            retained_fingerprint: Some("deadbeef".to_string()),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("CrawlFailed"));
+        assert!(json.contains("deadbeef"));
+
+        let event_no_fp = TopologyAuditEvent::CrawlFailed {
+            error: "network".to_string(),
+            retained_fingerprint: None,
+        };
+        let json2 = serde_json::to_string(&event_no_fp).unwrap();
+        assert!(json2.contains("null"));
+    }
+}

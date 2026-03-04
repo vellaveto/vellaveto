@@ -816,6 +816,176 @@ pub(super) async fn scan_sse_events_for_output_schema(
     violation_found
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // =========================================================================
+    // extract_text_from_result tests
+    // =========================================================================
+
+    #[test]
+    fn test_extract_text_from_result_text_content() {
+        let result = json!({
+            "content": [
+                {"type": "text", "text": "Hello world"},
+                {"type": "text", "text": "Second line"}
+            ]
+        });
+        let text = extract_text_from_result(&result);
+        assert!(text.contains("Hello world"));
+        assert!(text.contains("Second line"));
+    }
+
+    #[test]
+    fn test_extract_text_from_result_empty_content() {
+        let result = json!({"content": []});
+        let text = extract_text_from_result(&result);
+        assert!(text.is_empty());
+    }
+
+    #[test]
+    fn test_extract_text_from_result_no_content_field() {
+        let result = json!({"status": "ok"});
+        let text = extract_text_from_result(&result);
+        assert!(text.is_empty());
+    }
+
+    #[test]
+    fn test_extract_text_from_result_resource_text() {
+        let result = json!({
+            "content": [
+                {
+                    "type": "resource",
+                    "resource": {"text": "resource content here"}
+                }
+            ]
+        });
+        let text = extract_text_from_result(&result);
+        assert!(text.contains("resource content here"));
+    }
+
+    #[test]
+    fn test_extract_text_from_result_resource_blob_base64() {
+        // "Hello" base64-encoded is "SGVsbG8="
+        let result = json!({
+            "content": [
+                {
+                    "type": "resource",
+                    "resource": {"blob": "SGVsbG8="}
+                }
+            ]
+        });
+        let text = extract_text_from_result(&result);
+        assert!(text.contains("Hello"));
+    }
+
+    #[test]
+    fn test_extract_text_from_result_instructions_for_user() {
+        let result = json!({
+            "instructionsForUser": "Please approve this action"
+        });
+        let text = extract_text_from_result(&result);
+        assert!(text.contains("Please approve this action"));
+    }
+
+    #[test]
+    fn test_extract_text_from_result_structured_content() {
+        let result = json!({
+            "structuredContent": {"key": "value", "nested": {"deep": "data"}}
+        });
+        let text = extract_text_from_result(&result);
+        assert!(text.contains("key"));
+        assert!(text.contains("value"));
+    }
+
+    #[test]
+    fn test_extract_text_from_result_meta_field() {
+        let result = json!({
+            "_meta": {"tool": "read_file", "custom": "metadata"}
+        });
+        let text = extract_text_from_result(&result);
+        assert!(text.contains("read_file"));
+        assert!(text.contains("metadata"));
+    }
+
+    #[test]
+    fn test_extract_text_from_result_meta_non_object_ignored() {
+        let result = json!({
+            "_meta": "just a string"
+        });
+        let text = extract_text_from_result(&result);
+        // Non-object _meta should be ignored
+        assert!(!text.contains("just a string"));
+    }
+
+    #[test]
+    fn test_extract_text_from_result_annotations() {
+        let result = json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": "content",
+                    "annotations": {"audience": ["user"], "priority": 0.5}
+                }
+            ]
+        });
+        let text = extract_text_from_result(&result);
+        assert!(text.contains("audience"));
+        assert!(text.contains("priority"));
+    }
+
+    #[test]
+    fn test_extract_text_from_result_combined_sources() {
+        let result = json!({
+            "content": [
+                {"type": "text", "text": "text-content"},
+                {"type": "resource", "resource": {"text": "res-content"}}
+            ],
+            "instructionsForUser": "instructions-content",
+            "structuredContent": {"sc": "structured-content"},
+            "_meta": {"m": "meta-content"}
+        });
+        let text = extract_text_from_result(&result);
+        assert!(text.contains("text-content"));
+        assert!(text.contains("res-content"));
+        assert!(text.contains("instructions-content"));
+        assert!(text.contains("structured-content"));
+        assert!(text.contains("meta-content"));
+    }
+
+    #[test]
+    fn test_extract_text_from_result_blob_url_safe_base64() {
+        // "Test" in URL-safe base64 is "VGVzdA" (no padding needed)
+        let result = json!({
+            "content": [
+                {
+                    "type": "resource",
+                    "resource": {"blob": "VGVzdA=="}
+                }
+            ]
+        });
+        let text = extract_text_from_result(&result);
+        assert!(text.contains("Test"));
+    }
+
+    #[test]
+    fn test_extract_text_from_result_invalid_base64_blob_ignored() {
+        let result = json!({
+            "content": [
+                {
+                    "type": "resource",
+                    "resource": {"blob": "!!!not-base64!!!"}
+                }
+            ]
+        });
+        let text = extract_text_from_result(&result);
+        // Invalid base64 should be silently skipped, not crash
+        assert!(!text.contains("not-base64"));
+    }
+}
+
 /// Add the Mcp-Session-Id and MCP-Protocol-Version headers to a response.
 pub(super) fn attach_session_header(mut response: Response, session_id: &str) -> Response {
     if let Ok(value) = session_id.parse() {

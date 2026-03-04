@@ -1189,3 +1189,347 @@ impl PolicyEngine {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn make_policy(id: &str, name: &str, policy_type: PolicyType) -> Policy {
+        Policy {
+            id: id.to_string(),
+            name: name.to_string(),
+            policy_type,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }
+    }
+
+    // ---- matches_action tests ----
+
+    #[test]
+    fn test_matches_action_wildcard() {
+        let engine = PolicyEngine::new(false);
+        let action = Action::new("any_tool", "any_func", json!({}));
+        let policy = make_policy("*", "match-all", PolicyType::Allow);
+        assert!(engine.matches_action(&action, &policy));
+    }
+
+    #[test]
+    fn test_matches_action_exact_tool_function() {
+        let engine = PolicyEngine::new(false);
+        let action = Action::new("file_system", "read_file", json!({}));
+        let policy = make_policy("file_system:read_file", "exact", PolicyType::Allow);
+        assert!(engine.matches_action(&action, &policy));
+    }
+
+    #[test]
+    fn test_matches_action_exact_tool_function_mismatch() {
+        let engine = PolicyEngine::new(false);
+        let action = Action::new("file_system", "write_file", json!({}));
+        let policy = make_policy("file_system:read_file", "exact", PolicyType::Allow);
+        assert!(!engine.matches_action(&action, &policy));
+    }
+
+    #[test]
+    fn test_matches_action_tool_wildcard_function() {
+        let engine = PolicyEngine::new(false);
+        let action = Action::new("bash", "execute", json!({}));
+        let policy = make_policy("bash:*", "bash-all", PolicyType::Deny);
+        assert!(engine.matches_action(&action, &policy));
+    }
+
+    #[test]
+    fn test_matches_action_wildcard_tool_specific_function() {
+        let engine = PolicyEngine::new(false);
+        let action = Action::new("any_tool", "delete", json!({}));
+        let policy = make_policy("*:delete", "deny-delete", PolicyType::Deny);
+        assert!(engine.matches_action(&action, &policy));
+    }
+
+    #[test]
+    fn test_matches_action_tool_only_no_colon() {
+        let engine = PolicyEngine::new(false);
+        let action = Action::new("bash", "execute", json!({}));
+        let policy = make_policy("bash", "tool-only", PolicyType::Deny);
+        assert!(engine.matches_action(&action, &policy));
+    }
+
+    #[test]
+    fn test_matches_action_tool_only_mismatch() {
+        let engine = PolicyEngine::new(false);
+        let action = Action::new("python", "execute", json!({}));
+        let policy = make_policy("bash", "tool-only", PolicyType::Deny);
+        assert!(!engine.matches_action(&action, &policy));
+    }
+
+    #[test]
+    fn test_matches_action_qualifier_suffix_ignored() {
+        let engine = PolicyEngine::new(false);
+        let action = Action::new("file_system", "read_file", json!({}));
+        // "tool:func:qualifier" -> match on "tool:func" only
+        let policy = make_policy("file_system:read_file:v2", "qualified", PolicyType::Allow);
+        assert!(engine.matches_action(&action, &policy));
+    }
+
+    // ---- match_pattern tests ----
+
+    #[test]
+    fn test_match_pattern_exact() {
+        let engine = PolicyEngine::new(false);
+        assert!(engine.match_pattern("bash", "bash"));
+        assert!(!engine.match_pattern("bash", "python"));
+    }
+
+    #[test]
+    fn test_match_pattern_wildcard_all() {
+        let engine = PolicyEngine::new(false);
+        assert!(engine.match_pattern("*", "anything"));
+        assert!(engine.match_pattern("*", ""));
+    }
+
+    #[test]
+    fn test_match_pattern_prefix_wildcard() {
+        let engine = PolicyEngine::new(false);
+        assert!(engine.match_pattern("file_*", "file_system"));
+        assert!(engine.match_pattern("file_*", "file_read"));
+        assert!(!engine.match_pattern("file_*", "bash"));
+    }
+
+    #[test]
+    fn test_match_pattern_suffix_wildcard() {
+        let engine = PolicyEngine::new(false);
+        assert!(engine.match_pattern("*_file", "read_file"));
+        assert!(engine.match_pattern("*_file", "write_file"));
+        assert!(!engine.match_pattern("*_file", "read_dir"));
+    }
+
+    #[test]
+    fn test_match_pattern_case_insensitive_via_normalize() {
+        let engine = PolicyEngine::new(false);
+        // normalize_full lowercases both sides
+        assert!(engine.match_pattern("BASH", "bash"));
+        assert!(engine.match_pattern("bash", "BASH"));
+    }
+
+    #[test]
+    fn test_match_pattern_infix_wildcard_fail_closed() {
+        let engine = PolicyEngine::new(false);
+        // Infix wildcards (e.g., "foo*bar*") should be treated as match-all (fail-closed)
+        assert!(engine.match_pattern("foo*bar*", "anything"));
+        assert!(engine.match_pattern("a*b*c*", "xyz"));
+    }
+
+    // ---- apply_policy tests ----
+
+    #[test]
+    fn test_apply_policy_allow() {
+        let engine = PolicyEngine::new(false);
+        let policy = make_policy("*", "allow-all", PolicyType::Allow);
+        let action = Action::new("tool", "func", json!({}));
+        let result = engine.apply_policy(&action, &policy).unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_apply_policy_deny() {
+        let engine = PolicyEngine::new(false);
+        let policy = make_policy("bash:*", "deny-bash", PolicyType::Deny);
+        let action = Action::new("bash", "execute", json!({}));
+        let result = engine.apply_policy(&action, &policy).unwrap();
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => {
+                assert!(reason.contains("Denied by policy"));
+            }
+            _ => panic!("Expected Deny"),
+        }
+    }
+
+    // ---- evaluate_conditions tests ----
+
+    #[test]
+    fn test_evaluate_conditions_require_approval() {
+        let engine = PolicyEngine::new(false);
+        let policy = make_policy("*", "approval", PolicyType::Allow);
+        let conditions = json!({ "require_approval": true });
+        let action = Action::new("tool", "func", json!({}));
+        let result = engine.evaluate_conditions(&action, &policy, &conditions).unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Verdict::RequireApproval { .. }));
+    }
+
+    #[test]
+    fn test_evaluate_conditions_forbidden_params() {
+        let engine = PolicyEngine::new(false);
+        let policy = make_policy("*", "no-secret", PolicyType::Allow);
+        let conditions = json!({ "forbidden_parameters": ["password"] });
+        let action = Action::new("tool", "func", json!({ "password": "abc" }));
+        let result = engine.evaluate_conditions(&action, &policy, &conditions).unwrap();
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => assert!(reason.contains("forbidden")),
+            _ => panic!("Expected Deny"),
+        }
+    }
+
+    #[test]
+    fn test_evaluate_conditions_required_params_missing() {
+        let engine = PolicyEngine::new(false);
+        let policy = make_policy("*", "need-token", PolicyType::Allow);
+        let conditions = json!({ "required_parameters": ["api_key"] });
+        let action = Action::new("tool", "func", json!({}));
+        let result = engine.evaluate_conditions(&action, &policy, &conditions).unwrap();
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => assert!(reason.contains("Required parameter")),
+            _ => panic!("Expected Deny"),
+        }
+    }
+
+    #[test]
+    fn test_evaluate_conditions_deep_json_rejected() {
+        let engine = PolicyEngine::new(false);
+        let policy = make_policy("*", "deep", PolicyType::Allow);
+        // Build JSON with depth > 10
+        let mut deep = json!({"a": 1});
+        for _ in 0..15 {
+            deep = json!({"nested": deep});
+        }
+        let result = engine.evaluate_conditions(
+            &Action::new("tool", "func", json!({})),
+            &policy,
+            &deep,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_evaluate_conditions_on_no_match_continue() {
+        let engine = PolicyEngine::new(false);
+        let policy = make_policy("*", "continue", PolicyType::Allow);
+        let conditions = json!({ "on_no_match": "continue" });
+        let action = Action::new("tool", "func", json!({}));
+        let result = engine.evaluate_conditions(&action, &policy, &conditions).unwrap();
+        // on_no_match="continue" -> None (skip to next policy)
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_evaluate_conditions_no_conditions_allow() {
+        let engine = PolicyEngine::new(false);
+        let policy = make_policy("*", "empty", PolicyType::Allow);
+        let conditions = json!({});
+        let action = Action::new("tool", "func", json!({}));
+        let result = engine.evaluate_conditions(&action, &policy, &conditions).unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_evaluate_conditions_strict_mode_unknown_key() {
+        let engine = PolicyEngine::new(true); // strict mode
+        let policy = make_policy("*", "strict", PolicyType::Allow);
+        let conditions = json!({ "unknown_key": "value" });
+        let action = Action::new("tool", "func", json!({}));
+        let result = engine.evaluate_conditions(&action, &policy, &conditions);
+        assert!(result.is_err());
+    }
+
+    // ---- evaluate_conditions fail-closed for non-array forbidden/required ----
+
+    #[test]
+    fn test_evaluate_conditions_forbidden_params_non_array_fail_closed() {
+        let engine = PolicyEngine::new(false);
+        let policy = make_policy("*", "bad-config", PolicyType::Allow);
+        let conditions = json!({ "forbidden_parameters": "not-an-array" });
+        let action = Action::new("tool", "func", json!({}));
+        let result = engine.evaluate_conditions(&action, &policy, &conditions).unwrap();
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => assert!(reason.contains("Malformed")),
+            _ => panic!("Expected Deny for non-array forbidden_parameters"),
+        }
+    }
+
+    #[test]
+    fn test_evaluate_conditions_required_params_non_array_fail_closed() {
+        let engine = PolicyEngine::new(false);
+        let policy = make_policy("*", "bad-config", PolicyType::Allow);
+        let conditions = json!({ "required_parameters": 42 });
+        let action = Action::new("tool", "func", json!({}));
+        let result = engine.evaluate_conditions(&action, &policy, &conditions).unwrap();
+        assert!(result.is_some());
+        match result.unwrap() {
+            Verdict::Deny { reason } => assert!(reason.contains("Malformed")),
+            _ => panic!("Expected Deny for non-array required_parameters"),
+        }
+    }
+
+    // ---- Legacy path rules tests ----
+
+    #[test]
+    fn test_check_path_rules_legacy_blocked_path() {
+        let engine = PolicyEngine::new(false);
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "block-etc".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: Some(vellaveto_types::PathRules {
+                allowed: vec![],
+                blocked: vec!["/etc/**".to_string()],
+            }),
+            network_rules: None,
+        };
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_paths = vec!["/etc/passwd".to_string()];
+        let result = engine.check_path_rules_legacy(&action, &policy).unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_check_path_rules_legacy_no_path_rules() {
+        let engine = PolicyEngine::new(false);
+        let policy = make_policy("*", "no-rules", PolicyType::Allow);
+        let action = Action::new("tool", "func", json!({}));
+        let result = engine.check_path_rules_legacy(&action, &policy).unwrap();
+        assert!(result.is_none());
+    }
+
+    // ---- Legacy network rules tests ----
+
+    #[test]
+    fn test_check_network_rules_legacy_blocked_domain() {
+        let engine = PolicyEngine::new(false);
+        let policy = Policy {
+            id: "*".to_string(),
+            name: "block-evil".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: Some(vellaveto_types::NetworkRules {
+                allowed_domains: vec![],
+                blocked_domains: vec!["evil.com".to_string()],
+                ip_rules: None,
+            }),
+        };
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_domains = vec!["evil.com".to_string()];
+        let result = engine.check_network_rules_legacy(&action, &policy);
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_check_network_rules_legacy_no_network_rules() {
+        let engine = PolicyEngine::new(false);
+        let policy = make_policy("*", "no-net", PolicyType::Allow);
+        let action = Action::new("tool", "func", json!({}));
+        let result = engine.check_network_rules_legacy(&action, &policy);
+        assert!(result.is_none());
+    }
+}

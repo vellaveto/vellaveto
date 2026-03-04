@@ -1133,4 +1133,283 @@ mod tests {
             .insert("env".to_string(), "production".to_string());
         assert!(tenant.validate().is_ok());
     }
+
+    // ── Additional TenantClaims tests ─────────────────────────────────
+
+    #[test]
+    fn test_tenant_claims_effective_tenant_id_priority() {
+        // tenant_id takes precedence over org_id and organization
+        let claims = TenantClaims {
+            tenant_id: Some("primary".into()),
+            org_id: Some("secondary".into()),
+            organization: Some("tertiary".into()),
+        };
+        assert_eq!(claims.effective_tenant_id(), Some("primary"));
+    }
+
+    #[test]
+    fn test_tenant_claims_fallback_to_org_id() {
+        let claims = TenantClaims {
+            tenant_id: None,
+            org_id: Some("org-123".into()),
+            organization: Some("fallback".into()),
+        };
+        assert_eq!(claims.effective_tenant_id(), Some("org-123"));
+    }
+
+    #[test]
+    fn test_tenant_claims_fallback_to_organization() {
+        let claims = TenantClaims {
+            tenant_id: None,
+            org_id: None,
+            organization: Some("acme-org".into()),
+        };
+        assert_eq!(claims.effective_tenant_id(), Some("acme-org"));
+    }
+
+    #[test]
+    fn test_tenant_claims_none_when_all_empty() {
+        let claims = TenantClaims {
+            tenant_id: None,
+            org_id: None,
+            organization: None,
+        };
+        assert_eq!(claims.effective_tenant_id(), None);
+    }
+
+    // ── Subdomain extraction security tests ───────────────────────────
+
+    #[test]
+    fn test_extract_tenant_from_subdomain_suffix_attack_rejected() {
+        // SECURITY (FIND-R202-005): suffix-matching attack prevention
+        assert_eq!(
+            extract_tenant_from_subdomain(
+                "evil-vellaveto.example.com",
+                "vellaveto.example.com"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn test_extract_tenant_from_subdomain_reserved_prefix_rejected() {
+        // SECURITY (FIND-R203-003): reserved prefix rejection
+        assert_eq!(
+            extract_tenant_from_subdomain(
+                "_default_.vellaveto.example.com",
+                "vellaveto.example.com"
+            ),
+            None
+        );
+        assert_eq!(
+            extract_tenant_from_subdomain(
+                "_admin_.vellaveto.example.com",
+                "vellaveto.example.com"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn test_extract_tenant_from_subdomain_empty_subdomain() {
+        assert_eq!(
+            extract_tenant_from_subdomain(
+                ".vellaveto.example.com",
+                "vellaveto.example.com"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn test_extract_tenant_from_subdomain_base_domain_with_leading_dot() {
+        assert_eq!(
+            extract_tenant_from_subdomain(
+                "acme.vellaveto.example.com",
+                ".vellaveto.example.com"
+            ),
+            Some("acme".to_string())
+        );
+    }
+
+    // ── Header extraction security tests ──────────────────────────────
+
+    #[test]
+    fn test_extract_tenant_from_header_reserved_prefix_rejected() {
+        // SECURITY (FIND-R202-007): reserved _default_ from headers
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            axum::http::HeaderName::from_static("x-tenant-id"),
+            axum::http::HeaderValue::from_static("_default_"),
+        );
+        assert_eq!(extract_tenant_from_header(&headers), None);
+    }
+
+    #[test]
+    fn test_extract_tenant_from_header_empty_rejected() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            axum::http::HeaderName::from_static("x-tenant-id"),
+            axum::http::HeaderValue::from_static(""),
+        );
+        assert_eq!(extract_tenant_from_header(&headers), None);
+    }
+
+    #[test]
+    fn test_extract_tenant_from_header_valid() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            axum::http::HeaderName::from_static("x-tenant-id"),
+            axum::http::HeaderValue::from_static("valid-tenant"),
+        );
+        assert_eq!(
+            extract_tenant_from_header(&headers),
+            Some("valid-tenant".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_tenant_from_header_missing() {
+        let headers = axum::http::HeaderMap::new();
+        assert_eq!(extract_tenant_from_header(&headers), None);
+    }
+
+    // ── validate_tenant_id additional tests ───────────────────────────
+
+    #[test]
+    fn test_validate_tenant_id_exact_max_length() {
+        let id = "a".repeat(64);
+        assert!(validate_tenant_id(&id).is_ok());
+    }
+
+    #[test]
+    fn test_validate_tenant_id_spaces_rejected() {
+        assert!(validate_tenant_id("tenant with spaces").is_err());
+    }
+
+    #[test]
+    fn test_validate_tenant_id_unicode_alphanumeric_accepted() {
+        // Rust's is_alphanumeric() considers Unicode letters valid
+        assert!(validate_tenant_id("tenant-über").is_ok());
+    }
+
+    #[test]
+    fn test_validate_tenant_id_emoji_rejected() {
+        // Emoji are not alphanumeric, not hyphens, not underscores
+        assert!(validate_tenant_id("tenant-🔒").is_err());
+    }
+
+    // ── TenantContext policy matching edge cases ──────────────────────
+
+    #[test]
+    fn test_tenant_context_extract_tenant_from_policy() {
+        assert_eq!(
+            TenantContext::extract_tenant_from_policy("acme:file:read"),
+            Some("acme")
+        );
+        assert_eq!(
+            TenantContext::extract_tenant_from_policy("_global_:block"),
+            Some("_global_")
+        );
+        assert_eq!(
+            TenantContext::extract_tenant_from_policy("no_colon_policy"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_tenant_context_policy_matches_empty_tenant() {
+        let context = TenantContext {
+            tenant_id: "".to_string(),
+            source: TenantSource::Default,
+            quotas: None,
+        };
+        // Legacy policies (0-1 colons) match all tenants
+        assert!(context.policy_matches("file:read"));
+        assert!(context.policy_matches("simple_policy"));
+    }
+
+    // ── Tenant validate timestamp tests ───────────────────────────────
+
+    #[test]
+    fn test_tenant_validate_invalid_created_at_timestamp() {
+        let mut tenant = Tenant::new("acme", "Acme Corp");
+        tenant.created_at = Some("not-a-timestamp".to_string());
+        assert!(tenant.validate().is_err());
+    }
+
+    #[test]
+    fn test_tenant_validate_invalid_updated_at_timestamp() {
+        let mut tenant = Tenant::new("acme", "Acme Corp");
+        tenant.updated_at = Some("2026-13-01T00:00:00Z".to_string());
+        assert!(tenant.validate().is_err());
+    }
+
+    #[test]
+    fn test_tenant_validate_valid_rfc3339_timestamps() {
+        let mut tenant = Tenant::new("acme", "Acme Corp");
+        tenant.created_at = Some("2026-01-15T10:30:00Z".to_string());
+        tenant.updated_at = Some("2026-02-20T14:00:00+00:00".to_string());
+        assert!(tenant.validate().is_ok());
+    }
+
+    // ── Tenant metadata key/value length tests ────────────────────────
+
+    #[test]
+    fn test_tenant_validate_metadata_key_too_long() {
+        let mut tenant = Tenant::new("acme", "Acme Corp");
+        let long_key = "k".repeat(MAX_TENANT_METADATA_KEY_LEN + 1);
+        tenant.metadata.insert(long_key, "value".to_string());
+        let err = tenant.validate();
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn test_tenant_validate_metadata_value_too_long() {
+        let mut tenant = Tenant::new("acme", "Acme Corp");
+        let long_value = "v".repeat(MAX_TENANT_METADATA_VALUE_LEN + 1);
+        tenant.metadata.insert("key".to_string(), long_value);
+        let err = tenant.validate();
+        assert!(err.is_err());
+    }
+
+    // ── InMemoryTenantStore edge cases ────────────────────────────────
+
+    #[test]
+    fn test_in_memory_tenant_store_with_default_tenant() {
+        let store = InMemoryTenantStore::with_default_tenant();
+        let default = store.get_tenant(DEFAULT_TENANT_ID);
+        assert!(default.is_some());
+        assert_eq!(default.unwrap().quotas.max_policies, u64::MAX);
+    }
+
+    #[test]
+    fn test_in_memory_tenant_store_duplicate_create_rejected() {
+        let store = InMemoryTenantStore::new();
+        let tenant = Tenant::new("dup", "Duplicate");
+        store.create_tenant(tenant).unwrap();
+
+        let tenant2 = Tenant::new("dup", "Duplicate 2");
+        let err = store.create_tenant(tenant2);
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn test_in_memory_tenant_store_update_nonexistent_rejected() {
+        let store = InMemoryTenantStore::new();
+        let tenant = Tenant::new("ghost", "Ghost Tenant");
+        let err = store.update_tenant(tenant);
+        assert!(matches!(err, Err(TenantError::TenantNotFound(_))));
+    }
+
+    #[test]
+    fn test_tenant_config_default() {
+        let config = TenantConfig::default();
+        assert!(!config.enabled);
+        assert!(!config.allow_header_tenant);
+        assert!(!config.allow_subdomain_tenant);
+        assert!(config.base_domain.is_none());
+        assert_eq!(config.default_tenant_id, DEFAULT_TENANT_ID);
+        assert!(!config.require_tenant);
+    }
 }

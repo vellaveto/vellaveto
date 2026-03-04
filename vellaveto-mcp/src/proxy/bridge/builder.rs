@@ -333,6 +333,29 @@ impl ProxyBridge {
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // Phase 71: Cross-Call DLP Tracking (R233-DLP-1)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Enable cross-call DLP tracking. When enabled, each session maintains
+    /// overlap buffers to detect secrets split across sequential tool calls.
+    pub fn with_cross_call_dlp(mut self, enabled: bool) -> Self {
+        self.cross_call_dlp_enabled = enabled;
+        self
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // TI-2026-001: Sharded Exfiltration Detection (R233-MCPSEC-2)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Enable sharded exfiltration detection. When enabled, each session
+    /// tracks high-entropy parameter fragments and alerts when cumulative
+    /// suspicious bytes exceed the threshold within a time window.
+    pub fn with_sharded_exfil(mut self, enabled: bool) -> Self {
+        self.sharded_exfil_enabled = enabled;
+        self
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // Consumer Shield: Bidirectional PII Sanitization
     // ═══════════════════════════════════════════════════════════════════
 

@@ -1014,3 +1014,467 @@ impl Default for DpopConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ═══════════════════════════════════════════════════
+    // MemorySecurityConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_memory_security_validate_default_ok() {
+        let config = MemorySecurityConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_memory_security_validate_trust_decay_rate_zero_rejected() {
+        let mut config = MemorySecurityConfig::default();
+        config.trust_decay_rate = 0.0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("trust_decay_rate"));
+    }
+
+    #[test]
+    fn test_memory_security_validate_trust_decay_rate_negative_rejected() {
+        let mut config = MemorySecurityConfig::default();
+        config.trust_decay_rate = -0.01;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("trust_decay_rate"));
+    }
+
+    #[test]
+    fn test_memory_security_validate_trust_decay_rate_above_ten_rejected() {
+        let mut config = MemorySecurityConfig::default();
+        config.trust_decay_rate = 10.01;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("trust_decay_rate"));
+    }
+
+    #[test]
+    fn test_memory_security_validate_trust_decay_rate_nan_rejected() {
+        let mut config = MemorySecurityConfig::default();
+        config.trust_decay_rate = f64::NAN;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("trust_decay_rate"));
+    }
+
+    #[test]
+    fn test_memory_security_validate_trust_decay_rate_infinity_rejected() {
+        let mut config = MemorySecurityConfig::default();
+        config.trust_decay_rate = f64::INFINITY;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("trust_decay_rate"));
+    }
+
+    #[test]
+    fn test_memory_security_validate_trust_threshold_negative_rejected() {
+        let mut config = MemorySecurityConfig::default();
+        config.trust_threshold = -0.01;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("trust_threshold"));
+    }
+
+    #[test]
+    fn test_memory_security_validate_trust_threshold_above_one_rejected() {
+        let mut config = MemorySecurityConfig::default();
+        config.trust_threshold = 1.01;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("trust_threshold"));
+    }
+
+    #[test]
+    fn test_memory_security_validate_trust_threshold_nan_rejected() {
+        let mut config = MemorySecurityConfig::default();
+        config.trust_threshold = f64::NAN;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("trust_threshold"));
+    }
+
+    #[test]
+    fn test_memory_security_validate_trust_threshold_boundary_zero_ok() {
+        let mut config = MemorySecurityConfig::default();
+        config.trust_threshold = 0.0;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_memory_security_validate_trust_threshold_boundary_one_ok() {
+        let mut config = MemorySecurityConfig::default();
+        config.trust_threshold = 1.0;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_memory_security_validate_max_memory_age_over_cap_rejected() {
+        let mut config = MemorySecurityConfig::default();
+        config.max_memory_age_hours = MAX_MEMORY_AGE_HOURS_CAP + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_memory_age_hours"));
+    }
+
+    #[test]
+    fn test_memory_security_validate_max_entries_over_cap_rejected() {
+        let mut config = MemorySecurityConfig::default();
+        config.max_entries_per_session = MAX_ENTRIES_PER_SESSION_CAP + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_entries_per_session"));
+    }
+
+    #[test]
+    fn test_memory_security_validate_max_provenance_over_cap_rejected() {
+        let mut config = MemorySecurityConfig::default();
+        config.max_provenance_nodes = MAX_PROVENANCE_NODES_CAP + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_provenance_nodes"));
+    }
+
+    #[test]
+    fn test_memory_security_validate_max_fingerprints_over_cap_rejected() {
+        let mut config = MemorySecurityConfig::default();
+        config.max_fingerprints = MAX_FINGERPRINTS_CAP + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_fingerprints"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // NamespaceConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_namespace_validate_default_ok() {
+        let config = NamespaceConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_namespace_validate_invalid_isolation_rejected() {
+        let mut config = NamespaceConfig::default();
+        config.default_isolation = "invalid".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("default_isolation"));
+    }
+
+    #[test]
+    fn test_namespace_validate_all_valid_isolations_accepted() {
+        for isolation in &["session", "agent", "shared"] {
+            let mut config = NamespaceConfig::default();
+            config.default_isolation = isolation.to_string();
+            assert!(config.validate().is_ok(), "should accept '{}'", isolation);
+        }
+    }
+
+    #[test]
+    fn test_namespace_validate_control_chars_in_isolation_rejected() {
+        let mut config = NamespaceConfig::default();
+        // Use a value that is in the valid set but with a control char prepended.
+        // This will fail the valid_isolations check first since "session\x00" != "session".
+        config.default_isolation = "session\x00".to_string();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_namespace_validate_max_namespaces_over_cap_rejected() {
+        let mut config = NamespaceConfig::default();
+        config.max_namespaces = MAX_NAMESPACES_CAP + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_namespaces"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // NhiConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_nhi_validate_default_ok() {
+        let config = NhiConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_nhi_validate_anomaly_threshold_nan_rejected() {
+        let mut config = NhiConfig::default();
+        config.anomaly_threshold = f64::NAN;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("anomaly_threshold"));
+    }
+
+    #[test]
+    fn test_nhi_validate_anomaly_threshold_above_one_rejected() {
+        let mut config = NhiConfig::default();
+        config.anomaly_threshold = 1.1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("anomaly_threshold"));
+    }
+
+    #[test]
+    fn test_nhi_validate_anomaly_threshold_negative_rejected() {
+        let mut config = NhiConfig::default();
+        config.anomaly_threshold = -0.01;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("anomaly_threshold"));
+    }
+
+    #[test]
+    fn test_nhi_validate_credential_ttl_zero_rejected() {
+        let mut config = NhiConfig::default();
+        config.credential_ttl_secs = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("credential_ttl_secs must be > 0"));
+    }
+
+    #[test]
+    fn test_nhi_validate_max_credential_ttl_zero_rejected() {
+        let mut config = NhiConfig::default();
+        config.max_credential_ttl_secs = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_credential_ttl_secs must be > 0"));
+    }
+
+    #[test]
+    fn test_nhi_validate_credential_ttl_exceeds_max_rejected() {
+        let mut config = NhiConfig::default();
+        config.credential_ttl_secs = 10_000;
+        config.max_credential_ttl_secs = 5_000;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("must be <= max_credential_ttl_secs"));
+    }
+
+    #[test]
+    fn test_nhi_validate_max_credential_ttl_over_cap_rejected() {
+        let mut config = NhiConfig::default();
+        config.max_credential_ttl_secs = MAX_NHI_CREDENTIAL_TTL_CAP + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_credential_ttl_secs must be <="));
+    }
+
+    #[test]
+    fn test_nhi_validate_delegation_chain_depth_over_cap_rejected() {
+        let mut config = NhiConfig::default();
+        config.max_delegation_chain_depth = MAX_NHI_CHAIN_DEPTH_CAP + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_delegation_chain_depth"));
+    }
+
+    #[test]
+    fn test_nhi_validate_max_identities_over_cap_rejected() {
+        let mut config = NhiConfig::default();
+        config.max_identities = MAX_NHI_IDENTITIES_CAP + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_identities"));
+    }
+
+    #[test]
+    fn test_nhi_validate_max_delegations_over_cap_rejected() {
+        let mut config = NhiConfig::default();
+        config.max_delegations = MAX_NHI_DELEGATIONS_CAP + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_delegations"));
+    }
+
+    #[test]
+    fn test_nhi_validate_rotation_warning_hours_over_cap_rejected() {
+        let mut config = NhiConfig::default();
+        config.rotation_warning_hours = 8761;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("rotation_warning_hours"));
+    }
+
+    #[test]
+    fn test_nhi_validate_too_many_attestation_types_rejected() {
+        let mut config = NhiConfig::default();
+        config.attestation_types = (0..=MAX_NHI_ATTESTATION_TYPES)
+            .map(|i| format!("type_{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("attestation_types"));
+    }
+
+    #[test]
+    fn test_nhi_validate_empty_attestation_type_rejected() {
+        let mut config = NhiConfig::default();
+        config.attestation_types = vec!["".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("attestation_types[0] must not be empty"));
+    }
+
+    #[test]
+    fn test_nhi_validate_attestation_type_control_chars_rejected() {
+        let mut config = NhiConfig::default();
+        config.attestation_types = vec!["jwt\x01bad".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+
+    #[test]
+    fn test_nhi_validate_attestation_type_too_long_rejected() {
+        let mut config = NhiConfig::default();
+        config.attestation_types = vec!["x".repeat(MAX_NHI_STRING_FIELD_LEN + 1)];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("exceeds maximum"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // VerificationConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_verification_validate_default_ok() {
+        let config = VerificationConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_verification_validate_invalid_default_tier_rejected() {
+        let mut config = VerificationConfig::default();
+        config.default_tier = "bogus".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("default_tier"));
+    }
+
+    #[test]
+    fn test_verification_validate_invalid_global_minimum_tier_rejected() {
+        let mut config = VerificationConfig::default();
+        config.global_minimum_tier = "bogus".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("global_minimum_tier"));
+    }
+
+    #[test]
+    fn test_verification_validate_max_attestations_over_cap_rejected() {
+        let mut config = VerificationConfig::default();
+        config.max_attestations_per_identity = MAX_ATTESTATIONS_CAP + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_attestations_per_identity"));
+    }
+
+    #[test]
+    fn test_verification_validate_zero_attestations_when_enabled_rejected() {
+        let mut config = VerificationConfig::default();
+        config.enabled = true;
+        config.max_attestations_per_identity = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_attestations_per_identity must be > 0"));
+    }
+
+    #[test]
+    fn test_verification_validate_zero_attestation_ttl_when_enabled_rejected() {
+        let mut config = VerificationConfig::default();
+        config.enabled = true;
+        config.attestation_ttl_secs = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("attestation_ttl_secs must be > 0"));
+    }
+
+    #[test]
+    fn test_verification_validate_attestation_ttl_over_cap_rejected() {
+        let mut config = VerificationConfig::default();
+        config.attestation_ttl_secs = MAX_ATTESTATION_TTL_CAP + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("attestation_ttl_secs must be <="));
+    }
+
+    #[test]
+    fn test_verification_validate_did_plc_empty_url_rejected() {
+        let mut config = VerificationConfig::default();
+        config.did_plc_enabled = true;
+        config.plc_directory_url = "".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("plc_directory_url must not be empty"));
+    }
+
+    #[test]
+    fn test_verification_validate_did_plc_non_https_rejected() {
+        let mut config = VerificationConfig::default();
+        config.did_plc_enabled = true;
+        config.plc_directory_url = "http://example.com".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("https://"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // DpopConfig validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_dpop_validate_default_ok() {
+        let config = DpopConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_dpop_validate_clock_skew_over_cap_rejected() {
+        let mut config = DpopConfig::default();
+        config.max_clock_skew_secs = MAX_DPOP_CLOCK_SKEW_CAP + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_clock_skew_secs"));
+    }
+
+    #[test]
+    fn test_dpop_validate_nonce_ttl_over_cap_rejected() {
+        let mut config = DpopConfig::default();
+        config.nonce_ttl_secs = MAX_DPOP_CLOCK_SKEW_CAP + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("nonce_ttl_secs"));
+    }
+
+    #[test]
+    fn test_dpop_validate_max_nonces_over_cap_rejected() {
+        let mut config = DpopConfig::default();
+        config.max_nonces = MAX_DPOP_NONCES_CAP + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_nonces"));
+    }
+
+    #[test]
+    fn test_dpop_validate_proof_lifetime_zero_rejected() {
+        let mut config = DpopConfig::default();
+        config.max_proof_lifetime_secs = 0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_proof_lifetime_secs must be > 0"));
+    }
+
+    #[test]
+    fn test_dpop_validate_proof_lifetime_over_cap_rejected() {
+        let mut config = DpopConfig::default();
+        config.max_proof_lifetime_secs = MAX_DPOP_PROOF_LIFETIME_CAP + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("max_proof_lifetime_secs"));
+    }
+
+    #[test]
+    fn test_dpop_validate_too_many_algorithms_rejected() {
+        let mut config = DpopConfig::default();
+        config.allowed_algorithms = (0..=MAX_DPOP_ALGORITHMS)
+            .map(|i| format!("ALG{}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("allowed_algorithms"));
+    }
+
+    #[test]
+    fn test_dpop_validate_empty_algorithm_rejected() {
+        let mut config = DpopConfig::default();
+        config.allowed_algorithms = vec!["".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("must not be empty"));
+    }
+
+    #[test]
+    fn test_dpop_validate_algorithm_too_long_rejected() {
+        let mut config = DpopConfig::default();
+        config.allowed_algorithms = vec!["A".repeat(MAX_DPOP_ALGORITHM_LEN + 1)];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("exceeds maximum"));
+    }
+
+    #[test]
+    fn test_dpop_validate_algorithm_control_chars_rejected() {
+        let mut config = DpopConfig::default();
+        config.allowed_algorithms = vec!["ES256\x00".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("control or format characters"));
+    }
+}
