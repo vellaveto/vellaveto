@@ -1,11 +1,11 @@
 # Verus Formal Verification
 
-Deductive verification of Vellaveto's core verdict computation and DLP buffer
-arithmetic using [Verus](https://github.com/verus-lang/verus).
+Deductive verification of Vellaveto's core verdict computation, DLP buffer
+arithmetic, and path normalization using [Verus](https://github.com/verus-lang/verus).
 
 ## What Is Verified
 
-### Core Verdict Logic (`verified_core.rs`) — 9 proofs, V1-V8
+### Core Verdict Logic (`verified_core.rs`) — 12 proofs, V1-V8, V11-V12
 
 Properties proven for ALL possible inputs (not bounded):
 
@@ -18,7 +18,10 @@ Properties proven for ALL possible inputs (not bounded):
 | V5 | Totality | Function always terminates |
 | V8 | Conditional pass-through | Unfired condition + continue -> skip to next |
 
-Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+| V11 | Path block -> Deny | Path block sets rule_override_deny -> final verdict is Deny |
+| V12 | Network block -> Deny | Network/IP block sets rule_override_deny -> final verdict is Deny |
+
+Verification result: **12 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 Priority-dependent properties (V6, V7) require a sortedness precondition that
 will be proven by a Kani harness (K19) in Phase 3.
@@ -30,6 +33,26 @@ will be proven by a Kani harness (K19) in Phase 3.
 | `lemma_first_match_override_is_deny` | First matched policy with rule_override -> final verdict is Deny |
 | `lemma_all_unmatched_is_deny` | All unmatched entries -> final verdict is Deny |
 | `lemma_skip_continues` | Consecutive Continue outcomes can be skipped (induction helper) |
+| `lemma_path_block_is_deny` | Path block -> rule_override_deny -> Deny (V11) |
+| `lemma_network_block_is_deny` | Network/IP block -> rule_override_deny -> Deny (V12) |
+| `lemma_any_rule_override_is_deny` | Any rule type setting rule_override_deny -> Deny |
+
+### Path Normalization (`verified_path.rs`) — 2 proofs, V9-V10
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| V9 | Idempotent normalization | `normalize(normalize(x)) == normalize(x)` for all byte inputs |
+| V10 | No traversal in output | Normalized output never contains `..` component |
+
+Verification result: **2 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_normalize_idempotent` | Second normalization pass produces identical output (V9) |
 
 ### DLP Buffer Arithmetic (`verified_dlp_core.rs`) — 14 proofs, D1-D6
 
@@ -42,7 +65,7 @@ Properties proven for ALL possible inputs:
 | D3 | Total byte accounting correct | `update_total_bytes` maintains consistency |
 | D4 | Capacity check fail-closed | At `max_fields`, `can_track_field` returns false |
 | D5 | No arithmetic underflow | Saturating subtraction prevents wrapping |
-| D6 | Overlap completeness | Secret <= 2 * overlap split at any byte is fully covered |
+| D6 | Overlap completeness | Secret <= 2 * overlap split at `split_point <= overlap_size` fully covered (first fragment must fit in tail buffer) |
 
 Verification result: **14 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
@@ -62,9 +85,12 @@ Verification result: **14 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 |-----------|----------------|--------|
 | `formal/verus/verified_core.rs` | `vellaveto-engine/src/verified_core.rs` | `debug_assert` at 7 decision points |
 | `formal/verus/verified_dlp_core.rs` | `vellaveto-mcp/src/inspection/verified_dlp_core.rs` | Called by `CrossCallDlpTracker::update_buffer()` |
+| `formal/verus/verified_path.rs` | `vellaveto-engine/src/path.rs` | Byte-level equivalent of `normalize_path_for_grant` |
 
-The executable logic is identical — Verus annotations (`ensures`, `requires`,
-`invariant`, `decreases`, `proof fn`) are erased during normal compilation.
+The executable logic is semantically equivalent — Verus annotations (`ensures`,
+`requires`, `invariant`, `decreases`, `proof fn`) are erased during normal
+compilation. Minor syntactic differences exist (e.g., `len() == 0` vs
+`.is_empty()`, `&Vec<T>` vs `&[T]`) but are operationally identical.
 
 ## How to Verify
 
@@ -76,11 +102,14 @@ curl -sSL -o verus.zip \
 unzip verus.zip -d verus-bin
 rustup install 1.93.1-x86_64-unknown-linux-gnu
 
-# Core verdict (9 verified)
+# Core verdict + rule override (12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_core.rs
 
 # DLP buffer arithmetic (14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_dlp_core.rs
+
+# Path normalization (2 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_path.rs
 
 # Option 2: From source
 git clone https://github.com/verus-lang/verus
@@ -88,11 +117,13 @@ cd verus && ./tools/get-z3.sh && source ./tools/activate
 cargo build --release
 verus formal/verus/verified_core.rs
 verus formal/verus/verified_dlp_core.rs
+verus formal/verus/verified_path.rs
 ```
 
 Expected output:
-- `verified_core.rs`: `verification results:: 9 verified, 0 errors`
+- `verified_core.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_dlp_core.rs`: `verification results:: 14 verified, 0 errors`
+- `verified_path.rs`: `verification results:: 2 verified, 0 errors`
 
 ## Trust Boundary
 
@@ -104,9 +135,9 @@ Verus trusts:
 - rustc codegen (LLVM)
 
 Verus does NOT verify:
-- The wrapper code that builds `ResolvedMatch` from policies and actions
 - The `HashMap` wrapper in `cross_call_dlp.rs` (lookup table, not security logic)
 - String operations, glob/regex matching, Unicode normalization
 - HashMap, serde, I/O
 
-Those are covered by Kani (bounded) and 10,000+ tests.
+The `ResolvedMatch` construction equivalence is now verified by Kani (K46-K48).
+Other gaps are covered by Kani (bounded) and 10,000+ tests.

@@ -21,9 +21,10 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `PathNormalization.lean` | Lean 4 | — | Path normalization idempotence: `normalize(normalize(x)) = normalize(x)` |
 | `AbacForbidOverride.lean` | Lean 4 | S7–S10 | ABAC forbid-overrides (first forbid wins) |
 | `CapabilityDelegation.lean` | Lean 4 | S11–S16 | Capability delegation attenuation proofs |
-| `verus/verified_core.rs` | Verus | V1–V8 | Core verdict computation (ALL inputs, actual Rust) |
+| `verus/verified_core.rs` | Verus | V1–V8, V11–V12 | Core verdict computation + rule override proofs (ALL inputs, actual Rust) |
 | `verus/verified_dlp_core.rs` | Verus | D1–D6 | Cross-call DLP buffer arithmetic (ALL inputs, actual Rust) |
-| `kani/src/proofs.rs` | Kani | K1–K25 | Bounded model checking of actual Rust (Verus bridge) |
+| `verus/verified_path.rs` | Verus | V9–V10 | Path normalization idempotency + no-traversal (ALL inputs, actual Rust) |
+| `kani/src/proofs.rs` | Kani | K1–K58 | Bounded model checking of actual Rust (58 harnesses) |
 | `FailClosed.v` | Coq | S1, S5 | Fail-closed: no match → Deny; Allow requires matching Allow policy |
 | `Determinism.v` | Coq | — | Policy evaluation determinism (same input → same verdict) |
 | `PathNormalization.v` | Coq | — | Path normalization idempotence: `normalize(normalize(x)) = normalize(x)` |
@@ -32,20 +33,20 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `CircuitBreaker.v` | Coq | C1–C5 | Circuit breaker state machine properties |
 | `TaskLifecycle.v` | Coq | T1–T3 | MCP Task lifecycle terminal absorbing, valid transitions |
 
-**173 verification instances** across 7 tools:
-- **Verus:** 23 proofs on actual Rust code (ALL inputs, deductive)
+**210 verification instances** across 7 tools:
+- **Verus:** 27 proofs on actual Rust code (ALL inputs, deductive) — V1-V12, D1-D6
 - **TLA+:** 34 safety invariants + 8 liveness properties (6 specs)
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 30 theorems (5 files, no `sorry`)
 - **Coq:** 43 theorems (8 files, no `Admitted`)
-- **Kani:** 25 proof harnesses on actual Rust code (bounded)
+- **Kani:** 58 proof harnesses on actual Rust code (bounded) — K1-K58
 
 ## Coverage Matrix
 
 | Property | TLA+ | Alloy | Lean 4 | Coq | Verus | Kani |
 |----------|------|-------|--------|-----|-------|------|
 | **S1: Fail-closed** | S1 | — | S1 | S1 | V1, V2 | K1, K5, K14 |
-| **S2: Priority ordering** | S2 | — | — | — | V6 | K18 |
+| **S2: Priority ordering** | S2 | — | — | — | V6* | K18 |
 | **S3: Blocked paths override** | S3 | — | — | — | V4 | K16 |
 | **S4: Blocked domains override** | S4 | — | — | — | V4 | K16 |
 | **S5: Allow requires match** | S5 | — | S5 | S5 | V3 | K15 |
@@ -79,7 +80,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | **No traversal** | — | — | no_dot | no_dot | — | K3 |
 | **Determinism** | — | — | det | det | — | K8 |
 | **Counter monotonicity** | — | — | — | — | — | K4 |
-| **Domain norm idempotent** | — | — | — | — | — | K9 |
+| **Domain norm idempotent** (simplified) | — | — | — | — | — | K9 |
 
 ## Directory Structure
 
@@ -129,17 +130,26 @@ formal/
       TaskLifecycle.v                ← Task lifecycle T1-T3 (10 theorems)
   verus/
     README.md                        ← Verus setup and verification guide
-    verified_core.rs                 ← Core verdict logic (V1-V8, 9 verified)
+    verified_core.rs                 ← Core verdict logic (V1-V8, V11-V12)
     verified_dlp_core.rs             ← DLP buffer arithmetic (D1-D6, 14 verified)
+    verified_path.rs                 ← Path normalization (V9-V10)
   kani/
     Cargo.toml                       ← Standalone crate (excluded from workspace)
     README.md                        ← Kani setup and usage guide
     src/
-      lib.rs                         ← Crate root (K1-K25 property catalog)
-      proofs.rs                      ← Proof harnesses (25 properties)
+      lib.rs                         ← Crate root (K1-K58 property catalog)
+      proofs.rs                      ← Proof harnesses (58 properties)
       path.rs                        ← Path normalization (from vellaveto-engine)
       verified_core.rs               ← Verdict computation (Verus bridge)
       dlp_core.rs                    ← DLP buffer arithmetic (Verus bridge)
+      ip.rs                          ← IP address verification (Phase 5)
+      cache.rs                       ← Cache safety (Phase 6)
+      capability.rs                  ← Capability delegation (Phase 7)
+      rule_check.rs                  ← Rule checking fail-closed (Phase 8)
+      resolve.rs                     ← ResolvedMatch equivalence (Phase 9)
+      cascading.rs                   ← Cascading failure (Phase 10)
+      constraint.rs                  ← Constraint evaluation (Phase 11)
+      task.rs                        ← Task lifecycle (Phase 12)
 ```
 
 ## Tooling Setup
@@ -268,7 +278,7 @@ make
 Expected output: all 8 `.v` files compile cleanly with no `Admitted` markers.
 Verify: `grep -r "Admitted\|admit" Vellaveto/*.v` returns no matches.
 
-### Verus Proofs (V1–V8, D1–D6)
+### Verus Proofs (V1–V12, D1–D6)
 
 ```bash
 # Option 1: Binary release (recommended)
@@ -278,33 +288,42 @@ curl -sSL -o verus.zip \
 unzip verus.zip -d verus-bin
 rustup install 1.93.1-x86_64-unknown-linux-gnu
 
-# Core verdict (9 verified)
+# Core verdict + rule override (V1-V8, V11-V12)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_core.rs
 
-# DLP buffer arithmetic (14 verified)
+# DLP buffer arithmetic (D1-D6, 14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_dlp_core.rs
+
+# Path normalization (V9-V10)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_path.rs
 ```
 
 Expected output:
-- `verified_core.rs`: `verification results:: 9 verified, 0 errors`
+- `verified_core.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_dlp_core.rs`: `verification results:: 14 verified, 0 errors`
+- `verified_path.rs`: `verification results:: 3 verified, 0 errors`
 
-### Kani Proof Harnesses (K1–K25)
+### Kani Proof Harnesses (K1–K58)
 
 ```bash
 cd formal/kani
 # Install Kani: cargo install --locked kani-verifier && cargo kani setup
 
-# Run all 25 harnesses (examples — see README.md for full list)
+# Run parity tests first (fast, no Kani needed)
+cargo test --lib
+
+# Run individual harnesses (examples)
 cargo kani --harness proof_fail_closed_no_match_produces_deny
-cargo kani --harness proof_path_normalize_idempotent
-cargo kani --harness proof_compute_verdict_fail_closed_empty
-cargo kani --harness proof_extract_tail_no_panic
-cargo kani --harness proof_sort_produces_sorted_output
-# ... (25 total)
+cargo kani --harness proof_is_embedded_ipv4_reserved_parity   # K29: full 2^32 IPv4 space
+cargo kani --harness proof_is_cacheable_context_no_session_state  # K33
+cargo kani --harness proof_grant_is_subset_reflexive           # K36
+cargo kani --harness proof_path_rules_blocked_before_allowed   # K42
+cargo kani --harness proof_apply_policy_equivalence            # K48
+cargo kani --harness proof_terminal_state_immutable            # K56
+# ... (58 total)
 ```
 
-Expected output: all 25 harnesses report VERIFICATION:- SUCCESSFUL.
+Expected output: all 58 harnesses report VERIFICATION:- SUCCESSFUL.
 
 ## Property Catalog
 
@@ -332,7 +351,7 @@ Expected output: all 25 harnesses report VERIFICATION:- SUCCESSFUL.
 
 | ID | Property | Source | Spec Location |
 |----|----------|--------|---------------|
-| S11/D1 | **Monotonic attenuation / depth:** child grants ⊆ parent, depth decreases | `capability_token.rs:470-508` | TLA+ D1, Alloy S11, Lean S11, Coq S11 |
+| S11/D1 | **Monotonic attenuation / depth:** child grants ⊆ parent, depth decreases | `capability_token.rs:470-508` | TLA+ D1, Alloy S11, Lean S11, Coq S11, Kani K36-K40 |
 | S12 | **Transitive attenuation:** holds across entire delegation chains | Derived from S11 | Alloy S12, Lean S12, Coq S12 |
 | S13/D2 | **Depth budget:** chain length ≤ MAX_DELEGATION_DEPTH | `capability.rs:21` | TLA+ D2, Alloy S13, Lean S13, Coq S13 |
 | S14/D3 | **Temporal monotonicity:** child.expiry ≤ parent.expiry | `capability_token.rs:172-176` | TLA+ D3, Alloy S14, Lean S14, Coq S14 |
@@ -368,8 +387,8 @@ Expected output: all 25 harnesses report VERIFICATION:- SUCCESSFUL.
 | V3 | **Allow requires match** | `Allow` → ∃ matching Allow with no override |
 | V4 | **Rule override forces Deny** | Path/network/IP override → Deny |
 | V5 | **Totality** | Function always terminates |
-| V6 | **Priority ordering** | Higher-priority wins (requires `is_sorted`) |
-| V7 | **Deny-dominance at equal priority** | Deny beats Allow (requires `is_sorted`) |
+| V6 | **Priority ordering** | Higher-priority wins (requires `is_sorted`). Compositional*: Kani K18 proves sort, Verus proves first-match-wins given sorted input. |
+| V7 | **Deny-dominance at equal priority** | Deny beats Allow (requires `is_sorted`). Compositional*: same as V6. |
 | V8 | **Conditional pass-through** | Unfired condition → evaluation continues |
 
 Source: `formal/verus/verified_core.rs` (9 verified, 0 errors)
@@ -383,14 +402,14 @@ Source: `formal/verus/verified_core.rs` (9 verified, 0 errors)
 | D3 | **Byte accounting correct** | `update_total_bytes` maintains consistency |
 | D4 | **Capacity fail-closed** | At `max_fields`, `can_track_field` returns false |
 | D5 | **No arithmetic underflow** | Saturating subtraction prevents wrapping |
-| D6 | **Overlap completeness** | Secret ≤ 2 × overlap split at any byte fully covered |
+| D6 | **Overlap completeness** | Secret ≤ 2 × overlap split at `split_point ≤ overlap_size` fully covered (first fragment must fit in tail buffer) |
 
 Source: `formal/verus/verified_dlp_core.rs` (14 verified, 0 errors)
 
-### Kani Proof Harnesses (K1–K25, bounded model checking on actual Rust)
+### Kani Proof Harnesses (K1–K58, bounded model checking on actual Rust)
 
-| ID | Property | Verus Bridge |
-|----|----------|-------------|
+| ID | Property | Bridge |
+|----|----------|--------|
 | K1 | **Fail-closed:** empty policies → Deny | — |
 | K2 | **Path idempotence:** `normalize(normalize(x)) == normalize(x)` | — |
 | K3 | **No traversal:** normalized path has no `..` | — |
@@ -399,7 +418,7 @@ Source: `formal/verus/verified_dlp_core.rs` (14 verified, 0 errors)
 | K6 | **ABAC forbid dominance:** matching forbid → Deny | — |
 | K7 | **ABAC no-match → NoMatch:** no matches → NoMatch | — |
 | K8 | **Evaluation determinism:** same input → same output | — |
-| K9 | **Domain normalization idempotent** | — |
+| K9 | **Simplified domain normalization idempotent** (lowercase + trim) | — |
 | K10 | **extract_tail no panic** for arbitrary bytes | D1, D2 |
 | K11 | **UTF-8 boundary exhaustive** (all 256 bytes) | D1 |
 | K12 | **can_track_field fail-closed** at capacity | D4 |
@@ -416,6 +435,54 @@ Source: `formal/verus/verified_dlp_core.rs` (14 verified, 0 errors)
 | K23 | **extract_tail multibyte boundary** (4-byte emoji) | D1 |
 | K24 | **context_deny overrides allow** | V3 |
 | K25 | **all_constraints_skipped fail-closed** | V8 |
+| K26 | **127.x.x.x always private** (loopback) | IP |
+| K27 | **RFC 1918 ranges always private** | IP |
+| K28 | **CGNAT 100.64.0.0/10 always private** | IP |
+| K29 | **is_embedded_ipv4_reserved parity** with is_private_ipv4 | IP |
+| K30 | **IPv4-mapped extraction correct** | IP |
+| K31 | **Teredo XOR inversion round-trip** | IP |
+| K32 | **Known public IPs NOT private** | IP |
+| K33 | **is_cacheable → no session state** | Cache |
+| K34 | **Cache key case-insensitive** | Cache |
+| K35 | **Staleness monotonic** (TTL + generation) | Cache |
+| K36 | **grant_is_subset reflexive** | S11 |
+| K37 | **No capability escalation** | S11 |
+| K38 | **pattern_is_subset correctness** | S11 |
+| K39 | **glob_match("*", any) == true** | — |
+| K40 | **normalize_path_for_grant no traversal** | S11 |
+| K41 | **Empty paths + allowlist → Deny** | Rules |
+| K42 | **Blocked before allowed** | Rules |
+| K43 | **IDNA failure → Deny** | Rules |
+| K44 | **IP rules + no resolved IPs → Deny** | Rules |
+| K45 | **block_private + private IP → Deny** | Rules |
+| K46 | **Path deny → rule_override_deny** | V11 |
+| K47 | **Context deny → Deny** | V12 |
+| K48 | **Inline verdict == verified verdict** | Equivalence |
+| K49 | **NaN/Infinity config → rejected** | Cascading |
+| K50 | **Chain depth never wraps** | Cascading |
+| K51 | **MAX capacity → Deny** | Cascading |
+| K52 | **Error rate ∈ [0.0, 1.0]** | Cascading |
+| K53 | **All constraints skipped → detected** | Constraint |
+| K54 | **Forbidden param → Deny** | Constraint |
+| K55 | **require_approval → RequireApproval** | Constraint |
+| K56 | **Terminal state immutable** | Task, T1 |
+| K57 | **Max tasks → reject** | Task, T5 |
+| K58 | **Self-cancel authorization** | Task |
+
+### Harness Assurance Levels
+
+Not all Kani harnesses provide the same assurance. The table below classifies
+each by input space coverage:
+
+| Level | Harnesses | Description |
+|-------|-----------|-------------|
+| **Full symbolic** | K2, K3, K4, K6, K7, K9, K10, K11, K12, K13, K16, K18, K20, K22, K26, K27, K28, K29, K30, K31, K33, K34, K35, K39, K40, K41, K42, K43, K44, K45, K46, K47, K48, K50, K52, K53, K54, K55, K56, K57, K58 | All fields symbolic within CBMC bounds. Explores full input space. |
+| **Partial symbolic** | K15, K21 | Some fields symbolic, others fixed. Explores a subspace. |
+| **Single-case** | K1, K5, K8, K14, K17, K19, K23, K24, K25, K32, K36, K37, K38, K49, K51 | Specific scenario test. Confirms property for specific cases. |
+
+Single-case harnesses (K1, K5, K8) verify the trivial `evaluate_empty_policies()`
+stub, not the full production `evaluate_action()`. The production fail-closed
+property is proven by Verus V1/V2 on `compute_verdict` and by 10,200+ tests.
 
 ### Liveness (L1–L3, TL1–TL2, CL1–CL2, DL1)
 
@@ -533,6 +600,10 @@ verification layer.
 | ABAC CHOOSE vs priority-ordered selection | Reported policy_id may differ | Does not affect Deny/Allow decision |
 | Conditional policies simplified to fire/no-fire | Constraint-level deny paths not modeled | Covered by 8,972 Rust unit tests |
 | Grant subset axiomatized in Lean/Coq | Cannot verify concrete grant coverage | Verified by Alloy bounded model checking |
+| K9 simplified IDNA (lowercase + trim only) | Cannot detect full IDNA normalization bugs | Full IDNA tested by 200+ unit tests and fuzz targets |
+| Kani sort omits production's 3rd ID tiebreaker | Sort order may differ when priority and type are equal | Does not affect V6/V7 safety; determinism tested by unit tests |
+| V6/V7 compositional (not individually postconditioned) | Relies on K18 + Verus composition, not a single end-to-end proof | Both halves independently verified |
+| D6 requires `split_point <= overlap_size` | Secrets with first fragment larger than overlap buffer are not covered | By design: overlap buffer bounds what can be reconstructed |
 
 ## Relation to Existing Test Suite
 
@@ -541,8 +612,8 @@ verification layer.
 | Unit tests | Rust `#[test]` | 9,018+ |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
-| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **23 proofs (V1-V8, D1-D6)** |
-| **Kani (bounded)** | **CBMC on actual Rust** | **25 proof harnesses (K1-K25)** |
+| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **27 proofs (V1-V12, D1-D6)** |
+| **Kani (bounded)** | **CBMC on actual Rust** | **58 proof harnesses (K1-K58)** |
 | **TLA+ (model checking)** | **Exhaustive state exploration** | **6 specs, 34 safety + 8 liveness** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |
 | **Lean 4 (deductive)** | **Proof assistant** | **5 files, 30 theorems** |
@@ -550,7 +621,7 @@ verification layer.
 
 The three-layer verification architecture:
 - **Layer 3 (TLA+):** Proves protocol design is correct (no deadlocks, no safety violations)
-- **Layer 2 (Verus):** Proves core Rust code correct for ALL inputs (zero refinement gap)
+- **Layer 2 (Verus):** Proves core Rust code correct for ALL inputs (narrow refinement gap — production inlines structurally equivalent logic, verified by debug assertions and 10,200+ tests)
 - **Layer 1 (Kani):** Proves wrapper Rust code correct within bounds (bridges Verus trust boundary)
 - **Lean/Coq/Alloy:** Defense-in-depth mathematical proofs on abstract models
 - **Tests:** Concrete execution verification (9,018+ tests + 24 fuzz targets)

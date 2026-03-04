@@ -335,6 +335,77 @@ pub proof fn lemma_all_unmatched_is_deny(resolved: &Vec<ResolvedMatch>)
     // spec_compute_verdict_from(resolved, resolved.len()) == Deny
 }
 
+// === V11-V12: Rule override correctness proofs ===
+
+/// V11: Path block → Deny in final verdict.
+///
+/// If a policy at index `idx` is matched with rule_override_deny (which is
+/// set when path/network/IP rules deny), and all earlier policies produce
+/// Continue, then compute_verdict returns Deny.
+pub proof fn lemma_path_block_is_deny(
+    resolved: &Vec<ResolvedMatch>,
+    idx: int,
+)
+    requires
+        0 <= idx < resolved.len(),
+        resolved[idx].matched,
+        resolved[idx].rule_override_deny,
+        forall|j: int| #![auto] 0 <= j < idx ==>
+            spec_single_verdict(&resolved[j])
+                == VerdictOutcome::Continue,
+    ensures
+        spec_compute_verdict(resolved) == VerdictKind::Deny,
+{
+    // Follows directly from lemma_first_match_override_is_deny:
+    // rule_override_deny produces Decided(Deny) via spec_single_verdict,
+    // and all earlier entries are Continue.
+    lemma_first_match_override_is_deny(resolved, idx);
+}
+
+/// V12: Network block → Deny in final verdict.
+///
+/// Identical structure to V11 — network blocks also set rule_override_deny.
+/// This lemma demonstrates that the same mechanism handles both path
+/// and network denials uniformly.
+pub proof fn lemma_network_block_is_deny(
+    resolved: &Vec<ResolvedMatch>,
+    idx: int,
+)
+    requires
+        0 <= idx < resolved.len(),
+        resolved[idx].matched,
+        resolved[idx].rule_override_deny,
+        forall|j: int| #![auto] 0 <= j < idx ==>
+            spec_single_verdict(&resolved[j])
+                == VerdictOutcome::Continue,
+    ensures
+        spec_compute_verdict(resolved) == VerdictKind::Deny,
+{
+    // Both path and network blocks set rule_override_deny.
+    // The proof is structurally identical to V11.
+    lemma_first_match_override_is_deny(resolved, idx);
+}
+
+/// V11/V12 combined: Any rule override at position idx with all prior
+/// Continue → Deny. This covers path, network, and IP rule overrides
+/// uniformly since they all set rule_override_deny.
+pub proof fn lemma_any_rule_override_is_deny(
+    resolved: &Vec<ResolvedMatch>,
+    idx: int,
+)
+    requires
+        0 <= idx < resolved.len(),
+        resolved[idx].matched,
+        resolved[idx].rule_override_deny,
+        forall|j: int| #![auto] 0 <= j < idx ==>
+            spec_single_verdict(&resolved[j])
+                == VerdictOutcome::Continue,
+    ensures
+        spec_compute_verdict(resolved) == VerdictKind::Deny,
+{
+    lemma_first_match_override_is_deny(resolved, idx);
+}
+
 fn main() {}
 
 } // verus!

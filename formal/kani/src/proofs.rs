@@ -7,7 +7,7 @@
 
 //! Kani proof harnesses for Vellaveto security invariants.
 //!
-//! 25 harnesses verifying security properties using CBMC bounded model
+//! 58 harnesses verifying security properties using CBMC bounded model
 //! checking on actual Rust implementation code.
 //!
 //! K1-K9: Original harnesses (path, counters, ABAC, domain)
@@ -17,6 +17,14 @@
 //! K19-K20: ABAC extensions
 //! K21-K22: DLP overlap
 //! K23-K25: UTF-8, context_deny, all_constraints_skipped
+//! K26-K32: IP address verification (Phase 5)
+//! K33-K35: Cache safety (Phase 6)
+//! K36-K40: Capability delegation (Phase 7)
+//! K41-K45: Rule checking fail-closed (Phase 8)
+//! K46-K48: ResolvedMatch construction equivalence (Phase 9)
+//! K49-K52: Cascading failure circuit breaker (Phase 10)
+//! K53-K55: Constraint evaluation fail-closed (Phase 11)
+//! K56-K58: Task lifecycle (Phase 12)
 
 use crate::path;
 use crate::Verdict;
@@ -167,6 +175,14 @@ fn proof_abac_forbid_dominance() {
         assert!(
             matches!(result, AbacDecision::Deny(_)),
             "K6 violated: forbid policy matched but result is not Deny"
+        );
+    }
+
+    // Converse: all Permit, all matching → Allow (not Deny, not NoMatch)
+    if !has_forbid {
+        assert!(
+            matches!(result, AbacDecision::Allow(_)),
+            "K6 converse violated: all Permit but result is not Allow"
         );
     }
 }
@@ -402,24 +418,29 @@ fn proof_compute_verdict_fail_closed_empty() {
 fn proof_compute_verdict_allow_requires_match() {
     use crate::verified_core::{compute_verdict, ResolvedMatch, VerdictKind};
 
-    // Generate a single policy with non-deterministic fields
+    // Generate a single policy with fully non-deterministic fields
     let matched: bool = kani::any();
     let is_deny: bool = kani::any();
+    let is_conditional: bool = kani::any();
     let rule_override_deny: bool = kani::any();
     let context_deny: bool = kani::any();
+    let require_approval: bool = kani::any();
+    let condition_fired: bool = kani::any();
+    let on_no_match_continue: bool = kani::any();
+    let all_constraints_skipped: bool = kani::any();
 
     let rm = ResolvedMatch {
         matched,
         is_deny,
-        is_conditional: false,
+        is_conditional,
         priority: 100,
         rule_override_deny,
         context_deny,
-        require_approval: false,
-        condition_fired: false,
+        require_approval,
+        condition_fired,
         condition_verdict: VerdictKind::Deny,
-        on_no_match_continue: false,
-        all_constraints_skipped: false,
+        on_no_match_continue,
+        all_constraints_skipped,
     };
 
     let result = compute_verdict(&[rm]);
@@ -648,9 +669,15 @@ fn proof_overlap_covers_small_secrets() {
     kani::assume(secret_len >= 2 && secret_len <= 2 * overlap_size);
     kani::assume(split_point >= 1 && split_point < secret_len);
 
-    // Previous and current values large enough to contain the secret parts
-    let prev_value_len: usize = 100;
-    let current_value_len: usize = 100;
+    // Make value lengths symbolic (bounded) to explore short-value guards
+    let prev_value_len: usize = kani::any();
+    let current_value_len: usize = kani::any();
+    kani::assume(prev_value_len >= 1 && prev_value_len <= 256);
+    kani::assume(current_value_len >= 1 && current_value_len <= 256);
+
+    // Values must be large enough to contain the secret parts
+    kani::assume(prev_value_len >= split_point);
+    kani::assume(current_value_len >= secret_len - split_point);
 
     let result = dlp_core::overlap_covers_secret(
         prev_value_len, current_value_len, overlap_size, secret_len, split_point
@@ -781,4 +808,842 @@ fn proof_all_constraints_skipped_fail_closed() {
         matches!(outcome, VerdictOutcome::Decided(VerdictKind::Deny)),
         "K25 violated: all_constraints_skipped with no continue did not produce Deny"
     );
+}
+
+// =========================================================================
+// Phase 5: IP Address Verification (K26-K32)
+// =========================================================================
+
+// K26: 127.x.x.x always private (loopback)
+#[kani::proof]
+fn proof_is_private_ip_loopback_v4() {
+    use crate::ip;
+
+    let o1: u8 = kani::any();
+    let o2: u8 = kani::any();
+    let o3: u8 = kani::any();
+
+    let octets = [127, o1, o2, o3];
+    assert!(
+        ip::is_private_ipv4(octets),
+        "K26 violated: 127.x.x.x not detected as private"
+    );
+}
+
+// K27: RFC 1918 ranges always private
+#[kani::proof]
+fn proof_is_private_ip_rfc1918() {
+    use crate::ip;
+
+    let variant: u8 = kani::any();
+    kani::assume(variant < 3);
+
+    let o1: u8 = kani::any();
+    let o2: u8 = kani::any();
+    let o3: u8 = kani::any();
+
+    let octets = match variant {
+        0 => {
+            // 10.0.0.0/8
+            [10, o1, o2, o3]
+        }
+        1 => {
+            // 172.16.0.0/12: second octet 16-31
+            kani::assume(o1 >= 16 && o1 <= 31);
+            [172, o1, o2, o3]
+        }
+        _ => {
+            // 192.168.0.0/16
+            [192, 168, o2, o3]
+        }
+    };
+
+    assert!(
+        ip::is_private_ipv4(octets),
+        "K27 violated: RFC 1918 address not detected as private"
+    );
+}
+
+// K28: CGNAT 100.64.0.0/10 always private
+#[kani::proof]
+fn proof_is_private_ip_cgnat() {
+    use crate::ip;
+
+    let o1: u8 = kani::any();
+    let o2: u8 = kani::any();
+    let o3: u8 = kani::any();
+
+    // 100.64.0.0/10: first octet 100, second octet 64-127
+    kani::assume((o1 & 0xC0) == 64);
+
+    let octets = [100, o1, o2, o3];
+    assert!(
+        ip::is_private_ipv4(octets),
+        "K28 violated: CGNAT address not detected as private"
+    );
+}
+
+// K29: is_embedded_ipv4_reserved parity with is_private_ipv4 for ALL IPv4
+#[kani::proof]
+fn proof_is_embedded_ipv4_reserved_parity() {
+    use crate::ip;
+
+    let o0: u8 = kani::any();
+    let o1: u8 = kani::any();
+    let o2: u8 = kani::any();
+    let o3: u8 = kani::any();
+
+    let octets = [o0, o1, o2, o3];
+    assert_eq!(
+        ip::is_private_ipv4(octets),
+        ip::is_embedded_ipv4_reserved(octets),
+        "K29 violated: is_embedded_ipv4_reserved disagrees with is_private_ipv4"
+    );
+}
+
+// K30: IPv4-mapped ::ffff:x.x.x.x extracts correct IPv4
+#[kani::proof]
+fn proof_extract_embedded_ipv4_mapped() {
+    use crate::ip;
+
+    let s6: u16 = kani::any();
+    let s7: u16 = kani::any();
+
+    // IPv4-mapped: ::ffff:x.x.x.x
+    let segs = [0u16, 0, 0, 0, 0, 0xffff, s6, s7];
+    let result = ip::extract_embedded_ipv4_from_segments(segs);
+
+    assert!(result.is_some(), "K30 violated: IPv4-mapped not extracted");
+    let v4 = result.unwrap();
+    assert_eq!(v4[0], (s6 >> 8) as u8, "K30 violated: octet 0 mismatch");
+    assert_eq!(v4[1], (s6 & 0xff) as u8, "K30 violated: octet 1 mismatch");
+    assert_eq!(v4[2], (s7 >> 8) as u8, "K30 violated: octet 2 mismatch");
+    assert_eq!(v4[3], (s7 & 0xff) as u8, "K30 violated: octet 3 mismatch");
+}
+
+// K31: Teredo XOR inversion round-trip
+#[kani::proof]
+fn proof_extract_embedded_ipv4_teredo_xor() {
+    use crate::ip;
+
+    let o0: u8 = kani::any();
+    let o1: u8 = kani::any();
+    let o2: u8 = kani::any();
+    let o3: u8 = kani::any();
+
+    // Construct Teredo segments: XOR the IPv4 octets
+    let s6: u16 = ((o0 as u16 ^ 0xff) << 8) | (o1 as u16 ^ 0xff);
+    let s7: u16 = ((o2 as u16 ^ 0xff) << 8) | (o3 as u16 ^ 0xff);
+
+    let segs = [0x2001u16, 0, 0x4136, 0xe378, 0x8000, 0x63bf, s6, s7];
+    let result = ip::extract_embedded_ipv4_from_segments(segs);
+
+    assert!(result.is_some(), "K31 violated: Teredo not extracted");
+    let v4 = result.unwrap();
+    assert_eq!(v4[0], o0, "K31 violated: Teredo XOR round-trip octet 0");
+    assert_eq!(v4[1], o1, "K31 violated: Teredo XOR round-trip octet 1");
+    assert_eq!(v4[2], o2, "K31 violated: Teredo XOR round-trip octet 2");
+    assert_eq!(v4[3], o3, "K31 violated: Teredo XOR round-trip octet 3");
+}
+
+// K32: Known public IPs NOT private
+#[kani::proof]
+fn proof_is_private_ip_public_not_blocked() {
+    use crate::ip;
+
+    // Google DNS
+    assert!(!ip::is_private_ipv4([8, 8, 8, 8]), "K32 violated: 8.8.8.8 falsely private");
+    // Cloudflare DNS
+    assert!(!ip::is_private_ipv4([1, 1, 1, 1]), "K32 violated: 1.1.1.1 falsely private");
+    // Example.com
+    assert!(!ip::is_private_ipv4([93, 184, 216, 34]), "K32 violated: 93.184.216.34 falsely private");
+    // Google DNS IPv6 (native, no embedded IPv4)
+    assert!(!ip::is_private_ipv6_segments(
+        [0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888]
+    ), "K32 violated: 2001:4860:4860::8888 falsely private");
+}
+
+// =========================================================================
+// Phase 6: Cache Safety (K33-K35)
+// =========================================================================
+
+// K33: is_cacheable_context == true → all session fields empty/None
+#[kani::proof]
+fn proof_is_cacheable_context_no_session_state() {
+    use crate::cache::{is_cacheable_context, CacheabilityFields};
+
+    let fields = CacheabilityFields {
+        has_timestamp: kani::any(),
+        has_call_counts: kani::any(),
+        has_previous_actions: kani::any(),
+        has_call_chain: kani::any(),
+        has_capability_token: kani::any(),
+        has_session_state: kani::any(),
+        has_verification_tier: kani::any(),
+        context_present: kani::any(),
+    };
+
+    if is_cacheable_context(&fields) && fields.context_present {
+        assert!(!fields.has_timestamp, "K33 violated: cacheable with timestamp");
+        assert!(!fields.has_call_counts, "K33 violated: cacheable with call_counts");
+        assert!(!fields.has_previous_actions, "K33 violated: cacheable with previous_actions");
+        assert!(!fields.has_call_chain, "K33 violated: cacheable with call_chain");
+        assert!(!fields.has_capability_token, "K33 violated: cacheable with capability_token");
+        assert!(!fields.has_session_state, "K33 violated: cacheable with session_state");
+        assert!(!fields.has_verification_tier, "K33 violated: cacheable with verification_tier");
+    }
+}
+
+// K34: Cache key is case-insensitive
+#[kani::proof]
+#[kani::unwind(10)]
+fn proof_cache_key_case_insensitive() {
+    use crate::cache::normalize_for_key;
+
+    const ALPHABET: [u8; 6] = [b'a', b'A', b'z', b'Z', b'0', b'.'];
+    let i0: usize = kani::any();
+    let i1: usize = kani::any();
+    let i2: usize = kani::any();
+    kani::assume(i0 < ALPHABET.len());
+    kani::assume(i1 < ALPHABET.len());
+    kani::assume(i2 < ALPHABET.len());
+
+    let bytes = [ALPHABET[i0], ALPHABET[i1], ALPHABET[i2]];
+    let input = std::str::from_utf8(&bytes).unwrap();
+
+    // Case variants should produce the same key
+    let upper: String = input.to_uppercase();
+    let lower: String = input.to_lowercase();
+
+    assert_eq!(
+        normalize_for_key(&upper),
+        normalize_for_key(&lower),
+        "K34 violated: cache key not case-insensitive"
+    );
+}
+
+// K35: Entry invalid after TTL or generation bump
+#[kani::proof]
+fn proof_cache_staleness_monotonic() {
+    use crate::cache::is_stale;
+
+    let entry_gen: u64 = kani::any();
+    let current_gen: u64 = kani::any();
+    let elapsed_ms: u64 = kani::any();
+    let ttl_ms: u64 = kani::any();
+
+    // After generation bump: always stale
+    if entry_gen != current_gen {
+        assert!(
+            is_stale(entry_gen, current_gen, elapsed_ms, ttl_ms),
+            "K35 violated: not stale after generation bump"
+        );
+    }
+
+    // After TTL expires: always stale
+    if elapsed_ms >= ttl_ms {
+        assert!(
+            is_stale(entry_gen, current_gen, elapsed_ms, ttl_ms),
+            "K35 violated: not stale after TTL"
+        );
+    }
+
+    // Fresh entry: same generation, within TTL
+    if entry_gen == current_gen && elapsed_ms < ttl_ms {
+        assert!(
+            !is_stale(entry_gen, current_gen, elapsed_ms, ttl_ms),
+            "K35 violated: fresh entry marked stale"
+        );
+    }
+}
+
+// =========================================================================
+// Phase 7: Capability Delegation (K36-K40)
+// =========================================================================
+
+// K36: grant_is_subset is reflexive
+#[kani::proof]
+fn proof_grant_is_subset_reflexive() {
+    use crate::capability::{grant_is_subset, CapabilityGrant};
+
+    // Simple grant with no paths/domains (reflexivity on patterns)
+    let g = CapabilityGrant {
+        tool_pattern: "read".to_string(),
+        function_pattern: "exec".to_string(),
+        allowed_paths: vec![],
+        allowed_domains: vec![],
+        max_invocations: 10,
+    };
+    assert!(
+        grant_is_subset(&g, &g),
+        "K36 violated: grant_is_subset not reflexive"
+    );
+}
+
+// K37: No escalation — child grants ⊆ parent grants
+#[kani::proof]
+fn proof_grant_is_subset_no_escalation() {
+    use crate::capability::{grant_is_subset, CapabilityGrant};
+
+    let parent = CapabilityGrant {
+        tool_pattern: "read*".to_string(),
+        function_pattern: "*".to_string(),
+        allowed_paths: vec!["/safe/*".to_string()],
+        allowed_domains: vec!["*.example.com".to_string()],
+        max_invocations: 10,
+    };
+
+    // Child tries to escalate tool pattern
+    let child_escalate_tool = CapabilityGrant {
+        tool_pattern: "*".to_string(),
+        function_pattern: "*".to_string(),
+        allowed_paths: vec!["/safe/sub".to_string()],
+        allowed_domains: vec!["api.example.com".to_string()],
+        max_invocations: 5,
+    };
+    assert!(
+        !grant_is_subset(&child_escalate_tool, &parent),
+        "K37 violated: tool escalation not blocked"
+    );
+
+    // Child tries to drop path restrictions
+    let child_drop_paths = CapabilityGrant {
+        tool_pattern: "readme".to_string(),
+        function_pattern: "exec".to_string(),
+        allowed_paths: vec![],
+        allowed_domains: vec!["api.example.com".to_string()],
+        max_invocations: 5,
+    };
+    assert!(
+        !grant_is_subset(&child_drop_paths, &parent),
+        "K37 violated: path restriction drop not blocked"
+    );
+
+    // Child tries to increase max_invocations
+    let child_more_invocations = CapabilityGrant {
+        tool_pattern: "readme".to_string(),
+        function_pattern: "exec".to_string(),
+        allowed_paths: vec!["/safe/sub".to_string()],
+        allowed_domains: vec!["api.example.com".to_string()],
+        max_invocations: 20,
+    };
+    assert!(
+        !grant_is_subset(&child_more_invocations, &parent),
+        "K37 violated: invocation escalation not blocked"
+    );
+}
+
+// K38: pattern_is_subset correctness
+#[kani::proof]
+fn proof_pattern_is_subset_correctness() {
+    use crate::capability::pattern_is_subset;
+
+    // Universal parent accepts anything
+    assert!(pattern_is_subset("*", "file"), "K38 violated: * not superset of literal");
+    assert!(pattern_is_subset("*", "fi*"), "K38 violated: * not superset of glob");
+
+    // Exact match
+    assert!(pattern_is_subset("file", "file"), "K38 violated: exact match not subset");
+
+    // Prefix glob
+    assert!(pattern_is_subset("fi*", "file"), "K38 violated: fi* does not match file");
+
+    // Glob child rejected (could be broader)
+    assert!(!pattern_is_subset("fi?", "f*"), "K38 violated: glob child accepted");
+    assert!(!pattern_is_subset("f*", "fi*"), "K38 violated: glob-to-glob accepted");
+}
+
+// K39: glob_match("*", any_input) == true
+#[kani::proof]
+#[kani::unwind(8)]
+fn proof_glob_match_wildcard_universal() {
+    use crate::capability::glob_match;
+
+    const ALPHABET: [u8; 5] = [b'a', b'/', b'.', b'*', b'?'];
+    let i0: usize = kani::any();
+    let i1: usize = kani::any();
+    let i2: usize = kani::any();
+    kani::assume(i0 < ALPHABET.len());
+    kani::assume(i1 < ALPHABET.len());
+    kani::assume(i2 < ALPHABET.len());
+
+    let value = [ALPHABET[i0], ALPHABET[i1], ALPHABET[i2]];
+
+    assert!(
+        glob_match(b"*", &value),
+        "K39 violated: glob_match(*, input) returned false"
+    );
+}
+
+// K40: normalize_path_for_grant: no ".." in output
+#[kani::proof]
+#[kani::unwind(15)]
+fn proof_normalize_path_for_grant_no_traversal() {
+    use crate::capability::normalize_path_for_grant;
+
+    const ALPHABET: [u8; 5] = [b'/', b'.', b'a', b'b', b'c'];
+    let i0: usize = kani::any();
+    let i1: usize = kani::any();
+    let i2: usize = kani::any();
+    let i3: usize = kani::any();
+    let i4: usize = kani::any();
+    kani::assume(i0 < ALPHABET.len());
+    kani::assume(i1 < ALPHABET.len());
+    kani::assume(i2 < ALPHABET.len());
+    kani::assume(i3 < ALPHABET.len());
+    kani::assume(i4 < ALPHABET.len());
+
+    let bytes = [ALPHABET[i0], ALPHABET[i1], ALPHABET[i2], ALPHABET[i3], ALPHABET[i4]];
+    let input = std::str::from_utf8(&bytes).unwrap();
+
+    if let Some(normalized) = normalize_path_for_grant(input) {
+        // No ".." should appear as a path component
+        for component in normalized.split('/') {
+            assert!(
+                component != "..",
+                "K40 violated: '..' in normalized output"
+            );
+        }
+    }
+}
+
+// =========================================================================
+// Phase 8: Rule Checking Fail-Closed (K41-K45)
+// =========================================================================
+
+// K41: No target_paths + allowlist configured → Deny
+#[kani::proof]
+fn proof_path_rules_empty_paths_with_allowlist_deny() {
+    use crate::rule_check::check_path_rules_decision;
+
+    let has_blocked: bool = kani::any();
+    let any_blocked: bool = kani::any();
+    let all_allowed: bool = kani::any();
+
+    // Allowlist configured + no target paths → must deny
+    let result = check_path_rules_decision(
+        true,       // has_allowed_paths
+        has_blocked,
+        true,       // target_paths_empty
+        any_blocked,
+        all_allowed,
+    );
+
+    assert!(result, "K41 violated: allowlist + empty paths did not deny");
+}
+
+// K42: Blocked pattern match → Deny even if also in allowed
+#[kani::proof]
+fn proof_path_rules_blocked_before_allowed() {
+    use crate::rule_check::check_path_rules_decision;
+
+    let has_allowed: bool = kani::any();
+
+    // Blocked list configured + match → deny regardless of allowed
+    let result = check_path_rules_decision(
+        has_allowed,
+        true,  // has_blocked_paths
+        false, // target_paths_empty (has paths)
+        true,  // any_path_blocked
+        true,  // all_paths_allowed (even if allowed, block wins)
+    );
+
+    assert!(result, "K42 violated: blocked path not denied");
+}
+
+// K43: IDNA normalization failure → Deny
+#[kani::proof]
+fn proof_network_rules_idna_fail_deny() {
+    use crate::rule_check::check_network_rules_decision;
+
+    let has_allowed: bool = kani::any();
+    let has_blocked: bool = kani::any();
+    let empty: bool = kani::any();
+    let blocked: bool = kani::any();
+    let allowed: bool = kani::any();
+
+    // IDNA failure → must deny regardless of other fields
+    let result = check_network_rules_decision(
+        has_allowed, has_blocked, empty, blocked, allowed,
+        true, // idna_normalization_failed
+    );
+
+    assert!(result, "K43 violated: IDNA failure did not deny");
+}
+
+// K44: IP rules configured + no resolved IPs → Deny
+#[kani::proof]
+fn proof_ip_rules_no_resolved_ips_deny() {
+    use crate::rule_check::check_ip_rules_decision;
+
+    let block_private: bool = kani::any();
+    let any_private: bool = kani::any();
+    let any_blocked: bool = kani::any();
+    let has_allowed: bool = kani::any();
+    let all_allowed: bool = kani::any();
+
+    // IP rules configured + no resolved IPs → must deny
+    let result = check_ip_rules_decision(
+        true,  // ip_rules_configured
+        true,  // resolved_ips_empty
+        block_private, any_private, any_blocked,
+        has_allowed, all_allowed,
+    );
+
+    assert!(result, "K44 violated: IP rules + empty resolved IPs did not deny");
+}
+
+// K45: block_private + private IP → Deny
+#[kani::proof]
+fn proof_ip_rules_private_blocked() {
+    use crate::rule_check::check_ip_rules_decision;
+
+    let any_blocked_cidr: bool = kani::any();
+    let has_allowed: bool = kani::any();
+    let all_allowed: bool = kani::any();
+
+    // block_private + any_ip_private → must deny
+    let result = check_ip_rules_decision(
+        true,  // ip_rules_configured
+        false, // resolved_ips_empty (has IPs)
+        true,  // block_private
+        true,  // any_ip_private
+        any_blocked_cidr, has_allowed, all_allowed,
+    );
+
+    assert!(result, "K45 violated: block_private + private IP did not deny");
+}
+
+// =========================================================================
+// Phase 9: ResolvedMatch Construction Equivalence (K46-K48)
+// =========================================================================
+
+// K46: Path deny → rule_override_deny in ResolvedMatch
+#[kani::proof]
+fn proof_apply_policy_path_deny_is_rule_override() {
+    use crate::resolve::{apply_policy_inline, InlineVerdict};
+
+    // All other fields symbolic
+    let network_deny: bool = kani::any();
+    let ip_deny: bool = kani::any();
+    let context_deny: bool = kani::any();
+    let has_cc: bool = kani::any();
+    let ctx_provided: bool = kani::any();
+    let is_allow: bool = kani::any();
+    let is_deny: bool = kani::any();
+    let is_cond: bool = kani::any();
+
+    let result = apply_policy_inline(
+        true, // path_deny
+        network_deny, ip_deny, context_deny,
+        has_cc, ctx_provided, is_allow, is_deny, is_cond,
+        None, false, false, false,
+    );
+
+    assert_eq!(result, InlineVerdict::Deny,
+        "K46 violated: path deny did not produce Deny");
+}
+
+// K47: Context deny → Deny
+#[kani::proof]
+fn proof_apply_policy_context_deny_is_context_deny() {
+    use crate::resolve::{apply_policy_inline, InlineVerdict};
+
+    let is_allow: bool = kani::any();
+    let is_deny: bool = kani::any();
+    let is_cond: bool = kani::any();
+
+    // No rule overrides, context conditions present, context provided, context denies
+    let result = apply_policy_inline(
+        false, false, false,  // no rule overrides
+        true,                 // context_deny
+        true,                 // has_context_conditions
+        true,                 // context_provided
+        is_allow, is_deny, is_cond,
+        None, false, false, false,
+    );
+
+    assert_eq!(result, InlineVerdict::Deny,
+        "K47 violated: context deny did not produce Deny");
+}
+
+// K48: Inline verdict == compute_single_verdict for key cases
+#[kani::proof]
+fn proof_apply_policy_equivalence() {
+    use crate::resolve::{apply_policy_inline, apply_policy_verified, InlineVerdict};
+    use crate::verified_core::VerdictKind;
+
+    let path_deny: bool = kani::any();
+    let network_deny: bool = kani::any();
+    let ip_deny: bool = kani::any();
+    let context_deny: bool = kani::any();
+    let has_cc: bool = kani::any();
+    let ctx_provided: bool = kani::any();
+    let is_allow: bool = kani::any();
+    let is_deny_type: bool = kani::any();
+    let is_conditional: bool = kani::any();
+    let condition_fired: bool = kani::any();
+    let all_skipped: bool = kani::any();
+    let on_no_match: bool = kani::any();
+    let req_approval: bool = kani::any();
+
+    // Constrain: exactly one policy type is true (or none = unknown)
+    kani::assume(!(is_allow && is_deny_type));
+    kani::assume(!(is_allow && is_conditional));
+    kani::assume(!(is_deny_type && is_conditional));
+
+    let condition_result = if condition_fired {
+        Some(InlineVerdict::Allow) // Simplify: condition fires → Allow
+    } else {
+        None
+    };
+
+    let inline = apply_policy_inline(
+        path_deny, network_deny, ip_deny, context_deny,
+        has_cc, ctx_provided, is_allow, is_deny_type, is_conditional,
+        condition_result, all_skipped, on_no_match, req_approval,
+    );
+
+    let cond_vk = if condition_fired { VerdictKind::Allow } else { VerdictKind::Deny };
+
+    let verified = apply_policy_verified(
+        path_deny, network_deny, ip_deny, context_deny,
+        has_cc, ctx_provided, is_allow, is_deny_type, is_conditional,
+        condition_fired, cond_vk,
+        all_skipped, on_no_match, req_approval,
+    );
+
+    assert_eq!(inline, verified,
+        "K48 violated: inline verdict != verified verdict");
+}
+
+// =========================================================================
+// Phase 10: Cascading Failure Circuit Breaker (K49-K52)
+// =========================================================================
+
+// K49: NaN/Infinity in cascading config → rejected
+#[kani::proof]
+fn proof_cascading_config_validate_rejects_nan() {
+    use crate::cascading::validate_config;
+
+    // NaN
+    assert!(!validate_config(10, f64::NAN, 60, 30, 10),
+        "K49 violated: NaN accepted");
+    // Positive infinity
+    assert!(!validate_config(10, f64::INFINITY, 60, 30, 10),
+        "K49 violated: +Infinity accepted");
+    // Negative infinity
+    assert!(!validate_config(10, f64::NEG_INFINITY, 60, 30, 10),
+        "K49 violated: -Infinity accepted");
+    // Out of range
+    assert!(!validate_config(10, 1.1, 60, 30, 10),
+        "K49 violated: >1.0 accepted");
+    assert!(!validate_config(10, -0.1, 60, 30, 10),
+        "K49 violated: <0.0 accepted");
+}
+
+// K50: Chain depth increment never wraps
+#[kani::proof]
+fn proof_chain_depth_saturating() {
+    use crate::cascading::increment_depth;
+
+    let current: u32 = kani::any();
+    let result = increment_depth(current);
+
+    // Never wraps: result >= current
+    assert!(result >= current,
+        "K50 violated: depth increment wrapped");
+    // At max: stays at max
+    if current == u32::MAX {
+        assert_eq!(result, u32::MAX,
+            "K50 violated: depth exceeded u32::MAX");
+    }
+}
+
+// K51: At MAX capacity → Deny (fail-closed)
+#[kani::proof]
+fn proof_capacity_fail_closed() {
+    use crate::cascading::{check_chain_capacity, check_pipeline_capacity, MAX_TRACKED_CHAINS, MAX_TRACKED_PIPELINES};
+
+    // At chain capacity → deny
+    assert!(!check_chain_capacity(MAX_TRACKED_CHAINS),
+        "K51 violated: chain capacity not enforced");
+
+    // Above chain capacity → deny
+    if MAX_TRACKED_CHAINS < usize::MAX {
+        assert!(!check_chain_capacity(MAX_TRACKED_CHAINS + 1),
+            "K51 violated: above chain capacity allowed");
+    }
+
+    // At pipeline capacity with new pipeline → deny
+    assert!(!check_pipeline_capacity(MAX_TRACKED_PIPELINES, false),
+        "K51 violated: pipeline capacity not enforced");
+
+    // At pipeline capacity but pipeline exists → allow (update, not create)
+    assert!(check_pipeline_capacity(MAX_TRACKED_PIPELINES, true),
+        "K51 violated: existing pipeline denied at capacity");
+}
+
+// K52: Error rate ∈ [0.0, 1.0]
+#[kani::proof]
+fn proof_error_rate_bounded() {
+    use crate::cascading::compute_error_rate;
+
+    let total: u64 = kani::any();
+    let errors: u64 = kani::any();
+
+    // Errors can't exceed total in practice, but verify robustness
+    kani::assume(errors <= total);
+    kani::assume(total <= 1_000_000); // Bound for tractability
+
+    let rate = compute_error_rate(total, errors);
+
+    assert!(rate >= 0.0, "K52 violated: error rate < 0.0");
+    assert!(rate <= 1.0, "K52 violated: error rate > 1.0");
+    assert!(rate.is_finite(), "K52 violated: error rate is not finite");
+}
+
+// =========================================================================
+// Phase 11: Constraint Evaluation Fail-Closed (K53-K55)
+// =========================================================================
+
+// K53: All constraints skipped → all_constraints_skipped == true
+#[kani::proof]
+fn proof_all_skipped_detected() {
+    use crate::constraint::{detect_all_skipped, ConstraintEval};
+
+    let n: usize = kani::any();
+    kani::assume(n >= 1 && n <= 5);
+
+    let constraints: Vec<ConstraintEval> = (0..n)
+        .map(|_| ConstraintEval { was_evaluated: false })
+        .collect();
+
+    assert!(
+        detect_all_skipped(&constraints),
+        "K53 violated: all-skipped not detected"
+    );
+}
+
+// K54: Forbidden parameter match → Deny
+#[kani::proof]
+fn proof_forbidden_params_deny() {
+    use crate::constraint::{conditional_verdict, ConstraintVerdict};
+
+    let all_skipped: bool = kani::any();
+    let on_no_match: bool = kani::any();
+    let condition_fired: bool = kani::any();
+    let condition_allows: bool = kani::any();
+    let req_approval: bool = kani::any();
+
+    // Forbidden parameter present → always Deny, regardless of other flags
+    let result = conditional_verdict(
+        req_approval, all_skipped, on_no_match,
+        true, // any_forbidden_present
+        condition_fired, condition_allows,
+    );
+
+    assert_eq!(result, ConstraintVerdict::Deny,
+        "K54 violated: forbidden param did not produce Deny");
+}
+
+// K55: require_approval → RequireApproval verdict
+#[kani::proof]
+fn proof_require_approval_propagated() {
+    use crate::constraint::{conditional_verdict, ConstraintVerdict};
+
+    let all_skipped: bool = kani::any();
+    let on_no_match: bool = kani::any();
+    let condition_fired: bool = kani::any();
+    let condition_allows: bool = kani::any();
+
+    // No forbidden params, require_approval set
+    let result = conditional_verdict(
+        true,  // require_approval
+        all_skipped, on_no_match,
+        false, // no forbidden params
+        condition_fired, condition_allows,
+    );
+
+    assert_eq!(result, ConstraintVerdict::RequireApproval,
+        "K55 violated: require_approval not propagated");
+}
+
+// =========================================================================
+// Phase 12: Task Lifecycle (K56-K58)
+// =========================================================================
+
+// K56: Terminal state → no further transitions
+#[kani::proof]
+fn proof_terminal_state_immutable() {
+    use crate::task::{TaskState, is_terminal, can_transition};
+
+    let to: u8 = kani::any();
+    kani::assume(to < 7);
+
+    let to_state = match to {
+        0 => TaskState::Submitted,
+        1 => TaskState::Working,
+        2 => TaskState::InputNeeded,
+        3 => TaskState::Completed,
+        4 => TaskState::Failed,
+        5 => TaskState::Canceled,
+        _ => TaskState::Expired,
+    };
+
+    // All terminal states reject transitions
+    assert!(!can_transition(TaskState::Completed, to_state),
+        "K56 violated: Completed transitioned");
+    assert!(!can_transition(TaskState::Failed, to_state),
+        "K56 violated: Failed transitioned");
+    assert!(!can_transition(TaskState::Canceled, to_state),
+        "K56 violated: Canceled transitioned");
+    assert!(!can_transition(TaskState::Expired, to_state),
+        "K56 violated: Expired transitioned");
+}
+
+// K57: At max tasks → reject new registration
+#[kani::proof]
+fn proof_capacity_check_fail_closed() {
+    use crate::task::{check_capacity, MAX_TRACKED_TASKS};
+
+    // At capacity with no terminal tasks → reject
+    assert!(!check_capacity(MAX_TRACKED_TASKS, 0),
+        "K57 violated: at max capacity with no terminals allowed");
+
+    // At capacity with some terminal tasks → allow (after eviction)
+    let terminal: usize = kani::any();
+    kani::assume(terminal >= 1 && terminal <= MAX_TRACKED_TASKS);
+    assert!(check_capacity(MAX_TRACKED_TASKS, terminal),
+        "K57 violated: eviction should allow registration");
+}
+
+// K58: Self-cancel required + different requester → reject
+#[kani::proof]
+fn proof_cancel_authorization() {
+    use crate::task::can_cancel;
+
+    // Self-cancel: different requester → rejected
+    assert!(!can_cancel(true, Some("creator-a"), Some("requester-b"), false),
+        "K58 violated: different requester allowed self-cancel");
+
+    // Self-cancel: same requester → allowed
+    assert!(can_cancel(true, Some("agent-x"), Some("agent-x"), false),
+        "K58 violated: same requester denied self-cancel");
+
+    // Self-cancel: no requester → rejected
+    assert!(!can_cancel(true, Some("agent-x"), None, false),
+        "K58 violated: no requester allowed self-cancel");
+
+    // Self-cancel: no creator → allowed (permissive)
+    assert!(can_cancel(true, None, Some("anyone"), false),
+        "K58 violated: no creator should allow anyone");
+
+    // Non-self-cancel mode: requester in allow list → allowed
+    assert!(can_cancel(false, Some("creator"), Some("admin"), true),
+        "K58 violated: allow-listed requester denied");
+
+    // Non-self-cancel mode: requester NOT in allow list → rejected
+    assert!(!can_cancel(false, Some("creator"), Some("rogue"), false),
+        "K58 violated: non-listed requester allowed");
 }

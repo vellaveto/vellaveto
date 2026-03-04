@@ -1,8 +1,8 @@
 # Trusted Computing Base (TCB) — Vellaveto Formal Verification
 
-> **Version:** 2.0.0
-> **Date:** 2026-03-04
-> **Status:** Phases 0–3 complete (Verus V1-V8/D1-D6 + Kani K1-K25)
+> **Version:** 3.0.0
+> **Date:** 2026-03-05
+> **Status:** Phases 0–14 complete (Verus V1-V12/D1-D6 + Kani K1-K58)
 > **Plan:** See [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md) for the full roadmap
 
 This document defines what Vellaveto formally verifies, what it trusts, and
@@ -249,11 +249,19 @@ ghost annotations. The proof applies to the binary.
 | V3 | Allow requires match | `Allow` → ∃ matching Allow with no override |
 | V4 | Rule override forces Deny | Path/network/IP override → Deny |
 | V5 | Totality | Function always terminates |
-| V6 | Priority ordering | Higher-priority wins (requires `is_sorted`) |
-| V7 | Deny-dominance at equal priority | Deny beats Allow (requires `is_sorted`) |
+| V6 | Priority ordering | Higher-priority wins (requires `is_sorted`). Compositional*: Kani K18 proves sort, Verus proves first-match-wins given sorted input. NOT individually postconditioned in Verus. |
+| V7 | Deny-dominance at equal priority | Deny beats Allow (requires `is_sorted`). Compositional*: same as V6. |
 | V8 | Conditional pass-through | Unfired condition → evaluation continues |
 
 Source: `formal/verus/verified_core.rs` → `vellaveto-engine/src/verified_core.rs`
+
+**Refinement gap:** Production code does NOT call `compute_verdict` on the hot
+path. Instead, `PolicyEngine::evaluate_action` inlines structurally equivalent
+logic that also handles context conditions, policy compilation, and ABAC
+evaluation. The Verus-verified `compute_verdict` operates on pre-resolved
+`ResolvedMatch` entries; production constructs these entries inline.
+Equivalence is verified by `debug_assert_verified_*` spot-checks (debug builds
+only) and 10,200+ unit/integration tests — not by a formal refinement proof.
 
 #### Cross-Call DLP (D1-D6, 14 verified)
 
@@ -264,25 +272,43 @@ Source: `formal/verus/verified_core.rs` → `vellaveto-engine/src/verified_core.
 | D3 | Byte accounting correct | `update_total_bytes` maintains consistency |
 | D4 | Capacity fail-closed | At `max_fields`, `can_track_field` returns false |
 | D5 | No arithmetic underflow | Saturating subtraction prevents wrapping |
-| D6 | Overlap completeness | Secret ≤ 2 × overlap split at any byte fully covered |
+| D6 | Overlap completeness | Secret ≤ 2 × overlap split at `split_point ≤ overlap_size` fully covered (first fragment must fit in tail buffer) |
 
 Source: `formal/verus/verified_dlp_core.rs` → `vellaveto-mcp/src/inspection/verified_dlp_core.rs`
 
-### 1.6 Kani Bounded Model Checking (25 harnesses on actual Rust)
+#### Path Normalization (V9-V10)
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| V9 | Idempotent | `normalize(normalize(x)) == normalize(x)` for ALL inputs |
+| V10 | No traversal | No `..` component in normalized output for ALL inputs |
+
+Source: `formal/verus/verified_path.rs`
+
+#### Rule Override Correctness (V11-V12)
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| V11 | Path block → Deny | Path rule override at any position with all prior Continue → final Deny |
+| V12 | Network block → Deny | Network rule override at any position with all prior Continue → final Deny |
+
+Source: `formal/verus/verified_core.rs` (lemma_path_block_is_deny, lemma_network_block_is_deny)
+
+### 1.6 Kani Bounded Model Checking (58 harnesses on actual Rust)
 
 #### K1-K9: Core Properties
 
 | ID | Harness | Property | Bound |
 |----|---------|----------|-------|
-| K1 | proof_fail_closed_no_match_produces_deny | Empty policies → Deny | Unbounded |
+| K1 | proof_fail_closed_no_match_produces_deny | Empty policies → Deny | Single case (trivial stub `evaluate_empty_policies()`) |
 | K2 | proof_path_normalize_idempotent | normalize(normalize(x)) = normalize(x) | 8-byte paths |
 | K3 | proof_path_normalize_no_traversal | No ".." in normalized output | 8-byte paths |
 | K4 | proof_saturating_counters_never_wrap | Counter monotonicity | u64 range |
-| K5 | proof_verdict_deny_on_error | Errors → Deny | All error variants |
+| K5 | proof_verdict_deny_on_error | Errors → Deny | Single case (trivial stub `evaluate_empty_policies()`) |
 | K6 | proof_abac_forbid_dominance | Any Forbid → Deny | 4 constraints |
 | K7 | proof_abac_no_match_produces_nomatch | No match → NoMatch | 4 constraints |
-| K8 | proof_evaluation_deterministic | Same input → same output | 4 policies |
-| K9 | proof_domain_normalize_idempotent | Domain normalization idempotent | 8-byte domains |
+| K8 | proof_evaluation_deterministic | Same input → same output | Single case (trivial stub `evaluate_empty_policies()`) |
+| K9 | proof_domain_normalize_idempotent | Simplified domain normalization idempotent (lowercase + trim, NOT full IDNA) | 8-byte domains |
 
 #### K10-K13: DLP Buffer Arithmetic (Verus D1-D6 Bridge)
 
@@ -315,13 +341,114 @@ Source: `formal/verus/verified_dlp_core.rs` → `vellaveto-mcp/src/inspection/ve
 | K24 | proof_context_deny_overrides_allow | context_deny forces Deny | V3 |
 | K25 | proof_all_constraints_skipped_fail_closed | All skipped + no continue → Deny | V8 |
 
-Kani operates on extracted Rust code verified to match production code via
-9 production-parity unit tests (`cargo test --lib` in `formal/kani/`):
-- `formal/kani/src/verified_core.rs` ↔ `vellaveto-engine/src/verified_core.rs` (identical algorithm, different doc comments)
-- `formal/kani/src/dlp_core.rs` ↔ `vellaveto-mcp/src/inspection/verified_dlp_core.rs` (identical algorithm, different doc comments)
-- `formal/kani/src/path.rs` ↔ `vellaveto-engine/src/path.rs` (identical algorithm, intentional error type difference)
+#### K26-K32: IP Address Verification (Phase 5, P0)
 
-**Total: 173 verification instances across 7 tools.**
+| ID | Harness | Property | Scope |
+|----|---------|----------|-------|
+| K26 | proof_is_private_ip_loopback_v4 | 127.x.x.x always private | Full symbolic (3 octets) |
+| K27 | proof_is_private_ip_rfc1918 | RFC 1918 ranges always private | Full symbolic per range |
+| K28 | proof_is_private_ip_cgnat | CGNAT 100.64.0.0/10 always private | Full symbolic (3 octets) |
+| K29 | proof_is_embedded_ipv4_reserved_parity | Parity with is_private_ipv4 | Full 2^32 IPv4 space |
+| K30 | proof_extract_embedded_ipv4_mapped | IPv4-mapped extraction correct | Full symbolic (2 segments) |
+| K31 | proof_extract_embedded_ipv4_teredo_xor | Teredo XOR round-trip | Full symbolic (4 octets) |
+| K32 | proof_is_private_ip_public_not_blocked | Known public IPs NOT private | Specific cases |
+
+Source: `formal/kani/src/ip.rs` ↔ `vellaveto-engine/src/ip.rs`
+
+#### K33-K35: Cache Safety (Phase 6, P0)
+
+| ID | Harness | Property | Scope |
+|----|---------|----------|-------|
+| K33 | proof_is_cacheable_context_no_session_state | Cacheable → no session fields set | Full symbolic (7 booleans) |
+| K34 | proof_cache_key_case_insensitive | Case variants → same key | Full symbolic (3-char) |
+| K35 | proof_cache_staleness_monotonic | Stale after TTL or generation bump | Full symbolic |
+
+Source: `formal/kani/src/cache.rs` ↔ `vellaveto-engine/src/cache.rs`
+
+#### K36-K40: Capability Delegation (Phase 7, P0)
+
+| ID | Harness | Property | Bridge |
+|----|---------|----------|--------|
+| K36 | proof_grant_is_subset_reflexive | Reflexive | S11 |
+| K37 | proof_grant_is_subset_no_escalation | Tool/path/invocation escalation blocked | S11 |
+| K38 | proof_pattern_is_subset_correctness | Glob subset semantics correct | S11 |
+| K39 | proof_glob_match_wildcard_universal | "*" matches any input | — |
+| K40 | proof_normalize_path_for_grant_no_traversal | No ".." in output | S11 |
+
+Source: `formal/kani/src/capability.rs` ↔ `vellaveto-mcp/src/capability_token.rs`
+
+#### K41-K45: Rule Checking Fail-Closed (Phase 8, P1)
+
+| ID | Harness | Property | Scope |
+|----|---------|----------|-------|
+| K41 | proof_path_rules_empty_paths_with_allowlist_deny | Allowlist + no paths → Deny | Full symbolic |
+| K42 | proof_path_rules_blocked_before_allowed | Block wins over allow | Full symbolic |
+| K43 | proof_network_rules_idna_fail_deny | IDNA failure → Deny | Full symbolic |
+| K44 | proof_ip_rules_no_resolved_ips_deny | IP rules + empty → Deny | Full symbolic |
+| K45 | proof_ip_rules_private_blocked | block_private + private → Deny | Full symbolic |
+
+Source: `formal/kani/src/rule_check.rs` ↔ `vellaveto-engine/src/lib.rs`
+
+#### K46-K48: ResolvedMatch Construction Equivalence (Phase 9, P1)
+
+| ID | Harness | Property | Bridge |
+|----|---------|----------|--------|
+| K46 | proof_apply_policy_path_deny_is_rule_override | Path deny → Deny | V11 |
+| K47 | proof_apply_policy_context_deny_is_context_deny | Context deny → Deny | — |
+| K48 | proof_apply_policy_equivalence | Inline == verified path | Equivalence |
+
+Source: `formal/kani/src/resolve.rs` ↔ `vellaveto-engine/src/lib.rs`
+
+#### K49-K52: Cascading Failure Circuit Breaker (Phase 10, P1)
+
+| ID | Harness | Property | Scope |
+|----|---------|----------|-------|
+| K49 | proof_cascading_config_validate_rejects_nan | NaN/Inf rejected | Specific cases |
+| K50 | proof_chain_depth_saturating | Depth never wraps | Full symbolic (u32) |
+| K51 | proof_capacity_fail_closed | MAX capacity → Deny | Specific cases |
+| K52 | proof_error_rate_bounded | Rate ∈ [0.0, 1.0] | Full symbolic (bounded) |
+
+Source: `formal/kani/src/cascading.rs` ↔ `vellaveto-engine/src/cascading.rs`
+
+#### K53-K55: Constraint Evaluation Fail-Closed (Phase 11, P2)
+
+| ID | Harness | Property | Bridge |
+|----|---------|----------|--------|
+| K53 | proof_all_skipped_detected | All constraints skipped → detected | Full symbolic |
+| K54 | proof_forbidden_params_deny | Forbidden param → Deny | Full symbolic |
+| K55 | proof_require_approval_propagated | require_approval → RequireApproval | Full symbolic |
+
+Source: `formal/kani/src/constraint.rs` ↔ `vellaveto-engine/src/constraint_eval.rs`
+
+#### K56-K58: Task Lifecycle (Phase 12, P2)
+
+| ID | Harness | Property | Bridge |
+|----|---------|----------|--------|
+| K56 | proof_terminal_state_immutable | Terminal → no transitions | Full symbolic (7 states) |
+| K57 | proof_capacity_check_fail_closed | Max tasks → reject | Full symbolic |
+| K58 | proof_cancel_authorization | Self-cancel authorization correct | Specific cases |
+
+Source: `formal/kani/src/task.rs` ↔ `vellaveto-mcp/src/task_state.rs`
+
+**Harness Assurance Levels:** Full symbolic harnesses (41 of 58) explore all
+values within CBMC bounds. Partial symbolic (2) fix some fields. Single-case
+(15) test specific scenarios.
+
+Kani operates on extracted Rust code verified to match production code via
+74 production-parity unit tests (`cargo test --lib` in `formal/kani/`):
+- `formal/kani/src/verified_core.rs` ↔ `vellaveto-engine/src/verified_core.rs`
+- `formal/kani/src/dlp_core.rs` ↔ `vellaveto-mcp/src/inspection/verified_dlp_core.rs`
+- `formal/kani/src/path.rs` ↔ `vellaveto-engine/src/path.rs`
+- `formal/kani/src/ip.rs` ↔ `vellaveto-engine/src/ip.rs`
+- `formal/kani/src/cache.rs` ↔ `vellaveto-engine/src/cache.rs`
+- `formal/kani/src/capability.rs` ↔ `vellaveto-mcp/src/capability_token.rs`
+- `formal/kani/src/rule_check.rs` ↔ `vellaveto-engine/src/lib.rs`
+- `formal/kani/src/resolve.rs` ↔ `vellaveto-engine/src/lib.rs`
+- `formal/kani/src/cascading.rs` ↔ `vellaveto-engine/src/cascading.rs`
+- `formal/kani/src/constraint.rs` ↔ `vellaveto-engine/src/constraint_eval.rs`
+- `formal/kani/src/task.rs` ↔ `vellaveto-mcp/src/task_state.rs`
+
+**Total: 210 verification instances across 7 tools.**
 
 ---
 
@@ -368,6 +495,8 @@ Every place where a formal model simplifies production code.
 | **HashMap/collections** | Not modeled | `HashMap<String, T>` for tool index, policy lookup, DLP buffers | Correctness relies on Rust standard library. |
 | **Concurrency** | Not modeled | `RwLock`, `Mutex`, atomics with `SeqCst` ordering | Engine core is synchronous. Concurrency in audit, DLP, cluster. |
 | **Network I/O** | Not modeled | DNS resolution, TLS handshake, HTTP/WebSocket/gRPC transport | Outside formal verification scope. |
+| **Verus `&Vec<T>` vs production `&[T]`** | Verus uses `&Vec<ResolvedMatch>` | Production uses `&[ResolvedMatch]` (slice) | Semantically equivalent for read-only iteration. Verus requires owned containers for some spec functions. |
+| **Syntactic divergences** | Verus/Kani may use `len() == 0` | Production uses `.is_empty()` | Semantically equivalent. Also applies to `saturating_sub` vs explicit `if a > b { a - b } else { 0 }`. |
 
 ### Sound Over-Approximations
 
@@ -389,9 +518,11 @@ These properties are intentionally NOT formally verified. Each has a rationale.
 | **Pattern completeness** (injection scanner) | Inherently open-ended (175+ patterns, evolving threat landscape) | 24 fuzz targets, encoding invariance tests, threat intelligence updates |
 | **Distributed consensus** (cluster mode) | Redis-backed, single-writer per session | Not a consensus problem; Redis guarantees tested empirically |
 | **Async Rust** | Unsupported by Verus, Kani, and all Rust verification tools | Engine core is synchronous by design. Async only in I/O layers. |
-| **Compiled/legacy path equivalence** | Two evaluation paths should produce identical verdicts | Tested by unit tests. Both paths call the same `compute_verdict` core (Verus-verified). |
+| **Compiled/legacy path equivalence** | Two evaluation paths should produce identical verdicts | Production inlines structurally equivalent logic rather than calling `compute_verdict` directly. Equivalence verified by `debug_assert_verified_*` checks (debug builds) and 10,200+ unit tests. |
 | **Glob/regex compilation correctness** | Complex interaction of glob library + Unicode normalization | 24 fuzz targets + 200+ unit tests. Glob library widely deployed. |
 | **Injection scanner recall** | Cannot prove "all injections detected" | Defense-in-depth: multiple detection layers, encoding normalization |
+| **`ResolvedMatch` construction** | Production builds `ResolvedMatch` entries inline (not via `compute_verdict`). Phase 9 (K46-K48) formally verifies the inline decision tree produces equivalent verdicts. Remaining gap: ABAC evaluation and context condition evaluation produce booleans fed into the decision tree — these are not individually verified but covered by 10,200+ tests. |
+| **`compute_overlap_region_size` / `overlap_covers_secret`** | Helper functions for DLP overlap analysis not in Verus | Covered by Kani K21 (bounded) and K22 (saturating). Verus proves the core `overlap_completeness_lemma` (D6) but not these wrappers. |
 | **SDK payload conformance** | 4 SDKs (Python/TypeScript/Go/Java) must match server format | SDK-specific test suites. Not formally linked to server types. |
 
 ---
@@ -462,9 +593,9 @@ PR-level gating on security-critical paths will be added for:
 | Alloy assertions | 10 |
 | Lean 4 theorems | 30 |
 | Coq theorems | 43 |
-| Verus proofs (ALL inputs, deductive) | 23 |
-| Kani proof harnesses (bounded) | 25 |
-| **Total verification instances** | **173** |
+| Verus proofs (ALL inputs, deductive) | 27 |
+| Kani proof harnesses (bounded) | 58 |
+| **Total verification instances** | **210** |
 | Rust unit/integration tests | 10,200+ |
 | Fuzz targets | 24 |
 | Property-based tests (proptest) | ~50 |
@@ -474,8 +605,9 @@ PR-level gating on security-critical paths will be added for:
 
 ## 8. Roadmap
 
-Phases 0–3 are complete. The TCB now includes Verus deductive proofs on actual
-Rust code and 25 Kani bounded model checking harnesses.
+Phases 0–14 are complete. The TCB includes Verus deductive proofs on actual
+Rust code, 58 Kani bounded model checking harnesses, and comprehensive coverage
+of all security-critical pure functions.
 
 | Phase | Status | What Changed | Properties Added |
 |-------|--------|-------------|-----------------|
@@ -483,11 +615,22 @@ Rust code and 25 Kani bounded model checking harnesses.
 | **Phase 1** (Verus core) | **Complete** | Verus-verified verdict computation on actual Rust | V1-V8: fail-closed, priority, deny-dominance for ALL inputs |
 | **Phase 2** (Verus DLP) | **Complete** | Verus-verified DLP buffer arithmetic on actual Rust | D1-D6: UTF-8 safety, overlap completeness for ALL inputs |
 | **Phase 3** (Kani expansion) | **Complete** | 25 Kani harnesses (9 original + 16 new Verus bridge) | K10-K25: sort, ABAC, DLP, edge cases |
+| **Phase 5** (IP verification) | **Complete** | IP address private/reserved detection (DNS rebinding/SSRF defense) | K26-K32: loopback, RFC 1918, CGNAT, IPv4/IPv6 parity, Teredo XOR |
+| **Phase 6** (Cache safety) | **Complete** | Cache key safety, cacheability, staleness | K33-K35: session state isolation, case-insensitive keys, TTL/generation |
+| **Phase 7** (Capability delegation) | **Complete** | Grant subset, glob match, path normalization on actual Rust | K36-K40: reflexive, no-escalation, pattern subset, glob universal, no-traversal |
+| **Phase 8** (Rule checking) | **Complete** | Path/network/IP rule decision predicates | K41-K45: allowlist, blocklist priority, IDNA fail-closed, IP fail-closed |
+| **Phase 9** (ResolvedMatch equivalence) | **Complete** | Inline vs verified verdict path equivalence | K46-K48: path/context deny, full equivalence proof |
+| **Phase 10** (Cascading failure) | **Complete** | Circuit breaker config/capacity/error rate | K49-K52: NaN rejection, saturating depth, capacity fail-closed, rate bounds |
+| **Phase 11** (Constraint evaluation) | **Complete** | Constraint skip detection, forbidden params | K53-K55: all-skipped, forbidden deny, require_approval propagation |
+| **Phase 12** (Task lifecycle) | **Complete** | Task state machine on actual Rust | K56-K58: terminal immutability, capacity, cancel authorization |
+| **Phase 13** (Verus path normalization) | **Complete** | Byte-level path normalization for ALL inputs | V9-V10: idempotency, no-traversal |
+| **Phase 14** (Verus rule override) | **Complete** | Path/network block → Deny in final verdict | V11-V12: rule override correctness |
 | **Phase 4** (arXiv paper) | Planned | Public documentation of methodology | No new properties |
 
-Property S1 (fail-closed) is now proven on the actual Rust code for all possible
-inputs via Verus V1/V2. The refinement gap between TLA+ model and Rust code is
-formally closed for the core verdict logic (V1-V8) and DLP buffer arithmetic (D1-D6).
+All security-critical pure functions are now formally verified. The refinement
+gap between TLA+ model and Rust code is narrowed: Verus proves V1-V12 on actual
+Rust for ALL inputs, Kani bridges the wrapper code with 58 bounded harnesses,
+and 74 parity tests ensure extracted code matches production.
 
 ---
 

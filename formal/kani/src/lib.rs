@@ -30,7 +30,7 @@
 //! | K6 | ABAC forbid dominance | S7, AbacForbidOverride.lean/v |
 //! | K7 | ABAC no-match → NoMatch | S10, AbacForbidOverride.lean/v |
 //! | K8 | Evaluation determinism | Determinism.lean/v |
-//! | K9 | Domain normalization idempotent | Domain handling in engine |
+//! | K9 | Simplified domain normalization idempotent | Lowercase + trim (NOT full IDNA) |
 //! | K10 | extract_tail no panic for arbitrary input | D1-D2, Verus bridge |
 //! | K11 | UTF-8 char boundary exhaustive (all 256 bytes) | D1, Verus bridge |
 //! | K12 | can_track_field fail-closed at capacity | D4, Verus bridge |
@@ -47,16 +47,65 @@
 //! | K23 | extract_tail multibyte boundary (4-byte emoji) | D1, UTF-8 safety |
 //! | K24 | context_deny overrides allow | V3, context conditions |
 //! | K25 | all_constraints_skipped fail-closed | V8, conditional handling |
+//! | K26 | 127.x.x.x always private (loopback) | IP verification |
+//! | K27 | RFC 1918 ranges always private | IP verification |
+//! | K28 | CGNAT 100.64.0.0/10 always private | IP verification |
+//! | K29 | is_embedded_ipv4_reserved parity with is_private_ipv4 | IP verification |
+//! | K30 | IPv4-mapped ::ffff:x.x.x.x extraction correct | IP verification |
+//! | K31 | Teredo XOR inversion round-trip correct | IP verification |
+//! | K32 | Known public IPs (8.8.8.8, 1.1.1.1) NOT private | IP verification |
+//! | K33 | is_cacheable == true → all session fields empty/None | Cache safety |
+//! | K34 | Cache key case-insensitive | Cache safety |
+//! | K35 | Entry invalid after TTL or generation bump | Cache safety |
+//! | K36 | grant_is_subset reflexive | Capability delegation, S11 |
+//! | K37 | No escalation (child ⊆ parent) | Capability delegation, S11 |
+//! | K38 | pattern_is_subset correctness | Capability delegation, S11 |
+//! | K39 | glob_match("*", any) == true | Capability delegation |
+//! | K40 | normalize_path_for_grant: no ".." in output | Capability delegation, S11 |
+//! | K41 | No target_paths + allowlist → Deny | Rule checking |
+//! | K42 | Blocked pattern → Deny even if also allowed | Rule checking |
+//! | K43 | IDNA normalization failure → Deny | Rule checking |
+//! | K44 | IP rules + no resolved IPs → Deny | Rule checking |
+//! | K45 | block_private + private IP → Deny | Rule checking |
+//! | K46 | Path deny → rule_override_deny in ResolvedMatch | ResolvedMatch equivalence |
+//! | K47 | Context deny → context_deny in ResolvedMatch | ResolvedMatch equivalence |
+//! | K48 | Inline verdict == compute_single_verdict(ResolvedMatch) | ResolvedMatch equivalence |
+//! | K49 | NaN/Infinity in cascading config → rejected | Cascading failure |
+//! | K50 | Chain depth increment never wraps | Cascading failure |
+//! | K51 | At MAX capacity → Deny | Cascading failure |
+//! | K52 | Error rate ∈ [0.0, 1.0] | Cascading failure |
+//! | K53 | All constraints skipped → detected | Constraint evaluation |
+//! | K54 | Forbidden parameter match → Deny | Constraint evaluation |
+//! | K55 | require_approval → RequireApproval verdict | Constraint evaluation |
+//! | K56 | Terminal state → no further transitions | Task lifecycle |
+//! | K57 | At max tasks → reject new registration | Task lifecycle |
+//! | K58 | Self-cancel + different requester → reject | Task lifecycle |
 //!
 //! # Source Correspondence
 //!
 //! - `path.rs`: Verbatim from `vellaveto-engine/src/path.rs`
 //! - `verified_core.rs`: Verbatim from `vellaveto-engine/src/verified_core.rs`
 //! - `dlp_core.rs`: Verbatim from `vellaveto-mcp/src/inspection/verified_dlp_core.rs`
+//! - `ip.rs`: Extracted from `vellaveto-engine/src/ip.rs`
+//! - `cache.rs`: Extracted from `vellaveto-engine/src/cache.rs`
+//! - `capability.rs`: Extracted from `vellaveto-mcp/src/capability_token.rs`
+//! - `rule_check.rs`: Extracted from `vellaveto-engine/src/lib.rs` (rule checking)
+//! - `resolve.rs`: Extracted from `vellaveto-engine/src/lib.rs` (ResolvedMatch construction)
+//! - `cascading.rs`: Extracted from `vellaveto-engine/src/cascading.rs`
+//! - `constraint.rs`: Extracted from `vellaveto-engine/src/constraint_eval.rs`
+//! - `task.rs`: Extracted from `vellaveto-mcp/src/task_state.rs`
 
 pub mod path;
 pub mod verified_core;
 pub mod dlp_core;
+pub mod ip;
+pub mod cache;
+pub mod capability;
+pub mod rule_check;
+pub mod resolve;
+pub mod cascading;
+pub mod constraint;
+pub mod task;
 
 #[cfg(kani)]
 mod proofs;
@@ -144,8 +193,11 @@ pub fn abac_evaluate(policies: &[AbacPolicy], matches: &dyn Fn(&AbacPolicy) -> b
 
 /// Normalize a domain name: lowercase, strip trailing dot.
 ///
-/// Extracted from domain handling in `vellaveto-engine/src/lib.rs`.
-/// This is a pure function — calling it twice yields the same result.
+/// **Simplified extraction** from domain handling in `vellaveto-engine/src/lib.rs`.
+/// Production uses full IDNA normalization (74 lines: punycode, homoglyph mapping,
+/// Unicode confusable resolution). This function verifies only the idempotence of
+/// the lowercase + trim subset. This is a pure function — calling it twice yields
+/// the same result.
 pub fn normalize_domain(raw: &str) -> String {
     let lower = raw.to_lowercase();
     let trimmed = lower.trim_end_matches('.');
