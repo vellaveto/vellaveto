@@ -64,8 +64,11 @@ fn notify_webhook(state: &AppState, event: &str, policy_id: &str, version: u64) 
         "timestamp": chrono::Utc::now().to_rfc3339(),
     });
     tokio::spawn(async move {
+        // SECURITY (R234-SRV-7): Disable automatic redirect following to prevent
+        // SSRF via 3xx redirect to internal/metadata endpoints after SSRF pre-check.
         let client = match reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
         {
             Ok(c) => c,

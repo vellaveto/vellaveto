@@ -882,7 +882,22 @@ impl ProxyBridge {
 
         // Phase 71 (R233-DLP-1): Cross-call DLP — detect secrets split across sequential tool calls.
         if let Some(ref mut tracker) = state.cross_call_dlp {
-            let args_str = serde_json::to_string(&arguments).unwrap_or_default();
+            // SECURITY (R234-RLY-6): Fail-closed on serialization failure — if we
+            // can't serialize arguments, we can't DLP-scan them for cross-call leaks.
+            let args_str = match serde_json::to_string(&arguments) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!(
+                        "SECURITY: Cross-call DLP serialization failed for '{}': {} — denying (fail-closed)",
+                        tool_name, e
+                    );
+                    dlp_findings.push(crate::inspection::DlpFinding {
+                        pattern_name: "cross_call_dlp_serialization_failure".to_string(),
+                        location: format!("tools/call.{}", tool_name),
+                    });
+                    String::new()
+                }
+            };
             let field_path = format!("tools/call.{}", tool_name);
             let cross_findings = tracker.scan_with_overlap(&field_path, &args_str);
             if !cross_findings.is_empty() {
@@ -1506,10 +1521,12 @@ impl ProxyBridge {
                 );
             }
             let action = extract_resource_action(&uri);
+            // SECURITY (R234-RLY-8): Do not embed raw URI in deny reason — attacker-controlled
+            // URIs can inject control characters, newlines, or misleading text into audit logs
+            // and client-visible error messages.
             let deny_reason = format!(
-                "Memory poisoning detected: {} replayed data fragment(s) in resource read '{}'",
+                "Memory poisoning detected: {} replayed data fragment(s) in resource read",
                 poisoning_matches.len(),
-                uri
             );
             if let Err(e) = self
                 .audit
@@ -3539,7 +3556,27 @@ impl ProxyBridge {
                     match sanitizer.desanitize_json(&msg) {
                         Ok(desanitized) => msg = desanitized,
                         Err(e) => {
-                            tracing::warn!("Shield desanitize failed: {} — forwarding original", e);
+                            // SECURITY (R234-SHIELD-6): Fail-closed on desanitization
+                            // failure. Forwarding the original msg would expose PII
+                            // placeholders (e.g., [PII_EMAIL_000123]) to the agent,
+                            // leaking the fact that PII was present and its category.
+                            tracing::error!(
+                                "SECURITY: Shield desanitize failed (fail-closed): {} — \
+                                 returning error to prevent placeholder leakage",
+                                e
+                            );
+                            let id = msg.get("id").cloned().unwrap_or(serde_json::Value::Null);
+                            let error_response = serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "error": {
+                                    "code": -32603,
+                                    "message": "Response processing failed"
+                                }
+                            });
+                            return write_message(agent_writer, &error_response)
+                                .await
+                                .map_err(ProxyError::Framing);
                         }
                     }
                 }

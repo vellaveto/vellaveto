@@ -557,8 +557,8 @@ mod tests {
 
     #[test]
     fn test_jsonrpc_id_key_float_number() {
-        let id = json!(3.14);
-        assert_eq!(jsonrpc_id_key(&id), Some("n:3.14".to_string()));
+        let id = json!(2.72);
+        assert_eq!(jsonrpc_id_key(&id), Some("n:2.72".to_string()));
     }
 
     // =========================================================================

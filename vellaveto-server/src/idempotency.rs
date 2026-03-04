@@ -410,7 +410,7 @@ mod tests {
             HeaderValue::from_static("abc-123_DEF"),
         );
 
-        let key = store.extract_key(&headers).unwrap();
+        let key = store.extract_key(&headers, None).unwrap();
         assert_eq!(key, Some("abc-123_DEF".to_string()));
     }
 
@@ -419,7 +419,7 @@ mod tests {
         let store = IdempotencyStore::new(test_config());
         let headers = HeaderMap::new();
 
-        let key = store.extract_key(&headers).unwrap();
+        let key = store.extract_key(&headers, None).unwrap();
         assert_eq!(key, None);
     }
 
@@ -433,7 +433,7 @@ mod tests {
             HeaderValue::from_str(&long_key).unwrap(),
         );
 
-        let result = store.extract_key(&headers);
+        let result = store.extract_key(&headers, None);
         assert!(matches!(result, Err(IdempotencyError::InvalidKey(_))));
     }
 
@@ -446,7 +446,7 @@ mod tests {
             HeaderValue::from_static("key with spaces"),
         );
 
-        let result = store.extract_key(&headers);
+        let result = store.extract_key(&headers, None);
         assert!(matches!(result, Err(IdempotencyError::InvalidKey(_))));
     }
 
@@ -592,7 +592,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         let key = "a".repeat(64); // max_key_length = 64 in test_config
         headers.insert(IDEMPOTENCY_KEY_HEADER, HeaderValue::from_str(&key).unwrap());
-        let result = store.extract_key(&headers).unwrap();
+        let result = store.extract_key(&headers, None).unwrap();
         assert_eq!(result, Some(key));
     }
 
@@ -607,7 +607,7 @@ mod tests {
             HeaderValue::from_static("key.with.dots"),
         );
         assert!(matches!(
-            store.extract_key(&headers),
+            store.extract_key(&headers, None),
             Err(IdempotencyError::InvalidKey(_))
         ));
     }
@@ -621,7 +621,7 @@ mod tests {
             HeaderValue::from_static("key/slash"),
         );
         assert!(matches!(
-            store.extract_key(&headers),
+            store.extract_key(&headers, None),
             Err(IdempotencyError::InvalidKey(_))
         ));
     }
@@ -744,6 +744,50 @@ mod tests {
             response.headers().get("content-type").unwrap(),
             "application/json"
         );
+    }
+
+    // ── R234-SRV-6: Tenant-scoped idempotency keys ──
+
+    #[test]
+    fn test_extract_key_tenant_scoped() {
+        let store = IdempotencyStore::new(test_config());
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            IDEMPOTENCY_KEY_HEADER,
+            HeaderValue::from_static("abc-123"),
+        );
+
+        // With tenant_id, key is prefixed
+        let key = store.extract_key(&headers, Some("tenant-A")).unwrap();
+        assert_eq!(key, Some("tenant-A:abc-123".to_string()));
+    }
+
+    #[test]
+    fn test_extract_key_without_tenant_no_prefix() {
+        let store = IdempotencyStore::new(test_config());
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            IDEMPOTENCY_KEY_HEADER,
+            HeaderValue::from_static("abc-123"),
+        );
+
+        // Without tenant_id, key is raw
+        let key = store.extract_key(&headers, None).unwrap();
+        assert_eq!(key, Some("abc-123".to_string()));
+    }
+
+    #[test]
+    fn test_extract_key_different_tenants_different_keys() {
+        let store = IdempotencyStore::new(test_config());
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            IDEMPOTENCY_KEY_HEADER,
+            HeaderValue::from_static("same-key"),
+        );
+
+        let key_a = store.extract_key(&headers, Some("tenant-A")).unwrap();
+        let key_b = store.extract_key(&headers, Some("tenant-B")).unwrap();
+        assert_ne!(key_a, key_b);
     }
 
     #[test]

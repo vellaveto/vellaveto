@@ -1961,6 +1961,68 @@ fn test_r234_shield1_mark_consumed_persists_status() {
     );
 }
 
+// R234-SHIELD-5: u32::try_from on encrypted entry length
+#[test]
+fn test_r234_shield5_encrypt_returns_bounded_length() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("len.enc");
+    let store = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+
+    // Normal-sized entry should succeed
+    let plaintext = vec![0u8; 1024];
+    let encrypted = store.encrypt(&plaintext);
+    assert!(encrypted.is_ok());
+    // Encrypted length fits in u32
+    assert!(u32::try_from(encrypted.unwrap().len()).is_ok());
+}
+
+// R234-SHIELD-9: ContextIsolator rejects invalid role
+#[test]
+fn test_r234_shield9_context_isolator_rejects_invalid_role() {
+    let isolator = crate::context_isolation::ContextIsolator::new();
+    let err = isolator.record("session-1", "system", "hello");
+    assert!(err.is_err());
+    let msg = err.unwrap_err().to_string();
+    assert!(msg.contains("user") || msg.contains("assistant") || msg.contains("role"));
+}
+
+// R234-SHIELD-9: ContextIsolator accepts valid roles
+#[test]
+fn test_r234_shield9_context_isolator_accepts_valid_roles() {
+    let isolator = crate::context_isolation::ContextIsolator::new();
+    assert!(isolator.record("session-1", "user", "hello").is_ok());
+    assert!(isolator.record("session-1", "assistant", "hi").is_ok());
+}
+
+// R234-SHIELD-10: read_all_entries bounded by MAX_STORE_ENTRIES
+#[test]
+fn test_r234_shield10_read_all_entries_returns_bounded() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bounded.enc");
+    let store = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+
+    // Write a few entries to verify reading works
+    for i in 0..5u32 {
+        store
+            .write_encrypted_entry(&i.to_le_bytes())
+            .unwrap();
+    }
+    let entries = store.read_all_entries().unwrap();
+    assert_eq!(entries.len(), 5);
+}
+
+// R234-SHIELD-12: QuerySanitizer::clear() recovers from lock poisoning
+#[test]
+fn test_r234_shield12_sanitizer_clear_succeeds_normally() {
+    let scanner = vellaveto_audit::PiiScanner::new(&[]);
+    let sanitizer = crate::sanitizer::QuerySanitizer::new(scanner);
+
+    // Sanitize something to populate mappings
+    // (PiiScanner with no patterns won't match, but clear should still work)
+    sanitizer.clear();
+    assert_eq!(sanitizer.mapping_count(), 0);
+}
+
 // R234-SHIELD-2: StoredVaultEntry deny_unknown_fields
 #[test]
 fn test_r234_shield2_stored_vault_entry_rejects_unknown_fields() {
