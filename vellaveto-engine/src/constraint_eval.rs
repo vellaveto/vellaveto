@@ -557,17 +557,6 @@ mod tests {
     use serde_json::json;
     use vellaveto_types::PolicyType;
 
-    fn make_allow_policy(name: &str) -> Policy {
-        Policy {
-            id: "*".to_string(),
-            name: name.to_string(),
-            policy_type: PolicyType::Allow,
-            priority: 100,
-            path_rules: None,
-            network_rules: None,
-        }
-    }
-
     fn make_conditional_policy(name: &str, conditions: serde_json::Value) -> Policy {
         Policy {
             id: "*".to_string(),
