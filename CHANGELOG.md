@@ -159,6 +159,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Adversarial Audit Round 235 (59 findings across 6 parallel agents, 40 fixed in 3 sprints):**
+  Full-codebase adversarial security audit. 59 raw findings (13 HIGH, 29 MEDIUM, 17 LOW), 40 fixed
+  across 3 sprints covering engine, server, MCP relay, discovery, audit, config, and types crates.
+  - **Sprint 1 — HIGHs (13 fixes, commit `7eb4beb`):**
+    - **R235-SRV-1/2:** OIDC discovery + IAM HTTP client redirect disable (SSRF via open redirect).
+    - **R235-SHIELD-1:** Traffic padding `as u32` → `u32::try_from` (silent truncation).
+    - **R235-SHIELD-2:** Credential vault `expire_old_epochs()` persistence after mutation.
+    - **R235-SHIELD-3:** Canary `canonical_payload()` error propagation (was `unwrap_or_default`).
+    - **R235-DISC-1/2/3:** TopologyGuard RwLock poisoning — fail-closed check, `into_inner()` recovery on load/clear.
+    - **R235-AUD-1/2:** IncidentReport per-entry Vec validation + RegulatoryReference `validate()`.
+    - **R235-RLY-1:** Circuit breaker, shadow agent, deputy validation on `handle_resource_read`, `handle_task_request`, `handle_extension_method` (transport parity).
+    - **R235-RLY-2:** Cross-call DLP + sharded exfil tracking on all non-tool-call handlers.
+  - **Sprint 2 — MEDIUMs (17 fixes, commit `53ed9f8`):**
+    - **R235-ENG-1/2:** Genericize deny reasons in `rule_check.rs` (5 sites) and `constraint_eval.rs` (5 sites) — remove user-controlled path/domain/pattern values from deny strings (info disclosure).
+    - **R235-SRV-3:** DPoP `check_timestamp` fail-closed (`unwrap_or(0)` → `map_err`).
+    - **R235-SRV-4/5:** Threat intel `check_indicator` input validation + post-deserialization `validate()`.
+    - **R235-DISC-4/5:** `StaticProbe::upsert_server`/`remove_server` RwLock poisoning recovery.
+    - **R235-DISC-6:** `schedule.rs` `fetch_add` wrapping → `fetch_update` + saturating + `SeqCst`.
+    - **R235-AUD-3:** Merkle `leaf_count as usize` → `usize::try_from`.
+    - **R235-AUD-4:** ETDI audit helpers dangerous char validation on all parameters.
+    - **R235-TYP-1:** `McpCapability.version` `has_dangerous_chars`.
+    - **R235-TYP-2/3/4:** `ProvenanceNode`, `QuarantineEntry`, `MemoryNamespace` `has_dangerous_chars` on all string fields.
+    - **R235-CFG-1/2/3:** New `validate()` for `ShadowAgentConfig`, `SamplingDetectionConfig`, `AdvancedThreatConfig`.
+  - **Sprint 3 — LOWs (10 fixes, commit `53ed9f8`):**
+    - **R235-AUD-5/6:** `saturating_add` on all `verification.rs` counters (9 sites).
+    - **R235-DISC-7:** `server_count()` RwLock poisoning recovery via `into_inner()`.
+    - **R235-DISC-8:** `as u64` → `u64::try_from` on `timeout_ms`; `Ordering::Relaxed` → `SeqCst` on schedule counters.
+    - **R235-CFG-4:** `extra_templates` per-entry length + dangerous chars validation.
+    - **R235-TYP-5:** New `Cc6Evidence::validate()` wired into `AccessReviewReport`.
+    - **R235-TYP-6:** `ZkBatchProof` `as usize` → `usize::try_from`.
+
 - **Coq formal verification CI gate (17th CI job):**
   Builds and verifies all Coq proofs on every push. Rejects incomplete proofs containing
   `Admitted` or `admit` markers. 10-minute timeout, independent of Rust pipeline.
