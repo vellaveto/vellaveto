@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 71: Cross-call DLP state tracking** (`vellaveto-mcp/src/inspection/cross_call_dlp.rs`):
+  `CrossCallDlpTracker` with overlap buffers detects secrets split across multiple tool calls
+  within a session. ~150 bytes per field, 256 max tracked fields, UTF-8 boundary safe. 12 tests.
+
+- **Phase 71.1: TLS termination** (new `vellaveto-tls` crate):
+  Shared rustls-based TLS/mTLS module for `vellaveto-server` and `vellaveto-http-proxy`.
+  SPIFFE identity extraction from X.509 SAN URIs. Post-quantum key exchange policy enforcement
+  (ClassicalOnly, HybridPreferred, HybridRequiredWhenSupported). 11 tests.
+
+- **Phase 72: Schema pattern validation tests** (MCPSEC A13 + A14):
+  A13 — cross-call secret splitting attacks (4 test vectors). A14 — JSON Schema output
+  validation bypass (4 test vectors). Registry expanded from 64→72 attack tests, 12→14 classes.
+
+- **Independent verification infrastructure:**
+  `SECURITY_BOUNTY.md` — HackerOne + Huntr bug bounty program with severity tiers ($100–$5,000).
+  `docs/OSTIF_AUDIT_SCOPE.md` — audit scope document for OSTIF/Alpha-Omega applications.
+  `codecov.yml` — Codecov configuration with 80% patch coverage target and binary exclusions.
+
+- **Test coverage expansion** (3,764 lines across 16 files in 4 crates):
+  Comprehensive tests for audit (archive, PQC, streaming, PostgreSQL query/sink, ZK proofs),
+  cluster (Redis backend), HTTP proxy (gRPC convert/interceptors), MCP (A2A agent card/error,
+  RAG defense embedding/error/grounding, semantic guardrails cache/intent).
+
 - **Enhanced policy presets for non-expert users:**
   Every preset is now a complete, well-documented security posture with plain-language threat
   explanations. A user running `--protect shield` gets comprehensive protection without understanding

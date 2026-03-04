@@ -8,7 +8,7 @@
     <a href="https://github.com/vellaveto/vellaveto/stargazers"><img src="https://img.shields.io/badge/stars-⭐_star_if_useful-yellow.svg?style=flat&logo=github" alt="GitHub Stars"></a>
     <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-MPL--2.0_/_Apache--2.0_/_BUSL--1.1-blue.svg" alt="License: Three-tier"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/MSRV-1.88.0-orange.svg?logo=rust" alt="MSRV 1.88.0"></a>
-    <img src="https://img.shields.io/badge/tests-9%2C950%2B_passing-brightgreen.svg" alt="Tests: 9,950+ passing">
+    <img src="https://img.shields.io/badge/tests-9%2C960%2B_passing-brightgreen.svg" alt="Tests: 9,960+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <a href="docs/SECURITY_GUARANTEES.md"><img src="https://img.shields.io/badge/internal_security_audits-232_rounds-orange.svg" alt="232 Internal Security Audit Rounds"></a>
     <a href="formal/"><img src="https://img.shields.io/badge/formal_verification-132_properties_%7C_5_tools-blueviolet.svg" alt="Formal Verification: 132 properties | 5 tools"></a>
@@ -316,15 +316,20 @@ We use formal methods to prove — not just test — critical security propertie
 
 Formal verification is rare in security tooling. We believe the properties that matter most — fail-closed behavior, determinism, no privilege escalation — should be proven, not just tested. See [formal/README.md](formal/README.md) for details.
 
-### Known Limitations
+### Former Limitations (Now Resolved)
 
-Injection detection is a pre-filter, not a security boundary. DLP does not detect secrets split across multiple calls. No TLS termination (use a reverse proxy). The internal audit process is thorough but is not a substitute for independent third-party review. See [Security Guarantees](docs/SECURITY_GUARANTEES.md) for the full normative contract.
+All four previously documented limitations have been addressed:
+
+- **Cross-call DLP** — `SessionDlpTracker` with overlap buffers detects secrets split across multiple tool calls within a session (~150 bytes state per field). See [`cross_call_dlp.rs`](vellaveto-mcp/src/inspection/cross_call_dlp.rs).
+- **Grammar-validated injection** — JSON Schema `pattern` constraints compiled to DFAs provide a positive security model (Phase 72). The existing Aho-Corasick pre-filter remains as defense-in-depth. MCPSEC A14 attack tests validate enforcement.
+- **TLS termination** — Built-in rustls-based TLS/mTLS via the [`vellaveto-tls`](vellaveto-tls/) crate. Supports SPIFFE identity extraction, post-quantum key exchange policies, and automatic ALPN negotiation. External reverse proxy remains optional.
+- **Independent verification** — [Bug bounty program](SECURITY_BOUNTY.md) (HackerOne + Huntr), [OSTIF audit scope](docs/OSTIF_AUDIT_SCOPE.md), Codecov integration, and OpenSSF Best Practices Badge enrollment.
 
 Full details: [Security Guarantees](docs/SECURITY_GUARANTEES.md) | [Threat Model](docs/THREAT_MODEL.md) | [Assurance Case](docs/ASSURANCE_CASE.md)
 
 ### MCPSEC Benchmark
 
-We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 64 reproducible attack test cases across 12 attack classes. VellaVeto v6.0.0 scores **100/100 (Tier 5: Hardened)** — all 64 tests passed. Run it against any MCP gateway — including ours:
+We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 72 reproducible attack test cases across 14 attack classes (including A13: cross-call secret splitting, A14: schema pattern bypass). VellaVeto v6.0.0 scores **100/100 (Tier 5: Hardened)** — all 72 tests passed. Run it against any MCP gateway — including ours:
 
 ```bash
 cargo run -p mcpsec -- --target http://localhost:3000 --format markdown

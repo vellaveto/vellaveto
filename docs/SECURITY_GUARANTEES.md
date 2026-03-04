@@ -129,8 +129,9 @@ These conditions must hold for the guarantees above to apply:
 1. **Inline deployment.** Vellaveto is deployed as an intercepting proxy on all
    agent-to-tool communication paths.
 
-2. **TLS termination.** Transport encryption is handled by an upstream load
-   balancer or reverse proxy. Vellaveto does not terminate TLS itself.
+2. **TLS termination.** Transport encryption is handled by the built-in
+   `vellaveto-tls` module (rustls-based TLS/mTLS with SPIFFE and PQ KEX support)
+   or by an upstream load balancer / reverse proxy.
 
 3. **Filesystem integrity.** The host filesystem is not actively compromised
    during audit log writes. (Compromise is detected after the fact via hash
