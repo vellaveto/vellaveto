@@ -2227,9 +2227,180 @@ impl ProxyBridge {
             safe_task_id
         );
 
+        // SECURITY (R235-RLY-1): Circuit breaker check — transport parity with handle_tool_call.
+        if let Some(ref cb) = self.circuit_breaker {
+            let cb_key = format!("task:{safe_task_method}");
+            if let Err(reason) = cb.can_proceed(&cb_key) {
+                tracing::warn!(
+                    "SECURITY: Circuit breaker blocking task '{}': {}",
+                    safe_task_method,
+                    reason
+                );
+                let action = extract_task_action(&task_method, task_id.as_deref());
+                let verdict = Verdict::Deny {
+                    reason: reason.clone(),
+                };
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "circuit_breaker_blocked",
+                            "handler": safe_task_method,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit circuit breaker block: {}", e);
+                }
+                let response = make_denial_response(&id, &reason);
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+                return Ok(());
+            }
+        }
+
+        // SECURITY (R235-RLY-1): Shadow agent detection — transport parity with handle_tool_call.
+        if let Some(ref detector) = self.shadow_agent {
+            let fingerprint = Self::extract_fingerprint_from_meta(&msg);
+            if fingerprint.is_populated() {
+                if let Some(claimed_id) = Self::extract_agent_id(&msg) {
+                    if let Err(alert) = detector.detect_shadow(&claimed_id, &fingerprint) {
+                        tracing::warn!(
+                            "SECURITY: Shadow agent detected in task '{}' - claimed '{}'",
+                            safe_task_method,
+                            claimed_id
+                        );
+                        let action = extract_task_action(&task_method, task_id.as_deref());
+                        let reason = format!(
+                            "Shadow agent detected: claimed identity '{claimed_id}' does not match fingerprint"
+                        );
+                        let verdict = Verdict::Deny {
+                            reason: reason.clone(),
+                        };
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &action,
+                                &verdict,
+                                json!({
+                                    "source": "proxy",
+                                    "event": "shadow_agent_detected",
+                                    "claimed_id": claimed_id,
+                                    "expected_summary": alert.expected_fingerprint.summary(),
+                                    "actual_summary": alert.actual_fingerprint.summary(),
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit shadow agent: {}", e);
+                        }
+                        let response = make_denial_response(&id, &reason);
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        // SECURITY (R235-RLY-1): Deputy validation — transport parity with handle_tool_call.
+        if let Some(ref deputy) = self.deputy {
+            let session_id = "stdio-session";
+            if let Some(claimed_id) = Self::extract_agent_id(&msg) {
+                if let Err(err) = deputy.validate_action(session_id, &task_method, &claimed_id) {
+                    let reason = err.to_string();
+                    tracing::warn!(
+                        "SECURITY: Deputy validation failed for task '{}': {}",
+                        safe_task_method,
+                        reason
+                    );
+                    let action = extract_task_action(&task_method, task_id.as_deref());
+                    let verdict = Verdict::Deny {
+                        reason: reason.clone(),
+                    };
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            json!({
+                                "source": "proxy",
+                                "event": "deputy_validation_failed",
+                                "session": session_id,
+                                "principal": claimed_id,
+                                "handler": safe_task_method,
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit deputy validation: {}", e);
+                    }
+                    let response = make_denial_response(&id, &reason);
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+            }
+        }
+
         // R4-1: DLP scan task request parameters for secret exfiltration.
         let task_params = msg.get("params").cloned().unwrap_or(json!({}));
-        let dlp_findings = scan_parameters_for_secrets(&task_params);
+        let mut dlp_findings = scan_parameters_for_secrets(&task_params);
+
+        // SECURITY (R235-RLY-2): Cross-call DLP — transport parity with handle_tool_call.
+        if let Some(ref mut tracker) = state.cross_call_dlp {
+            let args_str = match serde_json::to_string(&task_params) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!(
+                        "SECURITY: Cross-call DLP serialization failed for task '{}': {} — denying (fail-closed)",
+                        safe_task_method, e
+                    );
+                    dlp_findings.push(crate::inspection::DlpFinding {
+                        pattern_name: "cross_call_dlp_serialization_failure".to_string(),
+                        location: format!("task.{safe_task_method}"),
+                    });
+                    String::new()
+                }
+            };
+            let field_path = format!("task.{safe_task_method}");
+            let cross_findings = tracker.scan_with_overlap(&field_path, &args_str);
+            if !cross_findings.is_empty() {
+                tracing::warn!(
+                    "SECURITY: Cross-call DLP alert for task '{}': {} findings",
+                    safe_task_method,
+                    cross_findings.len()
+                );
+                dlp_findings.extend(cross_findings);
+            }
+        }
+
+        // SECURITY (R235-RLY-2): Sharded exfiltration — transport parity with handle_tool_call.
+        if let Some(ref mut tracker) = state.sharded_exfil {
+            let _ = tracker.record_parameters(&task_params);
+            if let Some(cumulative_bytes) = tracker.check_exfiltration() {
+                tracing::warn!(
+                    "SECURITY: Sharded exfiltration detected in task '{}': {} cumulative high-entropy bytes",
+                    safe_task_method, cumulative_bytes
+                );
+                dlp_findings.push(crate::inspection::dlp::DlpFinding {
+                    pattern_name: "sharded_exfiltration".to_string(),
+                    location: format!(
+                        "task.{} ({} bytes across {} fragments)",
+                        safe_task_method,
+                        cumulative_bytes,
+                        tracker.fragment_count()
+                    ),
+                });
+            }
+        }
+
         if !dlp_findings.is_empty() {
             tracing::warn!(
                 "SECURITY: DLP alert for task '{}': {:?}",
@@ -2713,6 +2884,48 @@ impl ProxyBridge {
             }
         }
 
+        // SECURITY (R235-RLY-1): Deputy validation — transport parity with handle_tool_call.
+        if let Some(ref deputy) = self.deputy {
+            let session_id = "stdio-session";
+            if let Some(claimed_id) = Self::extract_agent_id(&msg) {
+                let deputy_key = format!("ext:{extension_id}:{method}");
+                if let Err(err) = deputy.validate_action(session_id, &deputy_key, &claimed_id) {
+                    let reason = err.to_string();
+                    tracing::warn!(
+                        "SECURITY: Deputy validation failed for extension '{}:{}': {}",
+                        safe_extension_id,
+                        safe_ext_method,
+                        reason
+                    );
+                    let verdict = Verdict::Deny {
+                        reason: reason.clone(),
+                    };
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            json!({
+                                "source": "proxy",
+                                "event": "deputy_validation_failed",
+                                "session": session_id,
+                                "principal": claimed_id,
+                                "handler": deputy_key,
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit deputy validation: {}", e);
+                    }
+                    let response = make_denial_response(&id, &reason);
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+            }
+        }
+
         let eval_ctx = state.evaluation_context();
 
         match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
@@ -2804,7 +3017,55 @@ impl ProxyBridge {
 
                 // SECURITY (FIND-R46-004): DLP scan extension method parameters
                 // before forwarding. Extension methods must not bypass DLP.
-                let dlp_findings = scan_parameters_for_secrets(&params);
+                let mut dlp_findings = scan_parameters_for_secrets(&params);
+
+                // SECURITY (R235-RLY-2): Cross-call DLP — transport parity with handle_tool_call.
+                if let Some(ref mut tracker) = state.cross_call_dlp {
+                    let args_str = match serde_json::to_string(&params) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::error!(
+                                "SECURITY: Cross-call DLP serialization failed for extension '{}:{}': {} — denying (fail-closed)",
+                                safe_extension_id, safe_ext_method, e
+                            );
+                            dlp_findings.push(crate::inspection::DlpFinding {
+                                pattern_name: "cross_call_dlp_serialization_failure".to_string(),
+                                location: format!("ext:{safe_extension_id}:{safe_ext_method}"),
+                            });
+                            String::new()
+                        }
+                    };
+                    let field_path = format!("ext:{safe_extension_id}:{safe_ext_method}");
+                    let cross_findings = tracker.scan_with_overlap(&field_path, &args_str);
+                    if !cross_findings.is_empty() {
+                        tracing::warn!(
+                            "SECURITY: Cross-call DLP alert for extension '{}:{}': {} findings",
+                            safe_extension_id, safe_ext_method, cross_findings.len()
+                        );
+                        dlp_findings.extend(cross_findings);
+                    }
+                }
+
+                // SECURITY (R235-RLY-2): Sharded exfiltration — transport parity with handle_tool_call.
+                if let Some(ref mut tracker) = state.sharded_exfil {
+                    let _ = tracker.record_parameters(&params);
+                    if let Some(cumulative_bytes) = tracker.check_exfiltration() {
+                        tracing::warn!(
+                            "SECURITY: Sharded exfiltration detected in extension '{}:{}': {} cumulative high-entropy bytes",
+                            safe_extension_id, safe_ext_method, cumulative_bytes
+                        );
+                        dlp_findings.push(crate::inspection::dlp::DlpFinding {
+                            pattern_name: "sharded_exfiltration".to_string(),
+                            location: format!(
+                                "ext:{}:{} ({} bytes across {} fragments)",
+                                safe_extension_id, safe_ext_method,
+                                cumulative_bytes,
+                                tracker.fragment_count()
+                            ),
+                        });
+                    }
+                }
+
                 if !dlp_findings.is_empty() {
                     let patterns: Vec<String> = dlp_findings
                         .iter()
