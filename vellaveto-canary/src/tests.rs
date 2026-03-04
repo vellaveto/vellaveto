@@ -51,7 +51,8 @@ fn test_expired_canary_detected() {
         &canary.signed_date,
         &canary.expires_date,
         &canary.statement,
-    );
+    )
+    .expect("canonical_payload should succeed");
     let sig = signing_key.sign(&payload);
     canary.signature = hex::encode(sig.to_bytes());
 
