@@ -27,6 +27,7 @@
 //! - [`multimodal`] - Image/document injection detection (feature-gated)
 //! - [`util`] - Shared utilities (base64 decoding, transformations)
 
+pub mod cross_call_dlp;
 pub mod dlp;
 pub mod injection;
 pub mod multimodal;

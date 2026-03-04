@@ -5683,6 +5683,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "vellaveto-tls"
+version = "6.0.1"
+dependencies = [
+ "rustls",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "vellaveto-config",
+ "x509-parser",
+]
+
+[[package]]
 name = "vellaveto-types"
 version = "6.0.1"
 dependencies = [

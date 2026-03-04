@@ -17,12 +17,12 @@ use mcpsec::scoring;
 use mcpsec::{AttackResult, BenchmarkResult, BenchmarkSummary, PropertyScore};
 
 #[test]
-fn test_attack_registry_has_64_tests() {
+fn test_attack_registry_has_72_tests() {
     let tests = attacks::all_tests();
     assert_eq!(
         tests.len(),
-        64,
-        "Expected 64 test cases, got {}",
+        72,
+        "Expected 72 test cases, got {}",
         tests.len()
     );
 }
@@ -57,15 +57,15 @@ fn test_attack_ids_follow_format() {
 }
 
 #[test]
-fn test_all_12_attack_classes_present() {
+fn test_all_14_attack_classes_present() {
     let tests = attacks::all_tests();
     let mut classes: Vec<&str> = tests.iter().map(|t| t.class).collect();
     classes.sort();
     classes.dedup();
     assert_eq!(
         classes.len(),
-        12,
-        "Expected 12 attack classes, got {}: {:?}",
+        14,
+        "Expected 14 attack classes, got {}: {:?}",
         classes.len(),
         classes
     );

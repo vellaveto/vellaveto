@@ -21,6 +21,7 @@ members = [
     "vellaveto-http-proxy-shield",
     "vellaveto-canary",
     "vellaveto-shield",
+    "vellaveto-tls",
 ]
 
 [workspace.package]

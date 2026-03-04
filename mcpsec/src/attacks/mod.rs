@@ -7,7 +7,7 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-//! Attack registry — defines all 64 test cases across 12 attack classes.
+//! Attack registry — defines all 72 test cases across 14 attack classes.
 
 pub mod a01_injection;
 pub mod a02_rug_pull;
@@ -21,6 +21,8 @@ pub mod a09_ssrf;
 pub mod a10_dos;
 pub mod a11_elicitation;
 pub mod a12_covert;
+pub mod a13_cross_call;
+pub mod a14_schema_bypass;
 
 /// A single attack test case.
 pub struct AttackTest {
@@ -108,9 +110,9 @@ pub fn is_clean(body: &serde_json::Value, status: u16) -> bool {
     is_allow(body, status) && !has_injection(body, status) && !has_dlp(body, status)
 }
 
-/// Return all 64 attack test cases.
+/// Return all 72 attack test cases.
 pub fn all_tests() -> Vec<AttackTest> {
-    let mut tests = Vec::with_capacity(64);
+    let mut tests = Vec::with_capacity(72);
     tests.extend(a01_injection::tests());
     tests.extend(a02_rug_pull::tests());
     tests.extend(a03_parameter::tests());
@@ -123,6 +125,8 @@ pub fn all_tests() -> Vec<AttackTest> {
     tests.extend(a10_dos::tests());
     tests.extend(a11_elicitation::tests());
     tests.extend(a12_covert::tests());
+    tests.extend(a13_cross_call::tests());
+    tests.extend(a14_schema_bypass::tests());
     tests
 }
 
@@ -135,8 +139,8 @@ mod tests {
         let tests = all_tests();
         assert_eq!(
             tests.len(),
-            64,
-            "Expected 64 test cases, got {}",
+            72,
+            "Expected 72 test cases, got {}",
             tests.len()
         );
     }

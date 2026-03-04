@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: MPL-2.0
+# Codecov configuration for Vellaveto
+# See https://docs.codecov.io/docs/codecovyml-reference
+
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto      # Compare to parent commit
+        threshold: 1%     # Allow 1% drop without failing
+    patch:
+      default:
+        target: 80%       # New code must be >=80% covered
+
+ignore:
+  # Binary entry points (untestable without full process)
+  - "vellaveto-server/src/main.rs"
+  - "vellaveto-http-proxy/src/main.rs"
+  - "vellaveto-proxy/src/main.rs"
+  - "vellaveto-shield/src/main.rs"
+  - "vellaveto-operator/src/main.rs"
+  # Formal verification (not runtime code)
+  - "formal/**"
+  - "vellaveto-engine/src/kani_proofs.rs"
+  # Fuzz targets
+  - "fuzz/**"
+  # Non-Rust code (covered by their own test suites)
+  - "sdk/**"
+  - "admin-console/**"
+  - "vscode-vellaveto/**"
+  - "terraform-provider-vellaveto/**"
