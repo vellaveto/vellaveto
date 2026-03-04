@@ -2375,19 +2375,32 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_dedup_key_nfkc_normalization() {
-        // Unicode ligature "ﬁ" should NFKC-normalize to "fi"
-        let action1 = Action::new(
-            "\u{FB01}le_system".to_string(), // "ﬁle_system"
-            "read".to_string(),
-            json!({}),
-        );
+    fn test_compute_dedup_key_case_normalization() {
+        // normalize_identity lowercases and normalizes homoglyphs.
+        let action1 = Action::new("File_System".to_string(), "Read".to_string(), json!({}));
         let action2 = Action::new("file_system".to_string(), "read".to_string(), json!({}));
         let key1 = compute_dedup_key(&action1, "reason", None).unwrap();
         let key2 = compute_dedup_key(&action2, "reason", None).unwrap();
         assert_eq!(
             key1, key2,
-            "NFKC-equivalent tool names should produce the same dedup key"
+            "Case-different tool names should produce the same dedup key via normalize_identity"
+        );
+    }
+
+    #[test]
+    fn test_compute_dedup_key_homoglyph_normalization() {
+        // Cyrillic 'а' (U+0430) should normalize to Latin 'a' via normalize_identity
+        let action1 = Action::new(
+            "\u{0430}gent".to_string(), // Cyrillic 'а' + "gent"
+            "read".to_string(),
+            json!({}),
+        );
+        let action2 = Action::new("agent".to_string(), "read".to_string(), json!({}));
+        let key1 = compute_dedup_key(&action1, "reason", None).unwrap();
+        let key2 = compute_dedup_key(&action2, "reason", None).unwrap();
+        assert_eq!(
+            key1, key2,
+            "Homoglyph-equivalent tool names should produce the same dedup key"
         );
     }
 

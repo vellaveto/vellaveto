@@ -455,8 +455,7 @@ mod tests {
 
     #[test]
     fn test_create_pin_request_missing_hash_rejected() {
-        let result: Result<CreatePinRequest, _> =
-            serde_json::from_str(r#"{"version":"1.0.0"}"#);
+        let result: Result<CreatePinRequest, _> = serde_json::from_str(r#"{"version":"1.0.0"}"#);
         assert!(result.is_err());
     }
 

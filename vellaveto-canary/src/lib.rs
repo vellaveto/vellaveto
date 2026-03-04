@@ -72,23 +72,31 @@ fn has_dangerous_chars(s: &str) -> bool {
 }
 
 /// Build the canonical payload for signing/verification.
+///
+/// # Errors
+/// Returns an error if JSON canonicalization fails (should never happen
+/// for well-formed inputs, but fail-closed is mandatory).
 fn canonical_payload(
     version: u8,
     signed_date: &str,
     expires_date: &str,
     statement: &str,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, String> {
     let obj = serde_json::json!({
         "version": version,
         "signed_date": signed_date,
         "expires_date": expires_date,
         "statement": statement,
     });
+    // SECURITY (R235-SHIELD-3): Propagate errors instead of unwrap_or_default().
+    // Silent fallback could produce different canonical forms for the same input,
+    // causing signature verification to silently fail or pass incorrectly.
     let canonical = serde_json_canonicalizer::to_string(&obj)
-        .unwrap_or_else(|_| serde_json::to_string(&obj).unwrap_or_default());
+        .or_else(|_| serde_json::to_string(&obj))
+        .map_err(|e| format!("canonical payload serialization failed: {e}"))?;
     let mut hasher = Sha256::new();
     hasher.update(canonical.as_bytes());
-    hasher.finalize().to_vec()
+    Ok(hasher.finalize().to_vec())
 }
 
 /// Create a new warrant canary.
@@ -149,7 +157,7 @@ pub fn create_canary(
         .to_string();
 
     // Sign canonical payload
-    let payload = canonical_payload(CANARY_VERSION, &signed_date, &expires_date, statement);
+    let payload = canonical_payload(CANARY_VERSION, &signed_date, &expires_date, statement)?;
     let signature = signing_key.sign(&payload);
 
     Ok(WarrantCanary {
@@ -215,7 +223,7 @@ pub fn verify_canary(canary: &WarrantCanary) -> Result<CanaryVerification, Strin
         &canary.signed_date,
         &canary.expires_date,
         &canary.statement,
-    );
+    )?;
     let signature_valid = verifying_key.verify(&payload, &signature).is_ok();
 
     // Check expiration

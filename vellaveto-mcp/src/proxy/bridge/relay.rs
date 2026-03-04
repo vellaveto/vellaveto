@@ -1449,9 +1449,175 @@ impl ProxyBridge {
             agent: agent_writer,
             child: child_stdin,
         } = io;
+        // SECURITY (R235-RLY-1): Circuit breaker check — transport parity with handle_tool_call.
+        if let Some(ref cb) = self.circuit_breaker {
+            if let Err(reason) = cb.can_proceed("resources/read") {
+                tracing::warn!(
+                    "SECURITY: Circuit breaker blocking resources/read: {}",
+                    reason
+                );
+                let action = extract_resource_action(&uri);
+                let verdict = Verdict::Deny {
+                    reason: reason.clone(),
+                };
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "circuit_breaker_blocked",
+                            "handler": "resources/read",
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit circuit breaker block: {}", e);
+                }
+                let response = make_denial_response(&id, &reason);
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+                return Ok(());
+            }
+        }
+
+        // SECURITY (R235-RLY-1): Shadow agent detection — transport parity with handle_tool_call.
+        if let Some(ref detector) = self.shadow_agent {
+            let fingerprint = Self::extract_fingerprint_from_meta(&msg);
+            if fingerprint.is_populated() {
+                if let Some(claimed_id) = Self::extract_agent_id(&msg) {
+                    if let Err(alert) = detector.detect_shadow(&claimed_id, &fingerprint) {
+                        tracing::warn!(
+                            "SECURITY: Shadow agent detected in resources/read - claimed '{}'",
+                            claimed_id
+                        );
+                        let action = extract_resource_action(&uri);
+                        let reason = format!(
+                            "Shadow agent detected: claimed identity '{claimed_id}' does not match fingerprint"
+                        );
+                        let verdict = Verdict::Deny {
+                            reason: reason.clone(),
+                        };
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &action,
+                                &verdict,
+                                json!({
+                                    "source": "proxy",
+                                    "event": "shadow_agent_detected",
+                                    "claimed_id": claimed_id,
+                                    "expected_summary": alert.expected_fingerprint.summary(),
+                                    "actual_summary": alert.actual_fingerprint.summary(),
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit shadow agent: {}", e);
+                        }
+                        let response = make_denial_response(&id, &reason);
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        // SECURITY (R235-RLY-1): Deputy validation — transport parity with handle_tool_call.
+        if let Some(ref deputy) = self.deputy {
+            let session_id = "stdio-session";
+            if let Some(claimed_id) = Self::extract_agent_id(&msg) {
+                if let Err(err) =
+                    deputy.validate_action(session_id, "resources/read", &claimed_id)
+                {
+                    let reason = err.to_string();
+                    tracing::warn!(
+                        "SECURITY: Deputy validation failed for resources/read: {}",
+                        reason
+                    );
+                    let action = extract_resource_action(&uri);
+                    let verdict = Verdict::Deny {
+                        reason: reason.clone(),
+                    };
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            json!({
+                                "source": "proxy",
+                                "event": "deputy_validation_failed",
+                                "session": session_id,
+                                "principal": claimed_id,
+                                "handler": "resources/read",
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit deputy validation: {}", e);
+                    }
+                    let response = make_denial_response(&id, &reason);
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+            }
+        }
+
         // SECURITY: DLP scan the resource URI for embedded secrets.
         let uri_as_json = json!({"uri": uri});
-        let dlp_findings = scan_parameters_for_secrets(&uri_as_json);
+        let mut dlp_findings = scan_parameters_for_secrets(&uri_as_json);
+
+        // SECURITY (R235-RLY-2): Cross-call DLP — transport parity with handle_tool_call.
+        if let Some(ref mut tracker) = state.cross_call_dlp {
+            let args_str = match serde_json::to_string(&uri_as_json) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!(
+                        "SECURITY: Cross-call DLP serialization failed for resources/read: {} — denying (fail-closed)",
+                        e
+                    );
+                    dlp_findings.push(crate::inspection::DlpFinding {
+                        pattern_name: "cross_call_dlp_serialization_failure".to_string(),
+                        location: "resources/read".to_string(),
+                    });
+                    String::new()
+                }
+            };
+            let cross_findings = tracker.scan_with_overlap("resources/read", &args_str);
+            if !cross_findings.is_empty() {
+                tracing::warn!(
+                    "SECURITY: Cross-call DLP alert for resources/read: {} findings",
+                    cross_findings.len()
+                );
+                dlp_findings.extend(cross_findings);
+            }
+        }
+
+        // SECURITY (R235-RLY-2): Sharded exfiltration — transport parity with handle_tool_call.
+        if let Some(ref mut tracker) = state.sharded_exfil {
+            let _ = tracker.record_parameters(&uri_as_json);
+            if let Some(cumulative_bytes) = tracker.check_exfiltration() {
+                tracing::warn!(
+                    "SECURITY: Sharded exfiltration detected in resources/read: {} cumulative high-entropy bytes",
+                    cumulative_bytes
+                );
+                dlp_findings.push(crate::inspection::dlp::DlpFinding {
+                    pattern_name: "sharded_exfiltration".to_string(),
+                    location: format!(
+                        "resources/read ({} bytes across {} fragments)",
+                        cumulative_bytes,
+                        tracker.fragment_count()
+                    ),
+                });
+            }
+        }
+
         if !dlp_findings.is_empty() {
             // SECURITY (FIND-R136-003): Sanitize URI before logging.
             let safe_uri = vellaveto_types::sanitize_for_log(&uri, 512);

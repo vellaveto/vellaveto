@@ -2005,22 +2005,11 @@ fn test_extract_fingerprint_from_meta_prefers_snake_case_over_camel() {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// helpers.rs: extract_agent_id tests
+// helpers.rs: extract_agent_id — additional coverage
 // ─────────────────────────────────────────────────────────────────────
 
 #[test]
-fn test_extract_agent_id_valid() {
-    let msg = json!({
-        "_meta": {
-            "agent_id": "legitimate-agent"
-        }
-    });
-    let id = ProxyBridge::extract_agent_id(&msg);
-    assert_eq!(id.as_deref(), Some("legitimate-agent"));
-}
-
-#[test]
-fn test_extract_agent_id_camelcase() {
+fn test_extract_agent_id_camelcase_variant() {
     let msg = json!({
         "_meta": {
             "agentId": "camel-agent"
@@ -2031,7 +2020,7 @@ fn test_extract_agent_id_camelcase() {
 }
 
 #[test]
-fn test_extract_agent_id_nested_in_params() {
+fn test_extract_agent_id_nested_in_params_meta() {
     let msg = json!({
         "params": {
             "_meta": {
@@ -2051,42 +2040,10 @@ fn test_extract_agent_id_missing_meta_returns_none() {
 }
 
 #[test]
-fn test_extract_agent_id_missing_agent_id_returns_none() {
+fn test_extract_agent_id_missing_agent_id_field_returns_none() {
     let msg = json!({"_meta": {"other_field": "value"}});
     let id = ProxyBridge::extract_agent_id(&msg);
     assert!(id.is_none());
-}
-
-#[test]
-fn test_extract_agent_id_rejects_too_long() {
-    let long_id = "a".repeat(257);
-    let msg = json!({"_meta": {"agent_id": long_id}});
-    let id = ProxyBridge::extract_agent_id(&msg);
-    assert!(
-        id.is_none(),
-        "Agent ID exceeding 256 chars should be rejected"
-    );
-}
-
-#[test]
-fn test_extract_agent_id_accepts_max_length() {
-    let max_id = "b".repeat(256);
-    let msg = json!({"_meta": {"agent_id": max_id}});
-    let id = ProxyBridge::extract_agent_id(&msg);
-    assert!(
-        id.is_some(),
-        "Agent ID at exactly 256 chars should be accepted"
-    );
-}
-
-#[test]
-fn test_extract_agent_id_rejects_control_chars() {
-    let msg = json!({"_meta": {"agent_id": "bad\nagent"}});
-    let id = ProxyBridge::extract_agent_id(&msg);
-    assert!(
-        id.is_none(),
-        "Agent ID with control chars should be rejected"
-    );
 }
 
 #[test]
@@ -2097,42 +2054,17 @@ fn test_extract_agent_id_rejects_null_byte() {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// evaluation.rs: tool_call_audit_metadata tests
+// evaluation.rs: tool_call_audit_metadata — destructive variant
 // ─────────────────────────────────────────────────────────────────────
 
 #[test]
-fn test_tool_call_audit_metadata_includes_source_and_tool() {
-    let meta = ProxyBridge::tool_call_audit_metadata("read_file", None);
-    assert_eq!(meta["source"], "proxy");
-    assert_eq!(meta["tool"], "read_file");
-    assert!(meta.get("annotations").is_none());
-}
-
-#[test]
-fn test_tool_call_audit_metadata_with_annotations_includes_hints() {
-    let annotations = ToolAnnotations {
-        read_only_hint: true,
-        destructive_hint: false,
-        idempotent_hint: true,
-        open_world_hint: false,
-    };
-    let meta = ProxyBridge::tool_call_audit_metadata("list_dir", Some(&annotations));
-    assert_eq!(meta["source"], "proxy");
-    assert_eq!(meta["tool"], "list_dir");
-    let ann = &meta["annotations"];
-    assert_eq!(ann["readOnlyHint"], true);
-    assert_eq!(ann["destructiveHint"], false);
-    assert_eq!(ann["idempotentHint"], true);
-    assert_eq!(ann["openWorldHint"], false);
-}
-
-#[test]
-fn test_tool_call_audit_metadata_destructive_annotations() {
+fn test_tool_call_audit_metadata_destructive_tool_annotations() {
     let annotations = ToolAnnotations {
         read_only_hint: false,
         destructive_hint: true,
         idempotent_hint: false,
         open_world_hint: true,
+        input_schema_hash: None,
     };
     let meta = ProxyBridge::tool_call_audit_metadata("delete_file", Some(&annotations));
     let ann = &meta["annotations"];

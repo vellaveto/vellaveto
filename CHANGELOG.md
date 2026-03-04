@@ -41,7 +41,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   legacy, normalize, traced, policy_compile, context_check), vellaveto-http-proxy (+104: auth,
   origin, call_chain, inspection, fallback), vellaveto-server (+123: routes/mod, dpop,
   idempotency, tenant, threat_intel, tls). All #[cfg(test)] modules only — zero production
-  code modified. Workspace total: 9,998 tests, 0 failures.
+  code modified.
+
+- **Test coverage expansion — Phase 3** (+209 inline tests across 12 files in 5 crates):
+  Server routes: vellaveto-server (+154: compliance, policy_lifecycle, inventory, approval,
+  audit, etdi, exec_graph, tenant). Cluster: vellaveto-cluster (+14: local backend approval
+  delegation, error mapping). Benchmark: mcpsec (+8: config construction, serde roundtrips,
+  invariant checks). MCP proxy bridge: vellaveto-mcp (+17: helpers extraction, evaluation
+  forwarding, annotation hints). Approval: vellaveto-approval (+16: dedup key determinism,
+  homoglyph normalization, capacity, reason/identity validation).
 
 - **Enhanced policy presets for non-expert users:**
   Every preset is now a complete, well-documented security posture with plain-language threat

@@ -67,12 +67,16 @@ impl TopologyGuard {
     /// Load an initial topology.
     pub fn load(&self, topology: TopologyGraph) {
         let arc = Arc::new(topology);
-        // SAFETY: RwLock poisoning handled by treating poisoned lock as bypass.
-        if let Ok(mut guard) = self.topology.write() {
-            *guard = Some(arc);
-        } else {
-            tracing::error!("TopologyGuard RwLock poisoned during load — remaining in bypass mode");
-        }
+        // SECURITY (R235-DISC-2): Recover from poisoned lock via into_inner().
+        // Silently remaining in bypass mode is fail-open — we must overwrite.
+        let mut guard = match self.topology.write() {
+            Ok(g) => g,
+            Err(poisoned) => {
+                tracing::warn!("TopologyGuard RwLock poisoned during load — recovering via into_inner()");
+                poisoned.into_inner()
+            }
+        };
+        *guard = Some(arc);
     }
 
     /// Hot-swap the topology (atomic replace, no downtime).
@@ -98,10 +102,14 @@ impl TopologyGuard {
                 None => return TopologyVerdict::Bypassed,
             },
             Err(_) => {
-                // Poisoned lock — fail open to bypass (defense in depth:
-                // policy engine still evaluates after this).
-                tracing::error!("TopologyGuard RwLock poisoned during check — bypassing");
-                return TopologyVerdict::Bypassed;
+                // SECURITY (R235-DISC-1): Poisoned lock — fail-closed.
+                // Returning Bypassed would skip topology verification entirely.
+                tracing::error!("TopologyGuard RwLock poisoned during check — denying (fail-closed)");
+                return TopologyVerdict::Unknown {
+                    requested_tool: tool_name.to_string(),
+                    suggestion: None,
+                    available_tools: Vec::new(),
+                };
             }
         };
 
@@ -172,9 +180,16 @@ impl TopologyGuard {
 
     /// Clear the topology (revert to bypass mode).
     pub fn clear(&self) {
-        if let Ok(mut guard) = self.topology.write() {
-            *guard = None;
-        }
+        // SECURITY (R235-DISC-3): Recover from poisoned lock via into_inner().
+        // Silently failing to clear leaves stale topology data.
+        let mut guard = match self.topology.write() {
+            Ok(g) => g,
+            Err(poisoned) => {
+                tracing::warn!("TopologyGuard RwLock poisoned during clear — recovering via into_inner()");
+                poisoned.into_inner()
+            }
+        };
+        *guard = None;
     }
 
     /// Incrementally upsert a single server into the topology.

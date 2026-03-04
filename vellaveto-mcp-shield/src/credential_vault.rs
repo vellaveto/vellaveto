@@ -214,6 +214,13 @@ impl CredentialVault {
             }
         }
 
+        // SECURITY (R235-SHIELD-2): Persist expired status changes to disk.
+        // Without persistence, a crash reverts expired credentials to Available,
+        // allowing credential reuse across sessions.
+        if expired_count > 0 {
+            self.persist_entries(&entries)?;
+        }
+
         // SECURITY (R233-SHIELD-5): Fail-closed on epoch lock poisoning.
         let mut epoch = self
             .current_epoch

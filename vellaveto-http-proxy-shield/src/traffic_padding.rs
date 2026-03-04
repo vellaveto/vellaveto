@@ -114,17 +114,31 @@ pub fn pad_content(content: &[u8], target_size: usize) -> Vec<u8> {
     // 4 bytes for length prefix
     let total_needed = 4 + content_len;
 
+    // SECURITY (R235-SHIELD-1): Use try_from to prevent silent truncation
+    // on content larger than 4 GB (u32::MAX).
+    let content_len_u32 = match u32::try_from(content_len) {
+        Ok(v) => v,
+        Err(_) => {
+            // Content too large for u32 length prefix — return unpadded with
+            // max-value marker so unpad_content will fail safely.
+            tracing::error!(
+                "SECURITY: pad_content content_len exceeds u32::MAX — returning unpadded"
+            );
+            return content.to_vec();
+        }
+    };
+
     if total_needed >= target_size {
         // No room for padding — just prepend length
         let mut result = Vec::with_capacity(total_needed);
-        result.extend_from_slice(&(content_len as u32).to_le_bytes());
+        result.extend_from_slice(&content_len_u32.to_le_bytes());
         result.extend_from_slice(content);
         return result;
     }
 
     let padding_len = target_size - total_needed;
     let mut result = Vec::with_capacity(target_size);
-    result.extend_from_slice(&(content_len as u32).to_le_bytes());
+    result.extend_from_slice(&content_len_u32.to_le_bytes());
     result.extend_from_slice(content);
 
     // Fill with deterministic padding (not random — avoids entropy drain)

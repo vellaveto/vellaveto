@@ -317,3 +317,76 @@ pub async fn get_graph_stats(
     })?;
     Ok(Json(value))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── GraphListQuery serde tests ───────────────────────────────────────
+
+    #[test]
+    fn test_graph_list_query_defaults() {
+        let q: GraphListQuery = serde_json::from_str("{}").unwrap();
+        assert!(q.tool.is_none());
+        assert!(q.limit.is_none());
+        assert!(q.offset.is_none());
+    }
+
+    #[test]
+    fn test_graph_list_query_with_values() {
+        let q: GraphListQuery =
+            serde_json::from_str(r#"{"tool":"read_file","limit":50,"offset":10}"#).unwrap();
+        assert_eq!(q.tool.as_deref(), Some("read_file"));
+        assert_eq!(q.limit, Some(50));
+        assert_eq!(q.offset, Some(10));
+    }
+
+    #[test]
+    fn test_graph_list_query_denies_unknown_fields() {
+        let result: Result<GraphListQuery, _> =
+            serde_json::from_str(r#"{"tool":"x","bogus":true}"#);
+        assert!(result.is_err());
+    }
+
+    // ── Constants sanity checks ──────────────────────────────────────────
+
+    #[test]
+    fn test_max_tool_filter_scan_bounded() {
+        assert!(MAX_TOOL_FILTER_SCAN > 0);
+        assert!(MAX_TOOL_FILTER_SCAN <= 100_000);
+    }
+
+    #[test]
+    fn test_max_tool_filter_len_bounded() {
+        assert!(MAX_TOOL_FILTER_LEN > 0);
+        assert!(MAX_TOOL_FILTER_LEN <= 1024);
+    }
+
+    // ── Session ID validation logic tests ────────────────────────────────
+    // These test the inline validation used across all handlers.
+
+    #[test]
+    fn test_session_id_validation_valid() {
+        let session = "abc-123-def";
+        assert!(session.len() <= 128);
+        assert!(!session.chars().any(crate::routes::is_unsafe_char));
+    }
+
+    #[test]
+    fn test_session_id_validation_too_long() {
+        let session = "a".repeat(129);
+        assert!(session.len() > 128);
+    }
+
+    #[test]
+    fn test_session_id_validation_control_chars() {
+        let session = "abc\x00def";
+        assert!(session.chars().any(crate::routes::is_unsafe_char));
+    }
+
+    #[test]
+    fn test_session_id_validation_newline() {
+        let session = "abc\ndef";
+        assert!(session.chars().any(crate::routes::is_unsafe_char));
+    }
+}

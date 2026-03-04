@@ -556,8 +556,11 @@ impl IamState {
         let discovery = OidcDiscovery::fetch(&config.oidc, config.oidc.allow_insecure_issuer)
             .await
             .map_err(IamError::Discovery)?;
+        // SECURITY (R235-SRV-2): Disable automatic redirect following to prevent
+        // SSRF via 3xx redirect to internal/metadata endpoints on JWKS/token/SCIM/SAML fetches.
         let http = Client::builder()
             .user_agent("Vellaveto IAM/1.0")
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| IamError::Client(e.to_string()))?;
         let saml_state = if config.saml.enabled {
@@ -1753,7 +1756,12 @@ impl OidcDiscovery {
             return Err("OIDC issuer must use https".to_string());
         }
         issuer_url.set_path("/.well-known/openid-configuration");
-        let client = Client::new();
+        // SECURITY (R235-SRV-1): Disable redirect following to prevent SSRF via
+        // 3xx redirect to internal/metadata endpoints during OIDC discovery.
+        let client = Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| e.to_string())?;
         let response = client
             .get(issuer_url.as_str())
             .send()

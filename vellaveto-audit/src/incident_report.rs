@@ -91,6 +91,9 @@ pub enum EuAiActObligation {
     RightsViolation,
 }
 
+/// Maximum length for regulatory reference fields.
+const MAX_REG_REF_FIELD_LEN: usize = 1_000;
+
 /// A regulatory reference for the incident.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -101,6 +104,38 @@ pub struct RegulatoryReference {
     pub reference: String,
     /// Reporting deadline description (e.g., "24h initial notification").
     pub deadline: String,
+}
+
+impl RegulatoryReference {
+    /// Validate the regulatory reference fields.
+    ///
+    /// SECURITY (R235-AUD-2): Rejects dangerous chars and enforces length bounds
+    /// to prevent injection into downstream reports/SIEM integrations.
+    pub fn validate(&self) -> Result<(), IncidentReportError> {
+        for (name, value) in [
+            ("regulation", &self.regulation),
+            ("reference", &self.reference),
+            ("deadline", &self.deadline),
+        ] {
+            if value.is_empty() {
+                return Err(IncidentReportError::Validation(format!(
+                    "regulatory_reference.{name} must not be empty"
+                )));
+            }
+            if value.len() > MAX_REG_REF_FIELD_LEN {
+                return Err(IncidentReportError::Validation(format!(
+                    "regulatory_reference.{name} exceeds max length ({} > {MAX_REG_REF_FIELD_LEN})",
+                    value.len()
+                )));
+            }
+            if vellaveto_types::has_dangerous_chars(value) {
+                return Err(IncidentReportError::Validation(format!(
+                    "regulatory_reference.{name} contains control or Unicode format characters"
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// A unified cross-regulation incident report.
@@ -217,6 +252,36 @@ impl IncidentReport {
                     "text field contains control or Unicode format characters".to_string(),
                 ));
             }
+        }
+        // SECURITY (R235-AUD-1): Validate per-entry dangerous chars in Vec fields.
+        // Without this, attacker-controlled strings in affected_systems/findings/
+        // recommendations can inject control chars into downstream SIEM/reports.
+        for entry in &self.affected_systems {
+            if vellaveto_types::has_dangerous_chars(entry) {
+                return Err(IncidentReportError::Validation(
+                    "affected_systems entry contains control or Unicode format characters"
+                        .to_string(),
+                ));
+            }
+        }
+        for entry in &self.findings {
+            if vellaveto_types::has_dangerous_chars(entry) {
+                return Err(IncidentReportError::Validation(
+                    "findings entry contains control or Unicode format characters".to_string(),
+                ));
+            }
+        }
+        for entry in &self.recommendations {
+            if vellaveto_types::has_dangerous_chars(entry) {
+                return Err(IncidentReportError::Validation(
+                    "recommendations entry contains control or Unicode format characters"
+                        .to_string(),
+                ));
+            }
+        }
+        // SECURITY (R235-AUD-2): Validate regulatory references.
+        for reg_ref in &self.regulatory_references {
+            reg_ref.validate()?;
         }
         Ok(())
     }
