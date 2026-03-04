@@ -2003,9 +2003,7 @@ fn test_r234_shield10_read_all_entries_returns_bounded() {
 
     // Write a few entries to verify reading works
     for i in 0..5u32 {
-        store
-            .write_encrypted_entry(&i.to_le_bytes())
-            .unwrap();
+        store.write_encrypted_entry(&i.to_le_bytes()).unwrap();
     }
     let entries = store.read_all_entries().unwrap();
     assert_eq!(entries.len(), 5);

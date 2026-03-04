@@ -752,10 +752,7 @@ mod tests {
     fn test_extract_key_tenant_scoped() {
         let store = IdempotencyStore::new(test_config());
         let mut headers = HeaderMap::new();
-        headers.insert(
-            IDEMPOTENCY_KEY_HEADER,
-            HeaderValue::from_static("abc-123"),
-        );
+        headers.insert(IDEMPOTENCY_KEY_HEADER, HeaderValue::from_static("abc-123"));
 
         // With tenant_id, key is prefixed
         let key = store.extract_key(&headers, Some("tenant-A")).unwrap();
@@ -766,10 +763,7 @@ mod tests {
     fn test_extract_key_without_tenant_no_prefix() {
         let store = IdempotencyStore::new(test_config());
         let mut headers = HeaderMap::new();
-        headers.insert(
-            IDEMPOTENCY_KEY_HEADER,
-            HeaderValue::from_static("abc-123"),
-        );
+        headers.insert(IDEMPOTENCY_KEY_HEADER, HeaderValue::from_static("abc-123"));
 
         // Without tenant_id, key is raw
         let key = store.extract_key(&headers, None).unwrap();
@@ -780,10 +774,7 @@ mod tests {
     fn test_extract_key_different_tenants_different_keys() {
         let store = IdempotencyStore::new(test_config());
         let mut headers = HeaderMap::new();
-        headers.insert(
-            IDEMPOTENCY_KEY_HEADER,
-            HeaderValue::from_static("same-key"),
-        );
+        headers.insert(IDEMPOTENCY_KEY_HEADER, HeaderValue::from_static("same-key"));
 
         let key_a = store.extract_key(&headers, Some("tenant-A")).unwrap();
         let key_b = store.extract_key(&headers, Some("tenant-B")).unwrap();
