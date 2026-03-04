@@ -1531,8 +1531,7 @@ impl ProxyBridge {
         if let Some(ref deputy) = self.deputy {
             let session_id = "stdio-session";
             if let Some(claimed_id) = Self::extract_agent_id(&msg) {
-                if let Err(err) =
-                    deputy.validate_action(session_id, "resources/read", &claimed_id)
+                if let Err(err) = deputy.validate_action(session_id, "resources/read", &claimed_id)
                 {
                     let reason = err.to_string();
                     tracing::warn!(

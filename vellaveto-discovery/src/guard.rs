@@ -72,7 +72,9 @@ impl TopologyGuard {
         let mut guard = match self.topology.write() {
             Ok(g) => g,
             Err(poisoned) => {
-                tracing::warn!("TopologyGuard RwLock poisoned during load — recovering via into_inner()");
+                tracing::warn!(
+                    "TopologyGuard RwLock poisoned during load — recovering via into_inner()"
+                );
                 poisoned.into_inner()
             }
         };
@@ -104,7 +106,9 @@ impl TopologyGuard {
             Err(_) => {
                 // SECURITY (R235-DISC-1): Poisoned lock — fail-closed.
                 // Returning Bypassed would skip topology verification entirely.
-                tracing::error!("TopologyGuard RwLock poisoned during check — denying (fail-closed)");
+                tracing::error!(
+                    "TopologyGuard RwLock poisoned during check — denying (fail-closed)"
+                );
                 return TopologyVerdict::Unknown {
                     requested_tool: tool_name.to_string(),
                     suggestion: None,
@@ -185,7 +189,9 @@ impl TopologyGuard {
         let mut guard = match self.topology.write() {
             Ok(g) => g,
             Err(poisoned) => {
-                tracing::warn!("TopologyGuard RwLock poisoned during clear — recovering via into_inner()");
+                tracing::warn!(
+                    "TopologyGuard RwLock poisoned during clear — recovering via into_inner()"
+                );
                 poisoned.into_inner()
             }
         };
