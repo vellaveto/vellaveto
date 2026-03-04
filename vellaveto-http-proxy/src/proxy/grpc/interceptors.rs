@@ -304,3 +304,275 @@ pub fn extract_agent_identity_token(metadata: &tonic::metadata::MetadataMap) -> 
         .filter(|s| !s.is_empty() && s.len() <= 8192 && !contains_dangerous_chars(s))
         .map(|s| s.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // contains_dangerous_chars
+
+    #[test]
+    fn test_contains_dangerous_chars_clean_string() {
+        assert!(!contains_dangerous_chars("hello-world_123"));
+    }
+
+    #[test]
+    fn test_contains_dangerous_chars_null_byte() {
+        assert!(contains_dangerous_chars("hello\x00world"));
+    }
+
+    #[test]
+    fn test_contains_dangerous_chars_newline() {
+        assert!(contains_dangerous_chars("hello\nworld"));
+    }
+
+    #[test]
+    fn test_contains_dangerous_chars_tab() {
+        assert!(contains_dangerous_chars("hello\tworld"));
+    }
+
+    #[test]
+    fn test_contains_dangerous_chars_del() {
+        assert!(contains_dangerous_chars("hello\x7Fworld"));
+    }
+
+    #[test]
+    fn test_contains_dangerous_chars_zwsp() {
+        assert!(contains_dangerous_chars("hello\u{200B}world"));
+    }
+
+    #[test]
+    fn test_contains_dangerous_chars_bom() {
+        assert!(contains_dangerous_chars("hello\u{FEFF}world"));
+    }
+
+    // extract_session_id
+
+    #[test]
+    fn test_extract_session_id_valid() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert(METADATA_MCP_SESSION_ID, "sess-abc".parse().unwrap());
+        assert_eq!(extract_session_id(&m), Some("sess-abc".to_string()));
+    }
+
+    #[test]
+    fn test_extract_session_id_missing() {
+        assert_eq!(extract_session_id(&tonic::metadata::MetadataMap::new()), None);
+    }
+
+    #[test]
+    fn test_extract_session_id_empty_rejected() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert(METADATA_MCP_SESSION_ID, "".parse().unwrap());
+        assert_eq!(extract_session_id(&m), None);
+    }
+
+    #[test]
+    fn test_extract_session_id_oversize_rejected() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert(METADATA_MCP_SESSION_ID, "s".repeat(257).parse().unwrap());
+        assert_eq!(extract_session_id(&m), None);
+    }
+
+    #[test]
+    fn test_extract_session_id_at_max_length_accepted() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        let exact = "s".repeat(256);
+        m.insert(METADATA_MCP_SESSION_ID, exact.parse().unwrap());
+        assert_eq!(extract_session_id(&m), Some(exact));
+    }
+
+    // extract_or_generate_request_id
+
+    #[test]
+    fn test_extract_request_id_valid() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert(METADATA_REQUEST_ID, "req-456".parse().unwrap());
+        assert_eq!(extract_or_generate_request_id(&m), "req-456");
+    }
+
+    #[test]
+    fn test_extract_request_id_generates_uuid_when_missing() {
+        let id = extract_or_generate_request_id(&tonic::metadata::MetadataMap::new());
+        assert!(!id.is_empty());
+        assert!(uuid::Uuid::parse_str(&id).is_ok());
+    }
+
+    #[test]
+    fn test_extract_request_id_overlong_rejected_and_generated() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert(METADATA_REQUEST_ID, "r".repeat(129).parse().unwrap());
+        let id = extract_or_generate_request_id(&m);
+        assert_ne!(id.len(), 129);
+        assert!(uuid::Uuid::parse_str(&id).is_ok());
+    }
+
+    #[test]
+    fn test_extract_request_id_at_max_length_accepted() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        let exact = "r".repeat(128);
+        m.insert(METADATA_REQUEST_ID, exact.parse().unwrap());
+        assert_eq!(extract_or_generate_request_id(&m), exact);
+    }
+
+    // extract_agent_identity_token
+
+    #[test]
+    fn test_extract_agent_identity_token_valid() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert(METADATA_AGENT_IDENTITY, "eyJhbGci.payload.sig".parse().unwrap());
+        assert_eq!(extract_agent_identity_token(&m), Some("eyJhbGci.payload.sig".to_string()));
+    }
+
+    #[test]
+    fn test_extract_agent_identity_token_missing() {
+        assert_eq!(extract_agent_identity_token(&tonic::metadata::MetadataMap::new()), None);
+    }
+
+    #[test]
+    fn test_extract_agent_identity_token_empty_rejected() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert(METADATA_AGENT_IDENTITY, "".parse().unwrap());
+        assert_eq!(extract_agent_identity_token(&m), None);
+    }
+
+    #[test]
+    fn test_extract_agent_identity_token_overlong_rejected() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert(METADATA_AGENT_IDENTITY, "t".repeat(8193).parse().unwrap());
+        assert_eq!(extract_agent_identity_token(&m), None);
+    }
+
+    #[test]
+    fn test_extract_agent_identity_token_at_max_length_accepted() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        let exact = "t".repeat(8192);
+        m.insert(METADATA_AGENT_IDENTITY, exact.parse().unwrap());
+        assert_eq!(extract_agent_identity_token(&m), Some(exact));
+    }
+
+    // RateLimitInterceptor
+
+    #[test]
+    fn test_rate_limit_interceptor_allows_under_limit() {
+        let mut rl = RateLimitInterceptor::new(Some(10));
+        for _ in 0..10 {
+            assert!(rl.call(Request::new(())).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_rate_limit_interceptor_rejects_at_limit() {
+        let mut rl = RateLimitInterceptor::new(Some(5));
+        for _ in 0..5 { assert!(rl.call(Request::new(())).is_ok()); }
+        let r = rl.call(Request::new(()));
+        assert!(r.is_err());
+        assert_eq!(r.unwrap_err().code(), tonic::Code::ResourceExhausted);
+    }
+
+    #[test]
+    fn test_rate_limit_interceptor_default_limit_is_100() {
+        assert_eq!(RateLimitInterceptor::new(None).limit, 100);
+    }
+
+    #[test]
+    fn test_rate_limit_interceptor_custom_limit() {
+        assert_eq!(RateLimitInterceptor::new(Some(50)).limit, 50);
+    }
+
+    // extract_call_chain_from_metadata
+
+    #[test]
+    fn test_extract_call_chain_missing_metadata() {
+        let limits = vellaveto_config::LimitsConfig::default();
+        assert!(extract_call_chain_from_metadata(&tonic::metadata::MetadataMap::new(), &limits).is_empty());
+    }
+
+    #[test]
+    fn test_extract_call_chain_valid_json() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        let j = r#"[{"agent_id":"agent1","tool":"t","function":"f","timestamp":"2026-01-01T00:00:00Z"}]"#;
+        m.insert(METADATA_UPSTREAM_AGENTS, j.parse().unwrap());
+        let chain = extract_call_chain_from_metadata(&m, &vellaveto_config::LimitsConfig::default());
+        assert_eq!(chain.len(), 1);
+        assert_eq!(chain[0].agent_id, "agent1");
+    }
+
+    #[test]
+    fn test_extract_call_chain_invalid_json_returns_empty() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert(METADATA_UPSTREAM_AGENTS, "not-json".parse().unwrap());
+        assert!(extract_call_chain_from_metadata(&m, &vellaveto_config::LimitsConfig::default()).is_empty());
+    }
+
+    #[test]
+    fn test_extract_call_chain_oversized_returns_empty() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert(METADATA_UPSTREAM_AGENTS, "x".repeat(9000).parse().unwrap());
+        assert!(extract_call_chain_from_metadata(&m, &vellaveto_config::LimitsConfig::default()).is_empty());
+    }
+
+    #[test]
+    fn test_extract_call_chain_exceeds_entry_limit_returns_empty() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        let mut entries = Vec::new();
+        for i in 0..21 {
+            entries.push(format!(r#"{{"agent_id":"a{i}","tool":"t","function":"f","timestamp":"2026-01-01T00:00:00Z"}}"#));
+        }
+        m.insert(METADATA_UPSTREAM_AGENTS, format!("[{}]", entries.join(",")).parse().unwrap());
+        assert!(extract_call_chain_from_metadata(&m, &vellaveto_config::LimitsConfig::default()).is_empty());
+    }
+
+    // Metadata constants
+
+    #[test]
+    fn test_metadata_constants_are_lowercase() {
+        assert_eq!(METADATA_AUTHORIZATION, "authorization");
+        assert_eq!(METADATA_MCP_SESSION_ID, "mcp-session-id");
+        assert_eq!(METADATA_AGENT_IDENTITY, "x-agent-identity");
+        assert_eq!(METADATA_UPSTREAM_AGENTS, "x-upstream-agents");
+        assert_eq!(METADATA_REQUEST_ID, "x-request-id");
+        assert_eq!(METADATA_TRACEPARENT, "traceparent");
+        assert_eq!(METADATA_TRACESTATE, "tracestate");
+    }
+
+    // extract_trace_context_from_metadata
+
+    #[test]
+    fn test_extract_trace_context_valid_traceparent() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert("traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01".parse().unwrap());
+        let ctx = extract_trace_context_from_metadata(&m);
+        assert_eq!(ctx.trace_id, Some("0af7651916cd43dd8448eb211c80319c".to_string()));
+    }
+
+    #[test]
+    fn test_extract_trace_context_missing_generates_id() {
+        let ctx = extract_trace_context_from_metadata(&tonic::metadata::MetadataMap::new());
+        assert!(ctx.trace_id.is_some());
+        assert_eq!(ctx.trace_id.as_ref().unwrap().len(), 32);
+    }
+
+    #[test]
+    fn test_extract_trace_context_invalid_traceparent_generates_fresh() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert("traceparent", "garbage".parse().unwrap());
+        assert!(extract_trace_context_from_metadata(&m).trace_id.is_some());
+    }
+
+    #[test]
+    fn test_extract_trace_context_with_tracestate() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert("traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01".parse().unwrap());
+        m.insert("tracestate", "vendor1=value1,vendor2=value2".parse().unwrap());
+        assert!(extract_trace_context_from_metadata(&m).trace_state.is_some());
+    }
+
+    #[test]
+    fn test_extract_trace_context_overlong_tracestate_ignored() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert("traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01".parse().unwrap());
+        m.insert("tracestate", "x".repeat(1000).parse().unwrap());
+        assert!(extract_trace_context_from_metadata(&m).trace_state.is_none());
+    }
+}

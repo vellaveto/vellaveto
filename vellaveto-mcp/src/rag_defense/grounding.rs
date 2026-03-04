@@ -591,4 +591,175 @@ mod tests {
     fn test_enforcement_modes() {
         assert_eq!(GroundingEnforcement::default(), GroundingEnforcement::Warn);
     }
+
+    // ═══════════════════════════════════════════════════
+    // Additional coverage: GroundingResult helpers, edge cases
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_grounding_result_grounded_claims() {
+        let result = GroundingResult {
+            score: 0.8,
+            passed: true,
+            claim_scores: vec![
+                ClaimScore {
+                    claim: "high".to_string(),
+                    score: 0.9,
+                    best_evidence: None,
+                    nli_label: Some(NliLabel::Entailment),
+                },
+                ClaimScore {
+                    claim: "low".to_string(),
+                    score: 0.3,
+                    best_evidence: None,
+                    nli_label: None,
+                },
+                ClaimScore {
+                    claim: "boundary".to_string(),
+                    score: 0.7,
+                    best_evidence: None,
+                    nli_label: Some(NliLabel::Entailment),
+                },
+            ],
+            ungrounded_claims: vec![],
+            contradictions: vec![],
+            attributions: vec![],
+            method: GroundingMethod::Lexical,
+        };
+        let grounded = result.grounded_claims();
+        assert_eq!(grounded.len(), 2);
+        assert!(grounded.iter().all(|c| c.score >= 0.7));
+    }
+
+    #[test]
+    fn test_grounding_result_hallucinated_claims() {
+        let result = GroundingResult {
+            score: 0.4,
+            passed: false,
+            claim_scores: vec![
+                ClaimScore {
+                    claim: "ok".to_string(),
+                    score: 0.6,
+                    best_evidence: None,
+                    nli_label: None,
+                },
+                ClaimScore {
+                    claim: "hallucinated".to_string(),
+                    score: 0.2,
+                    best_evidence: None,
+                    nli_label: None,
+                },
+                ClaimScore {
+                    claim: "boundary".to_string(),
+                    score: 0.5,
+                    best_evidence: None,
+                    nli_label: None,
+                },
+            ],
+            ungrounded_claims: vec![],
+            contradictions: vec![],
+            attributions: vec![],
+            method: GroundingMethod::Lexical,
+        };
+        let hallucinated = result.hallucinated_claims();
+        assert_eq!(hallucinated.len(), 1);
+        assert_eq!(hallucinated[0].claim, "hallucinated");
+    }
+
+    #[test]
+    fn test_grounding_result_is_grounded_delegates_to_passed() {
+        let mut result = GroundingResult {
+            score: 0.5,
+            passed: true,
+            claim_scores: vec![],
+            ungrounded_claims: vec![],
+            contradictions: vec![],
+            attributions: vec![],
+            method: GroundingMethod::Lexical,
+        };
+        assert!(result.is_grounded());
+        result.passed = false;
+        assert!(!result.is_grounded());
+    }
+
+    #[test]
+    fn test_grounding_checker_is_enabled() {
+        let checker = GroundingChecker::disabled();
+        assert!(!checker.is_enabled());
+
+        let config = GroundingConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        let checker = GroundingChecker::new(config);
+        assert!(checker.is_enabled());
+    }
+
+    #[test]
+    fn test_claim_extraction_short_claims_filtered() {
+        let config = GroundingConfig {
+            enabled: true,
+            min_claim_length: 10,
+            ..Default::default()
+        };
+        let checker = GroundingChecker::new(config);
+
+        let claims = checker.extract_claims("Short. This is a longer claim sentence.");
+        assert_eq!(claims.len(), 1);
+        assert!(claims[0].len() >= 10);
+    }
+
+    #[test]
+    fn test_grounding_no_claims_extracted_passes() {
+        let config = GroundingConfig {
+            enabled: true,
+            min_claim_length: 1000, // very high threshold
+            ..Default::default()
+        };
+        let checker = GroundingChecker::new(config);
+
+        let result = checker.check_grounding(&["context"], "short").unwrap();
+        assert!(result.passed);
+        assert_eq!(result.score, 1.0);
+    }
+
+    #[test]
+    fn test_grounding_error_display() {
+        let err = GroundingError::NliError("model failed".to_string());
+        assert!(err.to_string().contains("model failed"));
+
+        let err = GroundingError::ContextError("bad context".to_string());
+        assert!(err.to_string().contains("bad context"));
+    }
+
+    #[test]
+    fn test_grounding_method_equality() {
+        assert_eq!(GroundingMethod::Lexical, GroundingMethod::Lexical);
+        assert_ne!(GroundingMethod::Lexical, GroundingMethod::Nli);
+        assert_ne!(GroundingMethod::Disabled, GroundingMethod::Nli);
+    }
+
+    #[test]
+    fn test_nli_label_equality() {
+        assert_eq!(NliLabel::Entailment, NliLabel::Entailment);
+        assert_ne!(NliLabel::Entailment, NliLabel::Contradiction);
+        assert_ne!(NliLabel::Neutral, NliLabel::Contradiction);
+    }
+
+    #[test]
+    fn test_grounding_result_serialization() {
+        let result = GroundingResult {
+            score: 0.85,
+            passed: true,
+            claim_scores: vec![],
+            ungrounded_claims: vec![],
+            contradictions: vec![],
+            attributions: vec![],
+            method: GroundingMethod::Lexical,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let parsed: GroundingResult = serde_json::from_str(&json).unwrap();
+        assert!((parsed.score - 0.85).abs() < f32::EPSILON);
+        assert!(parsed.passed);
+    }
 }

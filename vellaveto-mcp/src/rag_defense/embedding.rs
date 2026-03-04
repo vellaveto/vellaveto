@@ -647,4 +647,71 @@ mod tests {
             Err(RagDefenseError::AgentEmbeddingLimit { .. })
         ));
     }
+
+    // ═══════════════════════════════════════════════════
+    // Additional edge case tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_cosine_similarity_empty_vectors() {
+        let sim = cosine_similarity(&[], &[]);
+        assert_eq!(sim, 0.0);
+    }
+
+    #[test]
+    fn test_cosine_similarity_different_lengths() {
+        let a = vec![1.0, 0.0];
+        let b = vec![1.0, 0.0, 0.0];
+        let sim = cosine_similarity(&a, &b);
+        assert_eq!(sim, 0.0);
+    }
+
+    #[test]
+    fn test_cosine_similarity_zero_vector() {
+        let a = vec![0.0, 0.0, 0.0];
+        let b = vec![1.0, 0.0, 0.0];
+        let sim = cosine_similarity(&a, &b);
+        assert_eq!(sim, 0.0);
+    }
+
+    #[test]
+    fn test_euclidean_distance_identical() {
+        let a = vec![1.0, 2.0, 3.0];
+        let b = vec![1.0, 2.0, 3.0];
+        let dist = euclidean_distance(&a, &b);
+        assert!(dist.abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_euclidean_distance_different_lengths() {
+        let a = vec![1.0, 0.0];
+        let b = vec![1.0, 0.0, 0.0];
+        let dist = euclidean_distance(&a, &b);
+        assert_eq!(dist, f64::MAX);
+    }
+
+    #[test]
+    fn test_euclidean_distance_known_value() {
+        let a = vec![0.0, 0.0];
+        let b = vec![3.0, 4.0];
+        let dist = euclidean_distance(&a, &b);
+        assert!((dist - 5.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_embedding_vector_dimension() {
+        let emb = EmbeddingVector::new("doc", vec![0.1, 0.2, 0.3, 0.4]);
+        assert_eq!(emb.dimension(), 4);
+    }
+
+    #[test]
+    fn test_detector_unknown_agent_no_baseline() {
+        let config = EmbeddingAnomalyConfig {
+            enabled: true,
+            min_baseline_samples: 2,
+            ..Default::default()
+        };
+        let detector = EmbeddingAnomalyDetector::new(config);
+        assert!(detector.get_baseline("unknown").is_none());
+    }
 }

@@ -1129,3 +1129,398 @@ fn test_zk_batch_proof_with_public_inputs_serde() {
     assert_eq!(deserialized.final_entry_hash, "ff".repeat(32));
     assert_eq!(deserialized.entry_count, 10);
 }
+
+// ═══════════════════════════════════════════════════
+// PHASE 9 COVERAGE: PEDERSEN COMMITMENT EXTRAS
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_pedersen_decompress_invalid_point_returns_error() {
+    let invalid_bytes = [0xFFu8; 32];
+    let compressed = CompressedRistretto::from_slice(&invalid_bytes).unwrap();
+    let result = PedersenCommitter::decompress(&compressed);
+    assert!(
+        result.is_err(),
+        "Decompressing invalid point bytes should return Err"
+    );
+    let err_msg = format!("{}", result.unwrap_err());
+    assert!(err_msg.contains("Invalid compressed Ristretto point"));
+}
+
+#[test]
+fn test_pedersen_decompress_valid_commitment_succeeds() {
+    let committer = PedersenCommitter::new();
+    let entry_hash = [0x55u8; 32];
+    let (commitment, _) = committer.commit(&entry_hash).unwrap();
+    let result = PedersenCommitter::decompress(&commitment);
+    assert!(result.is_ok(), "Valid commitment should decompress");
+}
+
+#[test]
+fn test_pedersen_h_generator_not_basepoint() {
+    let committer = PedersenCommitter::new();
+    let h = committer.h_point();
+    assert_ne!(
+        h,
+        curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT,
+        "H generator must not equal G"
+    );
+}
+
+#[test]
+fn test_pedersen_commitment_binding_property() {
+    let committer = PedersenCommitter::new();
+    let hash1 = [0x01u8; 32];
+    let hash2 = [0x02u8; 32];
+    let blinding = Scalar::from(12345u64);
+
+    let h = committer.h_point();
+    let s1 = Scalar::from_bytes_mod_order(hash1);
+    let s2 = Scalar::from_bytes_mod_order(hash2);
+
+    let c1 = s1 * curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT + blinding * h;
+    let c2 = s2 * curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT + blinding * h;
+
+    assert_ne!(
+        c1.compress(),
+        c2.compress(),
+        "Same blinding, different messages must produce different commitments"
+    );
+}
+
+#[test]
+fn test_pedersen_verify_cross_committer_instances() {
+    let c1 = PedersenCommitter::new();
+    let c2 = PedersenCommitter::new();
+    let entry_hash = [0x77u8; 32];
+
+    let (commitment, blinding) = c1.commit(&entry_hash).unwrap();
+    assert!(
+        c2.verify(&commitment, &entry_hash, &blinding),
+        "Commitment from c1 should verify with c2"
+    );
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 9 COVERAGE: WITNESS STORE EDGE CASES
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_witness_store_with_capacity_zero_clamps_to_one() {
+    let store = WitnessStore::with_capacity(0);
+    assert_eq!(
+        store.max_capacity(),
+        1,
+        "Zero capacity should be clamped to 1"
+    );
+    store.append(make_test_witness(0)).unwrap();
+    let result = store.append(make_test_witness(1));
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_witness_store_restore_to_empty_store() {
+    let store = WitnessStore::with_capacity(100);
+    assert!(store.is_empty().unwrap());
+
+    let witnesses = vec![make_test_witness(10), make_test_witness(11)];
+    store.restore(witnesses).unwrap();
+
+    assert_eq!(store.len().unwrap(), 2);
+    let drained = store.drain(100).unwrap();
+    assert_eq!(drained[0].sequence, 10);
+    assert_eq!(drained[1].sequence, 11);
+}
+
+#[test]
+fn test_witness_store_drain_zero_returns_empty() {
+    let store = WitnessStore::new();
+    store.append(make_test_witness(0)).unwrap();
+    let drained = store.drain(0).unwrap();
+    assert!(drained.is_empty());
+    assert_eq!(store.len().unwrap(), 1);
+}
+
+#[test]
+fn test_witness_store_restore_exactly_at_capacity() {
+    let store = WitnessStore::with_capacity(3);
+    store.append(make_test_witness(5)).unwrap();
+    store
+        .restore(vec![make_test_witness(1), make_test_witness(2)])
+        .unwrap();
+    assert_eq!(store.len().unwrap(), 3);
+    let all = store.drain(100).unwrap();
+    assert_eq!(all[0].sequence, 1);
+    assert_eq!(all[1].sequence, 2);
+    assert_eq!(all[2].sequence, 5);
+}
+
+#[test]
+fn test_witness_debug_redacts_blinding() {
+    let witness = make_test_witness(42);
+    let debug_str = format!("{witness:?}");
+    assert!(
+        debug_str.contains("[REDACTED]"),
+        "Blinding should be redacted in Debug output"
+    );
+    assert!(
+        debug_str.contains("sequence: 42"),
+        "Sequence should be visible in Debug"
+    );
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 9 COVERAGE: CIRCUIT EDGE CASES
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_circuit_with_witnesses_correct_sizes_succeeds() {
+    let result = AuditChainCircuit::<Fr>::with_witnesses(
+        2,
+        Fr::from(0u64),
+        Fr::from(1u64),
+        vec![Fr::from(0u64); 2],
+        vec![Fr::from(0u64); 2],
+    );
+    assert!(result.is_ok());
+    let circuit = result.unwrap();
+    assert_eq!(circuit.max_size, 2);
+    assert!(circuit.first_prev_hash.is_some());
+    assert!(circuit.final_hash.is_some());
+}
+
+#[test]
+fn test_circuit_template_all_none_witnesses() {
+    let circuit = AuditChainCircuit::<Fr>::template(5);
+    for eh in &circuit.entry_hashes {
+        assert!(eh.is_none(), "Template witnesses should all be None");
+    }
+    for ph in &circuit.prev_hashes {
+        assert!(ph.is_none(), "Template prev_hashes should all be None");
+    }
+}
+
+#[test]
+fn test_hash_to_field_max_hash() {
+    let max_hash = [0xFFu8; 32];
+    let f: Fr = hash_to_field(&max_hash);
+    assert_ne!(f, Fr::from(0u64), "All-0xFF should not reduce to zero");
+}
+
+#[test]
+fn test_circuit_large_chain_satisfied() {
+    let (entry_hashes, prev_hashes) = make_test_chain(10);
+    let first_prev = prev_hashes[0];
+    let final_hash = entry_hashes[9];
+
+    let circuit = AuditChainCircuit::with_witnesses(
+        10,
+        first_prev,
+        final_hash,
+        entry_hashes,
+        prev_hashes,
+    )
+    .unwrap();
+
+    let cs = ConstraintSystem::<Fr>::new_ref();
+    circuit.generate_constraints(cs.clone()).unwrap();
+    assert!(
+        cs.is_satisfied().unwrap(),
+        "Large valid chain should satisfy constraints"
+    );
+}
+
+#[test]
+fn test_circuit_tampered_middle_entry_unsatisfied() {
+    let (mut entry_hashes, prev_hashes) = make_test_chain(5);
+    let first_prev = prev_hashes[0];
+    let final_hash = entry_hashes[4];
+
+    entry_hashes[2] = Fr::from(77777u64);
+
+    let circuit = AuditChainCircuit::with_witnesses(
+        5,
+        first_prev,
+        final_hash,
+        entry_hashes,
+        prev_hashes,
+    )
+    .unwrap();
+
+    let cs = ConstraintSystem::<Fr>::new_ref();
+    circuit.generate_constraints(cs.clone()).unwrap();
+    assert!(
+        !cs.is_satisfied().unwrap(),
+        "Tampered middle entry should break chain linkage"
+    );
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 9 COVERAGE: PROVER ERROR PATHS
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_prover_from_files_nonexistent_pk_returns_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let pk_path = dir.path().join("nonexistent_pk.bin");
+    let vk_path = dir.path().join("nonexistent_vk.bin");
+
+    let result = ZkBatchProver::from_files(&pk_path, &vk_path, 2);
+    assert!(result.is_err());
+    let err_msg = format!("{}", result.unwrap_err());
+    assert!(err_msg.contains("Failed to stat proving key"));
+}
+
+#[test]
+fn test_prover_from_files_invalid_content_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let pk_path = dir.path().join("pk.bin");
+    let vk_path = dir.path().join("vk.bin");
+
+    std::fs::write(&pk_path, [0u8; 100]).unwrap();
+    std::fs::write(&vk_path, [0u8; 100]).unwrap();
+
+    let result = ZkBatchProver::from_files(&pk_path, &vk_path, 2);
+    assert!(result.is_err(), "Invalid key content should fail");
+}
+
+#[test]
+fn test_prover_debug_redacts_keys() {
+    let prover = ZkBatchProver::setup(2).unwrap();
+    let debug_str = format!("{prover:?}");
+    assert!(
+        debug_str.contains("[REDACTED]"),
+        "Debug should redact proving/verifying keys"
+    );
+    assert!(
+        debug_str.contains("max_batch_size: 2"),
+        "Debug should show max_batch_size"
+    );
+}
+
+#[test]
+fn test_prover_verify_invalid_hex_in_proof_field() {
+    let prover = ZkBatchProver::setup(2).unwrap();
+    let witnesses = make_chain_witnesses(2);
+    let mut proof = prover.prove(&witnesses).unwrap();
+
+    proof.proof = "ZZZZ_not_hex".to_string();
+
+    let result = prover.verify(&proof);
+    assert!(result.is_err(), "Non-hex proof should fail verification");
+}
+
+#[test]
+fn test_prover_verify_invalid_hex_in_first_prev_hash() {
+    let prover = ZkBatchProver::setup(2).unwrap();
+    let witnesses = make_chain_witnesses(2);
+    let mut proof = prover.prove(&witnesses).unwrap();
+
+    proof.first_prev_hash = "not_valid_hex!".to_string();
+
+    let result = prover.verify(&proof);
+    assert!(result.is_err());
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 9 COVERAGE: SCHEDULER EDGE CASES
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_scheduler_debug_redacts_prover() {
+    let prover = Arc::new(ZkBatchProver::setup(2).unwrap());
+    let store = Arc::new(WitnessStore::new());
+    let scheduler = ZkBatchScheduler::new(prover, store, 2, 60);
+
+    let debug_str = format!("{scheduler:?}");
+    assert!(
+        debug_str.contains("[REDACTED]"),
+        "Scheduler debug should redact prover"
+    );
+    assert!(
+        debug_str.contains("batch_size: 2"),
+        "Scheduler debug should show batch_size"
+    );
+    assert!(
+        debug_str.contains("proof_count: 0"),
+        "Scheduler debug should show proof_count"
+    );
+}
+
+#[test]
+fn test_scheduler_pending_witnesses_reports_correctly() {
+    let prover = Arc::new(ZkBatchProver::setup(2).unwrap());
+    let store = Arc::new(WitnessStore::new());
+    let scheduler = ZkBatchScheduler::new(prover, store.clone(), 2, 60);
+
+    assert_eq!(scheduler.pending_witnesses().unwrap(), 0);
+
+    for w in make_chain_witnesses(3) {
+        store.append(w).unwrap();
+    }
+    assert_eq!(scheduler.pending_witnesses().unwrap(), 3);
+}
+
+#[test]
+fn test_scheduler_prove_now_drains_batch_size_only() {
+    let prover = Arc::new(ZkBatchProver::setup(3).unwrap());
+    let store = Arc::new(WitnessStore::new());
+    let witnesses = make_chain_witnesses(5);
+    for w in witnesses {
+        store.append(w).unwrap();
+    }
+
+    let scheduler = ZkBatchScheduler::new(prover, store.clone(), 2, 60);
+    let result = scheduler.prove_now().unwrap();
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().entry_count, 2);
+    assert_eq!(store.len().unwrap(), 3);
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 9 COVERAGE: ZK ERROR TYPES
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_zk_error_display_commitment() {
+    let err = super::ZkError::Commitment("test commitment error".to_string());
+    let msg = format!("{err}");
+    assert!(msg.contains("Commitment error"));
+    assert!(msg.contains("test commitment error"));
+}
+
+#[test]
+fn test_zk_error_display_witness_store() {
+    let err = super::ZkError::WitnessStore("store is full".to_string());
+    let msg = format!("{err}");
+    assert!(msg.contains("Witness store error"));
+    assert!(msg.contains("store is full"));
+}
+
+#[test]
+fn test_zk_error_display_proof() {
+    let err = super::ZkError::Proof("proving failed".to_string());
+    let msg = format!("{err}");
+    assert!(msg.contains("Proof error"));
+}
+
+#[test]
+fn test_zk_error_display_verification() {
+    let err = super::ZkError::Verification("bad proof".to_string());
+    let msg = format!("{err}");
+    assert!(msg.contains("Verification error"));
+}
+
+#[test]
+fn test_zk_error_display_key() {
+    let err = super::ZkError::Key("key not found".to_string());
+    let msg = format!("{err}");
+    assert!(msg.contains("Key error"));
+}
+
+#[test]
+fn test_zk_error_display_serialization() {
+    let err = super::ZkError::Serialization("invalid bytes".to_string());
+    let msg = format!("{err}");
+    assert!(msg.contains("Serialization error"));
+}

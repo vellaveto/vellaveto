@@ -2605,4 +2605,545 @@ mod tests {
         let err = config.validate().unwrap_err().to_string();
         assert!(err.contains("Elasticsearch index"));
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 8: ExporterConfig validation boundary tests
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_exporter_config_validate_batch_size_zero_rejected() {
+        let config = ExporterConfig {
+            batch_size: 0,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("batch_size"), "got: {err}");
+    }
+
+    #[test]
+    fn test_exporter_config_validate_batch_size_over_max_rejected() {
+        let config = ExporterConfig {
+            batch_size: 10_001,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("batch_size"), "got: {err}");
+    }
+
+    #[test]
+    fn test_exporter_config_validate_flush_interval_zero_rejected() {
+        let config = ExporterConfig {
+            flush_interval_secs: 0,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("flush_interval_secs"), "got: {err}");
+    }
+
+    #[test]
+    fn test_exporter_config_validate_flush_interval_over_max_rejected() {
+        let config = ExporterConfig {
+            flush_interval_secs: 3601,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("flush_interval_secs"), "got: {err}");
+    }
+
+    #[test]
+    fn test_exporter_config_validate_max_retries_over_rejected() {
+        let config = ExporterConfig {
+            max_retries: 21,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("max_retries"), "got: {err}");
+    }
+
+    #[test]
+    fn test_exporter_config_validate_max_retries_zero_accepted() {
+        let config = ExporterConfig {
+            max_retries: 0,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_exporter_config_validate_retry_backoff_zero_rejected() {
+        let config = ExporterConfig {
+            retry_backoff_secs: 0,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("retry_backoff_secs"), "got: {err}");
+    }
+
+    #[test]
+    fn test_exporter_config_validate_retry_backoff_over_max_rejected() {
+        let config = ExporterConfig {
+            retry_backoff_secs: 301,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("retry_backoff_secs"), "got: {err}");
+    }
+
+    #[test]
+    fn test_exporter_config_validate_timeout_zero_rejected() {
+        let config = ExporterConfig {
+            timeout_secs: 0,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("timeout_secs"), "got: {err}");
+    }
+
+    #[test]
+    fn test_exporter_config_validate_timeout_over_max_rejected() {
+        let config = ExporterConfig {
+            timeout_secs: 301,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("timeout_secs"), "got: {err}");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 8: Debug redaction tests (secrets must not leak)
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_splunk_config_debug_redacts_token() {
+        let config = SplunkConfig {
+            token: Some("super-secret-hec-token".to_string()),
+            ..Default::default()
+        };
+        let debug_output = format!("{:?}", config);
+        assert!(
+            !debug_output.contains("super-secret-hec-token"),
+            "Token leaked in Debug output: {debug_output}"
+        );
+        assert!(
+            debug_output.contains("[REDACTED]"),
+            "Debug should contain [REDACTED]: {debug_output}"
+        );
+    }
+
+    #[test]
+    fn test_datadog_config_debug_redacts_api_key() {
+        let config = DatadogConfig {
+            api_key: Some("dd-secret-api-key-123".to_string()),
+            ..Default::default()
+        };
+        let debug_output = format!("{:?}", config);
+        assert!(
+            !debug_output.contains("dd-secret-api-key-123"),
+            "API key leaked in Debug output: {debug_output}"
+        );
+        assert!(
+            debug_output.contains("[REDACTED]"),
+            "Debug should contain [REDACTED]: {debug_output}"
+        );
+    }
+
+    #[test]
+    fn test_elasticsearch_config_debug_redacts_api_key() {
+        let config = ElasticsearchConfig {
+            api_key: Some("es-secret-api-key-456".to_string()),
+            ..Default::default()
+        };
+        let debug_output = format!("{:?}", config);
+        assert!(
+            !debug_output.contains("es-secret-api-key-456"),
+            "API key leaked in Debug output: {debug_output}"
+        );
+        assert!(
+            debug_output.contains("[REDACTED]"),
+            "Debug should contain [REDACTED]: {debug_output}"
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 8: Webhook config bounds (headers count / length)
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_webhook_config_validate_headers_count_at_max() {
+        let mut headers = std::collections::HashMap::new();
+        for i in 0..50 {
+            headers.insert(format!("X-Header-{i}"), format!("value-{i}"));
+        }
+        let config = WebhookConfig {
+            endpoint: "https://hook.example.com".to_string(),
+            auth_header: None,
+            auth_header_env: None,
+            headers,
+            common: ExporterConfig::default(),
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_webhook_config_validate_headers_count_exceeds_max() {
+        let mut headers = std::collections::HashMap::new();
+        for i in 0..51 {
+            headers.insert(format!("X-Header-{i}"), format!("value-{i}"));
+        }
+        let config = WebhookConfig {
+            endpoint: "https://hook.example.com".to_string(),
+            auth_header: None,
+            auth_header_env: None,
+            headers,
+            common: ExporterConfig::default(),
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("headers count"), "got: {err}");
+    }
+
+    #[test]
+    fn test_webhook_config_validate_header_key_too_long() {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("X-".to_string() + &"k".repeat(255), "value".to_string());
+        let config = WebhookConfig {
+            endpoint: "https://hook.example.com".to_string(),
+            auth_header: None,
+            auth_header_env: None,
+            headers,
+            common: ExporterConfig::default(),
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("header key length"), "got: {err}");
+    }
+
+    #[test]
+    fn test_webhook_config_validate_header_value_too_long() {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("X-Custom".to_string(), "v".repeat(8193));
+        let config = WebhookConfig {
+            endpoint: "https://hook.example.com".to_string(),
+            auth_header: None,
+            auth_header_env: None,
+            headers,
+            common: ExporterConfig::default(),
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("header value length"), "got: {err}");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 8: Datadog config validation (tags, defaults)
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_datadog_config_defaults() {
+        let config = DatadogConfig::default();
+        assert_eq!(config.service, "vellaveto");
+        assert_eq!(config.source, "vellaveto");
+        assert_eq!(config.api_key_env, "DD_API_KEY");
+        assert!(config.tags.is_empty());
+        assert!(config.endpoint.starts_with("https://"));
+    }
+
+    #[test]
+    fn test_datadog_config_validate_tag_count_exceeds_max() {
+        let config = DatadogConfig {
+            tags: (0..101).map(|i| format!("tag:{i}")).collect(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("tags count"), "got: {err}");
+    }
+
+    #[test]
+    fn test_datadog_config_validate_tag_too_long() {
+        let config = DatadogConfig {
+            tags: vec!["t".repeat(257)],
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("tag length"), "got: {err}");
+    }
+
+    #[test]
+    fn test_datadog_config_validate_tag_at_max_length() {
+        let config = DatadogConfig {
+            tags: vec!["t".repeat(256)],
+            ..Default::default()
+        };
+        // tag at exactly max length should pass (only tags > MAX_TAG_LEN fail)
+        assert!(config.validate().is_ok());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 8: Elasticsearch config (defaults, validation)
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_elasticsearch_config_defaults() {
+        let config = ElasticsearchConfig::default();
+        assert_eq!(config.index, "vellaveto-audit");
+        assert!(config.endpoint.is_empty());
+        assert!(config.username.is_none());
+        assert!(config.password_env.is_none());
+        assert!(config.api_key.is_none());
+        assert!(config.api_key_env.is_none());
+    }
+
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_elasticsearch_exporter_requires_endpoint() {
+        let config = ElasticsearchConfig {
+            endpoint: String::new(),
+            ..Default::default()
+        };
+        let result = ElasticsearchExporter::new(config);
+        match result {
+            Err(e) => {
+                let err = e.to_string();
+                assert!(
+                    err.contains("endpoint not configured"),
+                    "got: {err}"
+                );
+            }
+            Ok(_) => panic!("Expected error for empty endpoint"),
+        }
+    }
+
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_elasticsearch_exporter_accepts_valid_https() {
+        let config = ElasticsearchConfig {
+            endpoint: "https://localhost:9200".to_string(),
+            ..Default::default()
+        };
+        assert!(ElasticsearchExporter::new(config).is_ok());
+    }
+
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_splunk_exporter_accepts_http_endpoint() {
+        // http:// scheme is valid for local/dev environments
+        let config = SplunkConfig {
+            endpoint: "http://localhost:8088/services/collector".to_string(),
+            token: Some("test-token".to_string()),
+            ..Default::default()
+        };
+        let result = SplunkExporter::new(config);
+        assert!(result.is_ok());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 8: Splunk format_events tests
+    // ═══════════════════════════════════════════════════════════════
+
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_splunk_format_events_produces_valid_json() {
+        let config = SplunkConfig {
+            endpoint: "https://splunk:8088/services/collector".to_string(),
+            token: Some("test-token".to_string()),
+            index: Some("test-index".to_string()),
+            source: "test-source".to_string(),
+            ..Default::default()
+        };
+        let exporter = SplunkExporter::new(config).unwrap();
+
+        let entry = AuditEntry {
+            id: "entry-1".to_string(),
+            timestamp: "2026-03-01T12:00:00Z".to_string(),
+            action: vellaveto_types::Action {
+                tool: "fs".to_string(),
+                function: "read".to_string(),
+                parameters: Default::default(),
+                target_paths: vec!["/tmp/test".to_string()],
+                target_domains: vec![],
+                resolved_ips: vec![],
+            },
+            verdict: vellaveto_types::Verdict::Allow,
+            metadata: serde_json::json!({}),
+            sequence: 1,
+            entry_hash: None,
+            prev_hash: None,
+            commitment: None,
+            tenant_id: None,
+        };
+
+        let output = exporter.format_events(&[entry]).unwrap();
+        // Each entry becomes one JSON object in the output
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert!(parsed.get("time").is_some());
+        assert_eq!(parsed["source"], "test-source");
+        assert_eq!(parsed["index"], "test-index");
+        assert!(parsed.get("event").is_some());
+    }
+
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_splunk_format_events_empty_batch() {
+        let config = SplunkConfig {
+            endpoint: "https://splunk:8088/services/collector".to_string(),
+            token: Some("test-token".to_string()),
+            ..Default::default()
+        };
+        let exporter = SplunkExporter::new(config).unwrap();
+        let output = exporter.format_events(&[]).unwrap();
+        assert!(output.is_empty());
+    }
+
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_splunk_format_events_bad_timestamp_uses_fallback() {
+        let config = SplunkConfig {
+            endpoint: "https://splunk:8088/services/collector".to_string(),
+            token: Some("test-token".to_string()),
+            ..Default::default()
+        };
+        let exporter = SplunkExporter::new(config).unwrap();
+
+        let entry = AuditEntry {
+            id: "entry-bad-ts".to_string(),
+            timestamp: "not-a-timestamp".to_string(),
+            action: vellaveto_types::Action {
+                tool: "test".to_string(),
+                function: "run".to_string(),
+                parameters: Default::default(),
+                target_paths: vec![],
+                target_domains: vec![],
+                resolved_ips: vec![],
+            },
+            verdict: vellaveto_types::Verdict::Allow,
+            metadata: serde_json::json!({}),
+            sequence: 0,
+            entry_hash: None,
+            prev_hash: None,
+            commitment: None,
+            tenant_id: None,
+        };
+
+        // Should not fail even with bad timestamp, uses fallback to now()
+        let output = exporter.format_events(&[entry]).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        let time_val = parsed["time"].as_f64().unwrap();
+        assert!(time_val > 0.0, "fallback timestamp should be positive");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 8: Syslog verdict_info coverage
+    // ═══════════════════════════════════════════════════════════════
+
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_syslog_verdict_info_allow() {
+        let (verdict_str, reason) = SyslogExporter::verdict_info(&vellaveto_types::Verdict::Allow);
+        assert_eq!(verdict_str, "allow");
+        assert!(reason.is_none());
+    }
+
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_syslog_verdict_info_deny() {
+        let verdict = vellaveto_types::Verdict::Deny {
+            reason: "policy violation".to_string(),
+        };
+        let (verdict_str, reason) = SyslogExporter::verdict_info(&verdict);
+        assert_eq!(verdict_str, "deny");
+        assert_eq!(reason, Some("policy violation"));
+    }
+
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_syslog_verdict_info_require_approval() {
+        let verdict = vellaveto_types::Verdict::RequireApproval {
+            reason: "needs review".to_string(),
+        };
+        let (verdict_str, reason) = SyslogExporter::verdict_info(&verdict);
+        assert_eq!(verdict_str, "require_approval");
+        assert_eq!(reason, Some("needs review"));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 8: Syslog RFC 5424 PRI calculation
+    // ═══════════════════════════════════════════════════════════════
+
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_syslog_rfc5424_pri_allow_is_info() {
+        let config = SyslogConfig {
+            host: "localhost".to_string(),
+            facility: SyslogFacility::Auth,
+            enterprise_id: "test".to_string(),
+            include_json: false,
+            ..Default::default()
+        };
+        let exporter = SyslogExporter::new(config).unwrap();
+
+        let entry = AuditEntry {
+            id: "test".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            action: vellaveto_types::Action {
+                tool: "fs".to_string(),
+                function: "read".to_string(),
+                parameters: Default::default(),
+                target_paths: vec![],
+                target_domains: vec![],
+                resolved_ips: vec![],
+            },
+            verdict: vellaveto_types::Verdict::Allow,
+            metadata: Default::default(),
+            sequence: 0,
+            entry_hash: None,
+            prev_hash: None,
+            commitment: None,
+            tenant_id: None,
+        };
+
+        let msg = exporter.format_rfc5424(&entry);
+        // Auth=4, Info=6, PRI = 4*8 + 6 = 38
+        assert!(msg.starts_with("<38>"), "Expected PRI 38, got: {msg}");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 8: Syslog domain structured data with domains/paths
+    // ═══════════════════════════════════════════════════════════════
+
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_syslog_rfc5424_includes_domains_structured_data() {
+        let config = SyslogConfig {
+            host: "localhost".to_string(),
+            enterprise_id: "test".to_string(),
+            include_json: false,
+            ..Default::default()
+        };
+        let exporter = SyslogExporter::new(config).unwrap();
+
+        let entry = AuditEntry {
+            id: "test".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            action: vellaveto_types::Action {
+                tool: "http".to_string(),
+                function: "get".to_string(),
+                parameters: Default::default(),
+                target_paths: vec!["/api/data".to_string()],
+                target_domains: vec!["example.com".to_string(), "api.example.com".to_string()],
+                resolved_ips: vec![],
+            },
+            verdict: vellaveto_types::Verdict::Allow,
+            metadata: Default::default(),
+            sequence: 0,
+            entry_hash: None,
+            prev_hash: None,
+            commitment: None,
+            tenant_id: None,
+        };
+
+        let msg = exporter.format_rfc5424(&entry);
+        assert!(msg.contains("[paths@test"), "Should have paths SD: {msg}");
+        assert!(
+            msg.contains("[domains@test"),
+            "Should have domains SD: {msg}"
+        );
+        assert!(msg.contains("example.com"), "Domain missing: {msg}");
+    }
 }

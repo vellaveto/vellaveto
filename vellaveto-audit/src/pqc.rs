@@ -204,4 +204,183 @@ mod tests {
             err_msg
         );
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 8: PQC signing error paths and boundary tests
+    // ═══════════════════════════════════════════════════════════════
+
+    /// Sign with invalid hex string must fail.
+    #[test]
+    fn test_ml_dsa_sign_invalid_hex_secret_key() {
+        let result = ml_dsa_sign("not-valid-hex!", b"message", CHECKPOINT_CONTEXT);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Invalid ML-DSA secret key hex"),
+            "Expected hex decode error, got: {err}"
+        );
+    }
+
+    /// Sign with wrong-length secret key (valid hex but wrong size).
+    #[test]
+    fn test_ml_dsa_sign_wrong_length_secret_key() {
+        // 32 bytes = 64 hex chars, but ML-DSA-65 SK is 4032 bytes
+        let short_key = "ab".repeat(32);
+        let result = ml_dsa_sign(&short_key, b"message", CHECKPOINT_CONTEXT);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("wrong length"),
+            "Expected wrong length error, got: {err}"
+        );
+    }
+
+    /// Verify with invalid hex public key must fail.
+    #[test]
+    fn test_ml_dsa_verify_invalid_hex_public_key() {
+        let result = ml_dsa_verify("ZZZZ", b"msg", "abcd", CHECKPOINT_CONTEXT);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Invalid ML-DSA public key hex"),
+            "Expected hex decode error, got: {err}"
+        );
+    }
+
+    /// Verify with invalid hex signature must fail.
+    #[test]
+    fn test_ml_dsa_verify_invalid_hex_signature() {
+        // Valid-length PK (1952 bytes = 3904 hex chars) but invalid sig hex
+        let pk_hex = "00".repeat(ML_DSA_65_PK_LEN);
+        let result = ml_dsa_verify(&pk_hex, b"msg", "ZZZZ", CHECKPOINT_CONTEXT);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Invalid ML-DSA signature hex"),
+            "Expected hex decode error, got: {err}"
+        );
+    }
+
+    /// Verify with wrong-length signature must fail.
+    #[test]
+    fn test_ml_dsa_verify_wrong_length_signature() {
+        let pk_hex = "00".repeat(ML_DSA_65_PK_LEN);
+        let short_sig = "ab".repeat(64); // 64 bytes, not 3309
+        let result = ml_dsa_verify(&pk_hex, b"msg", &short_sig, CHECKPOINT_CONTEXT);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("signature wrong length"),
+            "Expected wrong length error, got: {err}"
+        );
+    }
+
+    /// Key generation produces keys of correct length.
+    #[test]
+    fn test_ml_dsa_keygen_key_lengths() {
+        let (pk_hex, sk_hex) = generate_ml_dsa_keypair().unwrap();
+        let pk_bytes = hex::decode(&pk_hex).unwrap();
+        let sk_bytes = hex::decode(&sk_hex).unwrap();
+        assert_eq!(
+            pk_bytes.len(),
+            ML_DSA_65_PK_LEN,
+            "PK should be {} bytes",
+            ML_DSA_65_PK_LEN
+        );
+        assert_eq!(
+            sk_bytes.len(),
+            ML_DSA_65_SK_LEN,
+            "SK should be {} bytes",
+            ML_DSA_65_SK_LEN
+        );
+    }
+
+    /// Signature is correct length.
+    #[test]
+    fn test_ml_dsa_signature_length() {
+        let (_, sk) = generate_ml_dsa_keypair().unwrap();
+        let sig = ml_dsa_sign(&sk, b"test message", CHECKPOINT_CONTEXT).unwrap();
+        let sig_bytes = hex::decode(&sig).unwrap();
+        assert_eq!(
+            sig_bytes.len(),
+            ML_DSA_65_SIG_LEN,
+            "Signature should be {} bytes",
+            ML_DSA_65_SIG_LEN
+        );
+    }
+
+    /// Signing with MANIFEST_CONTEXT and verifying with MANIFEST_CONTEXT works.
+    #[test]
+    fn test_ml_dsa_sign_verify_manifest_context() {
+        let (pk, sk) = generate_ml_dsa_keypair().unwrap();
+        let msg = b"rotation manifest data";
+        let sig = ml_dsa_sign(&sk, msg, MANIFEST_CONTEXT).unwrap();
+        ml_dsa_verify(&pk, msg, &sig, MANIFEST_CONTEXT)
+            .expect("Verify with matching manifest context should succeed");
+    }
+
+    /// Tampered message fails verification (fail-closed).
+    #[test]
+    fn test_ml_dsa_verify_tampered_message_fails() {
+        let (pk, sk) = generate_ml_dsa_keypair().unwrap();
+        let msg = b"original message";
+        let sig = ml_dsa_sign(&sk, msg, CHECKPOINT_CONTEXT).unwrap();
+
+        let result = ml_dsa_verify(&pk, b"tampered message", &sig, CHECKPOINT_CONTEXT);
+        assert!(result.is_err(), "Tampered message must fail verification");
+    }
+
+    /// Different key pair fails verification.
+    #[test]
+    fn test_ml_dsa_verify_wrong_key_pair_fails() {
+        let (_, sk1) = generate_ml_dsa_keypair().unwrap();
+        let (pk2, _) = generate_ml_dsa_keypair().unwrap();
+        let msg = b"test data";
+        let sig = ml_dsa_sign(&sk1, msg, CHECKPOINT_CONTEXT).unwrap();
+
+        let result = ml_dsa_verify(&pk2, msg, &sig, CHECKPOINT_CONTEXT);
+        assert!(
+            result.is_err(),
+            "Verification with wrong public key must fail"
+        );
+    }
+
+    /// Constants have expected values matching FIPS 204 spec.
+    #[test]
+    fn test_ml_dsa_65_constants() {
+        assert_eq!(ML_DSA_65_PK_LEN, 1952);
+        assert_eq!(ML_DSA_65_SK_LEN, 4032);
+        assert_eq!(ML_DSA_65_SIG_LEN, 3309);
+    }
+
+    /// Domain separator constants are non-empty and distinct.
+    #[test]
+    fn test_domain_separator_constants_distinct() {
+        assert!(!CHECKPOINT_CONTEXT.is_empty());
+        assert!(!MANIFEST_CONTEXT.is_empty());
+        assert_ne!(
+            CHECKPOINT_CONTEXT, MANIFEST_CONTEXT,
+            "Domain separators must be different"
+        );
+    }
+
+    /// Empty context (allowed by FIPS 204) works for sign+verify.
+    #[test]
+    fn test_ml_dsa_sign_verify_empty_context() {
+        let (pk, sk) = generate_ml_dsa_keypair().unwrap();
+        let msg = b"data with empty context";
+        let sig = ml_dsa_sign(&sk, msg, b"").unwrap();
+        ml_dsa_verify(&pk, msg, &sig, b"")
+            .expect("Empty context should be valid per FIPS 204");
+    }
+
+    /// Large message sign/verify works (ensure no internal size limit).
+    #[test]
+    fn test_ml_dsa_sign_verify_large_message() {
+        let (pk, sk) = generate_ml_dsa_keypair().unwrap();
+        let large_msg = vec![0x42u8; 100_000]; // 100 KB message
+        let sig = ml_dsa_sign(&sk, &large_msg, CHECKPOINT_CONTEXT).unwrap();
+        ml_dsa_verify(&pk, &large_msg, &sig, CHECKPOINT_CONTEXT)
+            .expect("Large message sign/verify should work");
+    }
 }

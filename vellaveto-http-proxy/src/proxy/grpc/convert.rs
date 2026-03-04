@@ -300,3 +300,300 @@ pub fn make_proto_error_response(
 pub fn make_proto_denial_response(req: &JsonRpcRequest, reason: &str) -> JsonRpcResponse {
     make_proto_error_response(req, -32001, reason)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prost_types::value::Kind;
+    use serde_json::json;
+
+    #[test]
+    fn test_prost_value_to_json_large_integer_preserved() {
+        let s = prost_types::Struct {
+            fields: vec![("big".into(), prost_types::Value { kind: Some(Kind::NumberValue(i64::MAX as f64)) })].into_iter().collect(),
+        };
+        let j = prost_struct_to_json(&s, 0).unwrap();
+        assert!(j["big"].is_number());
+    }
+
+    #[test]
+    fn test_prost_value_to_json_negative_integer() {
+        let s = prost_types::Struct {
+            fields: vec![("neg".into(), prost_types::Value { kind: Some(Kind::NumberValue(-42.0)) })].into_iter().collect(),
+        };
+        let j = prost_struct_to_json(&s, 0).unwrap();
+        assert_eq!(j["neg"], -42);
+        assert!(j["neg"].is_i64());
+    }
+
+    #[test]
+    fn test_prost_value_to_json_zero() {
+        let s = prost_types::Struct {
+            fields: vec![("zero".into(), prost_types::Value { kind: Some(Kind::NumberValue(0.0)) })].into_iter().collect(),
+        };
+        assert_eq!(prost_struct_to_json(&s, 0).unwrap()["zero"], 0);
+    }
+
+    #[test]
+    fn test_prost_value_to_json_empty_string() {
+        let s = prost_types::Struct {
+            fields: vec![("s".into(), prost_types::Value { kind: Some(Kind::StringValue(String::new())) })].into_iter().collect(),
+        };
+        assert_eq!(prost_struct_to_json(&s, 0).unwrap()["s"], "");
+    }
+
+    #[test]
+    fn test_prost_value_to_json_empty_list() {
+        let s = prost_types::Struct {
+            fields: vec![("arr".into(), prost_types::Value { kind: Some(Kind::ListValue(prost_types::ListValue { values: vec![] })) })].into_iter().collect(),
+        };
+        assert_eq!(prost_struct_to_json(&s, 0).unwrap()["arr"], json!([]));
+    }
+
+    #[test]
+    fn test_prost_value_to_json_mixed_list() {
+        let s = prost_types::Struct {
+            fields: vec![("mix".into(), prost_types::Value {
+                kind: Some(Kind::ListValue(prost_types::ListValue {
+                    values: vec![
+                        prost_types::Value { kind: Some(Kind::NumberValue(1.0)) },
+                        prost_types::Value { kind: Some(Kind::StringValue("two".into())) },
+                        prost_types::Value { kind: Some(Kind::BoolValue(false)) },
+                        prost_types::Value { kind: Some(Kind::NullValue(0)) },
+                    ],
+                })),
+            })].into_iter().collect(),
+        };
+        let arr = prost_struct_to_json(&s, 0).unwrap()["mix"].as_array().unwrap().clone();
+        assert_eq!(arr.len(), 4);
+        assert_eq!(arr[0], 1);
+        assert_eq!(arr[1], "two");
+        assert_eq!(arr[2], false);
+        assert!(arr[3].is_null());
+    }
+
+    #[test]
+    fn test_prost_struct_moderate_depth_accepted() {
+        let mut c = prost_types::Struct {
+            fields: vec![("leaf".into(), prost_types::Value { kind: Some(Kind::StringValue("ok".into())) })].into_iter().collect(),
+        };
+        for _ in 0..20 {
+            c = prost_types::Struct {
+                fields: vec![("n".into(), prost_types::Value { kind: Some(Kind::StructValue(c)) })].into_iter().collect(),
+            };
+        }
+        assert!(prost_struct_to_json(&c, 0).is_ok());
+    }
+
+    #[test]
+    fn test_json_to_prost_struct_depth_exceeded() {
+        let mut v = json!("leaf");
+        for _ in 0..70 { v = json!({"nest": v}); }
+        assert!(json_to_prost_struct(&v, 0).is_err());
+    }
+
+    #[test]
+    fn test_prost_list_depth_exceeded() {
+        let mut v = prost_types::Value { kind: Some(Kind::StringValue("leaf".into())) };
+        for _ in 0..70 {
+            v = prost_types::Value { kind: Some(Kind::ListValue(prost_types::ListValue { values: vec![v] })) };
+        }
+        let s = prost_types::Struct { fields: vec![("deep_list".into(), v)].into_iter().collect() };
+        let r = prost_struct_to_json(&s, 0);
+        assert!(r.is_err());
+        assert!(r.unwrap_err().to_string().contains("depth"));
+    }
+
+    #[test]
+    fn test_json_to_prost_value_null() {
+        let r = json_to_prost_value(&json!(null), 0).unwrap();
+        assert!(matches!(r.kind, Some(Kind::NullValue(0))));
+    }
+
+    #[test]
+    fn test_json_to_prost_value_bool_true() {
+        let r = json_to_prost_value(&json!(true), 0).unwrap();
+        assert!(matches!(r.kind, Some(Kind::BoolValue(true))));
+    }
+
+    #[test]
+    fn test_json_to_prost_value_bool_false() {
+        let r = json_to_prost_value(&json!(false), 0).unwrap();
+        assert!(matches!(r.kind, Some(Kind::BoolValue(false))));
+    }
+
+    #[test]
+    fn test_json_to_prost_value_integer() {
+        let r = json_to_prost_value(&json!(42), 0).unwrap();
+        match &r.kind {
+            Some(Kind::NumberValue(n)) => assert!((n - 42.0).abs() < f64::EPSILON),
+            other => panic!("Expected NumberValue, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_json_to_prost_value_float() {
+        let r = json_to_prost_value(&json!(3.14), 0).unwrap();
+        match &r.kind {
+            Some(Kind::NumberValue(n)) => assert!((n - 3.14).abs() < f64::EPSILON),
+            other => panic!("Expected NumberValue, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_json_to_prost_value_string() {
+        let r = json_to_prost_value(&json!("hello"), 0).unwrap();
+        assert!(matches!(r.kind, Some(Kind::StringValue(ref s)) if s == "hello"));
+    }
+
+    #[test]
+    fn test_json_to_prost_value_array() {
+        let r = json_to_prost_value(&json!([1, 2, 3]), 0).unwrap();
+        match &r.kind {
+            Some(Kind::ListValue(list)) => assert_eq!(list.values.len(), 3),
+            other => panic!("Expected ListValue, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_json_to_prost_value_object() {
+        let r = json_to_prost_value(&json!({"a": 1}), 0).unwrap();
+        match &r.kind {
+            Some(Kind::StructValue(s)) => assert!(s.fields.contains_key("a")),
+            other => panic!("Expected StructValue, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_json_to_prost_value_depth_exceeded() {
+        assert!(json_to_prost_value(&json!(42), MAX_CONVERSION_DEPTH + 1).is_err());
+    }
+
+    #[test]
+    fn test_json_to_prost_struct_wraps_string() {
+        let s = json_to_prost_struct(&json!("hello"), 0).unwrap();
+        assert!(s.fields.contains_key("value"));
+        assert!(matches!(s.fields["value"].kind, Some(Kind::StringValue(ref v)) if v == "hello"));
+    }
+
+    #[test]
+    fn test_json_to_prost_struct_wraps_bool() {
+        let s = json_to_prost_struct(&json!(true), 0).unwrap();
+        assert!(s.fields.contains_key("value"));
+    }
+
+    #[test]
+    fn test_json_to_prost_struct_wraps_null() {
+        let s = json_to_prost_struct(&json!(null), 0).unwrap();
+        assert!(s.fields.contains_key("value"));
+    }
+
+    #[test]
+    fn test_json_to_prost_struct_wraps_array() {
+        let s = json_to_prost_struct(&json!([1, 2]), 0).unwrap();
+        assert!(s.fields.contains_key("value"));
+    }
+
+    #[test]
+    fn test_json_to_proto_response_float_id_treated_as_string() {
+        let j = json!({"jsonrpc": "2.0", "id": 1.5, "result": {}});
+        let r = json_to_proto_response(&j).unwrap();
+        match r.id_oneof {
+            Some(super::super::proto::json_rpc_response::IdOneof::IdString(s)) => assert_eq!(s, "1.5"),
+            other => panic!("Expected IdString for float ID, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_json_to_proto_response_bool_id_treated_as_none() {
+        let j = json!({"jsonrpc": "2.0", "id": true, "result": {}});
+        assert!(json_to_proto_response(&j).unwrap().id_oneof.is_none());
+    }
+
+    #[test]
+    fn test_json_to_proto_error_defaults() {
+        let j = json!({"jsonrpc": "2.0", "id": 1, "error": {}});
+        let err = json_to_proto_response(&j).unwrap().error.unwrap();
+        assert_eq!(err.code, -32603);
+        assert_eq!(err.message, "Internal error");
+    }
+
+    #[test]
+    fn test_json_to_proto_error_not_object_fails() {
+        let j = json!({"jsonrpc": "2.0", "id": 1, "error": "string error"});
+        assert!(json_to_proto_response(&j).is_err());
+    }
+
+    #[test]
+    fn test_proto_request_to_json_empty_params() {
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id_oneof: Some(super::super::proto::json_rpc_request::IdOneof::IdInt(1)),
+            method: "test".into(),
+            params: Some(prost_types::Struct { fields: Default::default() }),
+        };
+        let j = proto_request_to_json(&req).unwrap();
+        assert!(j["params"].is_object());
+        assert!(j["params"].as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_proto_request_to_json_nan_in_params_rejected() {
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id_oneof: Some(super::super::proto::json_rpc_request::IdOneof::IdInt(1)),
+            method: "test".into(),
+            params: Some(prost_types::Struct {
+                fields: vec![("bad".into(), prost_types::Value { kind: Some(Kind::NumberValue(f64::NAN)) })].into_iter().collect(),
+            }),
+        };
+        assert!(proto_request_to_json(&req).is_err());
+    }
+
+    #[test]
+    fn test_make_proto_error_response_preserves_string_id() {
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id_oneof: Some(super::super::proto::json_rpc_request::IdOneof::IdString("req-xyz".into())),
+            method: "test".into(),
+            params: None,
+        };
+        let resp = make_proto_error_response(&req, -32600, "Bad request");
+        match resp.id_oneof {
+            Some(super::super::proto::json_rpc_response::IdOneof::IdString(s)) => assert_eq!(s, "req-xyz"),
+            other => panic!("Expected IdString, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_make_proto_denial_response_code_is_minus_32001() {
+        let req = JsonRpcRequest { jsonrpc: "2.0".into(), id_oneof: None, method: "test".into(), params: None };
+        let err = make_proto_denial_response(&req, "policy denial").error.unwrap();
+        assert_eq!(err.code, -32001);
+        assert_eq!(err.message, "policy denial");
+    }
+
+    #[test]
+    fn test_make_proto_error_response_no_data_field() {
+        let req = JsonRpcRequest { jsonrpc: "2.0".into(), id_oneof: None, method: "test".into(), params: None };
+        assert!(make_proto_error_response(&req, -32600, "err").error.unwrap().data.is_none());
+    }
+
+    #[test]
+    fn test_convert_error_invalid_float_display() {
+        let msg = ConvertError::InvalidFloat.to_string();
+        assert!(msg.contains("NaN") || msg.contains("Infinity"));
+    }
+
+    #[test]
+    fn test_convert_error_depth_exceeded_display() {
+        let msg = ConvertError::DepthExceeded.to_string();
+        assert!(msg.contains("depth"));
+        assert!(msg.contains("64"));
+    }
+
+    #[test]
+    fn test_convert_error_missing_field_display() {
+        assert!(ConvertError::MissingField("params").to_string().contains("params"));
+    }
+}

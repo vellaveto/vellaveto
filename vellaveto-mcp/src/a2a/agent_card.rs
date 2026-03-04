@@ -1519,4 +1519,163 @@ mod tests {
         );
         assert!(findings.iter().any(|(path, _)| path == "provider.url"));
     }
+
+    // ════════════════════════════════════════════════════════
+    // Additional validation edge cases
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_validate_agent_card_version_too_long() {
+        let mut card = sample_agent_card();
+        card.version = "v".repeat(129);
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("version length"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_name_dangerous_chars() {
+        let mut card = sample_agent_card();
+        card.name = "Agent\x00Name".to_string();
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("control"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_url_dangerous_chars() {
+        let mut card = sample_agent_card();
+        card.url = "https://example.com/\x01path".to_string();
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("control"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_version_dangerous_chars() {
+        let mut card = sample_agent_card();
+        card.version = "1.0\x0D\x0Ainjection".to_string();
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("control"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_provider_org_too_long() {
+        let mut card = sample_agent_card();
+        card.provider = Some(ProviderInfo {
+            organization: "O".repeat(513),
+            url: None,
+        });
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("organization length"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_provider_url_too_long() {
+        let mut card = sample_agent_card();
+        card.provider = Some(ProviderInfo {
+            organization: "Org".to_string(),
+            url: Some("https://".to_string() + &"x".repeat(2050)),
+        });
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("provider.url length"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_skill_id_too_long() {
+        let mut card = sample_agent_card();
+        card.skills = vec![AgentSkill {
+            id: "s".repeat(257),
+            name: "Skill".to_string(),
+            description: None,
+            tags: vec![],
+            examples: vec![],
+            input_modes: None,
+            output_modes: None,
+        }];
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("skill id length"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_skill_tag_too_long() {
+        let mut card = sample_agent_card();
+        card.skills[0].tags = vec!["t".repeat(257)];
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("tag length"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_skill_too_many_tags() {
+        let mut card = sample_agent_card();
+        card.skills[0].tags = (0..51).map(|i| format!("tag{}", i)).collect();
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("skill tags count"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_skill_example_too_long() {
+        let mut card = sample_agent_card();
+        card.skills[0].examples = vec!["e".repeat(4097)];
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("example length"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_too_many_io_modes() {
+        let mut card = sample_agent_card();
+        card.default_input_modes = (0..21).map(|i| format!("mode{}", i)).collect();
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("default_input_modes count"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_io_mode_too_long() {
+        let mut card = sample_agent_card();
+        card.default_output_modes = vec!["m".repeat(65)];
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("default_output_modes element length"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_auth_scheme_name_dangerous_chars() {
+        let mut card = sample_agent_card();
+        card.authentication = Some(AuthenticationInfo {
+            schemes: vec![AuthScheme {
+                scheme: "oauth2\x00".to_string(),
+                details: HashMap::new(),
+            }],
+        });
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("dangerous characters"));
+    }
+
+    #[test]
+    fn test_validate_agent_card_provider_url_dangerous_chars() {
+        let mut card = sample_agent_card();
+        card.provider = Some(ProviderInfo {
+            organization: "Org".to_string(),
+            url: Some("https://example.com/\x00bad".to_string()),
+        });
+        let err = validate_agent_card(&card).unwrap_err();
+        assert!(err.to_string().contains("control"));
+    }
+
+    #[test]
+    fn test_validate_request_method_unknown_method_allowed() {
+        let card = sample_agent_card();
+        // Unknown methods are allowed (only message/stream gated on capabilities)
+        assert!(validate_request_method(&card, "tasks/get").is_ok());
+        assert!(validate_request_method(&card, "tasks/cancel").is_ok());
+    }
+
+    #[test]
+    fn test_supports_auth_scheme_no_match_returns_false() {
+        let mut card = sample_agent_card();
+        card.authentication = Some(AuthenticationInfo {
+            schemes: vec![AuthScheme {
+                scheme: "httpAuth".to_string(),
+                details: HashMap::new(),
+            }],
+        });
+        assert!(!supports_auth_scheme(&card, "apiKeyAuth"));
+        assert!(!supports_auth_scheme(&card, "openIdConnect"));
+    }
 }

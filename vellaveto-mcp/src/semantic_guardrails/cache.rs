@@ -886,4 +886,137 @@ mod tests {
 
         assert!(cache.len_async().await == 0);
     }
+
+    // ═══════════════════════════════════════════════════
+    // Additional cache coverage
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_cache_config_disabled() {
+        let config = CacheConfig::disabled();
+        assert!(!config.enabled);
+    }
+
+    #[test]
+    fn test_cache_config_validate_boundary_max_size() {
+        // Exactly at limit should pass
+        let config = CacheConfig {
+            max_size: 1_000_000,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+
+        // One over should fail
+        let config = CacheConfig {
+            max_size: 1_000_001,
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_cache_config_validate_max_ttl_boundary() {
+        // Exactly at MAX_TTL_SECS (7 days) should pass
+        let config = CacheConfig {
+            ttl_secs: 7 * 24 * 3600,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_cache_disabled_put_is_noop() {
+        let cache = EvaluationCache::disabled();
+        cache.put("key", LlmEvaluation::allow());
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn test_cache_disabled_get_increments_miss() {
+        let cache = EvaluationCache::disabled();
+        cache.get("key");
+        let stats = cache.stats();
+        assert_eq!(stats.misses, 1);
+        assert_eq!(stats.hits, 0);
+    }
+
+    #[test]
+    fn test_cache_remove_nonexistent_returns_none() {
+        let cache = test_cache();
+        assert!(cache.remove("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_cache_remove_disabled_returns_none() {
+        let cache = EvaluationCache::disabled();
+        cache.put("key", LlmEvaluation::allow());
+        assert!(cache.remove("key").is_none());
+    }
+
+    #[test]
+    fn test_cache_stats_zero_total_hit_rate_is_zero() {
+        let cache = test_cache();
+        let stats = cache.stats();
+        assert_eq!(stats.hits, 0);
+        assert_eq!(stats.misses, 0);
+        assert_eq!(stats.hit_rate, 0.0);
+    }
+
+    #[test]
+    fn test_cache_compute_key_different_params_different_keys() {
+        let cache = test_cache();
+        let key1 = cache.compute_key("tool", "func", &serde_json::json!({"a": 1}), &[]);
+        let key2 = cache.compute_key("tool", "func", &serde_json::json!({"a": 2}), &[]);
+        assert_ne!(key1, key2);
+    }
+
+    #[test]
+    fn test_cache_compute_key_empty_inputs() {
+        let cache = test_cache();
+        let key = cache.compute_key("", "", &serde_json::json!(null), &[]);
+        // Should produce a valid 64-char hex hash
+        assert_eq!(key.len(), 64);
+        assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_cache_config_returns_ref() {
+        let cache = test_cache();
+        let config = cache.config();
+        assert!(config.enabled);
+        assert_eq!(config.max_size, 100);
+    }
+
+    #[tokio::test]
+    async fn test_cache_evict_expired_disabled_is_noop() {
+        let cache = EvaluationCache::disabled();
+        cache.evict_expired().await;
+        assert_eq!(cache.len_async().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_cache_stats_async() {
+        let cache = test_cache();
+        cache.put_async("key", LlmEvaluation::allow()).await;
+        cache.get_async("key").await;
+        cache.get_async("missing").await;
+
+        let stats = cache.stats_async().await;
+        assert_eq!(stats.hits, 1);
+        assert_eq!(stats.misses, 1);
+        assert_eq!(stats.size, 1);
+        assert_eq!(stats.max_size, 100);
+    }
+
+    #[tokio::test]
+    async fn test_cache_clear_async() {
+        let cache = test_cache();
+        cache.put_async("a", LlmEvaluation::allow()).await;
+        cache.put_async("b", LlmEvaluation::allow()).await;
+        assert_eq!(cache.len_async().await, 2);
+
+        cache.clear_async().await;
+        assert_eq!(cache.len_async().await, 0);
+    }
 }

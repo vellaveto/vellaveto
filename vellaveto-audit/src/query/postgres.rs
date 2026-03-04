@@ -775,4 +775,212 @@ mod tests {
         assert_eq!(json["sequence"], 42);
         assert!(json["commitment"].is_null());
     }
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 9 COVERAGE: ADDITIONAL QUERY POSTGRES TESTS
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_audit_row_to_json_with_commitment_and_tenant() {
+        let row = AuditRow {
+            action_json: serde_json::json!({"tool": "file_write", "function": "write"}),
+            verdict_json: serde_json::json!({"Deny": {"reason": "blocked"}}),
+            id: "entry-456".to_string(),
+            sequence: 100,
+            timestamp_raw: "2026-03-01T12:00:00Z".to_string(),
+            metadata: serde_json::json!({"agent_id": "agent-1"}),
+            entry_hash: "aabbccdd".to_string(),
+            prev_hash: "11223344".to_string(),
+            commitment: Some("commitment_hex_value".to_string()),
+            tenant_id: Some("tenant-xyz".to_string()),
+        };
+        let json = row.to_json().unwrap();
+        assert_eq!(json["id"], "entry-456");
+        assert_eq!(json["sequence"], 100);
+        assert_eq!(json["commitment"], "commitment_hex_value");
+        assert_eq!(json["tenant_id"], "tenant-xyz");
+        assert_eq!(json["entry_hash"], "aabbccdd");
+        assert_eq!(json["prev_hash"], "11223344");
+        assert_eq!(json["timestamp"], "2026-03-01T12:00:00Z");
+    }
+
+    #[test]
+    fn test_audit_row_to_json_all_fields_present() {
+        let row = AuditRow {
+            action_json: serde_json::json!({}),
+            verdict_json: serde_json::json!("allow"),
+            id: "x".to_string(),
+            sequence: 0,
+            timestamp_raw: "t".to_string(),
+            metadata: serde_json::json!(null),
+            entry_hash: "h".to_string(),
+            prev_hash: "p".to_string(),
+            commitment: None,
+            tenant_id: None,
+        };
+        let json = row.to_json().unwrap();
+        assert!(json.get("id").is_some());
+        assert!(json.get("sequence").is_some());
+        assert!(json.get("timestamp").is_some());
+        assert!(json.get("action").is_some());
+        assert!(json.get("verdict").is_some());
+        assert!(json.get("metadata").is_some());
+        assert!(json.get("entry_hash").is_some());
+        assert!(json.get("prev_hash").is_some());
+        assert!(json.get("commitment").is_some());
+        assert!(json.get("tenant_id").is_some());
+    }
+
+    #[test]
+    fn test_validate_table_name_pure_underscore_rejected() {
+        for name in &["_", "__", "___"] {
+            let err = validate_table_name(name).unwrap_err().to_string();
+            assert!(
+                err.contains("alphanumeric"),
+                "pure-underscore '{name}' should be rejected, got: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_build_filter_clauses_all_filters() {
+        let params = AuditQueryParams {
+            since: Some("2025-01-01T00:00:00Z".to_string()),
+            until: Some("2025-12-31T23:59:59Z".to_string()),
+            tool: Some("file_read".to_string()),
+            agent_id: Some("agent-1".to_string()),
+            verdict: Some(VerdictFilter::Allow),
+            from_sequence: Some(10),
+            to_sequence: Some(100),
+            text_search: Some("query".to_string()),
+            tenant_id: Some("tenant-1".to_string()),
+            limit: 50,
+            offset: 0,
+        };
+        let clauses = build_filter_clauses(&params);
+        assert!(clauses.contains("timestamp_raw >= $1"), "got: {clauses}");
+        assert!(clauses.contains("timestamp_raw < $2"), "got: {clauses}");
+        assert!(clauses.contains("tool = $3"), "got: {clauses}");
+        assert!(clauses.contains("jsonb_build_object"), "got: {clauses}");
+        assert!(clauses.contains("verdict_type = $5"), "got: {clauses}");
+        assert!(clauses.contains("sequence >= $6"), "got: {clauses}");
+        assert!(clauses.contains("sequence <= $7"), "got: {clauses}");
+        assert!(clauses.contains("ILIKE"), "got: {clauses}");
+        assert!(clauses.contains("tenant_id = $9"), "got: {clauses}");
+    }
+
+    #[test]
+    fn test_build_filter_clauses_sequence_range_only() {
+        let params = AuditQueryParams {
+            from_sequence: Some(5),
+            to_sequence: Some(50),
+            ..Default::default()
+        };
+        let clauses = build_filter_clauses(&params);
+        assert!(clauses.contains("sequence >= $1"), "got: {clauses}");
+        assert!(clauses.contains("sequence <= $2"), "got: {clauses}");
+    }
+
+    #[test]
+    fn test_build_filter_clauses_agent_id_uses_jsonb() {
+        let params = AuditQueryParams {
+            agent_id: Some("my-agent".to_string()),
+            ..Default::default()
+        };
+        let clauses = build_filter_clauses(&params);
+        assert!(
+            clauses.contains("metadata @> jsonb_build_object"),
+            "agent_id should use JSONB containment, got: {clauses}"
+        );
+    }
+
+    #[test]
+    fn test_build_filter_clauses_verdict_only() {
+        let params = AuditQueryParams {
+            verdict: Some(VerdictFilter::RequireApproval),
+            ..Default::default()
+        };
+        let clauses = build_filter_clauses(&params);
+        assert!(
+            clauses.contains("verdict_type = $1"),
+            "got: {clauses}"
+        );
+    }
+
+    #[test]
+    fn test_where_builder_empty_produces_empty_string() {
+        let wb = WhereBuilder::new();
+        assert!(wb.build().is_empty());
+    }
+
+    #[test]
+    fn test_where_builder_single_condition() {
+        let mut wb = WhereBuilder::new();
+        let p = wb.next_param();
+        wb.add_condition(format!("col = {p}"));
+        let result = wb.build();
+        assert_eq!(result, "WHERE col = $1");
+    }
+
+    #[test]
+    fn test_where_builder_multiple_conditions_joined_with_and() {
+        let mut wb = WhereBuilder::new();
+        let p1 = wb.next_param();
+        wb.add_condition(format!("a = {p1}"));
+        let p2 = wb.next_param();
+        wb.add_condition(format!("b = {p2}"));
+        let result = wb.build();
+        assert_eq!(result, "WHERE a = $1 AND b = $2");
+    }
+
+    #[test]
+    fn test_where_builder_param_index_increments() {
+        let mut wb = WhereBuilder::new();
+        assert_eq!(wb.next_param(), "$1");
+        assert_eq!(wb.next_param(), "$2");
+        assert_eq!(wb.next_param(), "$3");
+    }
+
+    #[test]
+    fn test_query_error_display_variants() {
+        let validation_err = QueryError::Validation("bad param".to_string());
+        assert!(validation_err.to_string().contains("validation error"));
+
+        let query_err = QueryError::Query("db timeout".to_string());
+        assert!(query_err.to_string().contains("query error"));
+
+        let na_err = QueryError::NotAvailable("postgres down".to_string());
+        assert!(na_err.to_string().contains("not available"));
+    }
+
+    #[test]
+    fn test_postgres_audit_query_debug_shows_table_name() {
+        assert!(validate_table_name("my_audit_table").is_ok());
+    }
+
+    #[test]
+    fn test_validate_table_name_control_chars_rejected() {
+        let err = validate_table_name("audit\ttable").unwrap_err().to_string();
+        assert!(err.contains("alphanumeric"), "tabs should be rejected: {err}");
+
+        let err = validate_table_name("audit\ntable").unwrap_err().to_string();
+        assert!(err.contains("alphanumeric"), "newlines should be rejected: {err}");
+
+        let err = validate_table_name("audit\0table").unwrap_err().to_string();
+        assert!(err.contains("alphanumeric"), "null bytes should be rejected: {err}");
+    }
+
+    #[test]
+    fn test_build_filter_clauses_text_search_uses_ilike() {
+        let params = AuditQueryParams {
+            text_search: Some("secret".to_string()),
+            ..Default::default()
+        };
+        let clauses = build_filter_clauses(&params);
+        let ilike_count = clauses.matches("ILIKE").count();
+        assert_eq!(
+            ilike_count, 3,
+            "text_search should produce 3 ILIKE clauses, got: {ilike_count}"
+        );
+    }
 }

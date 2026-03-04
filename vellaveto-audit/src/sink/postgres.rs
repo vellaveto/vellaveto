@@ -680,4 +680,151 @@ mod tests {
             "audit_ should be a valid table name"
         );
     }
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 9 COVERAGE: ADDITIONAL SINK CONFIG TESTS
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_config_validate_buffer_size_one_is_valid() {
+        let config = PostgresSinkConfig {
+            buffer_size: 1,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_validate_batch_size_one_is_valid() {
+        let config = PostgresSinkConfig {
+            batch_size: 1,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_validate_flush_interval_one_is_valid() {
+        let config = PostgresSinkConfig {
+            flush_interval_ms: 1,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_validate_table_name_single_char() {
+        let config = PostgresSinkConfig {
+            table_name: "a".to_string(),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_validate_table_name_all_uppercase() {
+        let config = PostgresSinkConfig {
+            table_name: "AUDIT_TABLE".to_string(),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_validate_table_name_mixed_case_and_digits() {
+        let config = PostgresSinkConfig {
+            table_name: "AuditTable123".to_string(),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_validate_table_name_hyphen_rejected() {
+        let config = PostgresSinkConfig {
+            table_name: "audit-table".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("alphanumeric"), "got: {err}");
+    }
+
+    #[test]
+    fn test_config_validate_table_name_dot_rejected() {
+        let config = PostgresSinkConfig {
+            table_name: "schema.table".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("alphanumeric"), "got: {err}");
+    }
+
+    #[test]
+    fn test_config_validate_table_name_space_rejected() {
+        let config = PostgresSinkConfig {
+            table_name: "audit table".to_string(),
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("alphanumeric"), "got: {err}");
+    }
+
+    #[test]
+    fn test_ddl_contains_all_columns() {
+        assert!(CREATE_TABLE_DDL.contains("id"));
+        assert!(CREATE_TABLE_DDL.contains("sequence"));
+        assert!(CREATE_TABLE_DDL.contains("timestamp_raw"));
+        assert!(CREATE_TABLE_DDL.contains("tool"));
+        assert!(CREATE_TABLE_DDL.contains("function_name"));
+        assert!(CREATE_TABLE_DDL.contains("verdict_type"));
+        assert!(CREATE_TABLE_DDL.contains("verdict_reason"));
+        assert!(CREATE_TABLE_DDL.contains("action_json"));
+        assert!(CREATE_TABLE_DDL.contains("verdict_json"));
+        assert!(CREATE_TABLE_DDL.contains("metadata"));
+        assert!(CREATE_TABLE_DDL.contains("entry_hash"));
+        assert!(CREATE_TABLE_DDL.contains("prev_hash"));
+        assert!(CREATE_TABLE_DDL.contains("commitment"));
+        assert!(CREATE_TABLE_DDL.contains("tenant_id"));
+        assert!(CREATE_TABLE_DDL.contains("inserted_at"));
+    }
+
+    #[test]
+    fn test_ddl_contains_all_indexes() {
+        assert!(CREATE_TABLE_DDL.contains("idx_audit_sequence"));
+        assert!(CREATE_TABLE_DDL.contains("idx_audit_timestamp"));
+        assert!(CREATE_TABLE_DDL.contains("idx_audit_tool"));
+        assert!(CREATE_TABLE_DDL.contains("idx_audit_verdict"));
+        assert!(CREATE_TABLE_DDL.contains("idx_audit_metadata"));
+        assert!(CREATE_TABLE_DDL.contains("idx_audit_ts_verdict"));
+        assert!(CREATE_TABLE_DDL.contains("idx_audit_deny"));
+        assert!(CREATE_TABLE_DDL.contains("idx_audit_tenant"));
+    }
+
+    #[test]
+    fn test_ddl_partial_deny_index() {
+        assert!(
+            CREATE_TABLE_DDL.contains("WHERE verdict_type = 'deny'"),
+            "DDL should include partial index for deny verdicts"
+        );
+    }
+
+    #[test]
+    fn test_sink_error_display_variants() {
+        let conn_err = SinkError::Connection("db down".to_string());
+        assert!(conn_err.to_string().contains("connection error"));
+
+        let write_err = SinkError::Write("timeout".to_string());
+        assert!(write_err.to_string().contains("write error"));
+
+        let ser_err = SinkError::Serialization("bad json".to_string());
+        assert!(ser_err.to_string().contains("serialization error"));
+
+        let buf_err = SinkError::BufferFull(42);
+        let buf_msg = buf_err.to_string();
+        assert!(buf_msg.contains("buffer full"));
+        assert!(buf_msg.contains("42"));
+
+        let shut_err = SinkError::ShuttingDown;
+        assert!(shut_err.to_string().contains("shutting down"));
+    }
 }

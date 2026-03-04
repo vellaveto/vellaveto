@@ -774,4 +774,216 @@ mod tests {
         assert!((ic.confidence - 0.75).abs() < f64::EPSILON);
         assert_eq!(ic.primary_intent, Intent::Benign);
     }
+
+    // ═══════════════════════════════════════════════════
+    // Additional coverage: Intent helpers, validation, chain
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_intent_description_returns_non_empty_for_all_variants() {
+        let variants = [
+            Intent::DataRead,
+            Intent::DataWrite,
+            Intent::DataDelete,
+            Intent::DataExport,
+            Intent::DataQuery,
+            Intent::SystemExecute,
+            Intent::SystemConfigure,
+            Intent::SystemMonitor,
+            Intent::NetworkFetch,
+            Intent::NetworkSend,
+            Intent::NetworkConnect,
+            Intent::CredentialAccess,
+            Intent::PrivilegeEscalation,
+            Intent::PolicyBypass,
+            Intent::Injection,
+            Intent::Exfiltration,
+            Intent::DenialOfService,
+            Intent::Unknown,
+            Intent::Benign,
+        ];
+        for variant in &variants {
+            assert!(
+                !variant.description().is_empty(),
+                "Intent::{:?} description must be non-empty",
+                variant
+            );
+        }
+    }
+
+    #[test]
+    fn test_risk_category_description_returns_non_empty_for_all_variants() {
+        let variants = [
+            RiskCategory::PromptInjection,
+            RiskCategory::Jailbreak,
+            RiskCategory::DataLeakage,
+            RiskCategory::UnauthorizedAccess,
+            RiskCategory::PrivilegeEscalation,
+            RiskCategory::MaliciousPayload,
+            RiskCategory::SocialEngineering,
+            RiskCategory::SystemAbuse,
+            RiskCategory::PolicyViolation,
+        ];
+        for variant in &variants {
+            assert!(
+                !variant.description().is_empty(),
+                "RiskCategory::{:?} description must be non-empty",
+                variant
+            );
+        }
+    }
+
+    #[test]
+    fn test_intent_default_is_unknown() {
+        let intent = Intent::default();
+        assert_eq!(intent, Intent::Unknown);
+        // Unknown treated as medium risk (fail-closed)
+        assert_eq!(intent.risk_level(), 50);
+    }
+
+    #[test]
+    fn test_intent_classification_validate_nan_confidence_rejected() {
+        let ic = IntentClassification {
+            confidence: f64::NAN,
+            ..Default::default()
+        };
+        assert!(ic.validate().is_err());
+    }
+
+    #[test]
+    fn test_intent_classification_validate_negative_confidence_rejected() {
+        let ic = IntentClassification {
+            confidence: -0.1,
+            ..Default::default()
+        };
+        assert!(ic.validate().is_err());
+    }
+
+    #[test]
+    fn test_intent_classification_validate_over_one_confidence_rejected() {
+        let ic = IntentClassification {
+            confidence: 1.01,
+            ..Default::default()
+        };
+        assert!(ic.validate().is_err());
+    }
+
+    #[test]
+    fn test_intent_classification_validate_too_many_secondary_intents() {
+        let ic = IntentClassification {
+            confidence: 0.5,
+            secondary_intents: (0..51).map(|_| (Intent::DataRead, 0.1)).collect(),
+            ..Default::default()
+        };
+        assert!(ic.validate().is_err());
+    }
+
+    #[test]
+    fn test_intent_classification_validate_bad_secondary_confidence() {
+        let ic = IntentClassification {
+            confidence: 0.5,
+            secondary_intents: vec![(Intent::DataRead, f64::INFINITY)],
+            ..Default::default()
+        };
+        assert!(ic.validate().is_err());
+    }
+
+    #[test]
+    fn test_intent_classification_validate_too_many_risks() {
+        let ic = IntentClassification {
+            confidence: 0.5,
+            detected_risks: (0..51)
+                .map(|_| RiskCategory::PolicyViolation)
+                .collect(),
+            ..Default::default()
+        };
+        assert!(ic.validate().is_err());
+    }
+
+    #[test]
+    fn test_intent_classification_validate_valid_passes() {
+        let ic = IntentClassification {
+            primary_intent: Intent::DataRead,
+            confidence: 0.8,
+            secondary_intents: vec![(Intent::NetworkFetch, 0.3)],
+            detected_risks: vec![RiskCategory::DataLeakage],
+            explanation: Some("test".to_string()),
+        };
+        assert!(ic.validate().is_ok());
+    }
+
+    #[test]
+    fn test_intent_classification_is_high_confidence_nan_returns_false() {
+        let ic = IntentClassification {
+            confidence: f64::NAN,
+            ..Default::default()
+        };
+        assert!(!ic.is_high_confidence(0.5));
+    }
+
+    #[test]
+    fn test_intent_classification_is_high_confidence_at_threshold() {
+        let ic = IntentClassification {
+            confidence: 0.8,
+            ..Default::default()
+        };
+        assert!(ic.is_high_confidence(0.8));
+        assert!(!ic.is_high_confidence(0.81));
+    }
+
+    #[test]
+    fn test_intent_chain_new_caps_at_100() {
+        let chain = IntentChain::new(500);
+        assert_eq!(chain.max_size, 100);
+    }
+
+    #[test]
+    fn test_intent_chain_is_empty() {
+        let chain = IntentChain::new(10);
+        assert!(chain.is_empty());
+    }
+
+    #[test]
+    fn test_intent_chain_detect_escalation_sequence() {
+        let mut chain = IntentChain::new(10);
+        chain.push(Intent::SystemConfigure, "config".to_string(), 1000);
+        chain.push(Intent::PrivilegeEscalation, "escalate".to_string(), 1001);
+
+        let patterns = chain.detect_suspicious_patterns();
+        assert!(patterns
+            .iter()
+            .any(|p| p.pattern_type == "privilege_escalation"));
+    }
+
+    #[test]
+    fn test_intent_chain_recent_more_than_available() {
+        let mut chain = IntentChain::new(10);
+        chain.push(Intent::DataRead, "fs".to_string(), 1000);
+
+        let recent = chain.recent(100);
+        assert_eq!(recent.len(), 1);
+    }
+
+    #[test]
+    fn test_intent_classification_is_suspicious_benign_no_risks() {
+        let ic = IntentClassification::benign(0.9);
+        assert!(!ic.is_suspicious());
+    }
+
+    #[test]
+    fn test_intent_classification_max_risk_level_no_risks() {
+        let ic = IntentClassification {
+            primary_intent: Intent::DataRead,
+            confidence: 0.5,
+            ..Default::default()
+        };
+        assert_eq!(ic.max_risk_level(), Intent::DataRead.risk_level());
+    }
+
+    #[test]
+    fn test_intent_classification_unknown_produces_unknown() {
+        let ic = IntentClassification::unknown();
+        assert_eq!(ic.primary_intent, Intent::Unknown);
+        assert_eq!(ic.confidence, 0.0);
+    }
 }

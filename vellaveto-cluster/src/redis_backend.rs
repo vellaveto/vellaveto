@@ -886,6 +886,46 @@ impl ClusterBackend for RedisBackend {
 }
 
 impl RedisBackend {
+    /// Expose key construction for testing.
+    #[cfg(test)]
+    pub(crate) fn test_key(&self, suffix: &str) -> String {
+        self.key(suffix)
+    }
+
+    /// Expose approval_key for testing.
+    #[cfg(test)]
+    pub(crate) fn test_approval_key(&self, id: &str) -> String {
+        self.approval_key(id)
+    }
+
+    /// Expose dedup_key for testing.
+    #[cfg(test)]
+    pub(crate) fn test_dedup_key(&self, hash: &str) -> String {
+        self.dedup_key(hash)
+    }
+
+    /// Expose pending_set_key for testing.
+    #[cfg(test)]
+    pub(crate) fn test_pending_set_key(&self) -> String {
+        self.pending_set_key()
+    }
+
+    /// Expose rate_limit_key for testing.
+    #[cfg(test)]
+    pub(crate) fn test_rate_limit_key(&self, category: &str, key: &str) -> String {
+        self.rate_limit_key(category, key)
+    }
+
+    /// Expose compute_dedup_hash for testing.
+    #[cfg(test)]
+    pub(crate) fn test_compute_dedup_hash(
+        action: &Action,
+        reason: &str,
+        requested_by: Option<&str>,
+    ) -> Result<String, ClusterError> {
+        Self::compute_dedup_hash(action, reason, requested_by)
+    }
+
     /// Persist an updated approval and cleanup associated indices.
     async fn persist_and_cleanup(
         &self,
@@ -927,5 +967,400 @@ impl RedisBackend {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "redis-backend"))]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn make_action(tool: &str, function: &str) -> Action {
+        Action {
+            tool: tool.to_string(),
+            function: function.to_string(),
+            parameters: json!({}),
+            target_paths: vec![],
+            target_domains: vec![],
+            resolved_ips: vec![],
+        }
+    }
+
+    fn make_backend(prefix: &str) -> RedisBackend {
+        RedisBackend::new("redis://127.0.0.1:6379", 1, prefix).unwrap()
+    }
+
+    fn err_str(result: Result<RedisBackend, ClusterError>) -> String {
+        match result {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("Expected Err, got Ok"),
+        }
+    }
+
+    // Key construction
+
+    #[test]
+    fn test_key_construction_basic() {
+        let b = make_backend("vellaveto:");
+        assert_eq!(b.test_key("suffix"), "vellaveto:suffix");
+    }
+
+    #[test]
+    fn test_approval_key_format() {
+        let b = make_backend("vellaveto:");
+        assert_eq!(b.test_approval_key("abc-123"), "vellaveto:approval:abc-123");
+    }
+
+    #[test]
+    fn test_dedup_key_format() {
+        let b = make_backend("vellaveto:");
+        assert_eq!(b.test_dedup_key("deadbeef"), "vellaveto:dedup:deadbeef");
+    }
+
+    #[test]
+    fn test_pending_set_key_format() {
+        let b = make_backend("vellaveto:");
+        assert_eq!(b.test_pending_set_key(), "vellaveto:pending");
+    }
+
+    #[test]
+    fn test_rate_limit_key_format() {
+        let b = make_backend("vellaveto:");
+        assert_eq!(b.test_rate_limit_key("per_ip", "10.0.0.1"), "vellaveto:rl:per_ip:10.0.0.1");
+    }
+
+    #[test]
+    fn test_key_construction_custom_prefix() {
+        let b = make_backend("prod-us-east:");
+        assert_eq!(b.test_approval_key("id1"), "prod-us-east:approval:id1");
+        assert_eq!(b.test_rate_limit_key("burst", "user"), "prod-us-east:rl:burst:user");
+    }
+
+    // Key prefix validation
+
+    #[test]
+    fn test_new_empty_prefix_rejected() {
+        let msg = err_str(RedisBackend::new("redis://127.0.0.1:6379", 1, ""));
+        assert!(msg.contains("must not be empty"));
+    }
+
+    #[test]
+    fn test_new_overlong_prefix_rejected() {
+        let msg = err_str(RedisBackend::new("redis://127.0.0.1:6379", 1, &"x".repeat(129)));
+        assert!(msg.contains("exceeds maximum"));
+    }
+
+    #[test]
+    fn test_new_prefix_at_max_length_accepted() {
+        assert!(RedisBackend::new("redis://127.0.0.1:6379", 1, &"x".repeat(128)).is_ok());
+    }
+
+    #[test]
+    fn test_new_prefix_with_control_char_rejected() {
+        let msg = err_str(RedisBackend::new("redis://127.0.0.1:6379", 1, "prefix\x00bad:"));
+        assert!(msg.contains("control characters"));
+    }
+
+    #[test]
+    fn test_new_prefix_with_hash_tag_brace_rejected() {
+        let msg = err_str(RedisBackend::new("redis://127.0.0.1:6379", 1, "prefix{slot}:"));
+        assert!(msg.contains("hash tag characters"));
+    }
+
+    #[test]
+    fn test_new_prefix_with_unicode_format_char_rejected() {
+        let msg = err_str(RedisBackend::new("redis://127.0.0.1:6379", 1, "vellaveto\u{200B}:"));
+        assert!(msg.contains("Unicode format characters"));
+    }
+
+    // TTL validation
+
+    #[test]
+    fn test_with_ttl_zero_rejected() {
+        let msg = err_str(make_backend("v:").with_ttl_secs(0));
+        assert!(msg.contains(">= 1 second"));
+    }
+
+    #[test]
+    fn test_with_ttl_exceeds_30_days_rejected() {
+        let msg = err_str(make_backend("v:").with_ttl_secs(86400 * 30 + 1));
+        assert!(msg.contains("exceeds maximum"));
+    }
+
+    #[test]
+    fn test_with_ttl_exactly_30_days_accepted() {
+        assert!(make_backend("v:").with_ttl_secs(86400 * 30).is_ok());
+    }
+
+    #[test]
+    fn test_with_ttl_one_second_accepted() {
+        assert!(make_backend("v:").with_ttl_secs(1).is_ok());
+    }
+
+    // Max pending validation
+
+    #[test]
+    fn test_with_max_pending_zero_rejected() {
+        let msg = err_str(make_backend("v:").with_max_pending(0));
+        assert!(msg.contains(">= 1"));
+    }
+
+    #[test]
+    fn test_with_max_pending_one_accepted() {
+        assert!(make_backend("v:").with_max_pending(1).is_ok());
+    }
+
+    // Approval ID validation
+
+    #[test]
+    fn test_validate_approval_id_empty_rejected() {
+        assert!(validate_approval_id_for_redis("").is_err());
+    }
+
+    #[test]
+    fn test_validate_approval_id_valid() {
+        assert!(validate_approval_id_for_redis("abc-123-def").is_ok());
+    }
+
+    #[test]
+    fn test_validate_approval_id_overlong_rejected() {
+        let r = validate_approval_id_for_redis(&"x".repeat(MAX_APPROVAL_ID_LEN + 1));
+        assert!(r.unwrap_err().to_string().contains("maximum length"));
+    }
+
+    #[test]
+    fn test_validate_approval_id_at_max_length_accepted() {
+        assert!(validate_approval_id_for_redis(&"x".repeat(MAX_APPROVAL_ID_LEN)).is_ok());
+    }
+
+    #[test]
+    fn test_validate_approval_id_control_char_rejected() {
+        assert!(validate_approval_id_for_redis("id\x00bad").is_err());
+        assert!(validate_approval_id_for_redis("id\nwith\nnewlines").is_err());
+        assert!(validate_approval_id_for_redis("id\x7F_del").is_err());
+    }
+
+    #[test]
+    fn test_validate_approval_id_hash_tag_brace_rejected() {
+        let r = validate_approval_id_for_redis("id{slot}");
+        assert!(r.unwrap_err().to_string().contains("'{' or '}'"));
+    }
+
+    #[test]
+    fn test_validate_approval_id_unicode_format_char_rejected() {
+        let r = validate_approval_id_for_redis(&format!("id\u{FEFF}bad"));
+        assert!(r.unwrap_err().to_string().contains("Unicode format characters"));
+    }
+
+    // Resolver identity validation
+
+    #[test]
+    fn test_validate_resolver_identity_empty_rejected() {
+        assert!(validate_resolver_identity("").is_err());
+    }
+
+    #[test]
+    fn test_validate_resolver_identity_valid() {
+        assert!(validate_resolver_identity("admin@corp.com").is_ok());
+    }
+
+    #[test]
+    fn test_validate_resolver_identity_overlong_rejected() {
+        let r = validate_resolver_identity(&"a".repeat(vellaveto_approval::MAX_IDENTITY_LEN + 1));
+        assert!(r.unwrap_err().to_string().contains("maximum length"));
+    }
+
+    #[test]
+    fn test_validate_resolver_identity_control_chars_rejected() {
+        assert!(validate_resolver_identity("user\x00name").is_err());
+    }
+
+    #[test]
+    fn test_validate_resolver_identity_unicode_format_rejected() {
+        assert!(validate_resolver_identity("user\u{200D}name").is_err());
+    }
+
+    // Rate limit parameter validation
+
+    #[test]
+    fn test_validate_rate_limit_param_empty_rejected() {
+        let r = validate_rate_limit_param("category", "");
+        assert!(r.unwrap_err().to_string().contains("must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_rate_limit_param_valid() {
+        assert!(validate_rate_limit_param("category", "per_ip").is_ok());
+        assert!(validate_rate_limit_param("key", "10.0.0.1").is_ok());
+    }
+
+    #[test]
+    fn test_validate_rate_limit_param_overlong_rejected() {
+        let r = validate_rate_limit_param("key", &"x".repeat(MAX_RATE_LIMIT_PARAM_LEN + 1));
+        assert!(r.unwrap_err().to_string().contains("maximum length"));
+    }
+
+    #[test]
+    fn test_validate_rate_limit_param_control_char_rejected() {
+        let r = validate_rate_limit_param("key", "val\x0Aue");
+        assert!(r.unwrap_err().to_string().contains("control characters"));
+    }
+
+    #[test]
+    fn test_validate_rate_limit_param_hash_tag_rejected() {
+        let r = validate_rate_limit_param("key", "val{ue}");
+        assert!(r.unwrap_err().to_string().contains("invalid characters"));
+    }
+
+    #[test]
+    fn test_validate_rate_limit_param_unicode_format_rejected() {
+        let r = validate_rate_limit_param("key", "val\u{200B}ue");
+        assert!(r.unwrap_err().to_string().contains("Unicode format characters"));
+    }
+
+    #[test]
+    fn test_validate_rate_limit_param_name_appears_in_error() {
+        let r = validate_rate_limit_param("category", "");
+        assert!(r.unwrap_err().to_string().contains("category"));
+        let r = validate_rate_limit_param("key", "");
+        assert!(r.unwrap_err().to_string().contains("key"));
+    }
+
+    // Dedup hash tests
+
+    #[test]
+    fn test_compute_dedup_hash_deterministic() {
+        let a = make_action("read_file", "read");
+        let h1 = RedisBackend::test_compute_dedup_hash(&a, "reason", None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a, "reason", None).unwrap();
+        assert_eq!(h1, h2, "Dedup hash must be deterministic");
+    }
+
+    #[test]
+    fn test_compute_dedup_hash_different_tool_different_hash() {
+        let a1 = make_action("read_file", "read");
+        let a2 = make_action("write_file", "read");
+        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None).unwrap();
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_compute_dedup_hash_different_function_different_hash() {
+        let a1 = make_action("tool", "read");
+        let a2 = make_action("tool", "write");
+        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None).unwrap();
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_compute_dedup_hash_different_reason_different_hash() {
+        let a = make_action("tool", "func");
+        let h1 = RedisBackend::test_compute_dedup_hash(&a, "reason1", None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a, "reason2", None).unwrap();
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_compute_dedup_hash_none_vs_some_empty_different() {
+        let a = make_action("tool", "func");
+        let h1 = RedisBackend::test_compute_dedup_hash(&a, "reason", None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a, "reason", Some("")).unwrap();
+        assert_ne!(h1, h2, "None vs Some(\"\") must produce different hashes");
+    }
+
+    #[test]
+    fn test_compute_dedup_hash_different_requested_by_different_hash() {
+        let a = make_action("tool", "func");
+        let h1 = RedisBackend::test_compute_dedup_hash(&a, "reason", Some("alice")).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a, "reason", Some("bob")).unwrap();
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_compute_dedup_hash_sorted_domains() {
+        let mut a1 = make_action("tool", "func");
+        a1.target_domains = vec!["b.com".into(), "a.com".into()];
+        let mut a2 = make_action("tool", "func");
+        a2.target_domains = vec!["a.com".into(), "b.com".into()];
+        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None).unwrap();
+        assert_eq!(h1, h2, "Different domain order must produce same hash");
+    }
+
+    #[test]
+    fn test_compute_dedup_hash_sorted_paths() {
+        let mut a1 = make_action("tool", "func");
+        a1.target_paths = vec!["/z/file".into(), "/a/file".into()];
+        let mut a2 = make_action("tool", "func");
+        a2.target_paths = vec!["/a/file".into(), "/z/file".into()];
+        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None).unwrap();
+        assert_eq!(h1, h2, "Different path order must produce same hash");
+    }
+
+    #[test]
+    fn test_compute_dedup_hash_sorted_ips() {
+        let mut a1 = make_action("tool", "func");
+        a1.resolved_ips = vec!["10.0.0.2".into(), "10.0.0.1".into()];
+        let mut a2 = make_action("tool", "func");
+        a2.resolved_ips = vec!["10.0.0.1".into(), "10.0.0.2".into()];
+        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None).unwrap();
+        assert_eq!(h1, h2, "Different IP order must produce same hash");
+    }
+
+    #[test]
+    fn test_compute_dedup_hash_nfkc_normalization() {
+        let a1 = make_action("abc", "func");
+        let a2 = make_action("\u{FF41}bc", "func"); // fullwidth 'a'
+        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None).unwrap();
+        assert_eq!(h1, h2, "NFKC-equivalent tool names must produce same hash");
+    }
+
+    #[test]
+    fn test_compute_dedup_hash_case_insensitive() {
+        let a1 = make_action("tool", "func");
+        let a2 = make_action("TOOL", "FUNC");
+        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None).unwrap();
+        assert_eq!(h1, h2, "Case-different names must produce same hash");
+    }
+
+    #[test]
+    fn test_compute_dedup_hash_is_hex_string() {
+        let a = make_action("tool", "func");
+        let h = RedisBackend::test_compute_dedup_hash(&a, "reason", None).unwrap();
+        assert_eq!(h.len(), 64, "SHA-256 hex digest must be 64 chars");
+        assert!(h.chars().all(|c| c.is_ascii_hexdigit()), "Hash must be valid hex");
+    }
+
+    // Constants sanity checks
+
+    #[test]
+    fn test_default_ttl_is_15_minutes() {
+        assert_eq!(DEFAULT_TTL_SECS, 900);
+    }
+
+    #[test]
+    fn test_default_max_pending_is_10k() {
+        assert_eq!(DEFAULT_MAX_PENDING, 10_000);
+    }
+
+    #[test]
+    fn test_max_approval_fetch_is_10k() {
+        assert_eq!(MAX_APPROVAL_FETCH, 10_000);
+    }
+
+    #[test]
+    fn test_max_approval_id_len_is_512() {
+        assert_eq!(MAX_APPROVAL_ID_LEN, 512);
+    }
+
+    #[test]
+    fn test_max_rate_limit_param_len_is_512() {
+        assert_eq!(MAX_RATE_LIMIT_PARAM_LEN, 512);
     }
 }

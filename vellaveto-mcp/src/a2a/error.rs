@@ -165,4 +165,147 @@ mod tests {
         assert!(matches!(a2a_err, A2aError::Serialization(_)));
         assert_eq!(a2a_err.code(), -32700);
     }
+
+    /// Verify JSON-RPC codes for all remaining A2aError variants not in test_error_codes.
+    #[test]
+    fn test_error_codes_exhaustive() {
+        use vellaveto_types::json_rpc;
+
+        assert_eq!(
+            A2aError::TaskNotFound {
+                task_id: "t1".to_string()
+            }
+            .code(),
+            json_rpc::TASK_NOT_FOUND as i32
+        );
+        assert_eq!(
+            A2aError::TaskOperationNotAllowed {
+                operation: "cancel".to_string(),
+                state: "completed".to_string()
+            }
+            .code(),
+            json_rpc::TASK_OPERATION_NOT_ALLOWED as i32
+        );
+        assert_eq!(
+            A2aError::InjectionDetected("xss".to_string()).code(),
+            json_rpc::INJECTION_DETECTED as i32
+        );
+        assert_eq!(
+            A2aError::DlpViolation("ssn found".to_string()).code(),
+            json_rpc::DLP_VIOLATION as i32
+        );
+        assert_eq!(
+            A2aError::ShadowAgentDetected("unregistered".to_string()).code(),
+            json_rpc::SHADOW_AGENT_DETECTED as i32
+        );
+        assert_eq!(
+            A2aError::MessageTooLarge {
+                size: 100,
+                max: 50
+            }
+            .code(),
+            json_rpc::MESSAGE_TOO_LARGE as i32
+        );
+        assert_eq!(
+            A2aError::ResponseTooLarge {
+                size: 100,
+                max: 50
+            }
+            .code(),
+            json_rpc::MESSAGE_TOO_LARGE as i32
+        );
+        assert_eq!(
+            A2aError::AgentCardNotFound {
+                url: "https://a.com".to_string()
+            }
+            .code(),
+            json_rpc::AGENT_CARD_NOT_FOUND as i32
+        );
+        assert_eq!(
+            A2aError::AgentCardInvalid("bad".to_string()).code(),
+            json_rpc::AGENT_CARD_INVALID as i32
+        );
+        assert_eq!(
+            A2aError::CircuitBreakerOpen {
+                upstream: "svc".to_string()
+            }
+            .code(),
+            json_rpc::CIRCUIT_BREAKER_OPEN as i32
+        );
+        assert_eq!(
+            A2aError::AuthenticationFailed("bad token".to_string()).code(),
+            json_rpc::APPROVAL_REQUIRED as i32
+        );
+        assert_eq!(
+            A2aError::Upstream("network fail".to_string()).code(),
+            json_rpc::INTERNAL_ERROR as i32
+        );
+        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test");
+        assert_eq!(A2aError::Io(io_err).code(), json_rpc::INTERNAL_ERROR as i32);
+    }
+
+    /// Verify display strings for structured error variants.
+    #[test]
+    fn test_error_display_all_variants() {
+        assert_eq!(
+            A2aError::AgentCardNotFound {
+                url: "https://x.com".to_string()
+            }
+            .to_string(),
+            "Agent card not found at https://x.com"
+        );
+        assert_eq!(
+            A2aError::AgentCardInvalid("missing name".to_string()).to_string(),
+            "Agent card validation failed: missing name"
+        );
+        assert_eq!(
+            A2aError::TaskNotFound {
+                task_id: "abc-123".to_string()
+            }
+            .to_string(),
+            "Task not found: abc-123"
+        );
+        assert_eq!(
+            A2aError::TaskOperationNotAllowed {
+                operation: "cancel".to_string(),
+                state: "completed".to_string()
+            }
+            .to_string(),
+            "Task operation not allowed: cancel on task in state completed"
+        );
+        assert_eq!(
+            A2aError::ResponseTooLarge {
+                size: 5000,
+                max: 1000
+            }
+            .to_string(),
+            "Response too large: estimated 5000 bytes exceeds maximum 1000 bytes"
+        );
+        assert_eq!(A2aError::Timeout.to_string(), "Request timeout");
+        assert_eq!(
+            A2aError::BatchNotAllowed.to_string(),
+            "Batch requests are not allowed"
+        );
+        assert_eq!(
+            A2aError::CircuitBreakerOpen {
+                upstream: "agent-b".to_string()
+            }
+            .to_string(),
+            "Circuit breaker open: upstream agent-b is unavailable"
+        );
+        assert_eq!(
+            A2aError::ShadowAgentDetected("rogue".to_string()).to_string(),
+            "Shadow agent detected: rogue"
+        );
+    }
+
+    /// Verify From<io::Error> conversion.
+    #[test]
+    fn test_error_from_io_error() {
+        let io_err =
+            std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused");
+        let a2a_err: A2aError = io_err.into();
+        assert!(matches!(a2a_err, A2aError::Io(_)));
+        assert!(a2a_err.to_string().contains("refused"));
+    }
 }
