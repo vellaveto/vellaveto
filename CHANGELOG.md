@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 0 — Formal Verification Plan + TCB Document:**
+  `docs/FORMAL_VERIFICATION_PLAN.md` — comprehensive 4-phase roadmap: Verus core verdict
+  verification (V1-V8, ALL inputs), Verus cross-call DLP buffer arithmetic (D1-D6),
+  Kani expansion to 34 harnesses, and arXiv paper. `docs/TRUSTED_COMPUTING_BASE.md` —
+  complete TCB declaring every verified property, every trusted component, every abstraction
+  boundary, and every unverified property with rationale. Updated CI workflow to gate PRs on
+  formal verification when security-critical paths (engine, inspection, TLS) change.
+
 - **Phase 71: Cross-call DLP state tracking** (`vellaveto-mcp/src/inspection/cross_call_dlp.rs`):
   `CrossCallDlpTracker` with overlap buffers detects secrets split across multiple tool calls
   within a session. ~150 bytes per field, 256 max tracked fields, UTF-8 boundary safe. 12 tests.

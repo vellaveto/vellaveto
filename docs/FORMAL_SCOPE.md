@@ -5,6 +5,12 @@ What is proven, what is tested, and what is assumed.
 For the full property catalog with source traceability, see
 [formal/README.md](../formal/README.md).
 
+For the Trusted Computing Base (what is proven, what is trusted, what is not
+covered), see [TRUSTED_COMPUTING_BASE.md](TRUSTED_COMPUTING_BASE.md).
+
+For the verification roadmap (Verus core, cross-call DLP, Kani expansion),
+see [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md).
+
 ---
 
 ## What Is Formally Verified
@@ -94,6 +100,16 @@ For the full property catalog with source traceability, see
 | Domain normalize idempotent (K9) | proof_domain_normalize_idempotent | Verified |
 
 **Total: 132 verification instances across 5 tools (40 TLA+ + 10 Alloy + 30 Lean + 43 Coq + 9 Kani).**
+
+### Planned Expansions
+
+See [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md) for the roadmap:
+
+| Phase | Tool | New Properties | Target |
+|-------|------|---------------|--------|
+| 1 | Verus | V1-V8 (core verdict, ALL inputs) | vellaveto-engine verified_core.rs |
+| 2 | Verus | D1-D6 (DLP buffer arithmetic, ALL inputs) | vellaveto-mcp verified_dlp_core.rs |
+| 3 | Kani | K10-K34 (sort, equivalence, TLS) | 34 total harnesses |
 
 ---
 

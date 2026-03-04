@@ -5,9 +5,15 @@ on:
     branches: [main]
     paths:
       - "formal/**"
+      - "vellaveto-engine/src/**"
+      - "vellaveto-mcp/src/inspection/**"
+      - "vellaveto-tls/src/**"
   pull_request:
     paths:
       - "formal/**"
+      - "vellaveto-engine/src/**"
+      - "vellaveto-mcp/src/inspection/**"
+      - "vellaveto-tls/src/**"
   # Weekly full verification even without changes
   schedule:
     - cron: "0 6 * * 1"
@@ -132,6 +138,9 @@ jobs:
         run: |
           cargo install --locked kani-verifier
           cargo kani setup
+
+      - name: Verify extracted code matches production
+        run: diff formal/kani/src/path.rs vellaveto-engine/src/path.rs
 
       - name: Run Kani proofs
         working-directory: formal/kani
