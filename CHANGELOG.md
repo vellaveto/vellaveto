@@ -9,6 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phases 5–14 — Full Formalization Roadmap (K26-K58, V9-V12):**
+  37 new verification instances bringing total from 173 to 210. All security-critical
+  pure functions now formally verified on actual Rust code.
+  - **Phase 5 — IP Address Verification (K26-K32, Kani):** 7 harnesses proving
+    `is_private_ip` correctness for loopback, RFC 1918, CGNAT, IPv4-mapped IPv6,
+    Teredo XOR inversion, and known-public-not-blocked. Full symbolic 2^32 IPv4 parity
+    between `is_private_ipv4` and `is_embedded_ipv4_reserved`. Closes DNS rebinding/SSRF gap.
+  - **Phase 6 — Cache Safety Verification (K33-K35, Kani):** 3 harnesses proving
+    `is_cacheable_context` rejects session-dependent state, cache keys are case-insensitive,
+    and entries are invalid after TTL expiry or generation bump. Closes cache poisoning gap.
+  - **Phase 7 — Capability Delegation (K36-K40, Kani):** 5 harnesses proving
+    `grant_is_subset` reflexivity, no-escalation (child ⊆ parent), `pattern_is_subset`
+    correctness, `glob_match("*", any) == true`, and `normalize_path_for_grant` has no
+    traversal. Closes capability escalation gap (was Alloy/Coq abstract only).
+  - **Phase 8 — Rule Checking Fail-Closed (K41-K45, Kani):** 5 harnesses proving
+    empty paths + allowlist → Deny, blocked pattern overrides allowed, IDNA failure → Deny,
+    no resolved IPs → Deny, block_private + private IP → Deny.
+  - **Phase 9 — ResolvedMatch Equivalence (K46-K48, Kani):** 3 harnesses proving
+    path deny → `rule_override_deny`, context deny → `context_deny`, and inline verdict
+    equals `compute_single_verdict(ResolvedMatch)` for all 13 symbolic boolean combinations.
+    Connects verified core to production evaluation path.
+  - **Phase 10 — Cascading Failure (K49-K52, Kani):** 4 harnesses proving NaN/Infinity
+    config rejection, chain depth saturating increment, capacity fail-closed at MAX, and
+    error rate bounded ∈ [0.0, 1.0].
+  - **Phase 11 — Constraint Evaluation (K53-K55, Kani):** 3 harnesses proving
+    all-constraints-skipped detection, forbidden parameter → Deny, and
+    require_approval → RequireApproval verdict propagation.
+  - **Phase 12 — Task Lifecycle (K56-K58, Kani):** 3 harnesses proving terminal
+    state immutability, capacity fail-closed at MAX, and cancel authorization
+    (self-cancel + different requester → reject).
+  - **Phase 13 — Verus Path Normalization (V9-V10):** Byte-level `normalize_path_bytes`
+    proven idempotent (V9) and traversal-free (V10) for ALL possible inputs via Z3 SMT.
+  - **Phase 14 — Verus Rule Override Correctness (V11-V12):** Path block → Deny (V11)
+    and network/IP block → Deny (V12) proven via `lemma_first_match_override_is_deny`.
+  - 74 Kani parity tests, 8 new extraction modules, 3 new Verus lemmas.
+  - Updated `docs/TRUSTED_COMPUTING_BASE.md` (v3.0.0), `formal/README.md`,
+    `formal/verus/README.md`.
+
 - **Phase 2 — Verus Cross-Call DLP Buffer Verification (14 verified, 0 errors):**
   `vellaveto-mcp/src/inspection/verified_dlp_core.rs` — pure buffer arithmetic functions
   (`extract_tail`, `can_track_field`, `update_total_bytes`) factored from `cross_call_dlp.rs`.
