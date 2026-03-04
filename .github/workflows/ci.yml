@@ -128,6 +128,7 @@ jobs:
           HITS=$(find vellaveto-*/src/ -name '*.rs' -not -name 'main.rs' -not -name 'tests.rs' -not -name '*_tests.rs' -not -name 'kani_proofs.rs' -print0 \
             | xargs -0 awk 'FNR==1 { skip=0 }
               /^#\[cfg\(test\)\]/ { skip=1 }
+              /^#\[cfg\(all\(test,/ { skip=1 }
               skip==0 && /^[[:space:]]*(\/\/!|\/\/\/)/ { next }
               skip==0 && /\.unwrap\(\)/ { printf "%s:%d: %s\n", FILENAME, FNR, $0; found=1 }
               skip==0 && /\.expect\(/ { printf "%s:%d: %s\n", FILENAME, FNR, $0; found=1 }
@@ -147,6 +148,7 @@ jobs:
           HITS=$(find vellaveto-*/src/ -name '*.rs' -not -name 'main.rs' -not -name 'tests.rs' -not -name '*_tests.rs' -not -name 'kani_proofs.rs' -print0 \
             | xargs -0 awk 'FNR==1 { skip=0 }
               /^#\[cfg\(test\)\]/ { skip=1 }
+              /^#\[cfg\(all\(test,/ { skip=1 }
               skip==0 && /^[[:space:]]*\/\// { next }
               skip==0 && /panic!\(/ { printf "%s:%d: %s\n", FILENAME, FNR, $0; found=1 }
               END { exit found ? 1 : 0 }' 2>&1) || {
