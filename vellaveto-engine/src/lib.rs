@@ -40,6 +40,7 @@ mod path;
 mod policy_compile;
 mod rule_check;
 mod traced;
+pub mod verified_core;
 pub mod wasm_plugin;
 
 #[cfg(kani)]
@@ -746,14 +747,17 @@ impl PolicyEngine {
         // Check path rules before policy type dispatch.
         // Blocked paths → deny immediately regardless of policy type.
         if let Some(denial) = self.check_path_rules(action, cp) {
+            Self::debug_assert_verified_deny(cp, true, false);
             return Ok(Some(denial));
         }
         // Check network rules before policy type dispatch.
         if let Some(denial) = self.check_network_rules(action, cp) {
+            Self::debug_assert_verified_deny(cp, true, false);
             return Ok(Some(denial));
         }
         // Check IP rules (DNS rebinding protection) after network rules.
         if let Some(denial) = self.check_ip_rules(action, cp) {
+            Self::debug_assert_verified_deny(cp, true, false);
             return Ok(Some(denial));
         }
         // Check context conditions (session-level) before policy type dispatch.
@@ -769,10 +773,12 @@ impl PolicyEngine {
                     // receiving raw attacker-controlled tool names.
                     let norm_tool = crate::normalize::normalize_full(&action.tool);
                     if let Some(denial) = self.check_context_conditions(ctx, cp, &norm_tool) {
+                        Self::debug_assert_verified_deny(cp, false, true);
                         return Ok(Some(denial));
                     }
                 }
                 None => {
+                    Self::debug_assert_verified_deny(cp, false, true);
                     return Ok(Some(Verdict::Deny {
                         reason: format!(
                             "Policy '{}' requires evaluation context (has {} context condition(s)) but none was provided",
@@ -785,10 +791,16 @@ impl PolicyEngine {
         }
 
         match &cp.policy.policy_type {
-            PolicyType::Allow => Ok(Some(Verdict::Allow)),
-            PolicyType::Deny => Ok(Some(Verdict::Deny {
-                reason: cp.deny_reason.clone(),
-            })),
+            PolicyType::Allow => {
+                Self::debug_assert_verified_allow(cp);
+                Ok(Some(Verdict::Allow))
+            }
+            PolicyType::Deny => {
+                Self::debug_assert_verified_policy_deny(cp);
+                Ok(Some(Verdict::Deny {
+                    reason: cp.deny_reason.clone(),
+                }))
+            }
             PolicyType::Conditional { .. } => self.evaluate_compiled_conditions(action, cp),
             // Handle future variants - fail closed (deny)
             _ => Ok(Some(Verdict::Deny {
@@ -796,6 +808,73 @@ impl PolicyEngine {
             })),
         }
     }
+
+    /// Debug-assert: verified core confirms rule/context override produces Deny.
+    #[inline]
+    fn debug_assert_verified_deny(cp: &CompiledPolicy, rule_override: bool, ctx_deny: bool) {
+        debug_assert!({
+            let rm = verified_core::ResolvedMatch {
+                matched: true,
+                is_deny: matches!(cp.policy.policy_type, PolicyType::Deny),
+                is_conditional: matches!(cp.policy.policy_type, PolicyType::Conditional { .. }),
+                priority: cp.policy.priority.max(0) as u32,
+                rule_override_deny: rule_override,
+                context_deny: ctx_deny,
+                require_approval: false,
+                condition_fired: false,
+                condition_verdict: verified_core::VerdictKind::Deny,
+                on_no_match_continue: false,
+                all_constraints_skipped: false,
+            };
+            verified_core::compute_single_verdict(&rm)
+                == verified_core::VerdictOutcome::Decided(verified_core::VerdictKind::Deny)
+        });
+    }
+
+    /// Debug-assert: verified core confirms Allow policy produces Allow.
+    #[inline]
+    fn debug_assert_verified_allow(cp: &CompiledPolicy) {
+        debug_assert!({
+            let rm = verified_core::ResolvedMatch {
+                matched: true,
+                is_deny: false,
+                is_conditional: false,
+                priority: cp.policy.priority.max(0) as u32,
+                rule_override_deny: false,
+                context_deny: false,
+                require_approval: false,
+                condition_fired: false,
+                condition_verdict: verified_core::VerdictKind::Allow,
+                on_no_match_continue: false,
+                all_constraints_skipped: false,
+            };
+            verified_core::compute_single_verdict(&rm)
+                == verified_core::VerdictOutcome::Decided(verified_core::VerdictKind::Allow)
+        });
+    }
+
+    /// Debug-assert: verified core confirms Deny policy produces Deny.
+    #[inline]
+    fn debug_assert_verified_policy_deny(cp: &CompiledPolicy) {
+        debug_assert!({
+            let rm = verified_core::ResolvedMatch {
+                matched: true,
+                is_deny: true,
+                is_conditional: false,
+                priority: cp.policy.priority.max(0) as u32,
+                rule_override_deny: false,
+                context_deny: false,
+                require_approval: false,
+                condition_fired: false,
+                condition_verdict: verified_core::VerdictKind::Deny,
+                on_no_match_continue: false,
+                all_constraints_skipped: false,
+            };
+            verified_core::compute_single_verdict(&rm)
+                == verified_core::VerdictOutcome::Decided(verified_core::VerdictKind::Deny)
+        });
+    }
+
     /// Normalize a file path: resolve `..`, `.`, reject null bytes, ensure deterministic form.
     ///
     /// Handles percent-encoding, null bytes, and path traversal attempts.

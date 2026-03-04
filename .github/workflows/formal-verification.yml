@@ -145,3 +145,30 @@ jobs:
       - name: Run Kani proofs
         working-directory: formal/kani
         run: cargo kani
+
+  verus:
+    name: "Verus (verified core — V1-V8)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install Rust toolchain for Verus
+        run: rustup install 1.93.1-x86_64-unknown-linux-gnu
+
+      - name: Download Verus binary release
+        run: |
+          VERUS_VERSION="0.2026.03.01.25809cb"
+          curl -sSL -o verus.zip \
+            "https://github.com/verus-lang/verus/releases/download/release/${VERUS_VERSION}/verus-${VERUS_VERSION}-x86-linux.zip"
+          unzip -q verus.zip -d verus-bin
+          chmod +x verus-bin/verus-x86-linux/verus
+
+      - name: Run Verus verification (V1-V8)
+        run: |
+          echo "=== Verus: verified_core (V1-V8, ALL inputs) ==="
+          verus-bin/verus-x86-linux/verus --triggers-mode silent \
+            formal/verus/verified_core.rs

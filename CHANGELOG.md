@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 1 — Verus Core Verdict Verification (9 verified, 0 errors):**
+  `vellaveto-engine/src/verified_core.rs` — `ResolvedMatch` abstraction factors pure verdict
+  computation from String/HashMap/serde. `formal/verus/verified_core.rs` — Verus-annotated
+  version proving V1-V5, V8 for ALL possible inputs via Z3 SMT (Verus 0.2026.03.01). Engine
+  wired with `debug_assert` validations. 41 unit tests. CI runs Verus binary release. 3 proof
+  lemmas (first-match-override, all-unmatched, skip-continues). Total: 141 verification
+  instances across 6 tools.
+
 - **Phase 0 — Formal Verification Plan + TCB Document:**
   `docs/FORMAL_VERIFICATION_PLAN.md` — comprehensive 4-phase roadmap: Verus core verdict
   verification (V1-V8, ALL inputs), Verus cross-call DLP buffer arithmetic (D1-D6),
