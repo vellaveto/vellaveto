@@ -97,10 +97,9 @@ impl SessionUnlinker {
             ));
         }
 
-        // Consume a credential from the vault
-        let (credential, vault_index) = self.vault.consume_credential()?;
-
-        // Assign monotonic sequence number
+        // SECURITY (R236-SHIELD-1): Acquire sequence lock BEFORE consuming a
+        // credential. If the sequence lock is poisoned, we fail without
+        // orphaning a credential in Active state.
         let seq = {
             let mut sequence = self.sequence.lock().map_err(|e| {
                 ShieldError::SessionIsolation(format!("sequence lock poisoned: {e}"))
@@ -109,6 +108,9 @@ impl SessionUnlinker {
             *sequence = sequence.saturating_add(1);
             current
         };
+
+        // Consume a credential from the vault (after sequence lock acquired)
+        let (credential, vault_index) = self.vault.consume_credential()?;
 
         bindings.insert(
             session_id.to_string(),
@@ -172,16 +174,31 @@ impl SessionUnlinker {
     }
 
     /// Get the number of active sessions.
+    ///
+    /// SECURITY (R236-SHIELD-5): Returns 0 on lock poisoning (fail-closed:
+    /// prevents end_session from being skipped) with error logging.
     pub fn active_session_count(&self) -> usize {
-        self.bindings.lock().map(|b| b.len()).unwrap_or(0)
+        match self.bindings.lock() {
+            Ok(b) => b.len(),
+            Err(e) => {
+                tracing::error!("bindings lock poisoned in active_session_count: {e}");
+                0
+            }
+        }
     }
 
     /// Check whether a session is active.
+    ///
+    /// SECURITY (R236-SHIELD-5): Returns false on lock poisoning (fail-closed)
+    /// with error logging.
     pub fn is_session_active(&self, session_id: &str) -> bool {
-        self.bindings
-            .lock()
-            .map(|b| b.contains_key(session_id))
-            .unwrap_or(false)
+        match self.bindings.lock() {
+            Ok(b) => b.contains_key(session_id),
+            Err(e) => {
+                tracing::error!("bindings lock poisoned in is_session_active: {e}");
+                false
+            }
+        }
     }
 }
 

@@ -147,7 +147,13 @@ impl CredentialVault {
 
         // SECURITY (R234-SHIELD-1): Persist status change to disk so that
         // a crash cannot revert a consumed credential to Available.
-        self.persist_entries(&entries)?;
+        // SECURITY (R236-SHIELD-3): Rollback in-memory state if persist fails.
+        // Without rollback, the credential is marked Active in memory but not
+        // on disk, permanently draining it from the available pool.
+        if let Err(e) = self.persist_entries(&entries) {
+            entries[idx].status = CredentialStatus::Available;
+            return Err(e);
+        }
 
         Ok((entries[idx].credential.clone(), idx))
     }
@@ -167,10 +173,15 @@ impl CredentialVault {
             )));
         }
 
+        let prev_status = entries[index].status;
         entries[index].status = CredentialStatus::Consumed;
 
         // SECURITY (R234-SHIELD-1): Persist consumed status to prevent reuse after crash.
-        self.persist_entries(&entries)?;
+        // SECURITY (R236-SHIELD-3): Rollback on persist failure.
+        if let Err(e) = self.persist_entries(&entries) {
+            entries[index].status = prev_status;
+            return Err(e);
+        }
 
         Ok(())
     }
@@ -284,15 +295,20 @@ impl CredentialVault {
     }
 
     /// Get the number of available credentials.
+    ///
+    /// SECURITY (R236-SHIELD-6): Returns 0 on lock poisoning (fail-closed for
+    /// callers that gate on availability) but logs a warning for observability.
     pub fn available_count(&self) -> usize {
-        self.entries
-            .lock()
-            .map(|e| {
-                e.iter()
-                    .filter(|v| v.status == CredentialStatus::Available)
-                    .count()
-            })
-            .unwrap_or(0)
+        match self.entries.lock() {
+            Ok(e) => e
+                .iter()
+                .filter(|v| v.status == CredentialStatus::Available)
+                .count(),
+            Err(e) => {
+                tracing::error!("credential vault entries lock poisoned in available_count: {e}");
+                0
+            }
+        }
     }
 
     /// Get the configured pool size.

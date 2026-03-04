@@ -22,6 +22,43 @@ use vellaveto_engine::PolicyEngine;
 use vellaveto_server::{iam, routes, AppState, RateLimits};
 use vellaveto_types::{Action, Policy, Verdict};
 
+/// SECURITY (R236-TLS-1): TLS listener wrapper implementing axum's Listener
+/// trait. Accepts TCP connections, performs TLS handshake, and returns the
+/// encrypted stream. Handshake failures are logged and retried (the Listener
+/// trait requires infallible accept).
+struct TlsListener {
+    inner: tokio::net::TcpListener,
+    acceptor: tokio_rustls::TlsAcceptor,
+}
+
+impl axum::serve::Listener for TlsListener {
+    type Io = tokio_rustls::server::TlsStream<tokio::net::TcpStream>;
+    type Addr = std::net::SocketAddr;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        loop {
+            let (stream, addr) = match self.inner.accept().await {
+                Ok(conn) => conn,
+                Err(e) => {
+                    tracing::error!("TCP accept failed: {e}");
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    continue;
+                }
+            };
+            match self.acceptor.accept(stream).await {
+                Ok(tls_stream) => return (tls_stream, addr),
+                Err(e) => {
+                    tracing::warn!(peer = %addr, "TLS handshake failed: {e}");
+                }
+            }
+        }
+    }
+
+    fn local_addr(&self) -> std::io::Result<Self::Addr> {
+        self.inner.local_addr()
+    }
+}
+
 #[derive(Parser)]
 #[command(
     name = "vellaveto",
@@ -1700,10 +1737,25 @@ async fn cmd_serve(
         .await
         .context("Failed to bind to address")?;
 
-    tracing::info!("Vellaveto server listening on {}:{}", bind, port);
+    // SECURITY (R236-TLS-1): Build TLS acceptor from config. If TLS is enabled,
+    // serve over TLS; otherwise fall back to plaintext.
+    let tls_acceptor = vellaveto_tls::build_tls_acceptor(&policy_config.tls)
+        .map_err(|e| anyhow::anyhow!("TLS configuration error: {e}"))?;
+
+    let scheme = if tls_acceptor.is_some() {
+        "https"
+    } else {
+        "http"
+    };
+    tracing::info!(
+        "Vellaveto server listening on {scheme}://{}:{} (TLS mode: {:?})",
+        bind,
+        port,
+        policy_config.tls.mode
+    );
 
     if open_browser {
-        let url = format!("http://{bind}:{port}/dashboard");
+        let url = format!("{scheme}://{bind}:{port}/dashboard");
         tokio::task::spawn_blocking(move || {
             if let Err(e) = open_url_in_browser(&url) {
                 tracing::warn!("Failed to open browser: {}", e);
@@ -1711,13 +1763,34 @@ async fn cmd_serve(
         });
     }
 
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown_signal())
-    .await
-    .context("Server error")?;
+    match tls_acceptor {
+        Some(acceptor) => {
+            // Use tap_io wrapper to satisfy axum's Connected trait bounds
+            // (orphan rules prevent direct Connected impl for external types).
+            use axum::serve::ListenerExt;
+            let tls_listener = TlsListener {
+                inner: listener,
+                acceptor,
+            }
+            .tap_io(|_| {});
+            axum::serve(
+                tls_listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .with_graceful_shutdown(shutdown_signal())
+            .await
+            .context("TLS server error")?;
+        }
+        None => {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .with_graceful_shutdown(shutdown_signal())
+            .await
+            .context("Server error")?;
+        }
+    }
 
     // Cancel the topology recrawl scheduler if it was started.
     if let Some(ref token) = topology_shutdown {

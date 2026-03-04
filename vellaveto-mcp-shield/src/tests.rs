@@ -2051,3 +2051,62 @@ fn test_r234_shield2_stored_vault_entry_rejects_unknown_fields() {
         "unknown fields in StoredVaultEntry should be rejected"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// R236 Shield Audit Tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r236_shield1_sequence_lock_before_consume() {
+    // R236-SHIELD-1: start_session acquires sequence lock before consuming
+    // credential. If both succeed, session should be created normally.
+    let (vault, _dir) = make_test_vault(10, 3);
+    vault.add_credential(make_test_credential(1)).unwrap();
+    vault.add_credential(make_test_credential(1)).unwrap();
+
+    let unlinker = SessionUnlinker::new(vault);
+    let cred = unlinker.start_session("test-session").unwrap();
+    assert!(!cred.credential.is_empty());
+    assert!(unlinker.is_session_active("test-session"));
+}
+
+#[test]
+fn test_r236_shield3_vault_available_count_after_consume() {
+    // R236-SHIELD-3: After consuming a credential, available_count decreases.
+    // If the credential is marked consumed, it stays consumed.
+    let (vault, _dir) = make_test_vault(10, 3);
+    vault.add_credential(make_test_credential(1)).unwrap();
+    vault.add_credential(make_test_credential(1)).unwrap();
+    assert_eq!(vault.available_count(), 2);
+
+    let (_cred, idx) = vault.consume_credential().unwrap();
+    assert_eq!(vault.available_count(), 1);
+
+    vault.mark_consumed(idx).unwrap();
+    assert_eq!(vault.available_count(), 1);
+
+    let status = vault.status();
+    assert_eq!(status.consumed, 1);
+    assert_eq!(status.active, 0);
+    assert_eq!(status.available, 1);
+}
+
+#[test]
+fn test_r236_shield5_active_session_count_consistent() {
+    // R236-SHIELD-5: active_session_count and is_session_active should
+    // be consistent and return sensible defaults.
+    let (vault, _dir) = make_test_vault(10, 3);
+    vault.add_credential(make_test_credential(1)).unwrap();
+    let unlinker = SessionUnlinker::new(vault);
+
+    assert_eq!(unlinker.active_session_count(), 0);
+    assert!(!unlinker.is_session_active("s1"));
+
+    unlinker.start_session("s1").unwrap();
+    assert_eq!(unlinker.active_session_count(), 1);
+    assert!(unlinker.is_session_active("s1"));
+
+    unlinker.end_session("s1").unwrap();
+    assert_eq!(unlinker.active_session_count(), 0);
+    assert!(!unlinker.is_session_active("s1"));
+}

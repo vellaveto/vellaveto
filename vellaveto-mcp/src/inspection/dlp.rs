@@ -1160,7 +1160,9 @@ impl ShardedExfilTracker {
             serde_json::Value::String(s) => {
                 if s.len() >= MIN_FRAGMENT_LEN {
                     let entropy = shannon_entropy(s.as_bytes());
-                    if entropy > FRAGMENT_ENTROPY_THRESHOLD {
+                    // SECURITY (R236-EXFIL-3): Use >= so hex-encoded secrets
+                    // (exactly 4.0 bits/byte = log2(16)) are not excluded.
+                    if entropy >= FRAGMENT_ENTROPY_THRESHOLD {
                         if self.fragments.len() >= MAX_EXFIL_FRAGMENTS {
                             self.fragments.pop_front();
                         }
@@ -2872,6 +2874,40 @@ mod tests {
             tracker.fragment_count() <= 500,
             "Fragment count should be bounded, got {}",
             tracker.fragment_count()
+        );
+    }
+
+    #[test]
+    fn test_r236_exfil3_hex_entropy_not_excluded() {
+        // R236-EXFIL-3: Hex-encoded secrets have exactly 4.0 bits/byte entropy
+        // (log2(16) = 4.0). With strict > 4.0 they were excluded; with >= 4.0
+        // they should be tracked.
+        //
+        // Generate a balanced hex string with uniform distribution over 16 chars
+        // to get entropy as close to 4.0 as possible.
+        let balanced_hex: String = "0123456789abcdef".chars().cycle().take(64).collect();
+        let entropy = shannon_entropy(balanced_hex.as_bytes());
+        // Balanced hex should give exactly 4.0 bits/byte
+        assert!(
+            (entropy - 4.0).abs() < 0.01,
+            "Balanced hex should have ~4.0 entropy, got {entropy}"
+        );
+        // This string should now pass the >= threshold
+        assert!(
+            entropy >= FRAGMENT_ENTROPY_THRESHOLD,
+            "Hex entropy {entropy} should pass >= {FRAGMENT_ENTROPY_THRESHOLD}"
+        );
+
+        let mut tracker = ShardedExfilTracker::with_config(300, 64);
+        // Record balanced hex shards
+        for chunk in balanced_hex.as_bytes().chunks(32) {
+            let shard: String = chunk.iter().map(|&b| b as char).collect();
+            let params = json!({"data": shard});
+            tracker.record_parameters(&params);
+        }
+        assert!(
+            tracker.fragment_count() > 0,
+            "Hex-encoded shards should be tracked with >= threshold"
         );
     }
 }

@@ -104,12 +104,28 @@ pub fn extract_spiffe_ids(cert_der: &[u8]) -> Vec<SpiffeIdentity> {
 
 /// Load certificates from a PEM file.
 fn load_certs(path: &Path) -> Result<Vec<CertificateDer<'static>>, TlsError> {
-    let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(path)
+    // SECURITY (R236-TLS-5): Log malformed PEM entries instead of silently
+    // dropping them. A cert chain with silently dropped entries may fail
+    // verification in unexpected ways.
+    let mut certs: Vec<CertificateDer<'static>> = Vec::new();
+    for (idx, cert_result) in CertificateDer::pem_file_iter(path)
         .map_err(|e| {
             TlsError::Certificate(format!("Failed to open certificate file {path:?}: {e}"))
         })?
-        .filter_map(|cert| cert.ok())
-        .collect();
+        .enumerate()
+    {
+        match cert_result {
+            Ok(cert) => certs.push(cert),
+            Err(e) => {
+                tracing::warn!(
+                    "Skipping malformed PEM entry #{} in {}: {}",
+                    idx,
+                    path.display(),
+                    e
+                );
+            }
+        }
+    }
 
     if certs.is_empty() {
         return Err(TlsError::Certificate(format!(

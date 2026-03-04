@@ -63,6 +63,42 @@ enum OAuthSecurityProfileArg {
     Hardened,
 }
 
+/// SECURITY (R236-TLS-2): TLS listener wrapper implementing axum's Listener
+/// trait. Accepts TCP connections, performs TLS handshake, and returns the
+/// encrypted stream.
+struct TlsListener {
+    inner: tokio::net::TcpListener,
+    acceptor: tokio_rustls::TlsAcceptor,
+}
+
+impl axum::serve::Listener for TlsListener {
+    type Io = tokio_rustls::server::TlsStream<tokio::net::TcpStream>;
+    type Addr = std::net::SocketAddr;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        loop {
+            let (stream, addr) = match self.inner.accept().await {
+                Ok(conn) => conn,
+                Err(e) => {
+                    tracing::error!("TCP accept failed: {e}");
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    continue;
+                }
+            };
+            match self.acceptor.accept(stream).await {
+                Ok(tls_stream) => return (tls_stream, addr),
+                Err(e) => {
+                    tracing::warn!(peer = %addr, "TLS handshake failed: {e}");
+                }
+            }
+        }
+    }
+
+    fn local_addr(&self) -> std::io::Result<Self::Addr> {
+        self.inner.local_addr()
+    }
+}
+
 #[derive(Parser)]
 #[command(
     name = "vellaveto-http-proxy",
@@ -990,24 +1026,56 @@ async fn main() -> Result<()> {
         .await
         .context(format!("Failed to bind to {bind_addr}"))?;
 
+    // SECURITY (R236-TLS-2): Build TLS acceptor from config. If TLS is enabled,
+    // serve over TLS; otherwise fall back to plaintext.
+    let tls_acceptor = vellaveto_tls::build_tls_acceptor(&policy_config.tls)
+        .map_err(|e| anyhow::anyhow!("TLS configuration error: {e}"))?;
+
+    let scheme = if tls_acceptor.is_some() {
+        "https"
+    } else {
+        "http"
+    };
     tracing::info!(
-        "Vellaveto HTTP proxy listening on {} → upstream {}",
+        "Vellaveto HTTP proxy listening on {scheme}://{} → upstream {} (TLS mode: {:?})",
         args.listen,
-        args.upstream
+        args.upstream,
+        policy_config.tls.mode
     );
 
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .with_graceful_shutdown(async move {
+    let shutdown_closure = async move {
         shutdown_signal().await;
         // Cancel gRPC server when HTTP server shuts down.
         #[cfg(feature = "grpc")]
         grpc_shutdown_token.cancel();
-    })
-    .await
-    .context("Server error")?;
+    };
+
+    match tls_acceptor {
+        Some(acceptor) => {
+            use axum::serve::ListenerExt;
+            let tls_listener = TlsListener {
+                inner: listener,
+                acceptor,
+            }
+            .tap_io(|_| {});
+            axum::serve(
+                tls_listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .with_graceful_shutdown(shutdown_closure)
+            .await
+            .context("TLS server error")?;
+        }
+        None => {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .with_graceful_shutdown(shutdown_closure)
+            .await
+            .context("Server error")?;
+        }
+    }
 
     // Challenge 15 fix: Flush audit log before exit.
     // Matches the pattern from vellaveto-server/src/main.rs.

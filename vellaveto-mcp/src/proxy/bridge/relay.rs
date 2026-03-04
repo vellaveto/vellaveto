@@ -1934,9 +1934,107 @@ impl ProxyBridge {
                     return Ok(());
                 }
 
+                // SECURITY (R236-PARITY-5): Memory poisoning check — parity with
+                // handle_tool_call. A malicious server can fingerprint prior response
+                // data and replay it in sampling/createMessage requests.
+                let poisoning_matches = state.memory_tracker.check_parameters(&params);
+                if !poisoning_matches.is_empty() {
+                    for m in &poisoning_matches {
+                        tracing::warn!(
+                            "SECURITY: Memory poisoning in sampling from tool '{}': \
+                             param '{}' (fingerprint: {})",
+                            tool_name,
+                            m.param_location,
+                            m.fingerprint
+                        );
+                    }
+                    let action = vellaveto_types::Action::new(
+                        "vellaveto",
+                        "sampling_memory_poisoning",
+                        json!({
+                            "tool": &tool_name,
+                            "matches": poisoning_matches.len(),
+                        }),
+                    );
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Deny {
+                                reason: format!(
+                                    "Sampling blocked: memory poisoning ({} matches)",
+                                    poisoning_matches.len()
+                                ),
+                            },
+                            json!({"source": "proxy", "event": "sampling_memory_poisoning"}),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit sampling memory poisoning: {}", e);
+                    }
+                    let response =
+                        make_denial_response(&id, "Request blocked: security policy violation");
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+
                 // SECURITY (R231-MCP-2): DLP scan sampling request parameters
                 // before forwarding. Sampling messages must not leak secrets.
-                let dlp_findings = scan_parameters_for_secrets(&params);
+                let mut dlp_findings = scan_parameters_for_secrets(&params);
+
+                // SECURITY (R236-DLP-1): Cross-call DLP — detect secrets split across
+                // sequential sampling requests. Parity with handle_tool_call.
+                if let Some(ref mut tracker) = state.cross_call_dlp {
+                    let args_str = match serde_json::to_string(&params) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::error!(
+                                "SECURITY: Cross-call DLP serialization failed for sampling '{}': {} — denying (fail-closed)",
+                                tool_name, e
+                            );
+                            dlp_findings.push(crate::inspection::DlpFinding {
+                                pattern_name: "cross_call_dlp_serialization_failure".to_string(),
+                                location: format!("sampling/createMessage.{tool_name}"),
+                            });
+                            String::new()
+                        }
+                    };
+                    let field_path = format!("sampling/createMessage.{tool_name}");
+                    let cross_findings = tracker.scan_with_overlap(&field_path, &args_str);
+                    if !cross_findings.is_empty() {
+                        tracing::warn!(
+                            "SECURITY: Cross-call DLP in sampling '{}': {} findings",
+                            tool_name,
+                            cross_findings.len()
+                        );
+                        dlp_findings.extend(cross_findings);
+                    }
+                }
+
+                // SECURITY (R236-EXFIL-2): Sharded exfiltration detection for sampling.
+                // Parity with handle_tool_call.
+                if let Some(ref mut tracker) = state.sharded_exfil {
+                    let _ = tracker.record_parameters(&params);
+                    if let Some(cumulative_bytes) = tracker.check_exfiltration() {
+                        tracing::warn!(
+                            "SECURITY: Sharded exfiltration in sampling '{}': {} bytes",
+                            tool_name,
+                            cumulative_bytes
+                        );
+                        dlp_findings.push(crate::inspection::dlp::DlpFinding {
+                            pattern_name: "sharded_exfiltration".to_string(),
+                            location: format!(
+                                "sampling/createMessage.{} ({} bytes across {} fragments)",
+                                tool_name,
+                                cumulative_bytes,
+                                tracker.fragment_count()
+                            ),
+                        });
+                    }
+                }
+
                 if !dlp_findings.is_empty() {
                     let patterns: Vec<String> = dlp_findings
                         .iter()
@@ -2110,10 +2208,180 @@ impl ProxyBridge {
         );
         match verdict {
             crate::elicitation::ElicitationVerdict::Allow => {
+                // Attribute elicitation to the most recently dispatched tool.
+                let tool_name = state.current_tool_name().unwrap_or("unknown").to_string();
+
+                // SECURITY (R236-PARITY-5): Memory poisoning check — parity with
+                // handle_tool_call. Detect replayed data in elicitation requests.
+                let poisoning_matches = state.memory_tracker.check_parameters(&params);
+                if !poisoning_matches.is_empty() {
+                    for m in &poisoning_matches {
+                        tracing::warn!(
+                            "SECURITY: Memory poisoning in elicitation from tool '{}': \
+                             param '{}' (fingerprint: {})",
+                            tool_name,
+                            m.param_location,
+                            m.fingerprint
+                        );
+                    }
+                    let action = vellaveto_types::Action::new(
+                        "vellaveto",
+                        "elicitation_memory_poisoning",
+                        json!({
+                            "tool": &tool_name,
+                            "matches": poisoning_matches.len(),
+                        }),
+                    );
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Deny {
+                                reason: format!(
+                                    "Elicitation blocked: memory poisoning ({} matches)",
+                                    poisoning_matches.len()
+                                ),
+                            },
+                            json!({"source": "proxy", "event": "elicitation_memory_poisoning"}),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit elicitation memory poisoning: {}", e);
+                    }
+                    let response =
+                        make_denial_response(&id, "Request blocked: security policy violation");
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+
+                // SECURITY (R236-PARITY-3): Injection scan elicitation requests.
+                // Title, message, and schema description fields are known injection
+                // vectors (R232 findings). Parity with handle_sampling_request.
+                if !self.injection_disabled {
+                    let synthetic_msg = json!({
+                        "method": "elicitation/create",
+                        "params": params,
+                    });
+                    let injection_matches: Vec<String> =
+                        if let Some(ref scanner) = self.injection_scanner {
+                            scanner
+                                .scan_notification(&synthetic_msg)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        } else {
+                            scan_notification_for_injection(&synthetic_msg)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        };
+                    if !injection_matches.is_empty() {
+                        tracing::warn!(
+                            "SECURITY: Injection in elicitation/create from tool '{}': {:?}",
+                            tool_name,
+                            injection_matches
+                        );
+                        if self.injection_blocking {
+                            let deny_action = vellaveto_types::Action::new(
+                                "vellaveto",
+                                "elicitation_injection_blocked",
+                                json!({
+                                    "tool": &tool_name,
+                                    "patterns": injection_matches,
+                                }),
+                            );
+                            if let Err(e) = self
+                                .audit
+                                .log_entry(
+                                    &deny_action,
+                                    &Verdict::Deny {
+                                        reason: format!(
+                                            "Elicitation blocked: injection detected ({injection_matches:?})"
+                                        ),
+                                    },
+                                    json!({
+                                        "source": "proxy",
+                                        "event": "elicitation_injection_blocked",
+                                        "tool": &tool_name,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    "Failed to audit elicitation injection: {}",
+                                    e
+                                );
+                            }
+                            let response = make_denial_response(
+                                &id,
+                                "Request blocked: security policy violation",
+                            );
+                            write_message(agent_writer, &response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
+                        }
+                    }
+                }
+
                 // SECURITY (R231-MCP-3): DLP scan elicitation request parameters
                 // before forwarding. Elicitations must not leak secrets via
                 // title, message, or schema default values.
-                let dlp_findings = scan_parameters_for_secrets(&params);
+                let mut dlp_findings = scan_parameters_for_secrets(&params);
+
+                // SECURITY (R236-DLP-1): Cross-call DLP — detect secrets split across
+                // sequential elicitation requests. Parity with handle_tool_call.
+                if let Some(ref mut tracker) = state.cross_call_dlp {
+                    let args_str = match serde_json::to_string(&params) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::error!(
+                                "SECURITY: Cross-call DLP serialization failed for elicitation '{}': {} — denying (fail-closed)",
+                                tool_name, e
+                            );
+                            dlp_findings.push(crate::inspection::DlpFinding {
+                                pattern_name: "cross_call_dlp_serialization_failure".to_string(),
+                                location: format!("elicitation/create.{tool_name}"),
+                            });
+                            String::new()
+                        }
+                    };
+                    let field_path = format!("elicitation/create.{tool_name}");
+                    let cross_findings = tracker.scan_with_overlap(&field_path, &args_str);
+                    if !cross_findings.is_empty() {
+                        tracing::warn!(
+                            "SECURITY: Cross-call DLP in elicitation '{}': {} findings",
+                            tool_name,
+                            cross_findings.len()
+                        );
+                        dlp_findings.extend(cross_findings);
+                    }
+                }
+
+                // SECURITY (R236-EXFIL-2): Sharded exfiltration detection for elicitation.
+                // Parity with handle_tool_call.
+                if let Some(ref mut tracker) = state.sharded_exfil {
+                    let _ = tracker.record_parameters(&params);
+                    if let Some(cumulative_bytes) = tracker.check_exfiltration() {
+                        tracing::warn!(
+                            "SECURITY: Sharded exfiltration in elicitation '{}': {} bytes",
+                            tool_name,
+                            cumulative_bytes
+                        );
+                        dlp_findings.push(crate::inspection::dlp::DlpFinding {
+                            pattern_name: "sharded_exfiltration".to_string(),
+                            location: format!(
+                                "elicitation/create.{} ({} bytes across {} fragments)",
+                                tool_name,
+                                cumulative_bytes,
+                                tracker.fragment_count()
+                            ),
+                        });
+                    }
+                }
+
                 if !dlp_findings.is_empty() {
                     let patterns: Vec<String> = dlp_findings
                         .iter()
@@ -3460,11 +3728,67 @@ impl ProxyBridge {
         if let Some(result_val) = msg.get("result") {
             dlp_findings.extend(scan_parameters_for_secrets(result_val));
         }
+
+        // SECURITY (R236-DLP-2): Cross-call DLP for passthrough — detect secrets
+        // split across sequential unrecognized MCP method calls.
+        let passthrough_method: String = msg
+            .get("method")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown")
+            .chars()
+            .take(256)
+            .collect();
+        if let Some(ref mut tracker) = state.cross_call_dlp {
+            let args_str = match serde_json::to_string(&params_to_scan) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!(
+                        "SECURITY: Cross-call DLP serialization failed for passthrough '{}': {} — denying (fail-closed)",
+                        passthrough_method, e
+                    );
+                    dlp_findings.push(crate::inspection::DlpFinding {
+                        pattern_name: "cross_call_dlp_serialization_failure".to_string(),
+                        location: format!("passthrough.{passthrough_method}"),
+                    });
+                    String::new()
+                }
+            };
+            let field_path = format!("passthrough.{passthrough_method}");
+            let cross_findings = tracker.scan_with_overlap(&field_path, &args_str);
+            if !cross_findings.is_empty() {
+                tracing::warn!(
+                    "SECURITY: Cross-call DLP in passthrough '{}': {} findings",
+                    passthrough_method,
+                    cross_findings.len()
+                );
+                dlp_findings.extend(cross_findings);
+            }
+        }
+
+        // SECURITY (R236-EXFIL-2): Sharded exfiltration detection for passthrough.
+        // Extensible methods are a wide-open exfiltration path.
+        if let Some(ref mut tracker) = state.sharded_exfil {
+            let _ = tracker.record_parameters(&params_to_scan);
+            if let Some(cumulative_bytes) = tracker.check_exfiltration() {
+                tracing::warn!(
+                    "SECURITY: Sharded exfiltration in passthrough '{}': {} bytes",
+                    passthrough_method,
+                    cumulative_bytes
+                );
+                dlp_findings.push(crate::inspection::dlp::DlpFinding {
+                    pattern_name: "sharded_exfiltration".to_string(),
+                    location: format!(
+                        "passthrough.{} ({} bytes across {} fragments)",
+                        passthrough_method,
+                        cumulative_bytes,
+                        tracker.fragment_count()
+                    ),
+                });
+            }
+        }
+
         if !dlp_findings.is_empty() {
-            let method_name = msg
-                .get("method")
-                .and_then(|m| m.as_str())
-                .unwrap_or("unknown");
+            let method_name = &passthrough_method;
             let patterns: Vec<String> = dlp_findings
                 .iter()
                 .map(|f| format!("{} at {}", f.pattern_name, f.location))
