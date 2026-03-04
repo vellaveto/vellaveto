@@ -27,7 +27,7 @@ Layer 1: Implementation       Kani bounded model checking
                               (14 harnesses → 34)
 ```
 
-TLA+ proves the protocol design is free of deadlocks, safety violations, and liveness failures. Verus proves the core verdict computation and DLP buffer arithmetic are correct for all possible inputs, on the actual Rust source. Kani proves the wrapper code — String matching, glob compilation, Unicode normalization, HashMap operations — is correct within bounded inputs, also on the actual Rust source. The existing Lean 4 (35 theorems), Coq (43 theorems), and Alloy (10 assertions) proofs remain as defense-in-depth. They are maintained and run in CI, but not expanded — new work goes to Verus and Kani.
+TLA+ proves the protocol design is free of deadlocks, safety violations, and liveness failures. Verus proves the core verdict computation and DLP buffer arithmetic are correct for all possible inputs, on the actual Rust source. Kani proves the wrapper code — String matching, glob compilation, Unicode normalization, HashMap operations — is correct within bounded inputs, also on the actual Rust source. The existing Lean 4 (30 theorems), Coq (43 theorems), and Alloy (10 assertions) proofs remain as defense-in-depth. They are maintained and run in CI, but not expanded — new work goes to Verus and Kani.
 
 Each layer has an explicit trust boundary. TLA+ trusts that the code correctly implements the design (manual correspondence). Verus trusts Z3, the Verus verifier, and rustc codegen. Kani trusts CBMC and the sufficiency of its bounds. All of this is documented in the Trusted Computing Base.
 
@@ -85,7 +85,7 @@ The wrapper (unverified, Kani-bounded) builds `Vec<ResolvedMatch>` from the acti
 
 ---
 
-## Phase 0: Trusted Computing Base Document + CI Integration
+## Phase 0: Trusted Computing Base Document + CI Integration ✅ COMPLETE
 
 **Duration:** 1 week
 **Deliverable:** `docs/TRUSTED_COMPUTING_BASE.md` + GitHub Actions workflow gating PRs on Kani/Verus/Lean/Coq
@@ -199,10 +199,11 @@ Kani, Verus, Lean, and Coq run on every PR touching security-critical paths. All
 
 ---
 
-## Phase 1: Verus Core Verdict Logic
+## Phase 1: Verus Core Verdict Logic ✅ COMPLETE
 
 **Duration:** 4 weeks (Weeks 2-5)
 **Deliverable:** `vellaveto-engine/src/verified_core.rs` — Verus-verified verdict computation wired into both evaluation paths
+**Result:** 9 verified, 0 errors (V1-V8 + totality)
 
 ### The Verified Core Function
 
@@ -422,10 +423,11 @@ Verus requires nightly Rust. The main workspace stays on stable 1.88. The verifi
 
 ---
 
-## Phase 2: Verus Cross-Call DLP
+## Phase 2: Verus Cross-Call DLP ✅ COMPLETE
 
 **Duration:** 4 weeks (Weeks 6-9)
 **Deliverable:** `vellaveto-mcp/src/inspection/verified_dlp_core.rs` — Verus-verified buffer arithmetic. TLA+ adversary model. Kani wrapper harnesses.
+**Result:** 14 verified, 0 errors (D1-D6 + lemmas)
 
 ### Why This Is the Best Verus Target in the Codebase
 
@@ -600,10 +602,12 @@ The HashMap wrapper that calls into the verified core gets bounded verification:
 
 ---
 
-## Phase 3: Kani Expansion + TLS Verification
+## Phase 3: Kani Expansion ✅ COMPLETE
 
 **Duration:** 4 weeks (Weeks 10-13)
-**Deliverable:** 34 total Kani harnesses (14 existing + 20 new) covering sort correctness, compiled/legacy equivalence, path/domain/IP handling, TLS configuration safety, and the Verus boundary bridge
+**Deliverable:** 25 total Kani harnesses (9 original + 16 Verus bridge) covering sort correctness, ABAC extensions, DLP overlap, edge cases, and the Verus boundary bridge
+**Result:** 25 harnesses, all VERIFICATION:- SUCCESSFUL
+**Note:** Plan originally proposed K19-K34 (20 new). Implementation used K10-K25 (16 new) — focused on Verus bridge harnesses. TLS harnesses deferred (vellaveto-tls covered by 11 unit tests).
 
 ### Policy Engine Kani Expansion (Weeks 10-11)
 

@@ -32,9 +32,9 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `CircuitBreaker.v` | Coq | C1–C5 | Circuit breaker state machine properties |
 | `TaskLifecycle.v` | Coq | T1–T3 | MCP Task lifecycle terminal absorbing, valid transitions |
 
-**171 verification instances** across 7 tools:
+**173 verification instances** across 7 tools:
 - **Verus:** 23 proofs on actual Rust code (ALL inputs, deductive)
-- **TLA+:** 32 safety invariants + 8 liveness properties (6 specs)
+- **TLA+:** 34 safety invariants + 8 liveness properties (6 specs)
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 30 theorems (5 files, no `sorry`)
 - **Coq:** 43 theorems (8 files, no `Admitted`)
@@ -122,11 +122,11 @@ formal/
       Types.v                        ← Shared types (Verdict, Policy, Action, ABAC, CapToken)
       FailClosed.v                   ← Fail-closed and S1/S5 proofs (4 theorems)
       Determinism.v                  ← Evaluation determinism proof (4 theorems)
-      PathNormalization.v            ← Path normalization idempotence (5 theorems)
-      AbacForbidOverride.v           ← ABAC forbid-override S7-S10 (4 theorems)
-      CapabilityDelegation.v         ← Capability delegation S11-S16 (6 theorems)
-      CircuitBreaker.v               ← Circuit breaker C1-C5 (7 theorems)
-      TaskLifecycle.v                ← Task lifecycle T1-T3 (9 theorems)
+      PathNormalization.v            ← Path normalization idempotence (6 theorems)
+      AbacForbidOverride.v           ← ABAC forbid-override S7-S10 (5 theorems)
+      CapabilityDelegation.v         ← Capability delegation S11-S16 (8 theorems)
+      CircuitBreaker.v               ← Circuit breaker C1-C5 (6 theorems)
+      TaskLifecycle.v                ← Task lifecycle T1-T3 (10 theorems)
   verus/
     README.md                        ← Verus setup and verification guide
     verified_core.rs                 ← Core verdict logic (V1-V8, 9 verified)
@@ -543,7 +543,7 @@ verification layer.
 | Property-based tests | `proptest` | ~50 |
 | **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **23 proofs (V1-V8, D1-D6)** |
 | **Kani (bounded)** | **CBMC on actual Rust** | **25 proof harnesses (K1-K25)** |
-| **TLA+ (model checking)** | **Exhaustive state exploration** | **6 specs, 32 safety + 8 liveness** |
+| **TLA+ (model checking)** | **Exhaustive state exploration** | **6 specs, 34 safety + 8 liveness** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |
 | **Lean 4 (deductive)** | **Proof assistant** | **5 files, 30 theorems** |
 | **Coq (deductive)** | **Proof assistant** | **8 files, 43 theorems** |
