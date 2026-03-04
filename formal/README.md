@@ -21,7 +21,9 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `PathNormalization.lean` | Lean 4 | — | Path normalization idempotence: `normalize(normalize(x)) = normalize(x)` |
 | `AbacForbidOverride.lean` | Lean 4 | S7–S10 | ABAC forbid-overrides (first forbid wins) |
 | `CapabilityDelegation.lean` | Lean 4 | S11–S16 | Capability delegation attenuation proofs |
-| `kani/proofs.rs` | Kani | K1–K9 | Bounded model checking of actual Rust implementation |
+| `verus/verified_core.rs` | Verus | V1–V8 | Core verdict computation (ALL inputs, actual Rust) |
+| `verus/verified_dlp_core.rs` | Verus | D1–D6 | Cross-call DLP buffer arithmetic (ALL inputs, actual Rust) |
+| `kani/src/proofs.rs` | Kani | K1–K25 | Bounded model checking of actual Rust (Verus bridge) |
 | `FailClosed.v` | Coq | S1, S5 | Fail-closed: no match → Deny; Allow requires matching Allow policy |
 | `Determinism.v` | Coq | — | Policy evaluation determinism (same input → same verdict) |
 | `PathNormalization.v` | Coq | — | Path normalization idempotence: `normalize(normalize(x)) = normalize(x)` |
@@ -30,46 +32,54 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `CircuitBreaker.v` | Coq | C1–C5 | Circuit breaker state machine properties |
 | `TaskLifecycle.v` | Coq | T1–T3 | MCP Task lifecycle terminal absorbing, valid transitions |
 
-**132 verification instances** across 5 tools:
+**171 verification instances** across 7 tools:
+- **Verus:** 23 proofs on actual Rust code (ALL inputs, deductive)
 - **TLA+:** 32 safety invariants + 8 liveness properties (6 specs)
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 30 theorems (5 files, no `sorry`)
 - **Coq:** 43 theorems (8 files, no `Admitted`)
-- **Kani:** 9 proof harnesses on actual Rust code
+- **Kani:** 25 proof harnesses on actual Rust code (bounded)
 
 ## Coverage Matrix
 
-| Property | TLA+ | Alloy | Lean 4 | Coq | Kani |
-|----------|------|-------|--------|-----|------|
-| **S1: Fail-closed** | S1 | — | S1 | S1 | K1, K5 |
-| **S2: Priority ordering** | S2 | — | — | — | — |
-| **S3: Blocked paths override** | S3 | — | — | — | — |
-| **S4: Blocked domains override** | S4 | — | — | — | — |
-| **S5: Allow requires match** | S5 | — | S5 | S5 | — |
-| **S6: Missing context → Deny** | S6 | — | — | — | — |
-| **S7: Forbid dominance** | S7 | S7 | S7 | S7 | K6 |
-| **S8: Forbid ignores priority** | S8 | S8 | S8 | S8 | — |
-| **S9: Permit requires no forbid** | S9 | S9 | S9 | S9 | — |
-| **S10: No match → NoMatch** | S10 | S10 | S10 | S10 | K7 |
-| **S11: Monotonic attenuation** | D1 | S11 | S11 | S11 | — |
-| **S12: Transitive attenuation** | — | S12 | S12 | S12 | — |
-| **S13: Depth bounded** | D2 | S13 | S13 | S13 | — |
-| **S14: Temporal monotonicity** | D3 | S14 | S14 | S14 | — |
-| **S15: Terminal no delegate** | D5 | S15 | S15 | S15 | — |
-| **S16: Issuer chain integrity** | D4 | S16 | S16 | S16 | — |
-| **C1: Chain depth bounded** | C1 | — | — | C1 | — |
-| **C2: Error threshold → open** | C2 | — | — | C2 | — |
-| **C3: Open denies all** | C3 | — | — | C3 | — |
-| **C4: Half-open resolves** | C4 | — | — | C4 | — |
-| **C5: Probe success closes** | C5 | — | — | C5 | — |
-| **T1: Terminal absorbing** | T1 | — | — | T1 | — |
-| **T2: Initial state** | T2 | — | — | T2 | — |
-| **T3: Valid transitions** | T3 | — | — | T3 | — |
-| **Path idempotence** | — | — | idem | idem | K2 |
-| **No traversal** | — | — | no_dot | no_dot | K3 |
-| **Determinism** | — | — | det | det | K8 |
-| **Counter monotonicity** | — | — | — | — | K4 |
-| **Domain norm idempotent** | — | — | — | — | K9 |
+| Property | TLA+ | Alloy | Lean 4 | Coq | Verus | Kani |
+|----------|------|-------|--------|-----|-------|------|
+| **S1: Fail-closed** | S1 | — | S1 | S1 | V1, V2 | K1, K5, K14 |
+| **S2: Priority ordering** | S2 | — | — | — | V6 | K18 |
+| **S3: Blocked paths override** | S3 | — | — | — | V4 | K16 |
+| **S4: Blocked domains override** | S4 | — | — | — | V4 | K16 |
+| **S5: Allow requires match** | S5 | — | S5 | S5 | V3 | K15 |
+| **S6: Missing context → Deny** | S6 | — | — | — | — | K24 |
+| **S7: Forbid dominance** | S7 | S7 | S7 | S7 | — | K6 |
+| **S8: Forbid ignores priority** | S8 | S8 | S8 | S8 | — | K19 |
+| **S9: Permit requires no forbid** | S9 | S9 | S9 | S9 | — | K20 |
+| **S10: No match → NoMatch** | S10 | S10 | S10 | S10 | — | K7 |
+| **S11: Monotonic attenuation** | D1 | S11 | S11 | S11 | — | — |
+| **S12: Transitive attenuation** | — | S12 | S12 | S12 | — | — |
+| **S13: Depth bounded** | D2 | S13 | S13 | S13 | — | — |
+| **S14: Temporal monotonicity** | D3 | S14 | S14 | S14 | — | — |
+| **S15: Terminal no delegate** | D5 | S15 | S15 | S15 | — | — |
+| **S16: Issuer chain integrity** | D4 | S16 | S16 | S16 | — | — |
+| **C1: Chain depth bounded** | C1 | — | — | C1 | — | — |
+| **C2: Error threshold → open** | C2 | — | — | C2 | — | — |
+| **C3: Open denies all** | C3 | — | — | C3 | — | — |
+| **C4: Half-open resolves** | C4 | — | — | C4 | — | — |
+| **C5: Probe success closes** | C5 | — | — | C5 | — | — |
+| **T1: Terminal absorbing** | T1 | — | — | T1 | — | — |
+| **T2: Initial state** | T2 | — | — | T2 | — | — |
+| **T3: Valid transitions** | T3 | — | — | T3 | — | — |
+| **V8: Conditional pass-through** | — | — | — | — | V8 | K17, K25 |
+| **D1: UTF-8 boundary safety** | — | — | — | — | D1 | K10, K11, K23 |
+| **D2: Buffer size bounded** | — | — | — | — | D2 | K10 |
+| **D3: Byte accounting correct** | — | — | — | — | D3 | K13 |
+| **D4: Capacity fail-closed** | — | — | — | — | D4 | K12 |
+| **D5: No arithmetic underflow** | — | — | — | — | D5 | K13 |
+| **D6: Overlap completeness** | — | — | — | — | D6 | K21, K22 |
+| **Path idempotence** | — | — | idem | idem | — | K2 |
+| **No traversal** | — | — | no_dot | no_dot | — | K3 |
+| **Determinism** | — | — | det | det | — | K8 |
+| **Counter monotonicity** | — | — | — | — | — | K4 |
+| **Domain norm idempotent** | — | — | — | — | — | K9 |
 
 ## Directory Structure
 
@@ -117,9 +127,19 @@ formal/
       CapabilityDelegation.v         ← Capability delegation S11-S16 (6 theorems)
       CircuitBreaker.v               ← Circuit breaker C1-C5 (7 theorems)
       TaskLifecycle.v                ← Task lifecycle T1-T3 (9 theorems)
+  verus/
+    README.md                        ← Verus setup and verification guide
+    verified_core.rs                 ← Core verdict logic (V1-V8, 9 verified)
+    verified_dlp_core.rs             ← DLP buffer arithmetic (D1-D6, 14 verified)
   kani/
+    Cargo.toml                       ← Standalone crate (excluded from workspace)
     README.md                        ← Kani setup and usage guide
-    proofs.rs                        ← Proof harnesses (9 properties)
+    src/
+      lib.rs                         ← Crate root (K1-K25 property catalog)
+      proofs.rs                      ← Proof harnesses (25 properties)
+      path.rs                        ← Path normalization (from vellaveto-engine)
+      verified_core.rs               ← Verdict computation (Verus bridge)
+      dlp_core.rs                    ← DLP buffer arithmetic (Verus bridge)
 ```
 
 ## Tooling Setup
@@ -248,23 +268,43 @@ make
 Expected output: all 8 `.v` files compile cleanly with no `Admitted` markers.
 Verify: `grep -r "Admitted\|admit" Vellaveto/*.v` returns no matches.
 
-### Kani Proof Harnesses (K1–K9)
+### Verus Proofs (V1–V8, D1–D6)
+
+```bash
+# Option 1: Binary release (recommended)
+VERUS_VERSION="0.2026.03.01.25809cb"
+curl -sSL -o verus.zip \
+  "https://github.com/verus-lang/verus/releases/download/release/${VERUS_VERSION}/verus-${VERUS_VERSION}-x86-linux.zip"
+unzip verus.zip -d verus-bin
+rustup install 1.93.1-x86_64-unknown-linux-gnu
+
+# Core verdict (9 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_core.rs
+
+# DLP buffer arithmetic (14 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_dlp_core.rs
+```
+
+Expected output:
+- `verified_core.rs`: `verification results:: 9 verified, 0 errors`
+- `verified_dlp_core.rs`: `verification results:: 14 verified, 0 errors`
+
+### Kani Proof Harnesses (K1–K25)
 
 ```bash
 cd formal/kani
 # Install Kani: cargo install --locked kani-verifier && cargo kani setup
+
+# Run all 25 harnesses (examples — see README.md for full list)
 cargo kani --harness proof_fail_closed_no_match_produces_deny
 cargo kani --harness proof_path_normalize_idempotent
-cargo kani --harness proof_path_normalize_no_traversal
-cargo kani --harness proof_saturating_counters_never_wrap
-cargo kani --harness proof_verdict_deny_on_error
-cargo kani --harness proof_abac_forbid_dominance
-cargo kani --harness proof_abac_no_match_produces_nomatch
-cargo kani --harness proof_evaluation_deterministic
-cargo kani --harness proof_domain_normalize_idempotent
+cargo kani --harness proof_compute_verdict_fail_closed_empty
+cargo kani --harness proof_extract_tail_no_panic
+cargo kani --harness proof_sort_produces_sorted_output
+# ... (25 total)
 ```
 
-Expected output: all 9 harnesses report VERIFICATION:- SUCCESSFUL.
+Expected output: all 25 harnesses report VERIFICATION:- SUCCESSFUL.
 
 ## Property Catalog
 
@@ -272,20 +312,20 @@ Expected output: all 9 harnesses report VERIFICATION:- SUCCESSFUL.
 
 | ID | Property | Source | Spec Location |
 |----|----------|--------|---------------|
-| S1 | **Fail-closed:** no matching policy → Deny, never Allow | `vellaveto-engine/src/lib.rs:417-419` | `MCPPolicyEngine.tla`, `FailClosed.lean/v`, Kani K1/K5 |
-| S2 | **Priority ordering:** policies evaluated in priority-descending order | `vellaveto-engine/src/lib.rs:209-224` | `MCPCommon.tla:SortedByPriority` |
-| S3 | **Blocked paths override allowed:** first-match blocked path → Deny | `vellaveto-engine/src/rule_check.rs:50-59` | `MCPPolicyEngine.tla:InvariantS3` |
-| S4 | **Blocked domains override allowed:** first-match blocked domain → Deny | `vellaveto-engine/src/rule_check.rs:124-133` | `MCPPolicyEngine.tla:InvariantS4` |
-| S5 | **Allow requires matching Allow policy:** Allow verdict only from Allow policy | `vellaveto-engine/src/lib.rs:545-547` | `MCPPolicyEngine.tla`, `FailClosed.lean/v` |
-| S6 | **Missing context → Deny:** context-conditions without context → Deny | `vellaveto-engine/src/lib.rs:519-535` | `MCPPolicyEngine.tla:InvariantS6` |
+| S1 | **Fail-closed:** no matching policy → Deny, never Allow | `vellaveto-engine/src/lib.rs:417-419` | TLA+, Lean, Coq, **Verus V1/V2**, Kani K1/K5/K14 |
+| S2 | **Priority ordering:** policies evaluated in priority-descending order | `vellaveto-engine/src/lib.rs:209-224` | TLA+, **Verus V6**, Kani K18 |
+| S3 | **Blocked paths override allowed:** first-match blocked path → Deny | `vellaveto-engine/src/rule_check.rs:50-59` | TLA+, **Verus V4**, Kani K16 |
+| S4 | **Blocked domains override allowed:** first-match blocked domain → Deny | `vellaveto-engine/src/rule_check.rs:124-133` | TLA+, **Verus V4**, Kani K16 |
+| S5 | **Allow requires matching Allow policy:** Allow verdict only from Allow policy | `vellaveto-engine/src/lib.rs:545-547` | TLA+, Lean, Coq, **Verus V3**, Kani K15 |
+| S6 | **Missing context → Deny:** context-conditions without context → Deny | `vellaveto-engine/src/lib.rs:519-535` | TLA+, Kani K24 |
 
 ### ABAC Safety (S7–S10)
 
 | ID | Property | Source | Spec Location |
 |----|----------|--------|---------------|
 | S7 | **Forbid dominance:** any matching forbid → Deny (regardless of permits) | `vellaveto-engine/src/abac.rs:226-230` | TLA+, Alloy, Lean, Coq, Kani K6 |
-| S8 | **Forbid ignores priority:** low-priority forbid beats high-priority permit | `vellaveto-engine/src/abac.rs` | TLA+, Alloy, Lean, Coq |
-| S9 | **Permit requires no forbid:** Allow only when zero forbids match | `vellaveto-engine/src/abac.rs:232-236` | TLA+, Alloy, Lean, Coq |
+| S8 | **Forbid ignores priority:** low-priority forbid beats high-priority permit | `vellaveto-engine/src/abac.rs` | TLA+, Alloy, Lean, Coq, Kani K19 |
+| S9 | **Permit requires no forbid:** Allow only when zero forbids match | `vellaveto-engine/src/abac.rs:232-236` | TLA+, Alloy, Lean, Coq, Kani K20 |
 | S10 | **No match → NoMatch:** nothing matches → NoMatch (caller decides) | `vellaveto-engine/src/abac.rs:239` | TLA+, Alloy, Lean, Coq, Kani K7 |
 
 ### Capability Delegation Safety (S11–S16 / D1–D5)
@@ -319,19 +359,63 @@ Expected output: all 9 harnesses report VERIFICATION:- SUCCESSFUL.
 | C4 | **Half-open transient:** half-open is a transient probe state | Circuit breaker pattern | TLA+ C4, Coq C4 |
 | C5 | **Probe success closes:** successful probe returns to closed | Circuit breaker pattern | TLA+ C5, Coq C5 |
 
-### Kani Proof Harnesses (K1–K9)
+### Verus Core Verdict (V1–V8, proven for ALL inputs on actual Rust)
 
-| ID | Property | Source | Harness |
-|----|----------|--------|---------|
-| K1 | **Fail-closed (implementation):** empty policies → Deny | `vellaveto-engine/src/lib.rs` | `proof_fail_closed_no_match_produces_deny` |
-| K2 | **Path idempotence:** `normalize(normalize(x)) == normalize(x)` | `vellaveto-engine/src/path.rs` | `proof_path_normalize_idempotent` |
-| K3 | **No traversal:** normalized path has no `..` | `vellaveto-engine/src/path.rs` | `proof_path_normalize_no_traversal` |
-| K4 | **Counter monotonicity:** `saturating_add` never decreases | All counter operations | `proof_saturating_counters_never_wrap` |
-| K5 | **Error → Deny:** evaluation errors produce Deny | `vellaveto-engine/src/lib.rs` | `proof_verdict_deny_on_error` |
-| K6 | **ABAC forbid dominance:** matching forbid → Deny | `vellaveto-engine/src/abac.rs` | `proof_abac_forbid_dominance` |
-| K7 | **ABAC no-match → NoMatch:** no matches → NoMatch | `vellaveto-engine/src/abac.rs` | `proof_abac_no_match_produces_nomatch` |
-| K8 | **Evaluation determinism:** same input → same output | `vellaveto-engine/src/lib.rs` | `proof_evaluation_deterministic` |
-| K9 | **Domain normalization idempotent:** `normalize(normalize(x)) == normalize(x)` | Domain handling | `proof_domain_normalize_idempotent` |
+| ID | Property | Postcondition |
+|----|----------|--------------|
+| V1 | **Fail-closed empty** | `len() == 0 ==> Deny` |
+| V2 | **Fail-closed no match** | All `!matched` → Deny |
+| V3 | **Allow requires match** | `Allow` → ∃ matching Allow with no override |
+| V4 | **Rule override forces Deny** | Path/network/IP override → Deny |
+| V5 | **Totality** | Function always terminates |
+| V6 | **Priority ordering** | Higher-priority wins (requires `is_sorted`) |
+| V7 | **Deny-dominance at equal priority** | Deny beats Allow (requires `is_sorted`) |
+| V8 | **Conditional pass-through** | Unfired condition → evaluation continues |
+
+Source: `formal/verus/verified_core.rs` (9 verified, 0 errors)
+
+### Verus Cross-Call DLP (D1–D6, proven for ALL inputs on actual Rust)
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| D1 | **UTF-8 boundary safety** | `extract_tail` never returns start in mid-character |
+| D2 | **Buffer size bounded** | Extracted tail ≤ `max_size` bytes |
+| D3 | **Byte accounting correct** | `update_total_bytes` maintains consistency |
+| D4 | **Capacity fail-closed** | At `max_fields`, `can_track_field` returns false |
+| D5 | **No arithmetic underflow** | Saturating subtraction prevents wrapping |
+| D6 | **Overlap completeness** | Secret ≤ 2 × overlap split at any byte fully covered |
+
+Source: `formal/verus/verified_dlp_core.rs` (14 verified, 0 errors)
+
+### Kani Proof Harnesses (K1–K25, bounded model checking on actual Rust)
+
+| ID | Property | Verus Bridge |
+|----|----------|-------------|
+| K1 | **Fail-closed:** empty policies → Deny | — |
+| K2 | **Path idempotence:** `normalize(normalize(x)) == normalize(x)` | — |
+| K3 | **No traversal:** normalized path has no `..` | — |
+| K4 | **Counter monotonicity:** `saturating_add` never decreases | — |
+| K5 | **Error → Deny:** evaluation errors produce Deny | — |
+| K6 | **ABAC forbid dominance:** matching forbid → Deny | — |
+| K7 | **ABAC no-match → NoMatch:** no matches → NoMatch | — |
+| K8 | **Evaluation determinism:** same input → same output | — |
+| K9 | **Domain normalization idempotent** | — |
+| K10 | **extract_tail no panic** for arbitrary bytes | D1, D2 |
+| K11 | **UTF-8 boundary exhaustive** (all 256 bytes) | D1 |
+| K12 | **can_track_field fail-closed** at capacity | D4 |
+| K13 | **update_total_bytes saturating** correctness | D3, D5 |
+| K14 | **compute_verdict fail-closed** empty | V1 |
+| K15 | **compute_verdict allow requires match** | V3 |
+| K16 | **compute_verdict rule_override forces deny** | V4 |
+| K17 | **compute_verdict conditional pass-through** | V8 |
+| K18 | **Sort produces sorted output** (Verus precondition) | V6, V7 |
+| K19 | **ABAC forbid ignores priority order** | S8 |
+| K20 | **ABAC permit requires no forbid** | S9 |
+| K21 | **Overlap covers small secrets** | D6 |
+| K22 | **Overlap region size saturating** | D6 |
+| K23 | **extract_tail multibyte boundary** (4-byte emoji) | D1 |
+| K24 | **context_deny overrides allow** | V3 |
+| K25 | **all_constraints_skipped fail-closed** | V8 |
 
 ### Liveness (L1–L3, TL1–TL2, CL1–CL2, DL1)
 
@@ -432,9 +516,13 @@ evaluation algorithms. They do **not** cover:
 - `max_invocations` grant field (not checked during attenuation in Rust code)
 - Token size / grant count bounds (serialization-level constraints)
 
-The model bounds are finite (bounded model checking), not unbounded proofs.
-However, the properties are structural and do not depend on the specific
-bound values.
+For TLA+, Lean, Coq, Alloy, and Kani: the model bounds are finite (bounded
+model checking), not unbounded proofs. However, the properties are structural
+and do not depend on the specific bound values.
+
+For Verus: properties V1-V8 and D1-D6 are proven for ALL possible inputs on
+the actual Rust code. No bounds, no sampling. The Verus core is the strongest
+verification layer.
 
 ### Known Abstraction Gaps
 
@@ -450,16 +538,19 @@ bound values.
 
 | Verification Layer | Method | Count |
 |--------------------|--------|-------|
-| Unit tests | Rust `#[test]` | 8,972 |
+| Unit tests | Rust `#[test]` | 9,018+ |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
-| **Formal specs (TLA+)** | **Model checking** | **6 specs, 32 safety + 8 liveness** |
-| **Formal specs (Alloy)** | **Bounded model checking** | **2 models, 10 assertions** |
-| **Formal specs (Lean 4)** | **Proof assistant** | **5 files, 30 theorems** |
-| **Formal specs (Coq)** | **Proof assistant** | **8 files, 43 theorems** |
-| **Formal specs (Kani)** | **CBMC on Rust code** | **9 proof harnesses** |
+| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **23 proofs (V1-V8, D1-D6)** |
+| **Kani (bounded)** | **CBMC on actual Rust** | **25 proof harnesses (K1-K25)** |
+| **TLA+ (model checking)** | **Exhaustive state exploration** | **6 specs, 32 safety + 8 liveness** |
+| **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |
+| **Lean 4 (deductive)** | **Proof assistant** | **5 files, 30 theorems** |
+| **Coq (deductive)** | **Proof assistant** | **8 files, 43 theorems** |
 
-The formal specs complement (not replace) the test suite:
-- Tests verify concrete executions against expected outputs
-- Formal specs verify that **no possible execution** violates the invariants
-- Together they provide defense in depth for security-critical properties
+The three-layer verification architecture:
+- **Layer 3 (TLA+):** Proves protocol design is correct (no deadlocks, no safety violations)
+- **Layer 2 (Verus):** Proves core Rust code correct for ALL inputs (zero refinement gap)
+- **Layer 1 (Kani):** Proves wrapper Rust code correct within bounds (bridges Verus trust boundary)
+- **Lean/Coq/Alloy:** Defense-in-depth mathematical proofs on abstract models
+- **Tests:** Concrete execution verification (9,018+ tests + 24 fuzz targets)

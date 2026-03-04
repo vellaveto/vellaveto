@@ -8,21 +8,21 @@
 //! Kani bounded model checking proofs for Vellaveto security invariants.
 //!
 //! This crate extracts security-critical algorithms from the production
-//! `vellaveto-engine` crate and verifies them using Kani's CBMC backend.
+//! codebase and verifies them using Kani's CBMC backend.
 //!
 //! # Why a separate crate?
 //!
 //! Kani 0.67 hits an internal compiler error on the `icu_normalizer` crate
 //! (transitive dependency: `idna` → `icu_normalizer` → `zerovec`). Since
-//! the verified algorithms — path normalization and fail-closed policy
-//! evaluation — do not use IDNA functionality, we extract them here with
-//! minimal dependencies to make verification tractable.
+//! the verified algorithms — path normalization, verdict computation, DLP
+//! buffer arithmetic — do not use IDNA functionality, we extract them here
+//! with minimal dependencies to make verification tractable.
 //!
 //! # Verified Properties
 //!
 //! | ID | Property | Corresponds To |
 //! |----|----------|----------------|
-//! | K1 | Empty policies → Deny (fail-closed) | S1, MCPPolicyEngine.tla, FailClosed.lean/v |
+//! | K1 | Empty policies → Deny (fail-closed) | S1, MCPPolicyEngine.tla |
 //! | K2 | normalize(normalize(x)) == normalize(x) | PathNormalization.lean/v |
 //! | K3 | normalize(x) has no ".." component | PathNormalization.lean/v |
 //! | K4 | saturating_add never wraps | Trap #9, counter monotonicity |
@@ -31,16 +31,32 @@
 //! | K7 | ABAC no-match → NoMatch | S10, AbacForbidOverride.lean/v |
 //! | K8 | Evaluation determinism | Determinism.lean/v |
 //! | K9 | Domain normalization idempotent | Domain handling in engine |
+//! | K10 | extract_tail no panic for arbitrary input | D1-D2, Verus bridge |
+//! | K11 | UTF-8 char boundary exhaustive (all 256 bytes) | D1, Verus bridge |
+//! | K12 | can_track_field fail-closed at capacity | D4, Verus bridge |
+//! | K13 | update_total_bytes saturating correctness | D3/D5, Verus bridge |
+//! | K14 | compute_verdict fail-closed empty | V1, Verus bridge |
+//! | K15 | compute_verdict allow requires matching allow | V3, Verus bridge |
+//! | K16 | compute_verdict rule_override forces deny | V4, Verus bridge |
+//! | K17 | compute_verdict conditional pass-through | V8, Verus bridge |
+//! | K18 | sort produces sorted output (Verus bridge) | V6/V7, is_sorted |
+//! | K19 | ABAC forbid ignores priority order | S8, AbacForbidOverride |
+//! | K20 | ABAC permit requires no prior forbid | S9, AbacForbidOverride |
+//! | K21 | overlap_covers_secret for small secrets | D6, Verus bridge |
+//! | K22 | compute_overlap_region_size saturating | D6, region arithmetic |
+//! | K23 | extract_tail multibyte boundary (4-byte emoji) | D1, UTF-8 safety |
+//! | K24 | context_deny overrides allow | V3, context conditions |
+//! | K25 | all_constraints_skipped fail-closed | V8, conditional handling |
 //!
 //! # Source Correspondence
 //!
-//! - `normalize_path_bounded`: Verbatim from `vellaveto-engine/src/path.rs`
-//!   (with `tracing::warn!` replaced by a no-op, and `EngineError` replaced
-//!   by a local error type — the algorithm is identical).
-//! - `evaluate_empty_policies`: Extracted from `vellaveto-engine/src/lib.rs`
-//!   `evaluate_action` method, empty-policies branch (line 367-371).
+//! - `path.rs`: Verbatim from `vellaveto-engine/src/path.rs`
+//! - `verified_core.rs`: Verbatim from `vellaveto-engine/src/verified_core.rs`
+//! - `dlp_core.rs`: Verbatim from `vellaveto-mcp/src/inspection/verified_dlp_core.rs`
 
-mod path;
+pub mod path;
+pub mod verified_core;
+pub mod dlp_core;
 
 #[cfg(kani)]
 mod proofs;
