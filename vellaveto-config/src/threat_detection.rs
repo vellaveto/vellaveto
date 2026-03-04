@@ -257,6 +257,20 @@ impl SemanticDetectionConfig {
                 MAX_SEMANTIC_EXTRA_TEMPLATES
             ));
         }
+        // SECURITY (R235-CFG-4): Validate per-entry length and dangerous chars.
+        for (i, tmpl) in self.extra_templates.iter().enumerate() {
+            if tmpl.len() > MAX_SEMANTIC_TEMPLATE_LEN {
+                return Err(format!(
+                    "semantic_detection.extra_templates[{i}] length {} exceeds max {MAX_SEMANTIC_TEMPLATE_LEN}",
+                    tmpl.len()
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(tmpl) {
+                return Err(format!(
+                    "semantic_detection.extra_templates[{i}] contains control or format characters"
+                ));
+            }
+        }
         Ok(())
     }
 }
@@ -523,6 +537,52 @@ fn default_max_known_agents() -> usize {
     10_000
 }
 
+/// Maximum fingerprint components for shadow agent config.
+const MAX_FINGERPRINT_COMPONENTS: usize = 16;
+
+/// Maximum length of a fingerprint component string.
+const MAX_FINGERPRINT_COMPONENT_LEN: usize = 64;
+
+impl ShadowAgentConfig {
+    /// Validate shadow agent configuration fields.
+    ///
+    /// SECURITY (R235-CFG-1): Validates bounds and dangerous chars on all fields.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.fingerprint_components.len() > MAX_FINGERPRINT_COMPONENTS {
+            return Err(format!(
+                "shadow_agent.fingerprint_components has {} entries, max is {MAX_FINGERPRINT_COMPONENTS}",
+                self.fingerprint_components.len()
+            ));
+        }
+        for (i, comp) in self.fingerprint_components.iter().enumerate() {
+            if comp.len() > MAX_FINGERPRINT_COMPONENT_LEN {
+                return Err(format!(
+                    "shadow_agent.fingerprint_components[{i}] length {} exceeds max {MAX_FINGERPRINT_COMPONENT_LEN}",
+                    comp.len()
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(comp) {
+                return Err(format!(
+                    "shadow_agent.fingerprint_components[{i}] contains control or format characters"
+                ));
+            }
+        }
+        if self.min_trust_level > 4 {
+            return Err(format!(
+                "shadow_agent.min_trust_level must be 0-4, got {}",
+                self.min_trust_level
+            ));
+        }
+        if self.max_known_agents > MAX_KNOWN_AGENTS {
+            return Err(format!(
+                "shadow_agent.max_known_agents {} exceeds max {MAX_KNOWN_AGENTS}",
+                self.max_known_agents
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl Default for ShadowAgentConfig {
     fn default() -> Self {
         Self {
@@ -678,6 +738,43 @@ pub struct SamplingDetectionConfig {
     /// Allowed model patterns (glob). Empty = all allowed.
     #[serde(default)]
     pub allowed_models: Vec<String>,
+}
+
+/// Maximum length of an allowed model pattern string.
+const MAX_ALLOWED_MODEL_LEN: usize = 256;
+
+impl SamplingDetectionConfig {
+    /// Validate sampling detection configuration fields.
+    ///
+    /// SECURITY (R235-CFG-2): Validates bounds and dangerous chars on all fields.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.window_secs == 0 {
+            return Err("sampling_detection.window_secs must be > 0".to_string());
+        }
+        if self.max_prompt_length == 0 {
+            return Err("sampling_detection.max_prompt_length must be > 0".to_string());
+        }
+        if self.allowed_models.len() > MAX_ALLOWED_SAMPLING_MODELS {
+            return Err(format!(
+                "sampling_detection.allowed_models has {} entries, max is {MAX_ALLOWED_SAMPLING_MODELS}",
+                self.allowed_models.len()
+            ));
+        }
+        for (i, model) in self.allowed_models.iter().enumerate() {
+            if model.len() > MAX_ALLOWED_MODEL_LEN {
+                return Err(format!(
+                    "sampling_detection.allowed_models[{i}] length {} exceeds max {MAX_ALLOWED_MODEL_LEN}",
+                    model.len()
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(model) {
+                return Err(format!(
+                    "sampling_detection.allowed_models[{i}] contains control or format characters"
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for SamplingDetectionConfig {
@@ -968,6 +1065,65 @@ fn default_context_budget() -> usize {
     100_000
 }
 
+/// Maximum length of a protected tool pattern string.
+const MAX_TOOL_PATTERN_LEN: usize = 512;
+
+/// Maximum workflow step budget.
+const MAX_WORKFLOW_STEP_BUDGET: usize = 100_000;
+
+/// Maximum context budget (tokens).
+const MAX_CONTEXT_BUDGET: usize = 10_000_000;
+
+impl AdvancedThreatConfig {
+    /// Validate advanced threat configuration fields.
+    ///
+    /// SECURITY (R235-CFG-3): Validates f32 goal_drift_threshold for NaN/Infinity,
+    /// bounds on Vec fields, and dangerous chars on pattern strings.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.goal_drift_threshold.is_finite()
+            || self.goal_drift_threshold < 0.0
+            || self.goal_drift_threshold > 1.0
+        {
+            return Err(format!(
+                "advanced_threat.goal_drift_threshold must be in [0.0, 1.0], got {}",
+                self.goal_drift_threshold
+            ));
+        }
+        if self.workflow_step_budget > MAX_WORKFLOW_STEP_BUDGET {
+            return Err(format!(
+                "advanced_threat.workflow_step_budget {} exceeds max {MAX_WORKFLOW_STEP_BUDGET}",
+                self.workflow_step_budget
+            ));
+        }
+        if self.default_context_budget > MAX_CONTEXT_BUDGET {
+            return Err(format!(
+                "advanced_threat.default_context_budget {} exceeds max {MAX_CONTEXT_BUDGET}",
+                self.default_context_budget
+            ));
+        }
+        if self.protected_tool_patterns.len() > MAX_PROTECTED_TOOL_PATTERNS {
+            return Err(format!(
+                "advanced_threat.protected_tool_patterns has {} entries, max is {MAX_PROTECTED_TOOL_PATTERNS}",
+                self.protected_tool_patterns.len()
+            ));
+        }
+        for (i, pat) in self.protected_tool_patterns.iter().enumerate() {
+            if pat.len() > MAX_TOOL_PATTERN_LEN {
+                return Err(format!(
+                    "advanced_threat.protected_tool_patterns[{i}] length {} exceeds max {MAX_TOOL_PATTERN_LEN}",
+                    pat.len()
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(pat) {
+                return Err(format!(
+                    "advanced_threat.protected_tool_patterns[{i}] contains control or format characters"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Default for AdvancedThreatConfig {
     fn default() -> Self {
         Self {
@@ -1015,6 +1171,9 @@ pub const MAX_CLUSTER_KEY_PREFIX_LEN: usize = 64;
 
 /// Maximum number of extra semantic detection templates.
 pub const MAX_SEMANTIC_EXTRA_TEMPLATES: usize = 200;
+
+/// Maximum length of a single semantic detection template string.
+const MAX_SEMANTIC_TEMPLATE_LEN: usize = 2_048;
 
 /// Maximum number of agents for behavioral tracking.
 pub const MAX_BEHAVIORAL_AGENTS: usize = 100_000;

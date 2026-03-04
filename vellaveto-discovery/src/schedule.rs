@@ -204,7 +204,8 @@ impl RecrawlScheduler {
 
         match self.crawler.crawl().await {
             Ok(result) => {
-                self.consecutive_failures.store(0, Ordering::Relaxed);
+                // SECURITY (R235-DISC-8): Use SeqCst for security-relevant counter per Trap 8.
+                self.consecutive_failures.store(0, Ordering::SeqCst);
 
                 let new_fingerprint = result.topology.fingerprint_hex();
 
@@ -253,10 +254,16 @@ impl RecrawlScheduler {
                 Ok(diff)
             }
             Err(err) => {
+                // SECURITY (R235-DISC-6): Use fetch_update with saturating add to
+                // prevent the atomic from wrapping on overflow. Plain fetch_add(1)
+                // wraps u32::MAX→0, resetting the failure counter.
                 let failures = self
                     .consecutive_failures
-                    .fetch_add(1, Ordering::Relaxed)
-                    .saturating_add(1);
+                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                        Some(v.saturating_add(1))
+                    })
+                    .unwrap_or(u32::MAX) // fetch_update with Some never returns Err
+                    .saturating_add(1); // returned value is the old value
 
                 self.emit_audit(TopologyAuditEvent::CrawlFailed {
                     error: err.to_string(),
@@ -296,7 +303,7 @@ impl std::fmt::Debug for RecrawlScheduler {
             .field("config", &self.config)
             .field(
                 "consecutive_failures",
-                &self.consecutive_failures.load(Ordering::Relaxed),
+                &self.consecutive_failures.load(Ordering::SeqCst),
             )
             .finish()
     }

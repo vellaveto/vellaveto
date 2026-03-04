@@ -9,9 +9,29 @@ use crate::logger::AuditLogger;
 use crate::types::AuditError;
 use vellaveto_types::{Action, Verdict};
 
+/// Maximum length for ETDI audit string parameters.
+const MAX_ETDI_FIELD_LEN: usize = 1_024;
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Phase 8: ETDI Cryptographic Tool Security Audit Helpers
 // ═══════════════════════════════════════════════════════════════════════════════
+
+/// SECURITY (R235-AUD-4): Validate ETDI audit parameters for dangerous chars
+/// and length bounds before embedding in metadata/deny reasons.
+fn validate_etdi_field(field_name: &str, value: &str) -> Result<(), AuditError> {
+    if value.len() > MAX_ETDI_FIELD_LEN {
+        return Err(AuditError::Validation(format!(
+            "ETDI {field_name} length {} exceeds max {MAX_ETDI_FIELD_LEN}",
+            value.len()
+        )));
+    }
+    if vellaveto_types::has_dangerous_chars(value) {
+        return Err(AuditError::Validation(format!(
+            "ETDI {field_name} contains control or format characters"
+        )));
+    }
+    Ok(())
+}
 
 impl AuditLogger {
     /// Log a successful ETDI signature verification.
@@ -21,6 +41,8 @@ impl AuditLogger {
         signer: &str,
         trusted: bool,
     ) -> Result<(), AuditError> {
+        validate_etdi_field("tool", tool)?;
+        validate_etdi_field("signer", signer)?;
         let action = Action::new(
             "vellaveto",
             "etdi_signature_verified",
@@ -54,6 +76,8 @@ impl AuditLogger {
         tool: &str,
         reason: &str,
     ) -> Result<(), AuditError> {
+        validate_etdi_field("tool", tool)?;
+        validate_etdi_field("reason", reason)?;
         let action = Action::new(
             "vellaveto",
             "etdi_signature_verification",
@@ -82,6 +106,7 @@ impl AuditLogger {
         tool: &str,
         blocked: bool,
     ) -> Result<(), AuditError> {
+        validate_etdi_field("tool", tool)?;
         let action = Action::new(
             "vellaveto",
             "etdi_unsigned_tool",

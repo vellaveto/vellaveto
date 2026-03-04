@@ -373,7 +373,14 @@ impl MerkleTree {
 
         // Read all leaf hashes from the file
         let data = std::fs::read(&self.leaf_file_path)?;
-        let n = self.leaf_count as usize;
+        // SECURITY (R235-AUD-3): Use try_from instead of `as usize` to prevent
+        // silent truncation on 32-bit platforms.
+        let n = usize::try_from(self.leaf_count).map_err(|_| {
+            AuditError::Validation(format!(
+                "leaf_count {} exceeds platform usize capacity",
+                self.leaf_count
+            ))
+        })?;
         if data.len() < n * HASH_SIZE {
             return Err(AuditError::Validation(
                 "Leaf file is shorter than expected".to_string(),
@@ -390,7 +397,12 @@ impl MerkleTree {
             .collect();
 
         // Build the proof by walking up the tree
-        let siblings = self.compute_siblings(&leaves, index as usize)?;
+        let idx = usize::try_from(index).map_err(|_| {
+            AuditError::Validation(format!(
+                "leaf index {index} exceeds platform usize capacity"
+            ))
+        })?;
+        let siblings = self.compute_siblings(&leaves, idx)?;
 
         Ok(MerkleProof {
             leaf_index: index,

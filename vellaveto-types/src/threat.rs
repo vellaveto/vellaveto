@@ -153,6 +153,13 @@ impl McpCapability {
                     Self::MAX_VERSION_LEN,
                 ));
             }
+            // SECURITY (R235-TYP-1): Validate dangerous chars on version field
+            // (parity with name field check above).
+            if crate::core::has_dangerous_chars(ver) {
+                return Err(
+                    "McpCapability version contains control or format characters".to_string(),
+                );
+            }
         }
         if self.sub_capabilities.len() > MAX_SUB_CAPABILITIES {
             return Err(format!(

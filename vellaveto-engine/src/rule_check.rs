@@ -65,11 +65,10 @@ impl PolicyEngine {
                 if matcher.is_match(&normalized) {
                     // R230-ENG-4: Log pattern server-side; do not expose to clients
                     tracing::debug!(path = %normalized, pattern = %pattern, policy = %cp.policy.name, "Path blocked by pattern");
+                    // SECURITY (R235-ENG-1): Genericize deny reason — do not echo
+                    // user-controlled normalized path (info disclosure).
                     return Some(Verdict::Deny {
-                        reason: format!(
-                            "Path '{}' blocked by policy '{}'",
-                            normalized, cp.policy.name
-                        ),
+                        reason: format!("Path blocked by policy '{}'", cp.policy.name),
                     });
                 }
             }
@@ -78,11 +77,9 @@ impl PolicyEngine {
             if !rules.allowed.is_empty()
                 && !rules.allowed.iter().any(|(_, m)| m.is_match(&normalized))
             {
+                // SECURITY (R235-ENG-1): Genericize deny reason.
                 return Some(Verdict::Deny {
-                    reason: format!(
-                        "Path '{}' not in allowed paths for policy '{}'",
-                        normalized, cp.policy.name
-                    ),
+                    reason: format!("Path not in allowed paths for policy '{}'", cp.policy.name),
                 });
             }
         }
@@ -127,10 +124,12 @@ impl PolicyEngine {
             // If IDNA normalization fails for the domain and there are any network
             // rules configured, deny it rather than letting it through unchecked.
             if Self::normalize_domain_for_match(&domain).is_none() {
+                // SECURITY (R235-ENG-1): Genericize deny reason.
+                tracing::debug!(domain = %domain, policy = %cp.policy.name, "Domain IDNA normalization failed");
                 return Some(Verdict::Deny {
                     reason: format!(
-                        "Domain '{}' cannot be normalized (IDNA failure) — blocked by policy '{}'",
-                        domain, cp.policy.name
+                        "Domain cannot be normalized (IDNA failure) — blocked by policy '{}'",
+                        cp.policy.name
                     ),
                 });
             }
@@ -139,11 +138,9 @@ impl PolicyEngine {
             for pattern in &rules.blocked_domains {
                 if Self::match_domain_pattern(&domain, pattern) {
                     tracing::debug!(domain = %domain, pattern = %pattern, policy = %cp.policy.name, "Domain blocked by pattern");
+                    // SECURITY (R235-ENG-1): Genericize deny reason.
                     return Some(Verdict::Deny {
-                        reason: format!(
-                            "Domain '{}' blocked by policy '{}'",
-                            domain, cp.policy.name
-                        ),
+                        reason: format!("Domain blocked by policy '{}'", cp.policy.name),
                     });
                 }
             }
@@ -155,10 +152,11 @@ impl PolicyEngine {
                     .iter()
                     .any(|p| Self::match_domain_pattern(&domain, p))
             {
+                // SECURITY (R235-ENG-1): Genericize deny reason.
                 return Some(Verdict::Deny {
                     reason: format!(
-                        "Domain '{}' not in allowed domains for policy '{}'",
-                        domain, cp.policy.name
+                        "Domain not in allowed domains for policy '{}'",
+                        cp.policy.name
                     ),
                 });
             }

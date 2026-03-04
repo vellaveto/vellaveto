@@ -48,6 +48,9 @@ const MAX_THREAT_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 /// Maximum number of STIX objects in a single TAXII response.
 const MAX_STIX_OBJECTS: usize = 10_000;
 
+/// Maximum length for an indicator value string.
+const MAX_INDICATOR_VALUE_LEN: usize = 4_096;
+
 /// Maximum number of MISP attributes in a single response.
 const MAX_MISP_ATTRIBUTES: usize = 10_000;
 
@@ -228,6 +231,18 @@ impl ThreatIntelClient {
         indicator_type: IndicatorType,
         value: &str,
     ) -> Result<ThreatCheckResult, ThreatIntelError> {
+        // SECURITY (R235-SRV-4): Validate indicator value before processing.
+        if value.len() > MAX_INDICATOR_VALUE_LEN {
+            return Err(ThreatIntelError::InvalidResponse(format!(
+                "indicator value too long ({} > {MAX_INDICATOR_VALUE_LEN})",
+                value.len()
+            )));
+        }
+        if vellaveto_types::has_dangerous_chars(value) {
+            return Err(ThreatIntelError::InvalidResponse(
+                "indicator value contains control or format characters".to_string(),
+            ));
+        }
         let normalized = value.to_lowercase();
 
         // Check local cache first
@@ -421,6 +436,11 @@ impl ThreatIntelClient {
                     "custom provider JSON decode failed: {e}"
                 ))
             })?;
+        // SECURITY (R235-SRV-5): Validate deserialized indicators to enforce
+        // bounds on tags and detect malicious payloads from external feeds.
+        for indicator in &indicators {
+            indicator.validate()?;
+        }
         Ok(indicators)
     }
 

@@ -637,6 +637,36 @@ pub struct Cc6Evidence {
     pub critical_count: usize,
 }
 
+impl Cc6Evidence {
+    /// Maximum length for evidence text fields.
+    const MAX_EVIDENCE_LEN: usize = 10_000;
+
+    /// Validate CC6 evidence fields.
+    ///
+    /// SECURITY (R235-TYP-5): Validate length and dangerous chars on evidence strings.
+    pub fn validate(&self) -> Result<(), String> {
+        for (field, value) in [
+            ("cc6_1_evidence", self.cc6_1_evidence.as_str()),
+            ("cc6_2_evidence", self.cc6_2_evidence.as_str()),
+            ("cc6_3_evidence", self.cc6_3_evidence.as_str()),
+        ] {
+            if value.len() > Self::MAX_EVIDENCE_LEN {
+                return Err(format!(
+                    "Cc6Evidence {field} length {} exceeds max {}",
+                    value.len(),
+                    Self::MAX_EVIDENCE_LEN
+                ));
+            }
+            if crate::core::has_dangerous_chars(value) {
+                return Err(format!(
+                    "Cc6Evidence {field} contains control or format characters"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// SOC 2 Type II access review report.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -750,6 +780,10 @@ impl AccessReviewReport {
         for entry in &self.entries {
             entry.validate()?;
         }
+
+        // ── Nested CC6 evidence validation ──────────────────────────────
+        // SECURITY (R235-TYP-5): Validate CC6 evidence strings.
+        self.cc6_evidence.validate()?;
 
         // ── Nested attestation validation ───────────────────────────────
         // Only validate attestation if the reviewer has filled in their name

@@ -200,7 +200,7 @@ impl TopologyCrawler {
                         server_info.id.clone(),
                         DiscoveryError::ServerTimeout {
                             server: server_info.id,
-                            timeout_ms: timeout.as_millis() as u64,
+                            timeout_ms: u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
                         },
                     )),
                 }
@@ -363,38 +363,64 @@ impl StaticProbe {
     /// If a server with the same name already exists, it is replaced.
     /// Otherwise the new declaration is appended.
     pub fn upsert_server(&self, decl: StaticServerDecl) {
-        if let Ok(mut servers) = self.servers.write() {
-            if let Some(existing) = servers.iter_mut().find(|s| s.name == decl.name) {
-                *existing = decl;
-            } else {
-                // SECURITY (R230-DISC-4): Bound server list to MAX_SERVERS.
-                if servers.len() >= crate::topology::MAX_SERVERS {
-                    tracing::warn!(
-                        max = crate::topology::MAX_SERVERS,
-                        "StaticProbe at capacity, rejecting new server '{}'",
-                        decl.name
-                    );
-                    return;
-                }
-                servers.push(decl);
+        // SECURITY (R235-DISC-4): Fail-closed on poisoned lock — log warning
+        // instead of silently dropping the upsert.
+        let mut servers = match self.servers.write() {
+            Ok(s) => s,
+            Err(poisoned) => {
+                tracing::warn!(
+                    "StaticProbe RwLock poisoned during upsert_server — recovering via into_inner()"
+                );
+                poisoned.into_inner()
             }
+        };
+        if let Some(existing) = servers.iter_mut().find(|s| s.name == decl.name) {
+            *existing = decl;
+        } else {
+            // SECURITY (R230-DISC-4): Bound server list to MAX_SERVERS.
+            if servers.len() >= crate::topology::MAX_SERVERS {
+                tracing::warn!(
+                    max = crate::topology::MAX_SERVERS,
+                    "StaticProbe at capacity, rejecting new server '{}'",
+                    decl.name
+                );
+                return;
+            }
+            servers.push(decl);
         }
     }
 
     /// Remove a server by name. Returns `true` if the server was found and removed.
     pub fn remove_server(&self, name: &str) -> bool {
-        if let Ok(mut servers) = self.servers.write() {
-            let before = servers.len();
-            servers.retain(|s| s.name != name);
-            servers.len() < before
-        } else {
-            false
-        }
+        // SECURITY (R235-DISC-5): Fail-closed on poisoned lock — recover and
+        // log instead of silently returning false (indistinguishable from
+        // "server not found").
+        let mut servers = match self.servers.write() {
+            Ok(s) => s,
+            Err(poisoned) => {
+                tracing::warn!(
+                    "StaticProbe RwLock poisoned during remove_server — recovering via into_inner()"
+                );
+                poisoned.into_inner()
+            }
+        };
+        let before = servers.len();
+        servers.retain(|s| s.name != name);
+        servers.len() < before
     }
 
     /// Returns the number of servers currently registered.
     pub fn server_count(&self) -> usize {
-        self.servers.read().map(|s| s.len()).unwrap_or(0)
+        // SECURITY (R235-DISC-7): Log on poisoned lock instead of silently returning 0.
+        match self.servers.read() {
+            Ok(s) => s.len(),
+            Err(poisoned) => {
+                tracing::warn!(
+                    "StaticProbe RwLock poisoned during server_count — recovering via into_inner()"
+                );
+                poisoned.into_inner().len()
+            }
+        }
     }
 }
 

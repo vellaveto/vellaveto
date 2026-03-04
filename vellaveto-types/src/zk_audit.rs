@@ -224,7 +224,11 @@ impl ZkBatchProof {
             ));
         }
         // SECURITY: Consistency check — entry_count must match the range span.
-        let expected_count = (self.entry_range.1 - self.entry_range.0).saturating_add(1) as usize;
+        // SECURITY (R235-TYP-6): Use try_from instead of `as usize` for defense-in-depth
+        // on 32-bit platforms (bounded by MAX_ENTRY_COUNT check above).
+        let expected_count =
+            usize::try_from((self.entry_range.1 - self.entry_range.0).saturating_add(1))
+                .unwrap_or(usize::MAX);
         if self.entry_count != expected_count {
             return Err(format!(
                 "ZkBatchProof entry_count {} does not match entry_range span {} (range {}-{})",

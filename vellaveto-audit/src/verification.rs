@@ -77,7 +77,7 @@ impl AuditLogger {
             }
             // SECURITY (R33-002): Reject oversized lines to prevent memory exhaustion.
             if line.len() > Self::MAX_AUDIT_LINE_SIZE {
-                skipped += 1;
+                skipped = skipped.saturating_add(1);
                 tracing::warn!(
                     line_num = line_num + 1,
                     line_len = line.len(),
@@ -90,7 +90,7 @@ impl AuditLogger {
             match serde_json::from_str::<AuditEntry>(line) {
                 Ok(entry) => entries.push(entry),
                 Err(e) => {
-                    skipped += 1;
+                    skipped = skipped.saturating_add(1);
                     tracing::warn!(
                         "Skipping corrupt audit line {} in {:?}: {}",
                         line_num + 1,
@@ -162,7 +162,7 @@ impl AuditLogger {
                 continue;
             }
             if line.len() > Self::MAX_AUDIT_LINE_SIZE {
-                skipped += 1;
+                skipped = skipped.saturating_add(1);
                 tracing::warn!(
                     line_num = line_num,
                     line_len = line.len(),
@@ -174,7 +174,7 @@ impl AuditLogger {
             }
             match serde_json::from_str::<AuditEntry>(&line) {
                 Ok(entry) => {
-                    scanned_entries += 1;
+                    scanned_entries = scanned_entries.saturating_add(1);
                     if scanned_entries > max_scanned_entries {
                         return Err(AuditError::Validation(
                             "Audit log exceeds capacity limit. Rotate or archive the audit log."
@@ -186,7 +186,7 @@ impl AuditLogger {
                     }
                 }
                 Err(e) => {
-                    skipped += 1;
+                    skipped = skipped.saturating_add(1);
                     tracing::warn!(
                         "Skipping corrupt audit line {} in {:?}: {}",
                         line_num,
@@ -355,8 +355,10 @@ impl AuditLogger {
         let entries = self.load_entries().await?;
         let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
 
+        // SECURITY (R235-AUD-6): Use saturating_add per Trap 9.
         for entry in &entries {
-            *counts.entry(entry.id.as_str()).or_insert(0) += 1;
+            let count = counts.entry(entry.id.as_str()).or_insert(0);
+            *count = count.saturating_add(1);
         }
 
         let mut duplicates: Vec<(String, usize)> = counts
@@ -382,17 +384,20 @@ impl AuditLogger {
     pub async fn generate_report(&self) -> Result<AuditReport, AuditError> {
         let entries = self.load_entries().await?;
 
-        let mut allow_count = 0;
-        let mut deny_count = 0;
-        let mut require_approval_count = 0;
+        let mut allow_count = 0usize;
+        let mut deny_count = 0usize;
+        let mut require_approval_count = 0usize;
 
+        // SECURITY (R235-AUD-5): Use saturating_add on all counters per Trap 9.
         for entry in &entries {
             match &entry.verdict {
-                Verdict::Allow => allow_count += 1,
-                Verdict::Deny { .. } => deny_count += 1,
-                Verdict::RequireApproval { .. } => require_approval_count += 1,
+                Verdict::Allow => allow_count = allow_count.saturating_add(1),
+                Verdict::Deny { .. } => deny_count = deny_count.saturating_add(1),
+                Verdict::RequireApproval { .. } => {
+                    require_approval_count = require_approval_count.saturating_add(1)
+                }
                 // Handle future variants - count as deny (fail-closed)
-                _ => deny_count += 1,
+                _ => deny_count = deny_count.saturating_add(1),
             }
         }
 

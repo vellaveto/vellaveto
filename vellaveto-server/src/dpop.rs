@@ -597,10 +597,12 @@ impl DpopVerifier {
 
     /// Check if a timestamp is within the acceptable window.
     fn check_timestamp(&self, iat: u64) -> Result<(), DpopError> {
+        // SECURITY (R235-SRV-3): Fail-closed on system clock error instead of
+        // defaulting to 0, which would let `iat: 0` pass the future-check.
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
-            .unwrap_or(0);
+            .map_err(|_| DpopError::TimestampOutOfRange)?;
 
         let skew = self.config.clock_skew_secs;
 

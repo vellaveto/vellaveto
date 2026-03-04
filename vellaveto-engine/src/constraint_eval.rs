@@ -273,7 +273,7 @@ impl PolicyEngine {
         match constraint {
             CompiledConstraint::Glob {
                 matcher,
-                pattern_str,
+                pattern_str: _,
                 ..
             } => {
                 let raw = match value.as_str() {
@@ -308,9 +308,11 @@ impl PolicyEngine {
                 if matcher.is_match(&normalized) {
                     Ok(Some(Self::make_constraint_verdict(
                         on_match,
+                        // SECURITY (R235-ENG-2): Genericize deny reason — do not echo
+                        // user-controlled path value or internal pattern (info disclosure).
                         &format!(
-                            "Parameter '{}' path '{}' matches glob '{}' (policy '{}')",
-                            param_name, normalized, pattern_str, policy.name
+                            "Parameter '{}' path matches constraint (policy '{}')",
+                            param_name, policy.name
                         ),
                     )?))
                 } else {
@@ -354,14 +356,17 @@ impl PolicyEngine {
                 }
                 Ok(Some(Self::make_constraint_verdict(
                     on_match,
+                    // SECURITY (R235-ENG-2): Genericize deny reason.
                     &format!(
-                        "Parameter '{}' path '{}' not in allowlist (policy '{}')",
-                        param_name, normalized, policy.name
+                        "Parameter '{}' path not in allowlist (policy '{}')",
+                        param_name, policy.name
                     ),
                 )?))
             }
             CompiledConstraint::Regex {
-                regex, pattern_str, ..
+                regex,
+                pattern_str: _,
+                ..
             } => {
                 let raw = match value.as_str() {
                     Some(s) => s,
@@ -386,9 +391,10 @@ impl PolicyEngine {
                 if regex.is_match(raw) {
                     Ok(Some(Self::make_constraint_verdict(
                         on_match,
+                        // SECURITY (R235-ENG-2): Genericize deny reason.
                         &format!(
-                            "Parameter '{}' matches regex '{}' (policy '{}')",
-                            param_name, pattern_str, policy.name
+                            "Parameter '{}' matches constraint (policy '{}')",
+                            param_name, policy.name
                         ),
                     )?))
                 } else {
@@ -424,18 +430,20 @@ impl PolicyEngine {
                 if !domain.is_ascii() && Self::normalize_domain_for_match(&domain).is_none() {
                     return Ok(Some(Self::make_constraint_verdict(
                         "deny",
+                        // SECURITY (R235-ENG-2): Genericize deny reason.
                         &format!(
-                            "Parameter '{}' domain '{}' cannot be normalized (IDNA failure) (policy '{}')",
-                            param_name, domain, policy.name
+                            "Parameter '{}' domain cannot be normalized (IDNA failure) (policy '{}')",
+                            param_name, policy.name
                         ),
                     )?));
                 }
                 if Self::match_domain_pattern(&domain, pattern) {
                     Ok(Some(Self::make_constraint_verdict(
                         on_match,
+                        // SECURITY (R235-ENG-2): Genericize deny reason.
                         &format!(
-                            "Parameter '{}' domain '{}' matches '{}' (policy '{}')",
-                            param_name, domain, pattern, policy.name
+                            "Parameter '{}' domain matches constraint (policy '{}')",
+                            param_name, policy.name
                         ),
                     )?))
                 } else {
@@ -468,9 +476,10 @@ impl PolicyEngine {
                 if !domain.is_ascii() && Self::normalize_domain_for_match(&domain).is_none() {
                     return Ok(Some(Self::make_constraint_verdict(
                         "deny",
+                        // SECURITY (R235-ENG-2): Genericize deny reason.
                         &format!(
-                            "Parameter '{}' domain '{}' cannot be normalized (IDNA failure) (policy '{}')",
-                            param_name, domain, policy.name
+                            "Parameter '{}' domain cannot be normalized (IDNA failure) (policy '{}')",
+                            param_name, policy.name
                         ),
                     )?));
                 }
@@ -481,9 +490,10 @@ impl PolicyEngine {
                 }
                 Ok(Some(Self::make_constraint_verdict(
                     on_match,
+                    // SECURITY (R235-ENG-2): Genericize deny reason.
                     &format!(
-                        "Parameter '{}' domain '{}' not in allowlist (policy '{}')",
-                        param_name, domain, policy.name
+                        "Parameter '{}' domain not in allowlist (policy '{}')",
+                        param_name, policy.name
                     ),
                 )?))
             }

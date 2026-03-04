@@ -624,6 +624,48 @@ impl ProvenanceNode {
                 Self::MAX_METADATA_ENTRIES
             ));
         }
+        // SECURITY (R235-TYP-2): Validate dangerous chars on all string fields
+        // (parity with MemoryEntry::validate() in the same module).
+        for (field, value) in [
+            ("id", self.id.as_str()),
+            ("source", self.source.as_str()),
+            ("content_hash", self.content_hash.as_str()),
+            ("timestamp", self.timestamp.as_str()),
+        ] {
+            if crate::core::has_dangerous_chars(value) {
+                return Err(format!(
+                    "ProvenanceNode {field} contains control or format characters"
+                ));
+            }
+        }
+        if let Some(ref sid) = self.session_id {
+            if crate::core::has_dangerous_chars(sid) {
+                return Err(
+                    "ProvenanceNode session_id contains control or format characters".to_string(),
+                );
+            }
+        }
+        if let Some(ref eid) = self.entry_id {
+            if crate::core::has_dangerous_chars(eid) {
+                return Err(
+                    "ProvenanceNode entry_id contains control or format characters".to_string(),
+                );
+            }
+        }
+        for parent in &self.parents {
+            if crate::core::has_dangerous_chars(parent) {
+                return Err(
+                    "ProvenanceNode parent contains control or format characters".to_string(),
+                );
+            }
+        }
+        for (key, val) in &self.metadata {
+            if crate::core::has_dangerous_chars(key) || crate::core::has_dangerous_chars(val) {
+                return Err(
+                    "ProvenanceNode metadata contains control or format characters".to_string(),
+                );
+            }
+        }
         Ok(())
     }
 
@@ -734,12 +776,23 @@ impl QuarantineEntry {
                 Self::MAX_ENTRY_ID_LEN,
             ));
         }
+        // SECURITY (R235-TYP-3): Validate dangerous chars on all string fields.
+        if crate::core::has_dangerous_chars(&self.entry_id) {
+            return Err(
+                "QuarantineEntry entry_id contains control or format characters".to_string(),
+            );
+        }
         if self.quarantined_at.len() > Self::MAX_TIMESTAMP_LEN {
             return Err(format!(
                 "QuarantineEntry quarantined_at length {} exceeds max {}",
                 self.quarantined_at.len(),
                 Self::MAX_TIMESTAMP_LEN,
             ));
+        }
+        if crate::core::has_dangerous_chars(&self.quarantined_at) {
+            return Err(
+                "QuarantineEntry quarantined_at contains control or format characters".to_string(),
+            );
         }
         if let Some(ref desc) = self.description {
             if desc.len() > Self::MAX_DESCRIPTION_LEN {
@@ -748,6 +801,11 @@ impl QuarantineEntry {
                     desc.len(),
                     Self::MAX_DESCRIPTION_LEN,
                 ));
+            }
+            if crate::core::has_dangerous_chars(desc) {
+                return Err(
+                    "QuarantineEntry description contains control or format characters".to_string(),
+                );
             }
         }
         if let Some(ref tb) = self.triggered_by {
@@ -758,6 +816,12 @@ impl QuarantineEntry {
                     Self::MAX_TRIGGERED_BY_LEN,
                 ));
             }
+            if crate::core::has_dangerous_chars(tb) {
+                return Err(
+                    "QuarantineEntry triggered_by contains control or format characters"
+                        .to_string(),
+                );
+            }
         }
         if let Some(ref ra) = self.released_at {
             if ra.len() > Self::MAX_TIMESTAMP_LEN {
@@ -766,6 +830,11 @@ impl QuarantineEntry {
                     ra.len(),
                     Self::MAX_TIMESTAMP_LEN,
                 ));
+            }
+            if crate::core::has_dangerous_chars(ra) {
+                return Err(
+                    "QuarantineEntry released_at contains control or format characters".to_string(),
+                );
             }
         }
         Ok(())
@@ -833,10 +902,34 @@ impl MemoryNamespace {
     /// Maximum ACL entries per namespace.
     pub const MAX_ACL_ENTRIES: usize = 1000;
 
+    /// Maximum length of namespace id, owner_agent, created_at fields.
+    pub const MAX_FIELD_LEN: usize = 256;
+
     /// Validate bounds on deserialized data.
     ///
     /// SECURITY (FIND-R48-008): Unbounded read_allowed/write_allowed from deserialization.
+    /// SECURITY (R235-TYP-4): Validate id, owner_agent, created_at, and per-entry
+    /// ACL strings for dangerous chars and length bounds.
     pub fn validate(&self) -> Result<(), String> {
+        // Validate top-level string fields
+        for (field, value) in [
+            ("id", self.id.as_str()),
+            ("owner_agent", self.owner_agent.as_str()),
+            ("created_at", self.created_at.as_str()),
+        ] {
+            if value.len() > Self::MAX_FIELD_LEN {
+                return Err(format!(
+                    "MemoryNamespace {field} length {} exceeds max {}",
+                    value.len(),
+                    Self::MAX_FIELD_LEN
+                ));
+            }
+            if crate::core::has_dangerous_chars(value) {
+                return Err(format!(
+                    "MemoryNamespace {field} contains control or format characters"
+                ));
+            }
+        }
         if self.read_allowed.len() > Self::MAX_ACL_ENTRIES {
             return Err(format!(
                 "MemoryNamespace '{}' has {} read_allowed entries (max {})",
@@ -852,6 +945,21 @@ impl MemoryNamespace {
                 self.write_allowed.len(),
                 Self::MAX_ACL_ENTRIES
             ));
+        }
+        // Validate per-entry ACL strings
+        for entry in self.read_allowed.iter().chain(self.write_allowed.iter()) {
+            if entry.len() > Self::MAX_FIELD_LEN {
+                return Err(format!(
+                    "MemoryNamespace ACL entry length {} exceeds max {}",
+                    entry.len(),
+                    Self::MAX_FIELD_LEN
+                ));
+            }
+            if crate::core::has_dangerous_chars(entry) {
+                return Err(
+                    "MemoryNamespace ACL entry contains control or format characters".to_string(),
+                );
+            }
         }
         Ok(())
     }
